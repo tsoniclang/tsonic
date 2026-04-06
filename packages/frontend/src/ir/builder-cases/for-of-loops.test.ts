@@ -7,6 +7,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildIrModule } from "../builder.js";
 import { IrFunctionDeclaration } from "../types.js";
 import {
@@ -18,6 +19,9 @@ import {
 
 describe("IR Builder", function () {
   this.timeout(90_000);
+  const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(currentFileDir, "../../../../../");
+  const jsRoot = path.resolve(repoRoot, "../js/versions/10");
 
   describe("For-Await Loop Conversion", () => {
     it("should set isAwait=true for 'for await' loop", () => {
@@ -113,7 +117,6 @@ describe("IR Builder", function () {
       );
 
       try {
-        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
         expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
 
         fs.writeFileSync(
@@ -238,7 +241,6 @@ describe("IR Builder", function () {
       );
 
       try {
-        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
         expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
 
         fs.writeFileSync(
@@ -355,7 +357,6 @@ describe("IR Builder", function () {
       );
 
       try {
-        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
         expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
 
         fs.writeFileSync(

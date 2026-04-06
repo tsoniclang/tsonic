@@ -148,4 +148,67 @@ describe("Interfaces (spec/16 §2)", () => {
     expect(result).to.match(/public\s+class\s+Result\s*<T>/);
     expect(result).to.include("public required T data { get; set; }");
   });
+
+  it("marks derived property-only interface ctors with SetsRequiredMembers", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/TenantAdmin.ts",
+      namespace: "MyApp",
+      className: "TenantAdmin",
+      isStaticContainer: false,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "CreateTenantInput",
+          typeParameters: undefined,
+          extends: [],
+          isStruct: false,
+          members: [
+            {
+              kind: "propertySignature",
+              name: "subdomain",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+            {
+              kind: "propertySignature",
+              name: "name",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: true,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "CreateTenantAdminInput",
+          typeParameters: undefined,
+          extends: [{ kind: "referenceType", name: "CreateTenantInput" }],
+          isStruct: false,
+          members: [
+            {
+              kind: "propertySignature",
+              name: "adminEmail",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: true,
+              isReadonly: false,
+            },
+          ],
+          isExported: true,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("public class CreateTenantInput");
+    expect(result).to.include("public class CreateTenantAdminInput : CreateTenantInput");
+    expect(result).to.match(
+      /\[global::System\.Diagnostics\.CodeAnalysis\.SetsRequiredMembersAttribute\]\s*public\s+CreateTenantAdminInput\s*\(\s*\)/
+    );
+  });
 });

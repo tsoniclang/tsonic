@@ -144,6 +144,24 @@ describe("End-to-End Integration", () => {
         'await (next("route") ?? global::System.Threading.Tasks.Task.CompletedTask);'
       );
     });
+
+    it("strips void from awaited mixed value-or-promise carriers before building Task.FromResult", () => {
+      const source = `
+        type NextControl = "route" | "router" | string | null | undefined;
+        type NextFunction = (value?: NextControl) => void | Promise<void>;
+        type RequestHandler = (next: NextFunction) => void | JsValue | Promise<void | JsValue>;
+
+        export async function run(handler: RequestHandler, next: NextFunction): Promise<void> {
+          await handler(next);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).not.to.include("global::Tsonic.Runtime.Union<object?, void>");
+      expect(csharp).not.to.include("Task.FromResult<global::Tsonic.Runtime.Union<object?, void>>");
+      expect(csharp).to.include("global::System.Threading.Tasks.Task.FromResult<object?>");
+    });
   });
 
   describe("Core Intrinsics", () => {

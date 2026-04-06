@@ -7,6 +7,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildIrModule } from "../builder.js";
 import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
 import {
@@ -20,8 +21,10 @@ import {
 } from "./_test-helpers.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
-const repoGlobalsRoot = path.resolve(process.cwd(), "../../../globals/versions/10");
-const repoCoreRoot = path.resolve(process.cwd(), "../../../core/versions/10");
+const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(currentFileDir, "../../../../..");
+const repoGlobalsRoot = path.resolve(repoRoot, "../globals/versions/10");
+const repoCoreRoot = path.resolve(repoRoot, "../core/versions/10");
 
 const installRepoPackage = (
   tempDir: string,
@@ -1005,12 +1008,7 @@ describe("IR Builder", function () {
 
         const srcDir = path.join(tempDir, "src");
         fs.mkdirSync(srcDir, { recursive: true });
-        const workspaceNodeModules = path.resolve(
-          process.cwd(),
-          "..",
-          "..",
-          "node_modules"
-        );
+        const workspaceNodeModules = path.join(repoRoot, "node_modules");
         if (fs.existsSync(workspaceNodeModules)) {
           fs.symlinkSync(
             workspaceNodeModules,
@@ -1151,12 +1149,7 @@ describe("IR Builder", function () {
 
         const srcDir = path.join(tempDir, "src");
         fs.mkdirSync(srcDir, { recursive: true });
-        const workspaceNodeModules = path.resolve(
-          process.cwd(),
-          "..",
-          "..",
-          "node_modules"
-        );
+        const workspaceNodeModules = path.join(repoRoot, "node_modules");
         if (fs.existsSync(workspaceNodeModules)) {
           fs.symlinkSync(
             workspaceNodeModules,

@@ -28,6 +28,10 @@ const localJsPackageRoot = resolve(
 const linkedJsPackageRoot = existsSync(localJsPackageRoot)
   ? localJsPackageRoot
   : join(repoRoot, "node_modules/@tsonic/js");
+const linkedEfcorePackageRoot = resolve(join(repoRoot, "..", "efcore"));
+const linkedMicrosoftExtensionsPackageRoot = resolve(
+  join(repoRoot, "..", "microsoft-extensions")
+);
 
 const linkDir = (target: string, linkPath: string): void => {
   mkdirSync(dirname(linkPath), { recursive: true });
@@ -167,6 +171,144 @@ describe("build command (library ref dirs)", function () {
       expect(csprojText).to.include('<Reference Include="Tsonic.Runtime">');
       expect(csprojText).to.not.include(
         '<PackageReference Include="Tsonic.Runtime" Version="0.0.1" />'
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits CLR override modifiers for imported metadata bases", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-efcore-override-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test-workspace",
+            private: true,
+            type: "module",
+            dependencies: {
+              "@tsonic/core": "0.0.0",
+              "@tsonic/dotnet": "0.0.0",
+              "@tsonic/efcore": "0.0.0",
+              "@tsonic/globals": "0.0.0",
+              "@tsonic/microsoft-extensions": "0.0.0",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        linkedEfcorePackageRoot,
+        join(dir, "node_modules/@tsonic/efcore")
+      );
+      linkDir(
+        linkedMicrosoftExtensionsPackageRoot,
+        join(dir, "node_modules/@tsonic/microsoft-extensions")
+      );
+
+      const runtimeDll = join(
+        repoRoot,
+        "packages/cli/runtime/Tsonic.Runtime.dll"
+      );
+      expect(existsSync(runtimeDll)).to.equal(true);
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        dotnet: {
+          libraries: [runtimeDll],
+          frameworkReferences: [],
+          packageReferences: [{ id: "Tsonic.Runtime", version: "0.0.1" }],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+            dependencies: {
+              "@tsonic/core": "0.0.0",
+              "@tsonic/dotnet": "0.0.0",
+              "@tsonic/efcore": "0.0.0",
+              "@tsonic/globals": "0.0.0",
+              "@tsonic/microsoft-extensions": "0.0.0",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { DbContext, ModelBuilder } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";',
+          "",
+          "export class AppDbContext extends DbContext {",
+          "  override OnModelCreating(modelBuilder: ModelBuilder): void {",
+          "    super.OnModelCreating(modelBuilder);",
+          "  }",
+          "}",
+          "",
+          "export function main(): void {}",
+        ].join("\n") + "\n",
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const gen = generateCommand(config);
+      expect(gen.ok).to.equal(true);
+      if (!gen.ok) return;
+
+      const generatedText = readFileSync(
+        join(projectRoot, "generated", "index.cs"),
+        "utf-8"
+      );
+
+      expect(generatedText).to.include(
+        "protected override void OnModelCreating("
+      );
+      expect(generatedText).to.not.include(
+        "public void OnModelCreating("
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

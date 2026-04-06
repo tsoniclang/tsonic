@@ -460,6 +460,19 @@ const collectReferencedAnonymousTypeNames = (
     referencedNames.add(asReference.name);
   }
 
+  const asModule = value as Partial<IrModule> & {
+    readonly kind?: unknown;
+  };
+  if (asModule.kind === "module") {
+    for (const entry of asModule.body ?? []) {
+      collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
+    }
+    for (const entry of asModule.exports ?? []) {
+      collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
+    }
+    return;
+  }
+
   if (Array.isArray(value)) {
     for (const entry of value) {
       collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
@@ -467,7 +480,10 @@ const collectReferencedAnonymousTypeNames = (
     return;
   }
 
-  for (const entry of Object.values(value as Record<string, unknown>)) {
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "inferredType") {
+      continue;
+    }
     collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
   }
 };

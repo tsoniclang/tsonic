@@ -2,10 +2,12 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
 import type { IrModule } from "../ir/types.js";
 
-const repoRoot = path.resolve(process.cwd(), "../..");
+const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(currentFileDir, "../../../..");
 const fixtureRoot = (name: string): string =>
   path.join(repoRoot, "test", "fixtures", name);
 const fixturePackageRoot = (name: string): string =>
@@ -28,8 +30,8 @@ const findModuleByFilePath = (
     (module) => normalizeSlashes(module.filePath) === normalizeSlashes(filePath)
   );
 
-const jsSourceRoot = path.resolve(process.cwd(), "../../../js/versions/10");
-const nodejsSourceRoot = path.resolve(process.cwd(), "../../../nodejs/versions/10");
+const jsSourceRoot = path.resolve(repoRoot, "../js/versions/10");
+const nodejsSourceRoot = path.resolve(repoRoot, "../nodejs/versions/10");
 const coreRoot = path.join(repoRoot, "node_modules", "@tsonic", "core");
 
 describe("Fixture fast coverage", function () {

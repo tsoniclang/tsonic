@@ -13,6 +13,7 @@ import {
   createProgramContext,
 } from "./_test-helpers.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
+import { runAnonymousTypeLoweringPass } from "../validation/anonymous-type-lowering-pass.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
@@ -540,6 +541,54 @@ describe("IR Builder", function () {
         );
 
         expect(result.ok).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("does not emit anonymous namespace carriers that are only referenced from imports", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/child-process.ts": [
+            "export class SpawnSyncReturns<T> {",
+            "  value!: T;",
+            "}",
+            "",
+            "export function spawnSync(): SpawnSyncReturns<Uint8Array> {",
+            "  return new SpawnSyncReturns<Uint8Array>();",
+            "}",
+            "",
+          ].join("\n"),
+          "src/index.ts": [
+            'import * as child_process from "./child-process.js";',
+            "",
+            "export function run(): number {",
+            "  const result = child_process.spawnSync();",
+            "  return result.value.length;",
+            "}",
+            "",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const moduleResults = fixture.testProgram.sourceFiles.map((sourceFile) =>
+          buildIrModule(sourceFile, fixture.testProgram, fixture.options, fixture.ctx)
+        );
+        expect(moduleResults.every((result) => result.ok)).to.equal(true);
+        if (!moduleResults.every((result) => result.ok)) return;
+
+        const lowered = runAnonymousTypeLoweringPass(
+          moduleResults.map((result) => result.value)
+        );
+
+        expect(lowered.ok).to.equal(true);
+        expect(
+          lowered.modules.some(
+            (module) => module.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+          )
+        ).to.equal(false);
       } finally {
         fixture.cleanup();
       }

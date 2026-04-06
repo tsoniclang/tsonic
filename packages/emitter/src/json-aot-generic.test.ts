@@ -81,9 +81,7 @@ describe("JSON NativeAOT registry", () => {
 
     const code = result.files.get("index.cs");
     expect(code).to.not.equal(undefined);
-    expect(code).to.include(
-      'global::js.JSON.parse<object>("{\\"title\\":\\"hello\\"}")'
-    );
+    expect(code).to.include('global::js.JSON.parse("{\\"title\\":\\"hello\\"}")');
     expect(code).to.not.include("TsonicJson.Options");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
@@ -345,6 +343,114 @@ describe("JSON NativeAOT registry", () => {
     expect(code).to.include('["value"] =');
     expect(code).to.include("double)3");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
+  });
+
+  it("uses local semantic types for JSON.stringify on identifiers widened in frontend IR", () => {
+    const payloadType = {
+      kind: "arrayType" as const,
+      elementType: {
+        kind: "primitiveType" as const,
+        name: "string" as const,
+      },
+      origin: "explicit" as const,
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/index.ts",
+      namespace: "MyApp",
+      className: "index",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "stringifyTypedLocal",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "seed" },
+              type: jsValueType,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "variableDeclaration",
+                declarationKind: "const",
+                declarations: [
+                  {
+                    kind: "variableDeclarator",
+                    name: { kind: "identifierPattern", name: "parsed" },
+                    type: payloadType,
+                    initializer: {
+                      kind: "identifier",
+                      name: "seed",
+                      inferredType: jsValueType,
+                    },
+                  },
+                ],
+                isExported: false,
+              },
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "JSON" },
+                    property: "stringify",
+                    isComputed: false,
+                    isOptional: false,
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "js",
+                      type: "js.JSON",
+                      member: "stringify",
+                    },
+                  },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "parsed",
+                      inferredType: jsValueType,
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "string" },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitCSharpFiles([module], {
+      rootNamespace: "MyApp",
+      enableJsonAot: true,
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
+    expect(result.ok).to.equal(true);
+    if (!result.ok) return;
+
+    const code = result.files.get("index.cs");
+    expect(code).to.not.equal(undefined);
+    expect(code).to.include(
+      "global::System.Text.Json.JsonSerializer.Serialize(parsed, global::MyApp.TsonicJson.Options)"
+    );
+    expect(code).to.not.include("global::MyApp.TsonicJsonRuntime.Stringify(parsed)");
+    expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });
 
   it("does not register open generic type parameters (no typeof(global::T))", () => {

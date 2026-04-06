@@ -14,9 +14,12 @@ import {
 } from "../../dotnet/nuget-config.js";
 import { assertNoOutputAssemblyNameConflicts } from "./assets.js";
 
+const DOTNET_PUBLISH_MAX_BUFFER = 64 * 1024 * 1024;
+
 export const buildExecutable = (
   config: ResolvedConfig,
-  generatedDir: string
+  generatedDir: string,
+  referencedAssemblyPaths: readonly string[]
 ): Result<{ outputPath: string }, string> => {
   const { outputName, rid, quiet, verbose, workspaceRoot } = config;
   const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
@@ -46,7 +49,14 @@ export const buildExecutable = (
     stdio: verbose ? "inherit" : "pipe",
     encoding: "utf-8",
     env: buildDotnetProcessEnv(workspaceRoot),
+    maxBuffer: DOTNET_PUBLISH_MAX_BUFFER,
   });
+  if (publishResult.error) {
+    return {
+      ok: false,
+      error: `dotnet publish failed:\n${publishResult.error.message}`,
+    };
+  }
   if (publishResult.status !== 0) {
     const errorMsg = publishResult.stderr || publishResult.stdout || "Unknown error";
     return { ok: false, error: `dotnet publish failed:\n${errorMsg}` };
@@ -55,7 +65,7 @@ export const buildExecutable = (
   const conflictResult = assertNoOutputAssemblyNameConflicts(
     generatedDir,
     outputName,
-    config.libraries
+    [...config.libraries, ...referencedAssemblyPaths]
   );
   if (!conflictResult.ok) return conflictResult;
 

@@ -2,14 +2,13 @@
  * New expression emitter
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrCallExpression, IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import {
   emitTypeArgumentsAst,
   generateSpecializedName,
 } from "../identifiers.js";
-import { isLValue, getPassingModifierFromCast } from "./call-analysis.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import {
   identifierType,
@@ -19,8 +18,6 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
-import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
-import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import {
   emitArrayConstructor,
   emitUint8ArrayArrayLiteralConstructor,
@@ -35,7 +32,7 @@ import {
   emitPromiseConstructor,
   isPromiseConstructorCall,
 } from "./new-emitter-promise.js";
-import { shouldPreferRuntimeExpectedType } from "./runtime-expected-type-preference.js";
+import { emitCallArguments } from "./call-arguments.js";
 
 /**
  * Emit a new expression as CSharpExpressionAst
@@ -94,104 +91,30 @@ export const emitNew = (
     }
   }
 
-  const argAsts: CSharpExpressionAst[] = [];
-  const surfaceParameterTypes =
-    expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
-      ? expr.surfaceParameterTypes
-      : (expr.parameterTypes ?? []);
-  const runtimeParameterTypes = expr.parameterTypes ?? surfaceParameterTypes;
-  for (let i = 0; i < expr.arguments.length; i++) {
-    const arg = expr.arguments[i];
-    if (!arg) continue;
-    if (arg.kind === "spread") {
-      const [spreadAst, ctx] = emitExpressionAst(
-        arg.expression,
-        currentContext
-      );
-      argAsts.push({
-        kind: "argumentModifierExpression",
-        modifier: "params",
-        expression: spreadAst,
-      });
-      currentContext = ctx;
-    } else {
-      const expectedType = surfaceParameterTypes[i];
-      const runtimeExpectedType = runtimeParameterTypes[i];
-      const effectiveExpectedType = (() => {
-        if (!runtimeExpectedType) {
-          return expectedType;
-        }
+  const constructorCallExpr: IrCallExpression = {
+    kind: "call",
+    callee: expr.callee,
+    arguments: expr.arguments,
+    isOptional: false,
+    inferredType: expr.inferredType,
+    sourceSpan: expr.sourceSpan,
+    signatureId: expr.signatureId,
+    typeArguments: expr.typeArguments,
+    requiresSpecialization: expr.requiresSpecialization,
+    resolutionExpectedReturnType: expr.resolutionExpectedReturnType,
+    argumentPassing: expr.argumentPassing,
+    parameterTypes: expr.parameterTypes,
+    surfaceParameterTypes: expr.surfaceParameterTypes,
+    restParameter: expr.surfaceRestParameter,
+    surfaceRestParameter: expr.surfaceRestParameter,
+  };
 
-        const actualArgumentType =
-          resolveEffectiveExpressionType(arg, currentContext) ??
-          arg.inferredType;
-
-        if (
-          actualArgumentType &&
-          matchesExpectedEmissionType(
-            actualArgumentType,
-            runtimeExpectedType,
-            currentContext
-          )
-        ) {
-          return runtimeExpectedType;
-        }
-
-        if (
-          shouldPreferRuntimeExpectedType(
-            arg,
-            actualArgumentType,
-            runtimeExpectedType,
-            currentContext
-          )
-        ) {
-          return runtimeExpectedType;
-        }
-
-        if (
-          runtimeExpectedType.kind === "unknownType" ||
-          runtimeExpectedType.kind === "anyType" ||
-          (runtimeExpectedType.kind === "referenceType" &&
-            runtimeExpectedType.name === "object")
-        ) {
-          return runtimeExpectedType;
-        }
-
-        return expectedType ?? runtimeExpectedType;
-      })();
-      const castModifier = getPassingModifierFromCast(arg);
-      if (castModifier && isLValue(arg)) {
-        const [argAst, ctx] = emitExpressionAst(arg, currentContext);
-        argAsts.push({
-          kind: "argumentModifierExpression",
-          modifier: castModifier,
-          expression: argAst,
-        });
-        currentContext = ctx;
-      } else {
-        const [argAst, ctx] = emitExpressionAst(
-          arg,
-          currentContext,
-          effectiveExpectedType
-        );
-        const passingMode = expr.argumentPassing?.[i];
-        const modifier =
-          passingMode && passingMode !== "value" && isLValue(arg)
-            ? passingMode
-            : undefined;
-        argAsts.push(
-          modifier
-            ? {
-                kind: "argumentModifierExpression",
-                modifier,
-                expression: argAst,
-              }
-            : argAst
-        );
-        currentContext = ctx;
-      }
-    }
-  }
+  const [argAsts, argContext] = emitCallArguments(
+    expr.arguments,
+    constructorCallExpr,
+    currentContext
+  );
+  currentContext = argContext;
 
   const typeAst: CSharpTypeAst =
     explicitCalleeTypeAst !== undefined

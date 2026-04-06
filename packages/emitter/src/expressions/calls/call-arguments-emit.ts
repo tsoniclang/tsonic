@@ -1123,44 +1123,45 @@ const emitFunctionValueCallArguments = (
       const restElementType =
         getArrayLikeElementType(parameter.type, currentContext) ??
         parameter.type;
+      if (!restElementType) {
+        throw new Error(
+          "Internal Compiler Error: function-value rest parameter reached emission without an element type."
+        );
+      }
       let elementTypeAst: CSharpTypeAst = {
         kind: "predefinedType",
         keyword: "object",
       };
-      if (restElementType) {
-        const [emittedType, typeCtx] = emitTypeAst(
+      const [emittedType, typeCtx] = emitTypeAst(
+        restElementType,
+        currentContext
+      );
+      elementTypeAst = emittedType;
+      currentContext = typeCtx;
+
+      const restArgs = args.slice(i).filter(
+        (arg): arg is IrExpression => !!arg
+      );
+      if (restArgs.some((arg) => arg.kind === "spread")) {
+        const restArrayType = parameter.type;
+        if (!restArrayType) {
+          throw new Error(
+            "Internal Compiler Error: function-value rest parameter reached emission without an array type."
+          );
+        }
+        const [flattenedRestArgs, flattenedContext] = emitFlattenedRestArguments(
+          restArgs,
+          restArrayType,
           restElementType,
           currentContext
         );
-        elementTypeAst = emittedType;
-        currentContext = typeCtx;
+        argAsts.push(...flattenedRestArgs);
+        currentContext = flattenedContext;
+        break;
       }
 
       const restItems: CSharpExpressionAst[] = [];
-      for (let j = i; j < args.length; j++) {
-        const arg = args[j];
-        if (!arg) continue;
-        if (arg.kind === "spread") {
-          const transparentPassthrough =
-            getTransparentRestSpreadPassthroughExpression(
-              arg,
-              parameter.type,
-              currentContext
-            );
-          const passthroughContext: EmitterContext = {
-            ...currentContext,
-            localSemanticTypes: undefined,
-            localValueTypes: undefined,
-          };
-          const [spreadAst, spreadCtx] = emitExpressionAst(
-            transparentPassthrough ?? arg.expression,
-            transparentPassthrough ? passthroughContext : currentContext,
-            transparentPassthrough ? undefined : parameter.type
-          );
-          argAsts.push(spreadAst);
-          currentContext = spreadCtx;
-          return [argAsts, currentContext];
-        }
+      for (const arg of restArgs) {
         const [argAst, argCtx] = emitExpressionAst(
           arg,
           currentContext,
@@ -1255,7 +1256,7 @@ const emitFunctionValueCallArguments = (
         preservedSurfaceRuntimeType ??
         resolveFinalCallArgumentExpectedType(
           selectedExpectedType,
-          surfaceParameterType,
+          runtimeExpectedType,
           preEmitActualArgumentType,
           currentContext
         ) ??
@@ -1637,10 +1638,13 @@ const emitCallArguments = (
       (expr.callee.kind === "memberAccess" &&
         !expr.callee.isComputed &&
         typeof expr.callee.property === "string" &&
-        memberObjectImportBinding?.kind === "namespace" &&
-        (memberObjectImportBinding.memberKinds?.get(expr.callee.property) ===
-          "variable" ||
-          memberObjectImportBinding.moduleObject === true)));
+        ((memberObjectImportBinding?.kind === "namespace" &&
+          (memberObjectImportBinding.memberKinds?.get(expr.callee.property) ===
+            "variable" ||
+            memberObjectImportBinding.moduleObject === true)) ||
+          (memberObjectImportBinding?.kind === "value" &&
+            (memberObjectImportBinding.valueKind === "variable" ||
+              memberObjectImportBinding.moduleObject === true)))));
   const directCallableTarget =
     (expr.callee.kind === "identifier" &&
       (context.importBindings?.get(expr.callee.name)?.kind === "value" ||
@@ -1689,7 +1693,10 @@ const emitCallArguments = (
   const runtimeParameterTypes =
     parameterTypeOverrides && parameterTypeOverrides.length > 0
       ? parameterTypeOverrides
-      : selectedParameterTypes;
+      : selectedParameterTypes.map(
+          (parameterType, index) =>
+            expr.surfaceParameterTypes?.[index] ?? parameterType
+        );
   const selectedRestParameter =
     expr.surfaceRestParameter ?? expr.restParameter;
   const runtimeRestParameter =

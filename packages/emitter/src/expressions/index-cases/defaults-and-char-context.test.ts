@@ -488,6 +488,90 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("acceptLevel((double)(object)level)");
   });
 
+  it("preserves optional numeric property reads when forwarding into optional numeric parameters", () => {
+    const optionalNumberType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "primitiveType" as const, name: "number" as const },
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+
+    const optionsType = {
+      kind: "referenceType" as const,
+      name: "Options",
+      structuralMembers: [
+        {
+          kind: "propertySignature" as const,
+          name: "maxFileCount",
+          type: optionalNumberType,
+          isOptional: true,
+          isReadonly: true,
+        },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "acceptLevel",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "level" },
+              type: { kind: "primitiveType", name: "number" },
+              isOptional: true,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "acceptLevel" },
+            arguments: [
+              {
+                kind: "memberAccess",
+                object: {
+                  kind: "identifier",
+                  name: "options",
+                  inferredType: optionsType,
+                },
+                property: "maxFileCount",
+                isComputed: false,
+                isOptional: false,
+                inferredType: optionalNumberType,
+              },
+            ],
+            parameterTypes: [{ kind: "primitiveType", name: "number" }],
+            surfaceParameterTypes: [optionalNumberType],
+            isOptional: false,
+            inferredType: { kind: "voidType" },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("acceptLevel(options.maxFileCount)");
+    expect(result).not.to.include("acceptLevel((double)(object)options.maxFileCount)");
+  });
+
   it("should emit char literals for single-character string assertions to char", () => {
     const module: IrModule = {
       kind: "module",

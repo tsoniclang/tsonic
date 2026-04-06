@@ -98,11 +98,12 @@ describe("End-to-End Integration", () => {
         surface: "@tsonic/js",
       });
       expect(csharp).to.match(
-        /global::js\.ArrayObject\.wrapArray\(\(?value\.As1\(\)\)?\)\.join\("\|"\)/
+        /global::Tsonic\.Internal\.ArrayInterop\.WrapArray\(\(?value\.As1\(\)\)?\)\.join\("\|"\)/
       );
       expect(csharp).to.not.include(
-        'global::js.ArrayObject.wrapArray(value).join("|")'
+        'global::Tsonic.Internal.ArrayInterop.WrapArray(value).join("|")'
       );
+      expect(csharp).to.include("internal static class ArrayInterop");
     });
 
     it("preserves System.Array storage for broad array assertions inside nested callbacks", () => {
@@ -455,7 +456,7 @@ describe("End-to-End Integration", () => {
       });
       expect(csharp).to.not.include("new global::js.Array<string>(existing)");
       expect(csharp).to.include(
-        "global::js.ArrayObject.wrapArray((existing.As1())).push(value);"
+        "global::Tsonic.Internal.ArrayInterop.WrapArray((existing.As1())).push(value);"
       );
     });
 
@@ -579,6 +580,60 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("reader.GetText().Match");
     });
 
+    it("preserves nullish coalescing with null for nullable numeric values flowing into JsValue slots", () => {
+      const source = `
+        import type { JsValue, int, long } from "@tsonic/core/types.js";
+
+        class User {
+          BotType?: int;
+          BotOwnerId?: long;
+        }
+
+        export function run(u: User): Record<string, JsValue> {
+          const resp: Record<string, JsValue> = {};
+          resp["bot_type"] = u.BotType ?? null;
+          resp["bot_owner_id"] = u.BotOwnerId ?? null;
+          return resp;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include('resp["bot_type"] =');
+      expect(csharp).to.include('resp["bot_owner_id"] =');
+      expect(csharp).to.include("u.BotType ?? null");
+      expect(csharp).to.include("u.BotOwnerId ?? null");
+      expect(csharp).to.not.include("u.BotType ?? default");
+      expect(csharp).to.not.include("u.BotOwnerId ?? default");
+    });
+
+    it("keeps numeric nullish fallbacks unboxed until after coalescing in broad JsValue slots", () => {
+      const source = `
+        import type { JsValue, int } from "@tsonic/core/types.js";
+
+        class UserSetting {
+          EmailAddressVisibility!: int;
+        }
+
+        export function run(setting?: UserSetting | null): Record<string, JsValue> {
+          const entry: Record<string, JsValue> = {};
+          entry["email_address_visibility"] = setting?.EmailAddressVisibility ?? 1;
+          return entry;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include(
+        'entry["email_address_visibility"] = (object)(double)(setting?.EmailAddressVisibility ?? 1);'
+      );
+      expect(csharp).to.not.include("?? (object)(double)1");
+    });
+
     it("preserves runtime-union member numbering across nested array and instanceof fallthrough guards", () => {
       const source = `
         type RequestHandler = (value: string) => void;
@@ -693,6 +748,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("ToArray((object[])(object)handlers)");
       expect(csharp).to.not.include(
         "new global::js.Array<object>(args).slice(1).toArray()"
+      );
+      expect(csharp).to.not.include(
+        "global::Tsonic.Internal.ArrayInterop.WrapArray(args).slice(1).toArray()"
       );
       expect(csharp).to.not.include("args.slice(1)");
       expect(csharp).to.include("global::System.Linq.Enumerable.Skip(args, 1)");

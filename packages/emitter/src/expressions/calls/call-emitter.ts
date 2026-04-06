@@ -380,7 +380,7 @@ export const emitCall = (
   // Check for global JSON.stringify/parse calls
   const globalJsonCall = isGlobalJsonCall(expr.callee, context);
   if (globalJsonCall) {
-    return emitGlobalJsonCall(expr, context, globalJsonCall.method);
+    return emitGlobalJsonCall(expr, context, globalJsonCall.method, expectedType);
   }
 
   // EF Core query canonicalization: ToList().ToArray() -> ToArray()

@@ -2546,6 +2546,24 @@ export const convertCallExpression = (
       type?.kind === "referenceType" &&
       !isCompilerGeneratedStructuralCarrier(type) &&
       (type.structuralMembers?.length ?? 0) > 0;
+    const isBroadExactnessLoser = (type: IrType | undefined): boolean => {
+      if (!type) {
+        return false;
+      }
+
+      if (type.kind === "referenceType") {
+        return (
+          type.name === "JsValue" ||
+          type.name === "object" ||
+          type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+          type.resolvedClrType === "global::Tsonic.Runtime.JsValue" ||
+          type.resolvedClrType === "System.Object" ||
+          type.resolvedClrType === "global::System.Object"
+        );
+      }
+
+      return false;
+    };
 
     if (!exactType || exactType.kind === "unknownType") {
       return false;
@@ -2560,6 +2578,13 @@ export const convertCallExpression = (
     }
 
     if (hasStrongerNumericIntent(currentType, exactType)) {
+      return true;
+    }
+
+    if (
+      isBroadExactnessLoser(currentType) &&
+      !isBroadExactnessLoser(exactType)
+    ) {
       return true;
     }
 

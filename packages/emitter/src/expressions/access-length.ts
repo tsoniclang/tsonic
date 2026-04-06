@@ -26,7 +26,6 @@ import {
 } from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
-  CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
 import {
   isPlainObjectIrType,
@@ -35,7 +34,8 @@ import {
   resolveEmittedReceiverTypeAst,
   tryEmitBroadArrayAssertionReceiverStorageAst,
 } from "./access-resolution.js";
-import { buildExactGlobalBindingType } from "./exact-global-bindings.js";
+import { buildNativeArrayInteropWrapAst } from "./array-interop.js";
+import { hasSourceDeclaredMember } from "./access-resolution-types.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst
@@ -210,9 +210,35 @@ export const tryEmitConcreteReceiverLengthAccess = (
   const concreteReceiverTypeAst = receiverTypeAst
     ? stripNullableTypeAst(receiverTypeAst)
     : undefined;
+  const declaredReceiverType =
+    expr.object.kind === "identifier"
+      ? (context.localSemanticTypes?.get(expr.object.name) ??
+        context.localValueTypes?.get(expr.object.name))
+      : undefined;
 
   if (!concreteReceiverTypeAst) {
     return undefined;
+  }
+
+  if (
+    typeof expr.property === "string" &&
+    hasSourceDeclaredMember(
+      declaredReceiverType ?? expr.object.inferredType,
+      expr.property,
+      "value",
+      effectiveObjectContext
+    )
+  ) {
+    return [
+      {
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: effectiveObjectAst,
+        memberName: expr.property,
+      },
+      receiverTypeContext,
+    ];
   }
 
   if (concreteReceiverTypeAst.kind === "arrayType") {
@@ -231,9 +257,23 @@ export const tryEmitConcreteReceiverLengthAccess = (
   const receiverTypeName = getIdentifierTypeName(concreteReceiverTypeAst);
   const receiverLeafName = getIdentifierTypeLeafName(concreteReceiverTypeAst);
   if (
+    receiverTypeName?.startsWith("global::js.") ||
+    receiverTypeName?.startsWith("js.")
+  ) {
+    return [
+      {
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: effectiveObjectAst,
+        memberName: expr.property,
+      },
+      receiverTypeContext,
+    ];
+  }
+  if (
     receiverTypeName === "global::System.Array" ||
-    receiverTypeName === "System.Array" ||
-    receiverLeafName === "Array"
+    receiverTypeName === "System.Array"
   ) {
     return [
       {
@@ -323,9 +363,51 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
   const concreteReceiverTypeAst = receiverTypeAst
     ? stripNullableTypeAst(receiverTypeAst)
     : undefined;
+  const declaredReceiverType =
+    expr.object.kind === "identifier"
+      ? (context.localSemanticTypes?.get(expr.object.name) ??
+        context.localValueTypes?.get(expr.object.name))
+      : undefined;
+
+  if (
+    typeof expr.property === "string" &&
+    hasSourceDeclaredMember(
+      declaredReceiverType ?? objectType,
+      expr.property,
+      "value",
+      effectiveObjectContext
+    )
+  ) {
+    return [
+      expr.isOptional
+        ? {
+            kind: "conditionalExpression",
+            condition: {
+              kind: "binaryExpression",
+              operatorToken: "==",
+              left: effectiveObjectAst,
+              right: nullLiteral(),
+            },
+            whenTrue: {
+              kind: "defaultExpression",
+              type: nullableType({ kind: "predefinedType", keyword: "int" }),
+            },
+            whenFalse: {
+              kind: "memberAccessExpression",
+              expression: effectiveObjectAst,
+              memberName: expr.property,
+            },
+          }
+        : {
+            kind: "memberAccessExpression",
+            expression: effectiveObjectAst,
+            memberName: expr.property,
+          },
+      receiverTypeContext,
+    ];
+  }
 
   const buildOptionalArrayWrapperLengthAccess = (
-    elementTypeAst: CSharpTypeAst,
     nextContext: EmitterContext
   ): [CSharpExpressionAst, EmitterContext] => [
     expr.isOptional
@@ -343,29 +425,13 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
           },
             whenFalse: {
               kind: "memberAccessExpression",
-              expression: {
-                kind: "objectCreationExpression",
-                type: buildExactGlobalBindingType(
-                  "Array",
-                  [elementTypeAst],
-                  nextContext
-                ),
-                arguments: [objectAst],
-              },
+              expression: buildNativeArrayInteropWrapAst(objectAst),
               memberName: "length",
-          },
+            },
         }
       : {
           kind: "memberAccessExpression",
-          expression: {
-            kind: "objectCreationExpression",
-            type: buildExactGlobalBindingType(
-              "Array",
-              [elementTypeAst],
-              nextContext
-            ),
-            arguments: [objectAst],
-          },
+          expression: buildNativeArrayInteropWrapAst(objectAst),
           memberName: "length",
         },
     nextContext,
@@ -441,16 +507,45 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
     ];
   }
 
+  if (hasSourceDeclaredMember(objectType, expr.property, "value", context)) {
+    return [
+      expr.isOptional
+        ? {
+            kind: "conditionalExpression",
+            condition: {
+              kind: "binaryExpression",
+              operatorToken: "==",
+              left: effectiveObjectAst,
+              right: nullLiteral(),
+            },
+            whenTrue: {
+              kind: "defaultExpression",
+              type: nullableType({ kind: "predefinedType", keyword: "int" }),
+            },
+            whenFalse: {
+              kind: "memberAccessExpression",
+              expression: effectiveObjectAst,
+              memberName: expr.property,
+            },
+          }
+        : {
+            kind: "memberAccessExpression",
+            expression: effectiveObjectAst,
+            memberName: expr.property,
+          },
+      receiverTypeContext,
+    ];
+  }
+
   if (!arrayLikeReceiver) {
     return undefined;
   }
-  const [elementTypeAst, typeContext] =
-    emitStorageCompatibleArrayWrapperElementTypeAst(
-      expr.object,
-      objectType,
-      arrayLikeReceiver.elementType,
-      context
-    );
+  const [, typeContext] = emitStorageCompatibleArrayWrapperElementTypeAst(
+    expr.object,
+    objectType,
+    arrayLikeReceiver.elementType,
+    context
+  );
 
-  return buildOptionalArrayWrapperLengthAccess(elementTypeAst, typeContext);
+  return buildOptionalArrayWrapperLengthAccess(typeContext);
 };

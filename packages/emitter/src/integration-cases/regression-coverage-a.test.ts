@@ -1,6 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { compileToCSharp } from "./helpers.js";
+import { compileProjectToCSharp, compileToCSharp } from "./helpers.js";
 
 describe("End-to-End Integration", () => {
   describe("Regression Coverage", () => {
@@ -225,6 +225,34 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("takeDeclared(query.limit.Value)");
       expect(csharp).not.to.include("takeLocal(query.limit.Value)");
       expect(csharp).not.to.include("takeTyped(query.limit.Value)");
+    });
+
+    it("fills omitted optional arguments for imported function-valued object members", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/lib.ts": `
+            import type { int } from "@tsonic/core/types.js";
+
+            export const api = {
+              take(value?: int): int {
+                return value ?? (0 as int);
+              },
+            };
+          `,
+          "src/index.ts": `
+            import type { int } from "@tsonic/core/types.js";
+            import { api } from "./lib.js";
+
+            export function run(): int {
+              return api.take();
+            }
+          `,
+        },
+        "src/index.ts"
+      );
+
+      expect(csharp).not.to.include("api.take();");
+      expect(csharp).to.include("api.take)(default(int?))");
     });
 
     it("emits IterableIterator generic class methods as direct enumerable yields", () => {

@@ -196,7 +196,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("keeps JS Object.entries object-based for JSON.parse<object> values narrowed by user guards", () => {
+  it("keeps JS Object.entries object-based for broad JSON.parse values narrowed by user guards", () => {
     const dir = mkdtempSync(
       join(tmpdir(), "tsonic-build-json-object-entries-")
     );

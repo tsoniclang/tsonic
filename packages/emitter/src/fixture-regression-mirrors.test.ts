@@ -37,7 +37,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("var keys = global::js.Array.from(");
       expect(csharp).to.include("counts.keys()");
       expect(csharp).to.include(
-        'global::js.ConsoleModule.log(global::js.ArrayObject.wrapArray(keys).join(","));'
+        'global::js.ConsoleModule.log(global::Tsonic.Internal.ArrayInterop.WrapArray(keys).join(","));'
       );
     });
 
@@ -49,7 +49,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        'var root = global::js.JSON.parse<object>("{\\"title\\":\\"hello\\",\\"count\\":2}");'
+        'var root = global::js.JSON.parse("{\\"title\\":\\"hello\\",\\"count\\":2}");'
       );
       expect(csharp).to.include("var entries = global::js.Object.entries(root);");
       expect(csharp).to.include(
@@ -78,10 +78,10 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('var chars = global::js.Array.from("abcd");');
       expect(csharp).to.include("var more = global::js.Array.of(6, 7, 8);");
       expect(csharp).to.include(
-        "var joined = global::js.ArrayObject.wrapArray(filtered).join(\",\");"
+        "var joined = global::Tsonic.Internal.ArrayInterop.WrapArray(filtered).join(\",\");"
       );
       expect(csharp).to.include(
-        "var joinedDefault = global::js.ArrayObject.wrapArray(filtered).join();"
+        "var joinedDefault = global::Tsonic.Internal.ArrayInterop.WrapArray(filtered).join();"
       );
       expect(csharp).to.include("global::js.Globals.parseInt(\"123\")");
     });
@@ -103,7 +103,7 @@ describe("End-to-End Integration", () => {
         'string[][] allMatches = global::System.Linq.Enumerable.ToArray(global::js.String.matchAll("a-a", "a"));'
       );
       expect(csharp).to.include(
-        'return global::js.ArrayObject.wrapArray(parts).join(",");'
+        'return global::Tsonic.Internal.ArrayInterop.WrapArray(parts).join(",");'
       );
       expect(csharp).to.include(
         "global::js.ConsoleModule.log(takeParts(parts), firstMatch, firstAll, global::js.Number.toString(selected.Length));"

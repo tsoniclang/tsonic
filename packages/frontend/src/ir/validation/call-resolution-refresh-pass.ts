@@ -86,6 +86,24 @@ const shouldPreferExactMemberType = (
     type?.kind === "referenceType" &&
     !isCompilerGeneratedStructuralCarrier(type) &&
     (type.structuralMembers?.length ?? 0) > 0;
+  const isBroadExactnessLoser = (type: IrType | undefined): boolean => {
+    if (!type) {
+      return false;
+    }
+
+    if (type.kind === "referenceType") {
+      return (
+        type.name === "JsValue" ||
+        type.name === "object" ||
+        type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+        type.resolvedClrType === "global::Tsonic.Runtime.JsValue" ||
+        type.resolvedClrType === "System.Object" ||
+        type.resolvedClrType === "global::System.Object"
+      );
+    }
+
+    return false;
+  };
 
   if (!exactType || exactType.kind === "unknownType") {
     return false;
@@ -100,6 +118,13 @@ const shouldPreferExactMemberType = (
     isExplicitStructuralReference(exactType) &&
     ctx.typeSystem.isAssignableTo(currentType, exactType) &&
     ctx.typeSystem.isAssignableTo(exactType, currentType)
+  ) {
+    return true;
+  }
+
+  if (
+    isBroadExactnessLoser(currentType) &&
+    !isBroadExactnessLoser(exactType)
   ) {
     return true;
   }
@@ -311,6 +336,14 @@ const refreshExpression = (
         : expr.sourceBackedRestParameter ??
           resolved?.surfaceRestParameter ??
           expr.surfaceRestParameter;
+      const refinedSourceBackedReturnType = shouldPreferExactMemberType(
+        expr.sourceBackedReturnType,
+        directStructuralResolution?.resolved?.returnType ?? resolved?.returnType,
+        ctx
+      )
+        ? (directStructuralResolution?.resolved?.returnType ??
+            resolved?.returnType)
+        : expr.sourceBackedReturnType;
 
       return {
         ...expr,
@@ -319,7 +352,7 @@ const refreshExpression = (
         dynamicImportNamespace,
         inferredType: preserveResolvedReturnType(
           expr.inferredType,
-          expr.sourceBackedReturnType ?? resolved?.returnType,
+          refinedSourceBackedReturnType ?? resolved?.returnType,
           resolved?.hasDeclaredReturnType
         ),
         parameterTypes:

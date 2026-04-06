@@ -7,6 +7,7 @@ import type {
   TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
 import type {
+  IrModule,
   IrType,
   IrExpression,
   IrInterfaceMember,
@@ -155,6 +156,11 @@ export type EmitterOptions = {
   readonly moduleMap?: ModuleMap;
   /** Export map for resolving re-exports to actual source (populated during batch emission) */
   readonly exportMap?: ExportMap;
+  /**
+   * Modules available for semantic cross-module resolution even when they are
+   * intentionally omitted from the current emitted source closure.
+   */
+  readonly referenceModules?: readonly IrModule[];
   /**
    * Type declarations to suppress during emission.
    * Key format: "<filePath>::<statementKind>::<typeName>".

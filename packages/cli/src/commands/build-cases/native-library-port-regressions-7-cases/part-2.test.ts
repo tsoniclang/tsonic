@@ -230,6 +230,9 @@ describe("build command (native library port regressions)", function () {
       expect(tree).to.not.include(
         "new global::js.Array<object>(global::Demo.Pkg.index.process.argv).length"
       );
+      expect(tree).to.not.include(
+        "global::Tsonic.Internal.ArrayInterop.WrapArray(global::Demo.Pkg.index.process.argv).length"
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

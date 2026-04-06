@@ -12,6 +12,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
 import { isBooleanType } from "./helpers.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
@@ -258,6 +259,18 @@ const isUndefinedPrimitive = (type: IrType): boolean =>
 const isNullPrimitive = (type: IrType): boolean =>
   type.kind === "primitiveType" && type.name === "null";
 
+const isNullishOnlyType = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+  if (type.kind !== "unionType") {
+    return isNullPrimitive(type) || isUndefinedPrimitive(type);
+  }
+  return type.types.every(
+    (member) => isNullPrimitive(member) || isUndefinedPrimitive(member)
+  );
+};
+
 const tryEmitMapGetUndefinedFallback = (
   expr: Extract<IrExpression, { kind: "logical" }>,
   leftAst: CSharpExpressionAst,
@@ -406,7 +419,11 @@ export const emitLogical = (
 
   const rightExpectedType =
     operator === "??"
-      ? (expr.inferredType ?? expr.left.inferredType)
+      ? expectedType && isBroadObjectSlotType(expectedType, leftContext)
+        ? isNullishOnlyType(expr.right.inferredType)
+          ? (expectedType ?? expr.inferredType ?? expr.left.inferredType)
+          : (expr.inferredType ?? expr.left.inferredType)
+        : (expectedType ?? expr.inferredType ?? expr.left.inferredType)
       : undefined;
   const [rightAst, rightContext] = emitExpressionAst(
     expr.right,
