@@ -446,6 +446,14 @@ export type EmitterContext = {
    */
   readonly voidResolveNames?: ReadonlySet<string>;
   /**
+   * Promise resolve callback parameter names mapped to their normalized promised value type.
+   *
+   * TypeScript models Promise executors as `resolve: (value: T | PromiseLike<T>) => void`,
+   * but emitted C# promise helpers always expose `Action<T>`. This map lets call emission
+   * strip the PromiseLike union back to the promised value type when invoking those locals.
+   */
+  readonly promiseResolveValueTypes?: ReadonlyMap<string, IrType>;
+  /**
    * Set of emitted C# local identifiers that have been used anywhere in the current method body.
    *
    * C# forbids reusing a local name in an outer scope after it has been declared in a nested scope

@@ -16,6 +16,53 @@ export type CallResolutionRefreshResult = {
   readonly modules: readonly IrModule[];
 };
 
+const containsTypeParameter = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  switch (type.kind) {
+    case "typeParameterType":
+      return true;
+    case "arrayType":
+      return containsTypeParameter(type.elementType);
+    case "tupleType":
+      return type.elementTypes.some((elementType) =>
+        containsTypeParameter(elementType)
+      );
+    case "dictionaryType":
+      return (
+        containsTypeParameter(type.keyType) ||
+        containsTypeParameter(type.valueType)
+      );
+    case "referenceType":
+      return (
+        type.typeArguments?.some((typeArgument) =>
+          containsTypeParameter(typeArgument)
+        ) ?? false
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.some((memberType) => containsTypeParameter(memberType));
+    case "functionType":
+      return (
+        type.parameters.some((parameter) =>
+          containsTypeParameter(parameter.type)
+        ) || containsTypeParameter(type.returnType)
+      );
+    case "objectType":
+      return type.members.some((member) =>
+        member.kind === "propertySignature"
+          ? containsTypeParameter(member.type)
+          : member.parameters.some((parameter) =>
+              containsTypeParameter(parameter.type)
+            ) || containsTypeParameter(member.returnType)
+      );
+    default:
+      return false;
+  }
+};
+
 const getDirectStructuralMemberType = (
   receiverType: IrType | undefined,
   memberName: string
@@ -49,12 +96,23 @@ const getDirectStructuralMemberType = (
       returnType: member.returnType ?? ({ kind: "unknownType" } as const),
     }));
 
-    return callableTypes.length === 1
-      ? callableTypes[0]
-      : {
-          kind: "intersectionType",
-          types: callableTypes,
-        };
+    const callableType =
+      callableTypes.length === 1
+        ? callableTypes[0]
+        : {
+            kind: "intersectionType" as const,
+            types: callableTypes,
+          };
+
+    if (
+      receiverType?.kind === "referenceType" &&
+      (!receiverType.typeArguments || receiverType.typeArguments.length === 0) &&
+      containsTypeParameter(callableType)
+    ) {
+      return undefined;
+    }
+
+    return callableType;
   }
 
   const propertyMember = matchingMembers.find(
@@ -63,6 +121,14 @@ const getDirectStructuralMemberType = (
     ): member is Extract<(typeof matchingMembers)[number], { kind: "propertySignature" }> =>
       member.kind === "propertySignature"
   );
+  if (
+    receiverType?.kind === "referenceType" &&
+    (!receiverType.typeArguments || receiverType.typeArguments.length === 0) &&
+    containsTypeParameter(propertyMember?.type)
+  ) {
+    return undefined;
+  }
+
   return propertyMember?.type;
 };
 
@@ -71,6 +137,55 @@ const shouldPreferExactMemberType = (
   exactType: IrType | undefined,
   ctx: ProgramContext
 ): exactType is IrType => {
+  const getNumericKind = (type: IrType | undefined): string | undefined => {
+    if (!type) {
+      return undefined;
+    }
+
+    if (type.kind === "primitiveType") {
+      return type.name;
+    }
+
+    if (type.kind === "referenceType") {
+      return type.name;
+    }
+
+    return undefined;
+  };
+  const hasStrongerNumericIntent = (
+    current: IrType | undefined,
+    exact: IrType | undefined
+  ): boolean => {
+    if (!current || !exact) {
+      return false;
+    }
+
+    const currentNumeric = getNumericKind(current);
+    const exactNumeric = getNumericKind(exact);
+    if (currentNumeric && exactNumeric) {
+      return currentNumeric === "number" && exactNumeric !== "number";
+    }
+
+    if (current.kind === "functionType" && exact.kind === "functionType") {
+      if (current.parameters.length !== exact.parameters.length) {
+        return false;
+      }
+
+      if (hasStrongerNumericIntent(current.returnType, exact.returnType)) {
+        return true;
+      }
+
+      return current.parameters.some((parameter, index) => {
+        const exactParameter = exact.parameters[index];
+        return (
+          exactParameter !== undefined &&
+          hasStrongerNumericIntent(parameter.type, exactParameter.type)
+        );
+      });
+    }
+
+    return false;
+  };
   const isCompilerGeneratedStructuralCarrier = (
     type: IrType | undefined
   ): boolean =>
@@ -113,6 +228,10 @@ const shouldPreferExactMemberType = (
     return true;
   }
 
+  if (hasStrongerNumericIntent(currentType, exactType)) {
+    return true;
+  }
+
   if (
     isInlineOrGeneratedStructuralCarrier(currentType) &&
     isExplicitStructuralReference(exactType) &&
@@ -129,7 +248,7 @@ const shouldPreferExactMemberType = (
     return true;
   }
 
-  return false;
+  return containsTypeParameter(currentType) && !containsTypeParameter(exactType);
 };
 
 const preserveResolvedReturnType = (
@@ -259,6 +378,10 @@ const refreshExpression = (
         usesAuthoritativeSurfaceBindings
         ? boundGlobalCallParameterTypes?.parameterTypes
         : undefined;
+      const authoritativeBoundGlobalReturnType =
+        usesAuthoritativeSurfaceBindings
+          ? boundGlobalCallParameterTypes?.returnType
+          : undefined;
       const preservedAmbientBoundGlobalSurfaceParameterTypes =
         !usesAuthoritativeSurfaceBindings && boundGlobalCallParameterTypes
           ? expr.surfaceParameterTypes
@@ -282,48 +405,90 @@ const refreshExpression = (
                 : undefined;
             })()
           : undefined;
+      const directCalleeResolution =
+        callee.inferredType && callee.inferredType.kind !== "unknownType"
+          ? resolveCallableCandidate(
+              callee.inferredType,
+              argumentCount,
+              ctx,
+              argTypes,
+              expr.typeArguments,
+              expr.resolutionExpectedReturnType
+            )
+          : undefined;
+      const mergeExactType = (
+        primary: IrType | undefined,
+        fallback: IrType | undefined
+      ): IrType | undefined =>
+        shouldPreferExactMemberType(primary, fallback, ctx) ? fallback : primary;
+      const mergeExactTypeArrays = (
+        primary: readonly (IrType | undefined)[] | undefined,
+        fallback: readonly (IrType | undefined)[] | undefined
+      ): readonly (IrType | undefined)[] | undefined => {
+        if (!primary) {
+          return fallback;
+        }
+        if (!fallback) {
+          return primary;
+        }
+
+        const count = Math.max(primary.length, fallback.length);
+        return Array.from({ length: count }, (_, index) =>
+          mergeExactType(primary[index], fallback[index])
+        );
+      };
+      const mergedExactParameterTypes = mergeExactTypeArrays(
+        directStructuralResolution?.resolved?.parameterTypes,
+        directCalleeResolution?.resolved?.parameterTypes
+      );
+      const mergedExactSurfaceParameterTypes = mergeExactTypeArrays(
+        directStructuralResolution?.resolved?.surfaceParameterTypes ??
+          directStructuralResolution?.resolved?.parameterTypes,
+        directCalleeResolution?.resolved?.surfaceParameterTypes ??
+          directCalleeResolution?.resolved?.parameterTypes
+      );
+      const mergedExactReturnType = mergeExactType(
+        directStructuralResolution?.resolved?.returnType,
+        directCalleeResolution?.resolved?.returnType
+      );
       const refinedSourceBackedParameterTypes = expr.sourceBackedParameterTypes?.map(
         (parameterType, index) =>
           shouldPreferExactMemberType(
             parameterType,
-            directStructuralResolution?.resolved?.parameterTypes?.[index],
+            mergedExactParameterTypes?.[index],
             ctx
           )
-            ? directStructuralResolution?.resolved?.parameterTypes?.[index]
+            ? mergedExactParameterTypes?.[index]
             : parameterType
       );
       const refinedSourceBackedSurfaceParameterTypes =
         expr.sourceBackedSurfaceParameterTypes?.map((parameterType, index) =>
           shouldPreferExactMemberType(
             parameterType,
-            directStructuralResolution?.resolved?.surfaceParameterTypes?.[index] ??
-              directStructuralResolution?.resolved?.parameterTypes?.[index],
+            mergedExactSurfaceParameterTypes?.[index],
             ctx
           )
-            ? (directStructuralResolution?.resolved?.surfaceParameterTypes?.[index] ??
-                directStructuralResolution?.resolved?.parameterTypes?.[index])
+            ? mergedExactSurfaceParameterTypes?.[index]
             : parameterType
         );
       const refinedResolvedParameterTypes = resolved?.parameterTypes?.map(
         (parameterType, index) =>
           shouldPreferExactMemberType(
             parameterType,
-            directStructuralResolution?.resolved?.parameterTypes?.[index],
+            mergedExactParameterTypes?.[index],
             ctx
           )
-            ? directStructuralResolution?.resolved?.parameterTypes?.[index]
+            ? mergedExactParameterTypes?.[index]
             : parameterType
       );
       const refinedResolvedSurfaceParameterTypes = resolved?.surfaceParameterTypes?.map(
         (parameterType, index) =>
           shouldPreferExactMemberType(
             parameterType,
-            directStructuralResolution?.resolved?.surfaceParameterTypes?.[index] ??
-              directStructuralResolution?.resolved?.parameterTypes?.[index],
+            mergedExactSurfaceParameterTypes?.[index],
             ctx
           )
-            ? (directStructuralResolution?.resolved?.surfaceParameterTypes?.[index] ??
-                directStructuralResolution?.resolved?.parameterTypes?.[index])
+            ? mergedExactSurfaceParameterTypes?.[index]
             : parameterType
       );
       const refreshedRestParameter = boundGlobalCallParameterTypes
@@ -336,12 +501,24 @@ const refreshExpression = (
         : expr.sourceBackedRestParameter ??
           resolved?.surfaceRestParameter ??
           expr.surfaceRestParameter;
+      const refinedResolvedReturnType = authoritativeBoundGlobalReturnType
+        ? authoritativeBoundGlobalReturnType
+        : shouldPreferExactMemberType(
+              resolved?.returnType,
+              mergedExactReturnType,
+              ctx
+            )
+          ? mergedExactReturnType
+          : resolved?.returnType;
       const refinedSourceBackedReturnType = shouldPreferExactMemberType(
         expr.sourceBackedReturnType,
-        directStructuralResolution?.resolved?.returnType ?? resolved?.returnType,
+        authoritativeBoundGlobalReturnType ??
+          mergedExactReturnType ??
+          resolved?.returnType,
         ctx
       )
-        ? (directStructuralResolution?.resolved?.returnType ??
+        ? (authoritativeBoundGlobalReturnType ??
+            mergedExactReturnType ??
             resolved?.returnType)
         : expr.sourceBackedReturnType;
 
@@ -352,7 +529,7 @@ const refreshExpression = (
         dynamicImportNamespace,
         inferredType: preserveResolvedReturnType(
           expr.inferredType,
-          refinedSourceBackedReturnType ?? resolved?.returnType,
+          refinedSourceBackedReturnType ?? refinedResolvedReturnType,
           resolved?.hasDeclaredReturnType
         ),
         parameterTypes:

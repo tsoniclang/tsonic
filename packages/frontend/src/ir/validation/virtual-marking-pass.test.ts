@@ -16,6 +16,11 @@ const unknownType: IrType = { kind: "unknownType" };
 const stringType: IrType = { kind: "primitiveType", name: "string" };
 const boolType: IrType = { kind: "primitiveType", name: "boolean" };
 const objectType: IrType = { kind: "referenceType", name: "object" };
+const nullType: IrType = { kind: "primitiveType", name: "null" };
+const nullableStringType: IrType = {
+  kind: "unionType",
+  types: [stringType, nullType],
+};
 
 const typeParameter = (
   name: string,
@@ -297,6 +302,53 @@ describe("virtual-marking-pass", () => {
 
     expect(baseCount?.isVirtual).to.equal(true);
     expect(derivedCount?.isOverride).to.equal(true);
+  });
+
+  it("marks nullable-reference property overrides with non-null derived types as overrides", () => {
+    const modules = [
+      createModule(
+        {
+          kind: "classDeclaration",
+          name: "KeyObject",
+          implements: [],
+          members: [property("asymmetricKeyType", nullableStringType)],
+          isExported: true,
+          isStruct: false,
+        },
+        {
+          kind: "classDeclaration",
+          name: "PublicKeyObject",
+          superClass: { kind: "referenceType", name: "KeyObject" },
+          implements: [],
+          members: [property("asymmetricKeyType", stringType)],
+          isExported: true,
+          isStruct: false,
+        }
+      ),
+    ];
+
+    const result = runVirtualMarkingPass(modules);
+    const transformedModule = result.modules[0];
+    if (!transformedModule) {
+      throw new Error("expected transformed module");
+    }
+
+    const baseClass = getClass(transformedModule, "KeyObject");
+    const derivedClass = getClass(transformedModule, "PublicKeyObject");
+    const baseMember = baseClass.members.find(
+      (member): member is IrPropertyDeclaration =>
+        member.kind === "propertyDeclaration" &&
+        member.name === "asymmetricKeyType"
+    );
+    const derivedMember = derivedClass.members.find(
+      (member): member is IrPropertyDeclaration =>
+        member.kind === "propertyDeclaration" &&
+        member.name === "asymmetricKeyType"
+    );
+
+    expect(baseMember?.isVirtual).to.equal(true);
+    expect(derivedMember?.isOverride).to.equal(true);
+    expect(derivedMember?.isShadow).to.not.equal(true);
   });
 
   it("marks covariant generic return overrides as overrides", () => {

@@ -234,37 +234,63 @@ describe("End-to-End Integration", () => {
 
     it("mirrors readonly-array-property-mutation", () => {
       const csharp = compileToCSharp(
-        readFixtureSource("readonly-array-property-mutation")
+        readFixtureSource("readonly-array-property-mutation"),
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
       );
 
       expect(csharp).to.include("private string[] items { get; set; }");
-      expect(csharp).to.include("this.items.push(value);");
-      expect(csharp).to.include('return this.items.join("-");');
+      expect(csharp).to.include(
+        "var __tsonic_arrayWrapper = global::Tsonic.Internal.ArrayInterop.WrapArray(__tsonic_arrayTarget.items);"
+      );
+      expect(csharp).to.include(
+        "var __tsonic_arrayResult = __tsonic_arrayWrapper.push(value);"
+      );
+      expect(csharp).to.include(
+        'return global::Tsonic.Internal.ArrayInterop.WrapArray(this.items).join("-");'
+      );
     });
 
     it("mirrors module-const-array-mutation", () => {
       const csharp = compileToCSharp(
-        readFixtureSource("module-const-array-mutation")
+        readFixtureSource("module-const-array-mutation"),
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
       );
 
       expect(csharp).to.include(
         "internal static string[] parts = global::System.Array.Empty<string>();"
       );
-      expect(csharp).to.include("parts.push(value);");
-      expect(csharp).to.include('global::System.Console.WriteLine(parts.join("-"));');
+      expect(csharp).to.include(
+        "var __tsonic_arrayWrapper = global::Tsonic.Internal.ArrayInterop.WrapArray(parts);"
+      );
+      expect(csharp).to.include(
+        "var __tsonic_arrayResult = __tsonic_arrayWrapper.push(value);"
+      );
+      expect(csharp).to.include(
+        'global::System.Console.WriteLine(global::Tsonic.Internal.ArrayInterop.WrapArray(parts).join("-"));'
+      );
     });
 
     it("mirrors native-array-push-mutation", () => {
       const csharp = compileToCSharp(
-        readFixtureSource("native-array-push-mutation")
+        readFixtureSource("native-array-push-mutation"),
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
       );
 
       expect(csharp).to.include(
         "string[] parts = global::System.Array.Empty<string>();"
       );
-      expect(csharp).to.include('parts.push("hello");');
-      expect(csharp).to.include('parts.push("world");');
-      expect(csharp).to.include('global::System.Console.WriteLine(parts.join("-"));');
+      expect(csharp).to.include(
+        'var __tsonic_arrayResult = __tsonic_arrayWrapper.push("hello");'
+      );
+      expect(csharp).to.include(
+        'var __tsonic_arrayResult__1 = __tsonic_arrayWrapper__1.push("world");'
+      );
+      expect(csharp).to.include(
+        'global::System.Console.WriteLine(global::Tsonic.Internal.ArrayInterop.WrapArray(parts).join("-"));'
+      );
     });
 
     it("preserves narrowed overload carriers for recursive fs-style writeSync calls", () => {
@@ -332,7 +358,7 @@ describe("End-to-End Integration", () => {
 
         O<FS>().method(x => x.writeSync_buffer).family(x => x.writeSync);
         O<FS>().method(x => x.writeSync_text).family(x => x.writeSync);
-      `);
+      `, "/test/test.ts", { surface: "@tsonic/js" });
 
       expect(
         csharp.match(
@@ -413,31 +439,13 @@ describe("End-to-End Integration", () => {
             null,
             2
           ),
-          "node_modules/@fixture/js/globals.ts": [
-            "declare global {",
-            '  const Uint8Array: typeof import("./src/index.js").Uint8Array;',
-            "}",
-            "",
-            "export {};",
-          ].join("\n"),
-          "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
-            {
-              schemaVersion: 1,
-              id: "@fixture/js",
-              extends: ["clr"],
-              requiredTypeRoots: ["."],
-            },
-            null,
-            2
-          ),
           "node_modules/@fixture/js/tsonic.package.json": JSON.stringify(
             {
               schemaVersion: 1,
               kind: "tsonic-source-package",
-              surfaces: ["@fixture/js"],
+              surfaces: ["@tsonic/js"],
               source: {
-                namespace: "js",
-                ambient: ["./globals.ts"],
+                namespace: "fixturejs",
                 exports: {
                   "./index.js": "./src/index.ts",
                 },
@@ -451,7 +459,7 @@ describe("End-to-End Integration", () => {
           ].join("\n"),
         },
         "src/index.ts",
-        { surface: "@fixture/js" }
+        { surface: "@tsonic/js" }
       );
 
       expect(csharp).to.include(
@@ -506,31 +514,13 @@ describe("End-to-End Integration", () => {
             null,
             2
           ),
-          "node_modules/@fixture/js/globals.ts": [
-            "declare global {",
-            '  const Uint8Array: typeof import("./src/index.js").Uint8Array;',
-            "}",
-            "",
-            "export {};",
-          ].join("\n"),
-          "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
-            {
-              schemaVersion: 1,
-              id: "@fixture/js",
-              extends: ["clr"],
-              requiredTypeRoots: ["."],
-            },
-            null,
-            2
-          ),
           "node_modules/@fixture/js/tsonic.package.json": JSON.stringify(
             {
               schemaVersion: 1,
               kind: "tsonic-source-package",
-              surfaces: ["@fixture/js"],
+              surfaces: ["@tsonic/js"],
               source: {
-                namespace: "js",
-                ambient: ["./globals.ts"],
+                namespace: "fixturejs",
                 exports: {
                   "./index.js": "./src/index.ts",
                 },
@@ -544,7 +534,7 @@ describe("End-to-End Integration", () => {
           ].join("\n"),
         },
         "src/index.ts",
-        { surface: "@fixture/js" }
+        { surface: "@tsonic/js" }
       );
 
       expect(csharp).to.include("Buffer.fromUint8Array((value.As3()));");
@@ -613,7 +603,7 @@ describe("End-to-End Integration", () => {
           }
           return result;
         }
-      `);
+      `, "/test/test.ts", { surface: "@tsonic/js" });
 
       expect(csharp).to.include("result.set(");
       expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
@@ -717,7 +707,7 @@ describe("End-to-End Integration", () => {
             return new Buffer(copy);
           }
         }
-      `);
+      `, "/test/test.ts", { surface: "@tsonic/js" });
 
       expect(csharp).to.include(
         "copy.set(global::Tsonic.Runtime.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2(global::System.Linq.Enumerable.Select<byte, double>(buffer._data.__tsonic_symbol_iterator(), __item => __item)));"
@@ -758,7 +748,7 @@ describe("End-to-End Integration", () => {
         ): void {
           target.set(values, offset);
         }
-      `);
+      `, "/test/test.ts", { surface: "@tsonic/js" });
 
       expect(csharp).to.include(
         "target.set(values, offset);"
@@ -824,10 +814,16 @@ describe("End-to-End Integration", () => {
             return this.createWrapped(flattened);
           }
         }
-      `);
+      `, "/test/test.ts", { surface: "@tsonic/js" });
 
-      expect(csharp).to.include("public Array<object?> flat");
-      expect(csharp).not.to.include("return this.createWrapped((TResult[])");
+      const localArraySection = csharp.slice(
+        csharp.lastIndexOf("public class Array<T>")
+      );
+      expect(localArraySection).to.include("public Array<object?> flat");
+      expect(localArraySection).to.include("return this.createWrapped(flattened);");
+      expect(localArraySection).not.to.include(
+        "return this.createWrapped((TResult[])"
+      );
     });
 
   });

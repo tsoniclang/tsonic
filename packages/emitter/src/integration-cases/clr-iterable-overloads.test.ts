@@ -320,7 +320,7 @@ describe("Integration: CLR iterable overloads", () => {
     expect(csharp).to.not.include("Assert.Equal(42, received);");
   });
 
-  it("keeps generic scalar equality over Memory<char> siblings for JsValue array elements", () => {
+  it("widens generic equality to object over Memory<char> siblings for JsValue array elements", () => {
     const csharp = compileProjectToCSharp(
       {
         "package.json": JSON.stringify(
@@ -377,12 +377,11 @@ describe("Integration: CLR iterable overloads", () => {
       { surface: "@tsonic/js" }
     );
 
-    expect(csharp).to.include(
-      "Assert.Equal((object)(double)1, (int)(object)args[0]);"
-    );
+    expect(csharp).to.include("Assert.Equal((object)(double)1, ");
     expect(csharp).to.not.include(
       "(global::System.Memory<char>)(object)args[0]"
     );
+    expect(csharp).to.not.include("(int)(object)args[0]");
   });
 
   it("preserves explicit JsValue callback storage for later numeric equality assertions", () => {

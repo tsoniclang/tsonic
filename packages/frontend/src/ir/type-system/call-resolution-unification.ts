@@ -65,16 +65,8 @@ export const inferMethodTypeArgsFromArguments = (
     const existingIsBroadObject = isBroadObjectInferenceType(existing);
     const nextIsBroadObject = isBroadObjectInferenceType(next);
 
-    if (existingIsBroadObject && nextIsBroadObject) {
+    if (existingIsBroadObject || nextIsBroadObject) {
       return { kind: "referenceType", name: "object" };
-    }
-
-    if (existingIsBroadObject && !nextIsBroadObject) {
-      return next;
-    }
-
-    if (!existingIsBroadObject && nextIsBroadObject) {
-      return existing;
     }
 
     return undefined;

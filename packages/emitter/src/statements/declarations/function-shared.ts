@@ -40,6 +40,7 @@ export type SavedFunctionScopeContext = {
   readonly returnType: EmitterContext["returnType"];
   readonly narrowedBindings: EmitterContext["narrowedBindings"];
   readonly voidResolveNames: EmitterContext["voidResolveNames"];
+  readonly promiseResolveValueTypes: EmitterContext["promiseResolveValueTypes"];
   readonly localNameMap: EmitterContext["localNameMap"];
   readonly localSemanticTypes: EmitterContext["localSemanticTypes"];
   readonly localValueTypes: EmitterContext["localValueTypes"];
@@ -55,6 +56,7 @@ export const captureFunctionScopeContext = (
   returnType: context.returnType,
   narrowedBindings: context.narrowedBindings,
   voidResolveNames: context.voidResolveNames,
+  promiseResolveValueTypes: context.promiseResolveValueTypes,
   localNameMap: context.localNameMap,
   localSemanticTypes: context.localSemanticTypes,
   localValueTypes: context.localValueTypes,

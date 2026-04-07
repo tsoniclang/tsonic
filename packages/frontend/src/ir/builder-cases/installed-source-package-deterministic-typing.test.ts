@@ -605,6 +605,14 @@ describe("IR Builder", function () {
         expect(callExpr.surfaceParameterTypes[0].types[0]?.kind).to.equal(
           "arrayType"
         );
+        if (callExpr.surfaceParameterTypes[0].types[0]?.kind !== "arrayType") {
+          return;
+        }
+        expect(
+          callExpr.surfaceParameterTypes[0].types[0].elementType
+        ).to.deep.include({
+          name: "byte",
+        });
         expect(callExpr.surfaceParameterTypes[0].types[1]?.kind).to.equal(
           "referenceType"
         );
@@ -715,6 +723,14 @@ describe("IR Builder", function () {
         expect(callExpr.surfaceParameterTypes[0].types[0]?.kind).to.equal(
           "arrayType"
         );
+        if (callExpr.surfaceParameterTypes[0].types[0]?.kind !== "arrayType") {
+          return;
+        }
+        expect(
+          callExpr.surfaceParameterTypes[0].types[0].elementType
+        ).to.deep.include({
+          name: "byte",
+        });
         expect(callExpr.surfaceParameterTypes[0].types[1]?.kind).to.equal(
           "referenceType"
         );

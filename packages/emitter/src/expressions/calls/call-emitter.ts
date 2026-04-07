@@ -55,10 +55,11 @@ import { tryEmitExtensionMethodCall } from "./call-extension-methods.js";
 import { stripClrGenericArity } from "../access-resolution.js";
 
 const buildCallTargetExpectedType = (
-  expr: Extract<IrExpression, { kind: "call" }>
+  expr: Extract<IrExpression, { kind: "call" }>,
+  preferParameterTypes = false
 ): IrType | undefined => {
   const calleeType = expr.callee.inferredType;
-  if (calleeType?.kind === "functionType") {
+  if (!preferParameterTypes && calleeType?.kind === "functionType") {
     return calleeType;
   }
 
@@ -103,6 +104,32 @@ const extractTransparentIdentifier = (
   }
 
   return current.kind === "identifier" ? current : undefined;
+};
+
+const normalizePromiseResolveCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): Extract<IrExpression, { kind: "call" }> => {
+  const transparentCalleeIdentifier = extractTransparentIdentifier(expr.callee);
+  if (!transparentCalleeIdentifier) {
+    return expr;
+  }
+
+  const promisedValueType = context.promiseResolveValueTypes?.get(
+    transparentCalleeIdentifier.name
+  );
+  if (!promisedValueType) {
+    return expr;
+  }
+
+  return {
+    ...expr,
+    callee: transparentCalleeIdentifier,
+    parameterTypes: [promisedValueType],
+    surfaceParameterTypes: [promisedValueType],
+    restParameter: undefined,
+    surfaceRestParameter: undefined,
+  };
 };
 
 const tryGetCallableStaticAccessorCall = (
@@ -317,22 +344,28 @@ export const emitCall = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  const syntheticArraySlice = emitSyntheticArraySliceCall(expr, context);
+  const normalizedExpr = normalizePromiseResolveCall(expr, context);
+
+  const syntheticArraySlice = emitSyntheticArraySliceCall(normalizedExpr, context);
   if (syntheticArraySlice) {
     return syntheticArraySlice;
   }
 
-  const dynamicImport = emitDynamicImportCall(expr, context);
+  const dynamicImport = emitDynamicImportCall(normalizedExpr, context);
   if (dynamicImport) return dynamicImport;
 
-  const promiseStaticCall = emitPromiseStaticCall(expr, context, expectedType);
+  const promiseStaticCall = emitPromiseStaticCall(
+    normalizedExpr,
+    context,
+    expectedType
+  );
   if (promiseStaticCall) return promiseStaticCall;
 
-  const promiseChain = emitPromiseThenCatchFinally(expr, context);
+  const promiseChain = emitPromiseThenCatchFinally(normalizedExpr, context);
   if (promiseChain) return promiseChain;
 
   const runtimeUnionArrayIsArray = emitRuntimeUnionArrayIsArrayCall(
-    expr,
+    normalizedExpr,
     context
   );
   if (runtimeUnionArrayIsArray) {
@@ -340,16 +373,18 @@ export const emitCall = (
   }
 
   // Void promise resolve: emit as zero-arg call when safe.
-  const transparentCalleeIdentifier = extractTransparentIdentifier(expr.callee);
+  const transparentCalleeIdentifier = extractTransparentIdentifier(
+    normalizedExpr.callee
+  );
   if (
     transparentCalleeIdentifier &&
     context.voidResolveNames?.has(transparentCalleeIdentifier.name)
   ) {
-    const isZeroArg = expr.arguments.length === 0;
+    const isZeroArg = normalizedExpr.arguments.length === 0;
     const isSingleUndefined =
-      expr.arguments.length === 1 &&
-      expr.arguments[0]?.kind === "identifier" &&
-      expr.arguments[0].name === "undefined";
+      normalizedExpr.arguments.length === 1 &&
+      normalizedExpr.arguments[0]?.kind === "identifier" &&
+      normalizedExpr.arguments[0].name === "undefined";
 
     if (isZeroArg || isSingleUndefined) {
       const [calleeAst, calleeCtx] = emitExpressionAst(
@@ -368,29 +403,34 @@ export const emitCall = (
   }
 
   // Check for JsonSerializer calls (NativeAOT support)
-  const jsonCall = isJsonSerializerCall(expr.callee);
+  const jsonCall = isJsonSerializerCall(normalizedExpr.callee);
   if (jsonCall) {
-    return emitJsonSerializerCall(expr, context, jsonCall.method);
+    return emitJsonSerializerCall(normalizedExpr, context, jsonCall.method);
   }
 
-  if (expr.intrinsicKind === "globalSymbol") {
-    return emitGlobalSymbolCall(expr, context);
+  if (normalizedExpr.intrinsicKind === "globalSymbol") {
+    return emitGlobalSymbolCall(normalizedExpr, context);
   }
 
   // Check for global JSON.stringify/parse calls
-  const globalJsonCall = isGlobalJsonCall(expr.callee, context);
+  const globalJsonCall = isGlobalJsonCall(normalizedExpr.callee, context);
   if (globalJsonCall) {
-    return emitGlobalJsonCall(expr, context, globalJsonCall.method, expectedType);
+    return emitGlobalJsonCall(
+      normalizedExpr,
+      context,
+      globalJsonCall.method,
+      expectedType
+    );
   }
 
   // EF Core query canonicalization: ToList().ToArray() -> ToArray()
   if (
-    expr.callee.kind === "memberAccess" &&
-    expr.callee.property === "ToArray" &&
-    expr.arguments.length === 0 &&
-    expr.callee.object.kind === "call"
+    normalizedExpr.callee.kind === "memberAccess" &&
+    normalizedExpr.callee.property === "ToArray" &&
+    normalizedExpr.arguments.length === 0 &&
+    normalizedExpr.callee.object.kind === "call"
   ) {
-    const innerCall = expr.callee.object;
+    const innerCall = normalizedExpr.callee.object;
 
     if (
       innerCall.callee.kind === "memberAccess" &&
@@ -429,11 +469,14 @@ export const emitCall = (
   }
 
   const arrayWrapperInteropCall = emitArrayWrapperInteropCall(
-    expr,
+    normalizedExpr,
     context,
     expectedType
   );
-  const arrayMutationInteropCall = emitArrayMutationInteropCall(expr, context);
+  const arrayMutationInteropCall = emitArrayMutationInteropCall(
+    normalizedExpr,
+    context
+  );
   if (arrayMutationInteropCall) {
     return arrayMutationInteropCall;
   }
@@ -445,7 +488,7 @@ export const emitCall = (
   // Keep this after native array interop so lifted/static container array
   // mutation calls cannot fall through to copy-based source-owned array syntax.
   const extensionResult = tryEmitExtensionMethodCall(
-    expr,
+    normalizedExpr,
     context,
     expectedType
   );
@@ -453,21 +496,28 @@ export const emitCall = (
     return extensionResult;
   }
 
-  const callableStaticAccessor = tryGetCallableStaticAccessorCall(expr);
+  const callableStaticAccessor = tryGetCallableStaticAccessorCall(normalizedExpr);
   if (callableStaticAccessor) {
     return emitCallableStaticAccessorCall(
-      expr,
+      normalizedExpr,
       callableStaticAccessor.binding,
       context
     );
   }
 
   // Regular function call
-  const calleeExprForEmission = expr.callee;
+  const calleeExprForEmission = normalizedExpr.callee;
+  const shouldPreferParameterExpectedType =
+    transparentCalleeIdentifier !== undefined &&
+    context.promiseResolveValueTypes?.has(transparentCalleeIdentifier.name) ===
+      true;
   const calleeExpectedType =
     calleeExprForEmission.kind === "memberAccess"
       ? undefined
-      : buildCallTargetExpectedType(expr);
+      : buildCallTargetExpectedType(
+          normalizedExpr,
+          shouldPreferParameterExpectedType
+        );
   const [calleeAst, newContext] =
     calleeExprForEmission.kind === "memberAccess"
       ? emitMemberAccess(calleeExprForEmission, context, "call")
@@ -486,12 +536,12 @@ export const emitCall = (
     currentContext = castedLambdaTarget[1];
   }
 
-  if (expr.typeArguments && expr.typeArguments.length > 0) {
-    if (expr.requiresSpecialization) {
+  if (normalizedExpr.typeArguments && normalizedExpr.typeArguments.length > 0) {
+    if (normalizedExpr.requiresSpecialization) {
       const calleeText = extractCalleeNameFromAst(calleeAst);
       const [specializedName, specContext] = generateSpecializedName(
         calleeText,
-        expr.typeArguments,
+        normalizedExpr.typeArguments,
         currentContext
       );
       calleeExpr = {
@@ -501,7 +551,7 @@ export const emitCall = (
       currentContext = specContext;
     } else {
       const [typeArgs, typeContext] = emitTypeArgumentsAst(
-        expr.typeArguments,
+        normalizedExpr.typeArguments,
         currentContext
       );
       typeArgAsts = typeArgs;
@@ -510,14 +560,14 @@ export const emitCall = (
   }
 
   const [argAsts, argContext] = emitCallArguments(
-    expr.arguments,
-    expr,
+    normalizedExpr.arguments,
+    normalizedExpr,
     currentContext
   );
   currentContext = argContext;
 
   // Build the invocation target (may need optional chaining wrapper)
-  const invocationTarget: CSharpExpressionAst = expr.isOptional
+  const invocationTarget: CSharpExpressionAst = normalizedExpr.isOptional
     ? (() => {
         // Optional call: callee?.(args) — in C# this requires the callee to be
         // a delegate and the call to be ?.Invoke(). For member access callees
@@ -542,9 +592,9 @@ export const emitCall = (
   };
 
   const shouldCastSuperCallResult =
-    expr.callee.kind === "memberAccess" &&
-    expr.callee.object.kind === "identifier" &&
-    expr.callee.object.name === "super" &&
+    normalizedExpr.callee.kind === "memberAccess" &&
+    normalizedExpr.callee.object.kind === "identifier" &&
+    normalizedExpr.callee.object.name === "super" &&
     !!expectedType &&
     expectedType.kind !== "voidType" &&
     expectedType.kind !== "anyType" &&
@@ -566,7 +616,7 @@ export const emitCall = (
 
   const calleeText = extractCalleeNameFromAst(calleeAst);
   return [
-    wrapIntCast(needsIntCast(expr, calleeText), finalInvocation),
+    wrapIntCast(needsIntCast(normalizedExpr, calleeText), finalInvocation),
     currentContext,
   ];
 };

@@ -69,6 +69,21 @@ const getPromiseValueType = (
   return undefined;
 };
 
+const isVoidPromiseValue = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  const inferred = expr.inferredType;
+  if (inferred?.kind === "referenceType") {
+    const candidate = inferred.typeArguments?.[0];
+    if (candidate) {
+      return isVoidLikeType(candidate);
+    }
+  }
+
+  const explicit = expr.typeArguments?.[0];
+  return explicit ? isVoidLikeType(explicit) : false;
+};
+
 const getExecutorArity = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): number => {
@@ -95,7 +110,12 @@ const normalizePromiseExecutorExpectedType = (
   promiseValueType: IrType | undefined
 ): IrType | undefined => {
   const executorType = expr.parameterTypes?.[0];
-  if (!promiseValueType || executorType?.kind !== "functionType") {
+  if (executorType?.kind !== "functionType") {
+    return executorType;
+  }
+
+  const voidPromiseValue = promiseValueType === undefined && isVoidPromiseValue(expr);
+  if (!promiseValueType && !voidPromiseValue) {
     return executorType;
   }
 
@@ -119,12 +139,14 @@ const normalizePromiseExecutorExpectedType = (
         ...parameter,
         type: {
           ...parameter.type,
-          parameters: [
-            {
-              ...resolveParameter,
-              type: promiseValueType,
-            },
-          ],
+          parameters: voidPromiseValue
+            ? []
+            : [
+                {
+                  ...resolveParameter,
+                  type: promiseValueType,
+                },
+              ],
         },
       };
     }),
@@ -166,18 +188,31 @@ export const emitPromiseConstructor = (
   }
 
   const resolveParam =
-    !promiseValueType &&
-    (executor.kind === "arrowFunction" ||
-      executor.kind === "functionExpression")
+    executor.kind === "arrowFunction" ||
+    executor.kind === "functionExpression"
       ? executor.parameters[0]
       : undefined;
   const resolveParamName =
     resolveParam?.pattern.kind === "identifierPattern"
       ? resolveParam.pattern.name
       : undefined;
+  const promiseResolveValueTypes =
+    resolveParamName !== undefined && promiseValueType
+      ? new Map(currentContext.promiseResolveValueTypes ?? [])
+      : undefined;
+  if (promiseResolveValueTypes && promiseValueType && resolveParamName !== undefined) {
+    promiseResolveValueTypes.set(resolveParamName, promiseValueType);
+  }
 
   const executorEmitContext = resolveParamName
-    ? { ...currentContext, voidResolveNames: new Set([resolveParamName]) }
+    ? {
+        ...currentContext,
+        voidResolveNames: promiseValueType
+          ? currentContext.voidResolveNames
+          : new Set([resolveParamName]),
+        promiseResolveValueTypes:
+          promiseResolveValueTypes ?? currentContext.promiseResolveValueTypes,
+      }
     : currentContext;
 
   const resolveParamHasVoidGeneric =
@@ -211,7 +246,11 @@ export const emitPromiseConstructor = (
     executorExpectedType
   );
   currentContext = resolveParamName
-    ? { ...executorContext, voidResolveNames: undefined }
+    ? {
+        ...executorContext,
+        voidResolveNames: currentContext.voidResolveNames,
+        promiseResolveValueTypes: currentContext.promiseResolveValueTypes,
+      }
     : executorContext;
 
   const executorArity = getExecutorArity(expr);

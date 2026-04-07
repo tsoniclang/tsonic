@@ -59,6 +59,60 @@ const stripParentheses = (expr: ts.Expression): ts.Expression => {
   return current;
 };
 
+const containsTypeParameter = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  switch (type.kind) {
+    case "typeParameterType":
+      return true;
+    case "arrayType":
+      return containsTypeParameter(type.elementType);
+    case "tupleType":
+      return type.elementTypes.some((elementType) =>
+        containsTypeParameter(elementType)
+      );
+    case "dictionaryType":
+      return (
+        containsTypeParameter(type.keyType) ||
+        containsTypeParameter(type.valueType)
+      );
+    case "referenceType":
+      return (
+        (type.typeArguments?.some((typeArgument) =>
+          containsTypeParameter(typeArgument)
+        ) ?? false) ||
+        (type.structuralMembers?.some((member) =>
+          member.kind === "propertySignature"
+            ? containsTypeParameter(member.type)
+            : member.parameters.some((parameter) =>
+                containsTypeParameter(parameter.type)
+              ) || containsTypeParameter(member.returnType)
+        ) ?? false)
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.some((memberType) => containsTypeParameter(memberType));
+    case "functionType":
+      return (
+        type.parameters.some((parameter) =>
+          containsTypeParameter(parameter.type)
+        ) || containsTypeParameter(type.returnType)
+      );
+    case "objectType":
+      return type.members.some((member) =>
+        member.kind === "propertySignature"
+          ? containsTypeParameter(member.type)
+          : member.parameters.some((parameter) =>
+              containsTypeParameter(parameter.type)
+            ) || containsTypeParameter(member.returnType)
+      );
+    default:
+      return false;
+  }
+};
+
 const getDirectStructuralMemberType = (
   receiverType: IrType | undefined,
   memberName: string
@@ -92,12 +146,23 @@ const getDirectStructuralMemberType = (
       returnType: member.returnType ?? ({ kind: "unknownType" } as const),
     }));
 
-    return callableTypes.length === 1
-      ? callableTypes[0]
-      : {
-          kind: "intersectionType",
-          types: callableTypes,
-        };
+    const callableType =
+      callableTypes.length === 1
+        ? callableTypes[0]
+        : {
+            kind: "intersectionType" as const,
+            types: callableTypes,
+          };
+
+    if (
+      receiverType?.kind === "referenceType" &&
+      (!receiverType.typeArguments || receiverType.typeArguments.length === 0) &&
+      containsTypeParameter(callableType)
+    ) {
+      return undefined;
+    }
+
+    return callableType;
   }
 
   const propertyMember = matchingMembers.find(
@@ -106,6 +171,14 @@ const getDirectStructuralMemberType = (
     ): member is Extract<(typeof matchingMembers)[number], { kind: "propertySignature" }> =>
       member.kind === "propertySignature"
   );
+  if (
+    receiverType?.kind === "referenceType" &&
+    (!receiverType.typeArguments || receiverType.typeArguments.length === 0) &&
+    containsTypeParameter(propertyMember?.type)
+  ) {
+    return undefined;
+  }
+
   return propertyMember?.type;
 };
 
@@ -548,6 +621,99 @@ const collectTopLevelClassDeclarations = (
   return classes;
 };
 
+const getLocalClassLookupName = (typeName: string): string =>
+  typeName.replace(/\$instance$/, "").split(".").pop() ?? typeName;
+
+const buildLocalReceiverOwnerTypeSubstitution = (
+  receiverType: IrType | undefined,
+  ownerClassDeclaration: ts.ClassLikeDeclaration | undefined,
+  ownerTypeParameterNames: readonly string[],
+  ctx: ProgramContext
+): ReadonlyMap<string, IrType> | undefined => {
+  if (
+    receiverType?.kind !== "referenceType" ||
+    !ownerClassDeclaration ||
+    !ownerClassDeclaration.name ||
+    ownerTypeParameterNames.length === 0
+  ) {
+    return undefined;
+  }
+
+  const topLevelClasses = collectTopLevelClassDeclarations(
+    ownerClassDeclaration.getSourceFile()
+  );
+  let currentClass = topLevelClasses.get(getLocalClassLookupName(receiverType.name));
+  let currentInstantiatedType: IrType = receiverType;
+  const visited = new Set<string>();
+
+  while (currentClass?.name?.text) {
+    const currentName = currentClass.name.text;
+    if (visited.has(currentName)) {
+      return undefined;
+    }
+    visited.add(currentName);
+
+    if (currentName === ownerClassDeclaration.name.text) {
+      if (
+        currentInstantiatedType.kind !== "referenceType" ||
+        !currentInstantiatedType.typeArguments ||
+        currentInstantiatedType.typeArguments.length !== ownerTypeParameterNames.length
+      ) {
+        return undefined;
+      }
+
+      const substitution = new Map<string, IrType>();
+      for (let index = 0; index < ownerTypeParameterNames.length; index += 1) {
+        const typeParameterName = ownerTypeParameterNames[index];
+        const typeArgument = currentInstantiatedType.typeArguments[index];
+        if (typeParameterName && typeArgument) {
+          substitution.set(typeParameterName, typeArgument);
+        }
+      }
+      return substitution.size > 0 ? substitution : undefined;
+    }
+
+    const extendsClause = currentClass.heritageClauses?.find(
+      (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword
+    );
+    const heritageType = extendsClause?.types[0];
+    if (!heritageType) {
+      return undefined;
+    }
+
+    let nextType = resolveHeritageReferenceType(heritageType, ctx);
+    if (
+      currentInstantiatedType.kind === "referenceType" &&
+      currentClass.typeParameters?.length &&
+      currentInstantiatedType.typeArguments &&
+      currentInstantiatedType.typeArguments.length ===
+        currentClass.typeParameters.length
+    ) {
+      const currentSubstitution = new Map<string, IrType>();
+      for (let index = 0; index < currentClass.typeParameters.length; index += 1) {
+        const typeParameterName = currentClass.typeParameters[index]?.name.text;
+        const typeArgument = currentInstantiatedType.typeArguments[index];
+        if (typeParameterName && typeArgument) {
+          currentSubstitution.set(typeParameterName, typeArgument);
+        }
+      }
+      if (currentSubstitution.size > 0) {
+        nextType =
+          ctx.typeSystem.substitute(nextType, currentSubstitution) ?? nextType;
+      }
+    }
+
+    if (nextType.kind !== "referenceType") {
+      return undefined;
+    }
+
+    currentInstantiatedType = nextType;
+    currentClass = topLevelClasses.get(getLocalClassLookupName(nextType.name));
+  }
+
+  return undefined;
+};
+
 const resolveInstantiatedExportClassDeclaration = (
   exportedSymbol: SourceExportedTopLevelSymbol,
   topLevelClasses: ReadonlyMap<string, ts.ClassDeclaration>
@@ -688,6 +854,7 @@ const buildSourceBackedParameterSurface = (
     declaredReturnType,
     receiverType,
     ownerTypeParameterNames,
+    ts.isClassLike(declaration.parent) ? declaration.parent : undefined,
     ctx
   );
   const parameterTypes = expandParameterTypesForArguments(
@@ -1407,7 +1574,9 @@ const buildSourceReceiverTypeSubstitution = (
   parameters: readonly IrParameter[],
   returnType: IrType | undefined,
   receiverType: IrType | undefined,
-  ownerTypeParameterNames: readonly string[]
+  ownerTypeParameterNames: readonly string[],
+  ownerClassDeclaration: ts.ClassLikeDeclaration | undefined,
+  ctx: ProgramContext
 ): ReadonlyMap<string, IrType> | undefined => {
   if (!receiverType || ownerTypeParameterNames.length === 0) {
     return undefined;
@@ -1425,6 +1594,20 @@ const buildSourceReceiverTypeSubstitution = (
       const argument = receiverType.typeArguments[index];
       if (name && argument) {
         substitution.set(name, argument);
+      }
+    }
+  }
+
+  if (substitution.size === 0) {
+    const localReceiverSubstitution = buildLocalReceiverOwnerTypeSubstitution(
+      receiverType,
+      ownerClassDeclaration,
+      ownerTypeParameterNames,
+      ctx
+    );
+    if (localReceiverSubstitution) {
+      for (const [typeParameterName, typeArgument] of localReceiverSubstitution) {
+        substitution.set(typeParameterName, typeArgument);
       }
     }
   }
@@ -1493,6 +1676,7 @@ const applySourceReceiverTypeSubstitution = (
   returnType: IrType | undefined,
   receiverType: IrType | undefined,
   ownerTypeParameterNames: readonly string[],
+  ownerClassDeclaration: ts.ClassLikeDeclaration | undefined,
   ctx: ProgramContext
 ): {
   readonly parameters: readonly IrParameter[];
@@ -1502,7 +1686,9 @@ const applySourceReceiverTypeSubstitution = (
     parameters,
     returnType,
     receiverType,
-    ownerTypeParameterNames
+    ownerTypeParameterNames,
+    ownerClassDeclaration,
+    ctx
   );
   if (!substitution) {
     return {
@@ -2039,6 +2225,10 @@ export const convertCallExpression = (
     usesAuthoritativeSurfaceBindings
     ? boundGlobalCallParameterTypes?.parameterTypes
     : undefined;
+  const authoritativeBoundGlobalReturnType =
+    usesAuthoritativeSurfaceBindings
+      ? boundGlobalCallParameterTypes?.returnType
+      : undefined;
   const ambientBoundGlobalSurfaceParameterTypes =
     !usesAuthoritativeSurfaceBindings &&
     boundGlobalCallParameterTypes &&
@@ -2435,8 +2625,10 @@ export const convertCallExpression = (
           expectedType
         )
       : undefined;
-  const directCalleeFunctionType =
-    callee.inferredType?.kind === "functionType" ? callee.inferredType : undefined;
+  const directCalleeCallableType =
+    callee.inferredType && callee.inferredType.kind !== "unknownType"
+      ? callee.inferredType
+      : undefined;
   const exactMemberCallableResolution =
     exactMemberCallableType && exactMemberCallableType.kind !== "unknownType"
       ? resolveCallableCandidate(
@@ -2448,9 +2640,9 @@ export const convertCallExpression = (
           expectedType
         )
       : undefined;
-  const directCalleeCallableResolution = directCalleeFunctionType
+  const directCalleeCallableResolution = directCalleeCallableType
     ? resolveCallableCandidate(
-        directCalleeFunctionType,
+        directCalleeCallableType,
         finalResolutionArgumentCount,
         ctx,
         finalResolutionArgTypes,
@@ -2462,7 +2654,9 @@ export const convertCallExpression = (
     finalCallableResolution?.callableType ??
     lambdaContextFunctionType ??
     calleeFunctionType ??
-    directCalleeFunctionType;
+    (directCalleeCallableType?.kind === "functionType"
+      ? directCalleeCallableType
+      : undefined);
   const finalFunctionParameterTypes =
     useDirectCallableCandidateResolution
       ? finalCallableResolution?.resolved?.parameterTypes
@@ -2602,6 +2796,40 @@ export const convertCallExpression = (
       !typeSystem.containsTypeParameter(exactType)
     );
   };
+  const mergeExactTypeArrays = (
+    primary: readonly (IrType | undefined)[] | undefined,
+    fallback: readonly (IrType | undefined)[] | undefined
+  ): readonly (IrType | undefined)[] | undefined => {
+    if (!primary) {
+      return fallback;
+    }
+
+    if (!fallback) {
+      return primary;
+    }
+
+    const count = Math.max(primary.length, fallback.length);
+    return Array.from({ length: count }, (_, index) =>
+      shouldPreferExactMemberType(primary[index], fallback[index])
+        ? fallback[index]
+        : primary[index]
+    );
+  };
+  const mergedExactParameterTypes = mergeExactTypeArrays(
+    exactMemberCallableResolution?.resolved?.parameterTypes,
+    directCalleeCallableResolution?.resolved?.parameterTypes
+  );
+  const mergedExactSurfaceParameterTypes = mergeExactTypeArrays(
+    exactMemberCallableResolution?.resolved?.surfaceParameterTypes,
+    directCalleeCallableResolution?.resolved?.surfaceParameterTypes
+  );
+  const mergedExactReturnType = shouldPreferExactMemberType(
+    exactMemberCallableResolution?.resolved?.returnType,
+    directCalleeCallableResolution?.resolved?.returnType
+  )
+    ? directCalleeCallableResolution?.resolved?.returnType
+    : (exactMemberCallableResolution?.resolved?.returnType ??
+        directCalleeCallableResolution?.resolved?.returnType);
   const explicitSemanticRestParameter = (() => {
     if (boundGlobalCallParameterTypes) {
       return boundGlobalCallParameterTypes.restParameter;
@@ -2621,10 +2849,7 @@ export const convertCallExpression = (
     const baselineParameterTypes =
       finalSourceBackedCallParameterTypes?.parameterTypes ??
       sourceBackedCallParameterTypes?.parameterTypes;
-    const exactParameterTypes =
-      exactMemberCallableResolution?.resolved?.parameterTypes ??
-      directCalleeCallableResolution?.resolved?.parameterTypes ??
-      finalResolved?.parameterTypes;
+    const exactParameterTypes = mergedExactParameterTypes ?? finalResolved?.parameterTypes;
     if (!baselineParameterTypes || !exactParameterTypes) {
       return baselineParameterTypes;
     }
@@ -2640,9 +2865,7 @@ export const convertCallExpression = (
       finalSourceBackedCallParameterTypes?.surfaceParameterTypes ??
       sourceBackedCallParameterTypes?.surfaceParameterTypes;
     const exactSurfaceParameterTypes =
-      exactMemberCallableResolution?.resolved?.surfaceParameterTypes ??
-      directCalleeCallableResolution?.resolved?.surfaceParameterTypes ??
-      finalResolved?.surfaceParameterTypes;
+      mergedExactSurfaceParameterTypes ?? finalResolved?.surfaceParameterTypes;
     if (!baselineSurfaceParameterTypes || !exactSurfaceParameterTypes) {
       return baselineSurfaceParameterTypes;
     }
@@ -2655,12 +2878,13 @@ export const convertCallExpression = (
   })();
   const refinedSourceBackedReturnType = (() => {
     const baselineReturnType =
+      authoritativeBoundGlobalReturnType ??
       finalSourceBackedCallParameterTypes?.returnType ??
       sourceBackedCallParameterTypes?.returnType;
-    const exactReturnType =
-      exactMemberCallableResolution?.resolved?.returnType ??
-      directCalleeCallableResolution?.resolved?.returnType ??
-      finalResolved?.returnType;
+    const exactReturnType = mergedExactReturnType ?? finalResolved?.returnType;
+    if (authoritativeBoundGlobalReturnType) {
+      return baselineReturnType;
+    }
     return shouldPreferExactMemberType(baselineReturnType, exactReturnType)
       ? exactReturnType
       : baselineReturnType;
@@ -2682,7 +2906,9 @@ export const convertCallExpression = (
             )
           : undefined);
 
-      const exactParameterTypes = exactMemberCallableResolution?.resolved?.parameterTypes;
+      const exactParameterTypes = boundGlobalCallParameterTypes?.parameterTypes
+        ? undefined
+        : mergedExactParameterTypes;
       if (!baselineParameterTypes || !exactParameterTypes) {
         return baselineParameterTypes;
       }
@@ -2708,7 +2934,9 @@ export const convertCallExpression = (
         parameterTypes;
 
       const exactSurfaceParameterTypes =
-        exactMemberCallableResolution?.resolved?.surfaceParameterTypes;
+        authoritativeBoundGlobalSurfaceParameterTypes
+          ? undefined
+          : mergedExactSurfaceParameterTypes;
       if (!baselineSurfaceParameterTypes || !exactSurfaceParameterTypes) {
         return baselineSurfaceParameterTypes;
       }
@@ -2770,10 +2998,13 @@ export const convertCallExpression = (
     const resolvedReturnType =
       (() => {
         const baselineReturnType =
-          refinedSourceBackedReturnType ?? finalResolved?.returnType;
-        const exactReturnType =
-          exactMemberCallableResolution?.resolved?.returnType ??
-          directCalleeCallableResolution?.resolved?.returnType;
+          authoritativeBoundGlobalReturnType ??
+          refinedSourceBackedReturnType ??
+          finalResolved?.returnType;
+        const exactReturnType = mergedExactReturnType;
+        if (authoritativeBoundGlobalReturnType) {
+          return baselineReturnType;
+        }
         return shouldPreferExactMemberType(baselineReturnType, exactReturnType)
           ? exactReturnType
           : baselineReturnType;
@@ -2941,6 +3172,9 @@ export const convertCallExpression = (
   const finalInferredType = (() => {
     const baselineInferredType =
       applyCallReceiverPolymorphicThis(inferredType) ?? inferredType;
+    if (authoritativeBoundGlobalReturnType) {
+      return baselineInferredType;
+    }
     const directCallableReturnType = applyCallReceiverPolymorphicThis(
       directCalleeCallableResolution?.resolved?.returnType
     );

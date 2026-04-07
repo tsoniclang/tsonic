@@ -205,6 +205,11 @@ export const resolveHierarchicalBindingFromMemberId = (
   };
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
+  const preferredSourceOwnedClrOwner = ctx.bindings.hasSourceOwnedTypeAlias(
+    typeAlias
+  )
+    ? getPreferredInstanceOwnerClrType(ctx, typeAlias)
+    : undefined;
   const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
   const bindingsPath =
     declSourceFilePath !== undefined
@@ -319,7 +324,11 @@ export const resolveHierarchicalBindingFromMemberId = (
           expectedClrOwner
         )
       : undefined) ??
-    ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+    ctx.bindings.getMemberOverloads(
+      typeAlias,
+      propertyName,
+      preferredSourceOwnedClrOwner
+    );
   if (!overloadsAll || overloadsAll.length === 0) {
     if (ts.isIdentifier(node.expression)) {
       const simpleBinding = ctx.bindings.getExactBindingByKind(

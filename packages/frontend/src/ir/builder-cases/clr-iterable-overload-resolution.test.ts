@@ -1024,7 +1024,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("keeps generic scalar equality overloads over Memory<char> siblings for JsValue array elements", () => {
+    it("widens generic equality to object over Memory<char> siblings for JsValue array elements", () => {
       const fixture = createFilesystemTestProgram(
         {
           "package.json": JSON.stringify({
@@ -1122,8 +1122,8 @@ describe("IR Builder", function () {
         }
 
         expect(callStatement.expression.parameterTypes).to.deep.equal([
-          { kind: "referenceType", name: "int" },
-          { kind: "referenceType", name: "int" },
+          { kind: "referenceType", name: "object" },
+          { kind: "referenceType", name: "object" },
         ]);
       } finally {
         fixture.cleanup();
@@ -1694,6 +1694,12 @@ describe("IR Builder", function () {
         expect(firstParameterType.name).to.equal("Iterable");
         expect(firstSurfaceParameterType.types).to.have.length(2);
         expect(firstSurfaceParameterType.types[0]?.kind).to.equal("arrayType");
+        if (firstSurfaceParameterType.types[0]?.kind !== "arrayType") {
+          return;
+        }
+        expect(firstSurfaceParameterType.types[0].elementType).to.deep.include({
+          name: "byte",
+        });
         expect(firstSurfaceParameterType.types[1]?.kind).to.equal(
           "referenceType"
         );

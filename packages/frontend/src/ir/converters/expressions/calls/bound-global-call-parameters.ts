@@ -35,6 +35,7 @@ const isArityCompatibleForSemanticParameters = (
 export type BoundGlobalCallParameterTypes =
   | {
       readonly parameterTypes: readonly (IrType | undefined)[];
+      readonly returnType: IrType | undefined;
       readonly restParameter:
         | {
             readonly index: number;
@@ -102,6 +103,7 @@ export const getBoundGlobalCallParameterTypes = (
 
   return {
     parameterTypes,
+    returnType: selected.semanticSignature.returnType,
     restParameter: buildResolvedRestParameter(
       selected.semanticSignature.parameters.map((parameter) => ({
         isRest: parameter.isRest,
