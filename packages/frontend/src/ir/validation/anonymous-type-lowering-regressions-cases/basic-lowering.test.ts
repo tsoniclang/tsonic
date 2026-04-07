@@ -54,6 +54,49 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
     );
   });
 
+  it("retains anonymous carriers for object literals used only through inferred object metadata", () => {
+    const module = createTestModule(`
+      const doubledKey = "doubled";
+
+      const counter = {
+        _value: 1,
+        get value(): number {
+          return this._value;
+        },
+        set value(v: number) {
+          this._value = v;
+        },
+        get [doubledKey](): number {
+          return this.value * 2;
+        },
+      };
+
+      export function read(): number {
+        counter.value = counter.value + 4;
+        return counter[doubledKey];
+      }
+    `);
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const soundness = validateIrSoundness(lowered.modules);
+
+    expect(soundness.diagnostics.some((d) => d.code === "TSN7421")).to.equal(
+      false
+    );
+
+    const anonModule = lowered.modules.find(
+      (entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+    );
+    expect(anonModule).to.not.equal(undefined);
+    expect(
+      anonModule?.body.some(
+        (statement) =>
+          statement.kind === "classDeclaration" &&
+          statement.name.startsWith("__Anon_")
+      )
+    ).to.equal(true);
+  });
+
   it("preserves surface call parameter shapes while lowering runtime parameter carriers", () => {
     const optionsShape: Extract<IrType, { kind: "objectType" }> = {
       kind: "objectType" as const,

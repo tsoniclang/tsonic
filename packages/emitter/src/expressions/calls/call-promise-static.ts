@@ -9,6 +9,7 @@ import {
   buildTaskRunInvocation,
   getTaskResultType,
 } from "./call-promise-task-types.js";
+import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 import {
   getSequenceElementIrType,
   normalizePromiseChainResultIrType,
@@ -48,6 +49,27 @@ export const emitPromiseStaticCall = (
     );
     const expectedResultType = getTaskResultType(expectedTaskType);
     if (expectedResultType) {
+      outputTaskType = expectedTaskType;
+      outputResultType = expectedResultType;
+      currentContext = expectedTaskContext;
+    }
+  }
+  if (
+    outputResultType &&
+    containsTypeParameter(expr.inferredType ?? emittedOutputType ?? expectedType ?? {
+      kind: "referenceType",
+      name: "Promise",
+      typeArguments: [{ kind: "referenceType", name: "object" }],
+    }) &&
+    expectedType &&
+    isAwaitableIrType(expectedType)
+  ) {
+    const [expectedTaskType, expectedTaskContext] = emitTypeAst(
+      expectedType,
+      currentContext
+    );
+    const expectedResultType = getTaskResultType(expectedTaskType);
+    if (expectedResultType && !containsTypeParameter(expectedType)) {
       outputTaskType = expectedTaskType;
       outputResultType = expectedResultType;
       currentContext = expectedTaskContext;

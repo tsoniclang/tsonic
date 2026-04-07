@@ -14,7 +14,6 @@ import type {
   CSharpExpressionAst,
   CSharpStatementAst,
 } from "../../core/format/backend-ast/types.js";
-import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
@@ -24,21 +23,7 @@ import {
   wrapIntCast,
 } from "./call-arguments.js";
 import { buildDelegateType } from "./call-promise.js";
-
-const buildNativeArrayWrapperAst = (
-  receiverAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: identifierType("global::js.ArrayObject"),
-    },
-    memberName: "wrapArray",
-  },
-  arguments: [receiverAst],
-});
+import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
@@ -335,7 +320,7 @@ export const emitArrayMutationInteropCall = (
       statements: [
         ...captured.setupStatements,
         createVarLocal(wrapperTemp.emittedName, {
-          ...buildNativeArrayWrapperAst(captured.readExpression),
+          ...buildNativeArrayInteropWrapAst(captured.readExpression),
         }),
         createVarLocal(resultTemp.emittedName, mutationCall),
         {

@@ -28,6 +28,7 @@ import type {
 import {
   buildHoistedInitializerStatement,
   isInterfaceReference,
+  referenceTypeRequiresSetsRequiredMembersCtor,
   shouldHoistInstanceInitializer,
   stripMemberInitializer,
 } from "./class-emitter-helpers.js";
@@ -357,13 +358,20 @@ export const emitClassDeclaration = (
   const hasRequiredProperties = memberAstsWithHoistedInitializers.some(
     (m) => m.kind === "propertyDeclaration" && m.modifiers.includes("required")
   );
+  const baseRequiresSetsRequiredMembersCtor =
+    stmt.superClass?.kind === "referenceType"
+      ? referenceTypeRequiresSetsRequiredMembersCtor(stmt.superClass, context)
+      : false;
   const setsRequiredAttribute: CSharpAttributeAst = {
     type: identifierType(
       "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute"
     ),
   };
   const memberAstsWithRequiredCtor = (() => {
-    if (stmt.isStruct || !hasRequiredProperties) {
+    if (
+      stmt.isStruct ||
+      (!hasRequiredProperties && !baseRequiresSetsRequiredMembersCtor)
+    ) {
       return memberAstsWithHoistedInitializers;
     }
     const updatedMembers = memberAstsWithHoistedInitializers.map((m) => {

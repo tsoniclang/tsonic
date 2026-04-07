@@ -506,9 +506,15 @@ export const resolveCallableType = (
   type: IrType | undefined,
   query: CallableTypeQuery
 ): ResolvedCallableType | undefined => {
-  const candidates = flattenCallableCandidates(state, type).filter((candidate) =>
-    canAcceptArgumentCount(candidate, query.argumentCount)
+  const arityCompatibleCandidates = flattenCallableCandidates(state, type).filter(
+    (candidate) => canAcceptArgumentCount(candidate, query.argumentCount)
   );
+  const candidates =
+    query.explicitTypeArgs && query.explicitTypeArgs.length > 0
+      ? arityCompatibleCandidates.filter(
+          (candidate) => (candidate.typeParameters?.length ?? 0) > 0
+        )
+      : arityCompatibleCandidates;
   if (candidates.length === 0) {
     return undefined;
   }

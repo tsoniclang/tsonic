@@ -157,6 +157,24 @@ const addInstalledSourcePackageCandidate = (
   packageIndex.set(packageName, packageRoot);
 };
 
+const isDirectoryLikeEntry = (
+  rootPath: string,
+  entry: fs.Dirent
+): boolean => {
+  if (entry.isDirectory()) {
+    return true;
+  }
+  if (!entry.isSymbolicLink()) {
+    return false;
+  }
+
+  try {
+    return fs.statSync(path.join(rootPath, entry.name)).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
 const scanInstalledSourcePackages = (
   projectRoot: string
 ): ReadonlyMap<string, string> => {
@@ -174,7 +192,7 @@ const scanInstalledSourcePackages = (
     if (fs.existsSync(nodeModulesRoot)) {
       const entries = fs.readdirSync(nodeModulesRoot, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isDirectory()) {
+        if (!isDirectoryLikeEntry(nodeModulesRoot, entry)) {
           continue;
         }
 
@@ -184,7 +202,7 @@ const scanInstalledSourcePackages = (
             withFileTypes: true,
           });
           for (const scopedEntry of scopedEntries) {
-            if (!scopedEntry.isDirectory()) {
+            if (!isDirectoryLikeEntry(scopeRoot, scopedEntry)) {
               continue;
             }
             addInstalledSourcePackageCandidate(

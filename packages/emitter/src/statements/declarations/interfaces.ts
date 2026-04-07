@@ -22,6 +22,7 @@ import type {
   CSharpMemberAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { referenceTypeRequiresSetsRequiredMembersCtor } from "./class-emitter-helpers.js";
 
 /**
  * Emit an interface declaration as CSharpTypeDeclarationAst[].
@@ -211,8 +212,18 @@ export const emitInterfaceDeclaration = (
   const hasRequiredMembers = members.some(
     (m) => m.kind === "propertyDeclaration" && m.modifiers.includes("required")
   );
+  const extendsRequireSetsRequiredMembersCtor =
+    !hasMethodSignatures &&
+    (stmt.extends?.some(
+      (ext) =>
+        ext.kind === "referenceType" &&
+        referenceTypeRequiresSetsRequiredMembersCtor(ext, currentContext)
+    ) ??
+      false);
   const needsSetsRequiredMembersCtor =
-    !hasMethodSignatures && !stmt.isStruct && hasRequiredMembers;
+    !hasMethodSignatures &&
+    !stmt.isStruct &&
+    (hasRequiredMembers || extendsRequireSetsRequiredMembersCtor);
   if (needsSetsRequiredMembersCtor) {
     members.unshift({
       kind: "constructorDeclaration",

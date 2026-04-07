@@ -1032,20 +1032,6 @@ export const resolveCallSignature = (
     return true;
   };
 
-  const getResolvedSignatureParameterDisplayTexts = (): readonly string[] => {
-    return signature.getParameters().map((parameter) =>
-      ctx.checker.typeToString(
-        ctx.checker.getTypeOfSymbolAtLocation(parameter, node.expression)
-      )
-    );
-  };
-
-  const isInformativeResolvedSignatureDisplayText = (text: string): boolean =>
-    text !== "unknown" &&
-    text !== "any" &&
-    text !== "number" &&
-    text !== "object";
-
   const args = node.arguments;
   const wantsStringAt: number[] = [];
   const wantsIterableAt = new Map<number, "sync" | "async">();
@@ -1219,41 +1205,6 @@ export const resolveCallSignature = (
     });
     if (matching.length > 0 && matching.length < remaining.length) {
       remaining = matching;
-    }
-    if (remaining.length === 1) {
-      return remaining[0]!;
-    }
-  }
-
-  const resolvedSignatureParameterDisplayTexts =
-    getResolvedSignatureParameterDisplayTexts();
-
-  if (
-    resolvedSignatureParameterDisplayTexts.length > 0 &&
-    resolvedSignatureParameterDisplayTexts.every(
-      isInformativeResolvedSignatureDisplayText
-    )
-  ) {
-    const matchingResolvedShape = remaining.filter((candidate) => {
-      const entry = ctx.signatureMap.get(candidate.id);
-      if (!entry) return false;
-      if (entry.parameters.length !== resolvedSignatureParameterDisplayTexts.length) {
-        return false;
-      }
-      return entry.parameters.every((parameter, index) => {
-        const expected = resolvedSignatureParameterDisplayTexts[index];
-        return (
-          expected !== undefined &&
-          getTypeNodeDisplayText(parameter.typeNode as ts.TypeNode | undefined) ===
-            expected
-        );
-      });
-    });
-    if (
-      matchingResolvedShape.length > 0 &&
-      matchingResolvedShape.length < remaining.length
-    ) {
-      remaining = matchingResolvedShape;
     }
     if (remaining.length === 1) {
       return remaining[0]!;

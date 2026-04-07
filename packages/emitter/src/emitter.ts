@@ -18,6 +18,7 @@ import { validateNamingPolicyCollisions } from "./core/semantic/naming-collision
 import { separateStatements } from "./core/format/module-emitter/separation.js";
 import { planDuplicateTypeSuppression } from "./duplicate-type-suppression.js";
 import {
+  generateArrayInteropFile,
   generateModuleContainerAttributeFile,
   generateJsonAotFile,
   generateJsonRuntimeFile,
@@ -48,13 +49,14 @@ export const emitCSharpFiles = (
   modules: readonly IrModule[],
   options: Partial<EmitterOptions> = {}
 ): EmitResult => {
+  const referenceModules = options.referenceModules ?? modules;
   const namingErrors = validateNamingPolicyCollisions(modules);
   if (namingErrors.length > 0) {
     return { ok: false, errors: namingErrors };
   }
 
   // Build module map for cross-file import resolution
-  const moduleMapResult = buildModuleMap(modules);
+  const moduleMapResult = buildModuleMap(referenceModules);
 
   if (!moduleMapResult.ok) {
     return { ok: false, errors: moduleMapResult.errors };
@@ -63,9 +65,10 @@ export const emitCSharpFiles = (
   const moduleMap = moduleMapResult.value;
   const exportMap = moduleMapResult.exportMap;
   const results = new Map<string, string>();
-  const typeMemberIndex = buildTypeMemberIndex(modules);
-  const typeAliasIndex = buildTypeAliasIndex(modules);
-  const syntheticTypeNamespaces = buildSyntheticTypeNamespaceIndex(modules);
+  const typeMemberIndex = buildTypeMemberIndex(referenceModules);
+  const typeAliasIndex = buildTypeAliasIndex(referenceModules);
+  const syntheticTypeNamespaces =
+    buildSyntheticTypeNamespaceIndex(referenceModules);
   const duplicatePlan = planDuplicateTypeSuppression(modules);
   if (!duplicatePlan.ok) {
     return { ok: false, errors: duplicatePlan.errors };
@@ -133,6 +136,14 @@ export const emitCSharpFiles = (
     const rootNamespace = options.rootNamespace ?? "TsonicApp";
     const jsonRuntimeCode = generateJsonRuntimeFile(rootNamespace);
     results.set("__tsonic_json_runtime.g.cs", jsonRuntimeCode);
+  }
+
+  if (
+    [...results.values()].some((code) =>
+      code.includes("global::Tsonic.Internal.ArrayInterop.WrapArray")
+    )
+  ) {
+    results.set("__tsonic_array_interop.g.cs", generateArrayInteropFile());
   }
 
   // Generate __tsonic_module_containers.g.cs if any module emitted a static container.

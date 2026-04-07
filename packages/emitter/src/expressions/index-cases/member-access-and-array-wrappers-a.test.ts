@@ -352,7 +352,7 @@ describe("Expression Emission", () => {
       bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result).to.include(
-      "global::js.ArrayObject.wrapArray(nums).map(project).toArray()"
+      "global::Tsonic.Internal.ArrayInterop.WrapArray(nums).map(project).toArray()"
     );
   });
 
@@ -407,7 +407,7 @@ describe("Expression Emission", () => {
       bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result).to.include(
-      "global::js.ArrayObject.wrapArray(items).filter(predicate).toArray()"
+      "global::Tsonic.Internal.ArrayInterop.WrapArray(items).filter(predicate).toArray()"
     );
   });
 

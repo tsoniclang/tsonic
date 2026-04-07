@@ -32,6 +32,7 @@ export type EmittedLambdaParameter = {
   readonly ast?: CSharpLambdaParameterAst;
   readonly emittedName: string;
   readonly bindsDirectly: boolean;
+  readonly resolvedType?: IrType;
   readonly bindingSourceExpression?: CSharpExpressionAst;
   readonly bindingSourceType?: IrType;
 };
@@ -51,7 +52,7 @@ export const seedLocalNameMapFromParameters = (
     used.add(p.emittedName);
     currentContext = registerParameterTypes(
       p.parameter.pattern.name,
-      p.parameter.type,
+      p.resolvedType ?? p.parameter.type,
       (p.parameter.isOptional || p.parameter.initializer !== undefined) &&
         !p.parameter.isRest,
       currentContext
@@ -233,10 +234,12 @@ export const emitLambdaParametersAst = (
     if (!param) continue;
     const contextualParam = contextualParameters[index];
     const effectiveParameterType =
-      param.type?.kind === "functionType" &&
-      contextualParam?.type?.kind === "functionType"
+      param.type === undefined && contextualParam?.type !== undefined
         ? contextualParam.type
-        : param.type;
+        : param.type?.kind === "functionType" &&
+            contextualParam?.type?.kind === "functionType"
+          ? contextualParam.type
+          : param.type;
 
     if (shouldLowerFromContextualRest(param, index)) {
       synthesizeRestCarrierParameter();
@@ -324,6 +327,7 @@ export const emitLambdaParametersAst = (
         parameter: planned.parameter,
         emittedName: planned.emittedName,
         bindsDirectly: planned.bindsDirectly,
+        resolvedType: planned.type,
         bindingSourceExpression: planned.bindingSourceExpression,
         bindingSourceType: planned.type,
       });
@@ -358,6 +362,7 @@ export const emitLambdaParametersAst = (
       ast,
       emittedName: planned.emittedName,
       bindsDirectly: planned.bindsDirectly,
+      resolvedType: planned.type,
       bindingSourceExpression: planned.bindingSourceExpression,
       bindingSourceType: planned.bindingSourceExpression
         ? planned.type

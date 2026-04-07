@@ -21,6 +21,7 @@ import type {
   MemberEntry,
   TypeSyntaxEntry,
 } from "./binding-types.js";
+import type { ParameterNode } from "../type-system/internal/handle-types.js";
 import {
   getTypeNodeFromDeclaration,
   getMemberTypeAnnotation,
@@ -257,10 +258,27 @@ export const resolveCanonicalDeclaringTypeName = (
 
 export const getOrCreateSignatureId = (
   ctx: BindingContext,
-  signature: ts.Signature
+  signature: ts.Signature,
+  resolutionSite?: ts.CallExpression | ts.NewExpression
 ): SignatureId => {
   const existing = ctx.signatureToId.get(signature);
-  if (existing) return existing;
+  if (existing) {
+    if (resolutionSite) {
+      const existingEntry = ctx.signatureMap.get(existing.id);
+      if (existingEntry && !existingEntry.resolvedParameters) {
+        ctx.signatureMap.set(existing.id, {
+          ...existingEntry,
+          resolvedParameters: buildResolvedParameterNodes(
+            ctx,
+            signature,
+            resolutionSite,
+            existingEntry.parameters
+          ),
+        });
+      }
+    }
+    return existing;
+  }
 
   const id = makeSignatureId(ctx.nextSignatureId.value++);
   ctx.signatureToId.set(signature, id);
@@ -286,11 +304,22 @@ export const getOrCreateSignatureId = (
   // Extract type predicate from return type (ALICE'S SPEC: pure syntax inspection)
   const returnTypeNode = getReturnTypeNode(decl);
   const typePredicate = extractTypePredicate(returnTypeNode, decl);
+  const parameters = extractParameterNodes(decl);
 
   const entry: SignatureEntry = {
     signature,
     decl,
-    parameters: extractParameterNodes(decl),
+    parameters,
+    ...(resolutionSite
+      ? {
+          resolvedParameters: buildResolvedParameterNodes(
+            ctx,
+            signature,
+            resolutionSite,
+            parameters
+          ),
+        }
+      : {}),
     thisTypeNode: extractThisParameterTypeNode(decl),
     returnTypeNode,
     typeParameters: extractTypeParameterNodes(decl),
@@ -304,6 +333,185 @@ export const getOrCreateSignatureId = (
   ctx.signatureMap.set(id.id, entry);
 
   return id;
+};
+
+const RESOLVED_SIGNATURE_TYPE_FLAGS =
+  ts.NodeBuilderFlags.NoTruncation |
+  ts.NodeBuilderFlags.IgnoreErrors |
+  ts.NodeBuilderFlags.UseFullyQualifiedType;
+const TYPE_NODE_COMPARISON_SOURCE_FILE = ts.createSourceFile(
+  "__tsonic_type_compare__.ts",
+  "",
+  ts.ScriptTarget.ESNext,
+  false,
+  ts.ScriptKind.TS
+);
+const TYPE_NODE_COMPARISON_PRINTER = ts.createPrinter({
+  removeComments: true,
+});
+
+const buildResolvedParameterNodes = (
+  ctx: BindingContext,
+  signature: ts.Signature,
+  resolutionSite: ts.CallExpression | ts.NewExpression,
+  rawParameters: readonly ParameterNode[]
+): readonly ParameterNode[] | undefined => {
+  const resolvedParameters = signature.getParameters();
+  if (resolvedParameters.length !== rawParameters.length) {
+    return undefined;
+  }
+
+  const typeNodeLocation = resolutionSite.expression;
+  let changed = false;
+
+  const nextParameters = rawParameters.map((parameter, index) => {
+    const resolvedParameter = resolvedParameters[index];
+    if (!resolvedParameter) {
+      return parameter;
+    }
+
+    const rawDeclaredType =
+      parameter.typeNode &&
+      ts.isTypeNode(parameter.typeNode as ts.Node)
+        ? ctx.checker.getTypeFromTypeNode(parameter.typeNode as ts.TypeNode)
+        : undefined;
+    if (rawDeclaredType && typeContainsTypeParameter(ctx, rawDeclaredType)) {
+      return parameter;
+    }
+
+    const resolvedType = ctx.checker.getTypeOfSymbolAtLocation(
+      resolvedParameter,
+      typeNodeLocation
+    );
+    if (
+      (resolvedType.flags & ts.TypeFlags.Any) !== 0 ||
+      (resolvedType.flags & ts.TypeFlags.Unknown) !== 0
+    ) {
+      return parameter;
+    }
+    if (typeContainsTypeParameter(ctx, resolvedType)) {
+      return parameter;
+    }
+    const resolvedTypeNode: ts.TypeNode | undefined =
+      ctx.checker.typeToTypeNode(
+        resolvedType,
+        typeNodeLocation,
+        RESOLVED_SIGNATURE_TYPE_FLAGS
+      ) ?? (parameter.typeNode as ts.TypeNode | undefined);
+    if (
+      serializeTypeNodeForComparison(resolvedTypeNode) !==
+      serializeTypeNodeForComparison(parameter.typeNode as ts.TypeNode | undefined)
+    ) {
+      changed = true;
+    }
+
+    return {
+      ...parameter,
+      typeNode: resolvedTypeNode,
+    };
+  });
+
+  return changed ? nextParameters : undefined;
+};
+
+const serializeTypeNodeForComparison = (
+  node: ts.TypeNode | undefined
+): string | undefined => {
+  if (!node) {
+    return undefined;
+  }
+
+  return TYPE_NODE_COMPARISON_PRINTER.printNode(
+    ts.EmitHint.Unspecified,
+    node,
+    TYPE_NODE_COMPARISON_SOURCE_FILE
+  );
+};
+
+const typeContainsTypeParameter = (
+  ctx: BindingContext,
+  type: ts.Type,
+  seen = new Set<ts.Type>()
+): boolean => {
+  if (seen.has(type)) {
+    return false;
+  }
+  seen.add(type);
+
+  if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) {
+    return true;
+  }
+
+  if (type.isUnionOrIntersection()) {
+    return type.types.some((member) =>
+      typeContainsTypeParameter(ctx, member, seen)
+    );
+  }
+
+  if (
+    "aliasTypeArguments" in type &&
+    Array.isArray(type.aliasTypeArguments) &&
+    type.aliasTypeArguments.some((argument) =>
+      typeContainsTypeParameter(ctx, argument, seen)
+    )
+  ) {
+    return true;
+  }
+
+  if ((type.flags & ts.TypeFlags.Object) !== 0) {
+    const objectType = type as ts.ObjectType;
+    if ((objectType.objectFlags & ts.ObjectFlags.Reference) !== 0) {
+      const referenceType = objectType as ts.TypeReference;
+      const typeArguments = ctx.checker.getTypeArguments(referenceType);
+      if (
+        typeArguments.some((argument) =>
+          typeContainsTypeParameter(ctx, argument, seen)
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  for (const property of type.getProperties()) {
+    const declaration =
+      property.valueDeclaration ?? property.getDeclarations()?.[0];
+    const propertyType = declaration
+      ? ctx.checker.getTypeOfSymbolAtLocation(property, declaration)
+      : undefined;
+    if (propertyType && typeContainsTypeParameter(ctx, propertyType, seen)) {
+      return true;
+    }
+  }
+
+  const signatures = [
+    ...type.getCallSignatures(),
+    ...type.getConstructSignatures(),
+  ];
+  for (const signature of signatures) {
+    const declaration = signature.getDeclaration();
+    for (const parameter of signature.getParameters()) {
+      const parameterDeclaration =
+        parameter.valueDeclaration ?? parameter.getDeclarations()?.[0] ?? declaration;
+      if (!parameterDeclaration) {
+        continue;
+      }
+      const parameterType = ctx.checker.getTypeOfSymbolAtLocation(
+        parameter,
+        parameterDeclaration
+      );
+      if (typeContainsTypeParameter(ctx, parameterType, seen)) {
+        return true;
+      }
+    }
+
+    const returnType = ctx.checker.getReturnTypeOfSignature(signature);
+    if (typeContainsTypeParameter(ctx, returnType, seen)) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 export const getOrCreateMemberId = (

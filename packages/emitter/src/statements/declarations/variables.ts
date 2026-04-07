@@ -176,6 +176,7 @@ export const emitVariableDeclaration = (
       returnType: context.returnType,
       narrowedBindings: context.narrowedBindings,
       voidResolveNames: context.voidResolveNames,
+      promiseResolveValueTypes: context.promiseResolveValueTypes,
       typeParameters: context.typeParameters,
       typeParamConstraints: context.typeParamConstraints,
       typeParameterNameMap: context.typeParameterNameMap,

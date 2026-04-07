@@ -320,6 +320,70 @@ describe("Integration: CLR iterable overloads", () => {
     expect(csharp).to.not.include("Assert.Equal(42, received);");
   });
 
+  it("widens generic equality to object over Memory<char> siblings for JsValue array elements", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "package.json": JSON.stringify(
+          { name: "emitter-test-project", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/xunit-types/package.json": JSON.stringify(
+          { name: "xunit-types", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/xunit-types/Xunit.js":
+          'export { Assert } from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit.d.ts":
+          'export { Assert } from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit/internal/index.js":
+          "export const Assert = undefined;",
+        "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+          'import type { char } from "@tsonic/core/types.js";',
+          'import type { Memory_1 } from "@tsonic/dotnet/System/internal/index.js";',
+          "",
+          "export declare class Assert {",
+          "  static Equal(expected: Memory_1<char>, actual: Memory_1<char>): void;",
+          "  static Equal(expected: string, actual: string): void;",
+          "  static Equal<T>(expected: T, actual: T): void;",
+          "}",
+        ].join("\n"),
+        "src/index.ts": [
+          'import { Assert } from "xunit-types/Xunit.js";',
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
+          "declare class EventEmitter {",
+          "  static once(emitter: EventEmitter, eventName: string): Promise<JsValue[]>;",
+          "}",
+          "",
+          "export async function run(emitter: EventEmitter): Promise<void> {",
+          '  const args = await EventEmitter.once(emitter, "test");',
+          "  Assert.Equal(1, args[0]);",
+          "}",
+        ].join("\n"),
+        "node_modules/@tsonic/core/package.json": JSON.stringify(
+          { name: "@tsonic/core", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/@tsonic/core/types.js": "export {};",
+        "node_modules/@tsonic/core/types.d.ts": [
+          "export type char = string;",
+          "export type JsValue = object | string | number | boolean | bigint | symbol | null;",
+        ].join("\n"),
+      },
+      "src/index.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("Assert.Equal((object)(double)1, ");
+    expect(csharp).to.not.include(
+      "(global::System.Memory<char>)(object)args[0]"
+    );
+    expect(csharp).to.not.include("(int)(object)args[0]");
+  });
+
   it("preserves explicit JsValue callback storage for later numeric equality assertions", () => {
     const csharp = compileProjectToCSharp(
       {

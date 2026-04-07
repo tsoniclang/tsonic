@@ -60,50 +60,24 @@ const getExplicitNodeModulesPackageRoots = (
   return explicitPackageRoots;
 };
 
-const populateAuthoritativeWorkspaceNodeModules = (
-  tempDir: string,
-  explicitPackageRoots: ReadonlySet<string>
-): void => {
-  if (!fs.existsSync(workspaceNodeModulesRoot)) {
-    return;
-  }
+const SCRIPT_FILE_SUFFIXES = [
+  ".d.ts",
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+] as const;
 
-  const tempNodeModulesRoot = path.join(tempDir, "node_modules");
-  fs.mkdirSync(tempNodeModulesRoot, { recursive: true });
-
-  const entries = fs.readdirSync(workspaceNodeModulesRoot, { withFileTypes: true });
-  for (const entry of entries) {
-    const sourcePath = path.join(workspaceNodeModulesRoot, entry.name);
-    const targetPath = path.join(tempNodeModulesRoot, entry.name);
-
-    if (!entry.isDirectory()) {
-      symlinkWorkspaceEntry(sourcePath, targetPath);
-      continue;
-    }
-
-    if (entry.name !== "@tsonic") {
-      if (explicitPackageRoots.has(`node_modules/${entry.name}`)) {
-        continue;
-      }
-      symlinkWorkspaceEntry(sourcePath, targetPath);
-      continue;
-    }
-
-    fs.mkdirSync(targetPath, { recursive: true });
-    const scopedEntries = fs.readdirSync(sourcePath, { withFileTypes: true });
-    for (const scopedEntry of scopedEntries) {
-      const packageName = `@tsonic/${scopedEntry.name}`;
-      if (explicitPackageRoots.has(`node_modules/@tsonic/${scopedEntry.name}`)) {
-        continue;
-      }
-      const authoritativeRoot = findAuthoritativePackageRoot(packageName);
-      const scopedSourcePath =
-        authoritativeRoot ?? path.join(sourcePath, scopedEntry.name);
-      const scopedTargetPath = path.join(targetPath, scopedEntry.name);
-      symlinkWorkspaceEntry(scopedSourcePath, scopedTargetPath);
-    }
-  }
+type InlineSurfaceManifest = {
+  readonly extends?: unknown;
 };
+
+const isScriptLikeFile = (relativePath: string): boolean =>
+  SCRIPT_FILE_SUFFIXES.some((suffix) => relativePath.endsWith(suffix));
 
 const readJsonObject = (filePath: string): Record<string, unknown> | undefined => {
   if (!ts.sys.fileExists(filePath)) {
@@ -163,6 +137,229 @@ const findAuthoritativePackageRoot = (
   return undefined;
 };
 
+const addReferencedModuleSpecifiers = (
+  sourceFile: ts.SourceFile,
+  specifiers: Set<string>
+): void => {
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      specifiers.add(node.moduleSpecifier.text);
+    } else if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal)
+    ) {
+      specifiers.add(node.argument.literal.text);
+    } else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0]!)
+    ) {
+      specifiers.add(node.arguments[0]!.text);
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+};
+
+const tryGetPackageNameFromSpecifier = (
+  specifier: string
+): string | undefined => {
+  if (!specifier.startsWith("@tsonic/")) {
+    return undefined;
+  }
+
+  const segments = specifier.split("/");
+  return segments.length >= 2 ? `${segments[0]}/${segments[1]}` : undefined;
+};
+
+const readExplicitSurfaceManifest = (
+  files: Readonly<Record<string, string>>,
+  surface: string
+): InlineSurfaceManifest | undefined => {
+  const manifestPath = path.posix.join(
+    "node_modules",
+    ...surface.split("/"),
+    "tsonic.surface.json"
+  );
+  const text = files[manifestPath];
+  if (!text) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(text) as InlineSurfaceManifest;
+    return parsed && typeof parsed === "object" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const collectSurfaceBaselinePackages = (
+  files: Readonly<Record<string, string>>,
+  surface: string | undefined
+): ReadonlySet<string> => {
+  const packageNames = new Set<string>();
+  const visitedModes = new Set<string>();
+
+  const visitSurface = (mode: string | undefined): void => {
+    const normalizedMode =
+      typeof mode === "string" && mode.trim().length > 0 ? mode.trim() : "clr";
+    if (visitedModes.has(normalizedMode)) {
+      return;
+    }
+    visitedModes.add(normalizedMode);
+
+    if (normalizedMode === "clr") {
+      packageNames.add("@tsonic/globals");
+      return;
+    }
+
+    if (normalizedMode.startsWith("@tsonic/")) {
+      packageNames.add(normalizedMode);
+      return;
+    }
+
+    const manifest = readExplicitSurfaceManifest(files, normalizedMode);
+    const extendModes = Array.isArray(manifest?.extends)
+      ? manifest.extends.filter(
+          (entry: unknown): entry is string =>
+            typeof entry === "string" && entry.trim().length > 0
+        )
+      : [];
+
+    if (extendModes.length === 0) {
+      visitSurface("clr");
+      return;
+    }
+
+    for (const extendMode of extendModes) {
+      visitSurface(extendMode);
+    }
+  };
+
+  visitSurface(surface);
+  return packageNames;
+};
+
+const collectReferencedAuthoritativePackages = (
+  files: Readonly<Record<string, string>>,
+  surface?: string
+): ReadonlySet<string> => {
+  const packageNames = new Set<string>(
+    collectSurfaceBaselinePackages(files, surface)
+  );
+
+  for (const [relativePath, contents] of Object.entries(files)) {
+    if (!isScriptLikeFile(relativePath)) {
+      continue;
+    }
+
+    const sourceFile = ts.createSourceFile(
+      relativePath,
+      contents,
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const specifiers = new Set<string>();
+    addReferencedModuleSpecifiers(sourceFile, specifiers);
+
+    for (const specifier of specifiers) {
+      const packageName = tryGetPackageNameFromSpecifier(specifier);
+      if (packageName) {
+        packageNames.add(packageName);
+      }
+    }
+  }
+
+  return packageNames;
+};
+
+const readFirstPartyPackageDependencies = (
+  packageRoot: string
+): readonly string[] => {
+  const packageJson = readJsonObject(path.join(packageRoot, "package.json"));
+  if (!packageJson) {
+    return [];
+  }
+
+  const dependencyMaps = [
+    packageJson.dependencies,
+    packageJson.peerDependencies,
+    packageJson.optionalDependencies,
+  ];
+
+  const dependencies = new Set<string>();
+  for (const dependencyMap of dependencyMaps) {
+    if (!dependencyMap || typeof dependencyMap !== "object") {
+      continue;
+    }
+
+    for (const dependencyName of Object.keys(dependencyMap)) {
+      if (dependencyName.startsWith("@tsonic/")) {
+        dependencies.add(dependencyName);
+      }
+    }
+  }
+
+  return [...dependencies];
+};
+
+const populateAuthoritativeWorkspaceNodeModules = (
+  tempDir: string,
+  explicitPackageRoots: ReadonlySet<string>,
+  files: Readonly<Record<string, string>>,
+  surface?: string
+): void => {
+  if (!fs.existsSync(workspaceNodeModulesRoot)) {
+    return;
+  }
+
+  const requestedPackages = collectReferencedAuthoritativePackages(files, surface);
+  if (requestedPackages.size === 0) {
+    return;
+  }
+
+  const tempNodeModulesRoot = path.join(tempDir, "node_modules");
+  const visitedPackages = new Set<string>();
+  const pendingPackages = [...requestedPackages];
+
+  while (pendingPackages.length > 0) {
+    const packageName = pendingPackages.pop()!;
+    if (visitedPackages.has(packageName)) {
+      continue;
+    }
+    visitedPackages.add(packageName);
+
+    const packageRootKey = `node_modules/${packageName}`;
+    if (explicitPackageRoots.has(packageRootKey)) {
+      continue;
+    }
+
+    const authoritativeRoot = findAuthoritativePackageRoot(packageName);
+    if (!authoritativeRoot) {
+      continue;
+    }
+
+    const targetPath = path.join(tempNodeModulesRoot, packageName);
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    symlinkWorkspaceEntry(authoritativeRoot, targetPath);
+
+    for (const dependencyName of readFirstPartyPackageDependencies(authoritativeRoot)) {
+      if (!visitedPackages.has(dependencyName)) {
+        pendingPackages.push(dependencyName);
+      }
+    }
+  }
+};
+
 export const compileToCSharp = (
   source: string,
   fileName = "/test/test.ts",
@@ -202,15 +399,15 @@ export const compileProjectToCSharp = (
     readonly rootNamespace?: string;
   }
 ): string => {
-  const tempDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "tsonic-emitter-project-")
-  );
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-emitter-project-"));
 
   try {
     const explicitNodeModulesPackageRoots = getExplicitNodeModulesPackageRoots(files);
     populateAuthoritativeWorkspaceNodeModules(
       tempDir,
-      explicitNodeModulesPackageRoots
+      explicitNodeModulesPackageRoots,
+      files,
+      emitOptions.surface
     );
 
     for (const [relativePath, contents] of Object.entries(files)) {

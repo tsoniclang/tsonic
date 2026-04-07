@@ -46,6 +46,7 @@ import {
   emitSizeOf,
 } from "./expressions/type-assertion-emitters.js";
 import { adaptEmittedExpressionAst } from "./expressions/expected-type-adaptation.js";
+import { unwrapTransparentExpression } from "./core/semantic/transparent-expressions.js";
 
 /**
  * Emit a C# expression AST from an IR expression.
@@ -60,61 +61,70 @@ export const emitExpressionAst = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const normalizedExpr = (() => {
+    const transparent = unwrapTransparentExpression(expr);
+    return transparent !== expr &&
+      transparent.kind === "identifier" &&
+      context.promiseResolveValueTypes?.has(transparent.name) === true
+      ? transparent
+      : expr;
+  })();
+
   const [ast, newContext] = (() => {
-    switch (expr.kind) {
+    switch (normalizedExpr.kind) {
       case "literal":
-        return emitLiteral(expr, context, expectedType);
+        return emitLiteral(normalizedExpr, context, expectedType);
 
       case "identifier":
-        return emitIdentifier(expr, context, expectedType);
+        return emitIdentifier(normalizedExpr, context, expectedType);
 
       case "array":
-        return emitArray(expr, context, expectedType);
+        return emitArray(normalizedExpr, context, expectedType);
 
       case "object":
-        return emitObject(expr, context, expectedType);
+        return emitObject(normalizedExpr, context, expectedType);
 
       case "memberAccess":
-        return emitMemberAccess(expr, context, "value", expectedType);
+        return emitMemberAccess(normalizedExpr, context, "value", expectedType);
 
       case "call":
-        return emitCall(expr, context, expectedType);
+        return emitCall(normalizedExpr, context, expectedType);
 
       case "new":
-        return emitNew(expr, context);
+        return emitNew(normalizedExpr, context);
 
       case "binary":
-        return emitBinary(expr, context, expectedType);
+        return emitBinary(normalizedExpr, context, expectedType);
 
       case "logical":
-        return emitLogical(expr, context, expectedType);
+        return emitLogical(normalizedExpr, context, expectedType);
 
       case "unary":
-        return emitUnary(expr, context, expectedType);
+        return emitUnary(normalizedExpr, context, expectedType);
 
       case "update":
-        return emitUpdate(expr, context);
+        return emitUpdate(normalizedExpr, context);
 
       case "assignment":
-        return emitAssignment(expr, context);
+        return emitAssignment(normalizedExpr, context);
 
       case "conditional":
-        return emitConditional(expr, context, expectedType);
+        return emitConditional(normalizedExpr, context, expectedType);
 
       case "functionExpression":
-        return emitFunctionExpression(expr, context, expectedType);
+        return emitFunctionExpression(normalizedExpr, context, expectedType);
 
       case "arrowFunction":
-        return emitArrowFunction(expr, context, expectedType);
+        return emitArrowFunction(normalizedExpr, context, expectedType);
 
       case "templateLiteral":
-        return emitTemplateLiteral(expr, context);
+        return emitTemplateLiteral(normalizedExpr, context);
 
       case "spread":
-        return emitSpread(expr, context);
+        return emitSpread(normalizedExpr, context);
 
       case "await":
-        return emitAwait(expr, context);
+        return emitAwait(normalizedExpr, context);
 
       case "this":
         return [
@@ -126,28 +136,28 @@ export const emitExpressionAst = (
         ];
 
       case "numericNarrowing":
-        return emitNumericNarrowing(expr, context);
+        return emitNumericNarrowing(normalizedExpr, context);
 
       case "asinterface":
-        return emitAsInterface(expr, context, expectedType);
+        return emitAsInterface(normalizedExpr, context, expectedType);
 
       case "typeAssertion":
-        return emitTypeAssertion(expr, context, expectedType);
+        return emitTypeAssertion(normalizedExpr, context, expectedType);
 
       case "trycast":
-        return emitTryCast(expr, context);
+        return emitTryCast(normalizedExpr, context);
 
       case "stackalloc":
-        return emitStackAlloc(expr, context);
+        return emitStackAlloc(normalizedExpr, context);
 
       case "defaultof":
-        return emitDefaultOf(expr, context);
+        return emitDefaultOf(normalizedExpr, context);
 
       case "nameof":
-        return emitNameOf(expr, context);
+        return emitNameOf(normalizedExpr, context);
 
       case "sizeof":
-        return emitSizeOf(expr, context);
+        return emitSizeOf(normalizedExpr, context);
 
       default:
         throw new Error(
@@ -157,7 +167,7 @@ export const emitExpressionAst = (
   })();
 
   return adaptEmittedExpressionAst({
-    expr,
+    expr: normalizedExpr,
     valueAst: ast,
     context: newContext,
     expectedType,

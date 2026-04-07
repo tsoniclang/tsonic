@@ -18,11 +18,11 @@ import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
  * reject anonymous object types. If we reach here, validation has a gap.
  */
 export const emitObjectType = (
-  _type: Extract<IrType, { kind: "objectType" }>,
-  _context: EmitterContext
+  type: Extract<IrType, { kind: "objectType" }>,
+  context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
   // ICE: Frontend validation (TSN7403) should have caught this.
   throw new Error(
-    "ICE: Anonymous object type reached emitter - validation missed TSN7403"
+    `ICE: Anonymous object type reached emitter - validation missed TSN7403 (${context.moduleNamespace ?? "<unknown-namespace>"}.${context.className ?? "<unknown-class>"} :: ${JSON.stringify(type)})`
   );
 };

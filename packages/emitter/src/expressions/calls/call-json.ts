@@ -20,6 +20,7 @@ import { identifierExpression } from "../../core/format/backend-ast/builders.js"
 import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
 import { emitTypeArgumentsAst } from "../identifiers.js";
 import { buildExactGlobalBindingReference } from "../exact-global-bindings.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 
 const isConcreteGlobalJsonParseTarget = (
   type: IrType | undefined
@@ -81,8 +82,7 @@ const isConcreteGlobalJsonStringifySource = (
 
 const emitRuntimeJsonParseCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
-  context: EmitterContext,
-  typeArgument: CSharpTypeAst
+  context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
@@ -119,7 +119,6 @@ const emitRuntimeJsonParseCall = (
         memberName: "parse",
       },
       arguments: argAsts,
-      typeArguments: [typeArgument],
     },
     currentContext,
   ];
@@ -254,13 +253,15 @@ const emitJsonSerializerCall = (
 const emitGlobalJsonCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext,
-  method: "Serialize" | "Deserialize"
+  method: "Serialize" | "Deserialize",
+  expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   if (method === "Serialize") {
     const firstArg = expr.arguments[0];
     const sourceType =
       firstArg && firstArg.kind !== "spread"
-        ? firstArg.inferredType
+        ? (resolveEffectiveExpressionType(firstArg, context) ??
+          firstArg.inferredType)
         : undefined;
     if (!isConcreteGlobalJsonStringifySource(sourceType)) {
       return emitRuntimeJsonStringifyCall(expr, context);
@@ -270,6 +271,7 @@ const emitGlobalJsonCall = (
 
   const deserializeTarget =
     expr.typeArguments?.[0] ??
+    (isConcreteGlobalJsonParseTarget(expectedType) ? expectedType : undefined) ??
     (isConcreteGlobalJsonParseTarget(expr.inferredType)
       ? expr.inferredType
       : undefined);
@@ -283,10 +285,7 @@ const emitGlobalJsonCall = (
     );
   }
 
-  return emitRuntimeJsonParseCall(expr, context, {
-    kind: "predefinedType",
-    keyword: "object",
-  });
+  return emitRuntimeJsonParseCall(expr, context);
 };
 
 export {

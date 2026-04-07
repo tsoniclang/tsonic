@@ -1000,9 +1000,9 @@ describe("IR Builder", function () {
           { kind: "primitiveType" as const, name: "undefined" },
         ],
       };
-      expect(ctor.parameterTypes?.[1]).to.deep.equal(optionalActualType);
+      expect(ctor.parameterTypes?.[1]).to.deep.equal(actualType);
       expect(ctor.surfaceParameterTypes?.[1]).to.deep.equal(optionalActualType);
-      expect(ctor.parameterTypes?.[2]).to.deep.equal(optionalExpectedType);
+      expect(ctor.parameterTypes?.[2]).to.deep.equal(expectedType);
       expect(ctor.surfaceParameterTypes?.[2]).to.deep.equal(optionalExpectedType);
     });
 

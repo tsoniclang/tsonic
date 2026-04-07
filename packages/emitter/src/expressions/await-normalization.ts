@@ -39,16 +39,49 @@ const requiresExplicitTaskFromResultType = (
   exprAst.kind === "nullLiteralExpression" ||
   exprAst.kind === "defaultExpression";
 
+const getAwaitTaskResultCarrierType = (
+  resultType: IrType | undefined
+): IrType | undefined => {
+  if (!resultType || resultType.kind === "voidType") {
+    return undefined;
+  }
+
+  const runtimeNullishSplit = splitRuntimeNullishUnionMembers(resultType);
+  if (!runtimeNullishSplit) {
+    return resultType;
+  }
+
+  const nonNullishMembers = [...runtimeNullishSplit.nonNullishMembers];
+  if (nonNullishMembers.length === 0) {
+    return undefined;
+  }
+
+  if (nonNullishMembers.length === 1) {
+    return nonNullishMembers[0];
+  }
+
+  return resultType.kind === "unionType" && resultType.preserveRuntimeLayout === true
+    ? {
+        ...resultType,
+        types: nonNullishMembers,
+      }
+    : {
+        kind: "unionType",
+        types: nonNullishMembers,
+      };
+};
+
 const buildDefaultTaskAst = (
   resultType: IrType | undefined,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  if (!resultType || resultType.kind === "voidType") {
+  const carrierType = getAwaitTaskResultCarrierType(resultType);
+  if (!carrierType) {
     return [buildCompletedTaskAst(), context];
   }
 
   const [resultTypeAst, , nextContext] = emitRuntimeCarrierTypeAst(
-    resultType,
+    carrierType,
     context,
     emitTypeAst
   );
@@ -140,8 +173,13 @@ const buildPromotedAwaitResultValueAst = (
     return [valueAst, undefined, context];
   }
 
+  const carrierType = getAwaitTaskResultCarrierType(resultType);
+  if (!carrierType) {
+    return [valueAst, undefined, context];
+  }
+
   const [resultTypeAst, runtimeLayout, resultTypeContext] =
-    emitRuntimeCarrierTypeAst(resultType, context, emitTypeAst);
+    emitRuntimeCarrierTypeAst(carrierType, context, emitTypeAst);
   if (!runtimeLayout) {
     return [valueAst, resultTypeAst, resultTypeContext];
   }
@@ -176,7 +214,7 @@ export const emitNormalizedAwaitTaskAst = (
 
   if (isDefinitelyNonAwaitableType(valueType)) {
     const explicitResultType = requiresExplicitTaskFromResultType(valueAst)
-      ? (resultType ?? valueType)
+      ? getAwaitTaskResultCarrierType(resultType ?? valueType)
       : undefined;
     let resultTypeAst: CSharpTypeAst | undefined;
     let resultTypeContext = currentContext;
@@ -403,11 +441,14 @@ export const emitNormalizedAwaitTaskAst = (
   }
 
   const needsExplicitResultType = requiresExplicitTaskFromResultType(valueAst);
+  const explicitCarrierType = needsExplicitResultType
+    ? getAwaitTaskResultCarrierType(resultType)
+    : undefined;
   let resultTypeAst: CSharpTypeAst | undefined;
   let resultTypeContext = currentContext;
-  if (needsExplicitResultType) {
+  if (explicitCarrierType) {
     [resultTypeAst, , resultTypeContext] = emitRuntimeCarrierTypeAst(
-      resultType,
+      explicitCarrierType,
       currentContext,
       emitTypeAst
     );

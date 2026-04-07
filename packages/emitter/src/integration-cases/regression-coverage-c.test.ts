@@ -382,6 +382,60 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("materializes direct constructor lambda arguments through runtime union carriers", () => {
+      const csharp = compileToCSharp(`
+        class TLSSocket {}
+        class TlsOptions {}
+        class TLSServer {
+          constructor(
+            options?: TlsOptions | ((socket: TLSSocket) => void),
+            listener?: ((socket: TLSSocket) => void) | null
+          ) {}
+        }
+
+        export function run(): void {
+          void new TLSServer((_socket) => {});
+        }
+      `);
+
+      expect(csharp).to.include(
+        "new TLSServer(global::Tsonic.Runtime.Union<global::System.Action<TLSSocket>, TlsOptions>.From1((TLSSocket _socket) =>"
+      );
+      expect(csharp).not.to.include("new TLSServer((TLSSocket _socket) =>");
+    });
+
+    it("preserves nominal constructor option arguments without structural re-materialization", () => {
+      const csharp = compileToCSharp(`
+        class SocketAddressInitOptions {
+          address?: string;
+          family?: string;
+          flowlabel?: number;
+          port?: number;
+        }
+
+        class SocketAddress {
+          constructor(options: {
+            address?: string;
+            family?: string;
+            flowlabel?: number;
+            port?: number;
+          }) {}
+        }
+
+        export function run(): void {
+          const options = new SocketAddressInitOptions();
+          options.address = "127.0.0.1";
+          options.port = 8080;
+          void new SocketAddress(options);
+        }
+      `);
+
+      expect(csharp).to.include("new SocketAddress(options);");
+      expect(csharp).to.include('address = "127.0.0.1"');
+      expect(csharp).to.include("port = 8080");
+      expect(csharp).not.to.include("new SocketAddress(new __Anon_");
+    });
+
     it("casts preserved runtime-union carriers for nullish checks after callable branch elimination", () => {
       const csharp = compileToCSharp(`
         class TLSSocket {}
@@ -523,6 +577,37 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("updateProfileData(profileData);");
       expect(csharp).not.to.include(
         "new global::System.Collections.Generic.Dictionary"
+      );
+    });
+
+    it("preserves imported named dictionary value types on indexed object-literal writes", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/profile-types.ts": `
+            export interface ProfileDataValueInput {
+              value: string;
+            }
+
+            export type ProfileDataUpdate = Record<string, ProfileDataValueInput>;
+          `,
+          "src/index.ts": `
+            import type { ProfileDataUpdate } from "./profile-types.js";
+
+            export function run(key: string, rawValue: string): ProfileDataUpdate {
+              const result: ProfileDataUpdate = {};
+              result[key] = { value: rawValue };
+              return result;
+            }
+          `,
+        },
+        "src/index.ts"
+      );
+
+      expect(csharp).not.to.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+      expect(csharp).to.match(
+        /result\[key\]\s*=\s*new\s+ProfileDataValueInput\s*\{\s*value\s*=\s*rawValue\s*\}/
       );
     });
 
@@ -994,7 +1079,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "fs.mkdirSync(dir, new global::nodejs.MkdirOptions"
+        "fs.mkdirSync(dir, new global::nodejs.MkdirOptions { recursive = options.recursive, mode = (int?)options.mode });"
       );
       expect(csharp).to.not.include("fs.mkdirSync(dir, new global::js.__Anon_");
     });
@@ -1036,6 +1121,28 @@ describe("End-to-End Integration", () => {
         "public T?[] items { get; set; } = global::System.Array.Empty<T?>();"
       );
       expect(csharp).not.to.include("Select<double, T?>");
+    });
+
+    it("emits generic undefined constructor arguments using the generic default type", () => {
+      const csharp = compileToCSharp(`
+        export class IntervalIterationResult<T> {
+          public constructor(
+            public readonly done: boolean,
+            public readonly value: T | undefined
+          ) {}
+        }
+
+        export class IntervalAsyncIterator<T> {
+          public close(): IntervalIterationResult<T> {
+            return new IntervalIterationResult(true, undefined);
+          }
+        }
+      `);
+
+      expect(csharp).to.include(
+        "new IntervalIterationResult<T>(true, default(T))"
+      );
+      expect(csharp).not.to.include("default(object)");
     });
 
     it("directly specializes promise-union overload families across module and class methods", () => {
@@ -1806,6 +1913,51 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "new global::js.Uint8Array((int)(end - start))"
       );
+    });
+
+    it("keeps narrowed Uint8Array length access as a direct member read", () => {
+      const csharp = compileToCSharp(
+        `
+          export function run(chunk: string | Uint8Array): number {
+            if (chunk instanceof Uint8Array) {
+              return chunk.length;
+            }
+
+            return 0;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include("chunk__is_1.length");
+      expect(csharp).not.to.include("new global::js.Array<object>(chunk__is_1).length");
+    });
+
+    it("keeps source-package Uint8Array length reads direct inside array-like wrappers", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/index.ts": `
+            import { ServerResponse } from "@tsonic/nodejs/http.js";
+
+            export function run(chunk: Uint8Array): boolean {
+              const response = new ServerResponse();
+              return response.write(chunk);
+            }
+          `,
+        },
+        "src/index.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include("if (chunk.Is4())");
+      expect(csharp).to.include("chunk__is_1.length");
+      expect(csharp).to.include("chunk__is_1.at(index)");
+      expect(csharp).not.to.include("new global::js.Array<object>(chunk__is_1).length");
     });
 
     it("lowers non-byte typed-array array-literal constructors through concrete CLR arrays", () => {

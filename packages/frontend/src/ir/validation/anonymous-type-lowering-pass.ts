@@ -437,7 +437,8 @@ const collectAnonymousReferenceDeclarations = (
 const collectReferencedAnonymousTypeNames = (
   value: unknown,
   referencedNames: Set<string>,
-  seen: WeakSet<object>
+  seen: WeakSet<object>,
+  includeInferredTypeMetadata = false
 ): void => {
   if (!value || typeof value !== "object") {
     return;
@@ -460,15 +461,64 @@ const collectReferencedAnonymousTypeNames = (
     referencedNames.add(asReference.name);
   }
 
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
+  const asModule = value as Partial<IrModule> & {
+    readonly kind?: unknown;
+  };
+  if (asModule.kind === "module") {
+    for (const entry of asModule.body ?? []) {
+      collectReferencedAnonymousTypeNames(
+        entry,
+        referencedNames,
+        seen,
+        includeInferredTypeMetadata
+      );
+    }
+    for (const entry of asModule.exports ?? []) {
+      collectReferencedAnonymousTypeNames(
+        entry,
+        referencedNames,
+        seen,
+        includeInferredTypeMetadata
+      );
     }
     return;
   }
 
-  for (const entry of Object.values(value as Record<string, unknown>)) {
-    collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
+  const asObjectExpression = value as {
+    readonly kind?: unknown;
+    readonly inferredType?: unknown;
+  };
+  if (asObjectExpression.kind === "object") {
+    collectReferencedAnonymousTypeNames(
+      asObjectExpression.inferredType,
+      referencedNames,
+      seen,
+      includeInferredTypeMetadata
+    );
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectReferencedAnonymousTypeNames(
+        entry,
+        referencedNames,
+        seen,
+        includeInferredTypeMetadata
+      );
+    }
+    return;
+  }
+
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "inferredType" && !includeInferredTypeMetadata) {
+      continue;
+    }
+    collectReferencedAnonymousTypeNames(
+      entry,
+      referencedNames,
+      seen,
+      includeInferredTypeMetadata
+    );
   }
 };
 
@@ -595,7 +645,8 @@ export const runAnonymousTypeLoweringPass = (
     collectReferencedAnonymousTypeNames(
       module,
       referencedAnonymousNames,
-      referencedNameTraversalSeen
+      referencedNameTraversalSeen,
+      false
     );
   }
   const anonymousDeclarationByName = new Map(
@@ -615,7 +666,8 @@ export const runAnonymousTypeLoweringPass = (
     collectReferencedAnonymousTypeNames(
       declaration,
       nestedNames,
-      new WeakSet<object>()
+      new WeakSet<object>(),
+      true
     );
     for (const nestedName of nestedNames) {
       if (referencedAnonymousNames.has(nestedName)) {

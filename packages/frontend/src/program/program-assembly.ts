@@ -571,13 +571,20 @@ export const createProgram = (
 
   // User source files (non-declaration files from input paths)
   const sourceFilePaths = createSourceFilePathSet(absolutePaths);
-  const isImportedSourcePackageSourceFile = (filePath: string): boolean => {
+  const isProgramOwnedSourceFile = (filePath: string): boolean => {
     const normalizedFilePath = canonicalizeFilePath(filePath);
     if (sourceFilePaths.has(normalizedFilePath)) {
       return true;
     }
 
-    return findContainingSourcePackageRoot(normalizedFilePath) !== undefined;
+    if (findContainingSourcePackageRoot(normalizedFilePath) !== undefined) {
+      return true;
+    }
+
+    // Imported non-declaration source modules that live outside node_modules are
+    // part of the user's program and must stay in the IR/emitter graph. Dropping
+    // them loses local type declarations needed for cross-file structural typing.
+    return !normalizedFilePath.includes("/node_modules/");
   };
   const seenSourceFilePaths = new Set<string>();
   const sourceFiles = program
@@ -585,7 +592,7 @@ export const createProgram = (
     .filter((sf) => {
       if (
         sf.isDeclarationFile ||
-        !isImportedSourcePackageSourceFile(sf.fileName)
+        !isProgramOwnedSourceFile(sf.fileName)
       ) {
         return false;
       }

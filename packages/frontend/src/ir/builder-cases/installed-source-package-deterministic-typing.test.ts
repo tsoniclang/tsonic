@@ -10,7 +10,11 @@ import {
   runNumericProofPass,
 } from "../validation/index.js";
 import { validateProgram } from "../../validator.js";
-import type { IrFunctionDeclaration, IrExpressionStatement } from "../types.js";
+import type {
+  IrFunctionDeclaration,
+  IrExpression,
+  IrExpressionStatement,
+} from "../types.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 const materializeInstalledSourceFixture = (
@@ -140,6 +144,25 @@ const expectNoDeterministicTypingDiagnostics = (
 
   visit(moduleResult.value.body);
   expect(unknownCalls).to.deep.equal([]);
+};
+
+const visitIr = (value: unknown, visitor: (value: unknown) => void): void => {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  visitor(value);
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      visitIr(item, visitor);
+    }
+    return;
+  }
+
+  for (const nested of Object.values(value)) {
+    visitIr(nested, visitor);
+  }
 };
 
 describe("IR Builder", function () {
@@ -582,6 +605,14 @@ describe("IR Builder", function () {
         expect(callExpr.surfaceParameterTypes[0].types[0]?.kind).to.equal(
           "arrayType"
         );
+        if (callExpr.surfaceParameterTypes[0].types[0]?.kind !== "arrayType") {
+          return;
+        }
+        expect(
+          callExpr.surfaceParameterTypes[0].types[0].elementType
+        ).to.deep.include({
+          name: "byte",
+        });
         expect(callExpr.surfaceParameterTypes[0].types[1]?.kind).to.equal(
           "referenceType"
         );
@@ -692,6 +723,14 @@ describe("IR Builder", function () {
         expect(callExpr.surfaceParameterTypes[0].types[0]?.kind).to.equal(
           "arrayType"
         );
+        if (callExpr.surfaceParameterTypes[0].types[0]?.kind !== "arrayType") {
+          return;
+        }
+        expect(
+          callExpr.surfaceParameterTypes[0].types[0].elementType
+        ).to.deep.include({
+          name: "byte",
+        });
         expect(callExpr.surfaceParameterTypes[0].types[1]?.kind).to.equal(
           "referenceType"
         );
@@ -796,6 +835,121 @@ describe("IR Builder", function () {
             packageRoot: fixture.path("app/node_modules/@tsonic/js"),
           }
         );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves concrete imported generic result members after discriminant narrowing", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/authoritative-tsonic-js",
+        "narrowed-generic-result-member",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(
+          programResult.ok,
+          programResult.ok
+            ? undefined
+            : programResult.error.diagnostics
+                .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+                .join("\n")
+        ).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const validation = validateProgram(program);
+        expect(validation.hasErrors).to.equal(false);
+
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        let dataAccessType: IrExpression["inferredType"] | undefined;
+        let nullableMessageRetentionAccess: IrExpression["inferredType"] | undefined;
+        let coalescedMessageRetentionType: IrExpression["inferredType"] | undefined;
+
+        visitIr(moduleResult.value.body, (value) => {
+          const expression = value as Partial<IrExpression>;
+          if (expression.kind !== "memberAccess") {
+            return;
+          }
+
+          if (
+            expression.property === "data" &&
+            dataAccessType === undefined
+          ) {
+            dataAccessType = expression.inferredType;
+            return;
+          }
+
+          if (expression.property !== "MessageRetentionDays") {
+            return;
+          }
+
+          nullableMessageRetentionAccess = expression.inferredType;
+        });
+
+        visitIr(moduleResult.value.body, (value) => {
+          const expression = value as Partial<IrExpression>;
+          if (
+            expression.kind === "logical" &&
+            expression.operator === "??" &&
+            expression.left?.kind === "memberAccess" &&
+            expression.left.property === "MessageRetentionDays"
+          ) {
+            coalescedMessageRetentionType = expression.inferredType;
+          }
+        });
+
+        expect(dataAccessType?.kind).to.equal("referenceType");
+        if (dataAccessType?.kind === "referenceType") {
+          expect(dataAccessType.name).to.equal("Channel");
+          expect(dataAccessType.resolvedClrType).to.equal("fixture.domain.Channel");
+        }
+        expect(nullableMessageRetentionAccess).to.deep.equal({
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "int" },
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        });
+        expect(coalescedMessageRetentionType).to.deep.equal({
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "int" },
+            { kind: "primitiveType", name: "null" },
+          ],
+        });
       } finally {
         fixture.cleanup();
       }

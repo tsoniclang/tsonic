@@ -7,6 +7,7 @@ import type {
   TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
 import type {
+  IrModule,
   IrType,
   IrExpression,
   IrInterfaceMember,
@@ -155,6 +156,11 @@ export type EmitterOptions = {
   readonly moduleMap?: ModuleMap;
   /** Export map for resolving re-exports to actual source (populated during batch emission) */
   readonly exportMap?: ExportMap;
+  /**
+   * Modules available for semantic cross-module resolution even when they are
+   * intentionally omitted from the current emitted source closure.
+   */
+  readonly referenceModules?: readonly IrModule[];
   /**
    * Type declarations to suppress during emission.
    * Key format: "<filePath>::<statementKind>::<typeName>".
@@ -439,6 +445,14 @@ export type EmitterContext = {
    * zero arguments. This set tracks those names so the call emitter can strip the argument.
    */
   readonly voidResolveNames?: ReadonlySet<string>;
+  /**
+   * Promise resolve callback parameter names mapped to their normalized promised value type.
+   *
+   * TypeScript models Promise executors as `resolve: (value: T | PromiseLike<T>) => void`,
+   * but emitted C# promise helpers always expose `Action<T>`. This map lets call emission
+   * strip the PromiseLike union back to the promised value type when invoking those locals.
+   */
+  readonly promiseResolveValueTypes?: ReadonlyMap<string, IrType>;
   /**
    * Set of emitted C# local identifiers that have been used anywhere in the current method body.
    *

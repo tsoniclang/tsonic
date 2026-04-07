@@ -16,9 +16,12 @@ import {
 import { assertNoOutputAssemblyNameConflicts } from "./assets.js";
 import { emitSourcePackageArtifacts } from "./source-package-artifacts.js";
 
+const DOTNET_BUILD_MAX_BUFFER = 64 * 1024 * 1024;
+
 export const buildLibrary = (
   config: ResolvedConfig,
-  generatedDir: string
+  generatedDir: string,
+  referencedAssemblyPaths: readonly string[]
 ): Result<{ outputPath: string }, string> => {
   const { outputName, quiet, verbose, workspaceRoot, rid } = config;
   const targetFrameworks = config.outputConfig.targetFrameworks ?? [
@@ -57,7 +60,14 @@ export const buildLibrary = (
         stdio: verbose ? "inherit" : "pipe",
         encoding: "utf-8",
         env: buildDotnetProcessEnv(workspaceRoot),
+        maxBuffer: DOTNET_BUILD_MAX_BUFFER,
       });
+      if (publishResult.error) {
+        return {
+          ok: false,
+          error: `dotnet publish failed:\n${publishResult.error.message}`,
+        };
+      }
       if (publishResult.status !== 0) {
         const errorMsg = publishResult.stderr || publishResult.stdout || "Unknown error";
         return { ok: false, error: `dotnet publish failed:\n${errorMsg}` };
@@ -69,6 +79,7 @@ export const buildLibrary = (
       "tsonic.csproj",
       "-c",
       "Release",
+      "--no-incremental",
       "--nologo",
       "--configfile",
       nugetConfigResult.value,
@@ -86,7 +97,14 @@ export const buildLibrary = (
       stdio: verbose ? "inherit" : "pipe",
       encoding: "utf-8",
       env: buildDotnetProcessEnv(workspaceRoot),
+      maxBuffer: DOTNET_BUILD_MAX_BUFFER,
     });
+    if (buildResult.error) {
+      return {
+        ok: false,
+        error: `dotnet build failed:\n${buildResult.error.message}`,
+      };
+    }
     if (buildResult.status !== 0) {
       const errorMsg = buildResult.stderr || buildResult.stdout || "Unknown error";
       return { ok: false, error: `dotnet build failed:\n${errorMsg}` };
@@ -96,13 +114,14 @@ export const buildLibrary = (
   const conflictResult = assertNoOutputAssemblyNameConflicts(
     generatedDir,
     outputName,
-    config.libraries
+    [...config.libraries, ...referencedAssemblyPaths]
   );
   if (!conflictResult.ok) return conflictResult;
 
   const outputDir = join(config.projectRoot, "dist");
   try {
-    if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
+    rmSync(outputDir, { recursive: true, force: true });
+    mkdirSync(outputDir, { recursive: true });
     const copiedFiles: string[] = [];
 
     for (const framework of targetFrameworks) {

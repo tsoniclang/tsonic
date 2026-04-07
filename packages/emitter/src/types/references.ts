@@ -85,6 +85,9 @@ const isQualifiedClrIdentity = (name: string | undefined): boolean => {
   );
 };
 
+const isSystemObjectClrIdentity = (name: string | undefined): boolean =>
+  name === "System.Object" || name === "global::System.Object";
+
 const getDeclaringTypeParameterAsts = (
   context: EmitterContext
 ): readonly CSharpTypeAst[] =>
@@ -128,9 +131,7 @@ export const emitReferenceType = (
   // Explicit import contracts are authoritative and must win before any
   // structural or binding-backed rebound. Otherwise same-named sibling types
   // can be reattached to an unrelated owner through registry aliasing.
-  const importedTypeAst = !currentModuleLocalType
-    ? resolveImportedTypeAst(name, context)
-    : undefined;
+  const importedTypeAst = resolveImportedTypeAst(name, context);
   if (importedTypeAst) {
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
@@ -431,7 +432,9 @@ export const emitReferenceType = (
   // so imported type identity remains stable even when global aliases collide.
   // If the type has a pre-resolved CLR type (from IR), use it
   if (
-    (!currentModuleLocalType || context.preferResolvedLocalClrIdentity) &&
+    (!currentModuleLocalType ||
+      context.preferResolvedLocalClrIdentity ||
+      isSystemObjectClrIdentity(resolvedClrType)) &&
     isQualifiedClrIdentity(resolvedClrType)
   ) {
     const typeAst = clrTypeNameToTypeAst(

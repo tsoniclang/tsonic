@@ -49,6 +49,83 @@ export const isInterfaceReference = (
   return false;
 };
 
+const localTypeRequiresSetsRequiredMembersCtor = (
+  name: string,
+  localInfo: LocalTypeInfo,
+  context: EmitterContext,
+  visited: Set<string>
+): boolean => {
+  const key = `${context.moduleNamespace ?? context.options.rootNamespace}:${name}`;
+  if (visited.has(key)) {
+    return false;
+  }
+  visited.add(key);
+
+  if (localInfo.kind === "interface") {
+    const emitsAsClass = !localInfo.members.some(
+      (member) => member.kind === "methodSignature"
+    );
+    if (!emitsAsClass) {
+      return false;
+    }
+
+    if (
+      localInfo.members.some(
+        (member) =>
+          member.kind === "propertySignature" && member.isOptional === false
+      )
+    ) {
+      return true;
+    }
+
+    return localInfo.extends.some(
+      (base) =>
+        base.kind === "referenceType" &&
+        referenceTypeRequiresSetsRequiredMembersCtor(base, context, visited)
+    );
+  }
+
+  if (localInfo.kind === "class") {
+    if (
+      localInfo.members.some(
+        (member) =>
+          member.kind === "propertyDeclaration" && member.isRequired === true
+      )
+    ) {
+      return true;
+    }
+
+    return (
+      localInfo.superClass?.kind === "referenceType" &&
+      referenceTypeRequiresSetsRequiredMembersCtor(
+        localInfo.superClass,
+        context,
+        visited
+      )
+    );
+  }
+
+  return false;
+};
+
+export const referenceTypeRequiresSetsRequiredMembersCtor = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext,
+  visited: Set<string> = new Set<string>()
+): boolean => {
+  const resolved = resolveLocalTypeInfo(ref, context);
+  if (!resolved) {
+    return false;
+  }
+
+  return localTypeRequiresSetsRequiredMembersCtor(
+    resolved.name,
+    resolved.info,
+    context,
+    visited
+  );
+};
+
 const irNodeUsesInstanceContext = (
   value: unknown,
   visited: WeakSet<object> = new WeakSet<object>()

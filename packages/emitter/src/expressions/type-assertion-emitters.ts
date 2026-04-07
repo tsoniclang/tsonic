@@ -611,6 +611,7 @@ export const emitTypeAssertion = (
   const innerExpectedType =
     expr.expression.kind === "array" ||
     expr.expression.kind === "object" ||
+    expr.expression.kind === "call" ||
     expr.expression.kind === "functionExpression" ||
     expr.expression.kind === "arrowFunction"
       ? runtimeEmissionTarget

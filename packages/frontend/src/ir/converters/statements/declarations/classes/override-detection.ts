@@ -7,6 +7,7 @@
 import * as ts from "typescript";
 import type { ProgramContext } from "../../../../program-context.js";
 import type { IrParameter, IrType } from "../../../../types.js";
+import type { DotnetMemberMetadata } from "../../../../../dotnet-metadata.js";
 import { resolveHeritageReferenceType } from "../../../heritage-reference-type.js";
 
 export type OverrideInfo = {
@@ -15,7 +16,10 @@ export type OverrideInfo = {
   /**
    * Required C# accessibility for an override against a CLR base member.
    *
-   * TypeScript cannot express `protected internal`, so we infer it from bindings.json.
+   * CLR `protected internal` members must be overridden as `protected` in
+   * generated source when the override is emitted from a different assembly.
+   * TypeScript cannot express these CLR distinctions directly, so we
+   * normalize them from bindings metadata here.
    */
   readonly requiredAccessibility?:
     | "public"
@@ -40,6 +44,22 @@ export const detectOverride = (
     return { isOverride: false, isShadow: false };
   }
 
+  const heritageType = resolveHeritageReferenceType(superClass, ctx);
+  const heritageClrName =
+    heritageType.kind === "referenceType"
+      ? heritageType.resolvedClrType ?? heritageType.typeId?.clrName
+      : undefined;
+
+  if (heritageClrName && ctx.metadata.getTypeMetadata(heritageClrName)) {
+    return detectDotNetOverride(
+      memberName,
+      memberKind,
+      heritageClrName,
+      ctx,
+      parameters
+    );
+  }
+
   // DETERMINISTIC: Get base class name directly from AST
   // For simple identifiers, get the name; for qualified names, get the full path
   const baseClassName = ts.isIdentifier(superClass.expression)
@@ -62,13 +82,7 @@ export const detectOverride = (
     ? ctx.binding.getFullyQualifiedName(declId)
     : baseClassName;
 
-  // Check if this is a .NET type (starts with "System." or other .NET namespaces)
-  const isDotNetType =
-    qualifiedName?.startsWith("System.") ||
-    qualifiedName?.startsWith("Microsoft.") ||
-    qualifiedName?.startsWith("Tsonic.Runtime.");
-
-  if (isDotNetType && qualifiedName) {
+  if (qualifiedName && ctx.metadata.getTypeMetadata(qualifiedName)) {
     return detectDotNetOverride(
       memberName,
       memberKind,
@@ -84,7 +98,7 @@ export const detectOverride = (
       memberName,
       memberKind,
       parameters,
-      resolveHeritageReferenceType(superClass, ctx)
+      heritageType
     );
   }
 
@@ -122,6 +136,11 @@ const detectDotNetOverride = (
   ctx: ProgramContext,
   parameters?: readonly IrParameter[]
 ): OverrideInfo => {
+  const toOverrideAccessibility = (
+    visibility: DotNetVisibility | undefined
+  ): OverrideInfo["requiredAccessibility"] =>
+    visibility === "protected internal" ? "protected" : visibility;
+
   if (memberKind === "method" && parameters) {
     const parameterTypes: string[] = [];
     for (const p of parameters) {
@@ -156,7 +175,9 @@ const detectDotNetOverride = (
     return {
       isOverride: canOverride,
       isShadow: !canOverride,
-      requiredAccessibility: canOverride ? meta.visibility : undefined,
+      requiredAccessibility: canOverride
+        ? toOverrideAccessibility(meta.visibility)
+        : undefined,
     };
   } else if (memberKind === "property") {
     // For properties, check without parameters
@@ -167,12 +188,16 @@ const detectDotNetOverride = (
     return {
       isOverride: canOverride,
       isShadow: !canOverride,
-      requiredAccessibility: canOverride ? meta.visibility : undefined,
+      requiredAccessibility: canOverride
+        ? toOverrideAccessibility(meta.visibility)
+        : undefined,
     };
   }
 
   return { isOverride: false, isShadow: false };
 };
+
+type DotNetVisibility = NonNullable<DotnetMemberMetadata["visibility"]>;
 
 const buildParameterModifiersKey = (params: readonly IrParameter[]): string => {
   const mods: Array<{ index: number; modifier: string }> = [];

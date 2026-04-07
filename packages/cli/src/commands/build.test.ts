@@ -1,4 +1,5 @@
 import "./build-cases/ref-dirs.test.js";
+import "./build-cases/local-package-ownership.test.js";
 import "./build-cases/native-library-port-regressions-1.test.js";
 import "./build-cases/native-library-port-regressions-2.test.js";
 import "./build-cases/native-library-port-regressions-3.test.js";

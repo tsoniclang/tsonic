@@ -39,7 +39,9 @@ export const getRawSignature = (
   if (!sigInfo) return undefined;
 
   // Convert parameter types from TypeNodes to IrTypes
-  const parameterTypes: (IrType | undefined)[] = sigInfo.parameters.map((p) => {
+  const effectiveParameters = sigInfo.resolvedParameters ?? sigInfo.parameters;
+
+  const parameterTypes: (IrType | undefined)[] = effectiveParameters.map((p) => {
     const baseType = p.typeNode
       ? convertTypeNode(state, p.typeNode)
       : undefined;
@@ -55,12 +57,12 @@ export const getRawSignature = (
   })();
 
   // Extract parameter modes
-  const parameterModes: ParameterMode[] = sigInfo.parameters.map(
+  const parameterModes: ParameterMode[] = effectiveParameters.map(
     (p) => p.mode ?? "value"
   );
 
   // Extract parameter names
-  const parameterNames: string[] = sigInfo.parameters.map((p) => p.name);
+  const parameterNames: string[] = effectiveParameters.map((p) => p.name);
 
   const isConstructor = sigInfo.declaringMemberName === "constructor";
   // Extract type parameters.
@@ -150,7 +152,7 @@ export const getRawSignature = (
 
   const rawSig: RawSignatureInfo = {
     parameterTypes,
-    parameterFlags: sigInfo.parameters.map((parameter) => ({
+    parameterFlags: effectiveParameters.map((parameter) => ({
       isRest: parameter.isRest,
       isOptional: parameter.isOptional,
     })),

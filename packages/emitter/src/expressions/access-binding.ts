@@ -31,7 +31,6 @@ import type {
 import {
   type MemberAccessUsage,
   stripClrGenericArity,
-  eraseOutOfScopeArrayWrapperTypeParameters,
   emitStorageCompatibleArrayWrapperElementTypeAst,
   resolveEffectiveReceiverType,
   hasSourceDeclaredMember,
@@ -39,7 +38,7 @@ import {
   emitMemberName,
   isStaticTypeReference,
 } from "./access-resolution.js";
-import { buildExactGlobalBindingType } from "./exact-global-bindings.js";
+import { buildNativeArrayInteropWrapAst } from "./array-interop.js";
 import {
   isStringReceiverType,
   isLengthPropertyName,
@@ -70,6 +69,11 @@ export const tryEmitMemberBindingAccess = (
   );
 
   const receiverType = resolveEffectiveReceiverType(expr.object, context);
+  const declaredReceiverType =
+    expr.object.kind === "identifier"
+      ? (context.localSemanticTypes?.get(expr.object.name) ??
+        context.localValueTypes?.get(expr.object.name))
+      : undefined;
   const sourcePropertyName =
     typeof expr.property === "string" ? expr.property : member;
   const arrayLikeReceiver = resolveArrayLikeReceiverType(receiverType, context);
@@ -78,7 +82,7 @@ export const tryEmitMemberBindingAccess = (
     bindingTypeLeaf === "ReadonlyArray" ||
     type.includes("System.Array");
   const hasSourceDeclaredReceiverMember = hasSourceDeclaredMember(
-    receiverType,
+    declaredReceiverType ?? receiverType,
     sourcePropertyName,
     usage,
     context
@@ -93,11 +97,20 @@ export const tryEmitMemberBindingAccess = (
     (bindingTypeLeaf === "String" ||
       normalizedBindingTypeWithoutArity === "global::js.String" ||
       normalizedBindingTypeWithoutArity === "js.String");
-  const [emittedReceiverTypeAst] = bindingTargetsStringLength
+  const targetsLengthLikeProperty =
+    usage === "value" &&
+    typeof expr.property === "string" &&
+    isLengthPropertyName(expr.property);
+  const [emittedReceiverTypeAst] = targetsLengthLikeProperty
     ? resolveEmittedReceiverTypeAst(expr.object, context)
     : [undefined, context];
   const emittedReceiverTypeName = emittedReceiverTypeAst
     ? getIdentifierTypeName(stripNullableTypeAst(emittedReceiverTypeAst))
+    : undefined;
+  const emittedReceiverLeafName = emittedReceiverTypeAst
+    ? getIdentifierTypeName(stripNullableTypeAst(emittedReceiverTypeAst))
+        ?.split(".")
+        .pop()
     : undefined;
   const emittedReceiverIsConcreteNonString =
     !!emittedReceiverTypeName &&
@@ -105,11 +118,31 @@ export const tryEmitMemberBindingAccess = (
     emittedReceiverTypeName !== "System.String" &&
     emittedReceiverTypeName !== "global::js.String" &&
     emittedReceiverTypeName !== "js.String";
+  const emittedReceiverPrefersDirectLength =
+    !!emittedReceiverTypeName &&
+    emittedReceiverTypeName !== "global::System.Array" &&
+    emittedReceiverTypeName !== "System.Array" &&
+    emittedReceiverTypeName !== "global::js.Array" &&
+    emittedReceiverTypeName !== "js.Array" &&
+    emittedReceiverLeafName !== "Array" &&
+    emittedReceiverLeafName !== "ICollection" &&
+    emittedReceiverLeafName !== "IReadOnlyCollection" &&
+    emittedReceiverIsConcreteNonString;
   if (
     bindingTargetsStringLength &&
     ((receiverHasDeterministicMember &&
       !isStringReceiverType(receiverType, context)) ||
       emittedReceiverIsConcreteNonString)
+  ) {
+    return undefined;
+  }
+  if (
+    usage === "value" &&
+    typeof expr.property === "string" &&
+    isLengthPropertyName(expr.property) &&
+    (hasSourceDeclaredReceiverMember ||
+      receiverHasDeterministicMember ||
+      emittedReceiverPrefersDirectLength)
   ) {
     return undefined;
   }
@@ -133,33 +166,19 @@ export const tryEmitMemberBindingAccess = (
       return jsSurfaceArrayLengthAccess;
     }
 
-    let elementTypeAst: CSharpTypeAst = {
-      kind: "predefinedType",
-      keyword: "object",
-    };
     let elementContext = withObject;
 
     if (arrayLikeReceiver) {
-      [elementTypeAst, elementContext] =
-        emitStorageCompatibleArrayWrapperElementTypeAst(
-          expr.object,
-          receiverType,
-          arrayLikeReceiver.elementType,
-          withObject
-        );
+      [, elementContext] = emitStorageCompatibleArrayWrapperElementTypeAst(
+        expr.object,
+        receiverType,
+        arrayLikeReceiver.elementType,
+        withObject
+      );
     } else {
-      const [receiverTypeAst, receiverTypeContext] =
+      const [, receiverTypeContext] =
         resolveEmittedReceiverTypeAst(expr.object, withObject);
       elementContext = receiverTypeContext;
-      const concreteReceiverTypeAst = receiverTypeAst
-        ? stripNullableTypeAst(receiverTypeAst)
-        : undefined;
-      if (concreteReceiverTypeAst?.kind === "arrayType") {
-        elementTypeAst = eraseOutOfScopeArrayWrapperTypeParameters(
-          concreteReceiverTypeAst.elementType,
-          receiverTypeContext
-        );
-      }
     }
 
     return [
@@ -167,15 +186,7 @@ export const tryEmitMemberBindingAccess = (
         kind: expr.isOptional
           ? "conditionalMemberAccessExpression"
           : "memberAccessExpression",
-        expression: {
-          kind: "objectCreationExpression",
-          type: buildExactGlobalBindingType(
-            "Array",
-            [elementTypeAst],
-            elementContext
-          ),
-          arguments: [objectAst],
-        },
+        expression: buildNativeArrayInteropWrapAst(objectAst),
         memberName: "length",
       },
       elementContext,
@@ -211,14 +222,20 @@ export const tryEmitMemberBindingAccess = (
         wrapperTypeArguments = [elementTypeAst];
       }
 
-      const wrapperAst: CSharpExpressionAst = {
-        kind: "objectCreationExpression",
-        type: identifierType(
-          normalizedBindingTypeWithoutArity,
-          wrapperTypeArguments
-        ),
-        arguments: [objectAst],
-      };
+      const wrapperAst: CSharpExpressionAst =
+        normalizedBindingTypeWithoutArity === "global::js.Array" ||
+        normalizedBindingTypeWithoutArity === "js.Array" ||
+        normalizedBindingTypeWithoutArity === "global::js.ReadonlyArray" ||
+        normalizedBindingTypeWithoutArity === "js.ReadonlyArray"
+          ? buildNativeArrayInteropWrapAst(objectAst)
+          : {
+              kind: "objectCreationExpression",
+              type: identifierType(
+                normalizedBindingTypeWithoutArity,
+                wrapperTypeArguments
+              ),
+              arguments: [objectAst],
+            };
 
       if (expr.isOptional) {
         return [

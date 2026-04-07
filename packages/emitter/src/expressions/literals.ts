@@ -67,6 +67,34 @@ const isCharExpectedType = (
   );
 };
 
+const hasExplicitNullishBranch = (type: IrType): boolean =>
+  type.kind === "unionType" &&
+  type.types.some(
+    (member) =>
+      member.kind === "primitiveType" &&
+      (member.name === "null" || member.name === "undefined")
+  );
+
+const hasNullableValueTypeBase = (type: IrType): boolean => {
+  if (type.kind !== "unionType") {
+    return false;
+  }
+
+  const nonNullishMembers = type.types.filter(
+    (member) =>
+      !(
+        member.kind === "primitiveType" &&
+        (member.name === "null" || member.name === "undefined")
+      )
+  );
+
+  return (
+    nonNullishMembers.length === 1 &&
+    nonNullishMembers[0] !== undefined &&
+    isDefinitelyValueType(nonNullishMembers[0])
+  );
+};
+
 /**
  * Emit a literal value as CSharpExpressionAst
  *
@@ -90,7 +118,9 @@ export const emitLiteral = (
     if (expectedType) {
       if (
         containsTypeParameter(expectedType) ||
-        isDefinitelyValueType(expectedType)
+        hasNullableValueTypeBase(expectedType) ||
+        (isDefinitelyValueType(expectedType) &&
+          !hasExplicitNullishBranch(expectedType))
       ) {
         return [{ kind: "defaultExpression" }, context];
       }

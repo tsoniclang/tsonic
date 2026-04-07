@@ -1,8 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoGlobalsRoot = path.resolve(process.cwd(), "../../../globals/versions/10");
-const repoCoreRoot = path.resolve(process.cwd(), "../../../core/versions/10");
+const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(currentFileDir, "../../../../..");
+const repoGlobalsRoot = path.resolve(repoRoot, "../globals/versions/10");
+const repoCoreRoot = path.resolve(repoRoot, "../core/versions/10");
 
 export const installRepoPackage = (
   tempDir: string,

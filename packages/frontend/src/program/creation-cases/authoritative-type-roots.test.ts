@@ -6,12 +6,16 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 import { createProgram } from "../creation.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 describe("Program Creation – authoritative type roots", function () {
   this.timeout(90_000);
+  const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(currentFileDir, "../../../../..");
+  const authoritativeRoot = path.resolve(repoRoot, "../nodejs/versions/10");
 
   it("should keep @tsonic module type queries on the authoritative typeRoot package graph", () => {
     const fixture = materializeFrontendFixture(
@@ -19,10 +23,6 @@ describe("Program Creation – authoritative type roots", function () {
     );
 
     try {
-      const authoritativeRoot = path.resolve(
-        process.cwd(),
-        "../../../nodejs/versions/10"
-      );
       const projectRoot = fixture.path("app");
       const srcDir = fixture.path("app/src");
       const entryPath = fixture.path("app/src/index.ts");
@@ -81,10 +81,6 @@ describe("Program Creation – authoritative type roots", function () {
     );
 
     try {
-      const authoritativeRoot = path.resolve(
-        process.cwd(),
-        "../../../nodejs/versions/10"
-      );
       const projectRoot = fixture.path("app");
       const srcDir = fixture.path("app/src");
       const entryPath = fixture.path("app/src/index.ts");

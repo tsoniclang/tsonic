@@ -160,6 +160,148 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("/* ...spread */");
   });
 
+  it("should preserve fixed leading args when function-value rest calls include spreads", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "joinParts" },
+              type: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: {
+                      kind: "identifierPattern",
+                      name: "values",
+                    },
+                    type: {
+                      kind: "arrayType",
+                      elementType: { kind: "primitiveType", name: "string" },
+                    },
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "primitiveType", name: "string" },
+              },
+              initializer: {
+                kind: "arrowFunction",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: {
+                      kind: "identifierPattern",
+                      name: "values",
+                    },
+                    type: {
+                      kind: "arrayType",
+                      elementType: { kind: "primitiveType", name: "string" },
+                    },
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                body: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "" },
+                    },
+                  ],
+                },
+                returnType: { kind: "primitiveType", name: "string" },
+                isAsync: false,
+              },
+            },
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "parts" },
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "string" },
+              },
+              initializer: {
+                kind: "array",
+                elements: [
+                  { kind: "literal", value: "a" },
+                  { kind: "literal", value: "b" },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "joinParts",
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: {
+                      kind: "identifierPattern",
+                      name: "values",
+                    },
+                    type: {
+                      kind: "arrayType",
+                      elementType: { kind: "primitiveType", name: "string" },
+                    },
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "primitiveType", name: "string" },
+              },
+            },
+            arguments: [
+              { kind: "literal", value: "root" },
+              {
+                kind: "spread",
+                expression: {
+                  kind: "identifier",
+                  name: "parts",
+                  inferredType: {
+                    kind: "arrayType",
+                    elementType: { kind: "primitiveType", name: "string" },
+                  },
+                },
+              },
+            ],
+            isOptional: false,
+            inferredType: { kind: "primitiveType", name: "string" },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("global::System.Linq.Enumerable.Concat");
+    expect(result).to.include('new string[] { "root" }');
+    expect(result).to.include("parts");
+  });
+
   it("should emit hierarchical member bindings correctly", () => {
     const module: IrModule = {
       kind: "module",

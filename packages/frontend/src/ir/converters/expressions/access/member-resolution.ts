@@ -188,6 +188,21 @@ const hasStrongerNumericIntent = (
   return false;
 };
 
+const shouldPreferConcreteStructuralMemberType = (
+  structuralMemberType: IrType | undefined,
+  candidateMemberType: IrType | undefined,
+  ctx: ProgramContext
+): boolean => {
+  if (!structuralMemberType || !candidateMemberType) {
+    return false;
+  }
+
+  return (
+    !ctx.typeSystem.containsTypeParameter(structuralMemberType) &&
+    ctx.typeSystem.containsTypeParameter(candidateMemberType)
+  );
+};
+
 export const hasDeclaredMemberByName = (
   receiverIrType: IrType | undefined,
   propertyName: string,
@@ -287,6 +302,16 @@ export const getDeclaredPropertyType = (
     ) {
       return directStructuralMemberType;
     }
+    if (
+      exactMemberType.kind !== "unknownType" &&
+      shouldPreferConcreteStructuralMemberType(
+        directStructuralMemberType,
+        exactMemberType,
+        ctx
+      )
+    ) {
+      return directStructuralMemberType;
+    }
     if (exactMemberType.kind !== "unknownType") {
       if (hasStrongerNumericIntent(receiverMemberType, exactMemberType)) {
         return receiverMemberType;
@@ -310,6 +335,15 @@ export const getDeclaredPropertyType = (
     }
     // If TypeSystem returned a valid type (not unknownType), use it
     if (memberType && memberType.kind !== "unknownType") {
+      if (
+        shouldPreferConcreteStructuralMemberType(
+          directStructuralMemberType,
+          memberType,
+          ctx
+        )
+      ) {
+        return directStructuralMemberType;
+      }
       return memberType;
     }
     if (hasDeclaredMemberByName(receiverIrType, propertyName, ctx)) {

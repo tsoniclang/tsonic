@@ -243,6 +243,7 @@ export type SignatureEntry = {
   readonly signature: ts.Signature;
   readonly decl?: ts.SignatureDeclaration;
   readonly parameters: readonly ParameterNode[];
+  readonly resolvedParameters?: readonly ParameterNode[];
   /** Type node of a TypeScript `this:` parameter (if present). Excluded from `parameters`. */
   readonly thisTypeNode?: ts.TypeNode;
   readonly returnTypeNode?: ts.TypeNode;

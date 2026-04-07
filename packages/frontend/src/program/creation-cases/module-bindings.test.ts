@@ -289,4 +289,37 @@ describe("Program Creation – module bindings", function () {
       fixture.cleanup();
     }
   });
+
+  it("includes imported local type-only modules in the source program graph", () => {
+    const fixture = materializeFrontendFixture(
+      "program/creation/module-bindings/local-relative-import-type-module"
+    );
+
+    try {
+      const projectRoot = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
+      const importedPath = fixture.path("app/src/profile-types.ts");
+
+      const result = createProgram([entryPath], {
+        projectRoot,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value.program.getSourceFile(importedPath)).to.not.equal(
+        undefined
+      );
+      expect(
+        result.value.sourceFiles.some(
+          (sourceFile) => path.resolve(sourceFile.fileName) === importedPath
+        )
+      ).to.equal(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
 });

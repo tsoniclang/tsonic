@@ -242,7 +242,29 @@ export const lowerExpression = (
           parameterTypes: expr.parameterTypes?.map((parameterType) =>
             parameterType ? lowerType(parameterType, ctx) : undefined
           ),
+          sourceBackedParameterTypes: expr.sourceBackedParameterTypes?.map(
+            (parameterType) =>
+              parameterType ? lowerType(parameterType, ctx) : undefined
+          ),
           surfaceParameterTypes: expr.surfaceParameterTypes,
+          sourceBackedSurfaceParameterTypes:
+            expr.sourceBackedSurfaceParameterTypes?.map((parameterType) =>
+              parameterType ? lowerType(parameterType, ctx) : undefined
+            ),
+          sourceBackedRestParameter: expr.sourceBackedRestParameter
+            ? {
+                ...expr.sourceBackedRestParameter,
+                arrayType: expr.sourceBackedRestParameter.arrayType
+                  ? lowerType(expr.sourceBackedRestParameter.arrayType, ctx)
+                  : undefined,
+                elementType: expr.sourceBackedRestParameter.elementType
+                  ? lowerType(expr.sourceBackedRestParameter.elementType, ctx)
+                  : undefined,
+              }
+            : undefined,
+          sourceBackedReturnType: expr.sourceBackedReturnType
+            ? lowerType(expr.sourceBackedReturnType, ctx)
+            : undefined,
           surfaceRestParameter: expr.surfaceRestParameter,
           narrowing: expr.narrowing
             ? {

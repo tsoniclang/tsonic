@@ -1024,6 +1024,112 @@ describe("IR Builder", function () {
       }
     });
 
+    it("widens generic equality to object over Memory<char> siblings for JsValue array elements", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import { Assert } from "xunit-types/Xunit.js";',
+            'import type { JsValue } from "@tsonic/core/types.js";',
+            "",
+            "declare class EventEmitter {",
+            "  static once(emitter: EventEmitter, eventName: string): Promise<JsValue[]>;",
+            "}",
+            "",
+            "export async function run(emitter: EventEmitter): Promise<void> {",
+            '  const args = await EventEmitter.once(emitter, "test");',
+            "  Assert.Equal(1, args[0]);",
+            "}",
+          ].join("\n"),
+          "node_modules/@tsonic/core/package.json": JSON.stringify({
+            name: "@tsonic/core",
+            type: "module",
+          }),
+          "node_modules/@tsonic/core/types.js": "export {};",
+          "node_modules/@tsonic/core/types.d.ts": [
+            "export type char = string;",
+            "export type JsValue = object | string | number | boolean | bigint | symbol | null;",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js":
+            'export { Assert as Assert } from "./Xunit/internal/index.js";',
+          "node_modules/xunit-types/Xunit.d.ts":
+            'export { Assert as Assert } from "./Xunit/internal/index.js";',
+          "node_modules/xunit-types/Xunit/internal/index.js":
+            "export const Assert = undefined;",
+          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+            'import type { char } from "@tsonic/core/types.js";',
+            'import type { Memory_1 } from "@tsonic/dotnet/System/internal/index.js";',
+            "",
+            "export interface Assert$instance {}",
+            "",
+            "export declare const Assert: (abstract new() => Assert$instance) & {",
+            "  Equal(expected: Memory_1<char>, actual: Memory_1<char>): void;",
+            "  Equal(expected: string, actual: string): void;",
+            "  Equal<T>(expected: T, actual: T): void;",
+            "};",
+          ].join("\n"),
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System/internal/index.js": "export {};",
+          "node_modules/@tsonic/dotnet/System/internal/index.d.ts": [
+            "export interface Memory_1$instance<T> {",
+            "  readonly __tsonic_type_System_Memory_1: never;",
+            "}",
+            "export type Memory_1<T> = Memory_1$instance<T>;",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+        if (!result.ok) {
+          expect.fail(`Expected build success, got diagnostic: ${result.error.message}`);
+          return;
+        }
+
+        const runDecl = result.value.body.find(
+          (statement): statement is IrFunctionDeclaration =>
+            statement.kind === "functionDeclaration" && statement.name === "run"
+        );
+        expect(runDecl).to.not.equal(undefined);
+        if (!runDecl?.body) {
+          return;
+        }
+
+        const callStatement = findEqualCallStatement(runDecl.body.statements);
+        expect(callStatement).to.not.equal(undefined);
+        if (
+          !callStatement ||
+          callStatement.kind !== "expressionStatement" ||
+          callStatement.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        expect(callStatement.expression.parameterTypes).to.deep.equal([
+          { kind: "referenceType", name: "object" },
+          { kind: "referenceType", name: "object" },
+        ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("keeps generic scalar equality overloads when later arguments are unknown", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -1588,6 +1694,12 @@ describe("IR Builder", function () {
         expect(firstParameterType.name).to.equal("Iterable");
         expect(firstSurfaceParameterType.types).to.have.length(2);
         expect(firstSurfaceParameterType.types[0]?.kind).to.equal("arrayType");
+        if (firstSurfaceParameterType.types[0]?.kind !== "arrayType") {
+          return;
+        }
+        expect(firstSurfaceParameterType.types[0].elementType).to.deep.include({
+          name: "byte",
+        });
         expect(firstSurfaceParameterType.types[1]?.kind).to.equal(
           "referenceType"
         );

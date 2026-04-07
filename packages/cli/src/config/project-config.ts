@@ -51,6 +51,53 @@ export const loadProjectConfig = (
         error: `${PROJECT_CONFIG_FILE}: 'references.libraries' must be an array of strings`,
       };
     }
+
+    const packages = (references as { readonly packages?: unknown }).packages;
+    if (packages !== undefined) {
+      if (!Array.isArray(packages)) {
+        return {
+          ok: false,
+          error: `${PROJECT_CONFIG_FILE}: 'references.packages' must be an array`,
+        };
+      }
+
+      for (const entry of packages) {
+        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+          return {
+            ok: false,
+            error:
+              `${PROJECT_CONFIG_FILE}: 'references.packages' entries must be objects`,
+          };
+        }
+
+        const id = (entry as { readonly id?: unknown }).id;
+        if (typeof id !== "string" || id.trim().length === 0) {
+          return {
+            ok: false,
+            error:
+              `${PROJECT_CONFIG_FILE}: 'references.packages[].id' must be a non-empty string`,
+          };
+        }
+
+        const project = (entry as { readonly project?: unknown }).project;
+        if (typeof project !== "string" || project.trim().length === 0) {
+          return {
+            ok: false,
+            error:
+              `${PROJECT_CONFIG_FILE}: 'references.packages[].project' must be a non-empty string`,
+          };
+        }
+
+        const mode = (entry as { readonly mode?: unknown }).mode;
+        if (mode !== undefined && mode !== "source" && mode !== "dll") {
+          return {
+            ok: false,
+            error:
+              `${PROJECT_CONFIG_FILE}: 'references.packages[].mode' must be 'source' or 'dll' when present`,
+          };
+        }
+      }
+    }
   }
 
   const tests = (parsed.value as { readonly tests?: unknown }).tests;

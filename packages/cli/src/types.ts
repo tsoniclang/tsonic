@@ -80,7 +80,35 @@ export type TsonicProjectConfig = {
    */
   readonly references?: {
     readonly libraries?: readonly string[];
+    readonly packages?: readonly LocalPackageReferenceConfig[];
   };
+};
+
+export type LocalPackageOwnershipMode = "source" | "dll";
+
+export type LocalPackageReferenceConfig = {
+  /**
+   * Package name as imported from source (for example "@jotster/core").
+   * Must match the referenced local project's package.json name.
+   */
+  readonly id: string;
+  /**
+   * Path to the referenced local project root. Resolved relative to the
+   * current project root.
+   */
+  readonly project: string;
+  /**
+   * Ownership mode for this first-party source package:
+   * - "source" (default): emit the package into the generated source closure
+   * - "dll": build the package separately and reference its DLL boundary
+   */
+  readonly mode?: LocalPackageOwnershipMode;
+};
+
+export type ResolvedLocalPackageReference = {
+  readonly id: string;
+  readonly projectRoot: string;
+  readonly mode: LocalPackageOwnershipMode;
 };
 
 export type LibraryReferenceConfig =
@@ -266,6 +294,7 @@ export type ResolvedConfig = {
     readonly version: string;
   }>;
   readonly msbuildProperties?: Readonly<Record<string, string>>;
+  readonly localPackageReferences: readonly ResolvedLocalPackageReference[];
 };
 
 /**

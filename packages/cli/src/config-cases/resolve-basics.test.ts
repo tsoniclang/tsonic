@@ -208,4 +208,34 @@ describe("Config (resolve basics)", () => {
     );
     expect(result.libraries).to.deep.equal(["libs/A.dll", "libs/B.dll"]);
   });
+
+  it("should resolve local package references relative to the project and default mode to source", () => {
+    const result = resolveConfig(
+      makeWorkspaceConfig(),
+      makeProjectConfig({
+        references: {
+          packages: [
+            { id: "@acme/core", project: "../core" },
+            { id: "@acme/auth", project: "../auth", mode: "dll" },
+          ],
+        },
+      }),
+      {},
+      WORKSPACE_ROOT,
+      PROJECT_ROOT
+    );
+
+    expect(result.localPackageReferences).to.deep.equal([
+      {
+        id: "@acme/core",
+        projectRoot: `${WORKSPACE_ROOT}/packages/core`,
+        mode: "source",
+      },
+      {
+        id: "@acme/auth",
+        projectRoot: `${WORKSPACE_ROOT}/packages/auth`,
+        mode: "dll",
+      },
+    ]);
+  });
 });

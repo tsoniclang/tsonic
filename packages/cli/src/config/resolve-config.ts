@@ -129,6 +129,12 @@ export const resolveConfig = (
     (entry) => resolve(projectRoot, entry)
   );
   const cliLibraries = cliOptions.lib ?? [];
+  const localPackageReferences =
+    projectConfig.references?.packages?.map((entry) => ({
+      id: entry.id,
+      projectRoot: resolve(projectRoot, entry.project),
+      mode: entry.mode ?? "source",
+    })) ?? [];
   const rawFrameworkReferences = (workspaceConfig.dotnet?.frameworkReferences ??
     []) as readonly FrameworkReferenceConfig[];
   const packageReferences = (
@@ -181,5 +187,6 @@ export const resolveConfig = (
     ),
     packageReferences,
     msbuildProperties: workspaceConfig.dotnet?.msbuildProperties,
+    localPackageReferences,
   };
 };

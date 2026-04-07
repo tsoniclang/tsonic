@@ -83,6 +83,7 @@ export type DeclKind =
 
 export type SignatureInfo = {
   readonly parameters: readonly ParameterNode[];
+  readonly resolvedParameters?: readonly ParameterNode[];
   readonly thisTypeNode?: unknown;
   readonly returnTypeNode?: unknown;
   readonly typeParameters?: readonly TypeParameterNode[];

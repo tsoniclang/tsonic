@@ -26,6 +26,7 @@ import {
   stableIrTypeKey,
   substituteIrType,
 } from "../types.js";
+import { stripNullishForInference } from "../type-system/type-system-state-helpers.js";
 
 export type VirtualMarkingResult = {
   readonly ok: true;
@@ -294,15 +295,33 @@ const methodsExactlyMatch = (
 const propertiesExactlyMatch = (
   baseProperty: IrPropertyDeclaration,
   derivedProperty: IrPropertyDeclaration,
+  classRegistry: ReadonlyMap<string, IrClassDeclaration>,
   classSubstitution?: ReadonlyMap<string, IrType>
-): boolean =>
-  baseProperty.name === derivedProperty.name &&
-  typesEqual(
+): boolean => {
+  if (baseProperty.name !== derivedProperty.name) {
+    return false;
+  }
+
+  const baseType =
     classSubstitution && baseProperty.type
       ? substituteIrType(baseProperty.type, classSubstitution)
-      : baseProperty.type,
-    derivedProperty.type
+      : baseProperty.type;
+  const canonicalBaseType = baseType
+    ? (stripNullishForInference(baseType) ?? baseType)
+    : baseType;
+  const canonicalDerivedType = derivedProperty.type
+    ? (stripNullishForInference(derivedProperty.type) ?? derivedProperty.type)
+    : derivedProperty.type;
+
+  return (
+    typesEqual(canonicalBaseType, canonicalDerivedType) ||
+    isLocalReferenceSubtype(
+      canonicalDerivedType,
+      canonicalBaseType,
+      classRegistry
+    )
   );
+};
 
 const buildEmptyPlan = (): LocalOverridePlan => ({
   methodUpdates: new Map<number, MemberOverrideUpdate>(),
@@ -406,7 +425,12 @@ const analyzeLocalOverrides = (
       }
 
       const matchedBaseProperty = sameNameBaseProperties.find((baseProperty) =>
-        propertiesExactlyMatch(baseProperty.member, member, classSubstitution)
+        propertiesExactlyMatch(
+          baseProperty.member,
+          member,
+          classRegistry,
+          classSubstitution
+        )
       );
       if (matchedBaseProperty) {
         propertyUpdates.set(index, { isOverride: true });

@@ -7,6 +7,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildIrModule } from "../builder.js";
 import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
 import {
@@ -17,6 +18,9 @@ import {
 
 describe("IR Builder", function () {
   this.timeout(90_000);
+  const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(currentFileDir, "../../../../../");
+  const jsRoot = path.resolve(repoRoot, "../js/versions/10");
 
   describe("typeof narrowing basics", () => {
     it("narrows typeof checks in js-surface branches to the matching primitive type", () => {
@@ -25,7 +29,6 @@ describe("IR Builder", function () {
       );
 
       try {
-        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
         expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
 
         fs.writeFileSync(

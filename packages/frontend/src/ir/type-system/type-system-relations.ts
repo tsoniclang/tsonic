@@ -140,6 +140,69 @@ const isArrayInstanceCandidate = (type: IrType): boolean => {
   );
 };
 
+const isBroadObjectTargetType = (type: IrType): boolean => {
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  if (simpleName === "object" || simpleName === "JsValue") {
+    return true;
+  }
+
+  return (
+    type.resolvedClrType === "System.Object" ||
+    type.resolvedClrType === "global::System.Object" ||
+    type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+    type.resolvedClrType === "global::Tsonic.Runtime.JsValue"
+  );
+};
+
+const isAssignableToBroadObjectTarget = (
+  state: TypeSystemState,
+  source: IrType,
+  activeAliases: ReadonlySet<string>
+): boolean => {
+  if (source.kind === "neverType") {
+    return true;
+  }
+
+  if (source.kind === "anyType") {
+    return true;
+  }
+
+  if (source.kind === "unknownType") {
+    return false;
+  }
+
+  const sourceAlias = resolveAliasExpansion(state, source);
+  if (sourceAlias && !activeAliases.has(sourceAlias.key)) {
+    const nextActiveAliases = new Set(activeAliases);
+    nextActiveAliases.add(sourceAlias.key);
+    return isAssignableToBroadObjectTarget(
+      state,
+      sourceAlias.expanded,
+      nextActiveAliases
+    );
+  }
+
+  if (source.kind === "unionType" || source.kind === "intersectionType") {
+    return source.types.every((member) =>
+      isAssignableToBroadObjectTarget(state, member, activeAliases)
+    );
+  }
+
+  if (source.kind === "primitiveType") {
+    return source.name !== "undefined";
+  }
+
+  if (source.kind === "voidType") {
+    return false;
+  }
+
+  return true;
+};
+
 export const matchesInstanceofTarget = (
   state: TypeSystemState,
   source: IrType,
@@ -383,6 +446,10 @@ const isAssignableToInternal = (
 
   // never is assignable to anything
   if (source.kind === "neverType") return true;
+
+  if (isBroadObjectTargetType(target)) {
+    return isAssignableToBroadObjectTarget(state, source, activeAliases);
+  }
 
   // undefined/null assignability (represented as primitiveType with name "null"/"undefined")
   if (isNullishPrimitive(source)) {

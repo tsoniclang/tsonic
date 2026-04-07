@@ -3,12 +3,26 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { copyFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import type { ResolvedConfig, Result } from "../types.js";
 import {
   buildDotnetProcessEnv,
   resolveNugetConfigFile,
 } from "../dotnet/nuget-config.js";
 import { generateCommand } from "./generate.js";
+
+const copyProjectTestRunnerConfig = (
+  config: ResolvedConfig,
+  generatedDir: string
+): void => {
+  const projectRunnerConfig = join(config.projectRoot, "xunit.runner.json");
+  if (!existsSync(projectRunnerConfig)) {
+    return;
+  }
+
+  copyFileSync(projectRunnerConfig, join(generatedDir, "xunit.runner.json"));
+};
 
 export const testCommand = (
   config: ResolvedConfig
@@ -17,6 +31,7 @@ export const testCommand = (
   if (!generateResult.ok) return generateResult;
 
   const generatedDir = generateResult.value.outputDir;
+  copyProjectTestRunnerConfig(config, generatedDir);
 
   const nugetConfigResult = resolveNugetConfigFile(config.workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;

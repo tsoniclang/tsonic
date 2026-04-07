@@ -493,5 +493,26 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("Task.FromException<object?>");
       expect(csharp).not.to.include("Task.FromException(new");
     });
+
+    it("prefers concrete contextual JS-surface promise results over unresolved reject generics", () => {
+      const source = `
+        declare class Error {
+          constructor(message?: string);
+        }
+
+        export function main(): void {
+          const operation = (): Promise<JsValue> => Promise.reject(new Error("boom"));
+          void operation;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include("System.Func<global::System.Threading.Tasks.Task<object?>>");
+      expect(csharp).to.include("Task.FromException<object?>");
+      expect(csharp).not.to.include("Task.FromException<T>");
+    });
   });
 });

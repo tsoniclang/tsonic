@@ -1,0 +1,9 @@
+{
+  "symlinks": [
+    {
+      "from": "external/js/versions/10",
+      "to": "app/node_modules/@tsonic/js",
+      "type": "dir"
+    }
+  ]
+}
