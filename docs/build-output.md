@@ -1,141 +1,100 @@
+---
+title: Build Output
+---
+
 # Build Output
 
-Tsonic emits C# under a generated project and then builds it with the .NET toolchain.
+Tsonic emits a deterministic generated C# project and then compiles it through
+the .NET toolchain.
 
-## Pipeline
+## Main output shapes
 
-```text
-TypeScript
-  -> frontend IR
-  -> CSharpAst
-  -> printed C#
-  -> generated project
-  -> dotnet build/publish
-```
+- generated C# project
+- managed executable
+- managed library
+- NativeAOT executable
+- NativeAOT library
 
-## Default Layout
+## Generated project layout
 
-```text
-packages/<project>/
-  generated/
-    src/
-    Program.cs
-    tsonic.csproj
-    bin/
-    obj/
-  out/
-```
-
-## Generated Files
-
-### `generated/src/*.cs`
-
-Per-module emitted C#.
-
-### `generated/Program.cs`
-
-Entry wrapper for executable builds.
-
-### `generated/tsonic.csproj`
-
-Resolved project file containing:
-
-- target framework
-- runtime identifier
-- framework references
-- package references
-- local library references
-- NativeAOT/runtime settings
-
-### `generated/src/__tsonic_json.g.cs`
-
-Generated only when JSON AOT support is needed.
-
-## Output Types
-
-### Executable
-
-Default app build.
-
-### Managed library
-
-Use `output.type = "library"` with NativeAOT disabled.
-
-#### Source-package library
-
-Library builds emit source-package output.
-
-Projects must declare `tsonic.package.json` with
-`kind: "tsonic-source-package"`. Tsonic then emits:
+For an executable project, the generated output typically looks like:
 
 ```text
-packages/<project>/
-  dist/
-    package.json
-    src/**/*.ts
-    src/**/*.d.ts
-    tsonic.package.json
-    net10.0/
-      <Assembly>.dll
+packages/api/generated/
+  Program.cs
+  tsonic.csproj
+  src/
+    App.cs
+  node_modules/
+    @tsonic/js/...
+    @tsonic/nodejs/...
+    @acme/domain/...
 ```
 
-This is the native first-party path:
+The important detail is that the generated source tree preserves package
+ownership. It is not a flat dump of unrelated `.cs` files.
 
-- source stays the package contract
-- consuming projects compile the package source directly
-- generated first-party bindings are not part of the published contract
+## Source-mode local packages
 
-### NativeAOT library
+When a local first-party package reference uses `mode: "source"` or omits
+`mode`, that package is emitted into the generated source closure.
 
-Use `output.type = "library"` with:
+Example:
 
 ```json
 {
-  "output": {
-    "type": "library",
-    "nativeAot": true,
-    "nativeLib": "shared"
+  "references": {
+    "packages": [
+      {
+        "id": "@acme/domain",
+        "project": "../domain"
+      }
+    ]
   }
 }
 ```
 
-`nativeLib` can be:
+Result:
 
-- `shared`
-- `static`
+- `@acme/domain` source appears under generated `node_modules`
+- the app and that package compile as one generated closure
 
-## Useful Build Flags
+## DLL-mode local packages
 
-- `--no-generate` — reuse existing generated project
-- `--no-aot` — build managed output
-- `--rid <rid>`
-- `--optimize size|speed`
-- `--no-strip`
-- `--keep-temp`
+When a local package reference uses `mode: "dll"`, Tsonic builds that package
+as a separate project and references its DLL boundary instead of emitting its
+source again.
 
-## When `--no-generate` Exists
+Example:
 
-This is for workflows where external tooling writes additional generated C# into the generated directory and you need to build/run without wiping it first.
-
-Examples:
-
-- EF Core compiled models
-- interceptor-generated sources
-
-## Cross-Compilation
-
-Examples:
-
-```bash
-tsonic build --rid linux-x64
-tsonic build --rid osx-arm64
-tsonic build --rid win-x64
+```json
+{
+  "references": {
+    "packages": [
+      {
+        "id": "@acme/domain",
+        "project": "../domain",
+        "mode": "dll"
+      }
+    ]
+  }
+}
 ```
 
-## Troubleshooting
+Result:
 
-- inspect `generated/src/*.cs`
-- inspect `generated/tsonic.csproj`
-- inspect `dist/tsonic.package.json`
-- rerun with `--verbose`
-- if package references changed, run `tsonic restore`
+- the local package is built first
+- the current project references its DLL
+- the generated source closure does not duplicate ownership for that package
+
+## Why generated output matters
+
+The generated project reflects:
+
+- the active surface
+- the full package graph
+- source-package manifests
+- CLR framework and package references
+- local package ownership mode
+
+See [Build Modes](build-modes.md) for the command-level view.

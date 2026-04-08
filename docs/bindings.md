@@ -1,127 +1,79 @@
 # Bindings
 
-Tsonic has two different dependency stories:
+Tsonic uses explicit packages for both authored source-package interop and CLR
+interop.
 
-- CLR/runtime bindings packages
-- native first-party source packages
+## The four binding families
 
-## 1. CLR / Runtime Bindings
+### 1. Authored first-party source packages
 
-These describe CLR assemblies, runtime helpers, or module surfaces.
+- `@tsonic/js`
+- `@tsonic/nodejs`
+- `@tsonic/express`
 
-Examples:
+These:
+
+- carry `tsonic.package.json`
+- expose TypeScript source directly
+- are compiled transitively into the same program
+
+### 2. Generated CLR binding packages
 
 - `@tsonic/dotnet`
 - `@tsonic/aspnetcore`
-- `@tsonic/js`
-- `@tsonic/nodejs`
+- `@tsonic/microsoft-extensions`
+- `@tsonic/efcore*`
 
-Add/install them through:
+These:
+
+- come from `tsbindgen`
+- project CLR namespaces and members into declaration packages
+- are imported explicitly for CLR interop
+
+### 3. Local DLL references
+
+Added with:
 
 ```bash
-tsonic add npm @tsonic/nodejs
-tsonic add nuget Microsoft.Extensions.Logging 10.0.0
 tsonic add package ./libs/MyLib.dll
-tsonic restore
 ```
 
-Tsonic uses:
+These can either:
 
-- declaration surfaces (`.d.ts`)
-- bindings metadata
-- runtime/NuGet/package references from manifests
+- use an explicit types package
+- or have a bindings package generated automatically through `tsbindgen`
 
-This path remains required for:
+### 4. Workspace framework/NuGet references
 
-- `tsbindgen`
-- external CLR assemblies
-- NuGet-backed interop libraries
-- CLR bindings package surfaces
+Added with:
 
-## 2. First-Party Package Manifests and Source Packages
-
-Tsonic-authored libraries and source packages can publish a `tsonic.package.json` and be consumed directly from npm.
-
-Manifest path:
-
-```text
-tsonic.package.json
+```bash
+tsonic add framework Microsoft.AspNetCore.App @tsonic/aspnetcore
+tsonic add nuget Microsoft.EntityFrameworkCore 10.0.0
 ```
 
-Source-package example:
+These are workspace-scoped CLR dependencies.
 
-```json
-{
-  "schemaVersion": 1,
-  "kind": "tsonic-source-package",
-  "surfaces": ["@tsonic/js"],
-  "source": {
-    "exports": {
-      ".": "./src/index.ts"
-    }
-  }
-}
-```
+## Runtime metadata from source packages
 
-When a source package is installed, Tsonic:
+Some first-party source packages also contribute runtime metadata.
 
-- resolves the package entrypoint
-- validates surface compatibility
-- adds the package TS files to the same TypeScript program
-- walks the package’s local relative imports
+For example, `@tsonic/nodejs` can add:
 
-This is different from opaque external npm module handling.
+- framework references
+- runtime package requirements
 
-For native first-party source packages, the published contract is:
+through its manifest. The workspace then resolves those through the normal
+restore/build flow.
 
-- TypeScript source
-- `.d.ts`
-- explicit ESM exports
-- `tsonic.package.json`
+## The key distinction
 
-It is **not**:
+Authored source packages and generated CLR binding packages both look like npm
+packages to a user, but they are not owned or validated the same way.
 
-- `dist/tsonic/bindings`
-- `tsonic.bindings.json`
-- per-namespace `bindings.json` payloads
+That is why the current docs keep them separate.
 
-## Surface Compatibility
+## Read next
 
-Workspaces still compile with one active ambient surface.
-
-Source packages may declare one or more compatible surfaces. Compatibility is checked against the resolved surface chain, not just exact string equality.
-
-## Generated/Normalized Manifest Data
-
-The CLI normalizes bindings metadata and runtime package requirements so that:
-
-- runtime code and declaration surfaces stay coherent
-- value exports and type exports are co-produced from the same source graph
-- first-party consumers get deterministic `.d.ts` surfaces from the compiler
-- native source packages can still overlay runtime/dotnet requirements without becoming bindings packages
-
-## Local vs Published Packages
-
-Airplane-grade rule:
-
-- repo-local sibling trees are useful during development
-- packed/published shape must still be verified
-
-If a package works locally but fails when installed, inspect:
-
-- nested `bindings.json`
-- internal declaration trees
-- `npm pack --dry-run`
-
-## What Gets Committed
-
-For normal projects:
-
-- source
-- configs
-- source package manifest
-
-For CLR/interop package generation:
-
-- generated bindings and metadata still apply
-- follow your workspace/repo publish policy
+- [Surfaces and Packages](surfaces-and-packages.md)
+- [CLR Bindings and Interop](dotnet-bindings.md)

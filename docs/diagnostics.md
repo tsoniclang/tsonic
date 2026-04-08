@@ -1,133 +1,85 @@
-# Diagnostics Guide
+---
+title: Diagnostics
+---
 
-This page documents the current diagnostic categories and the most important active codes.
+# Diagnostics
 
-It is intentionally curated rather than a generated dump of every internal code path.
+Tsonic diagnostics are meant to stop unsupported lowering paths early.
 
-## Ranges
+## Common classes of failures
 
-- `TSN1xxx` — module/import/resolution/config
-- `TSN2xxx` — unsupported syntax or unrepresentable type constructs
-- `TSN3xxx` — naming/emission conflicts
-- `TSN5xxx` — numeric proof and backend/runtime generation errors
-- `TSN6xxx` — yield lowering
-- `TSN7xxx` — static/AOT safety and deterministic typing
-- `TSN8Axx` — `tsonic.package.json`/source-package manifest/runtime mapping
-- `TSN9xxx` — type universe and missing-core failures
+- unsupported dynamic typing
+- unresolved source-package/package-graph issues
+- unsupported generic or overload lowering
+- explicit AOT rejection for constructs that cannot be lowered deterministically
+- package-manifest or binding-metadata mismatches
+- runtime/package ownership mismatches in multi-project workspaces
 
-## Common Active Diagnostics
+## Typical examples
 
-### `TSN1004`
-
-General module/package/config resolution failure.
-
-Examples:
-
-- invalid source package manifest
-- unresolved export target in `tsonic.package.json`
-- malformed installed package metadata
-
-### `TSN2001`
-
-Unsupported TypeScript feature in the current strict-AOT subset.
-
-Current common cases:
-
-- unsupported `import.meta` field
-- unsupported dynamic `import()` form
-- other syntax that does not have a deterministic lowering
-
-### `TSN3001` / `TSN3002`
-
-C# naming/identifier problems after lowering.
-
-### `TSN5101`–`TSN5110`
-
-Numeric proof failures.
-
-Typical examples:
-
-- narrowing `number` to `int` without proof
-- branch results that do not prove an integer-space target
-- value-space/range mismatches
-
-### `TSN6101`
-
-`yield` appeared in a position the lowering pipeline cannot rewrite.
-
-Many direct and nested yield cases are now supported, but irreducible ones still fail with `TSN6101`.
-
-### `TSN7203`
-
-Dictionary/symbol-key lowering issue. Most useful symbol-key dictionary paths are now supported; remaining failures mean the key/value shape still is not representable.
-
-### `TSN7401`
-
-Explicit `any` is not supported.
-
-### `TSN7403`
-
-Object-literal case still requires a deterministic finite target shape or supported shorthand/runtime analysis.
-
-### `TSN7414`
-
-Type cannot be represented deterministically in the current lowering model.
-
-### `TSN7418`
-
-Invalid `char` value.
-
-### `TSN7419`
-
-`never` used as a generic type argument in an unsupported deterministic context.
-
-### `TSN7432`
-
-Generic function value usage is outside the supported monomorphic/runtime-shape subset.
-
-Accepted examples do **not** produce this code:
+### Surface mismatch
 
 ```ts
-const id = <T>(x: T): T => x;
-const f: (x: number) => number = id;
+console.log("hello");
 ```
 
-Rejected examples do:
+If the workspace is still on `clr`, this is a surface problem, not a random
+typecheck accident. The fix is to switch the workspace surface to `@tsonic/js`
+or use explicit CLR APIs.
+
+### Package-graph mismatch
 
 ```ts
-const id = <T>(x: T): T => x;
-const copy = id;
+import * as fs from "node:fs";
 ```
 
-### `TSN8A01`–`TSN8A05`
+If `@tsonic/nodejs` is not installed, the correct fix is package-graph setup,
+not a local code workaround.
 
-`tsonic.package.json`/source-package manifest errors:
+### Determinism failure
 
-- invalid schema
-- unresolved runtime mapping
-- conflicting runtime mapping
-- missing bindings root
-- missing runtime mapping entry
+```ts
+await import(specifier);
+```
 
-### `TSN9001` / `TSN9002`
+This fails because the import graph is no longer closed-world.
 
-Core type universe failures:
+### Overload or generic ambiguity
 
-- missing required stdlib/core type
-- unknown type leaked into later compilation
+```ts
+Enumerable.Where(xs, (x) => x > 0);
+```
 
-## Retired / No Longer Accurate Old Expectations
+When callback return or receiver shape is not specific enough, Tsonic reports
+the ambiguity instead of guessing.
 
-These old blanket statements are no longer true:
+## How to debug
 
-- `Promise.then/catch/finally` unsupported
-- all dynamic `import()` unsupported
-- all `import.meta` unsupported
-- mapped/conditional/intersection types blanket-rejected
-- object-literal method shorthand blanket-rejected
+1. confirm the active surface
+2. confirm package manifests and imports
+3. inspect generated output with `tsonic generate`
+4. reduce the failing construct to a minimal repro
+5. rerun the smallest focused test or downstream case that exercises it
 
-## Reading Diagnostics Correctly
+## Where to start fixing
 
-Tsonic errors are emitted at compile time for authored TypeScript semantics, not deferred to C# where proof is expected earlier.
+- compiler diagnostics around parsing, typing, IR, or lowering -> start in
+  `tsonic`
+- authored source-package shape or runtime metadata -> start in `js`, `nodejs`,
+  `express`, or your own source package
+- CLR import or namespace projection issues -> start in `tsbindgen` or the
+  generated binding repo
 
-That is deliberate. The compiler should reject ambiguity before emission.
+## Practical rule
+
+Treat diagnostics as real architecture information.
+
+The compiler is telling you one of these things:
+
+- the surface is wrong
+- the package graph is wrong
+- the type information is not specific enough
+- the construct cannot be lowered deterministically
+
+The correct response is usually to fix the model, not to paper over the error
+with a workaround.

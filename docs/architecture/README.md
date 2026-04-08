@@ -1,29 +1,28 @@
+---
+title: Architecture
+---
+
 # Architecture
 
-Tsonic is split into four main layers:
+This section is the detailed architecture companion to the main compiler guide.
 
-- CLI
-- frontend
-- emitter
-- backend
+## Read in this order
 
-The important current architectural facts are:
+- [Overview](overview.md)
+- [Pipeline](pipeline.md)
+- [Frontend](frontend.md)
+- [IR](ir.md)
+- [Emitter](emitter.md)
+- [Backend](backend.md)
+- [Packages](packages.md)
+- [Diagnostics](diagnostics.md)
+- [Type Mappings](type-mappings.md)
+
+## Current design rules
 
 - compiler-owned core globals are injected virtually by the frontend
 - ambient surfaces are resolved through surface manifests
-- Node is package-driven, not a surface
-- first-party source packages are compiled as part of the same TS program
-- the emitter is now AST-only (`IR -> CSharpAst -> printer`)
-
-## Reading Order
-
-- `overview.md`
-- `pipeline.md`
-- `frontend.md`
-- `ir.md`
-- `emitter.md`
-- `backend.md`
-- `runtime.md`
-- `packages.md`
-- `type-mappings.md`
-- `diagnostics.md`
+- `@tsonic/nodejs` is package-driven, not a surface
+- first-party source packages are compiled as part of the same TypeScript
+  program
+- the emitter is AST-only: `IR -> CSharpAst -> printer`

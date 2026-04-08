@@ -1,72 +1,24 @@
 # Limitations
 
-These are the deliberate current non-goals or still-rejected cases on `main`.
+Tsonic is intentionally incomplete where deterministic lowering is not yet
+credible.
 
-## Open-World Dynamic Import
+## Current boundaries
 
-Rejected:
+- fully open-ended dynamic JavaScript behavior is out of scope
+- unsupported reflection-heavy patterns are rejected
+- unsupported generic/runtime shape combinations are rejected rather than
+  guessed
+- unsupported package graph shapes fail explicitly
 
-```ts
-const mod = await import(specifier);
-const pkg = await import("zod");
-```
+## Read this as a design boundary, not a temporary apology
 
-Reason: no closed-world module graph.
+The current compiler would rather reject a construct than accept it under a
+model that cannot be defended end-to-end.
 
-## `import.meta` Beyond the Supported Subset
+## Why this is a feature
 
-Supported:
+The compiler chooses correctness and predictability over permissive fallback.
 
-- `import.meta`
-- `import.meta.url`
-- `import.meta.filename`
-- `import.meta.dirname`
-
-Rejected:
-
-```ts
-const env = import.meta.env;
-```
-
-## Generic Function Values With No Runtime Shape
-
-Rejected:
-
-```ts
-const id = <T>(x: T): T => x;
-const copy = id;
-```
-
-Reason: the value remains polymorphic with no monomorphic callable runtime shape.
-
-## Object-Literal `super`
-
-Rejected:
-
-```ts
-const obj = {
-  __proto__: base,
-  greet() {
-    return super.greet();
-  },
-};
-```
-
-Reason: requires full JS home-object/prototype semantics that Tsonic does not currently model.
-
-## Unsupported Object-Literal `arguments` Cases
-
-Some narrow `arguments.length` / `arguments[index]` patterns are supported in object-literal methods. Broader JS function-object behavior is still rejected.
-
-## Explicit `any`
-
-Tsonic remains strict-AOT. Explicit `any` is out of scope.
-
-## General npm Ecosystem Execution
-
-Tsonic V1 supports:
-
-- CLR bindings packages
-- Tsonic-authored source packages with manifests
-
-It does **not** claim full execution compatibility for arbitrary npm JS/TS packages.
+That is why the site now documents the stack in strict terms instead of implying
+best-effort compatibility.

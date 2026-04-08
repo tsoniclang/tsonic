@@ -1,19 +1,18 @@
-# Architecture Overview
+# Overview
 
-## Layer Map
+## Layer map
 
 ```text
 CLI
   -> config resolution
-  -> workspace/package manifest orchestration
+  -> workspace/project/package orchestration
 
 Frontend
   -> TypeScript program creation
-  -> surface/core globals injection
-  -> import resolution
+  -> core + surface global setup
+  -> package/source-package resolution
   -> validation
   -> IR construction
-  -> dependency graph
 
 Emitter
   -> semantic preparation
@@ -21,29 +20,35 @@ Emitter
   -> printer
 
 Backend
-  -> generated project files
+  -> generated project layout
   -> dotnet build/publish/test/pack
 ```
 
-## Current Design Rules
+## Core architectural rules
 
-### Compiler Core vs Surface
+### 1. Compiler core vs surface
 
-- core globals are compiler-owned
+- compiler core globals are compiler-owned
 - surface globals come from the active surface package
 - packages such as `@tsonic/nodejs` add importable modules, not ambient worlds
 
-### First-Party Source Packages
+### 2. Source packages are compiled as source
 
 Installed Tsonic source packages are not opaque imports. They are pulled into:
 
-- the same TS Program
+- the same TypeScript program
 - the same dependency graph
 - the same deterministic type/lowering pipeline
 
-### AST-Only Emitter
+### 3. Generated CLR binding packages are different
 
-The emitter no longer assembles C# through mixed string shims in the pipeline.
+Generated binding packages are declaration + metadata packages. They are not
+compiled as authored source packages, and they are not explained by the same
+manifest model.
+
+### 4. The emitter is AST-only
+
+The emitter no longer assembles C# through mixed string shims.
 
 Current path:
 
@@ -51,6 +56,10 @@ Current path:
 IR -> CSharpAst -> printer -> C# text
 ```
 
-### Strict-AOT Policy
+### 5. The compiler rejects ambiguity early
 
-The compiler rejects ambiguity before emission instead of weakening semantics and relying on later C# failures.
+Tsonic favors deterministic rejection over permissive fallback. That means:
+
+- ambiguous lowering is rejected before emission
+- package graph problems surface as compiler diagnostics
+- unsupported runtime-shape escapes are rejected rather than hidden

@@ -1,216 +1,137 @@
-# Configuration Reference
+# Configuration
 
-Tsonic splits configuration into:
+The current configuration model has three layers:
 
-- workspace: `tsonic.workspace.json`
-- project: `packages/<project>/tsonic.json`
+- workspace config: `tsonic.workspace.json`
+- project config: `packages/<project>/tsonic.json`
+- package manifest: `packages/<project>/tsonic.package.json`
 
-## `tsonic.workspace.json`
+See [Workspace and Project Files](workspace-and-projects.md) for the concrete
+shape. This page focuses on decision-making.
 
-Example:
+## 1. Choose the ambient surface
+
+CLR-first:
+
+```json
+{
+  "surface": "clr"
+}
+```
+
+JavaScript ambient world:
+
+```json
+{
+  "surface": "@tsonic/js"
+}
+```
+
+Key rule:
+
+- a workspace has exactly one active ambient surface at a time
+
+## 2. Declare workspace-scoped CLR context
+
+Use `tsonic.workspace.json` for shared CLR dependencies and type roots.
+
+Typical examples:
 
 ```json
 {
   "dotnetVersion": "net10.0",
   "surface": "@tsonic/js",
-  "rid": "linux-x64",
-  "optimize": "speed",
   "dotnet": {
-    "typeRoots": ["node_modules/@tsonic/nodejs"],
-    "libraries": [],
-    "frameworkReferences": [],
-    "packageReferences": []
-  },
-  "testDotnet": {
-    "packageReferences": [
-      {
-        "id": "xunit",
-        "version": "2.9.3"
-      }
-    ]
-  }
-}
-```
-
-### Fields
-
-- `dotnetVersion` — required target framework, for example `net10.0`
-- `surface` — active ambient surface
-  - omitted => `clr`
-  - `@tsonic/js` => JS ambient world
-- `rid` — default native target
-- `optimize` — `size` or `speed`
-- `buildOptions.stripSymbols`
-- `buildOptions.invariantGlobalization`
-
-### `dotnet.typeRoots`
-
-Additional ambient/module declaration roots for the workspace.
-
-Important:
-
-- compiler core globals are always injected
-- surface roots are resolved from the active surface manifest
-- `dotnet.typeRoots` is additive
-
-Example for JS + Node modules:
-
-```json
-{
-  "surface": "@tsonic/js",
-  "dotnet": {
-    "typeRoots": ["node_modules/@tsonic/nodejs"]
-  }
-}
-```
-
-### `dotnet.libraries`
-
-Workspace DLL references.
-
-Supported forms:
-
-```json
-{
-  "dotnet": {
-    "libraries": [
-      "./libs/MyLib.dll",
-      {
-        "path": "./libs/Other.dll",
-        "types": "@company/other-types"
-      },
-      {
-        "path": "./libs/BuildOnly.dll",
-        "types": false
-      }
-    ]
-  }
-}
-```
-
-### `dotnet.frameworkReferences`
-
-```json
-{
-  "dotnet": {
+    "typeRoots": [
+      "node_modules/@tsonic/js",
+      "node_modules/@tsonic/nodejs"
+    ],
     "frameworkReferences": [
-      "Microsoft.AspNetCore.App",
       {
         "id": "Microsoft.AspNetCore.App",
         "types": "@tsonic/aspnetcore"
       }
-    ]
-  }
-}
-```
-
-### `dotnet.packageReferences`
-
-```json
-{
-  "dotnet": {
+    ],
     "packageReferences": [
       {
-        "id": "Microsoft.Extensions.Logging",
-        "version": "10.0.0"
+        "id": "Microsoft.EntityFrameworkCore.Sqlite",
+        "version": "10.0.1",
+        "types": "@tsonic/efcore-sqlite"
       }
     ]
   }
 }
 ```
 
-### `dotnet.msbuildProperties`
+Use workspace config for:
 
-Escape hatch for explicit `.csproj`-level properties:
+- `surface`
+- `dotnetVersion`
+- `typeRoots`
+- shared framework references
+- shared NuGet packages
+- shared local DLLs
+- optional MSBuild property escape hatches
 
-```json
-{
-  "dotnet": {
-    "msbuildProperties": {
-      "InterceptorsNamespaces": "$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors"
-    }
-  }
-}
-```
+## 3. Configure each project
 
-### `testDotnet`
+Project-level config lives under `packages/<project>/tsonic.json`.
 
-Test-only frameworks/packages/properties added only to `tsonic test`.
+Typical fields include:
 
-## `packages/<project>/tsonic.json`
-
-Example:
-
-```json
-{
-  "rootNamespace": "MyApp",
-  "entryPoint": "src/App.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "app",
-  "output": {
-    "type": "exe",
-    "nativeAot": true
-  },
-  "tests": {
-    "entryPoint": "tests/index.ts",
-    "outputDirectory": "generated-tests",
-    "outputName": "tests"
-  },
-  "references": {
-    "libraries": ["../shared/out/Shared.dll"]
-  }
-}
-```
-
-### Fields
-
-- `rootNamespace` — required C# root namespace
-- `entryPoint` — defaults to project sample entry
+- `rootNamespace`
+- `entryPoint`
 - `sourceRoot`
 - `outputDirectory`
 - `outputName`
-- top-level `optimize`
-- `buildOptions.*`
-- `output.*`
-- `tests.*`
+- `output.type`
+- `output.nativeAot`
+- `tests.entryPoint`
 - `references.libraries`
+- `references.packages`
 
-## Output Configuration
+## 4. Decide local package ownership mode
 
-Common fields:
+The current model supports local first-party package references with explicit
+ownership:
 
-- `type`: `exe` or `library`
-- `nativeAot`
-- `nativeLib`: `shared` or `static`
-- `libraryPackaging`: `source-package`
-- `singleFile`
-- `trimmed`
-- `stripSymbols`
-- `optimization`
-- `invariantGlobalization`
-- `selfContained`
-- `targetFramework`
-- `targetFrameworks`
-- `generateDocumentation`
-- `includeSymbols`
-- `packable`
-- `package`
+```json
+{
+  "references": {
+    "packages": [
+      {
+        "id": "@acme/domain",
+        "project": "../domain"
+      },
+      {
+        "id": "@acme/search",
+        "project": "../search",
+        "mode": "dll"
+      }
+    ]
+  }
+}
+```
 
-### `output.libraryPackaging`
+Meaning:
 
-Library builds use source-package packaging.
+- `source` (default) — compile that package into the generated source closure
+- `dll` — build that package separately and reference its DLL boundary
 
-- `source-package`
-  - for native first-party Tsonic libraries
-  - requires `tsonic.package.json` with `kind: "tsonic-source-package"`
-  - emits a publishable source-package `dist/` with source, declarations, and manifest
-  - does **not** generate `dist/tsonic/bindings`
+Use `source` unless you have a deliberate assembly-boundary reason to prefer
+`dll`.
 
-## Naming Rule
+## 5. Define package metadata
 
-Tsonic does not guess CLR names from TypeScript names.
+Use `tsonic.package.json` for authored source packages.
 
-- authored TS names stay authored TS names in the frontend model
-- CLR names come from bindings
-- user-defined C# member emission applies deterministic naming rules only at the backend layer
+That manifest is where a package declares:
+
+- surface compatibility
+- exported subpaths
+- ambient files
+- module aliases
+- runtime metadata when needed
+
+Generated CLR binding packages are different; they are owned by `tsbindgen` and
+do not use the same authored-source manifest model.

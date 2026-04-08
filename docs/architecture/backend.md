@@ -7,23 +7,44 @@ The backend owns generated project layout and .NET toolchain execution.
 - write `Program.cs`
 - write `tsonic.csproj`
 - place emitted `.cs` files
-- invoke `dotnet build` / `publish` / `test` / `pack`
+- lay out package-shaped generated source trees where needed
+- invoke `dotnet build`, `publish`, `test`, and `pack`
 - manage NativeAOT vs managed output differences
 
-## Output Modes
+## Output modes
 
 - executable
 - managed library
 - NativeAOT shared library
 - NativeAOT static library
 
-## Important Runtime Inputs
+## Important inputs
 
-- `Tsonic.Runtime`
-- workspace `libraries`
-- workspace package/framework references
-- source-package runtime overlays from `tsonic.package.json`
+- compiler-emitted C#
+- workspace DLL and NuGet references
+- framework references
+- runtime overlays from source-package metadata
+- local package ownership mode (`source` vs `dll`)
 
-## Build Reuse
+## Package-shaped generated source
 
-`--no-generate` exists for workflows where generated C# is intentionally augmented by external tooling before the backend build step.
+When local or installed source packages are emitted into the closure, the
+backend preserves package hierarchy rather than flattening everything into one
+directory.
+
+That is why generated output often includes paths like:
+
+```text
+generated/node_modules/@tsonic/nodejs/...
+generated/node_modules/@acme/domain/...
+```
+
+That is intentional. It preserves module ownership and avoids collisions.
+
+## Local DLL boundaries
+
+When a local package reference uses `mode: "dll"`, the backend:
+
+- builds the referenced project first
+- references its assembly boundary
+- avoids generating that package’s source again into the same closure

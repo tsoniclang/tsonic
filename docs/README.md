@@ -1,43 +1,56 @@
-# Tsonic User Guide
+---
+title: Tsonic
+---
 
-This guide documents the current `main` behavior of Tsonic V1.
+# Tsonic Compiler Guide
 
-## Start Here
+Tsonic compiles a strict, deterministic subset of TypeScript into C#, then
+hands that generated project to the .NET toolchain for build, publish, test, or
+pack.
 
-- `getting-started.md` — install, init, build, run
-- `cli.md` — command reference
-- `configuration.md` — workspace and project config
-- `language.md` — supported TypeScript subset
+## Use this section for
 
-## Core Topics
+- how the CLI actually works
+- how workspaces, projects, and package manifests fit together
+- how surfaces differ from packages
+- how first-party source packages differ from generated CLR binding packages
+- how generated output is structured
+- what the current architecture guarantees and rejects
 
-- `lang-intrinsics.md` — `stackalloc`, `sizeof`, `nameof`, `defaultof`, `trycast`, `asinterface`, modifiers, attributes
-- `numeric-types.md` — `number` vs `int` / `long` / `double` policy
-- `type-system.md` — deterministic typing and current generic rules
-- `bindings.md` — CLR packages, source packages, package manifests
-- `dotnet-interop.md` — BCL and external CLR interop
-- `build-output.md` — generated layout and output types
-- `diagnostics.md` — diagnostic guide
-- `limitations.md` — explicit out-of-scope cases
-- `troubleshooting.md` — common failures and fixes
+## Current model
 
-## Runtime-Oriented Topics
+The current V1 model is:
 
-- `async-patterns.md`
-- `callbacks.md`
-- `generators.md`
+- one compiler-owned noLib baseline
+- one active ambient surface per workspace
+- explicit package-based CLR and module interop
+- deterministic lowering only; unsupported dynamic cases are rejected
+- source-package graphs compiled as part of the same Tsonic program
 
-## Architecture
+## Read in this order
 
-- `architecture/README.md`
+- [Getting Started](getting-started.md)
+- [CLI Workflow](cli.md)
+- [Surfaces and Packages](surfaces-and-packages.md)
+- [Workspace and Project Files](workspace-and-projects.md)
+- [Build Modes](build-modes.md)
+- [Build Output](build-output.md)
+- [Bindings](bindings.md)
+- [CLR Bindings and Interop](dotnet-bindings.md)
+- [Type System Rules](type-system.md)
+- [Diagnostics](diagnostics.md)
+- [Testing and Quality Bar](testing-and-quality.md)
+- [Examples](examples/)
+- [Architecture Section](architecture/)
 
-## Examples
+## Practical rule of thumb
 
-- `examples/README.md`
+- use `clr` when you want a CLR-first ambient world
+- use `@tsonic/js` when you want a JS ambient world
+- add `@tsonic/nodejs` when you want Node-style modules
+- add generated binding packages when you need CLR libraries beyond the baseline
 
-## Surfaces in One Sentence
+## What this guide does not do
 
-- compiler core = always-on noLib baseline
-- `clr` = default ambient CLR-first surface
-- `@tsonic/js` = JS ambient surface
-- `@tsonic/nodejs` = normal package for `node:*` modules
+This section is not a copy of repo-internal design notes. It explains the
+current public model for users and downstream application authors.
