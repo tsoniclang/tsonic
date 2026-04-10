@@ -135,6 +135,109 @@ const resolveIteratorMemberFromMembers = (
   return undefined;
 };
 
+const getReferenceBindingLookupCandidates = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): readonly string[] => {
+  const candidates = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (!value || value.length === 0) {
+      return;
+    }
+    candidates.add(value);
+    if (value.includes(".")) {
+      const leaf = value.split(".").pop();
+      if (leaf && leaf.length > 0) {
+        candidates.add(leaf);
+      }
+    }
+  };
+
+  add(ref.name);
+  add(ref.resolvedClrType);
+  add(ref.typeId?.tsName);
+  add(ref.typeId?.clrName);
+
+  for (const value of [...candidates]) {
+    if (!value.endsWith("$instance")) {
+      continue;
+    }
+    add(value.slice(0, -"$instance".length));
+  }
+
+  return [...candidates];
+};
+
+const resolveIteratorMemberFromBindingRegistry = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): IteratorMemberResolution | undefined => {
+  const registry = context.bindingRegistry;
+  if (!registry) {
+    return undefined;
+  }
+
+  const preferredClrOwner = ref.resolvedClrType ?? ref.typeId?.clrName;
+  const matches = new Map<string, IteratorMemberResolution>();
+
+  for (const candidate of getReferenceBindingLookupCandidates(ref)) {
+    const overloads = registry.getMemberOverloads(
+      candidate,
+      ITERATOR_MEMBER_NAME,
+      preferredClrOwner
+    );
+    if (!overloads || overloads.length === 0) {
+      continue;
+    }
+
+    const candidateMatches = new Map<string, IteratorMemberResolution>();
+
+    for (const overload of overloads) {
+      if (
+        overload.kind === "method" &&
+        overload.semanticSignature?.parameters.length === 0 &&
+        overload.semanticSignature.returnType
+      ) {
+        const resolution: IteratorMemberResolution = {
+          kind: "iteratorMethod",
+          returnType: overload.semanticSignature.returnType,
+        };
+        candidateMatches.set(
+          `${resolution.kind}:${stableIrTypeKey(resolution.returnType)}`,
+          resolution
+        );
+        continue;
+      }
+
+      if (overload.kind === "property" && overload.semanticType) {
+        const resolution: IteratorMemberResolution = {
+          kind: "iteratorProperty",
+          returnType: overload.semanticType,
+        };
+        candidateMatches.set(
+          `${resolution.kind}:${stableIrTypeKey(resolution.returnType)}`,
+          resolution
+        );
+      }
+    }
+
+    if (candidateMatches.size !== 1) {
+      continue;
+    }
+
+    const onlyMatch = [...candidateMatches.entries()][0];
+    if (!onlyMatch) {
+      continue;
+    }
+    matches.set(onlyMatch[0], onlyMatch[1]);
+  }
+
+  if (matches.size !== 1) {
+    return undefined;
+  }
+
+  return [...matches.values()][0];
+};
+
 const resolveIteratorMemberFromReference = (
   ref: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext,
@@ -161,7 +264,7 @@ const resolveIteratorMemberFromReference = (
 
   const localInfoResult = resolveLocalTypeInfo(resolvedRef, context);
   if (!localInfoResult) {
-    return undefined;
+    return resolveIteratorMemberFromBindingRegistry(resolvedRef, context);
   }
 
   const { info } = localInfoResult;
@@ -211,7 +314,7 @@ const resolveIteratorMemberFromReference = (
       }
     }
 
-    return undefined;
+    return resolveIteratorMemberFromBindingRegistry(resolvedRef, context);
   }
 
   if (info.kind !== "interface") {
@@ -245,7 +348,10 @@ const resolveIteratorMemberFromReference = (
     }
   }
 
-  return undefined;
+  return (
+    resolveIteratorMemberFromBindingRegistry(resolvedRef, context) ??
+    undefined
+  );
 };
 
 export const canPreferAnonymousStructuralTarget = (type: IrType): boolean => {

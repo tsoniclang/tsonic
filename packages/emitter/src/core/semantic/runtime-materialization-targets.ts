@@ -10,6 +10,7 @@ import {
   collectRuntimeUnionRawMembers,
   expandRuntimeUnionMembers,
 } from "./runtime-union-expansion.js";
+import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 
 export const resolveRuntimeMaterializationTargetType = (
   target: IrType,
@@ -79,13 +80,7 @@ export const resolveRuntimeMaterializationTargetType = (
       return expandedMembers[0] ?? target;
     }
 
-    return {
-      kind: "unionType",
-      types: expandedMembers,
-      ...(target.preserveRuntimeLayout === true
-        ? { preserveRuntimeLayout: true as const }
-        : {}),
-    };
+    return rebuildUnionTypePreservingCarrierFamily(target, expandedMembers);
   }
 
   const resolved = resolveTypeAlias(target, context);

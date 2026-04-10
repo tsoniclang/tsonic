@@ -29,8 +29,4 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Tsonic.JSRuntime" Version="0.0.9" />
-    <PackageReference Include="Tsonic.Nodejs" Version="1.0.6" />
-  </ItemGroup>
 </Project>

@@ -97,7 +97,7 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
     ).to.equal(true);
   });
 
-  it("preserves surface call parameter shapes while lowering runtime parameter carriers", () => {
+  it("lowers inline call parameter shapes to compiler-owned structural carriers", () => {
     const optionsShape: Extract<IrType, { kind: "objectType" }> = {
       kind: "objectType" as const,
       members: [
@@ -321,6 +321,25 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
 
     expect(loweredCall).to.not.equal(undefined);
     expect(loweredCall?.parameterTypes?.[1]?.kind).to.equal("referenceType");
-    expect(loweredCall?.surfaceParameterTypes?.[1]?.kind).to.equal("objectType");
+    expect(loweredCall?.surfaceParameterTypes?.[1]?.kind).to.equal(
+      "referenceType"
+    );
+
+    const loweredRuntimeType = loweredCall?.parameterTypes?.[1];
+    const loweredSurfaceType = loweredCall?.surfaceParameterTypes?.[1];
+    expect(
+      loweredRuntimeType &&
+        loweredRuntimeType.kind === "referenceType" &&
+        loweredRuntimeType.name
+    ).to.match(/^__Anon_/);
+    expect(
+      loweredSurfaceType &&
+        loweredSurfaceType.kind === "referenceType" &&
+        loweredSurfaceType.name
+    ).to.equal(
+      loweredRuntimeType && loweredRuntimeType.kind === "referenceType"
+        ? loweredRuntimeType.name
+        : undefined
+    );
   });
 });

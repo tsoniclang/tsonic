@@ -148,6 +148,49 @@ const normalizeTypeList = (
   state: StableTypeKeyState
 ): readonly IrType[] => sortByStableKey(types, stableIrTypeKeyImpl, state);
 
+const isRuntimeNullishMember = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const collectCanonicalRuntimeUnionFamilyMembers = (
+  type: Extract<IrType, { kind: "unionType" }>
+): readonly IrType[] => {
+  const flattened: IrType[] = [];
+
+  const visit = (candidate: IrType): void => {
+    if (isRuntimeNullishMember(candidate)) {
+      return;
+    }
+
+    if (candidate.kind === "unionType") {
+      for (const member of candidate.types) {
+        visit(member);
+      }
+      return;
+    }
+
+    flattened.push(candidate);
+  };
+
+  for (const member of type.types) {
+    visit(member);
+  }
+
+  if (type.preserveRuntimeLayout) {
+    return flattened;
+  }
+
+  const deduped = new Map<string, IrType>();
+  for (const member of flattened) {
+    deduped.set(stableIrTypeKey(member), member);
+  }
+
+  return normalizeTypeList(
+    Array.from(deduped.values()),
+    createStableTypeKeyState()
+  );
+};
+
 export const referenceTypeIdentity = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): string =>
@@ -340,10 +383,38 @@ const stableIrTypeKeyImpl = (
 export const stableIrTypeKey = (type: IrType): string =>
   stableIrTypeKeyImpl(type, createStableTypeKeyState());
 
+export const runtimeUnionCarrierFamilyKey = (
+  type: Extract<IrType, { kind: "unionType" }>
+): string => {
+  if (type.runtimeCarrierFamilyKey) {
+    return type.runtimeCarrierFamilyKey;
+  }
+
+  const canonicalMembers = collectCanonicalRuntimeUnionFamilyMembers(type);
+
+  if (type.preserveRuntimeLayout) {
+    return `runtime-union:preserve:${canonicalMembers
+      .map((member) => stableIrTypeKey(member))
+      .join("|")}`;
+  }
+
+  return `runtime-union:canonical:${canonicalMembers
+    .map((member) => stableIrTypeKey(member))
+    .join("|")}`;
+};
+
 export const irTypesEqual = (left: IrType, right: IrType): boolean =>
   stableIrTypeKey(left) === stableIrTypeKey(right);
 
-export const normalizedUnionType = (types: readonly IrType[]): IrType => {
+export type NormalizedUnionTypeOptions = {
+  readonly preserveRuntimeLayout?: true;
+  readonly runtimeCarrierFamilyKey?: string;
+};
+
+export const normalizedUnionType = (
+  types: readonly IrType[],
+  options: NormalizedUnionTypeOptions = {}
+): IrType => {
   const flattened: IrType[] = [];
   const pushFlattened = (type: IrType): void => {
     if (type.kind === "unionType") {
@@ -368,5 +439,16 @@ export const normalizedUnionType = (types: readonly IrType[]): IrType => {
     const single = normalized[0];
     if (single) return single;
   }
-  return { kind: "unionType", types: normalized };
+  const unionType: Extract<IrType, { kind: "unionType" }> = {
+    kind: "unionType",
+    types: normalized,
+    ...(options.preserveRuntimeLayout === true
+      ? { preserveRuntimeLayout: true as const }
+      : {}),
+  };
+  return {
+    ...unionType,
+    runtimeCarrierFamilyKey:
+      options.runtimeCarrierFamilyKey ?? runtimeUnionCarrierFamilyKey(unionType),
+  };
 };

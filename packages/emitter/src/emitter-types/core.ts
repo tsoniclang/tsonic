@@ -17,6 +17,7 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+import type { RuntimeUnionRegistry } from "../core/semantic/runtime-union-registry.js";
 
 /**
  * Module identity for import resolution
@@ -178,6 +179,8 @@ export type EmitterOptions = {
   readonly canonicalLocalTypeTargets?: ReadonlyMap<string, string>;
   /** JSON AOT registry for collecting types used with JsonSerializer (shared across modules) */
   readonly jsonAotRegistry?: JsonAotRegistry;
+  /** Registry of compiler-owned runtime union carrier definitions (shared across modules). */
+  readonly runtimeUnionRegistry?: RuntimeUnionRegistry;
   /**
    * Enable NativeAOT JSON context generation/rewrite.
    *

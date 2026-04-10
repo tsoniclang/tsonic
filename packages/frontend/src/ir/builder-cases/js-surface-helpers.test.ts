@@ -1364,14 +1364,14 @@ describe("IR Builder", function () {
                 },
                 setInterval: {
                   kind: "global",
-                  assembly: "Tsonic.JSRuntime",
-                  type: "Tsonic.JSRuntime.Timers",
+                  assembly: "Acme.ExternalRuntime",
+                  type: "Acme.ExternalRuntime.Timers",
                   csharpName: "Timers.setInterval",
                 },
                 clearInterval: {
                   kind: "global",
-                  assembly: "Tsonic.JSRuntime",
-                  type: "Tsonic.JSRuntime.Timers",
+                  assembly: "Acme.ExternalRuntime",
+                  type: "Acme.ExternalRuntime.Timers",
                   csharpName: "Timers.clearInterval",
                 },
               },
@@ -1381,29 +1381,29 @@ describe("IR Builder", function () {
           )
         );
         fs.writeFileSync(
-          path.join(surfaceRoot, "Tsonic.JSRuntime.d.ts"),
+          path.join(surfaceRoot, "Acme.ExternalRuntime.d.ts"),
           "export {};\n"
         );
-        fs.mkdirSync(path.join(surfaceRoot, "Tsonic.JSRuntime"), {
+        fs.mkdirSync(path.join(surfaceRoot, "Acme.ExternalRuntime"), {
           recursive: true,
         });
         fs.writeFileSync(
-          path.join(surfaceRoot, "Tsonic.JSRuntime", "bindings.json"),
+          path.join(surfaceRoot, "Acme.ExternalRuntime", "bindings.json"),
           JSON.stringify(
             {
-              namespace: "Tsonic.JSRuntime",
+              namespace: "Acme.ExternalRuntime",
               types: [
                 {
-                  clrName: "Tsonic.JSRuntime.Timers",
-                  assemblyName: "Tsonic.JSRuntime",
+                  clrName: "Acme.ExternalRuntime.Timers",
+                  assemblyName: "Acme.ExternalRuntime",
                   methods: [
                     {
                       clrName: "setInterval",
                       normalizedSignature:
                         "setInterval|(System.Action,System.Double):System.Double|static=true",
                       parameterCount: 2,
-                      declaringClrType: "Tsonic.JSRuntime.Timers",
-                      declaringAssemblyName: "Tsonic.JSRuntime",
+                      declaringClrType: "Acme.ExternalRuntime.Timers",
+                      declaringAssemblyName: "Acme.ExternalRuntime",
                       semanticSignature: {
                         parameters: [
                           {
@@ -1447,8 +1447,8 @@ describe("IR Builder", function () {
                       normalizedSignature:
                         "clearInterval|(System.Double):System.Void|static=true",
                       parameterCount: 1,
-                      declaringClrType: "Tsonic.JSRuntime.Timers",
-                      declaringAssemblyName: "Tsonic.JSRuntime",
+                      declaringClrType: "Acme.ExternalRuntime.Timers",
+                      declaringAssemblyName: "Acme.ExternalRuntime",
                       semanticSignature: {
                         parameters: [
                           {
@@ -1562,10 +1562,10 @@ describe("IR Builder", function () {
 
         expect(setIntervalCall.callee.name).to.equal("setInterval");
         expect(setIntervalCall.callee.resolvedClrType).to.equal(
-          "Tsonic.JSRuntime.Timers"
+          "Acme.ExternalRuntime.Timers"
         );
         expect(setIntervalCall.callee.resolvedAssembly).to.equal(
-          "Tsonic.JSRuntime"
+          "Acme.ExternalRuntime"
         );
         expect(setIntervalCall.callee.csharpName).to.equal(
           "Timers.setInterval"

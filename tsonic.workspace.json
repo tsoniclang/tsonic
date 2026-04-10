@@ -4,8 +4,7 @@
   "surface": "@tsonic/js",
   "dotnet": {
     "typeRoots": [
-      "/home/jester/repos/tsoniclang/js/versions/10",
-      "node_modules/@tsonic/nodejs"
+      "../js/versions/10"
     ],
     "libraries": [],
     "frameworkReferences": [
@@ -14,17 +13,6 @@
         "types": "@tsonic/aspnetcore"
       }
     ],
-    "packageReferences": [
-      {
-        "id": "Tsonic.JSRuntime",
-        "version": "0.0.9",
-        "types": "@tsonic/js"
-      },
-      {
-        "id": "Tsonic.Nodejs",
-        "version": "1.0.6",
-        "types": "@tsonic/nodejs"
-      }
-    ]
+    "packageReferences": []
   }
 }

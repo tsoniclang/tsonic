@@ -7,7 +7,7 @@
  */
 
 import type { IrType } from "./ir-types.js";
-import { normalizedUnionType } from "./type-ops.js";
+import { normalizedUnionType, runtimeUnionCarrierFamilyKey } from "./type-ops.js";
 import {
   type TypeSubstitutionMap,
   type SubstitutionResult,
@@ -159,9 +159,29 @@ export const substituteIrType = (
           { kind: "unionType" }
         >;
         cache.set(currentType, draft);
-        const normalized = normalizedUnionType(
-          currentType.types.map((memberType) => substitute(memberType))
+        const substitutedMembers = currentType.types.map((memberType) =>
+          substitute(memberType)
         );
+        const preservedFamilyKey =
+          currentType.runtimeCarrierFamilyKey ??
+          runtimeUnionCarrierFamilyKey(currentType);
+        if (currentType.preserveRuntimeLayout) {
+          (
+            draft as {
+              types: readonly IrType[];
+              runtimeCarrierFamilyKey?: string;
+            }
+          ).types = substitutedMembers;
+          (
+            draft as {
+              runtimeCarrierFamilyKey?: string;
+            }
+          ).runtimeCarrierFamilyKey = preservedFamilyKey;
+          return draft;
+        }
+        const normalized = normalizedUnionType(substitutedMembers, {
+          runtimeCarrierFamilyKey: preservedFamilyKey,
+        });
         cache.set(currentType, normalized);
         return normalized;
       }

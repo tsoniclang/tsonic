@@ -4,6 +4,7 @@ import * as ts from "typescript";
 import { createBinding } from "../../../binding/index.js";
 import { convertType } from "./orchestrator.js";
 import type { IrType } from "../../../types.js";
+import { runtimeUnionCarrierFamilyKey } from "../../../types/type-ops.js";
 
 const createTestProgram = (
   source: string,
@@ -78,6 +79,15 @@ const convertAlias = (source: string, aliasName: string): IrType => {
   return convertType(alias.type, binding);
 };
 
+const makeUnion = (...types: IrType[]): IrType => ({
+  kind: "unionType",
+  types,
+  runtimeCarrierFamilyKey: runtimeUnionCarrierFamilyKey({
+    kind: "unionType",
+    types,
+  }),
+});
+
 describe("Type Converter - Tuple Rest Lowering", () => {
   it("keeps a locally declared Array<T> class nominal instead of lowering it to arrayType", () => {
     const { sourceFile, binding } = createTestProgram(
@@ -132,13 +142,10 @@ describe("Type Converter - Tuple Rest Lowering", () => {
     const converted = convertAlias("type T = [string, ...number[]];", "T");
     expect(converted).to.deep.equal({
       kind: "arrayType",
-      elementType: {
-        kind: "unionType",
-        types: [
-          { kind: "primitiveType", name: "number" },
-          { kind: "primitiveType", name: "string" },
-        ],
-      },
+      elementType: makeUnion(
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "string" }
+      ),
       origin: "explicit",
       tuplePrefixElementTypes: [{ kind: "primitiveType", name: "string" }],
       tupleRestElementType: { kind: "primitiveType", name: "number" },
@@ -152,14 +159,11 @@ describe("Type Converter - Tuple Rest Lowering", () => {
     );
     expect(converted).to.deep.equal({
       kind: "arrayType",
-      elementType: {
-        kind: "unionType",
-        types: [
-          { kind: "primitiveType", name: "boolean" },
-          { kind: "primitiveType", name: "number" },
-          { kind: "primitiveType", name: "string" },
-        ],
-      },
+      elementType: makeUnion(
+        { kind: "primitiveType", name: "boolean" },
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "string" }
+      ),
       origin: "explicit",
     });
   });
@@ -171,13 +175,10 @@ describe("Type Converter - Tuple Rest Lowering", () => {
     );
     expect(converted).to.deep.equal({
       kind: "arrayType",
-      elementType: {
-        kind: "unionType",
-        types: [
-          { kind: "primitiveType", name: "number" },
-          { kind: "primitiveType", name: "string" },
-        ],
-      },
+      elementType: makeUnion(
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "string" }
+      ),
       origin: "explicit",
       tuplePrefixElementTypes: [{ kind: "primitiveType", name: "string" }],
       tupleRestElementType: { kind: "primitiveType", name: "number" },
@@ -326,13 +327,12 @@ describe("Type Converter - Deterministic Type Operators", () => {
       "T"
     );
 
-    expect(converted).to.deep.equal({
-      kind: "unionType",
-      types: [
+    expect(converted).to.deep.equal(
+      makeUnion(
         { kind: "literalType", value: "alpha" },
-        { kind: "literalType", value: "beta" },
-      ],
-    });
+        { kind: "literalType", value: "beta" }
+      )
+    );
   });
 
   it("lowers keyof constrained type parameters via their constraint", () => {
@@ -341,13 +341,12 @@ describe("Type Converter - Deterministic Type Operators", () => {
       "Keys"
     );
 
-    expect(converted).to.deep.equal({
-      kind: "unionType",
-      types: [
+    expect(converted).to.deep.equal(
+      makeUnion(
         { kind: "literalType", value: "id" },
-        { kind: "literalType", value: "slug" },
-      ],
-    });
+        { kind: "literalType", value: "slug" }
+      )
+    );
   });
 
   it("resolves indexed-access property lookups with literal keys", () => {
@@ -365,13 +364,12 @@ describe("Type Converter - Deterministic Type Operators", () => {
       "T"
     );
 
-    expect(converted).to.deep.equal({
-      kind: "unionType",
-      types: [
+    expect(converted).to.deep.equal(
+      makeUnion(
         { kind: "primitiveType", name: "number" },
-        { kind: "primitiveType", name: "string" },
-      ],
-    });
+        { kind: "primitiveType", name: "string" }
+      )
+    );
   });
 
   it("resolves indexed-access on constrained type parameters", () => {
@@ -380,25 +378,23 @@ describe("Type Converter - Deterministic Type Operators", () => {
       "V"
     );
 
-    expect(converted).to.deep.equal({
-      kind: "unionType",
-      types: [
+    expect(converted).to.deep.equal(
+      makeUnion(
         { kind: "primitiveType", name: "number" },
-        { kind: "primitiveType", name: "string" },
-      ],
-    });
+        { kind: "primitiveType", name: "string" }
+      )
+    );
   });
 
   it("expands finite template-literal types to literal unions", () => {
     const converted = convertAlias('type T = `prefix-${"a" | "b"}`;', "T");
 
-    expect(converted).to.deep.equal({
-      kind: "unionType",
-      types: [
+    expect(converted).to.deep.equal(
+      makeUnion(
         { kind: "literalType", value: "prefix-a" },
-        { kind: "literalType", value: "prefix-b" },
-      ],
-    });
+        { kind: "literalType", value: "prefix-b" }
+      )
+    );
   });
 
   it("falls back template-literal types to string when expansion is non-finite", () => {

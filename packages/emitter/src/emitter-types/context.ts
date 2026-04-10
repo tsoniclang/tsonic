@@ -11,7 +11,7 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
   const bindingsRegistry =
     options.clrBindings && options.clrBindings.size > 0
       ? options.clrBindings
-      : undefined;
+      : options.bindingRegistry?.getEmitterTypeMap();
 
   return {
     indentLevel: 0,

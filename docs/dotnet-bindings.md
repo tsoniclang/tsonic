@@ -80,15 +80,71 @@ import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 ### ASP.NET Core usage
 
+Install the framework binding package explicitly:
+
+```bash
+tsonic add framework Microsoft.AspNetCore.App @tsonic/aspnetcore
+tsonic restore
+```
+
 ```ts
 import { WebApplication } from "@tsonic/aspnetcore/Microsoft.AspNetCore.Builder.js";
+import type { ExtensionMethods } from "@tsonic/aspnetcore/Microsoft.AspNetCore.Builder.js";
+
+export function main(): void {
+  const builder = WebApplication.CreateBuilder();
+  const app = builder.Build() as ExtensionMethods<WebApplication>;
+  app.MapGet("/", () => "Hello from ASP.NET Core");
+  app.Run("http://localhost:8080");
+}
 ```
 
 ### EF Core usage
 
-```ts
-import { DbContext } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
+Add the CLR package you need, then use the matching generated binding package:
+
+```bash
+tsonic add nuget Microsoft.EntityFrameworkCore.Sqlite 10.0.0
+tsonic add npm @tsonic/efcore
+tsonic add npm @tsonic/efcore-sqlite
+tsonic restore
 ```
+
+```ts
+import { DbContext, DbSet } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
+import { SqliteDbContextOptionsBuilderExtensions } from "@tsonic/efcore-sqlite/Microsoft.EntityFrameworkCore.js";
+
+export class TodoItem {
+  public id: number = 0;
+  public title: string = "";
+}
+
+export class AppDbContext extends DbContext {
+  public todos!: DbSet<TodoItem>;
+}
+
+export function createContext(): AppDbContext {
+  const builder = AppDbContext.CreateOptionsBuilder();
+  SqliteDbContextOptionsBuilderExtensions.UseSqlite(
+    builder,
+    "Data Source=app.db"
+  );
+  return new AppDbContext(builder.Options);
+}
+```
+
+## What the generated package docs should cover
+
+Generated binding packages like `@tsonic/aspnetcore` and `@tsonic/efcore*`
+should be documented in terms of:
+
+- how to add the framework or NuGet dependency
+- which generated npm package to install
+- how to import the resulting CLR namespaces
+- minimal working examples
+
+They are not first-party authored source packages, so the docs do not try to
+restate every API member in those repos individually.
 
 ## Why the docs separate this from first-party packages
 

@@ -1,4 +1,8 @@
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import {
+  IrType,
+  runtimeUnionCarrierFamilyKey,
+  stableIrTypeKey,
+} from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
@@ -16,12 +20,14 @@ import {
 } from "./runtime-union-expansion.js";
 import { getRuntimeUnionMemberSortKey } from "./runtime-union-ordering.js";
 import { resolveStructuralReferenceType } from "./structural-shape-matching.js";
+import { resolveTypeAlias } from "./type-resolution.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
   findRuntimeUnionMemberIndex,
   findRuntimeUnionMemberIndices,
 } from "./runtime-union-matching.js";
+import { getOrRegisterRuntimeUnionCarrier } from "./runtime-union-registry.js";
 export {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
@@ -43,13 +49,16 @@ export const buildRuntimeUnionLayout = (
   context: EmitterContext,
   emitTypeAst: EmitTypeAstLike
 ): [RuntimeUnionLayout | undefined, EmitterContext] => {
-  const frame = buildRuntimeUnionFrame(type, context);
+  const layoutSourceType =
+    type.kind === "referenceType" ? resolveTypeAlias(type, context) : type;
+  const frame = buildRuntimeUnionFrame(layoutSourceType, context);
   if (!frame) {
     return [undefined, context];
   }
   const semanticMembers = frame.members;
   const preserveRuntimeLayout =
-    type.kind === "unionType" && type.preserveRuntimeLayout === true;
+    layoutSourceType.kind === "unionType" &&
+    layoutSourceType.preserveRuntimeLayout === true;
 
   const orderedMembers: { member: IrType; typeAst: CSharpTypeAst }[] = [];
   const byAstKey = preserveRuntimeLayout
@@ -86,15 +95,27 @@ export const buildRuntimeUnionLayout = (
     ? orderedMembers
     : Array.from(byAstKey?.values() ?? []);
 
-  if (ordered.length < 2 || ordered.length > 8) {
+  if (ordered.length < 2) {
     return [undefined, currentContext];
   }
+
+  const semanticFamilyKey =
+    layoutSourceType.kind === "unionType"
+      ? runtimeUnionCarrierFamilyKey(layoutSourceType)
+      : undefined;
+
+  const carrier = getOrRegisterRuntimeUnionCarrier(
+    ordered.map((entry) => entry.typeAst),
+    currentContext.options.runtimeUnionRegistry,
+    semanticFamilyKey
+  );
 
   return [
     {
       members: ordered.map((entry) => entry.member),
       memberTypeAsts: ordered.map((entry) => entry.typeAst),
       runtimeUnionArity: ordered.length,
+      carrierName: carrier.name,
     },
     currentContext,
   ];
@@ -102,8 +123,14 @@ export const buildRuntimeUnionLayout = (
 
 export const buildRuntimeUnionTypeAst = (
   layout: RuntimeUnionLayout
-): CSharpTypeAst =>
-  identifierType("global::Tsonic.Runtime.Union", [...layout.memberTypeAsts]);
+): CSharpTypeAst => {
+  const carrierName =
+    layout.carrierName ??
+    getOrRegisterRuntimeUnionCarrier(layout.memberTypeAsts, undefined).name;
+  return identifierType(`global::Tsonic.Internal.${carrierName}`, [
+    ...layout.memberTypeAsts,
+  ]);
+};
 
 export const emitRuntimeCarrierTypeAst = (
   type: IrType,
@@ -127,7 +154,9 @@ export const buildRuntimeUnionFrame = (
   type: IrType,
   context: EmitterContext
 ): RuntimeUnionFrame | undefined => {
-  const members = getCanonicalRuntimeUnionMembers(type, context);
+  const frameSourceType =
+    type.kind === "referenceType" ? resolveTypeAlias(type, context) : type;
+  const members = getCanonicalRuntimeUnionMembers(frameSourceType, context);
   if (!members) {
     return undefined;
   }
@@ -162,7 +191,7 @@ export const getCanonicalRuntimeUnionMembers = (
   const semanticMembers = preserveRuntimeLayout
     ? collectRuntimeUnionRawMembers(type, context)
     : expandRuntimeUnionMembers(type, context);
-  if (semanticMembers.length < 2 || semanticMembers.length > 8) {
+  if (semanticMembers.length < 2) {
     return undefined;
   }
 

@@ -6,7 +6,11 @@
  * DAG position: depends on type-system-state only
  */
 
-import type { IrType, IrReferenceType } from "../types/index.js";
+import type {
+  IrInterfaceMember,
+  IrReferenceType,
+  IrType,
+} from "../types/index.js";
 import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
@@ -418,6 +422,149 @@ const resolveNominalMemberEntry = (
   };
 };
 
+const getStructuralMembers = (
+  type: IrType
+): readonly IrInterfaceMember[] | undefined => {
+  if (type.kind === "objectType") {
+    return type.members;
+  }
+
+  if (type.kind === "referenceType") {
+    return type.structuralMembers;
+  }
+
+  return undefined;
+};
+
+const isStructurallyAssignable = (
+  state: TypeSystemState,
+  source: IrType,
+  target: IrType,
+  activeAliases: ReadonlySet<string>
+): boolean | undefined => {
+  const sourceMembers = getStructuralMembers(source) ?? [];
+  const targetMembers = getStructuralMembers(target) ?? [];
+  if (sourceMembers.length === 0 || targetMembers.length === 0) {
+    return undefined;
+  }
+
+  return targetMembers.every((targetMember) => {
+    if (targetMember.kind === "propertySignature") {
+      const matches = sourceMembers.filter(
+        (
+          candidate
+        ): candidate is Extract<
+          typeof candidate,
+          { readonly kind: "propertySignature" }
+        > =>
+          candidate.kind === "propertySignature" &&
+          candidate.name === targetMember.name
+      );
+      if (matches.length === 1) {
+        const match = matches[0];
+        return (
+          !!match &&
+          isAssignableToInternal(
+            state,
+            match.type,
+            targetMember.type,
+            activeAliases
+          )
+        );
+      }
+
+      if (source.kind !== "referenceType") {
+        return false;
+      }
+
+      const nominalMember = resolveNominalMemberEntry(
+        state,
+        source,
+        targetMember.name
+      );
+      if (!nominalMember?.memberType) {
+        return false;
+      }
+
+      return isAssignableToInternal(
+        state,
+        nominalMember.memberType,
+        targetMember.type,
+        activeAliases
+      );
+    }
+
+    if (targetMember.kind === "methodSignature") {
+      const matches = sourceMembers.filter(
+        (
+          candidate
+        ): candidate is Extract<
+          typeof candidate,
+          { readonly kind: "methodSignature" }
+        > =>
+          candidate.kind === "methodSignature" &&
+          candidate.name === targetMember.name &&
+          candidate.parameters.length === targetMember.parameters.length
+      );
+      const comparableMatches: readonly ComparableMethodSignature[] =
+        matches.length === 1
+          ? matches
+          : source.kind === "referenceType"
+            ? resolveNominalMemberEntry(
+                state,
+                source,
+                targetMember.name
+              )?.signatures.filter(
+                (signature) =>
+                  signature.parameters.length === targetMember.parameters.length
+              ) ?? []
+            : [];
+
+      if (comparableMatches.length !== 1) {
+        return false;
+      }
+
+      const match = comparableMatches[0];
+      if (!match) {
+        return false;
+      }
+
+      for (
+        let parameterIndex = 0;
+        parameterIndex < targetMember.parameters.length;
+        parameterIndex += 1
+      ) {
+        const sourceParameter = match.parameters[parameterIndex];
+        const targetParameter = targetMember.parameters[parameterIndex];
+        const sourceParameterType = sourceParameter?.type;
+        const targetParameterType = targetParameter?.type;
+        if (!sourceParameterType || !targetParameterType) {
+          continue;
+        }
+        if (
+          !isAssignableToInternal(
+            state,
+            targetParameterType,
+            sourceParameterType,
+            activeAliases
+          )
+        ) {
+          return false;
+        }
+      }
+
+      return isAssignableToInternal(
+        state,
+        match.returnType ?? unknownType,
+        targetMember.returnType ?? unknownType,
+        activeAliases
+      );
+    }
+
+    return false;
+  });
+};
+
 const isAssignableToInternal = (
   state: TypeSystemState,
   source: IrType,
@@ -551,127 +698,19 @@ const isAssignableToInternal = (
       }
     }
 
-    const sourceMembers = source.structuralMembers ?? [];
-    const targetMembers = target.structuralMembers ?? [];
-    if (sourceMembers.length === 0 || targetMembers.length === 0) {
-      return false;
-    }
+    return (
+      isStructurallyAssignable(state, source, target, activeAliases) ?? false
+    );
+  }
 
-    return targetMembers.every((targetMember) => {
-      if (targetMember.kind === "propertySignature") {
-        const matches = sourceMembers.filter(
-          (
-            candidate
-          ): candidate is Extract<
-            typeof candidate,
-            { readonly kind: "propertySignature" }
-          > =>
-            candidate.kind === "propertySignature" &&
-            candidate.name === targetMember.name
-        );
-        if (matches.length === 1) {
-          const match = matches[0];
-          return (
-            !!match &&
-            isAssignableToInternal(
-              state,
-              match.type,
-              targetMember.type,
-              activeAliases
-            )
-          );
-        }
-
-        if (source.kind !== "referenceType") {
-          return false;
-        }
-
-        const nominalMember = resolveNominalMemberEntry(
-          state,
-          source,
-          targetMember.name
-        );
-        if (!nominalMember?.memberType) {
-          return false;
-        }
-
-        return isAssignableToInternal(
-          state,
-          nominalMember.memberType,
-          targetMember.type,
-          activeAliases
-        );
-      }
-
-      if (targetMember.kind === "methodSignature") {
-        const matches = sourceMembers.filter(
-          (
-            candidate
-          ): candidate is Extract<
-            typeof candidate,
-            { readonly kind: "methodSignature" }
-          > =>
-            candidate.kind === "methodSignature" &&
-            candidate.name === targetMember.name &&
-            candidate.parameters.length === targetMember.parameters.length
-        );
-        const comparableMatches: readonly ComparableMethodSignature[] =
-          matches.length === 1
-            ? matches
-            : source.kind === "referenceType"
-              ? resolveNominalMemberEntry(
-                  state,
-                  source,
-                  targetMember.name
-                )?.signatures.filter(
-                  (signature) =>
-                    signature.parameters.length === targetMember.parameters.length
-                ) ?? []
-              : [];
-
-        if (comparableMatches.length !== 1) {
-          return false;
-        }
-
-        const match = comparableMatches[0];
-        if (!match) {
-          return false;
-        }
-
-        for (
-          let parameterIndex = 0;
-          parameterIndex < targetMember.parameters.length;
-          parameterIndex += 1
-        ) {
-          const sourceParameter = match.parameters[parameterIndex];
-          const targetParameter = targetMember.parameters[parameterIndex];
-          const sourceParameterType = sourceParameter?.type;
-          const targetParameterType = targetParameter?.type;
-          if (!sourceParameterType || !targetParameterType) {
-            continue;
-          }
-          if (
-            !isAssignableToInternal(
-              state,
-              targetParameterType,
-              sourceParameterType,
-              activeAliases
-            )
-          ) {
-            return false;
-          }
-        }
-
-        return isAssignableToInternal(
-          state,
-          match.returnType ?? unknownType,
-          targetMember.returnType ?? unknownType,
-          activeAliases
-        );
-      }
-
-      return false;
-    });
+  const structuralAssignable = isStructurallyAssignable(
+    state,
+    source,
+    target,
+    activeAliases
+  );
+  if (structuralAssignable !== undefined) {
+    return structuralAssignable;
   }
 
   // Conservative - return false if unsure

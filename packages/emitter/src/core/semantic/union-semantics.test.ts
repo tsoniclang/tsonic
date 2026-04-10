@@ -91,13 +91,13 @@ describe("union-semantics", () => {
       expect(willCarryAsRuntimeUnion(type, context)).to.be.true;
     });
 
-    it("returns false for > 8-member union", () => {
+    it("returns true for wide unions beyond the old 8-member cap", () => {
       const type: IrType = {
         kind: "unionType",
         types: Array.from({ length: 9 }, (_, i) => mkRef(`T${i}`)),
       };
       const context = createContext({ rootNamespace: "Test" });
-      expect(willCarryAsRuntimeUnion(type, context)).to.be.false;
+      expect(willCarryAsRuntimeUnion(type, context)).to.be.true;
     });
 
     it("returns false for non-union", () => {
@@ -108,14 +108,14 @@ describe("union-semantics", () => {
   });
 
   describe("semantic vs runtime separation", () => {
-    it("> 8-member union: isSemanticUnion true but willCarryAsRuntimeUnion false", () => {
+    it("wide unions remain both semantic unions and carried runtime unions", () => {
       const type: IrType = {
         kind: "unionType",
         types: Array.from({ length: 9 }, (_, i) => mkRef(`T${i}`)),
       };
       const context = createContext({ rootNamespace: "Test" });
       expect(isSemanticUnion(type, context)).to.be.true;
-      expect(willCarryAsRuntimeUnion(type, context)).to.be.false;
+      expect(willCarryAsRuntimeUnion(type, context)).to.be.true;
     });
   });
 });

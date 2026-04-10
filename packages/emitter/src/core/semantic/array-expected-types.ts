@@ -1,12 +1,14 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { shouldEraseRecursiveRuntimeUnionArrayElement } from "./runtime-unions.js";
+import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 import {
   getArrayLikeElementType,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "./type-resolution.js";
+import { stableIrTypeKey } from "@tsonic/frontend";
 
 const OBJECT_REFERENCE_TYPE: IrType = {
   kind: "referenceType",
@@ -26,14 +28,56 @@ export const resolveArrayLiteralContextType = (
     return strippedExpected;
   }
 
-  const arrayLikeMembers = resolvedExpected.types.filter(
-    (member): member is IrType =>
-      getArrayLikeElementType(member, context) !== undefined ||
-      resolveTypeAlias(stripNullish(member), context).kind === "tupleType"
+  const collectArrayLiteralContextCandidates = (
+    type: IrType,
+    visited: Set<string> = new Set<string>()
+  ): readonly IrType[] => {
+    const stripped = stripNullish(type);
+    const visitKey = stableIrTypeKey(stripped);
+    if (visited.has(visitKey)) {
+      return [];
+    }
+    visited.add(visitKey);
+
+    if (getArrayLikeElementType(stripped, context) !== undefined) {
+      return [stripped];
+    }
+
+    const resolved = resolveTypeAlias(stripped, context);
+    if (resolved.kind === "tupleType") {
+      return [stripped];
+    }
+
+    if (resolved.kind !== "unionType") {
+      return [];
+    }
+
+    return resolved.types.flatMap((member) =>
+      collectArrayLiteralContextCandidates(member, visited)
+    );
+  };
+
+  const arrayLikeMembers = resolvedExpected.types.flatMap((member) =>
+    collectArrayLiteralContextCandidates(member)
   );
 
-  if (arrayLikeMembers.length === 1) {
-    return arrayLikeMembers[0];
+  const uniqueArrayLikeMembers = Array.from(
+    new Map(
+      arrayLikeMembers.map((member) => [stableIrTypeKey(member), member] as const)
+    ).values()
+  );
+
+  if (uniqueArrayLikeMembers.length === 1) {
+    return uniqueArrayLikeMembers[0];
+  }
+
+  const concreteArrayMembers = uniqueArrayLikeMembers.filter(
+    (member): member is Extract<IrType, { kind: "arrayType" }> =>
+      resolveTypeAlias(stripNullish(member), context).kind === "arrayType"
+  );
+
+  if (concreteArrayMembers.length === 1) {
+    return concreteArrayMembers[0];
   }
 
   return strippedExpected;
@@ -62,17 +106,14 @@ export const normalizeRecursiveArrayExpectedType = (
       return type;
     }
 
-    return {
-      kind: "unionType",
-      types: [
-        ...type.types.filter(
-          (candidate: IrType) =>
-            candidate.kind === "primitiveType" &&
-            (candidate.name === "null" || candidate.name === "undefined")
-        ),
-        normalizedMember,
-      ],
-    };
+    return rebuildUnionTypePreservingCarrierFamily(type, [
+      ...type.types.filter(
+        (candidate: IrType) =>
+          candidate.kind === "primitiveType" &&
+          (candidate.name === "null" || candidate.name === "undefined")
+      ),
+      normalizedMember,
+    ]);
   }
 
   const resolved = resolveTypeAlias(stripNullish(type), context);

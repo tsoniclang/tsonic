@@ -42,31 +42,37 @@ export const emitConditional = (
     whenTrueContext: EmitterContext,
     whenFalseContext: EmitterContext
   ): IrType | undefined => {
-    if (expectedType) {
-      return expectedType;
-    }
-
     const trueType = resolveBranchType(expr.whenTrue, whenTrueContext);
     const falseType = resolveBranchType(expr.whenFalse, whenFalseContext);
+    let commonBranchType: IrType | undefined;
 
     if (
       trueType &&
       falseType &&
       stableIrTypeKey(trueType) === stableIrTypeKey(falseType)
     ) {
-      return trueType;
-    }
-
-    if (trueType && falseType) {
+      commonBranchType = trueType;
+    } else if (trueType && falseType) {
       if (isAssignable(trueType, falseType)) {
-        return falseType;
-      }
-      if (isAssignable(falseType, trueType)) {
-        return trueType;
+        commonBranchType = falseType;
+      } else if (isAssignable(falseType, trueType)) {
+        commonBranchType = trueType;
       }
     }
 
-    return expr.inferredType;
+    if (expectedType) {
+      if (
+        commonBranchType &&
+        stableIrTypeKey(commonBranchType) !== stableIrTypeKey(expectedType) &&
+        isAssignable(commonBranchType, expectedType)
+      ) {
+        return commonBranchType;
+      }
+
+      return expectedType;
+    }
+
+    return commonBranchType ?? expr.inferredType;
   };
 
   // Try to detect type predicate guard in condition

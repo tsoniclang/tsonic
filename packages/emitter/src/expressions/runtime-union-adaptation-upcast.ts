@@ -279,6 +279,15 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       return { actualLayout, expectedLayout, differs: true };
     }
 
+    if (
+      !sameTypeAstSurface(
+        buildRuntimeUnionTypeAst(actualLayout),
+        buildRuntimeUnionTypeAst(expectedLayout)
+      )
+    ) {
+      return { actualLayout, expectedLayout, differs: true };
+    }
+
     for (
       let index = 0;
       index < actualLayout.memberTypeAsts.length;

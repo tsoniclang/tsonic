@@ -129,7 +129,7 @@ describe("add-common module resolution", () => {
     }
   });
 
-  it("prefers explicit workspace-installed @tsonic package roots over sibling repo copies", () => {
+  it("prefers sibling source-package roots over workspace-installed legacy copies", () => {
     const projectRoot = mkdtempSync(
       join(tmpdir(), "tsonic-resolve-sibling-pref-")
     );
@@ -149,6 +149,52 @@ describe("add-common module resolution", () => {
         type: "module",
         exports: {
           ".": "./index.js",
+        },
+      });
+      writeFileSync(join(pkgRoot, "index.js"), "export {};\n", "utf-8");
+
+      const result = resolvePackageRoot(projectRoot, "@tsonic/js");
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(resolve(result.value)).to.not.equal(resolve(pkgRoot));
+      expect(resolve(result.value)).to.match(
+        new RegExp(`[/\\\\]js([/\\\\]versions[/\\\\]\\d+)?$`)
+      );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers workspace-installed source-package roots over sibling source repos", () => {
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-resolve-installed-source-pref-")
+    );
+
+    try {
+      writeJson(join(projectRoot, "package.json"), {
+        name: "test",
+        private: true,
+        type: "module",
+      });
+
+      const pkgRoot = join(projectRoot, "node_modules", "@tsonic", "js");
+      mkdirSync(pkgRoot, { recursive: true });
+      writeJson(join(pkgRoot, "package.json"), {
+        name: "@tsonic/js",
+        version: "10.0.99-test",
+        type: "module",
+        exports: {
+          ".": "./index.js",
+        },
+      });
+      writeJson(join(pkgRoot, "tsonic.package.json"), {
+        schemaVersion: 1,
+        kind: "tsonic-source-package",
+        source: {
+          namespace: "Acme.Js",
+          exports: {
+            ".": "./index.js",
+          },
         },
       });
       writeFileSync(join(pkgRoot, "index.js"), "export {};\n", "utf-8");

@@ -35,6 +35,7 @@ import {
 } from "./truthiness-evaluation.js";
 import { applyLogicalOperandNarrowing } from "./condition-branch-narrowing.js";
 import { emitUnionTruthinessConditionAst } from "./boolean-condition-union.js";
+import { emitTypeAst } from "../../type-emitter.js";
 
 export type EmitExprAstFn = (
   expr: IrExpression,
@@ -109,7 +110,8 @@ export const toBooleanConditionAst = (
       emittedAst,
       type,
       context,
-      toBooleanConditionAst
+      toBooleanConditionAst,
+      emitTypeAst
     );
   }
 

@@ -135,6 +135,7 @@ export {
   literalFitsInKind,
   isWideningConversion,
   stableIrTypeKey,
+  runtimeUnionCarrierFamilyKey,
   irTypesEqual,
   normalizedUnionType,
   substituteIrType,

@@ -14,6 +14,7 @@ import {
   IrDefaultOfExpression,
   IrNameOfExpression,
   IrSizeOfExpression,
+  runtimeUnionCarrierFamilyKey,
 } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
@@ -32,6 +33,7 @@ import {
   buildRuntimeUnionLayout,
   emitRuntimeCarrierTypeAst,
 } from "../core/semantic/runtime-unions.js";
+import { getOrRegisterRuntimeUnionCarrier } from "../core/semantic/runtime-union-registry.js";
 import {
   buildRuntimeUnionFactoryCallAst,
   buildRuntimeUnionMatchAst,
@@ -241,8 +243,15 @@ export const emitTypeAssertion = (
         nextContext = memberContext;
       }
 
+      const carrier = getOrRegisterRuntimeUnionCarrier(
+        memberTypeAsts,
+        nextContext.options.runtimeUnionRegistry,
+        targetType.kind === "unionType"
+          ? runtimeUnionCarrierFamilyKey(targetType)
+          : undefined
+      );
       const unionTypeAst = identifierType(
-        "global::Tsonic.Runtime.Union",
+        `global::Tsonic.Internal.${carrier.name}`,
         memberTypeAsts
       );
 

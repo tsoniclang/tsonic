@@ -36,19 +36,18 @@ export const isBroadObjectSlotType = (
     resolved.kind === "objectType" ||
     isSystemObjectReferenceType(resolved) ||
     (resolved.kind === "unionType" &&
-      resolved.types.some(
-        (member) =>
-          member.kind === "objectType" ||
-          isJsValueReferenceType(member) ||
-          isSystemObjectReferenceType(member)
-      ) &&
-      resolved.types.every(
-        (member) =>
-          member.kind === "objectType" ||
-          member.kind === "primitiveType" ||
-          member.kind === "literalType" ||
-          isJsValueReferenceType(member) ||
-          isSystemObjectReferenceType(member)
-      ))
+      (resolved.types.some(isJsValueReferenceType) ||
+        (resolved.types.some(
+          (member) =>
+            member.kind === "objectType" || isSystemObjectReferenceType(member)
+        ) &&
+          resolved.types.every(
+            (member) =>
+              member.kind === "objectType" ||
+              member.kind === "primitiveType" ||
+              member.kind === "literalType" ||
+              isJsValueReferenceType(member) ||
+              isSystemObjectReferenceType(member)
+          ))))
   );
 };

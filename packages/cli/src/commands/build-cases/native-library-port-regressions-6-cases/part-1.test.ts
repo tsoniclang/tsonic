@@ -429,7 +429,7 @@ describe("build command (native library port regressions)", function () {
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.not.include(
-        "global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<object[]"
+        "global::Tsonic.Internal.Union<global::Tsonic.Internal.Union<global::Tsonic.Internal.Union<object[]"
       );
       expect(tree).to.not.include("var items = value;");
       expect(tree).to.include("object?[] items = (object?[])value;");

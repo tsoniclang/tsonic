@@ -184,7 +184,7 @@ export const emitReferenceType = (
   // Examples:
   // - `type Pair = [number, number]`      → `global::System.ValueTuple<double, double>`
   // - `type Auth = { ok: true } | { error: string }`
-  //                                   → `global::Tsonic.Runtime.Union<Auth__0, Auth__1>`
+  //                                   → compiler-owned runtime union carrier
   // - `type Point = { x: number; y: number }`
   //                                   → `Point__Alias` (class emitted elsewhere)
   const typeInfo = context.localTypes?.get(name);
@@ -194,7 +194,7 @@ export const emitReferenceType = (
     const shouldResolve = underlyingKind !== "objectType";
 
     if (shouldResolve) {
-      const underlyingType =
+      const substitutedUnderlyingType =
         typeArguments && typeArguments.length > 0
           ? substituteTypeArgs(
               typeInfo.type,
@@ -203,10 +203,10 @@ export const emitReferenceType = (
             )
           : typeInfo.type;
       if (context.resolvingTypeAliases?.has(name)) {
-        return emitRecursiveAliasFallbackType(underlyingType, context);
+        return emitRecursiveAliasFallbackType(substitutedUnderlyingType, context);
       }
       const [resolvedAst, resolvedContext] = emitTypeAst(
-        underlyingType,
+        substitutedUnderlyingType,
         withResolvingTypeAlias(name, context)
       );
       return [
@@ -387,16 +387,16 @@ export const emitReferenceType = (
       if (info.kind === "typeAlias") {
         const underlyingKind = info.type.kind;
         if (underlyingKind !== "objectType") {
-          const underlyingType =
+          const substitutedUnderlyingType =
             typeArguments && typeArguments.length > 0
               ? substituteTypeArgs(info.type, info.typeParameters, typeArguments)
               : info.type;
           const aliasKey = keyForResolvedLocalType(name, namespace);
           if (context.resolvingTypeAliases?.has(aliasKey)) {
-            return emitRecursiveAliasFallbackType(underlyingType, context);
+            return emitRecursiveAliasFallbackType(substitutedUnderlyingType, context);
           }
           const [resolvedAst, resolvedContext] = emitTypeAst(
-            underlyingType,
+            substitutedUnderlyingType,
             withResolvingTypeAlias(aliasKey, context)
           );
           return [

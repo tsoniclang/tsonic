@@ -8,6 +8,7 @@ import {
   runAnonymousTypeLoweringPass,
   runCallResolutionRefreshPass,
   runNumericProofPass,
+  validateIrSoundness,
 } from "../validation/index.js";
 import { validateProgram } from "../../validator.js";
 import type {
@@ -701,12 +702,18 @@ describe("IR Builder", function () {
         expect(callExpr.kind).to.equal("call");
         if (callExpr.kind !== "call") return;
 
-        expect(callExpr.parameterTypes?.[0]).to.deep.equal({
+        expect(callExpr.parameterTypes?.[0]?.kind).to.equal("referenceType");
+        if (callExpr.parameterTypes?.[0]?.kind !== "referenceType") {
+          return;
+        }
+        expect(callExpr.parameterTypes[0]).to.deep.include({
           kind: "referenceType",
           name: "Iterable",
-          typeArguments: [{ kind: "primitiveType", name: "number" }],
-          resolvedClrType: undefined,
         });
+        expect(callExpr.parameterTypes[0].typeArguments).to.deep.equal([
+          { kind: "primitiveType", name: "number" },
+        ]);
+        expect(callExpr.parameterTypes[0].typeId?.tsName).to.equal("Iterable");
         expect(callExpr.parameterTypes?.[1]?.kind).to.equal("unionType");
         expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("unionType");
         expect(callExpr.surfaceParameterTypes?.[1]?.kind).to.equal("unionType");
@@ -742,6 +749,127 @@ describe("IR Builder", function () {
           { kind: "primitiveType", name: "int" },
           { kind: "primitiveType", name: "undefined" },
         ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps imported source-package typed-array set calls on the byte-array overload for array literals", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "fragments/installed-source-deterministic/fixture-js-surface-root",
+        "fragments/installed-source-deterministic/fixture-typed-array-set-surface",
+        "typed-array-array-literal-overload",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+        });
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+        const module = refreshed.modules[0];
+        expect(module).to.not.equal(undefined);
+        if (!module) return;
+
+        const copyDecl = module.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "copyTail"
+        );
+        expect(copyDecl).to.not.equal(undefined);
+        if (!copyDecl?.body) return;
+
+        const callStmt = copyDecl.body.statements.find(
+          (stmt): stmt is IrExpressionStatement =>
+            stmt.kind === "expressionStatement" &&
+            stmt.expression.kind === "call" &&
+            stmt.expression.callee.kind === "memberAccess" &&
+            stmt.expression.callee.property === "set"
+        );
+        expect(callStmt).to.not.equal(undefined);
+        if (!callStmt) return;
+
+        const callExpr = callStmt.expression;
+        expect(callExpr.kind).to.equal("call");
+        if (callExpr.kind !== "call") return;
+
+        expect(callExpr.parameterTypes?.[0]?.kind).to.equal("arrayType");
+        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("unionType");
+
+        if (
+          callExpr.parameterTypes?.[0]?.kind !== "arrayType" ||
+          callExpr.surfaceParameterTypes?.[0]?.kind !== "unionType"
+        ) {
+          return;
+        }
+
+        expect(callExpr.parameterTypes[0].elementType).to.deep.include({
+          name: "byte",
+        });
+        expect(callExpr.surfaceParameterTypes[0].types[0]?.kind).to.equal(
+          "arrayType"
+        );
+        if (callExpr.surfaceParameterTypes[0].types[0]?.kind !== "arrayType") {
+          return;
+        }
+        expect(
+          callExpr.surfaceParameterTypes[0].types[0].elementType
+        ).to.deep.include({
+          name: "byte",
+        });
+        expect(callExpr.surfaceParameterTypes[0].types[1]?.kind).to.equal(
+          "referenceType"
+        );
+        if (callExpr.surfaceParameterTypes[0].types[1]?.kind !== "referenceType") {
+          return;
+        }
+        expect(callExpr.surfaceParameterTypes[0].types[1]).to.deep.include({
+          kind: "referenceType",
+          name: "Iterable",
+        });
+        expect(
+          callExpr.surfaceParameterTypes[0].types[1].typeArguments
+        ).to.deep.equal([{ kind: "primitiveType", name: "number" }]);
+        expect(
+          callExpr.surfaceParameterTypes[0].types[1].typeId?.tsName
+        ).to.equal("Iterable");
       } finally {
         fixture.cleanup();
       }
@@ -950,6 +1078,106 @@ describe("IR Builder", function () {
             { kind: "primitiveType", name: "null" },
           ],
         });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps imported source-package callback alias closure deterministic", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "fragments/installed-source-deterministic/fixture-callback-alias-surface",
+        "imported-source-callback-alias-closure",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+          surface: "@fixture/pkg",
+        });
+
+        expect(
+          programResult.ok,
+          programResult.ok
+            ? undefined
+            : programResult.error.diagnostics
+                .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+                .join("\n")
+        ).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const validation = validateProgram(program);
+        expect(validation.hasErrors).to.equal(false);
+
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const soundness = validateIrSoundness([moduleResult.value]);
+        expect(
+          soundness.diagnostics.map((diagnostic) => diagnostic.code)
+        ).to.not.include("TSN7414");
+
+        const registerDecl = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "register"
+        );
+        expect(registerDecl).to.not.equal(undefined);
+        if (!registerDecl?.body) return;
+
+        const callStmt = registerDecl.body.statements.find(
+          (stmt): stmt is IrExpressionStatement =>
+            stmt.kind === "expressionStatement" &&
+            stmt.expression.kind === "call" &&
+            stmt.expression.kind === "call" &&
+            stmt.expression.arguments[0]?.kind === "arrowFunction"
+        );
+        expect(callStmt).to.not.equal(undefined);
+        if (!callStmt) return;
+
+        const callExpr = callStmt.expression;
+        expect(callExpr.kind).to.equal("call");
+        if (callExpr.kind !== "call") return;
+
+        const handler = callExpr.arguments[0];
+        expect(handler?.kind).to.equal("arrowFunction");
+        if (!handler || handler.kind !== "arrowFunction") return;
+
+        const nextType = handler.parameters[2]?.type;
+        expect(nextType?.kind).to.equal("functionType");
+        if (!nextType || nextType.kind !== "functionType") return;
+
+        const nextValueType = nextType.parameters[0]?.type;
+        expect(
+          nextValueType?.kind === "unionType" ||
+            (nextValueType?.kind === "referenceType" &&
+              nextValueType.typeId !== undefined)
+        ).to.equal(true);
       } finally {
         fixture.cleanup();
       }

@@ -117,7 +117,7 @@ const s = "  hi  ".trim();
 
 Current compiler reason:
 
-- CLR type starts with `Tsonic.JSRuntime.`
+- CLR type starts with a retired JS CLR runtime namespace.
 
 Phase 1 target:
 

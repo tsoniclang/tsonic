@@ -29,7 +29,7 @@ describe("type-resolution", () => {
       usings: new Set<string>(),
     });
 
-    it("rebinds local structural aliases for emitter nominal contexts", () => {
+    it("does not silently rebind inline structural shapes to local aliases", () => {
       const localTypes = new Map<string, LocalTypeInfo>([
         [
           "Todo",
@@ -82,13 +82,10 @@ describe("type-resolution", () => {
         makeContext(localTypes)
       );
 
-      expect(result).to.deep.equal({
-        kind: "referenceType",
-        name: "Todo",
-      });
+      expect(result).to.equal(undefined);
     });
 
-    it("normalizes structural aliases nested inside array emission types", () => {
+    it("leaves inline structural array element types unchanged", () => {
       const localTypes = new Map<string, LocalTypeInfo>([
         [
           "TopRow",
@@ -147,8 +144,23 @@ describe("type-resolution", () => {
       expect(result).to.deep.equal({
         kind: "arrayType",
         elementType: {
-          kind: "referenceType",
-          name: "TopRow",
+          kind: "objectType",
+          members: [
+            {
+              kind: "propertySignature",
+              name: "key",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+            {
+              kind: "propertySignature",
+              name: "pageviews",
+              type: { kind: "primitiveType", name: "number" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
         },
       });
     });
@@ -289,7 +301,7 @@ describe("type-resolution", () => {
       });
     });
 
-    it("rebinds cross-module structural aliases to canonical emitted CLR types", () => {
+    it("does not silently rebind inline structural shapes across modules", () => {
       const currentModulePath = "/src/app.ts";
       const typeAliasInfo: LocalTypeInfo = {
         kind: "typeAlias",
@@ -349,14 +361,10 @@ describe("type-resolution", () => {
         })
       );
 
-      expect(result).to.deep.equal({
-        kind: "referenceType",
-        name: "RouteLayer",
-        resolvedClrType: "App.Http.RouteLayer__Alias",
-      });
+      expect(result).to.equal(undefined);
     });
 
-    it("rebinds structural object shapes to explicit binding-backed nominal types before anonymous carriers", () => {
+    it("does not silently rebind inline structural shapes to binding-backed nominal types", () => {
       const sharedShape: Extract<IrType, { kind: "objectType" }> = {
         kind: "objectType",
         members: [
@@ -453,11 +461,7 @@ describe("type-resolution", () => {
         bindingsRegistry,
       });
 
-      expect(result).to.deep.equal({
-        kind: "referenceType",
-        name: "MkdirOptions",
-        resolvedClrType: "nodejs.MkdirOptions",
-      });
+      expect(result).to.equal(undefined);
     });
 
     it("preserves generic imported structural alias identity and type arguments", () => {

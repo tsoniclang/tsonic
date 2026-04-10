@@ -35,12 +35,11 @@ export const isSemanticUnion = (
 ): boolean => getSemanticUnionMembers(type, context) !== undefined;
 
 /**
- * Will this type be materialized as a runtime Union<T1..Tn> carrier?
+ * Will this type be materialized as a compiler-owned runtime union carrier?
  *
  * Behaviorally equivalent to `buildRuntimeUnionFrame(type, ctx) !== undefined`
  * but communicates semantic intent and avoids constructing a frame object.
  *
- * The runtime carrier constraint is: canonical union members within arity 2-8.
  * This delegates entirely to getCanonicalRuntimeUnionMembers which performs
  * full expansion, dedup, and ordering — so the result is exact.
  */

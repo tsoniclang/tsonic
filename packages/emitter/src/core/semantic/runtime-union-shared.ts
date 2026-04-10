@@ -11,6 +11,7 @@ export type RuntimeUnionLayout = {
   readonly members: readonly IrType[];
   readonly memberTypeAsts: readonly CSharpTypeAst[];
   readonly runtimeUnionArity: number;
+  readonly carrierName?: string;
 };
 
 export type RuntimeUnionFrame = {
@@ -31,7 +32,11 @@ export const isRuntimeUnionTypeName = (name: string): boolean => {
     : name;
   const leaf = normalized.split(".").pop() ?? normalized;
   return (
-    leaf === "Union" || /^Union_[2-8]$/.test(leaf) || /^Union`\d+$/.test(leaf)
+    leaf === "Union" ||
+    /^Union_\d+$/.test(leaf) ||
+    /^Union`\d+$/.test(leaf) ||
+    /^Union\d+$/.test(leaf) ||
+    /^Union\d+_[A-F0-9]{8}$/.test(leaf)
   );
 };
 
@@ -44,8 +49,7 @@ export const getRuntimeUnionReferenceMembers = (
         ? isRuntimeUnionTypeName(type.resolvedClrType)
         : false)) &&
     type.typeArguments &&
-    type.typeArguments.length >= 2 &&
-    type.typeArguments.length <= 8
+    type.typeArguments.length >= 2
   ) {
     return type.typeArguments;
   }

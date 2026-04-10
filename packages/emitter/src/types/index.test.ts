@@ -7,6 +7,8 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../emitter.js";
 import { IrModule, IrType } from "@tsonic/frontend";
+import { identifierType } from "../core/format/backend-ast/builders.js";
+import { printRuntimeUnionCarrierTypeForIrType } from "../runtime-union-cases/helpers.js";
 
 describe("Type Emission", () => {
   it("should emit primitive types correctly", () => {
@@ -391,12 +393,18 @@ describe("Type Emission", () => {
     };
 
     const result = emitModule(module);
+    const unionType = printRuntimeUnionCarrierTypeForIrType(recursiveUnion, [
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: identifierType("object"),
+      },
+      { kind: "predefinedType", keyword: "string" },
+    ]);
 
-    expect(result).to.include(
-      "global::Tsonic.Runtime.Union<object[], string> value"
-    );
+    expect(result).to.include(`${unionType} value`);
     expect(result).to.not.include(
-      "global::Tsonic.Runtime.Union<object[], global::Tsonic.Runtime.Union"
+      "global::Tsonic.Internal.Union<object[], global::Tsonic.Internal.Union"
     );
   });
 
@@ -469,10 +477,18 @@ describe("Type Emission", () => {
     };
 
     const result = emitModule(module);
+    const elementUnionType = {
+      kind: "unionType",
+      types: [handlerType, routerType],
+    } satisfies IrType;
+    const unionType = printRuntimeUnionCarrierTypeForIrType(elementUnionType, [
+      identifierType("global::System.Action", [
+        { kind: "predefinedType", keyword: "string" },
+      ]),
+      identifierType("global::MyApp.Router"),
+    ]);
 
-    expect(result).to.include(
-      "global::Tsonic.Runtime.Union<global::System.Action<string>, global::MyApp.Router>[] value"
-    );
+    expect(result).to.include(`${unionType}[] value`);
     expect(result).to.not.include("object[] value");
   });
 });

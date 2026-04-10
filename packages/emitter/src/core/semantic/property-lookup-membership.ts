@@ -29,6 +29,10 @@ const getTypeMemberIndexCandidates = (
   const index = context.options.typeMemberIndex;
   if (!index) return undefined;
 
+  if (ref.typeId?.clrName) {
+    return [stripGlobalPrefix(ref.typeId.clrName)];
+  }
+
   if (ref.resolvedClrType) {
     return [stripGlobalPrefix(ref.resolvedClrType)];
   }

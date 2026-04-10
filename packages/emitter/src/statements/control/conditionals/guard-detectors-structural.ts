@@ -34,7 +34,7 @@ import type {
 } from "./guard-types.js";
 import {
   extractTransparentIdentifierTarget,
-  resolveRuntimeUnionFrame,
+  resolveGuardRuntimeUnionFrame,
   buildRenameNarrowedMap,
   withoutNarrowedBinding,
 } from "./guard-types.js";
@@ -64,16 +64,17 @@ export const tryResolveInGuard = (
   const unionSourceType = condition.right.inferredType ?? target.inferredType;
   if (!unionSourceType) return undefined;
 
-  const frame = resolveRuntimeUnionFrame(
+  const frame = resolveGuardRuntimeUnionFrame(
     originalName,
     unionSourceType,
+    target,
     context
   );
   if (!frame) return undefined;
 
   const { members, candidateMemberNs, runtimeUnionArity } = frame;
   const unionArity = members.length;
-  if (unionArity < 2 || unionArity > 8) return undefined;
+  if (unionArity < 2) return undefined;
 
   // Find which union members contain the property.
   const matchingIndices: number[] = [];
@@ -164,9 +165,10 @@ export const tryResolvePredicateGuard = (
   const unionSourceType = arg.inferredType ?? target.inferredType;
   if (!unionSourceType) return undefined;
 
-  const frame = resolveRuntimeUnionFrame(
+  const frame = resolveGuardRuntimeUnionFrame(
     originalName,
     unionSourceType,
+    target.kind === "identifier" ? target : undefined,
     context
   );
   if (!frame) return undefined;

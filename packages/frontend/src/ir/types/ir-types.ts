@@ -160,6 +160,15 @@ export type IrUnionType = {
    * change semantic type equality.
    */
   readonly preserveRuntimeLayout?: true;
+  /**
+   * Compiler-owned runtime carrier family identity.
+   *
+   * When present, emitter-side runtime union carrier selection must reuse this
+   * family key instead of recomputing identity from fully-substituted emitted
+   * member types. This keeps generic template unions and their concrete
+   * specializations on the same carrier family.
+   */
+  readonly runtimeCarrierFamilyKey?: string;
 };
 
 export type IrIntersectionType = {

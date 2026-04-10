@@ -130,6 +130,15 @@ const readTsonicDependencyNames = (packageRoot: string): readonly string[] => {
   }
 };
 
+const getSurfacePackageName = (mode: string): string | undefined => {
+  const trimmed = mode.trim();
+  if (trimmed.length === 0 || trimmed === "clr") {
+    return undefined;
+  }
+
+  return trimmed;
+};
+
 const isExplicitAuthoritativePackageRoot = (packageRoot: string): boolean => {
   if (readSourcePackageMetadata(packageRoot)) {
     return true;
@@ -285,8 +294,12 @@ export const discoverProgramInputs = (
     return absoluteRoot;
   });
   const authoritativeTsonicPackageRoots = new Map<string, string>();
-  const explicitAuthoritativeRoots = new Map<string, string>();
   const activeAuthoritativeSourcePackageRoots = new Map<string, string>();
+  const activeSurfacePackageNames = new Set(
+    surfaceCapabilities.resolvedModes
+      .map((mode) => getSurfacePackageName(mode))
+      .filter((mode): mode is string => mode !== undefined)
+  );
   const currentProjectPackageName = readPackageName(
     path.join(options.projectRoot, "package.json")
   );
@@ -302,10 +315,6 @@ export const discoverProgramInputs = (
       currentProjectPackageName,
       normalizedProjectRoot
     );
-    explicitAuthoritativeRoots.set(
-      currentProjectPackageName,
-      normalizedProjectRoot
-    );
     activeAuthoritativeSourcePackageRoots.set(
       currentProjectPackageName,
       normalizedProjectRoot
@@ -315,7 +324,6 @@ export const discoverProgramInputs = (
     const packageName = readPackageName(path.join(typeRoot, "package.json"));
     if (packageName && isExplicitAuthoritativePackageRoot(typeRoot)) {
       authoritativeTsonicPackageRoots.set(packageName, typeRoot);
-      explicitAuthoritativeRoots.set(packageName, typeRoot);
       if (readSourcePackageMetadata(typeRoot)) {
         activeAuthoritativeSourcePackageRoots.set(packageName, typeRoot);
       }
@@ -328,9 +336,15 @@ export const discoverProgramInputs = (
     if (!authoritativeTsonicPackageRoots.has(packageName)) {
       authoritativeTsonicPackageRoots.set(packageName, packageRoot);
     }
+    if (
+      activeSurfacePackageNames.has(packageName) &&
+      activeAuthoritativeSourcePackageRoots.get(packageName) !== packageRoot
+    ) {
+      activeAuthoritativeSourcePackageRoots.set(packageName, packageRoot);
+    }
   }
 
-  const waveQueue = Array.from(explicitAuthoritativeRoots.entries());
+  const waveQueue = Array.from(activeAuthoritativeSourcePackageRoots.entries());
   const visitedWaveRoots = new Set<string>();
   while (waveQueue.length > 0) {
     const [packageName, packageRoot] = waveQueue.shift()!;
@@ -388,12 +402,36 @@ export const discoverProgramInputs = (
       return !(packageName && readSourcePackageMetadata(typeRoot));
     }
   );
-  const typeRoots = Array.from(
-    new Set<string>([
-      ...nonAuthoritativeTypeRoots,
-      ...activeAuthoritativeSourcePackageRoots.values(),
-    ])
-  );
+  const orderedSurfaceTypeRoots: string[] = [];
+  const seenSurfaceTypeRoots = new Set<string>();
+  const pushSurfaceTypeRoot = (root: string | undefined): void => {
+    if (!root || seenSurfaceTypeRoots.has(root)) {
+      return;
+    }
+    seenSurfaceTypeRoots.add(root);
+    orderedSurfaceTypeRoots.push(root);
+  };
+
+  for (const mode of [...surfaceCapabilities.resolvedModes].reverse()) {
+    const packageName = getSurfacePackageName(mode);
+    if (!packageName) {
+      continue;
+    }
+    pushSurfaceTypeRoot(
+      authoritativeTsonicPackageRoots.get(packageName) ??
+        activeAuthoritativeSourcePackageRoots.get(packageName)
+    );
+  }
+
+  for (const root of activeAuthoritativeSourcePackageRoots.values()) {
+    pushSurfaceTypeRoot(root);
+  }
+
+  for (const root of nonAuthoritativeTypeRoots) {
+    pushSurfaceTypeRoot(root);
+  }
+
+  const typeRoots = [...orderedSurfaceTypeRoots];
 
   const sourcePackageAmbientPaths = typeRoots.flatMap((typeRoot) =>
     readSourcePackageAmbientPaths(typeRoot)

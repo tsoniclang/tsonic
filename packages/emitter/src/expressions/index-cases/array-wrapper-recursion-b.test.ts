@@ -10,6 +10,7 @@ import {
   type IrModule,
   type IrType,
 } from "./helpers.js";
+import { normalizeRuntimeUnionCarrierNames } from "../../runtime-union-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
 
@@ -385,10 +386,8 @@ describe("Expression Emission", () => {
       ]),
     });
 
-    const text = printExpression(result);
+    const text = normalizeRuntimeUnionCarrierNames(printExpression(result));
     expect(text).to.include("global::Tsonic.Internal.ArrayInterop.WrapArray(result)");
-    expect(text).to.not.include(
-      "new global::js.Array<global::Tsonic.Runtime.Union"
-    );
+    expect(text).to.not.include("new global::js.Array<global::Tsonic.Internal.Union");
   });
 });

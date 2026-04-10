@@ -564,7 +564,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.not.include('value ?? ""');
       expect(csharp).to.include(
-        "((global::System.Func<T, global::Tsonic.Runtime.Union<string, T>>)((T __tsonic_nullish_value) => (object)__tsonic_nullish_value == null ? global::Tsonic.Runtime.Union<string, T>.From1(\"\") : global::Tsonic.Runtime.Union<string, T>.From2(__tsonic_nullish_value)))(value)"
+        "((global::System.Func<T, global::Tsonic.Internal.Union<string, T>>)((T __tsonic_nullish_value) => (object)__tsonic_nullish_value == null ? global::Tsonic.Internal.Union<string, T>.From1(\"\") : global::Tsonic.Internal.Union<string, T>.From2(__tsonic_nullish_value)))(value)"
       );
     });
 

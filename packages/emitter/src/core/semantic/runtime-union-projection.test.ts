@@ -8,6 +8,7 @@ import {
 } from "../format/backend-ast/builders.js";
 import type { RuntimeUnionLayout } from "./runtime-unions.js";
 import { tryBuildRuntimeUnionProjectionToLayoutAst } from "./runtime-union-projection.js";
+import { buildRuntimeUnionCarrierTypeAst } from "../../runtime-union-cases/helpers.js";
 
 const stringType: IrType = { kind: "primitiveType", name: "string" };
 const regexType: IrType = {
@@ -60,7 +61,7 @@ describe("runtime-union-projection", () => {
         memberName: "Match",
       },
       typeArguments: [
-        identifierType("global::Tsonic.Runtime.Union", [
+        buildRuntimeUnionCarrierTypeAst([
           {
             kind: "arrayType",
             rank: 1,
@@ -81,7 +82,7 @@ describe("runtime-union-projection", () => {
               kind: "memberAccessExpression",
               expression: {
                 kind: "typeReferenceExpression",
-                type: identifierType("global::Tsonic.Runtime.Union", [
+                type: buildRuntimeUnionCarrierTypeAst([
                   {
                     kind: "arrayType",
                     rank: 1,
@@ -106,7 +107,7 @@ describe("runtime-union-projection", () => {
               kind: "memberAccessExpression",
               expression: {
                 kind: "typeReferenceExpression",
-                type: identifierType("global::Tsonic.Runtime.Union", [
+                type: buildRuntimeUnionCarrierTypeAst([
                   {
                     kind: "arrayType",
                     rank: 1,
@@ -166,7 +167,7 @@ describe("runtime-union-projection", () => {
         memberName: "Match",
       },
       typeArguments: [
-        identifierType("global::Tsonic.Runtime.Union", [
+        buildRuntimeUnionCarrierTypeAst([
           { kind: "predefinedType", keyword: "string" },
           identifierType("global::js.RegExp"),
         ]),
@@ -188,7 +189,7 @@ describe("runtime-union-projection", () => {
               kind: "memberAccessExpression",
               expression: {
                 kind: "typeReferenceExpression",
-                type: identifierType("global::Tsonic.Runtime.Union", [
+                type: buildRuntimeUnionCarrierTypeAst([
                   { kind: "predefinedType", keyword: "string" },
                   identifierType("global::js.RegExp"),
                 ]),

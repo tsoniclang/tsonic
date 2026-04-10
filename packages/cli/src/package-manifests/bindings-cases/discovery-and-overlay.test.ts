@@ -129,7 +129,7 @@ describe("tsonic.package bindings", function () {
       writeInstalledPackage(dir, "@tsonic/js", "10.0.9", {
         packageManifest: createSourcePackageManifest({
           runtime: {
-            nugetPackages: [{ id: "js", version: "0.0.9" }],
+            nugetPackages: [{ id: "Acme.Js.Runtime", version: "0.0.9" }],
           },
         }),
       });
@@ -144,7 +144,7 @@ describe("tsonic.package bindings", function () {
           },
           packageManifest: createSourcePackageManifest({
             runtime: {
-              nugetPackages: [{ id: "Tsonic.Nodejs", version: "10.0.9" }],
+              nugetPackages: [{ id: "Acme.Node.Runtime", version: "10.0.9" }],
             },
           }),
         }
@@ -153,7 +153,7 @@ describe("tsonic.package bindings", function () {
       writeInstalledPackage(nodejsRoot, "@tsonic/js", "10.0.4", {
         packageManifest: createSourcePackageManifest({
           runtime: {
-            nugetPackages: [{ id: "js", version: "0.0.4" }],
+            nugetPackages: [{ id: "Acme.Js.Runtime", version: "0.0.4" }],
           },
         }),
       });
@@ -179,8 +179,8 @@ describe("tsonic.package bindings", function () {
       expect(overlay.ok).to.equal(true);
       if (!overlay.ok) return;
       expect(overlay.value.config.dotnet?.packageReferences).to.deep.equal([
-        { id: "js", version: "0.0.9" },
-        { id: "Tsonic.Nodejs", version: "10.0.9" },
+        { id: "Acme.Js.Runtime", version: "0.0.9" },
+        { id: "Acme.Node.Runtime", version: "10.0.9" },
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -331,9 +331,7 @@ describe("tsonic.package bindings", function () {
         packageManifest: createSourcePackageManifest({
           requiredTypeRoots: ["."],
           dotnet: {
-            packageReferences: [
-              { id: "js", version: "0.0.9" },
-            ],
+            packageReferences: [{ id: "Acme.Js.Runtime", version: "0.0.9" }],
           },
         }),
       });
@@ -342,7 +340,7 @@ describe("tsonic.package bindings", function () {
         packageManifest: createSourcePackageManifest({
           requiredTypeRoots: ["."],
           dotnet: {
-            packageReferences: [{ id: "Tsonic.Nodejs", version: "10.0.9" }],
+            packageReferences: [{ id: "Acme.Node.Runtime", version: "10.0.9" }],
           },
         }),
       });
@@ -363,8 +361,8 @@ describe("tsonic.package bindings", function () {
         "node_modules/@tsonic/nodejs",
       ]);
       expect(result.value.config.dotnet?.packageReferences).to.deep.equal([
-        { id: "js", version: "0.0.9" },
-        { id: "Tsonic.Nodejs", version: "10.0.9" },
+        { id: "Acme.Js.Runtime", version: "0.0.9" },
+        { id: "Acme.Node.Runtime", version: "10.0.9" },
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });

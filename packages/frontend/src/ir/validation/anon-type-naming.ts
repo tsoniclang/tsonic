@@ -156,7 +156,7 @@ export const getOrCreateTypeName = (
 };
 
 export const isReusableStructuralCarrierName = (name: string): boolean =>
-  name.startsWith("__Anon_") || /__\d+$/.test(name);
+  name.startsWith("__Anon_") || name.startsWith("__Rest_");
 
 export const getOrCreateBehavioralObjectTypeName = (
   objectType: IrObjectType,

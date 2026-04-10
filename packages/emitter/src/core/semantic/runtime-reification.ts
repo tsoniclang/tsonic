@@ -233,7 +233,7 @@ export const tryBuildRuntimeMaterializationAst = (
     }
 
     const members = effectiveSourceFrame.members;
-    if (members.length < 2 || members.length > 8) {
+    if (members.length < 2) {
       return [undefined, context] as const;
     }
 

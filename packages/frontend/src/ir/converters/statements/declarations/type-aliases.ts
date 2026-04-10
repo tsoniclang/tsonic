@@ -3,7 +3,10 @@
  */
 
 import * as ts from "typescript";
-import { IrStatement, IrTypeAliasDeclaration } from "../../../types.js";
+import {
+  IrStatement,
+  IrTypeAliasDeclaration,
+} from "../../../types.js";
 import { hasExportModifier, convertTypeParameters } from "../helpers.js";
 import { processTypeAliasForSynthetics } from "../../synthetic-types.js";
 import type { ProgramContext } from "../../../program-context.js";

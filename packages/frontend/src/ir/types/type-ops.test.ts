@@ -7,6 +7,7 @@ import {
   isAwaitableIrType,
   irTypesEqual,
   normalizedUnionType,
+  runtimeUnionCarrierFamilyKey,
   stableIrTypeKey,
   unwrapAsyncWrapperType,
 } from "./type-ops.js";
@@ -261,6 +262,94 @@ describe("type-ops", () => {
     );
 
     expect(substituted).to.deep.equal(stringType);
+  });
+
+  it("assigns runtime carrier family keys to normalized unions", () => {
+    const normalized = normalizedUnionType([
+      { kind: "typeParameterType", name: "TElement" },
+      stringType,
+    ]);
+
+    expect(normalized.kind).to.equal("unionType");
+    if (normalized.kind !== "unionType") return;
+    expect(normalized.runtimeCarrierFamilyKey).to.equal(
+      runtimeUnionCarrierFamilyKey(normalized)
+    );
+  });
+
+  it("canonicalizes raw union family keys across nested unions and nullish wrappers", () => {
+    const callbackType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+    const raw: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "unionType",
+          types: [callbackType, stringType],
+        },
+        { kind: "primitiveType", name: "null" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+    const normalized = normalizedUnionType([callbackType, stringType]);
+
+    expect(normalized.kind).to.equal("unionType");
+    if (normalized.kind !== "unionType") return;
+    expect(runtimeUnionCarrierFamilyKey(raw)).to.equal(
+      runtimeUnionCarrierFamilyKey(normalized)
+    );
+  });
+
+  it("preserves duplicate runtime slots in preserve-layout family keys", () => {
+    const duplicated: Extract<IrType, { kind: "unionType" }> = {
+      kind: "unionType",
+      preserveRuntimeLayout: true,
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "null" },
+        { kind: "primitiveType", name: "string" },
+      ],
+    };
+
+    expect(runtimeUnionCarrierFamilyKey(duplicated)).to.equal(
+      "runtime-union:preserve:prim:string|prim:string"
+    );
+  });
+
+  it("preserves runtime carrier family keys across substitution", () => {
+    const genericUnion = normalizedUnionType([
+      {
+        kind: "arrayType",
+        elementType: { kind: "typeParameterType", name: "TElement" },
+      },
+      stringType,
+    ]);
+
+    expect(genericUnion.kind).to.equal("unionType");
+    if (genericUnion.kind !== "unionType") return;
+
+    const substituted = substituteIrType(
+      genericUnion,
+      new Map<string, IrType>([
+        [
+          "TElement",
+          {
+            kind: "referenceType",
+            name: "byte",
+            resolvedClrType: "System.Byte",
+          },
+        ],
+      ])
+    );
+
+    expect(substituted.kind).to.equal("unionType");
+    if (substituted.kind !== "unionType") return;
+    expect(substituted.runtimeCarrierFamilyKey).to.equal(
+      genericUnion.runtimeCarrierFamilyKey
+    );
   });
 
   it("unwraps Promise/Task/ValueTask wrappers", () => {

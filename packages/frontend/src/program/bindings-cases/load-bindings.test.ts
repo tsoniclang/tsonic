@@ -265,6 +265,97 @@ describe("Binding System", () => {
       }
     });
 
+    it("loads source-owned globals from first-party source package metadata only", () => {
+      const jsRoot = path.join(tempDir, "js-next");
+      const jsSrcRoot = path.join(jsRoot, "src");
+      fs.mkdirSync(jsSrcRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(jsRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/js",
+            version: "10.0.49-next.0",
+            type: "module",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "js",
+              ambient: ["./globals.ts"],
+              exports: {
+                "./console.js": "./src/console.ts",
+                "./Globals.js": "./src/Globals.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "globals.ts"),
+        [
+          'declare global {',
+          '  const console: typeof import("./src/console.js").console;',
+          '  const String: typeof import("./src/Globals.js").String;',
+          '  const Number: typeof import("./src/Globals.js").Number;',
+          '}',
+          "export {};",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(jsSrcRoot, "console.ts"),
+        "export function console(..._args: unknown[]): void {}\n"
+      );
+      fs.writeFileSync(
+        path.join(jsSrcRoot, "Globals.ts"),
+        [
+          "export function String(_value: unknown): string {",
+          '  return "";',
+          "}",
+          "",
+          "export function Number(_value: unknown): number {",
+          "  return 0;",
+          "}",
+          "",
+        ].join("\n")
+      );
+
+      const registry = loadBindings([jsRoot]);
+
+      expect(registry.getBinding("console")).to.deep.equal({
+        kind: "global",
+        assembly: "js",
+        type: "js.console.console",
+        staticType: "js.console.console",
+        sourceImport: "@tsonic/js/console.js",
+      });
+      expect(registry.getBinding("String")).to.deep.equal({
+        kind: "global",
+        assembly: "js",
+        type: "js.Globals.String",
+        staticType: "js.Globals.String",
+        sourceImport: "@tsonic/js/Globals.js",
+      });
+      expect(registry.getBinding("Number")).to.deep.equal({
+        kind: "global",
+        assembly: "js",
+        type: "js.Globals.Number",
+        staticType: "js.Globals.Number",
+        sourceImport: "@tsonic/js/Globals.js",
+      });
+    });
+
     it("loads native source-package globals from static-import type queries", () => {
       const fixture = materializeLoadBindingsFixture(
         "source-package-static-type-query"

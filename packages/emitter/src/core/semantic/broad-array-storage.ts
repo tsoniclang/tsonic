@@ -1,5 +1,6 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import { isBroadObjectSlotType } from "./js-value-types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 
@@ -55,7 +56,7 @@ export const isBroadArrayStorageTarget = (
   );
 };
 
-const isBroadValueCarrierType = (
+export const isBroadValueCarrierType = (
   type: IrType | undefined,
   context: EmitterContext
 ): boolean => {
@@ -77,30 +78,7 @@ const isBroadValueCarrierType = (
   return (
     resolved.kind === "unknownType" ||
     resolved.kind === "anyType" ||
-    resolved.kind === "objectType" ||
-    (resolved.kind === "referenceType" &&
-      (resolved.name === "object" ||
-        resolved.resolvedClrType === "System.Object" ||
-        resolved.resolvedClrType === "global::System.Object")) ||
-    (resolved.kind === "unionType" &&
-      resolved.types.some(
-        (member) =>
-          member.kind === "objectType" ||
-          (member.kind === "referenceType" &&
-            (member.name === "object" ||
-              member.resolvedClrType === "System.Object" ||
-              member.resolvedClrType === "global::System.Object"))
-      ) &&
-      resolved.types.every(
-        (member) =>
-          member.kind === "objectType" ||
-          member.kind === "primitiveType" ||
-          member.kind === "literalType" ||
-          (member.kind === "referenceType" &&
-            (member.name === "object" ||
-              member.resolvedClrType === "System.Object" ||
-              member.resolvedClrType === "global::System.Object"))
-      ))
+    isBroadObjectSlotType(resolved, context)
   );
 };
 

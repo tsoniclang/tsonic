@@ -1,6 +1,10 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import type { IrType, IrInterfaceMember } from "@tsonic/frontend";
+import {
+  normalizedUnionType,
+  type IrType,
+  type IrInterfaceMember,
+} from "@tsonic/frontend";
 import {
   buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
@@ -13,6 +17,7 @@ import { emitTypeAst } from "../../types/emitter.js";
 import { createContext } from "../../emitter-types/context.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
 import type { TypeAliasIndex } from "../../emitter-types/core.js";
+import { substituteTypeArgs } from "./type-resolution.js";
 
 const property = (
   name: string,
@@ -231,6 +236,49 @@ describe("runtime-unions", () => {
     expect(layout?.runtimeUnionArity).to.equal(3);
     expect(layout?.members).to.have.length(3);
     expect(layout?.memberTypeAsts).to.have.length(3);
+  });
+
+  it("keeps generic template unions on the same carrier family after substitution", () => {
+    const genericUnion = normalizedUnionType([
+        {
+          kind: "arrayType",
+          elementType: { kind: "typeParameterType", name: "TElement" },
+        },
+        {
+          kind: "referenceType",
+          name: "IEnumerable",
+          resolvedClrType: "System.Collections.Generic.IEnumerable",
+          typeArguments: [{ kind: "primitiveType", name: "number" }],
+        },
+        { kind: "primitiveType", name: "int" },
+      ],
+    ) as Extract<IrType, { kind: "unionType" }>;
+
+    const specializedUnion = substituteTypeArgs(
+      genericUnion,
+      ["TElement"],
+      [
+        {
+          kind: "referenceType",
+          name: "byte",
+          resolvedClrType: "System.Byte",
+        },
+      ]
+    );
+
+    const context = createContext({ rootNamespace: "Test" });
+    const [genericLayout] = buildRuntimeUnionLayout(
+      genericUnion,
+      context,
+      emitTypeAst
+    );
+    const [specializedLayout] = buildRuntimeUnionLayout(
+      specializedUnion,
+      context,
+      emitTypeAst
+    );
+
+    expect(genericLayout?.carrierName).to.equal(specializedLayout?.carrierName);
   });
 
   it("preserves original runtime member slots for single-member expr narrowings", () => {

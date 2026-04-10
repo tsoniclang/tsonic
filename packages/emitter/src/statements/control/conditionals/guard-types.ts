@@ -18,6 +18,7 @@ import {
 } from "../../../core/semantic/type-resolution.js";
 import {
   resolveNarrowedUnionMembers,
+  resolveAlignedRuntimeUnionMembers,
   type NarrowedUnionMembers,
 } from "../../../core/semantic/narrowed-union-resolution.js";
 import { getMemberAccessNarrowKey } from "../../../core/semantic/narrowing-keys.js";
@@ -26,6 +27,7 @@ import {
   resolveLocalTypesForReference,
   tryGetLiteralSet,
 } from "../../../core/semantic/guard-primitives.js";
+import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -83,9 +85,9 @@ export type InstanceofGuardInfo = {
  * This is used for union narrowing over structural union members (Union<T1..Tn>):
  *   if ("error" in auth) { ... } → if (auth.IsN()) { var auth__N_k = auth.AsN(); ... }
  *
- * NOTE: We only support the common "2-member union" narrowing case today:
+ * NOTE: We only support the common "single matching member" narrowing case today:
  * - RHS must be an identifier
- * - RHS inferred type must resolve to unionType (arity 2..8)
+ * - RHS inferred type must resolve to a carried runtime union (arity 2+)
  * - LHS must be a string literal
  * - The property must exist on exactly ONE union member (so narrowing is single-type)
  */
@@ -109,7 +111,7 @@ export type InGuardInfo = {
  *   if (x.kind === "circle") { ... }
  *
  * Airplane-grade narrowing is only enabled when:
- * - x is a union (2..8 members)
+ * - x is a carried runtime union (2+ members)
  * - x is an identifier
  * - kind is a non-computed property name
  * - the compared value is a literal (string/number/boolean)
@@ -267,6 +269,31 @@ export const extractTransparentMemberAccessTarget = (
 };
 
 export const resolveRuntimeUnionFrame = resolveNarrowedUnionMembers;
+
+export const resolveGuardRuntimeUnionFrame = (
+  originalName: string,
+  effectiveType: IrType,
+  identifierTarget:
+    | Extract<IrExpression, { kind: "identifier" }>
+    | undefined,
+  context: EmitterContext
+): RuntimeUnionFrame | undefined => {
+  const carrierSourceType =
+    (identifierTarget
+      ? resolveIdentifierRuntimeCarrierType(identifierTarget, context)
+      : undefined) ??
+    context.narrowedBindings?.get(originalName)?.sourceType ??
+    context.narrowedBindings?.get(originalName)?.type;
+
+  return (
+    resolveAlignedRuntimeUnionMembers(
+      undefined,
+      effectiveType,
+      carrierSourceType,
+      context
+    ) ?? resolveRuntimeUnionFrame(originalName, effectiveType, context)
+  );
+};
 
 export const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;

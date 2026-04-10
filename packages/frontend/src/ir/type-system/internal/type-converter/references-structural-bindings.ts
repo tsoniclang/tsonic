@@ -232,7 +232,6 @@ export const isSafeToEraseUserTypeAliasTarget = (
     ts.isTypeReferenceNode(node) ||
     ts.isExpressionWithTypeArguments(node) ||
     ts.isArrayTypeNode(node) ||
-    ts.isUnionTypeNode(node) ||
     ts.isFunctionTypeNode(node) ||
     ts.isConstructorTypeNode(node) ||
     ts.isIntersectionTypeNode(node) ||

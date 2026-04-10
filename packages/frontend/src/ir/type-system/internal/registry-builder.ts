@@ -23,7 +23,9 @@ import {
   convertCallableInterfaceOnlyType,
   extractHeritage,
 } from "./registry-helpers.js";
-import type { IrType } from "../../types/index.js";
+import {
+  type IrType,
+} from "../../types/index.js";
 import {
   resolveSourceFileNamespace,
   resolveSourceFileOwnerIdentity,

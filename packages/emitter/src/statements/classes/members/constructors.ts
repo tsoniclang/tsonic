@@ -2,13 +2,24 @@
  * Constructor member emission — returns CSharpMemberAst (constructor declaration)
  */
 
-import { IrClassMember, IrStatement, type IrParameter } from "@tsonic/frontend";
+import {
+  IrClassMember,
+  type IrExpression,
+  IrStatement,
+  type IrCallExpression,
+  type IrParameter,
+  type IrType,
+} from "@tsonic/frontend";
 import { EmitterContext, indent, dedent } from "../../../types.js";
-import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitBlockStatementAst } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import { registerParameterTypes } from "../../../core/semantic/symbol-types.js";
+import { emitCallArguments } from "../../../expressions/calls/call-arguments-emit.js";
+import { adaptValueToExpectedTypeAst } from "../../../expressions/expected-type-adaptation.js";
+import { resolveLocalTypeInfoWithoutBindings } from "../../../core/semantic/property-lookup-resolution.js";
+import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
+import { substituteTypeArgs } from "../../../core/semantic/type-resolution.js";
 import {
   applyRuntimeParameterDefaultShadows,
   emitParametersWithDestructuring,
@@ -110,6 +121,7 @@ export const emitConstructorMember = (
   // Extract super() call from first statement
   const [baseArgs, bodyStatements, baseCallContext] = extractSuperCallAst(
     member.body.statements,
+    member.parameters,
     currentContext
   );
   currentContext = baseCallContext;
@@ -191,6 +203,7 @@ export const emitConstructorMember = (
  */
 const extractSuperCallAst = (
   statements: readonly IrStatement[],
+  constructorParameters: readonly IrParameter[],
   context: EmitterContext
 ): [
   readonly CSharpExpressionAst[] | undefined,
@@ -213,15 +226,144 @@ const extractSuperCallAst = (
   ) {
     // Found super() call as first statement - convert to base(...)
     const superCall = firstStmt.expression;
-    const argAsts: CSharpExpressionAst[] = [];
-    for (const arg of superCall.arguments) {
-      const [argAst, newContext] = emitExpressionAst(arg, currentContext);
-      argAsts.push(argAst);
-      currentContext = newContext;
-    }
+    const parameterTypeOverrides =
+      resolveSuperConstructorParameterTypeOverrides(superCall, currentContext);
+    const [rawArgAsts, newContext] = emitCallArguments(
+      superCall.arguments,
+      superCall,
+      currentContext,
+      parameterTypeOverrides
+    );
+    currentContext = newContext;
+    const [argAsts, adaptedContext] =
+      adaptSuperCallArgumentsToBaseParameters(
+        rawArgAsts,
+        superCall.arguments,
+        constructorParameters,
+        parameterTypeOverrides,
+        currentContext
+      );
+    currentContext = adaptedContext;
     const remainingStatements = statements.slice(1);
     return [argAsts, remainingStatements, currentContext];
   }
 
   return [undefined, statements, currentContext];
+};
+
+const resolveSuperConstructorParameterTypeOverrides = (
+  superCall: IrCallExpression,
+  context: EmitterContext
+): readonly (IrType | undefined)[] | undefined => {
+  const currentClassName = context.className;
+  if (!currentClassName) {
+    return undefined;
+  }
+
+  const currentClass = context.localTypes?.get(currentClassName);
+  if (!currentClass || currentClass.kind !== "class") {
+    return undefined;
+  }
+
+  const superClass = currentClass.superClass;
+  if (!superClass || superClass.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const resolvedSuperClass = resolveLocalTypeInfoWithoutBindings(
+    superClass,
+    context
+  );
+  if (!resolvedSuperClass || resolvedSuperClass.info.kind !== "class") {
+    return undefined;
+  }
+
+  const constructors = resolvedSuperClass.info.members.filter(
+    (member): member is Extract<
+      typeof member,
+      { kind: "constructorDeclaration" }
+    > => member.kind === "constructorDeclaration"
+  );
+  if (constructors.length === 0) {
+    return undefined;
+  }
+
+  const exactArityMatches = constructors.filter(
+    (member) => member.parameters.length === superCall.arguments.length
+  );
+  const selectedConstructor =
+    exactArityMatches.length === 1
+      ? exactArityMatches[0]
+      : constructors.length === 1
+        ? constructors[0]
+        : undefined;
+  if (!selectedConstructor) {
+    return undefined;
+  }
+
+  const baseTypeParameters = resolvedSuperClass.info.typeParameters;
+  const baseTypeArguments = superClass.typeArguments ?? [];
+
+  return selectedConstructor.parameters.map((parameter) => {
+    if (!parameter.type) {
+      return parameter.type;
+    }
+
+    const substituted =
+      baseTypeParameters.length > 0 &&
+      baseTypeArguments.length === baseTypeParameters.length
+        ? substituteTypeArgs(
+            parameter.type,
+            baseTypeParameters,
+            baseTypeArguments
+          )
+        : parameter.type;
+
+    return substituted;
+  });
+};
+
+const adaptSuperCallArgumentsToBaseParameters = (
+  argAsts: readonly CSharpExpressionAst[],
+  args: readonly IrExpression[],
+  constructorParameters: readonly IrParameter[],
+  expectedTypes: readonly (IrType | undefined)[] | undefined,
+  context: EmitterContext
+): [readonly CSharpExpressionAst[], EmitterContext] => {
+  if (!expectedTypes || expectedTypes.length === 0) {
+    return [argAsts, context];
+  }
+
+  let currentContext = context;
+  const adaptedArgs = argAsts.map((argAst, index) => {
+    const expectedType = expectedTypes[index];
+    const sourceArg = args[index];
+    if (!expectedType || !sourceArg) {
+      return argAst;
+    }
+
+    const actualType =
+      (sourceArg.kind === "identifier"
+        ? constructorParameters.find(
+            (parameter) =>
+              parameter.pattern.kind === "identifierPattern" &&
+              parameter.pattern.name === sourceArg.name
+          )?.type
+        : undefined) ??
+      resolveEffectiveExpressionType(sourceArg, currentContext) ??
+      sourceArg.inferredType;
+    const adapted = adaptValueToExpectedTypeAst({
+      valueAst: argAst,
+      actualType,
+      context: currentContext,
+      expectedType,
+    });
+    if (!adapted) {
+      return argAst;
+    }
+    currentContext = adapted[1];
+    return adapted[0];
+  });
+
+  return [adaptedArgs, currentContext];
 };

@@ -84,7 +84,7 @@ describe("Integration: CLR iterable overloads", () => {
 
     expect(csharp).to.include("socket.connect((portOrPath.As2()), listener);");
     expect(csharp).to.not.include(
-      "socket.connect((string)(portOrPath.As2()), global::Tsonic.Runtime.Union<global::System.Action, string>.From1(listener));"
+      "socket.connect((string)(portOrPath.As2()), global::Tsonic.Internal.Union<global::System.Action, string>.From1(listener));"
     );
   });
 
@@ -197,7 +197,7 @@ describe("Integration: CLR iterable overloads", () => {
     expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
     expect(csharp).to.not.include("result.set(buffer, length - buffer.length);");
     expect(csharp).to.not.include(
-      "global::Tsonic.Runtime.Union<double[], global::System.Collections.Generic.IEnumerable<double>, int>.From2"
+      "global::Tsonic.Internal.Union<double[], global::System.Collections.Generic.IEnumerable<double>, int>.From2"
     );
   });
 

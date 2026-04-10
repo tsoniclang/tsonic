@@ -16,6 +16,29 @@ const monorepoRoot = path.resolve(__dirname, "../../../../../../..");
 const globalsPath = path.join(monorepoRoot, "node_modules/@tsonic/globals");
 const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 const jsPath = path.join(monorepoRoot, "node_modules/@tsonic/js");
+const siblingDotnetPath = path.resolve(monorepoRoot, "../dotnet/versions/10");
+const installedDotnetPath = path.join(monorepoRoot, "node_modules/@tsonic/dotnet");
+const dotnetPath = fs.existsSync(siblingDotnetPath)
+  ? siblingDotnetPath
+  : installedDotnetPath;
+
+const installPackageLink = (
+  projectRoot: string,
+  packageName: string,
+  sourceRoot: string
+): void => {
+  if (!fs.existsSync(sourceRoot)) {
+    return;
+  }
+
+  const packageRoot = path.join(projectRoot, "node_modules", ...packageName.split("/"));
+  if (fs.existsSync(packageRoot)) {
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(packageRoot), { recursive: true });
+  fs.symlinkSync(sourceRoot, packageRoot, "dir");
+};
 
 /**
  * Helper to compile TypeScript code with globals and extract IR
@@ -27,6 +50,10 @@ export const compileWithTypeRoots = (
 ): { modules: readonly IrModule[]; ok: boolean; error?: string } => {
   const tmpDir = `/tmp/numeric-recovery-test-${Date.now()}`;
   fs.mkdirSync(tmpDir, { recursive: true });
+  installPackageLink(tmpDir, "@tsonic/core", corePath);
+  installPackageLink(tmpDir, "@tsonic/globals", globalsPath);
+  installPackageLink(tmpDir, "@tsonic/js", jsPath);
+  installPackageLink(tmpDir, "@tsonic/dotnet", dotnetPath);
 
   const filePath = path.join(tmpDir, "test.ts");
   fs.writeFileSync(filePath, code);

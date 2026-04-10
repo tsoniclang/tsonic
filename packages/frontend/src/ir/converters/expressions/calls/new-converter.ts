@@ -20,6 +20,10 @@ import {
   applyCallSiteArgumentModifiers,
   extractArgumentPassing,
 } from "./call-site-analysis.js";
+import {
+  finalizeInvocationMetadata,
+  normalizeFinalizedInvocationArguments,
+} from "./invocation-finalization.js";
 
 // DELETED: getConstructedType - Phase 15 uses resolveCall.returnType instead
 
@@ -205,12 +209,52 @@ export const convertNewExpression = (
 
   // Phase 15: inferredType MUST be finalResolved.returnType
   // If sigId is missing, use unknownType (do not fabricate a nominal type)
-  const inferredType: IrType = finalResolved?.returnType ?? {
-    kind: "unknownType",
-  };
-  const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
+  const finalizedInvocationMetadata = finalizeInvocationMetadata({
+    ctx,
+    callee,
+    receiverType:
+      callee.kind === "memberAccess" ? callee.object.inferredType : undefined,
+    callableType:
+      callee.inferredType?.kind === "functionType"
+        ? callee.inferredType
+        : undefined,
+    argumentCount,
+    argTypes,
+    explicitTypeArgs,
+    expectedType,
+    boundGlobalParameterTypes: undefined,
+    authoritativeBoundGlobalSurfaceParameterTypes: undefined,
+    authoritativeBoundGlobalReturnType: undefined,
+    sourceBackedParameterTypes: undefined,
+    sourceBackedSurfaceParameterTypes: undefined,
+    sourceBackedReturnType: undefined,
+    ambientBoundGlobalSurfaceParameterTypes: undefined,
+    authoritativeDirectParameterTypes: undefined,
+    resolvedParameterTypes: finalResolved?.parameterTypes,
+    resolvedSurfaceParameterTypes: finalResolved?.surfaceParameterTypes,
+    resolvedReturnType: finalResolved?.returnType,
+    fallbackParameterTypes: initialParameterTypes,
+    fallbackSurfaceParameterTypes: initialParameterTypes,
+    exactParameterCandidates: [],
+    exactSurfaceParameterCandidates: [],
+    exactReturnCandidates: [],
+    preserveDirectSurfaceIdentity: false,
+  });
+  const inferredType: IrType =
+    finalizedInvocationMetadata.sourceBackedReturnType ??
+    finalResolved?.returnType ?? {
+      kind: "unknownType",
+    };
+  const parameterTypes =
+    finalizedInvocationMetadata.parameterTypes ?? initialParameterTypes;
   const surfaceParameterTypes =
-    finalResolved?.surfaceParameterTypes ?? parameterTypes;
+    finalizedInvocationMetadata.surfaceParameterTypes ?? parameterTypes;
+  const finalizedArguments = normalizeFinalizedInvocationArguments(
+    convertedArgs,
+    parameterTypes,
+    surfaceParameterTypes,
+    ctx
+  );
   const argumentPassingBase = finalResolved
     ? finalResolved.parameterModes.slice(0, argumentCount)
     : extractArgumentPassing(node, ctx);
@@ -237,7 +281,7 @@ export const convertNewExpression = (
   return {
     kind: "new",
     callee,
-    arguments: convertedArgs,
+    arguments: finalizedArguments,
     inferredType,
     sourceSpan: getSourceSpan(node),
     signatureId: sigId,

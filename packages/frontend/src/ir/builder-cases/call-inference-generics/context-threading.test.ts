@@ -1,7 +1,12 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../../builder.js";
-import { IrFunctionDeclaration, IrType } from "../../types.js";
+import { IrCallExpression, IrFunctionDeclaration, IrType } from "../../types.js";
+import {
+  runAnonymousTypeLoweringPass,
+  runCallResolutionRefreshPass,
+  runNumericProofPass,
+} from "../../validation/index.js";
 import {
   createFilesystemTestProgram,
   createTestProgram,
@@ -224,6 +229,230 @@ describe("IR Builder", function () {
       expect(returnStmt.expression.typeArguments).to.deep.equal([
         { kind: "typeParameterType", name: "T" },
       ]);
+    });
+
+    it("keeps named structural parameters for generic object literal arguments through proof and refresh passes", () => {
+      const source = `
+        type MapEntry<K, V> = {
+          readonly key: K;
+          value: V;
+        };
+
+        class Store<K, V> {
+          Add(entry: MapEntry<K, V>): void;
+          Add(entry: object): number;
+          Add(entry: MapEntry<K, V> | object): void | number {
+            return 0;
+          }
+        }
+
+        export class Map<K, V> {
+          private readonly entriesStore = new Store<K, V>();
+
+          public set(key: K, value: V): this {
+            this.entriesStore.Add({ key, value });
+            return this;
+          }
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const lowered = runAnonymousTypeLoweringPass([result.value]).modules;
+      const proofResult = runNumericProofPass(lowered);
+      expect(proofResult.ok).to.equal(true);
+      if (!proofResult.ok) return;
+
+      const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+      const finalModules = runAnonymousTypeLoweringPass(refreshed.modules).modules;
+      const finalModule = finalModules.find(
+        (module) => module.filePath === "/test/test.ts" || module.filePath === "test.ts"
+      );
+      expect(finalModule).to.not.equal(undefined);
+      if (!finalModule) return;
+
+      let addCall: IrCallExpression | undefined;
+
+      const visit = (value: unknown): void => {
+        if (!value || typeof value !== "object" || addCall) {
+          return;
+        }
+        if (Array.isArray(value)) {
+          value.forEach(visit);
+          return;
+        }
+        const node = value as {
+          readonly kind?: string;
+          readonly callee?: {
+            readonly kind?: string;
+            readonly property?: string;
+          };
+        };
+        if (
+          node.kind === "call" &&
+          node.callee?.kind === "memberAccess" &&
+          node.callee.property === "Add"
+        ) {
+          addCall = value as IrCallExpression;
+          return;
+        }
+        Object.values(value).forEach(visit);
+      };
+
+      visit(finalModule);
+      expect(addCall).to.not.equal(undefined);
+      if (!addCall || addCall.kind !== "call") return;
+
+      expect(addCall.parameterTypes).to.have.length(1);
+      expect(addCall.surfaceParameterTypes).to.have.length(1);
+      const addParameterType = addCall.parameterTypes?.[0];
+      expect(addParameterType).to.not.equal(undefined);
+      if (!addParameterType || addParameterType.kind !== "referenceType") return;
+
+      expect(addParameterType).to.deep.include({
+        kind: "referenceType",
+        name: "MapEntry",
+        typeArguments: [
+          { kind: "typeParameterType", name: "K" },
+          { kind: "typeParameterType", name: "V" },
+        ],
+        resolvedClrType: undefined,
+      });
+      expect(addParameterType.structuralMembers).to.deep.equal([
+        {
+          kind: "propertySignature",
+          name: "key",
+          type: { kind: "typeParameterType", name: "K" },
+          isOptional: false,
+          isReadonly: true,
+        },
+        {
+          kind: "propertySignature",
+          name: "value",
+          type: { kind: "typeParameterType", name: "V" },
+          isOptional: false,
+          isReadonly: false,
+        },
+      ]);
+      expect(addCall.surfaceParameterTypes?.[0]).to.deep.equal(
+        addParameterType
+      );
+      expect(addCall.inferredType).to.deep.equal({ kind: "voidType" });
+    });
+
+    it("keeps named union parameter carriers for object literal arguments through proof and refresh passes", () => {
+      const source = `
+        type Shape =
+          | { kind: "square"; side: number }
+          | { kind: "circle"; radius: number };
+
+        function tern(shape: Shape): number {
+          return shape.kind === "circle" ? shape.radius : 0;
+        }
+
+        export function main(): number {
+          return tern({ kind: "circle", radius: 7 });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const lowered = runAnonymousTypeLoweringPass([result.value]).modules;
+      const proofResult = runNumericProofPass(lowered);
+      expect(proofResult.ok).to.equal(true);
+      if (!proofResult.ok) return;
+
+      const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+      const finalModules = runAnonymousTypeLoweringPass(refreshed.modules).modules;
+      const finalModule = finalModules.find(
+        (module) => module.filePath === "/test/test.ts" || module.filePath === "test.ts"
+      );
+      expect(finalModule).to.not.equal(undefined);
+      if (!finalModule) return;
+
+      let ternCall: IrCallExpression | undefined;
+
+      const visit = (value: unknown): void => {
+        if (!value || typeof value !== "object" || ternCall) {
+          return;
+        }
+        if (Array.isArray(value)) {
+          value.forEach(visit);
+          return;
+        }
+        const node = value as {
+          readonly kind?: string;
+          readonly callee?: {
+            readonly kind?: string;
+            readonly name?: string;
+          };
+        };
+        if (
+          node.kind === "call" &&
+          node.callee?.kind === "identifier" &&
+          node.callee.name === "tern"
+        ) {
+          ternCall = value as IrCallExpression;
+          return;
+        }
+        Object.values(value).forEach(visit);
+      };
+
+      visit(finalModule);
+      expect(ternCall).to.not.equal(undefined);
+      if (!ternCall) return;
+
+      const parameterType = ternCall.parameterTypes?.[0];
+      const surfaceParameterType = ternCall.surfaceParameterTypes?.[0];
+      const collectReferenceNames = (type: IrType | undefined): string[] => {
+        if (!type) {
+          return [];
+        }
+
+        if (type.kind === "referenceType") {
+          return [type.name];
+        }
+
+        if (type.kind === "unionType" || type.kind === "intersectionType") {
+          return type.types.flatMap((member) => collectReferenceNames(member));
+        }
+
+        return [];
+      };
+
+      const parameterNames = collectReferenceNames(parameterType);
+      const surfaceNames = collectReferenceNames(surfaceParameterType);
+
+      expect(parameterNames).to.not.be.empty;
+      expect(surfaceNames).to.not.be.empty;
+      expect(parameterNames.every((name) => !name.startsWith("__Anon_"))).to.equal(
+        true
+      );
+      expect(surfaceNames.every((name) => !name.startsWith("__Anon_"))).to.equal(
+        true
+      );
+      expect(
+        parameterNames.some(
+          (name) => name === "Shape" || name.startsWith("Shape__")
+        )
+      ).to.equal(true);
+      expect(
+        surfaceNames.some(
+          (name) => name === "Shape" || name.startsWith("Shape__")
+        )
+      ).to.equal(true);
     });
 
     it("does not invent a simple-name source type identity when multiple modules share that name", () => {

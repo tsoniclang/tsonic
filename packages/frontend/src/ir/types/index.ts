@@ -183,6 +183,7 @@ export {
   getSpreadTupleShape,
   unwrapAsyncWrapperType,
   stableIrTypeKey,
+  runtimeUnionCarrierFamilyKey,
   irTypesEqual,
   normalizedUnionType,
 } from "./type-ops.js";

@@ -146,8 +146,8 @@ describe("End-to-End Integration", () => {
               bindings: {
                 setInterval: {
                   kind: "global",
-                  assembly: "Tsonic.JSRuntime",
-                  type: "Tsonic.JSRuntime.Timers",
+                  assembly: "Acme.ExternalRuntime",
+                  type: "Acme.ExternalRuntime.Timers",
                   csharpName: "Timers.setInterval",
                 },
               },
@@ -155,22 +155,22 @@ describe("End-to-End Integration", () => {
             null,
             2
           ),
-          "node_modules/@fixture/js/Tsonic.JSRuntime.d.ts": "export {};\n",
-          "node_modules/@fixture/js/Tsonic.JSRuntime/bindings.json": JSON.stringify(
+          "node_modules/@fixture/js/Acme.ExternalRuntime.d.ts": "export {};\n",
+          "node_modules/@fixture/js/Acme.ExternalRuntime/bindings.json": JSON.stringify(
             {
-              namespace: "Tsonic.JSRuntime",
+              namespace: "Acme.ExternalRuntime",
               types: [
                 {
-                  clrName: "Tsonic.JSRuntime.Timers",
-                  assemblyName: "Tsonic.JSRuntime",
+                  clrName: "Acme.ExternalRuntime.Timers",
+                  assemblyName: "Acme.ExternalRuntime",
                   methods: [
                     {
                       clrName: "setInterval",
                       normalizedSignature:
                         "setInterval|(System.Action,System.Double):System.Double|static=true",
                       parameterCount: 2,
-                      declaringClrType: "Tsonic.JSRuntime.Timers",
-                      declaringAssemblyName: "Tsonic.JSRuntime",
+                      declaringClrType: "Acme.ExternalRuntime.Timers",
+                      declaringAssemblyName: "Acme.ExternalRuntime",
                       semanticSignature: {
                         parameters: [
                           {
@@ -214,8 +214,8 @@ describe("End-to-End Integration", () => {
                       normalizedSignature:
                         "setInterval|(System.Action_1,System.Double,System.Object):System.Double|static=true",
                       parameterCount: 3,
-                      declaringClrType: "Tsonic.JSRuntime.Timers",
-                      declaringAssemblyName: "Tsonic.JSRuntime",
+                      declaringClrType: "Acme.ExternalRuntime.Timers",
+                      declaringAssemblyName: "Acme.ExternalRuntime",
                       semanticSignature: {
                         typeParameters: ["T0"],
                         parameters: [
@@ -292,7 +292,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "global::Tsonic.JSRuntime.Timers.setInterval(() =>"
+        "global::Acme.ExternalRuntime.Timers.setInterval(() =>"
       );
       expect(csharp).to.not.include("__unused_args");
     });
@@ -566,7 +566,7 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("candidate__is_1.mountpath =");
       expect(csharp).to.include(
-        "return global::Tsonic.Runtime.Union<string[], string>.From2(candidate__is_1.mountpath);"
+        "return global::Tsonic.Internal.Union<string[], string>.From2(candidate__is_1.mountpath);"
       );
       expect(csharp).to.not.include("candidate.mountpath =");
     });

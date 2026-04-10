@@ -8,6 +8,7 @@ import {
 import type { EmitterContext } from "../../types.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
 
 const withOptionalUndefined = (type: IrType): IrType => {
   if (
@@ -111,15 +112,6 @@ const tryExtractRuntimeUnionMemberN = (
   }
 
   return projectedMemberIndex;
-};
-
-const getRuntimeUnionReferenceMembers = (
-  type: Extract<IrType, { kind: "referenceType" }>
-): readonly IrType[] | undefined => {
-  if (/^Union[2-8]$/.test(type.name) && type.typeArguments) {
-    return type.typeArguments;
-  }
-  return undefined;
 };
 
 export const tryResolveRuntimeUnionMemberType = (

@@ -183,12 +183,12 @@ export const emitMemberAccess = (
             : [];
 
       const [runtimeLayout] =
-        members.length >= 2 && members.length <= 8
+        members.length >= 2
           ? buildRuntimeUnionLayout(objectType, context, emitTypeAst)
           : [undefined, context];
       const runtimeMembers = runtimeLayout?.members ?? members;
       const arity = runtimeMembers.length;
-      if (arity >= 2 && arity <= 8) {
+      if (arity >= 2) {
         const memberHasProperty = runtimeMembers.map((m) => {
           if (m.kind !== "referenceType") return false;
           const props = getAllPropertySignatures(m, context);

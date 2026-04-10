@@ -221,12 +221,16 @@ export const lowerExpression = (
         };
 
       case "call":
-        return {
-          ...expr,
-          callee: lowerExpression(expr.callee, ctx),
-          arguments: expr.arguments.map((argument) =>
+        return (() => {
+          const loweredCallee = lowerExpression(expr.callee, ctx);
+          const loweredArguments = expr.arguments.map((argument) =>
             lowerExpression(argument, ctx)
-          ),
+          );
+
+          return {
+            ...expr,
+            callee: loweredCallee,
+            arguments: loweredArguments,
           dynamicImportNamespace: expr.dynamicImportNamespace
             ? (lowerExpression(expr.dynamicImportNamespace, ctx) as Extract<
                 typeof expr.dynamicImportNamespace,
@@ -246,7 +250,10 @@ export const lowerExpression = (
             (parameterType) =>
               parameterType ? lowerType(parameterType, ctx) : undefined
           ),
-          surfaceParameterTypes: expr.surfaceParameterTypes,
+          surfaceParameterTypes: expr.surfaceParameterTypes?.map(
+            (parameterType) =>
+              parameterType ? lowerType(parameterType, ctx) : undefined
+          ),
           sourceBackedSurfaceParameterTypes:
             expr.sourceBackedSurfaceParameterTypes?.map((parameterType) =>
               parameterType ? lowerType(parameterType, ctx) : undefined
@@ -265,14 +272,25 @@ export const lowerExpression = (
           sourceBackedReturnType: expr.sourceBackedReturnType
             ? lowerType(expr.sourceBackedReturnType, ctx)
             : undefined,
-          surfaceRestParameter: expr.surfaceRestParameter,
+          surfaceRestParameter: expr.surfaceRestParameter
+            ? {
+                ...expr.surfaceRestParameter,
+                arrayType: expr.surfaceRestParameter.arrayType
+                  ? lowerType(expr.surfaceRestParameter.arrayType, ctx)
+                  : undefined,
+                elementType: expr.surfaceRestParameter.elementType
+                  ? lowerType(expr.surfaceRestParameter.elementType, ctx)
+                  : undefined,
+              }
+            : undefined,
           narrowing: expr.narrowing
             ? {
                 ...expr.narrowing,
                 targetType: lowerType(expr.narrowing.targetType, ctx),
               }
             : undefined,
-        };
+          };
+        })();
 
       case "new":
         return {
@@ -290,8 +308,21 @@ export const lowerExpression = (
           parameterTypes: expr.parameterTypes?.map((parameterType) =>
             parameterType ? lowerType(parameterType, ctx) : undefined
           ),
-          surfaceParameterTypes: expr.surfaceParameterTypes,
-          surfaceRestParameter: expr.surfaceRestParameter,
+          surfaceParameterTypes: expr.surfaceParameterTypes?.map(
+            (parameterType) =>
+              parameterType ? lowerType(parameterType, ctx) : undefined
+          ),
+          surfaceRestParameter: expr.surfaceRestParameter
+            ? {
+                ...expr.surfaceRestParameter,
+                arrayType: expr.surfaceRestParameter.arrayType
+                  ? lowerType(expr.surfaceRestParameter.arrayType, ctx)
+                  : undefined,
+                elementType: expr.surfaceRestParameter.elementType
+                  ? lowerType(expr.surfaceRestParameter.elementType, ctx)
+                  : undefined,
+              }
+            : undefined,
         };
 
       case "update":

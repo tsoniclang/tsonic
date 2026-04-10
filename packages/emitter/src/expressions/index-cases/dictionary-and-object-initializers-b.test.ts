@@ -6,9 +6,17 @@ import {
   type IrModule,
   type IrType,
 } from "./helpers.js";
+import { printRuntimeUnionCarrierTypeForIrType } from "../../runtime-union-cases/helpers.js";
 
 describe("Expression Emission", () => {
   it("should upcast dictionary values into union wrappers for expected dictionary union types", () => {
+    const valueUnionType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "referenceType", name: "int" },
+        { kind: "primitiveType", name: "string" },
+      ],
+    };
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -28,13 +36,7 @@ describe("Expression Emission", () => {
               type: {
                 kind: "dictionaryType",
                 keyType: { kind: "primitiveType", name: "string" },
-                valueType: {
-                  kind: "unionType",
-                  types: [
-                    { kind: "referenceType", name: "int" },
-                    { kind: "primitiveType", name: "string" },
-                  ],
-                },
+                valueType: valueUnionType,
               },
               initializer: {
                 kind: "identifier",
@@ -53,10 +55,12 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
+    const unionType = printRuntimeUnionCarrierTypeForIrType(valueUnionType, [
+      { kind: "predefinedType", keyword: "string" },
+      { kind: "predefinedType", keyword: "int" },
+    ]);
     expect(result).to.include("global::System.Linq.Enumerable.ToDictionary");
-    expect(result).to.include(
-      "global::Tsonic.Runtime.Union<string, int>.From2"
-    );
+    expect(result).to.include(`${unionType}.From2`);
   });
 
   it("should not upcast when dictionary value type already matches union runtime type", () => {

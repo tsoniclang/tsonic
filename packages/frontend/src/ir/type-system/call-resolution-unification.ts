@@ -388,6 +388,31 @@ export const inferMethodTypeArgsFromArguments = (
       return true;
     }
 
+    if (argumentType.kind === "unionType") {
+      const nonNullishArgumentMembers = argumentType.types.filter(
+        (candidate): candidate is IrType =>
+          candidate !== undefined && !isNullishPrimitive(candidate)
+      );
+      const nullishArgumentMembers = argumentType.types.filter(
+        (candidate) => candidate !== undefined && isNullishPrimitive(candidate)
+      );
+
+      if (
+        nonNullishArgumentMembers.length === 1 &&
+        nullishArgumentMembers.length + nonNullishArgumentMembers.length ===
+          argumentType.types.length
+      ) {
+        const onlyNonNullishMember = nonNullishArgumentMembers[0];
+        if (onlyNonNullishMember) {
+          return tryUnify(
+            parameterType,
+            onlyNonNullishMember,
+            currentSubstitution
+          );
+        }
+      }
+    }
+
     // Intersection argument types: unify through each constituent.
     //
     // This is required for airplane-grade extension method typing where the receiver

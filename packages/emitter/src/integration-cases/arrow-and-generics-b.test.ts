@@ -94,7 +94,7 @@ describe("End-to-End Integration", () => {
         /\(global::System\.Action<object\?\[]>\s+resolve,\s*global::System\.Action<object\?>\s+__unused_reject\)\s*=>/
       );
       expect(csharp).not.to.include(
-        "Action<global::Tsonic.Runtime.Union<object?[], global::System.Threading.Tasks.Task>> resolve"
+        "Action<global::Tsonic.Internal.Union<object?[], global::System.Threading.Tasks.Task>> resolve"
       );
     });
 
@@ -134,7 +134,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("Action<object?[]> __tsonic_resolve");
       expect(csharp).to.include("resolve(args);");
       expect(csharp).not.to.include(
-        "resolve(global::Tsonic.Runtime.Union<object?[], global::System.Threading.Tasks.Task<object?[]>>"
+        "resolve(global::Tsonic.Internal.Union<object?[], global::System.Threading.Tasks.Task<object?[]>>"
       );
     });
 
@@ -176,7 +176,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("Action<string> __tsonic_resolve");
       expect(csharp).to.include("resolve(String((object)(object)args[0]));");
       expect(csharp).not.to.include(
-        "resolve(global::Tsonic.Runtime.Union<global::System.Threading.Tasks.Task<string>, string>"
+        "resolve(global::Tsonic.Internal.Union<global::System.Threading.Tasks.Task<string>, string>"
       );
     });
 
