@@ -1,4 +1,9 @@
-import type { IrExpression, IrType } from "@tsonic/frontend";
+import {
+  runtimeUnionCarrierFamilyKey,
+  stableIrTypeKey,
+  type IrExpression,
+  type IrType,
+} from "@tsonic/frontend";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import {
   getPropertyType,
@@ -42,9 +47,9 @@ const maybeWrapOptionalMemberAccessType = (
   return withOptionalUndefined(type);
 };
 
-const tryExtractRuntimeUnionMemberN = (
+const unwrapProjectionAst = (
   exprAst: CSharpExpressionAst
-): number | undefined => {
+): CSharpExpressionAst => {
   let target: CSharpExpressionAst = exprAst;
   while (
     target.kind === "parenthesizedExpression" ||
@@ -52,6 +57,72 @@ const tryExtractRuntimeUnionMemberN = (
   ) {
     target = target.expression;
   }
+  return target;
+};
+
+const tryResolveIdentifierExpressionType = (
+  identifier: string,
+  context: EmitterContext
+): IrType | undefined => {
+  const direct =
+    context.localValueTypes?.get(identifier) ??
+    context.localSemanticTypes?.get(identifier);
+  if (direct) {
+    return direct;
+  }
+
+  for (const [sourceName, emittedName] of context.localNameMap ?? []) {
+    if (emittedName === identifier) {
+      return (
+        context.localValueTypes?.get(sourceName) ??
+        context.localSemanticTypes?.get(sourceName)
+      );
+    }
+  }
+
+  return undefined;
+};
+
+const runtimeCarrierFamilyForType = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return resolved.kind === "unionType"
+    ? runtimeUnionCarrierFamilyKey(resolved)
+    : undefined;
+};
+
+const projectionCarrierTypesMatch = (
+  baseType: IrType,
+  receiverType: IrType,
+  context: EmitterContext
+): boolean => {
+  const baseFamily = runtimeCarrierFamilyForType(baseType, context);
+  const receiverFamily = runtimeCarrierFamilyForType(receiverType, context);
+  if (baseFamily || receiverFamily) {
+    return baseFamily !== undefined && baseFamily === receiverFamily;
+  }
+
+  return stableIrTypeKey(stripNullish(baseType)) === stableIrTypeKey(stripNullish(receiverType));
+};
+
+const tryResolveProjectionReceiverType = (
+  receiverAst: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  const receiver = unwrapProjectionAst(receiverAst);
+  if (receiver.kind !== "identifierExpression") {
+    return undefined;
+  }
+
+  return tryResolveIdentifierExpressionType(receiver.identifier, context);
+};
+
+const tryExtractRuntimeUnionProjection = (
+  exprAst: CSharpExpressionAst
+): { readonly memberN: number; readonly receiverAst?: CSharpExpressionAst } | undefined => {
+  const target = unwrapProjectionAst(exprAst);
   if (target.kind !== "invocationExpression") {
     return undefined;
   }
@@ -65,7 +136,10 @@ const tryExtractRuntimeUnionMemberN = (
       return undefined;
     }
 
-    return Number.parseInt(match[1], 10);
+    return {
+      memberN: Number.parseInt(match[1], 10),
+      receiverAst: target.expression.expression,
+    };
   }
 
   if (target.expression.memberName !== "Match") {
@@ -111,7 +185,12 @@ const tryExtractRuntimeUnionMemberN = (
     return undefined;
   }
 
-  return projectedMemberIndex;
+  return projectedMemberIndex
+    ? {
+        memberN: projectedMemberIndex,
+        receiverAst: target.expression.expression,
+      }
+    : undefined;
 };
 
 export const tryResolveRuntimeUnionMemberType = (
@@ -121,8 +200,20 @@ export const tryResolveRuntimeUnionMemberType = (
 ): IrType | undefined => {
   if (!baseType) return undefined;
 
-  const memberN = tryExtractRuntimeUnionMemberN(exprAst);
-  if (!memberN) return undefined;
+  const projection = tryExtractRuntimeUnionProjection(exprAst);
+  if (!projection) return undefined;
+
+  const receiverType = projection.receiverAst
+    ? tryResolveProjectionReceiverType(projection.receiverAst, context)
+    : undefined;
+  if (
+    receiverType &&
+    !projectionCarrierTypesMatch(baseType, receiverType, context)
+  ) {
+    return undefined;
+  }
+
+  const { memberN } = projection;
 
   const canonicalRuntimeMembers = getCanonicalRuntimeUnionMembers(
     baseType,

@@ -40,6 +40,10 @@ import {
   withResolvingTypeAlias,
 } from "./reference-lookup.js";
 import { resolveBindingBackedStructuralTypeAst } from "./reference-structural-signatures.js";
+import {
+  buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+} from "../core/semantic/runtime-unions.js";
 
 /**
  * Check if a type name indicates an unsupported support type.
@@ -110,6 +114,19 @@ export const emitReferenceType = (
   if (
     stableIrTypeKey(resolvedAlias) !== stableIrTypeKey(type)
   ) {
+    if (
+      resolvedAlias.kind === "unionType" &&
+      resolvedAlias.runtimeCarrierFamilyKey
+    ) {
+      const [layout, layoutContext] = buildRuntimeUnionLayout(
+        type,
+        context,
+        emitTypeAst
+      );
+      if (layout) {
+        return [buildRuntimeUnionTypeAst(layout), layoutContext];
+      }
+    }
     return emitTypeAst(resolvedAlias, context);
   }
 

@@ -2,7 +2,11 @@ import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { isBroadObjectSlotType } from "./js-value-types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
-import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import {
+  getArrayLikeElementType,
+  resolveTypeAlias,
+  stripNullish,
+} from "./type-resolution.js";
 
 export const SYSTEM_ARRAY_STORAGE_TYPE: IrType = {
   kind: "referenceType",
@@ -42,9 +46,16 @@ export const isBroadArrayStorageTarget = (
     return false;
   }
 
-  const normalizedElementStorage =
-    normalizeRuntimeStorageType(resolved.elementType, context) ??
-    resolved.elementType;
+  const normalizedArrayStorage =
+    normalizeRuntimeStorageType(resolved, context) ?? resolved;
+  const resolvedArrayStorage = resolveTypeAlias(
+    stripNullish(normalizedArrayStorage),
+    context
+  );
+  if (resolvedArrayStorage.kind !== "arrayType") {
+    return false;
+  }
+  const normalizedElementStorage = resolvedArrayStorage.elementType;
   const resolvedElementStorage = resolveTypeAlias(
     stripNullish(normalizedElementStorage),
     context
@@ -97,15 +108,63 @@ export const isBroadArrayReceiverAssertionTarget = (
   );
 };
 
+const isRuntimeUnionElementArrayTarget = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  const elementType = getArrayLikeElementType(type, context);
+  if (!elementType) {
+    return false;
+  }
+
+  const resolvedElement = resolveTypeAlias(stripNullish(elementType), context);
+  return resolvedElement.kind === "unionType" && resolvedElement.types.length > 1;
+};
+
 export const resolveBroadArrayAssertionStorageType = (
   targetType: IrType | undefined,
   sourceStorageType: IrType | undefined,
-  context: EmitterContext
-): IrType | undefined =>
-  isBroadArrayStorageTarget(targetType, context) &&
-  isSystemArrayStorageType(sourceStorageType, context)
-    ? SYSTEM_ARRAY_STORAGE_TYPE
+  context: EmitterContext,
+  sourceSemanticType?: IrType
+): IrType | undefined => {
+  const targetStoresBroadArray = isBroadArrayStorageTarget(targetType, context);
+  const normalizedSourceSemanticStorage = sourceSemanticType
+    ? normalizeRuntimeStorageType(sourceSemanticType, context)
     : undefined;
+
+  if (targetStoresBroadArray) {
+    if (isSystemArrayStorageType(sourceStorageType, context)) {
+      return SYSTEM_ARRAY_STORAGE_TYPE;
+    }
+
+    if (isBroadArrayStorageTarget(sourceStorageType, context)) {
+      return normalizeRuntimeStorageType(sourceStorageType, context) ?? sourceStorageType;
+    }
+  }
+
+  if (
+    isSystemArrayStorageType(sourceStorageType, context) &&
+    isRuntimeUnionElementArrayTarget(targetType, context) &&
+    isBroadArrayStorageTarget(normalizedSourceSemanticStorage, context)
+  ) {
+    return normalizedSourceSemanticStorage;
+  }
+
+  return undefined;
+};
+
+export const resolveRuntimeArrayMemberStorageType = (
+  memberType: IrType,
+  context: EmitterContext
+): IrType => {
+  const normalizedMemberStorage =
+    normalizeRuntimeStorageType(memberType, context) ?? memberType;
+  const resolved = resolveTypeAlias(stripNullish(normalizedMemberStorage), context);
+
+  return resolved.kind === "arrayType"
+    ? normalizedMemberStorage
+    : SYSTEM_ARRAY_STORAGE_TYPE;
+};
 
 export const resolveBroadArrayReceiverAssertionStorageType = (
   targetType: IrType | undefined,

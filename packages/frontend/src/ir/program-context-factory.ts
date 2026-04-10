@@ -233,6 +233,10 @@ export const createProgramContext = (
       ts.isIdentifier(node as ts.Node)
         ? program.binding.resolveIdentifier(node as ts.Identifier)
         : undefined,
+    resolveTypeReference: (node: unknown) =>
+      ts.isTypeReferenceNode(node as ts.Node)
+        ? program.binding.resolveTypeReference(node as ts.TypeReferenceNode)
+        : undefined,
     resolveShorthandAssignment: (node: unknown) =>
       ts.isShorthandPropertyAssignment(node as ts.Node)
         ? program.binding.resolveShorthandAssignment(

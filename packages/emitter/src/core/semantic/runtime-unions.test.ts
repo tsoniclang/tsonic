@@ -2,6 +2,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
   normalizedUnionType,
+  stampRuntimeUnionAliasCarrier,
   type IrType,
   type IrInterfaceMember,
 } from "@tsonic/frontend";
@@ -239,7 +240,8 @@ describe("runtime-unions", () => {
   });
 
   it("keeps generic template unions on the same carrier family after substitution", () => {
-    const genericUnion = normalizedUnionType([
+    const genericUnion = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
         {
           kind: "arrayType",
           elementType: { kind: "typeParameterType", name: "TElement" },
@@ -251,7 +253,11 @@ describe("runtime-unions", () => {
           typeArguments: [{ kind: "primitiveType", name: "number" }],
         },
         { kind: "primitiveType", name: "int" },
-      ],
+      ]),
+      {
+        aliasName: "IterableOrBytes",
+        fullyQualifiedName: "Test.IterableOrBytes",
+      }
     ) as Extract<IrType, { kind: "unionType" }>;
 
     const specializedUnion = substituteTypeArgs(
@@ -425,7 +431,7 @@ describe("runtime-unions", () => {
     });
   });
 
-  it("finds all runtime union members that satisfy a recursive alias subset target", () => {
+  it("does not treat erased recursive array members as satisfying a recursive alias subset target", () => {
     const pathSpec = {
       kind: "unionType",
       types: [],
@@ -473,9 +479,8 @@ describe("runtime-unions", () => {
       context
     );
 
-    expect(matches).to.have.length(3);
+    expect(matches).to.have.length(2);
     expect(matches.map((index) => frame.members[index]?.kind)).to.deep.equal([
-      "arrayType",
       "primitiveType",
       "referenceType",
     ]);

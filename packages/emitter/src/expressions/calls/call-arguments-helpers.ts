@@ -22,7 +22,6 @@ import {
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
-import { shouldEraseRecursiveRuntimeUnionArrayElement } from "../../core/semantic/runtime-unions.js";
 import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
@@ -86,19 +85,10 @@ export const emitArrayWrapperElementTypeAst = (
     context
   );
   if (resolvedReceiverType) {
-    const elementType: IrType = shouldEraseRecursiveRuntimeUnionArrayElement(
+    const elementType = normalizeStructuralEmissionType(
       resolvedReceiverType.elementType,
       context
-    )
-      ? {
-          kind: "referenceType",
-          name: "object",
-          resolvedClrType: "System.Object",
-        }
-      : normalizeStructuralEmissionType(
-          resolvedReceiverType.elementType,
-          context
-        );
+    );
     return emitTypeAst(elementType, context);
   }
   return [identifierType("object"), context];

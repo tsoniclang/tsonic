@@ -15,6 +15,7 @@
  * DAG position: depends on type-system-state and type-system-relations
  */
 
+import * as ts from "typescript";
 import type {
   IrType,
   IrFunctionType,
@@ -22,6 +23,7 @@ import type {
   IrInterfaceMember,
   IrTypeParameter,
 } from "../types/index.js";
+import { stampRuntimeUnionAliasCarrier } from "../types/index.js";
 import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
@@ -401,6 +403,54 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType =>
 // convertTypeNode — Deterministic type syntax conversion
 // ─────────────────────────────────────────────────────────────────────────
 
+const unwrapParenthesizedTypeNode = (node: ts.TypeNode): ts.TypeNode => {
+  let current = node;
+  while (ts.isParenthesizedTypeNode(current)) {
+    current = current.type;
+  }
+  return current;
+};
+
+const isDirectUnionTypeAliasDeclaration = (
+  node: ts.TypeAliasDeclaration
+): boolean => ts.isUnionTypeNode(unwrapParenthesizedTypeNode(node.type));
+
+const stampSourceUnionAliasReferenceCarrier = (
+  state: TypeSystemState,
+  node: unknown,
+  type: IrType
+): IrType => {
+  if (!ts.isTypeReferenceNode(node as ts.Node) || type.kind !== "unionType") {
+    return type;
+  }
+
+  const typeReferenceNode = node as ts.TypeReferenceNode;
+  const declId = state.resolveTypeReference(typeReferenceNode);
+  const declInfo = declId ? state.handleRegistry.getDecl(declId) : undefined;
+  const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
+    | ts.Declaration
+    | undefined;
+  if (
+    !declNode ||
+    !ts.isTypeAliasDeclaration(declNode) ||
+    declNode.getSourceFile().isDeclarationFile ||
+    !isDirectUnionTypeAliasDeclaration(declNode)
+  ) {
+    return type;
+  }
+
+  return stampRuntimeUnionAliasCarrier(type, {
+    aliasName: declNode.name.text,
+    fullyQualifiedName: declInfo?.fqName ?? declNode.name.text,
+    typeParameters: (declNode.typeParameters ?? []).map(
+      (tp) => tp.name.text
+    ),
+    typeArguments: (typeReferenceNode.typeArguments ?? []).map((typeArgument) =>
+      convertTypeNode(state, typeArgument)
+    ),
+  });
+};
+
 /**
  * Deterministic type syntax conversion with canonical TypeId attachment.
  *
@@ -412,7 +462,11 @@ export const convertTypeNode = (
   state: TypeSystemState,
   node: unknown
 ): IrType => {
-  return attachTypeIds(state, state.convertTypeNodeRaw(node));
+  return stampSourceUnionAliasReferenceCarrier(
+    state,
+    node,
+    attachTypeIds(state, state.convertTypeNodeRaw(node))
+  );
 };
 
 // ─────────────────────────────────────────────────────────────────────────

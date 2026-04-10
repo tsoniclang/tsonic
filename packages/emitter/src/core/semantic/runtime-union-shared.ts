@@ -10,8 +10,10 @@ export type EmitTypeAstLike = (
 export type RuntimeUnionLayout = {
   readonly members: readonly IrType[];
   readonly memberTypeAsts: readonly CSharpTypeAst[];
+  readonly carrierTypeArgumentAsts: readonly CSharpTypeAst[];
   readonly runtimeUnionArity: number;
   readonly carrierName?: string;
+  readonly carrierFullName?: string;
 };
 
 export type RuntimeUnionFrame = {

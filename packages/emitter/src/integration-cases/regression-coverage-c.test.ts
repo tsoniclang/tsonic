@@ -940,6 +940,29 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("emits source-owned union aliases with source alias carrier names", () => {
+      const csharp = compileToCSharp(`
+        class Ok<T> {
+          constructor(public value: T) {}
+        }
+
+        class Err<E> {
+          constructor(public error: E) {}
+        }
+
+        type Result<T, E> = Ok<T> | Err<E>;
+
+        export function ok(value: string): Result<string, string> {
+          return new Ok(value);
+        }
+      `);
+
+      expect(csharp).to.include("public sealed class Result<T1, T2>");
+      expect(csharp).to.include("global::Test.Result<");
+      expect(csharp).to.include(".From");
+      expect(csharp).to.not.include("Tsonic.Internal.Union");
+    });
+
     it("directly specializes async void overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         import { overloads as O } from "@tsonic/core/lang.js";

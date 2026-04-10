@@ -7,7 +7,7 @@
  */
 
 import type { IrType } from "@tsonic/frontend";
-import { normalizedUnionType } from "@tsonic/frontend";
+import { normalizedUnionType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveTypeAlias } from "./nullish-value-helpers.js";
 
@@ -94,6 +94,63 @@ const genericTypeofTarget = (tag: string): IrType | undefined => {
   }
 };
 
+const collectTypeofCandidateLeaves = (
+  type: IrType,
+  context: EmitterContext,
+  seen = new Set<string>()
+): readonly IrType[] => {
+  const key = stableIrTypeKey(type);
+  if (seen.has(key)) {
+    return [];
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(key);
+
+  if (type.kind === "unionType") {
+    return type.types.flatMap((member) =>
+      collectTypeofCandidateLeaves(member, context, nextSeen)
+    );
+  }
+
+  const resolved = resolveTypeAlias(type, context);
+
+  if (resolved.kind === "unionType") {
+    return resolved.types.flatMap((member) =>
+      collectTypeofCandidateLeaves(member, context, nextSeen)
+    );
+  }
+
+  if (type.kind === "referenceType" && resolved.kind === "objectType") {
+    return [type];
+  }
+
+  if (stableIrTypeKey(resolved) !== key) {
+    return collectTypeofCandidateLeaves(resolved, context, nextSeen);
+  }
+
+  return [resolved];
+};
+
+const filterTypeofCandidateLeaves = (
+  currentType: IrType,
+  tag: string,
+  context: EmitterContext,
+  wantMatch: boolean
+): IrType | undefined => {
+  const kept = collectTypeofCandidateLeaves(currentType, context).filter(
+    (member): member is IrType =>
+      !!member &&
+      (wantMatch
+        ? matchesTypeofTag(member, tag, context)
+        : !matchesTypeofTag(member, tag, context))
+  );
+
+  if (kept.length === 0) return undefined;
+  if (kept.length === 1) return kept[0];
+  return normalizedUnionType(kept);
+};
+
 export const narrowTypeByNotTypeofTag = (
   currentType: IrType | undefined,
   tag: string,
@@ -101,17 +158,7 @@ export const narrowTypeByNotTypeofTag = (
 ): IrType | undefined => {
   if (!currentType) return undefined;
 
-  if (currentType.kind === "unionType") {
-    const kept = currentType.types.filter(
-      (member): member is IrType =>
-        !!member && !matchesTypeofTag(member, tag, context)
-    );
-    if (kept.length === 0) return undefined;
-    if (kept.length === 1) return kept[0];
-    return normalizedUnionType(kept);
-  }
-
-  return matchesTypeofTag(currentType, tag, context) ? undefined : currentType;
+  return filterTypeofCandidateLeaves(currentType, tag, context, false);
 };
 
 export const narrowTypeByTypeofTag = (
@@ -121,17 +168,8 @@ export const narrowTypeByTypeofTag = (
 ): IrType | undefined => {
   if (!currentType) return genericTypeofTarget(tag);
 
-  if (currentType.kind === "unionType") {
-    const kept = currentType.types.filter(
-      (member): member is IrType =>
-        !!member && matchesTypeofTag(member, tag, context)
-    );
-    if (kept.length === 0) return genericTypeofTarget(tag);
-    if (kept.length === 1) return kept[0];
-    return normalizedUnionType(kept);
-  }
-
-  return matchesTypeofTag(currentType, tag, context)
-    ? currentType
-    : genericTypeofTarget(tag);
+  return (
+    filterTypeofCandidateLeaves(currentType, tag, context, true) ??
+    genericTypeofTarget(tag)
+  );
 };

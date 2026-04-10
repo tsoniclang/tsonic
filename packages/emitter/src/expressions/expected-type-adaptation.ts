@@ -1,5 +1,4 @@
 import type { IrExpression, IrType } from "@tsonic/frontend";
-import { runtimeUnionCarrierFamilyKey } from "@tsonic/frontend";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
@@ -42,6 +41,7 @@ import {
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
   resolveTypeAlias,
@@ -114,8 +114,9 @@ const hasMatchingRuntimeCarrierFamily = (
   }
 
   return (
-    runtimeUnionCarrierFamilyKey(resolvedActual) ===
-    runtimeUnionCarrierFamilyKey(resolvedExpected)
+    resolvedActual.runtimeCarrierFamilyKey !== undefined &&
+    resolvedActual.runtimeCarrierFamilyKey ===
+      resolvedExpected.runtimeCarrierFamilyKey
   );
 };
 
@@ -480,6 +481,10 @@ export const adaptValueToExpectedTypeAst = (opts: {
     return undefined;
   }
 
+  if (runtimeUnionAliasReferencesMatch(actualType, expectedType, context)) {
+    return [valueAst, context];
+  }
+
   const exactExpectedSurface = tryEmitExactComparisonTargetAst(
     expectedType,
     context
@@ -712,24 +717,25 @@ export const adaptEmittedExpressionAst = (opts: {
   ) {
     return [castedAst, castedContext];
   }
+  const directStorageExpressionType = resolveDirectStorageExpressionType(
+    adaptationSourceExpr,
+    castedAst,
+    castedContext
+  );
+  const effectiveExpressionType = resolveEffectiveExpressionType(
+    adaptationSourceExpr,
+    castedContext
+  );
   const actualType =
     preservedTypeForAdaptation ??
     (expr.kind === "typeAssertion" ? expr.targetType : undefined) ??
+    directStorageExpressionType ??
     tryResolveRuntimeUnionMemberType(
-      resolveDirectStorageExpressionType(
-        adaptationSourceExpr,
-        castedAst,
-        castedContext
-      ) ?? resolveEffectiveExpressionType(adaptationSourceExpr, castedContext),
+      effectiveExpressionType,
       castedAst,
       castedContext
     ) ??
-    resolveDirectStorageExpressionType(
-      adaptationSourceExpr,
-      castedAst,
-      castedContext
-    ) ??
-    resolveEffectiveExpressionType(adaptationSourceExpr, castedContext);
+    effectiveExpressionType;
 
   const [dictionaryAdjustedAst, dictionaryAdjustedContext] =
     maybeAdaptDictionaryUnionValueAst(
@@ -738,6 +744,18 @@ export const adaptEmittedExpressionAst = (opts: {
       castedContext,
       expectedType
     );
+
+  if (
+    actualType &&
+    expectedType &&
+    runtimeUnionAliasReferencesMatch(
+      actualType,
+      expectedType,
+      dictionaryAdjustedContext
+    )
+  ) {
+    return [dictionaryAdjustedAst, dictionaryAdjustedContext];
+  }
 
   const exactRuntimeUnionSelection = trySelectExactRuntimeUnionMembers(
     actualType,

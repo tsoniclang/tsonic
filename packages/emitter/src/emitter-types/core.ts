@@ -54,6 +54,11 @@ export type ModuleIdentity = {
    * - non-structural aliases are erased to their underlying type at emission time
    */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
+  /**
+   * Local type declarations that must be public because they are exported
+   * directly or reachable from an exported API surface in this module.
+   */
+  readonly publicLocalTypes?: ReadonlySet<string>;
 };
 
 /**
@@ -261,12 +266,14 @@ export type ImportBinding =
 export type LocalTypeInfo =
   | {
       readonly kind: "interface";
+      readonly isExported?: boolean;
       readonly typeParameters: readonly string[];
       readonly members: readonly IrInterfaceMember[];
       readonly extends: readonly IrType[];
     }
   | {
       readonly kind: "class";
+      readonly isExported?: boolean;
       readonly typeParameters: readonly string[];
       readonly members: readonly IrClassMember[];
       readonly superClass?: IrType;
@@ -274,10 +281,12 @@ export type LocalTypeInfo =
     }
   | {
       readonly kind: "enum";
+      readonly isExported?: boolean;
       readonly members: readonly string[];
     }
   | {
       readonly kind: "typeAlias";
+      readonly isExported?: boolean;
       readonly typeParameters: readonly string[];
       readonly type: IrType;
     };

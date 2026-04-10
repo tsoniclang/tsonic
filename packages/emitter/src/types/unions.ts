@@ -40,59 +40,11 @@ const isObjectLikeTypeAst = (typeAst: CSharpTypeAst): boolean => {
   );
 };
 
-const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
-  const concrete = stripNullableAst(typeAst);
-  const name = getIdentifierTypeName(concrete) ?? "";
-  return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "global::Tsonic.Internal.Union" ||
-    name === "Tsonic.Internal.Union" ||
-    name === "Union" ||
-    /^global::Tsonic\.Internal\.Union\d+$/.test(name) ||
-    /^Tsonic\.Internal\.Union\d+$/.test(name) ||
-    /^Union\d+$/.test(name) ||
-    /^global::Tsonic\.Internal\.Union\d+_[A-F0-9]{8}$/.test(name) ||
-    /^Tsonic\.Internal\.Union\d+_[A-F0-9]{8}$/.test(name) ||
-    /^Union\d+_[A-F0-9]{8}$/.test(name)
-  );
-};
-
-const flattenRuntimeUnionTypeAsts = (
-  types: readonly CSharpTypeAst[]
-): readonly CSharpTypeAst[] => {
-  const flattened: CSharpTypeAst[] = [];
-
-  const pushFlattened = (typeAst: CSharpTypeAst): void => {
-    const concrete = stripNullableAst(typeAst);
-    if (
-      isRuntimeUnionTypeAst(concrete) &&
-      (concrete.kind === "identifierType" ||
-        concrete.kind === "qualifiedIdentifierType") &&
-      concrete.typeArguments &&
-      concrete.typeArguments.length > 0
-    ) {
-      for (const member of concrete.typeArguments) {
-        pushFlattened(member);
-      }
-      return;
-    }
-
-    flattened.push(typeAst);
-  };
-
-  for (const typeAst of types) {
-    pushFlattened(typeAst);
-  }
-
-  return flattened;
-};
-
 const dedupeTypeAsts = (
   types: readonly CSharpTypeAst[]
 ): readonly CSharpTypeAst[] => {
   const deduped = new Map<string, CSharpTypeAst>();
-  for (const typeAst of flattenRuntimeUnionTypeAsts(types)) {
+  for (const typeAst of types) {
     deduped.set(stableTypeKeyFromAst(typeAst), typeAst);
   }
   return Array.from(deduped.entries())

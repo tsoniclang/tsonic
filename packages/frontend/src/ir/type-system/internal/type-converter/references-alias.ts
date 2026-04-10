@@ -6,7 +6,8 @@
  */
 
 import * as ts from "typescript";
-import { IrType } from "../../../types.js";
+import type { IrType } from "../../../types.js";
+import { stampRuntimeUnionAliasCarrier } from "../../../types.js";
 import { substituteIrType } from "../../../types/ir-substitution.js";
 import { convertFunctionType } from "./functions.js";
 import type { Binding } from "../../../binding/index.js";
@@ -21,6 +22,7 @@ import {
   isTsonicBindingsDeclarationFile,
   isSafeToEraseUserTypeAliasTarget,
   isRecursiveUserTypeAliasDeclaration,
+  shouldPreserveUserTypeAliasIdentity,
   expandTypeAliasBody,
 } from "./references-structural.js";
 import { expandDirectAliasSyntax } from "./direct-alias-expansion.js";
@@ -29,6 +31,18 @@ export const entityNameToText = (entityName: ts.EntityName): string =>
   ts.isIdentifier(entityName)
     ? entityName.text
     : `${entityNameToText(entityName.left)}.${entityName.right.text}`;
+
+const unwrapParenthesizedTypeNode = (node: ts.TypeNode): ts.TypeNode => {
+  let current = node;
+  while (ts.isParenthesizedTypeNode(current)) {
+    current = current.type;
+  }
+  return current;
+};
+
+const isDirectUnionTypeAliasDeclaration = (
+  node: ts.TypeAliasDeclaration
+): boolean => ts.isUnionTypeNode(unwrapParenthesizedTypeNode(node.type));
 
 /**
  * Handle type alias declarations during reference type conversion.
@@ -47,6 +61,26 @@ export const handleTypeAliasDeclaration = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | undefined => {
+  const stampSourceAliasCarrier = (type: IrType): IrType => {
+    if (declNode.getSourceFile().isDeclarationFile) {
+      return type;
+    }
+
+    const fullyQualifiedName =
+      binding.getFullyQualifiedName(declId) ?? declNode.name.text;
+
+    return stampRuntimeUnionAliasCarrier(type, {
+      aliasName: declNode.name.text,
+      fullyQualifiedName,
+      typeParameters: (declNode.typeParameters ?? []).map(
+        (tp) => tp.name.text
+      ),
+      typeArguments: (node.typeArguments ?? []).map((typeArgument) =>
+        convertType(typeArgument, binding)
+      ),
+    });
+  };
+
   const convertFunctionAliasBody = (
     functionTypeNode: ts.FunctionTypeNode
   ): IrType => {
@@ -103,6 +137,13 @@ export const handleTypeAliasDeclaration = (
     }
   }
 
+  if (
+    shouldPreserveUserTypeAliasIdentity(declNode) &&
+    isDirectUnionTypeAliasDeclaration(declNode)
+  ) {
+    return undefined;
+  }
+
   // Declaration-file type-only alias erasure
   if (
     declNode.getSourceFile().isDeclarationFile &&
@@ -129,7 +170,7 @@ export const handleTypeAliasDeclaration = (
       convertType
     );
     if (directExpanded) {
-      return normalizeExpandedAliasType(directExpanded);
+      return stampSourceAliasCarrier(normalizeExpandedAliasType(directExpanded));
     }
   }
 
@@ -150,7 +191,7 @@ export const handleTypeAliasDeclaration = (
         binding,
         convertType
       );
-      if (expanded) return expanded;
+      if (expanded) return stampSourceAliasCarrier(expanded);
     }
   }
 

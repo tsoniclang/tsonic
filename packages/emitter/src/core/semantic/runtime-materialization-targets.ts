@@ -23,6 +23,12 @@ export const resolveRuntimeMaterializationTargetType = (
       if (typeInfo.type.kind === "objectType") {
         return target;
       }
+      if (
+        typeInfo.type.kind === "unionType" &&
+        typeInfo.type.runtimeCarrierFamilyKey
+      ) {
+        return target;
+      }
 
       const substituted =
         target.typeArguments && target.typeArguments.length > 0

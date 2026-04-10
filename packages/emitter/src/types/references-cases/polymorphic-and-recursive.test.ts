@@ -245,6 +245,37 @@ describe("Reference Type Emission", () => {
         kind: "referenceType",
         name: "MiddlewareLike",
       };
+      const middlewareParamUnion: IrType = {
+        kind: "unionType",
+        types: [
+          {
+            kind: "referenceType",
+            name: "MiddlewareHandler",
+            resolvedClrType: "System.Delegate",
+          },
+          {
+            kind: "arrayType",
+            elementType: middlewareParamRef,
+            origin: "explicit",
+          },
+        ],
+      };
+      const middlewareLikeUnion: IrType = {
+        kind: "unionType",
+        types: [
+          middlewareParamRef,
+          {
+            kind: "referenceType",
+            name: "Router",
+            resolvedClrType: "Test.Router",
+          },
+          {
+            kind: "arrayType",
+            elementType: middlewareLikeRef,
+            origin: "explicit",
+          },
+        ],
+      };
 
       const recursiveContext: EmitterContext = {
         ...baseContext,
@@ -254,21 +285,7 @@ describe("Reference Type Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  {
-                    kind: "referenceType",
-                    name: "MiddlewareHandler",
-                    resolvedClrType: "System.Delegate",
-                  },
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareParamRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareParamUnion,
             },
           ],
           [
@@ -276,22 +293,7 @@ describe("Reference Type Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  middlewareParamRef,
-                  {
-                    kind: "referenceType",
-                    name: "Router",
-                    resolvedClrType: "Test.Router",
-                  },
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareLikeRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareLikeUnion,
             },
           ],
         ]),
@@ -306,7 +308,17 @@ describe("Reference Type Emission", () => {
         recursiveContext
       );
 
-      expect(printType(typeAst)).to.equal("object[]");
+      expect(printType(typeAst)).to.equal(
+        `${printRuntimeUnionCarrierTypeForIrType(middlewareLikeUnion, [
+          {
+            kind: "arrayType",
+            rank: 1,
+            elementType: identifierType("object"),
+          },
+          identifierType("global::System.Delegate"),
+          identifierType("global::Test.Router"),
+        ])}[]`
+      );
     });
 
     it("does not leak cross-module recursive alias resolution state into later emissions", () => {

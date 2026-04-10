@@ -259,6 +259,10 @@ export const normalizeFinalizedInvocationArguments = (
 const isCompilerGeneratedStructuralCarrierName = (name: string): boolean =>
   name.startsWith("__Anon_") || name.startsWith("__Rest_");
 
+const isRuntimeNullishType = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
 const containsCompilerGeneratedStructuralCarrier = (
   type: IrType | undefined,
   seen: ReadonlySet<string> = new Set<string>()
@@ -563,6 +567,9 @@ export const expandAuthoritativeSourceBackedSurfaceType = (
             (candidate.kind === "unionType" ||
               candidate.kind === "intersectionType")
         );
+      if (expandedAlias?.kind === "unionType" && expandedAlias.runtimeCarrierFamilyKey) {
+        return type;
+      }
       if (expandedAlias) {
         return expandAuthoritativeSourceBackedSurfaceType(
           expandedAlias,
@@ -589,18 +596,47 @@ export const expandAuthoritativeSourceBackedSurfaceType = (
       };
     }
     case "unionType": {
+      const carrierContributors: Extract<IrType, { kind: "unionType" }>[] = [];
+      let hasNonCarrierContributor = false;
       const expandedMembers = type.types.flatMap((member) => {
         const expandedMember =
           expandAuthoritativeSourceBackedSurfaceType(member, ctx, nextSeen) ??
           member;
-        return expandedMember.kind === "unionType"
-          ? expandedMember.types
-          : [expandedMember];
+        const memberExpansion =
+          expandedMember.kind === "unionType"
+            ? expandedMember.types
+            : [expandedMember];
+        if (memberExpansion.some((candidate) => !isRuntimeNullishType(candidate))) {
+          if (
+            expandedMember.kind === "unionType" &&
+            expandedMember.runtimeCarrierFamilyKey
+          ) {
+            carrierContributors.push(expandedMember);
+          } else {
+            hasNonCarrierContributor = true;
+          }
+        }
+        return memberExpansion;
       });
-      return {
+      const nextType = {
         ...type,
         types: dedupeTypes(expandedMembers),
       };
+      if (type.runtimeCarrierFamilyKey) {
+        return nextType;
+      }
+      const onlyCarrierContributor = carrierContributors[0];
+      if (
+        onlyCarrierContributor &&
+        carrierContributors.length === 1 &&
+        !hasNonCarrierContributor
+      ) {
+        return {
+          ...onlyCarrierContributor,
+          types: nextType.types,
+        };
+      }
+      return nextType;
     }
     case "intersectionType": {
       const expandedMembers = type.types.flatMap((member) => {

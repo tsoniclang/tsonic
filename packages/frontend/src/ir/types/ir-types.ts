@@ -169,6 +169,33 @@ export type IrUnionType = {
    * specializations on the same carrier family.
    */
   readonly runtimeCarrierFamilyKey?: string;
+  /**
+   * Preferred emitted runtime carrier class name for source-owned unions.
+   *
+   * This is metadata only; semantic type equality is still structural over
+   * union members.
+   */
+  readonly runtimeCarrierName?: string;
+  /**
+   * Preferred emitted runtime carrier namespace for source-owned unions.
+   *
+   * Anonymous compiler-created unions omit this and stay under
+   * `Tsonic.Internal`.
+   */
+  readonly runtimeCarrierNamespace?: string;
+  /**
+   * Source type parameters owned by a named source-union carrier.
+   *
+   * Anonymous compiler-created unions omit this and stay generic over their
+   * runtime member slots. Source-owned unions use these names so
+   * `type Result<T> = T | Error` emits as `Result<T>`.
+   */
+  readonly runtimeCarrierTypeParameters?: readonly string[];
+  /**
+   * Concrete source type arguments for a source-owned carrier reference after
+   * alias substitution.
+   */
+  readonly runtimeCarrierTypeArguments?: readonly IrType[];
 };
 
 export type IrIntersectionType = {

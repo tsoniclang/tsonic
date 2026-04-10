@@ -1,7 +1,4 @@
-import {
-  IrType,
-  runtimeUnionCarrierFamilyKey,
-} from "@tsonic/frontend";
+import type { IrType } from "@tsonic/frontend";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { printType } from "../core/format/backend-ast/printer.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
@@ -14,9 +11,9 @@ export const buildRuntimeUnionCarrierTypeAst = (
   const carrier = getOrRegisterRuntimeUnionCarrier(
     memberTypeAsts,
     undefined,
-    semanticFamilyKey
+    semanticFamilyKey ? { familyKey: semanticFamilyKey } : undefined
   );
-  return identifierType(`global::Tsonic.Internal.${carrier.name}`, [
+  return identifierType(`global::${carrier.fullName}`, [
     ...memberTypeAsts,
   ]);
 };
@@ -33,7 +30,7 @@ export const printRuntimeUnionCarrierTypeForIrType = (
 ): string =>
   printRuntimeUnionCarrierType(
     memberTypeAsts,
-    type?.kind === "unionType" ? runtimeUnionCarrierFamilyKey(type) : undefined
+    type?.kind === "unionType" ? type.runtimeCarrierFamilyKey : undefined
   );
 
 export const normalizeRuntimeUnionCarrierNames = (text: string): string =>

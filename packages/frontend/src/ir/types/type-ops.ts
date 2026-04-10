@@ -409,6 +409,105 @@ export const irTypesEqual = (left: IrType, right: IrType): boolean =>
 export type NormalizedUnionTypeOptions = {
   readonly preserveRuntimeLayout?: true;
   readonly runtimeCarrierFamilyKey?: string;
+  readonly runtimeCarrierName?: string;
+  readonly runtimeCarrierNamespace?: string;
+  readonly runtimeCarrierTypeParameters?: readonly string[];
+  readonly runtimeCarrierTypeArguments?: readonly IrType[];
+};
+
+export type RuntimeUnionAliasCarrierOptions = {
+  readonly aliasName: string;
+  readonly fullyQualifiedName: string;
+  readonly namespaceName?: string;
+  readonly typeParameters?: readonly string[];
+  readonly typeArguments?: readonly IrType[];
+};
+
+const namespaceFromFullyQualifiedName = (fullyQualifiedName: string):
+  | string
+  | undefined => {
+  const lastDot = fullyQualifiedName.lastIndexOf(".");
+  return lastDot > 0 ? fullyQualifiedName.slice(0, lastDot) : undefined;
+};
+
+export const runtimeUnionAliasCarrierFamilyKey = (
+  fullyQualifiedName: string
+): string => `runtime-union:alias:${fullyQualifiedName}`;
+
+const isRuntimeNullishCarrierMember = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const runtimeCarrierShapeKey = (type: IrType): string | undefined => {
+  if (isRuntimeNullishCarrierMember(type)) {
+    return undefined;
+  }
+
+  if (type.kind === "literalType") {
+    switch (typeof type.value) {
+      case "string":
+        return "prim:string";
+      case "number":
+        return "prim:number";
+      case "boolean":
+        return "prim:boolean";
+    }
+  }
+
+  if (type.kind === "primitiveType") {
+    return `prim:${type.name}`;
+  }
+
+  return stableIrTypeKey(type);
+};
+
+export const hasRuntimeUnionCarrierShape = (type: IrType): boolean => {
+  if (type.kind !== "unionType") {
+    return false;
+  }
+
+  const runtimeKeys = new Set<string>();
+  const visit = (candidate: IrType): void => {
+    if (candidate.kind === "unionType" && !candidate.preserveRuntimeLayout) {
+      for (const member of candidate.types) {
+        visit(member);
+      }
+      return;
+    }
+
+    const key = runtimeCarrierShapeKey(candidate);
+    if (key) {
+      runtimeKeys.add(key);
+    }
+  };
+
+  for (const member of type.types) {
+    visit(member);
+  }
+
+  return runtimeKeys.size >= 2;
+};
+
+export const stampRuntimeUnionAliasCarrier = (
+  type: IrType,
+  options: RuntimeUnionAliasCarrierOptions
+): IrType => {
+  if (type.kind !== "unionType" || !hasRuntimeUnionCarrierShape(type)) {
+    return type;
+  }
+
+  return {
+    ...type,
+    runtimeCarrierFamilyKey: runtimeUnionAliasCarrierFamilyKey(
+      options.fullyQualifiedName
+    ),
+    runtimeCarrierName: options.aliasName,
+    runtimeCarrierNamespace:
+      options.namespaceName ??
+      namespaceFromFullyQualifiedName(options.fullyQualifiedName),
+    runtimeCarrierTypeParameters: options.typeParameters,
+    runtimeCarrierTypeArguments: options.typeArguments,
+  };
 };
 
 export const normalizedUnionType = (
@@ -445,10 +544,21 @@ export const normalizedUnionType = (
     ...(options.preserveRuntimeLayout === true
       ? { preserveRuntimeLayout: true as const }
       : {}),
+    ...(options.runtimeCarrierFamilyKey !== undefined
+      ? { runtimeCarrierFamilyKey: options.runtimeCarrierFamilyKey }
+      : {}),
+    ...(options.runtimeCarrierName !== undefined
+      ? { runtimeCarrierName: options.runtimeCarrierName }
+      : {}),
+    ...(options.runtimeCarrierNamespace !== undefined
+      ? { runtimeCarrierNamespace: options.runtimeCarrierNamespace }
+      : {}),
+    ...(options.runtimeCarrierTypeParameters !== undefined
+      ? { runtimeCarrierTypeParameters: options.runtimeCarrierTypeParameters }
+      : {}),
+    ...(options.runtimeCarrierTypeArguments !== undefined
+      ? { runtimeCarrierTypeArguments: options.runtimeCarrierTypeArguments }
+      : {}),
   };
-  return {
-    ...unionType,
-    runtimeCarrierFamilyKey:
-      options.runtimeCarrierFamilyKey ?? runtimeUnionCarrierFamilyKey(unionType),
-  };
+  return unionType;
 };

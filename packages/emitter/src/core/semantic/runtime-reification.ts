@@ -42,6 +42,10 @@ import {
   maybeCastMaterializedValueAst,
   tryResolveRuntimeUnionCastSourceIndices,
 } from "./runtime-reification-helpers.js";
+import {
+  getRuntimeUnionAliasReferenceKey,
+  runtimeUnionAliasReferencesMatch,
+} from "./runtime-union-alias-identity.js";
 
 export type EmitTypeAstFn = (
   type: IrType,
@@ -205,6 +209,10 @@ export const tryBuildRuntimeMaterializationAst = (
   selectedSourceMemberNs?: ReadonlySet<number>,
   sourceFrame?: RuntimeMaterializationSourceFrame
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (runtimeUnionAliasReferencesMatch(sourceType, targetType, context)) {
+    return [valueAst, context];
+  }
+
   const effectiveSourceFrame =
     sourceFrame ??
     (() => {
@@ -249,6 +257,7 @@ export const tryBuildRuntimeMaterializationAst = (
       {
         members,
         memberTypeAsts,
+        carrierTypeArgumentAsts: memberTypeAsts,
         runtimeUnionArity: members.length,
       },
       currentContext,
@@ -265,6 +274,98 @@ export const tryBuildRuntimeMaterializationAst = (
   );
 
   if (targetLayout) {
+    if (getRuntimeUnionAliasReferenceKey(targetType, targetLayoutContext)) {
+      const targetUnionTypeAst = buildRuntimeUnionTypeAst(targetLayout);
+      const lambdaArgs: CSharpExpressionAst[] = [];
+      let sawReachableMatch = false;
+
+      for (let index = 0; index < sourceLayout.members.length; index += 1) {
+        const actualMember = sourceLayout.members[index];
+        const actualMemberTypeAst = sourceLayout.memberTypeAsts[index];
+        if (!actualMember || !actualMemberTypeAst) {
+          continue;
+        }
+
+        const parameterName = `__tsonic_union_member_${index + 1}`;
+        const parameterExpr: CSharpExpressionAst = {
+          kind: "identifierExpression",
+          identifier: parameterName,
+        };
+        const sourceMemberN =
+          effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1;
+
+        let body: CSharpExpressionAst;
+        if (
+          selectedSourceMemberNs &&
+          !selectedSourceMemberNs.has(sourceMemberN)
+        ) {
+          body = buildInvalidRuntimeUnionMaterializationExpression(
+            actualMember,
+            targetType
+          );
+        } else if (
+          runtimeUnionAliasReferencesMatch(
+            actualMember,
+            targetType,
+            targetLayoutContext
+          )
+        ) {
+          body = parameterExpr;
+          sawReachableMatch = true;
+        } else if (
+          getRuntimeUnionAliasReferenceKey(actualMember, targetLayoutContext)
+        ) {
+          body = buildInvalidRuntimeUnionMaterializationExpression(
+            actualMember,
+            targetType
+          );
+        } else {
+          const targetMemberIndex = findRuntimeUnionMemberIndex(
+            targetLayout.members,
+            actualMember,
+            targetLayoutContext
+          );
+          const targetMemberTypeAst =
+            targetMemberIndex !== undefined
+              ? targetLayout.memberTypeAsts[targetMemberIndex]
+              : undefined;
+          if (targetMemberIndex === undefined || !targetMemberTypeAst) {
+            body = buildInvalidRuntimeUnionMaterializationExpression(
+              actualMember,
+              targetType
+            );
+          } else {
+            body = buildRuntimeUnionFactoryCallAst(
+              targetUnionTypeAst,
+              targetMemberIndex + 1,
+              maybeCastMaterializedValueAst(
+                parameterExpr,
+                actualMemberTypeAst,
+                targetMemberTypeAst
+              )
+            );
+            sawReachableMatch = true;
+          }
+        }
+
+        lambdaArgs.push({
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [{ name: parameterName }],
+          body,
+        });
+      }
+
+      return sawReachableMatch
+        ? [
+            buildRuntimeUnionMatchAst(valueAst, lambdaArgs, [
+              targetUnionTypeAst,
+            ]),
+            targetLayoutContext,
+          ]
+        : undefined;
+    }
+
     return tryBuildRuntimeUnionProjectionToLayoutAst({
       valueAst,
       sourceLayout,
@@ -290,7 +391,18 @@ export const tryBuildRuntimeMaterializationAst = (
           actualMember,
           targetType
         ),
-      buildUnmappedMemberBody: ({ actualMember }) =>
+      buildUnmappedMemberBody: ({
+        actualMember,
+        parameterExpr,
+        context: nextContext,
+      }) =>
+        tryBuildRuntimeMaterializationAst(
+          parameterExpr,
+          actualMember,
+          targetType,
+          nextContext,
+          emitTypeAst
+        ) ??
         buildInvalidRuntimeUnionMaterializationExpression(
           actualMember,
           targetType

@@ -4,7 +4,6 @@ import * as ts from "typescript";
 import { createBinding } from "../../../binding/index.js";
 import { convertType } from "./orchestrator.js";
 import type { IrType } from "../../../types.js";
-import { runtimeUnionCarrierFamilyKey } from "../../../types/type-ops.js";
 
 const createTestProgram = (
   source: string,
@@ -82,10 +81,6 @@ const convertAlias = (source: string, aliasName: string): IrType => {
 const makeUnion = (...types: IrType[]): IrType => ({
   kind: "unionType",
   types,
-  runtimeCarrierFamilyKey: runtimeUnionCarrierFamilyKey({
-    kind: "unionType",
-    types,
-  }),
 });
 
 describe("Type Converter - Tuple Rest Lowering", () => {

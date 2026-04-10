@@ -7,6 +7,8 @@ import {
   splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
 import { unwrapParameterModifierType } from "./parameter-modifier-types.js";
+import { getRuntimeUnionAliasReferenceKey } from "./runtime-union-alias-identity.js";
+import { runtimeUnionMemberCanAcceptValue } from "./runtime-union-matching.js";
 
 const hasRuntimeNullishBranch = (type: IrType): boolean =>
   splitRuntimeNullishUnionMembers(unwrapParameterModifierType(type) ?? type)
@@ -52,7 +54,17 @@ export const matchesSemanticExpectedType = (
 
   if (
     isAssignable(actualComparableType, expectedComparableType) ||
-    isAssignable(resolvedActualComparableType, resolvedExpectedComparableType)
+    isAssignable(resolvedActualComparableType, resolvedExpectedComparableType) ||
+    runtimeUnionMemberCanAcceptValue(
+      expectedComparableType,
+      actualComparableType,
+      context
+    ) ||
+    runtimeUnionMemberCanAcceptValue(
+      resolvedExpectedComparableType,
+      resolvedActualComparableType,
+      context
+    )
   ) {
     return true;
   }
@@ -76,6 +88,22 @@ export const matchesExpectedEmissionType = (
     unwrapParameterModifierType(actualType) ?? actualType;
   const expectedComparableType =
     unwrapParameterModifierType(expectedType) ?? expectedType;
+
+  const actualAliasKey =
+    getRuntimeUnionAliasReferenceKey(actualComparableType, context) ??
+    getRuntimeUnionAliasReferenceKey(
+      resolveComparableType(actualComparableType, context),
+      context
+    );
+  const expectedAliasKey =
+    getRuntimeUnionAliasReferenceKey(expectedComparableType, context) ??
+    getRuntimeUnionAliasReferenceKey(
+      resolveComparableType(expectedComparableType, context),
+      context
+    );
+  if (expectedAliasKey && actualAliasKey !== expectedAliasKey) {
+    return false;
+  }
 
   if (
     requiresValueTypeMaterialization(

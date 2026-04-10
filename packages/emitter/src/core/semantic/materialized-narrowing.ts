@@ -19,6 +19,12 @@ import {
   tryBuildRuntimeReificationPlan,
 } from "./runtime-reification.js";
 import {
+  buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+} from "./runtime-unions.js";
+import { buildRuntimeUnionFactoryCallAst } from "./runtime-union-projection.js";
+import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
+import {
   isDefinitelyValueType,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
@@ -71,6 +77,16 @@ export const materializeDirectNarrowingAst = (
   const comparableNarrowedType =
     unwrapParameterModifierType(narrowedType) ?? narrowedType;
 
+  if (
+    runtimeUnionAliasReferencesMatch(
+      comparableSourceType,
+      comparableNarrowedType,
+      context
+    )
+  ) {
+    return [sourceAst, context];
+  }
+
   const [sourceTypeAst, sourceTypeContext] = emitTypeAst(
     comparableSourceType,
     context
@@ -102,6 +118,33 @@ export const materializeDirectNarrowingAst = (
   );
   if (runtimeMaterialized) {
     return runtimeMaterialized;
+  }
+
+  const [targetRuntimeLayout, targetRuntimeLayoutContext] =
+    buildRuntimeUnionLayout(comparableNarrowedType, context, emitTypeAst);
+  if (
+    targetRuntimeLayout &&
+    !willCarryAsRuntimeUnion(comparableSourceType, context)
+  ) {
+    const matchingTargetMemberIndices = targetRuntimeLayout.members.flatMap(
+      (member, index) =>
+        matchesExpectedEmissionType(comparableSourceType, member, targetRuntimeLayoutContext)
+          ? [index]
+          : []
+    );
+    if (matchingTargetMemberIndices.length === 1) {
+      const [targetMemberIndex] = matchingTargetMemberIndices;
+      if (targetMemberIndex !== undefined) {
+        return [
+          buildRuntimeUnionFactoryCallAst(
+            buildRuntimeUnionTypeAst(targetRuntimeLayout),
+            targetMemberIndex + 1,
+            sourceAst
+          ),
+          targetRuntimeLayoutContext,
+        ];
+      }
+    }
   }
 
   const resolvedSource = resolveTypeAlias(

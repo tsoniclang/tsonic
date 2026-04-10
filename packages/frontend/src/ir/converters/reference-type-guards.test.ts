@@ -1,6 +1,5 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
-import { runtimeUnionCarrierFamilyKey } from "../types/type-ops.js";
 import type { IrType } from "../types.js";
 import { narrowTypeByAssignableTarget } from "./reference-type-guards.js";
 
@@ -12,10 +11,6 @@ const makeRef = (name: string): IrType => ({
 const makeUnion = (...types: IrType[]): IrType => ({
   kind: "unionType",
   types,
-  runtimeCarrierFamilyKey: runtimeUnionCarrierFamilyKey({
-    kind: "unionType",
-    types,
-  }),
 });
 
 describe("reference-type-guards", () => {

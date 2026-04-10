@@ -6,11 +6,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "./emitter.js";
-import {
-  IrModule,
-  IrType,
-  runtimeUnionCarrierFamilyKey,
-} from "@tsonic/frontend";
+import { IrModule, IrType } from "@tsonic/frontend";
 import { createContext } from "./emitter-types/context.js";
 import { emitAssignment } from "./expressions/operators/assignment-emitter.js";
 import { printExpression } from "./core/format/backend-ast/printer.js";
@@ -335,7 +331,7 @@ describe("Type Assertion Emission", () => {
       `${printRuntimeUnionCarrierType([
         { kind: "identifierType", name: "T" },
         { kind: "identifierType", name: "T" },
-      ], runtimeUnionCarrierFamilyKey(duplicatedCarrier))}.From1(value)`
+      ])}.From1(value)`
     );
   });
 

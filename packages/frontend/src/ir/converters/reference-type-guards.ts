@@ -1,5 +1,6 @@
 import type { IrType } from "../types.js";
 import { normalizedUnionType } from "../types/type-ops.js";
+import { collectNarrowingCandidateLeaves } from "./narrowing-candidates.js";
 
 type AssignabilityCollector = {
   collectNarrowingCandidates(type: IrType): readonly IrType[];
@@ -12,11 +13,6 @@ export const narrowTypeByAssignableTarget = (
   targetType: IrType,
   wantAssignable: boolean
 ): IrType | undefined => {
-  const collectCandidateLeaves = (type: IrType): readonly IrType[] => {
-    const expanded = collector.collectNarrowingCandidates(type);
-    return expanded.length > 0 ? expanded : [type];
-  };
-
   const tryTargetFallback = (): IrType | undefined => {
     if (!wantAssignable || !currentType || currentType.kind === "unknownType") {
       return undefined;
@@ -26,7 +22,7 @@ export const narrowTypeByAssignableTarget = (
       return targetType;
     }
 
-    const kept = collectCandidateLeaves(targetType).filter(
+    const kept = collectNarrowingCandidateLeaves(collector, targetType).filter(
       (candidate): candidate is IrType =>
         !!candidate && collector.isAssignableTo(candidate, currentType)
     );
@@ -60,7 +56,7 @@ export const narrowTypeByAssignableTarget = (
     }
   }
 
-  const candidates = collectCandidateLeaves(currentType);
+  const candidates = collectNarrowingCandidateLeaves(collector, currentType);
   const kept = candidates.filter((member): member is IrType => {
     if (!member) return false;
     const isMatch = collector.isAssignableTo(member, targetType);

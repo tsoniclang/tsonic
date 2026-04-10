@@ -677,7 +677,7 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.not.include("isMiddlewareHandler(handler.Match");
       expect(csharp).to.include(
-        "if (!isMiddlewareHandler(global::Tsonic.Internal.Union<object[], global::System.Action<string>, global::Test.Router>.From2((handler.As2()))))"
+        "if (!isMiddlewareHandler(global::Test.MiddlewareLike<object[], global::System.Action<string>, global::Test.Router>.From2((handler.As2()))))"
       );
       expect(csharp).to.include(
         'throw new global::System.Exception("middleware handlers must be functions");'

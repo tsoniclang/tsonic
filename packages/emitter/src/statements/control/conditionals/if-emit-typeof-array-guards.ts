@@ -40,7 +40,10 @@ import {
   resetBranchFlowState,
   emitBranchScopedStatementAst,
 } from "./branch-context.js";
-import { SYSTEM_ARRAY_STORAGE_TYPE } from "../../../core/semantic/broad-array-storage.js";
+import {
+  resolveRuntimeArrayMemberStorageType,
+  SYSTEM_ARRAY_STORAGE_TYPE,
+} from "../../../core/semantic/broad-array-storage.js";
 import { registerLocalSymbolTypes } from "../../../core/format/local-names.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
@@ -156,7 +159,10 @@ export const tryEmitArrayIsArrayGuard = (
       runtimeArrayPair.memberType,
       runtimeCarrierType,
       condCtxAfterCondAst,
-      SYSTEM_ARRAY_STORAGE_TYPE
+      resolveRuntimeArrayMemberStorageType(
+        runtimeArrayPair.memberType,
+        condCtxAfterCondAst
+      )
     );
     const nonArrayBranchContext = withComplementNarrowing(
       arrayIsArrayGuard.originalName,

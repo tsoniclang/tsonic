@@ -437,6 +437,11 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       targetElementType,
       currentContext
     );
+    const canUseImplicitElementConversion = matchesExpectedEmissionType(
+      emissionSourceElementType,
+      emissionTargetElementType,
+      currentContext
+    );
     const needsElementAdaptation =
       adaptedElementAst !== undefined || !runtimeCarrierMatches;
     if (
@@ -466,7 +471,7 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       currentContext = targetElementTypeContext;
       const effectiveElementAst =
         adaptedElementAst ??
-        (!runtimeCarrierMatches
+        (!runtimeCarrierMatches && !canUseImplicitElementConversion
           ? {
               kind: "castExpression" as const,
               type: targetElementTypeAst,
@@ -513,7 +518,7 @@ export const tryAdaptStructuralCollectionExpressionAst = (
             inlineAdaptedAst ??
               (preferDirectBroadElement
                 ? elementAst
-                : !runtimeCarrierMatches
+                : !runtimeCarrierMatches && !canUseImplicitElementConversion
                   ? {
                       kind: "castExpression",
                       type: targetElementTypeAst,
@@ -639,9 +644,18 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       targetIterableElementType,
       currentContext
     );
-    const effectiveElementAst = adaptedElementAst ?? itemIdentifier;
+    const canUseImplicitElementConversion = matchesExpectedEmissionType(
+      emissionSourceIterableElementType,
+      emissionTargetIterableElementType,
+      currentContext
+    );
+    const preferDirectBroadElement = isBroadObjectSlotType(
+      targetIterableElementType,
+      currentContext
+    );
     const needsElementAdaptation =
-      effectiveElementAst !== itemIdentifier || !runtimeCarrierMatches;
+      adaptedElementAst !== undefined ||
+      (!preferDirectBroadElement && !runtimeCarrierMatches);
 
     if (!needsElementAdaptation) {
       if (
@@ -672,6 +686,17 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         emitTypeAst
       );
     currentContext = targetElementTypeContext;
+    const effectiveElementAst =
+      adaptedElementAst ??
+      (preferDirectBroadElement ||
+      runtimeCarrierMatches ||
+      canUseImplicitElementConversion
+        ? itemIdentifier
+        : {
+            kind: "castExpression" as const,
+            type: targetElementTypeAst,
+            expression: itemIdentifier,
+          });
     const selectAst: CSharpExpressionAst = {
       kind: "invocationExpression",
       expression: {

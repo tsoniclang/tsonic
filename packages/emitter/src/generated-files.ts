@@ -7,8 +7,12 @@
  */
 
 import type { JsonAotRegistry } from "./types.js";
-import type { RuntimeUnionRegistry } from "./core/semantic/runtime-union-registry.js";
+import type {
+  RuntimeUnionCarrierDefinition,
+  RuntimeUnionRegistry,
+} from "./core/semantic/runtime-union-registry.js";
 import { printCompilationUnit } from "./core/format/backend-ast/printer.js";
+import { printType } from "./core/format/backend-ast/printer-precedence.js";
 import {
   identifierType as buildIdentifierType,
   qualifiedName,
@@ -141,25 +145,27 @@ namespace Tsonic.Internal
 `;
 
 const generateRuntimeUnionCarrier = (
-  name: string,
-  arity: number
+  definition: RuntimeUnionCarrierDefinition
 ): string => {
-  const typeParameters = Array.from({ length: arity }, (_, index) => `T${index + 1}`);
+  const { name, memberTypeAsts, typeParameters, accessModifier } = definition;
   const genericParameters = typeParameters.join(", ");
-  const carrierType = `${name}<${genericParameters}>`;
-  const fromFactories = typeParameters
+  const genericSuffix =
+    genericParameters.length > 0 ? `<${genericParameters}>` : "";
+  const carrierType = `${name}${genericSuffix}`;
+  const memberTypes = memberTypeAsts.map(printType);
+  const fromFactories = memberTypes
     .map(
       (typeParameter, index) =>
         `        public static ${carrierType} From${index + 1}(${typeParameter} value) => new ${carrierType}(value, ${index});`
     )
     .join("\n");
-  const isChecks = typeParameters
+  const isChecks = memberTypes
     .map(
       (_, index) =>
         `        public bool Is${index + 1}() => _index == ${index};`
     )
     .join("\n");
-  const asCasts = typeParameters
+  const asCasts = memberTypes
     .map(
       (typeParameter, index) => `        public ${typeParameter} As${index + 1}()
         {
@@ -169,7 +175,7 @@ const generateRuntimeUnionCarrier = (
         }`
     )
     .join("\n\n");
-  const tryAs = typeParameters
+  const tryAs = memberTypes
     .map(
       (typeParameter, index) => `        public bool TryAs${index + 1}(out ${typeParameter}? value)
         {
@@ -183,49 +189,31 @@ const generateRuntimeUnionCarrier = (
         }`
     )
     .join("\n\n");
-  const matchResultParameters = typeParameters
+  const matchResultParameters = memberTypes
     .map(
       (typeParameter, index) =>
         `global::System.Func<${typeParameter}, TResult> onT${index + 1}`
     )
     .join(", ");
-  const matchVoidParameters = typeParameters
+  const matchVoidParameters = memberTypes
     .map(
       (typeParameter, index) =>
         `global::System.Action<${typeParameter}> onT${index + 1}`
     )
     .join(", ");
-  const matchResultCases = typeParameters
+  const matchResultCases = memberTypes
     .map(
       (typeParameter, index) =>
         `                ${index} => onT${index + 1}((${typeParameter})_value!),`
     )
     .join("\n");
-  const matchVoidCases = typeParameters
+  const matchVoidCases = memberTypes
     .map(
       (typeParameter, index) =>
         `                case ${index}: onT${index + 1}((${typeParameter})_value!); break;`
     )
     .join("\n");
-  const implicitOperators = typeParameters
-    .map(
-      (typeParameter, index) =>
-        `        public static implicit operator ${carrierType}(${typeParameter} value) => From${index + 1}(value);`
-    )
-    .join("\n");
-  const equalityOperators = typeParameters
-    .flatMap((typeParameter, index) => [
-      `        public static bool operator ==(${carrierType}? left, ${typeParameter} right)
-        {
-            return left is not null && left._index == ${index} && global::System.Collections.Generic.EqualityComparer<${typeParameter}>.Default.Equals(left.As${index + 1}(), right);
-        }`,
-      `        public static bool operator !=(${carrierType}? left, ${typeParameter} right) => !(left == right);`,
-      `        public static bool operator ==(${typeParameter} left, ${carrierType}? right) => right == left;`,
-      `        public static bool operator !=(${typeParameter} left, ${carrierType}? right) => !(left == right);`,
-    ])
-    .join("\n\n");
-
-  return `    public sealed class ${carrierType}
+  return `    ${accessModifier} sealed class ${carrierType}
     {
         private readonly object? _value;
         private readonly int _index;
@@ -263,8 +251,6 @@ ${matchVoidCases}
             }
         }
 
-${implicitOperators}
-
         public override string? ToString()
         {
             return _value?.ToString();
@@ -281,8 +267,6 @@ ${implicitOperators}
         {
             return global::System.HashCode.Combine(_value, _index);
         }
-
-${equalityOperators}
     }`;
 };
 
@@ -291,23 +275,41 @@ export const generateRuntimeUnionFile = (
 ): string => {
   const definitions = [...registry.definitions.values()].sort(
     (left, right) =>
-      left.arity - right.arity || left.name.localeCompare(right.name)
+      left.namespaceName.localeCompare(right.namespaceName) ||
+      left.arity - right.arity ||
+      left.name.localeCompare(right.name)
   );
 
-  const carriers = definitions
-    .map((definition) =>
-      generateRuntimeUnionCarrier(definition.name, definition.arity)
-    )
+  const namespaces = new Map<
+    string,
+    readonly (typeof definitions)[number][]
+  >();
+  for (const definition of definitions) {
+    namespaces.set(definition.namespaceName, [
+      ...(namespaces.get(definition.namespaceName) ?? []),
+      definition,
+    ]);
+  }
+
+  const namespaceBlocks = [...namespaces.entries()]
+    .map(([namespaceName, namespaceDefinitions]) => {
+      const carriers = namespaceDefinitions
+        .map((definition) =>
+          generateRuntimeUnionCarrier(definition)
+        )
+        .join("\n\n");
+      return `namespace ${namespaceName}
+{
+${carriers}
+}`;
+    })
     .join("\n\n");
 
   return `// <auto-generated/>
 // Compiler-owned runtime union carriers.
 // WARNING: Do not modify this file manually
 
-namespace Tsonic.Internal
-{
-${carriers}
-}
+${namespaceBlocks}
 `;
 };
 

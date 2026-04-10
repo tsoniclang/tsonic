@@ -402,6 +402,98 @@ describe("IR Builder", function () {
       }
     });
 
+    it("narrows source-owned union aliases to concrete typeof leaves in conditional expressions", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class MkdirOptions {",
+            "  recursive?: boolean;",
+            "}",
+            "",
+            "type MkdirOptionsLike = boolean | MkdirOptions;",
+            "",
+            "export function pick(options?: MkdirOptionsLike): boolean {",
+            "  const recursive =",
+            '    typeof options === "boolean" ? options : options?.recursive ?? false;',
+            "  return recursive;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const aliasDecl = result.value.body.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "typeAliasDeclaration" }> =>
+            stmt.kind === "typeAliasDeclaration" &&
+            stmt.name === "MkdirOptionsLike"
+        );
+        expect(aliasDecl?.type.kind).to.equal("unionType");
+        if (!aliasDecl || aliasDecl.type.kind !== "unionType") return;
+        expect(aliasDecl.type.runtimeCarrierFamilyKey).to.equal(
+          "runtime-union:alias:TestApp.MkdirOptionsLike"
+        );
+        expect(aliasDecl.type.runtimeCarrierName).to.equal("MkdirOptionsLike");
+        expect(aliasDecl.type.runtimeCarrierNamespace).to.equal("TestApp");
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "pick"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const recursiveDecl = fn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0].name.name === "recursive"
+        );
+        expect(recursiveDecl).to.not.equal(undefined);
+        const init = recursiveDecl?.declarations[0]?.initializer;
+        expect(init?.kind).to.equal("conditional");
+        if (!init || init.kind !== "conditional") return;
+
+        expect(init.inferredType).to.deep.equal({
+          kind: "primitiveType",
+          name: "boolean",
+        });
+        expect(init.whenTrue.inferredType).to.deep.equal({
+          kind: "primitiveType",
+          name: "boolean",
+        });
+
+        const falseBranch = init.whenFalse;
+        expect(falseBranch.kind).to.equal("logical");
+        if (falseBranch.kind !== "logical") return;
+        const optionalRead =
+          falseBranch.left.kind === "typeAssertion"
+            ? falseBranch.left.expression
+            : falseBranch.left;
+        expect(optionalRead.kind).to.equal("memberAccess");
+        if (optionalRead.kind !== "memberAccess") return;
+        expect(optionalRead.object.inferredType?.kind).to.equal("unionType");
+        if (optionalRead.object.inferredType?.kind !== "unionType") return;
+        expect(
+          optionalRead.object.inferredType.types.map((member) =>
+            member.kind === "primitiveType" ? member.name : member.kind === "referenceType" ? member.name : member.kind
+          )
+        ).to.deep.equal(["undefined", "MkdirOptions"]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves compound typeof fallthrough narrowing after early-return disjunction branches", () => {
       const fixture = createFilesystemTestProgram(
         {

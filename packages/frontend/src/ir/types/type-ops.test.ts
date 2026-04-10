@@ -9,6 +9,7 @@ import {
   normalizedUnionType,
   runtimeUnionCarrierFamilyKey,
   stableIrTypeKey,
+  stampRuntimeUnionAliasCarrier,
   unwrapAsyncWrapperType,
 } from "./type-ops.js";
 
@@ -264,7 +265,7 @@ describe("type-ops", () => {
     expect(substituted).to.deep.equal(stringType);
   });
 
-  it("assigns runtime carrier family keys to normalized unions", () => {
+  it("does not assign runtime carrier family keys to normalized unions", () => {
     const normalized = normalizedUnionType([
       { kind: "typeParameterType", name: "TElement" },
       stringType,
@@ -272,9 +273,7 @@ describe("type-ops", () => {
 
     expect(normalized.kind).to.equal("unionType");
     if (normalized.kind !== "unionType") return;
-    expect(normalized.runtimeCarrierFamilyKey).to.equal(
-      runtimeUnionCarrierFamilyKey(normalized)
-    );
+    expect(normalized.runtimeCarrierFamilyKey).to.equal(undefined);
   });
 
   it("canonicalizes raw union family keys across nested unions and nullish wrappers", () => {
@@ -319,14 +318,20 @@ describe("type-ops", () => {
     );
   });
 
-  it("preserves runtime carrier family keys across substitution", () => {
-    const genericUnion = normalizedUnionType([
+  it("preserves explicit runtime carrier family keys across substitution", () => {
+    const genericUnion = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        {
+          kind: "arrayType",
+          elementType: { kind: "typeParameterType", name: "TElement" },
+        },
+        stringType,
+      ]),
       {
-        kind: "arrayType",
-        elementType: { kind: "typeParameterType", name: "TElement" },
-      },
-      stringType,
-    ]);
+        aliasName: "BytesOrString",
+        fullyQualifiedName: "Test.BytesOrString",
+      }
+    );
 
     expect(genericUnion.kind).to.equal("unionType");
     if (genericUnion.kind !== "unionType") return;

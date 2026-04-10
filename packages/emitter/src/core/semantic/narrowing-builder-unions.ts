@@ -316,6 +316,7 @@ export const buildRuntimeUnionSubsetBinding = (
     sourceLayout: {
       members: sourceMembers,
       memberTypeAsts: sourceMemberTypeAsts,
+      carrierTypeArgumentAsts: sourceMemberTypeAsts,
       runtimeUnionArity: sourceRuntimeUnionArity,
     },
     targetLayout: subsetLayout,

@@ -79,7 +79,14 @@ export const emitConditional = (
   const guard = tryResolveTernaryGuard(expr.condition, context, emitTypeAst);
 
   if (guard) {
-    const { originalName, memberN, escapedOrig, polarity } = guard;
+    const {
+      originalName,
+      memberN,
+      narrowedType,
+      sourceType,
+      escapedOrig,
+      polarity,
+    } = guard;
 
     // Build condition AST: escapedOrig.IsN() or !escapedOrig.IsN()
     const isCallAst: CSharpExpressionAst = {
@@ -122,7 +129,12 @@ export const emitConditional = (
     const narrowedMap = new Map<string, NarrowedBinding>(
       context.narrowedBindings ?? []
     );
-    narrowedMap.set(originalName, { kind: "expr", exprAst });
+    narrowedMap.set(originalName, {
+      kind: "expr",
+      exprAst,
+      type: narrowedType,
+      sourceType,
+    });
 
     const narrowedContext: EmitterContext = {
       ...context,

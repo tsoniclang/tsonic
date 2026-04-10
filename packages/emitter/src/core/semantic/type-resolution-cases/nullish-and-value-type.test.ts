@@ -96,8 +96,6 @@ describe("type-resolution", () => {
           { kind: "primitiveType", name: "number" },
           { kind: "primitiveType", name: "string" },
         ],
-        runtimeCarrierFamilyKey:
-          "runtime-union:canonical:prim:number|prim:string",
       });
     });
 

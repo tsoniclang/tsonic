@@ -184,6 +184,9 @@ export {
   unwrapAsyncWrapperType,
   stableIrTypeKey,
   runtimeUnionCarrierFamilyKey,
+  runtimeUnionAliasCarrierFamilyKey,
+  hasRuntimeUnionCarrierShape,
+  stampRuntimeUnionAliasCarrier,
   irTypesEqual,
   normalizedUnionType,
 } from "./type-ops.js";

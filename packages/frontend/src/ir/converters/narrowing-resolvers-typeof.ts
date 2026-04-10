@@ -13,6 +13,7 @@ import type { IrType } from "../types.js";
 import type { DeclId } from "../type-system/index.js";
 import { normalizedUnionType } from "../types/type-ops.js";
 import { narrowTypeByAssignableTarget } from "./reference-type-guards.js";
+import { collectNarrowingCandidateLeaves } from "./narrowing-candidates.js";
 import {
   getAccessPathKey,
   getAccessPathTarget,
@@ -285,24 +286,14 @@ export const filterTypeByResolvedCandidates = (
   predicate: (candidate: IrType) => boolean,
   ctx: ProgramContext
 ): IrType | undefined => {
-  if (currentType.kind === "unionType") {
-    const kept = currentType.types
-      .map((member) =>
-        member
-          ? filterTypeByResolvedCandidates(member, predicate, ctx)
-          : undefined
-      )
-      .filter((member): member is IrType => !!member);
-    if (kept.length === 0) return undefined;
-    if (kept.length === 1) return kept[0];
-    return normalizedUnionType(kept);
-  }
+  const kept = collectNarrowingCandidateLeaves(
+    ctx.typeSystem,
+    currentType
+  ).filter((candidate): candidate is IrType => !!candidate && predicate(candidate));
 
-  return ctx.typeSystem
-    .collectNarrowingCandidates(currentType)
-    .some((candidate) => predicate(candidate))
-    ? currentType
-    : undefined;
+  if (kept.length === 0) return undefined;
+  if (kept.length === 1) return kept[0];
+  return normalizedUnionType(kept);
 };
 
 export const narrowTypeByTypeofTag = (

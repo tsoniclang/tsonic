@@ -7,7 +7,7 @@
  */
 
 import type { IrType } from "./ir-types.js";
-import { normalizedUnionType, runtimeUnionCarrierFamilyKey } from "./type-ops.js";
+import { normalizedUnionType } from "./type-ops.js";
 import {
   type TypeSubstitutionMap,
   type SubstitutionResult,
@@ -162,25 +162,47 @@ export const substituteIrType = (
         const substitutedMembers = currentType.types.map((memberType) =>
           substitute(memberType)
         );
-        const preservedFamilyKey =
-          currentType.runtimeCarrierFamilyKey ??
-          runtimeUnionCarrierFamilyKey(currentType);
         if (currentType.preserveRuntimeLayout) {
           (
             draft as {
               types: readonly IrType[];
               runtimeCarrierFamilyKey?: string;
+              runtimeCarrierName?: string;
+              runtimeCarrierNamespace?: string;
+              runtimeCarrierTypeParameters?: readonly string[];
+              runtimeCarrierTypeArguments?: readonly IrType[];
             }
           ).types = substitutedMembers;
           (
             draft as {
-              runtimeCarrierFamilyKey?: string;
+              runtimeCarrierTypeArguments?: readonly IrType[];
             }
-          ).runtimeCarrierFamilyKey = preservedFamilyKey;
+          ).runtimeCarrierTypeArguments =
+            currentType.runtimeCarrierTypeArguments?.map(substitute);
           return draft;
         }
         const normalized = normalizedUnionType(substitutedMembers, {
-          runtimeCarrierFamilyKey: preservedFamilyKey,
+          ...(currentType.runtimeCarrierFamilyKey !== undefined
+            ? { runtimeCarrierFamilyKey: currentType.runtimeCarrierFamilyKey }
+            : {}),
+          ...(currentType.runtimeCarrierName !== undefined
+            ? { runtimeCarrierName: currentType.runtimeCarrierName }
+            : {}),
+          ...(currentType.runtimeCarrierNamespace !== undefined
+            ? { runtimeCarrierNamespace: currentType.runtimeCarrierNamespace }
+            : {}),
+          ...(currentType.runtimeCarrierTypeParameters !== undefined
+            ? {
+                runtimeCarrierTypeParameters:
+                  currentType.runtimeCarrierTypeParameters,
+              }
+            : {}),
+          ...(currentType.runtimeCarrierTypeArguments !== undefined
+            ? {
+                runtimeCarrierTypeArguments:
+                  currentType.runtimeCarrierTypeArguments.map(substitute),
+              }
+            : {}),
         });
         cache.set(currentType, normalized);
         return normalized;

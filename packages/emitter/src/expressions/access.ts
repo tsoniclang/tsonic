@@ -16,6 +16,7 @@ import {
   resolveTypeAlias,
   stripNullish,
   getAllPropertySignatures,
+  hasDeterministicPropertyMembership,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
@@ -30,7 +31,10 @@ import {
   getRuntimeUnionReferenceMembers,
   isRuntimeUnionTypeName,
 } from "../core/semantic/runtime-unions.js";
-import { isSemanticUnion } from "../core/semantic/union-semantics.js";
+import {
+  isSemanticUnion,
+  willCarryAsRuntimeUnion,
+} from "../core/semantic/union-semantics.js";
 import { resolveIteratorResultReferenceType } from "../core/semantic/structural-resolution.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
@@ -160,9 +164,57 @@ export const emitMemberAccess = (
   }
 
   // Property access that targets a CLR runtime union
-  if (!expr.isComputed && !expr.isOptional) {
+  if (!expr.isComputed) {
     const prop = expr.property as string;
-    if (objectType && isSemanticUnion(objectType, context)) {
+    if (
+      objectType &&
+      (isSemanticUnion(objectType, context) ||
+        willCarryAsRuntimeUnion(objectType, context))
+    ) {
+      const receiverNarrowKey =
+        expr.object.kind === "identifier"
+          ? expr.object.name
+          : expr.object.kind === "memberAccess"
+            ? getMemberAccessNarrowKey(expr.object)
+            : undefined;
+      const receiverNarrowed = receiverNarrowKey
+        ? context.narrowedBindings?.get(receiverNarrowKey)
+        : undefined;
+      const receiverNarrowedType =
+        receiverNarrowed?.kind === "expr" ? receiverNarrowed.type : undefined;
+      if (
+        usage === "value" &&
+        receiverNarrowedType &&
+        !willCarryAsRuntimeUnion(receiverNarrowedType, context) &&
+        hasDeterministicPropertyMembership(
+          receiverNarrowedType,
+          prop,
+          context
+        ) === true
+      ) {
+        const [objectAst, newContext] = emitExpressionAst(
+          expr.object,
+          context
+        );
+        const escapedProp = emitMemberName(
+          expr.object,
+          receiverNarrowedType,
+          prop,
+          context,
+          usage
+        );
+        return [
+          {
+            kind: expr.isOptional
+              ? "conditionalMemberAccessExpression"
+              : "memberAccessExpression",
+            expression: objectAst,
+            memberName: escapedProp,
+          },
+          newContext,
+        ];
+      }
+
       const resolvedBase = resolveTypeAlias(stripNullish(objectType), context);
       const resolved =
         resolvedBase.kind === "intersectionType"
@@ -190,6 +242,14 @@ export const emitMemberAccess = (
       const arity = runtimeMembers.length;
       if (arity >= 2) {
         const memberHasProperty = runtimeMembers.map((m) => {
+          const deterministic = hasDeterministicPropertyMembership(
+            m,
+            prop,
+            context
+          );
+          if (deterministic !== undefined) {
+            return deterministic;
+          }
           if (m.kind !== "referenceType") return false;
           const props = getAllPropertySignatures(m, context);
           if (props) return props.some((p) => p.name === prop);
@@ -236,7 +296,9 @@ export const emitMemberAccess = (
               {
                 kind: "invocationExpression",
                 expression: {
-                  kind: "memberAccessExpression",
+                  kind: expr.isOptional
+                    ? "conditionalMemberAccessExpression"
+                    : "memberAccessExpression",
                   expression: objectAst,
                   memberName: "Match",
                 },
@@ -254,18 +316,23 @@ export const emitMemberAccess = (
               context
             );
             // receiver.AsN().prop
+            const projectedArmAst: CSharpExpressionAst = {
+              kind: "invocationExpression",
+              expression: {
+                kind: expr.isOptional
+                  ? "conditionalMemberAccessExpression"
+                  : "memberAccessExpression",
+                expression: objectAst,
+                memberName: asMethod,
+              },
+              arguments: [],
+            };
             return [
               {
-                kind: "memberAccessExpression",
-                expression: {
-                  kind: "invocationExpression",
-                  expression: {
-                    kind: "memberAccessExpression",
-                    expression: objectAst,
-                    memberName: asMethod,
-                  },
-                  arguments: [],
-                },
+                kind: expr.isOptional
+                  ? "conditionalMemberAccessExpression"
+                  : "memberAccessExpression",
+                expression: projectedArmAst,
                 memberName: escapedProp,
               },
               newContext,

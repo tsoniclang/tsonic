@@ -30,11 +30,20 @@ describe("runtime-union-projection", () => {
         { kind: "predefinedType", keyword: "string" },
         identifierType("global::js.RegExp"),
       ],
+      carrierTypeArgumentAsts: [
+        { kind: "predefinedType", keyword: "string" },
+        identifierType("global::js.RegExp"),
+      ],
       runtimeUnionArity: 2,
     };
     const targetLayout: RuntimeUnionLayout = {
       members: [objectArrayType, stringType, regexType],
       memberTypeAsts: [
+        { kind: "arrayType", rank: 1, elementType: identifierType("object") },
+        { kind: "predefinedType", keyword: "string" },
+        identifierType("global::js.RegExp"),
+      ],
+      carrierTypeArgumentAsts: [
         { kind: "arrayType", rank: 1, elementType: identifierType("object") },
         { kind: "predefinedType", keyword: "string" },
         identifierType("global::js.RegExp"),
@@ -134,11 +143,19 @@ describe("runtime-union-projection", () => {
         { kind: "predefinedType", keyword: "string" },
         identifierType("global::js.RegExp"),
       ],
+      carrierTypeArgumentAsts: [
+        { kind: "predefinedType", keyword: "string" },
+        identifierType("global::js.RegExp"),
+      ],
       runtimeUnionArity: 2,
     };
     const targetLayout: RuntimeUnionLayout = {
       members: [stringType, regexType],
       memberTypeAsts: [
+        { kind: "predefinedType", keyword: "string" },
+        identifierType("global::js.RegExp"),
+      ],
+      carrierTypeArgumentAsts: [
         { kind: "predefinedType", keyword: "string" },
         identifierType("global::js.RegExp"),
       ],

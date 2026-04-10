@@ -18,6 +18,10 @@ import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { maybeAdaptRuntimeUnionExpressionAst } from "./runtime-union-adaptation-upcast.js";
 import { tryResolveRuntimeUnionCastSourceIndices } from "../core/semantic/runtime-reification-helpers.js";
+import {
+  getRuntimeUnionAliasReferenceKey,
+  runtimeUnionAliasReferencesMatch,
+} from "../core/semantic/runtime-union-alias-identity.js";
 
 export const maybeWidenRuntimeUnionExpressionAst = (
   ast: CSharpExpressionAst,
@@ -202,7 +206,18 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       continue;
     }
 
-    if (areIrTypesEquivalent(actualMember, expectedType, currentContext)) {
+    if (
+      runtimeUnionAliasReferencesMatch(
+        actualMember,
+        expectedType,
+        currentContext
+      )
+    ) {
+      body = parameterExpr;
+      sawMatch = true;
+    } else if (getRuntimeUnionAliasReferenceKey(actualMember, currentContext)) {
+      body = buildInvalidRuntimeUnionCastExpression(actualMember, expectedType);
+    } else if (areIrTypesEquivalent(actualMember, expectedType, currentContext)) {
       body = parameterExpr;
       sawMatch = true;
     } else {
