@@ -72,7 +72,7 @@ const buildUnionLiteralEquality = (opts: {
   readonly memberIndex: number;
   readonly literalAst: CSharpExpressionAst;
   readonly context: EmitterContext;
-}): CSharpExpressionAst | undefined => {
+}): [CSharpExpressionAst, EmitterContext] | undefined => {
   const { carrierAst, carrierType, memberIndex, literalAst, context } = opts;
   const [layout, layoutContext] = buildRuntimeUnionLayout(
     carrierType,
@@ -84,7 +84,8 @@ const buildUnionLiteralEquality = (opts: {
   }
 
   const runtimeCarrierTypeAst = buildRuntimeUnionTypeAst(layout);
-  const tempName = `__tsonic_union_compare_${memberIndex + 1}`;
+  const nextId = (layoutContext.tempVarId ?? 0) + 1;
+  const tempName = `__tsonic_union_compare_${nextId}`;
   const capturedCarrier: CSharpExpressionAst = {
     kind: "isExpression",
     expression: carrierAst,
@@ -104,12 +105,16 @@ const buildUnionLiteralEquality = (opts: {
     `As${memberIndex + 1}`
   );
 
-  void layoutContext;
-
-  return buildAnd(
-    buildAnd(capturedCarrier, memberCheck),
-    buildEquality(memberValue, literalAst)
-  );
+  return [
+    buildAnd(
+      buildAnd(capturedCarrier, memberCheck),
+      buildEquality(memberValue, literalAst)
+    ),
+    {
+      ...layoutContext,
+      tempVarId: nextId,
+    },
+  ];
 };
 
 const emitRuntimeTypeAst = (
@@ -214,16 +219,17 @@ export const emitRuntimeUnionLiteralComparison = (
     layoutContext,
     literalType
   );
-  const equalityAst = buildUnionLiteralEquality({
+  const equalityResult = buildUnionLiteralEquality({
     carrierAst: runtimeCarrierAst,
     carrierType: runtimeCarrierType,
     memberIndex,
     literalAst,
     context: literalContext,
   });
-  if (!equalityAst) {
+  if (!equalityResult) {
     return undefined;
   }
+  const [equalityAst, equalityContext] = equalityResult;
 
   const isNegated = expr.operator === "!==" || expr.operator === "!=";
   return [
@@ -237,6 +243,6 @@ export const emitRuntimeUnionLiteralComparison = (
           },
         }
       : equalityAst,
-    literalContext,
+    equalityContext,
   ];
 };

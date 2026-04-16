@@ -7,6 +7,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "./type-resolution.js";
+import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 
 const addUndefinedBranch = (type: IrType): IrType => {
   const members = type.kind === "unionType" ? type.types : [type];
@@ -18,10 +19,15 @@ const addUndefinedBranch = (type: IrType): IrType => {
     return type;
   }
 
-  return {
-    kind: "unionType",
-    types: [...members, { kind: "primitiveType", name: "undefined" }],
-  };
+  return type.kind === "unionType"
+    ? rebuildUnionTypePreservingCarrierFamily(type, [
+        ...members,
+        { kind: "primitiveType", name: "undefined" },
+      ])
+    : {
+        kind: "unionType",
+        types: [...members, { kind: "primitiveType", name: "undefined" }],
+      };
 };
 
 export const getAcceptedSurfaceType = (

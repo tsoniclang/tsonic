@@ -82,4 +82,32 @@ describe("defaults", () => {
       ],
     });
   });
+
+  it("preserves runtime carrier metadata when widening optional unions", () => {
+    const accepted = getAcceptedParameterType(
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "string" },
+        ],
+        runtimeCarrierFamilyKey: "runtime-union:canonical:prim:int|prim:string",
+        runtimeCarrierName: "Signal",
+        runtimeCarrierNamespace: "Test",
+      },
+      true
+    );
+
+    expect(accepted).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "int" },
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+      runtimeCarrierFamilyKey: "runtime-union:canonical:prim:int|prim:string",
+      runtimeCarrierName: "Signal",
+      runtimeCarrierNamespace: "Test",
+    });
+  });
 });

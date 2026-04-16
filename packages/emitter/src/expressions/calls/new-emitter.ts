@@ -95,6 +95,10 @@ export const emitNew = (
     surfaceParameterTypes: expr.surfaceParameterTypes,
     restParameter: expr.surfaceRestParameter,
     surfaceRestParameter: expr.surfaceRestParameter,
+    sourceBackedParameterTypes: expr.sourceBackedParameterTypes,
+    sourceBackedSurfaceParameterTypes: expr.sourceBackedSurfaceParameterTypes,
+    sourceBackedRestParameter: expr.sourceBackedRestParameter,
+    sourceBackedReturnType: expr.sourceBackedReturnType,
   };
 
   const [argAsts, argContext] = emitCallArguments(

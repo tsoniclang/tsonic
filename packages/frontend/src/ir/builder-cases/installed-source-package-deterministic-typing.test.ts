@@ -590,33 +590,37 @@ describe("IR Builder", function () {
         if (callExpr.kind !== "call") return;
 
         expect(callExpr.parameterTypes?.[0]?.kind).to.equal("referenceType");
-        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("unionType");
+        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
         expect(callExpr.surfaceParameterTypes?.[1]?.kind).to.equal("unionType");
 
         if (
           callExpr.parameterTypes?.[0]?.kind !== "referenceType" ||
-          callExpr.surfaceParameterTypes?.[0]?.kind !== "unionType" ||
+          callExpr.surfaceParameterTypes?.[0]?.kind !== "referenceType" ||
           callExpr.surfaceParameterTypes?.[1]?.kind !== "unionType"
         ) {
           return;
         }
 
         expect(callExpr.parameterTypes[0].name).to.equal("Iterable");
-        expect(callExpr.surfaceParameterTypes[0].types).to.have.length(2);
-        expect(callExpr.surfaceParameterTypes[0].types[0]?.kind).to.equal(
-          "arrayType"
-        );
-        if (callExpr.surfaceParameterTypes[0].types[0]?.kind !== "arrayType") {
-          return;
-        }
-        expect(
-          callExpr.surfaceParameterTypes[0].types[0].elementType
-        ).to.deep.include({
+        expect(callExpr.surfaceParameterTypes[0]).to.deep.include({
+          kind: "referenceType",
+          name: "TypedArrayInput",
+        });
+        const inheritedSurfaceElementType =
+          callExpr.surfaceParameterTypes[0].typeArguments?.[0];
+        expect(inheritedSurfaceElementType).to.deep.include({
+          kind: "referenceType",
           name: "byte",
         });
-        expect(callExpr.surfaceParameterTypes[0].types[1]?.kind).to.equal(
-          "referenceType"
-        );
+        if (inheritedSurfaceElementType?.kind !== "referenceType") {
+          return;
+        }
+        expect(inheritedSurfaceElementType.typeId).to.deep.equal({
+          stableId: "TestApp:System.Byte",
+          clrName: "System.Byte",
+          assemblyName: "TestApp",
+          tsName: "byte",
+        });
         expect(callExpr.surfaceParameterTypes[1].types).to.deep.equal([
           { kind: "primitiveType", name: "int" },
           { kind: "primitiveType", name: "undefined" },
@@ -715,32 +719,36 @@ describe("IR Builder", function () {
         ]);
         expect(callExpr.parameterTypes[0].typeId?.tsName).to.equal("Iterable");
         expect(callExpr.parameterTypes?.[1]?.kind).to.equal("unionType");
-        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("unionType");
+        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
         expect(callExpr.surfaceParameterTypes?.[1]?.kind).to.equal("unionType");
 
         if (
           callExpr.parameterTypes?.[1]?.kind !== "unionType" ||
-          callExpr.surfaceParameterTypes?.[0]?.kind !== "unionType" ||
+          callExpr.surfaceParameterTypes?.[0]?.kind !== "referenceType" ||
           callExpr.surfaceParameterTypes?.[1]?.kind !== "unionType"
         ) {
           return;
         }
 
-        expect(callExpr.surfaceParameterTypes[0].types).to.have.length(2);
-        expect(callExpr.surfaceParameterTypes[0].types[0]?.kind).to.equal(
-          "arrayType"
-        );
-        if (callExpr.surfaceParameterTypes[0].types[0]?.kind !== "arrayType") {
-          return;
-        }
-        expect(
-          callExpr.surfaceParameterTypes[0].types[0].elementType
-        ).to.deep.include({
+        expect(callExpr.surfaceParameterTypes[0]).to.deep.include({
+          kind: "referenceType",
+          name: "TypedArrayInput",
+        });
+        const iterableSurfaceElementType =
+          callExpr.surfaceParameterTypes[0].typeArguments?.[0];
+        expect(iterableSurfaceElementType).to.deep.include({
+          kind: "referenceType",
           name: "byte",
         });
-        expect(callExpr.surfaceParameterTypes[0].types[1]?.kind).to.equal(
-          "referenceType"
-        );
+        if (iterableSurfaceElementType?.kind !== "referenceType") {
+          return;
+        }
+        expect(iterableSurfaceElementType.typeId).to.deep.equal({
+          stableId: "TestApp:System.Byte",
+          clrName: "System.Byte",
+          assemblyName: "TestApp",
+          tsName: "byte",
+        });
         expect(callExpr.parameterTypes[1].types).to.deep.equal([
           { kind: "primitiveType", name: "int" },
           { kind: "primitiveType", name: "undefined" },
@@ -831,11 +839,11 @@ describe("IR Builder", function () {
         if (callExpr.kind !== "call") return;
 
         expect(callExpr.parameterTypes?.[0]?.kind).to.equal("arrayType");
-        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("unionType");
+        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
 
         if (
           callExpr.parameterTypes?.[0]?.kind !== "arrayType" ||
-          callExpr.surfaceParameterTypes?.[0]?.kind !== "unionType"
+          callExpr.surfaceParameterTypes?.[0]?.kind !== "referenceType"
         ) {
           return;
         }
@@ -843,33 +851,28 @@ describe("IR Builder", function () {
         expect(callExpr.parameterTypes[0].elementType).to.deep.include({
           name: "byte",
         });
-        expect(callExpr.surfaceParameterTypes[0].types[0]?.kind).to.equal(
-          "arrayType"
-        );
-        if (callExpr.surfaceParameterTypes[0].types[0]?.kind !== "arrayType") {
+        if (callExpr.surfaceParameterTypes[0].kind !== "referenceType") {
           return;
         }
-        expect(
-          callExpr.surfaceParameterTypes[0].types[0].elementType
-        ).to.deep.include({
+        expect(callExpr.surfaceParameterTypes[0]).to.deep.include({
+          kind: "referenceType",
+          name: "TypedArrayInput",
+        });
+        const arrayLiteralSurfaceElementType =
+          callExpr.surfaceParameterTypes[0].typeArguments?.[0];
+        expect(arrayLiteralSurfaceElementType).to.deep.include({
+          kind: "referenceType",
           name: "byte",
         });
-        expect(callExpr.surfaceParameterTypes[0].types[1]?.kind).to.equal(
-          "referenceType"
-        );
-        if (callExpr.surfaceParameterTypes[0].types[1]?.kind !== "referenceType") {
+        if (arrayLiteralSurfaceElementType?.kind !== "referenceType") {
           return;
         }
-        expect(callExpr.surfaceParameterTypes[0].types[1]).to.deep.include({
-          kind: "referenceType",
-          name: "Iterable",
+        expect(arrayLiteralSurfaceElementType.typeId).to.deep.equal({
+          stableId: "TestApp:System.Byte",
+          clrName: "System.Byte",
+          assemblyName: "TestApp",
+          tsName: "byte",
         });
-        expect(
-          callExpr.surfaceParameterTypes[0].types[1].typeArguments
-        ).to.deep.equal([{ kind: "primitiveType", name: "number" }]);
-        expect(
-          callExpr.surfaceParameterTypes[0].types[1].typeId?.tsName
-        ).to.equal("Iterable");
       } finally {
         fixture.cleanup();
       }

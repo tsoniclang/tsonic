@@ -97,8 +97,10 @@ describe("Expression Emission", () => {
       },
       { kind: "predefinedType", keyword: "string" },
     ]);
-    expect(result).to.include(`new ${middlewareCarrier}[]`);
-    expect(result).to.include('new string[] { "ok" }');
+    expect(result).to.include(
+      `${middlewareCarrier}.From1(new string[] { "ok" })`
+    );
+    expect(result).not.to.include(".Match<string[]>");
     expect(result).to.not.include("new object[] { new object[]");
   });
 

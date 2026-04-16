@@ -323,9 +323,9 @@ const refreshExpression = (
         boundGlobalParameterTypes: undefined,
         authoritativeBoundGlobalSurfaceParameterTypes: undefined,
         authoritativeBoundGlobalReturnType: undefined,
-        sourceBackedParameterTypes: undefined,
-        sourceBackedSurfaceParameterTypes: undefined,
-        sourceBackedReturnType: undefined,
+        sourceBackedParameterTypes: expr.sourceBackedParameterTypes,
+        sourceBackedSurfaceParameterTypes: expr.sourceBackedSurfaceParameterTypes,
+        sourceBackedReturnType: expr.sourceBackedReturnType,
         ambientBoundGlobalSurfaceParameterTypes: undefined,
         authoritativeDirectParameterTypes: undefined,
         resolvedParameterTypes: resolved.parameterTypes,
@@ -352,8 +352,20 @@ const refreshExpression = (
         surfaceParameterTypes:
           finalizedInvocationMetadata.surfaceParameterTypes ??
           expr.surfaceParameterTypes,
+        sourceBackedParameterTypes:
+          finalizedInvocationMetadata.sourceBackedParameterTypes ??
+          expr.sourceBackedParameterTypes,
+        sourceBackedSurfaceParameterTypes:
+          finalizedInvocationMetadata.sourceBackedSurfaceParameterTypes ??
+          expr.sourceBackedSurfaceParameterTypes,
+        sourceBackedRestParameter: expr.sourceBackedRestParameter,
+        sourceBackedReturnType:
+          finalizedInvocationMetadata.sourceBackedReturnType ??
+          expr.sourceBackedReturnType,
         surfaceRestParameter:
-          resolved.surfaceRestParameter ?? expr.surfaceRestParameter,
+          expr.sourceBackedRestParameter ??
+          resolved.surfaceRestParameter ??
+          expr.surfaceRestParameter,
       };
     }
 

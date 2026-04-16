@@ -746,6 +746,59 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(castAst)).to.equal("-1");
   });
 
+  it("does not cast conditional exact-int expressions when actual and expected numeric families already match", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      {
+        kind: "conditionalExpression",
+        condition: identifierExpression("flag"),
+        whenTrue: parseNumericLiteral("1"),
+        whenFalse: parseNumericLiteral("2"),
+      },
+      { kind: "referenceType", name: "int" },
+      context,
+      { kind: "primitiveType", name: "int" }
+    );
+
+    expect(printExpression(castAst)).to.equal("flag ? 1 : 2");
+  });
+
+  it("keeps explicit nullable exact-int casts for member-access slots even when numeric families match", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      {
+        kind: "memberAccessExpression",
+        expression: identifierExpression("query"),
+        memberName: "limit",
+      },
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      },
+      context,
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      }
+    );
+
+    expect(printExpression(castAst)).to.equal("(int?)query.limit");
+  });
+
   it("does not layer an identical nullable exact-int cast twice", () => {
     const context = createContext({
       rootNamespace: "Test",

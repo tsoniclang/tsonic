@@ -269,6 +269,12 @@ const isIteratorAccessExpression = (
   );
 };
 
+const isSimpleElementCast = (
+  expression: CSharpExpressionAst | undefined,
+  itemIdentifier: CSharpExpressionAst
+): expression is Extract<CSharpExpressionAst, { kind: "castExpression" }> =>
+  expression?.kind === "castExpression" && expression.expression === itemIdentifier;
+
 const buildIterableSourceAst = (
   emittedAst: CSharpExpressionAst,
   sourceType: IrType | undefined,
@@ -428,6 +434,8 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         : undefined);
     const adaptedElementAst =
       structuralElementAdaptation?.[0] ?? upcastElementAdaptation?.[0];
+    const hasElementAdaptation =
+      adaptedElementAst !== undefined && adaptedElementAst !== itemIdentifier;
     currentContext =
       structuralElementAdaptation?.[1] ??
       upcastElementAdaptation?.[1] ??
@@ -443,7 +451,7 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       currentContext
     );
     const needsElementAdaptation =
-      adaptedElementAst !== undefined || !runtimeCarrierMatches;
+      hasElementAdaptation || !runtimeCarrierMatches;
     if (
       !needsElementAdaptation &&
       matchesExpectedEmissionType(
@@ -635,6 +643,8 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         : undefined);
     const adaptedElementAst =
       structuralElementAdaptation?.[0] ?? upcastElementAdaptation?.[0];
+    const hasElementAdaptation =
+      adaptedElementAst !== undefined && adaptedElementAst !== itemIdentifier;
     currentContext =
       structuralElementAdaptation?.[1] ??
       upcastElementAdaptation?.[1] ??
@@ -654,7 +664,7 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       currentContext
     );
     const needsElementAdaptation =
-      adaptedElementAst !== undefined ||
+      hasElementAdaptation ||
       (!preferDirectBroadElement && !runtimeCarrierMatches);
 
     if (!needsElementAdaptation) {
@@ -697,6 +707,46 @@ export const tryAdaptStructuralCollectionExpressionAst = (
             type: targetElementTypeAst,
             expression: itemIdentifier,
           });
+    const canPreferDirectIterableCast =
+      expectedType !== undefined &&
+      isSimpleElementCast(effectiveElementAst, itemIdentifier) &&
+      isBroadObjectSlotType(sourceIterable.elementType, currentContext);
+    if (canPreferDirectIterableCast && expectedType) {
+      const [targetIterableTypeAst, targetIterableContext] = emitTypeAst(
+        normalizeStructuralCarrierEmissionType(expectedType, currentContext),
+        currentContext
+      );
+      const directIterableSourceAst =
+        emittedAst.kind === "castExpression"
+          ? emittedAst.expression
+          : emittedAst;
+      const castIterableAst: CSharpExpressionAst = {
+        kind: "castExpression",
+        type: targetIterableTypeAst,
+        expression: directIterableSourceAst,
+      };
+
+      if (!hasNullishBranch(sourceType)) {
+        return [castIterableAst, targetIterableContext];
+      }
+
+      if (isDirectlyReusableExpression(emittedAst)) {
+        return [
+          {
+            kind: "conditionalExpression",
+            condition: {
+              kind: "binaryExpression",
+              operatorToken: "==",
+              left: emittedAst,
+              right: nullLiteral(),
+            },
+            whenTrue: { kind: "defaultExpression" },
+            whenFalse: castIterableAst,
+          },
+          targetIterableContext,
+        ];
+      }
+    }
     const selectAst: CSharpExpressionAst = {
       kind: "invocationExpression",
       expression: {

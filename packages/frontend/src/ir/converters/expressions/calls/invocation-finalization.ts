@@ -510,12 +510,131 @@ export const selectDeterministicSourceBackedParameterType = (
     return parameterType;
   }
 
-  const hasNullishWrapperMember = parameterType.types.some(
-    (member) =>
-      member.kind === "primitiveType" &&
-      (member.name === "undefined" || member.name === "null")
+  const resolveRecursiveSelection = (member: IrType): IrType =>
+    member.kind === "unionType"
+      ? (selectDeterministicSourceBackedParameterType(
+          member,
+          actualArgType,
+          ctx
+        ) ?? member)
+      : member;
+
+  const isRuntimeNullishMember = (member: IrType): boolean =>
+    member.kind === "primitiveType" &&
+    (member.name === "undefined" || member.name === "null");
+  const unwrapSingleConcreteMember = (type: IrType): IrType => {
+    if (type.kind !== "unionType") {
+      return type;
+    }
+
+    const concreteMembers = type.types.filter(
+      (member) => !isRuntimeNullishMember(member)
+    );
+    return concreteMembers.length === 1
+      ? unwrapSingleConcreteMember(concreteMembers[0]!)
+      : type;
+  };
+  const numericTypeNames = new Set([
+    "number",
+    "int",
+    "byte",
+    "sbyte",
+    "short",
+    "ushort",
+    "uint",
+    "long",
+    "ulong",
+    "float",
+    "double",
+    "decimal",
+  ]);
+  const iterableTypeNames = new Set([
+    "Array",
+    "ReadonlyArray",
+    "Iterable",
+    "IterableIterator",
+    "Iterator",
+    "Generator",
+    "Set",
+    "ReadonlySet",
+    "Map",
+    "ReadonlyMap",
+    "IEnumerable",
+    "IEnumerable_1",
+  ]);
+  const isArrayLikeType = (type: IrType | undefined): boolean => {
+    if (!type) {
+      return false;
+    }
+
+    const normalized = unwrapSingleConcreteMember(type);
+    if (normalized.kind === "arrayType" || normalized.kind === "tupleType") {
+      return true;
+    }
+
+    if (normalized.kind !== "referenceType") {
+      return false;
+    }
+
+    const simpleName = normalized.name.split(".").pop() ?? normalized.name;
+    return simpleName === "Array" || simpleName === "ReadonlyArray";
+  };
+  const isIterableLikeType = (type: IrType | undefined): boolean => {
+    if (!type) {
+      return false;
+    }
+
+    if (isArrayLikeType(type)) {
+      return true;
+    }
+
+    const normalized = unwrapSingleConcreteMember(type);
+    if (normalized.kind !== "referenceType") {
+      return false;
+    }
+
+    const simpleName = normalized.name.split(".").pop() ?? normalized.name;
+    return iterableTypeNames.has(simpleName);
+  };
+  const isNumericScalarType = (type: IrType | undefined): boolean => {
+    if (!type || isArrayLikeType(type) || isIterableLikeType(type)) {
+      return false;
+    }
+
+    const normalized = unwrapSingleConcreteMember(type);
+    if (normalized.kind === "primitiveType") {
+      return numericTypeNames.has(normalized.name);
+    }
+
+    if (normalized.kind !== "referenceType") {
+      return false;
+    }
+
+    const simpleName = normalized.name.split(".").pop() ?? normalized.name;
+    return numericTypeNames.has(simpleName);
+  };
+  const concreteMembers = parameterType.types.filter(
+    (member) => !isRuntimeNullishMember(member)
+  );
+  const chooseUniqueConcreteMember = (
+    predicate: (member: IrType) => boolean
+  ): IrType | undefined => {
+    const matchingMembers = concreteMembers.filter(predicate);
+    return matchingMembers.length === 1 ? matchingMembers[0] : undefined;
+  };
+  const hasNullishWrapperMember = parameterType.types.some((member) =>
+    isRuntimeNullishMember(member)
   );
   if (hasNullishWrapperMember) {
+    const matchingConcreteMembers = concreteMembers.filter(
+      (member) =>
+        (ctx.typeSystem.typesEqual(actualArgType, member) ||
+          ctx.typeSystem.isAssignableTo(actualArgType, member))
+    );
+    if (matchingConcreteMembers.length === 1) {
+      return resolveRecursiveSelection(matchingConcreteMembers[0]!);
+    }
+
     return parameterType;
   }
 
@@ -524,7 +643,38 @@ export const selectDeterministicSourceBackedParameterType = (
       ctx.typeSystem.typesEqual(actualArgType, member) ||
       ctx.typeSystem.isAssignableTo(actualArgType, member)
   );
-  return matchingMembers.length === 1 ? matchingMembers[0] : parameterType;
+  if (matchingMembers.length === 1) {
+    return resolveRecursiveSelection(matchingMembers[0]!);
+  }
+
+  if (isArrayLikeType(actualArgType)) {
+    const arrayLikeMember = chooseUniqueConcreteMember((member) =>
+      isArrayLikeType(member)
+    );
+    if (arrayLikeMember) {
+      return resolveRecursiveSelection(arrayLikeMember);
+    }
+  }
+
+  if (isNumericScalarType(actualArgType)) {
+    const numericScalarMember = chooseUniqueConcreteMember((member) =>
+      isNumericScalarType(member)
+    );
+    if (numericScalarMember) {
+      return resolveRecursiveSelection(numericScalarMember);
+    }
+  }
+
+  if (isIterableLikeType(actualArgType)) {
+    const iterableMember = chooseUniqueConcreteMember((member) =>
+      isIterableLikeType(member)
+    );
+    if (iterableMember) {
+      return resolveRecursiveSelection(iterableMember);
+    }
+  }
+
+  return parameterType;
 };
 
 export const expandAuthoritativeSourceBackedSurfaceType = (
@@ -567,9 +717,6 @@ export const expandAuthoritativeSourceBackedSurfaceType = (
             (candidate.kind === "unionType" ||
               candidate.kind === "intersectionType")
         );
-      if (expandedAlias?.kind === "unionType" && expandedAlias.runtimeCarrierFamilyKey) {
-        return type;
-      }
       if (expandedAlias) {
         return expandAuthoritativeSourceBackedSurfaceType(
           expandedAlias,
@@ -1070,7 +1217,7 @@ export const finalizeInvocationMetadata = ({
     specializedResolvedSurfaceParameterTypes ??
     specializedFallbackSurfaceParameterTypes ??
     parameterTypes;
-  const specializedExpandedSurfaceParameterTypes =
+  const selectionSurfaceParameterTypes =
     baselineSurfaceParameterTypes?.map((parameterType) =>
       preserveDirectSurfaceIdentity
         ? parameterType
@@ -1079,7 +1226,7 @@ export const finalizeInvocationMetadata = ({
     );
   const finalParameterTypes = parameterTypes?.map((parameterType, index) => {
     const originalSurfaceType = baselineSurfaceParameterTypes?.[index];
-    const expandedSurfaceType = specializedExpandedSurfaceParameterTypes?.[index];
+    const expandedSurfaceType = selectionSurfaceParameterTypes?.[index];
     if (
       !expandedSurfaceType ||
       !originalSurfaceType ||
@@ -1112,7 +1259,7 @@ export const finalizeInvocationMetadata = ({
 
   return {
     parameterTypes: finalParameterTypes,
-    surfaceParameterTypes: specializedExpandedSurfaceParameterTypes,
+    surfaceParameterTypes: baselineSurfaceParameterTypes,
     sourceBackedParameterTypes: refinedSourceBackedParameterTypes,
     sourceBackedSurfaceParameterTypes: refinedSourceBackedSurfaceParameterTypes,
     sourceBackedReturnType: finalSourceBackedReturnType,

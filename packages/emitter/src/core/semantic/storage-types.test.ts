@@ -16,7 +16,7 @@ describe("storage-types", () => {
     usings: new Set<string>(),
   };
 
-  it("erases recursive union array storage to object[]", () => {
+  it("preserves recursive union array storage with a deterministic re-entry cut", () => {
     const handlerType: IrType = {
       kind: "functionType",
       parameters: [],
@@ -54,9 +54,20 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "arrayType",
       elementType: {
-        kind: "referenceType",
-        name: "object",
-        resolvedClrType: "System.Object",
+        kind: "unionType",
+        types: [
+          {
+            kind: "arrayType",
+            elementType: {
+              kind: "referenceType",
+              name: "object",
+              resolvedClrType: "System.Object",
+            },
+            origin: "explicit",
+          },
+          handlerType,
+          routerType,
+        ],
       },
       origin: "explicit",
     });
@@ -106,15 +117,26 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "unionType",
       types: [
-        {
-          kind: "arrayType",
-          elementType: {
-            kind: "referenceType",
-            name: "object",
-            resolvedClrType: "System.Object",
-          },
-          origin: "explicit",
-        },
+            {
+              kind: "arrayType",
+              elementType: {
+                kind: "unionType",
+                types: [
+                  {
+                    kind: "arrayType",
+                    elementType: {
+                      kind: "referenceType",
+                      name: "object",
+                      resolvedClrType: "System.Object",
+                    },
+                    origin: "explicit",
+                  },
+                  handlerType,
+                  routerType,
+                ],
+              },
+              origin: "explicit",
+            },
         { kind: "primitiveType", name: "undefined" },
       ],
     });

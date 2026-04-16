@@ -44,7 +44,6 @@ import {
   resolveRuntimeArrayMemberStorageType,
   SYSTEM_ARRAY_STORAGE_TYPE,
 } from "../../../core/semantic/broad-array-storage.js";
-import { registerLocalSymbolTypes } from "../../../core/format/local-names.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
 type GuardResult = [readonly CSharpStatementAst[], EmitterContext] | undefined;
@@ -282,14 +281,7 @@ export const tryEmitArrayIsArrayGuard = (
       ? narrowedMap
       : condCtxAfterCond.narrowedBindings,
   };
-  const thenCtx = arrayIsArrayGuard.narrowsInThen
-    ? registerLocalSymbolTypes(
-        arrayIsArrayGuard.originalName,
-        narrowedType,
-        SYSTEM_ARRAY_STORAGE_TYPE,
-        thenBaseCtx
-      )
-    : thenBaseCtx;
+  const thenCtx = thenBaseCtx;
   const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
     stmt.thenStatement,
     thenCtx
@@ -306,14 +298,7 @@ export const tryEmitArrayIsArrayGuard = (
       ? condCtxAfterCond.narrowedBindings
       : narrowedMap,
   };
-  const fallthroughContext = !arrayIsArrayGuard.narrowsInThen
-    ? registerLocalSymbolTypes(
-        arrayIsArrayGuard.originalName,
-        narrowedType,
-        SYSTEM_ARRAY_STORAGE_TYPE,
-        elseBaseCtx
-      )
-    : elseBaseCtx;
+  const fallthroughContext = elseBaseCtx;
 
   let finalContext: EmitterContext = thenTerminates
     ? fallthroughContext
@@ -321,14 +306,7 @@ export const tryEmitArrayIsArrayGuard = (
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
-    const elseCtx = !arrayIsArrayGuard.narrowsInThen
-      ? registerLocalSymbolTypes(
-          arrayIsArrayGuard.originalName,
-          narrowedType,
-          SYSTEM_ARRAY_STORAGE_TYPE,
-          elseBaseCtx
-        )
-      : elseBaseCtx;
+    const elseCtx = elseBaseCtx;
     const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
       stmt.elseStatement,
       elseCtx
@@ -363,12 +341,6 @@ export const tryEmitArrayIsArrayGuard = (
         condCtxAfterCond,
         finalContext,
         SYSTEM_ARRAY_STORAGE_TYPE
-      );
-      finalContext = registerLocalSymbolTypes(
-        arrayIsArrayGuard.originalName,
-        complementType,
-        SYSTEM_ARRAY_STORAGE_TYPE,
-        finalContext
       );
     }
   }

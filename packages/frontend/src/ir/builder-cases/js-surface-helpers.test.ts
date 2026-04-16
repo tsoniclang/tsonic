@@ -2551,6 +2551,25 @@ describe("IR Builder", function () {
             sourceSpan: regexCtor.arguments[1]?.sourceSpan,
           },
         ]);
+        expect(regexCtor.parameterTypes?.[0]).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(regexCtor.surfaceParameterTypes?.[0]).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(regexCtor.parameterTypes?.[1]).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(regexCtor.surfaceParameterTypes?.[1]).to.deep.equal({
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "string" },
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        });
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }

@@ -162,6 +162,14 @@ export const substituteIrType = (
         const substitutedMembers = currentType.types.map((memberType) =>
           substitute(memberType)
         );
+        const substitutedRuntimeCarrierTypeArguments =
+          currentType.runtimeCarrierTypeArguments?.map(substitute) ??
+          currentType.runtimeCarrierTypeParameters?.map((typeParameter) =>
+            substitute({
+              kind: "typeParameterType",
+              name: typeParameter,
+            })
+          );
         if (currentType.preserveRuntimeLayout) {
           (
             draft as {
@@ -178,7 +186,7 @@ export const substituteIrType = (
               runtimeCarrierTypeArguments?: readonly IrType[];
             }
           ).runtimeCarrierTypeArguments =
-            currentType.runtimeCarrierTypeArguments?.map(substitute);
+            substitutedRuntimeCarrierTypeArguments;
           return draft;
         }
         const normalized = normalizedUnionType(substitutedMembers, {
@@ -200,7 +208,14 @@ export const substituteIrType = (
           ...(currentType.runtimeCarrierTypeArguments !== undefined
             ? {
                 runtimeCarrierTypeArguments:
-                  currentType.runtimeCarrierTypeArguments.map(substitute),
+                  substitutedRuntimeCarrierTypeArguments,
+              }
+            : {}),
+          ...(currentType.runtimeCarrierTypeArguments === undefined &&
+          substitutedRuntimeCarrierTypeArguments !== undefined
+            ? {
+                runtimeCarrierTypeArguments:
+                  substitutedRuntimeCarrierTypeArguments,
               }
             : {}),
         });

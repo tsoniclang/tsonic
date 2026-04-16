@@ -670,14 +670,14 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("if (handler.Is1())");
       expect(csharp).to.include(
-        "for (int index = 0; index < ((global::System.Array)(handler.As1())).Length; index += 1)"
+        "for (int index = 0; index < (handler.As1()).Length; index += 1)"
       );
       expect(csharp).to.not.include(
         "new global::js.Array<global::Tsonic.Internal.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
       );
       expect(csharp).to.not.include("isMiddlewareHandler(handler.Match");
       expect(csharp).to.include(
-        "if (!isMiddlewareHandler(global::Test.MiddlewareLike<object[], global::System.Action<string>, global::Test.Router>.From2((handler.As2()))))"
+        "if (!isMiddlewareHandler(global::Test.MiddlewareLike.From2((handler.As2()))))"
       );
       expect(csharp).to.include(
         'throw new global::System.Exception("middleware handlers must be functions");'

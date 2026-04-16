@@ -76,6 +76,8 @@ export const materializeDirectNarrowingAst = (
     unwrapParameterModifierType(sourceType) ?? sourceType;
   const comparableNarrowedType =
     unwrapParameterModifierType(narrowedType) ?? narrowedType;
+  const sourceWasParameterModifierWrapped =
+    comparableSourceType !== sourceType;
 
   if (
     runtimeUnionAliasReferencesMatch(
@@ -170,6 +172,7 @@ export const materializeDirectNarrowingAst = (
     }
   }
   const canReuseAssignableSurface =
+    !sourceWasParameterModifierWrapped &&
     resolvedSource.kind !== "unknownType" &&
     resolvedSource.kind !== "anyType" &&
     resolvedSource.kind !== "objectType" &&

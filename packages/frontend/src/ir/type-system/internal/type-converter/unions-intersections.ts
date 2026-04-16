@@ -5,9 +5,7 @@
 import * as ts from "typescript";
 import { IrType } from "../../../types.js";
 import {
-  hasRuntimeUnionCarrierShape,
   normalizedUnionType,
-  runtimeUnionCarrierFamilyKey,
 } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
 
@@ -19,15 +17,7 @@ export const convertUnionType = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType => {
-  const normalized = normalizedUnionType(
-    node.types.map((t) => convertType(t, binding))
-  );
-  return normalized.kind === "unionType" && hasRuntimeUnionCarrierShape(normalized)
-    ? {
-        ...normalized,
-        runtimeCarrierFamilyKey: runtimeUnionCarrierFamilyKey(normalized),
-      }
-    : normalized;
+  return normalizedUnionType(node.types.map((t) => convertType(t, binding)));
 };
 
 /**

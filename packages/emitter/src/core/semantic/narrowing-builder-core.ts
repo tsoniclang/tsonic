@@ -31,7 +31,6 @@ import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
 } from "./runtime-reification.js";
-import { registerLocalSymbolTypes } from "../format/local-names.js";
 
 export type BranchTruthiness = "truthy" | "falsy";
 
@@ -103,37 +102,10 @@ export const applyBinding = (
 ): EmitterContext => {
   const narrowedBindings = new Map(context.narrowedBindings ?? []);
   narrowedBindings.set(bindingKey, binding);
-  const narrowedContext: EmitterContext = {
+  return {
     ...context,
     narrowedBindings,
   };
-
-  if (
-    bindingKey === "this" ||
-    bindingKey.startsWith("this.") ||
-    bindingKey.includes(".")
-  ) {
-    return narrowedContext;
-  }
-
-  const semanticType = binding.type ?? binding.sourceType;
-  const storageType = (() => {
-    switch (binding.kind) {
-      case "rename":
-        return binding.sourceType ?? binding.type;
-      case "expr":
-        return binding.storageType ?? binding.sourceType ?? binding.type;
-      case "runtimeSubset":
-        return binding.sourceType ?? binding.type;
-    }
-  })();
-
-  return registerLocalSymbolTypes(
-    bindingKey,
-    semanticType,
-    storageType,
-    narrowedContext
-  );
 };
 
 export const resolveRuntimeSubsetSourceInfo = (

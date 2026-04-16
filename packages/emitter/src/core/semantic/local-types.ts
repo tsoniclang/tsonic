@@ -194,6 +194,25 @@ const walkTypeRefs = (
       walkTypeRefs(type.valueType, onReference, seen);
       return;
     case "unionType":
+      if (type.runtimeCarrierName) {
+        onReference({
+          kind: "referenceType",
+          name: type.runtimeCarrierName,
+          ...(type.runtimeCarrierNamespace
+            ? {
+                resolvedClrType: `${type.runtimeCarrierNamespace}.${type.runtimeCarrierName}`,
+              }
+            : {}),
+          ...(type.runtimeCarrierTypeArguments &&
+          type.runtimeCarrierTypeArguments.length > 0
+            ? { typeArguments: type.runtimeCarrierTypeArguments }
+            : {}),
+        });
+      }
+      for (const nested of type.types) {
+        walkTypeRefs(nested, onReference, seen);
+      }
+      return;
     case "intersectionType":
       for (const nested of type.types) {
         walkTypeRefs(nested, onReference, seen);

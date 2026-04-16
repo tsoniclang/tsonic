@@ -196,9 +196,7 @@ describe("Integration: CLR iterable overloads", () => {
     expect(csharp).to.include("result.set(");
     expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
     expect(csharp).to.not.include("result.set(buffer, length - buffer.length);");
-    expect(csharp).to.not.include(
-      "global::Tsonic.Internal.Union<double[], global::System.Collections.Generic.IEnumerable<double>, int>.From2"
-    );
+    expect(csharp).to.not.include("result.set(global::Tsonic.Internal.Union");
   });
 
   it("keeps scalar equality overloads for JsValue event payload assertions", () => {

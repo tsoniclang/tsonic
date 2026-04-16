@@ -304,6 +304,18 @@ export type IrNewExpression = {
   readonly parameterTypes?: readonly (IrType | undefined)[];
   /** Declared/public constructor parameter surface types for emission. */
   readonly surfaceParameterTypes?: readonly (IrType | undefined)[];
+  /** Exact source-declared constructor parameter surface retained across refresh passes. */
+  readonly sourceBackedParameterTypes?: readonly (IrType | undefined)[];
+  /** Exact source-declared public constructor parameter surface retained across refresh passes. */
+  readonly sourceBackedSurfaceParameterTypes?: readonly (IrType | undefined)[];
+  /** Exact source-declared constructor rest metadata retained across refresh passes. */
+  readonly sourceBackedRestParameter?: {
+    readonly index: number;
+    readonly arrayType: IrType | undefined;
+    readonly elementType: IrType | undefined;
+  };
+  /** Exact source-declared constructor result type retained across refresh passes. */
+  readonly sourceBackedReturnType?: IrType;
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
   readonly surfaceRestParameter?: {

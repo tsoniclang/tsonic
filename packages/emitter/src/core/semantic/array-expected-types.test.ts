@@ -36,7 +36,7 @@ describe("array-expected-types", () => {
     );
   });
 
-  it("erases recursive runtime-union array elements to object arrays", () => {
+  it("preserves recursive runtime-union alias array contexts", () => {
     const recursiveType: IrType = {
       kind: "referenceType",
       name: "PathSpec",
@@ -67,23 +67,14 @@ describe("array-expected-types", () => {
       ]),
     };
 
+    const expectedType: IrType = {
+      kind: "referenceType",
+      name: "ReadonlyArray",
+      typeArguments: [recursiveType],
+    };
+
     expect(
-      normalizeRecursiveArrayExpectedType(
-        {
-          kind: "referenceType",
-          name: "ReadonlyArray",
-          typeArguments: [recursiveType],
-        },
-        contextWithAlias
-      )
-    ).to.deep.equal({
-      kind: "arrayType",
-      elementType: {
-        kind: "referenceType",
-        name: "object",
-        resolvedClrType: "System.Object",
-      },
-      origin: "explicit",
-    });
+      normalizeRecursiveArrayExpectedType(expectedType, contextWithAlias)
+    ).to.deep.equal(expectedType);
   });
 });

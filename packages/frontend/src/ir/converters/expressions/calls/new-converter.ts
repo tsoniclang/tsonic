@@ -24,6 +24,7 @@ import {
   finalizeInvocationMetadata,
   normalizeFinalizedInvocationArguments,
 } from "./invocation-finalization.js";
+import { buildSourceBackedConstructorParameterTypes } from "./source-backed-constructor-metadata.js";
 
 // DELETED: getConstructedType - Phase 15 uses resolveCall.returnType instead
 
@@ -209,6 +210,16 @@ export const convertNewExpression = (
 
   // Phase 15: inferredType MUST be finalResolved.returnType
   // If sigId is missing, use unknownType (do not fabricate a nominal type)
+  const sourceBackedConstructorParameterTypes =
+    buildSourceBackedConstructorParameterTypes({
+      sourceNode: node,
+      constructorExpression: node.expression,
+      callee,
+      constructedType: finalResolved?.returnType,
+      argumentCount,
+      actualArgTypes: argTypes,
+      ctx,
+    });
   const finalizedInvocationMetadata = finalizeInvocationMetadata({
     ctx,
     callee,
@@ -225,9 +236,11 @@ export const convertNewExpression = (
     boundGlobalParameterTypes: undefined,
     authoritativeBoundGlobalSurfaceParameterTypes: undefined,
     authoritativeBoundGlobalReturnType: undefined,
-    sourceBackedParameterTypes: undefined,
-    sourceBackedSurfaceParameterTypes: undefined,
-    sourceBackedReturnType: undefined,
+    sourceBackedParameterTypes:
+      sourceBackedConstructorParameterTypes?.parameterTypes,
+    sourceBackedSurfaceParameterTypes:
+      sourceBackedConstructorParameterTypes?.surfaceParameterTypes,
+    sourceBackedReturnType: finalResolved?.returnType,
     ambientBoundGlobalSurfaceParameterTypes: undefined,
     authoritativeDirectParameterTypes: undefined,
     resolvedParameterTypes: finalResolved?.parameterTypes,
@@ -289,8 +302,18 @@ export const convertNewExpression = (
     argumentPassing,
     parameterTypes,
     surfaceParameterTypes,
+    sourceBackedParameterTypes:
+      finalizedInvocationMetadata.sourceBackedParameterTypes,
+    sourceBackedSurfaceParameterTypes:
+      finalizedInvocationMetadata.sourceBackedSurfaceParameterTypes,
+    sourceBackedRestParameter:
+      sourceBackedConstructorParameterTypes?.restParameter,
+    sourceBackedReturnType:
+      finalizedInvocationMetadata.sourceBackedReturnType,
     typeArguments: typeArgumentsForIr,
     requiresSpecialization,
-    surfaceRestParameter: finalResolved?.surfaceRestParameter,
+    surfaceRestParameter:
+      sourceBackedConstructorParameterTypes?.restParameter ??
+      finalResolved?.surfaceRestParameter,
   };
 };

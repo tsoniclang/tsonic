@@ -41,14 +41,18 @@ const argumentMayBeNullish = (
   }
 
   const transparentArg = unwrapTransparentExpression(arg);
-  const candidateType =
-    resolveEffectiveExpressionType(transparentArg, context) ??
-    transparentArg.inferredType ??
-    arg.inferredType;
-  const split = candidateType
-    ? splitRuntimeNullishUnionMembers(candidateType)
-    : undefined;
-  return split?.hasRuntimeNullish ?? false;
+  const candidateTypes = [
+    resolveEffectiveExpressionType(transparentArg, context),
+    transparentArg.inferredType,
+    arg.inferredType,
+    transparentArg.kind === "identifier"
+      ? context.localValueTypes?.get(transparentArg.name)
+      : undefined,
+  ].filter((candidate): candidate is IrType => candidate !== undefined);
+  return candidateTypes.some(
+    (candidateType) =>
+      splitRuntimeNullishUnionMembers(candidateType)?.hasRuntimeNullish ?? false
+  );
 };
 
 export const normalizeCallArgumentExpectedType = (

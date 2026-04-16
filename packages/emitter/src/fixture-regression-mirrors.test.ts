@@ -77,6 +77,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         'var regex = new global::js.RegExp(global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("HELLO"));'
       );
+      expect(csharp).to.include(
+        'var regexLiteral = new global::js.RegExp(global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("^[A-Z, ]+$"));'
+      );
       expect(csharp).to.include('var chars = global::js.Array.from("abcd");');
       expect(csharp).to.include("var more = global::js.Array.of(6, 7, 8);");
       expect(csharp).to.include(
