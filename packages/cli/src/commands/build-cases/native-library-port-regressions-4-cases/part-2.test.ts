@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -168,7 +169,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("prefers source-owned JS surface members over runtime duplicate bindings", () => {
+  it("emits JS surface members from the first-party source package", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-js-source-owned-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
@@ -197,13 +198,7 @@ describe("build command (native library port regressions)", function () {
           typeRoots: ["node_modules/@tsonic/js"],
           libraries: [],
           frameworkReferences: [],
-          packageReferences: [
-            {
-              id: "Tsonic.JSRuntime",
-              version: "0.0.9",
-              types: "@tsonic/js",
-            },
-          ],
+          packageReferences: [],
         },
       };
 
@@ -254,6 +249,12 @@ describe("build command (native library port regressions)", function () {
         throw new Error(result.error);
       }
       expect(result.ok).to.equal(true);
+
+      const generatedModule = readFileSync(
+        join(projectRoot, "generated", "index.cs"),
+        "utf-8"
+      );
+      expect(generatedModule).to.include('global::js.String.trim("  airplane  ")');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -170,6 +170,43 @@ const referenceTypeCanContainInstanceofTarget = (
   return false;
 };
 
+export const runtimeUnionMemberCanAcceptValue = (
+  member: IrType,
+  candidate: IrType,
+  context: EmitterContext
+): boolean => {
+  if (unionMemberMatchesTarget(member, candidate, context)) {
+    return true;
+  }
+
+  const resolvedMember = resolveTypeAlias(stripNullish(member), context);
+  const resolvedCandidate = resolveTypeAlias(stripNullish(candidate), context);
+  if (
+    resolvedMember.kind === "referenceType" &&
+    resolvedCandidate.kind === "referenceType" &&
+    referenceTypeCanContainInstanceofTarget(
+      resolvedMember,
+      resolvedCandidate,
+      context
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+export const findRuntimeUnionAssignableMemberIndices = (
+  members: readonly IrType[],
+  candidate: IrType,
+  context: EmitterContext
+): readonly number[] =>
+  members.flatMap((member, index) =>
+    member && runtimeUnionMemberCanAcceptValue(member, candidate, context)
+      ? [index]
+      : []
+  );
+
 export const findRuntimeUnionInstanceofMemberIndices = (
   members: readonly IrType[],
   target: IrType,
@@ -182,23 +219,8 @@ export const findRuntimeUnionInstanceofMemberIndices = (
       return [];
     }
 
-    if (unionMemberMatchesTarget(member, resolvedTarget, context)) {
-      return [index];
-    }
-
-    const resolvedMember = resolveTypeAlias(stripNullish(member), context);
-    if (
-      resolvedMember.kind === "referenceType" &&
-      resolvedTarget.kind === "referenceType" &&
-      referenceTypeCanContainInstanceofTarget(
-        resolvedMember,
-        resolvedTarget,
-        context
-      )
-    ) {
-      return [index];
-    }
-
-    return [];
+    return runtimeUnionMemberCanAcceptValue(member, resolvedTarget, context)
+      ? [index]
+      : [];
   });
 };

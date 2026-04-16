@@ -1,58 +1,41 @@
+---
+title: Generators
+---
+
 # Generators
 
-Tsonic supports generators, async generators, and broad deterministic yield lowering.
+Generator support exists where lowering is explicit and deterministic.
 
-## Basic Generator
+## Rule
+
+If a generator shape can be lowered to the current runtime model, it is
+supported. If not, it is rejected rather than emulated loosely.
+
+## What that means in practice
+
+Generators are best treated as a supported subset feature:
+
+- typed `yield` values are fine when the compiler can model the iterator shape
+- ordinary `for...of` consumption is the expected usage pattern
+- exotic coroutine tricks or open-ended dynamic generator manipulation are not
+  the design target
+
+Example:
 
 ```ts
-export function* numbers(): Generator<number, void, void> {
-  yield 1;
-  yield 2;
-  yield 3;
+export function* range(limit: number): Generator<number, void, void> {
+  for (let i = 0; i < limit; i++) {
+    yield i;
+  }
 }
 ```
 
-## Generator With Return Value
+## Why this matters
 
-```ts
-export function* work(): Generator<number, string, void> {
-  yield 1;
-  return "done";
-}
-```
+The same rule that applies to async and callbacks applies here: deterministic
+lowering beats permissive but fragile behavior.
 
-## Bidirectional Generator
+## Practical expectation
 
-```ts
-export function* echo(): Generator<string, void, string> {
-  const first = yield "ready";
-  console.log(first);
-}
-```
-
-## Async Generator
-
-```ts
-export async function* stream(): AsyncGenerator<number, void, void> {
-  yield 1;
-  yield 2;
-}
-```
-
-## Yield Lowering
-
-Supported yield contexts now include many direct and nested positions:
-
-- return expressions
-- conditional expressions
-- `if` / `while` / `switch` conditions
-- `for` initializer / condition / update
-- `for-of` / `for-in` expression positions
-- compound assignment patterns in supported target shapes
-
-Irreducible residual cases still fail with `TSN6101`.
-
-## Guidance
-
-- keep generator state machines explicit
-- if a yield position still fails, prefer rewriting it to a clearer statement-level shape instead of trying to force the compiler through an ambiguous nested expression
+Treat generators as a supported subset feature, not as a promise of all
+TypeScript generator patterns.

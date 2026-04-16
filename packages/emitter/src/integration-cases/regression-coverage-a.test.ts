@@ -192,7 +192,7 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.include("limit = (int?)limit");
+      expect(csharp).to.include("limit = limit");
       expect(csharp).not.to.include("limit = limit.Value");
       expect(csharp).to.include("int? limit =");
       expect(csharp).not.to.include("var limit =");
@@ -511,7 +511,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("public int wait(int? delay = default)");
       expect(csharp).to.include("int __defaulted_delay = delay ?? 1;");
       expect(csharp).to.include("return __defaulted_delay;");
-      expect(csharp).to.include("return new DelayBox().wait((int?)delay);");
+      expect(csharp).to.include("return new DelayBox().wait(delay);");
     });
 
     it("preserves nullable shadow storage for null-valued parameter defaults", () => {
@@ -528,7 +528,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("public int? read(int? position = default)");
       expect(csharp).to.include("int? __defaulted_position = position ?? null;");
-      expect(csharp).to.include("return (int?)__defaulted_position;");
+      expect(csharp).to.include("return __defaulted_position;");
     });
 
     it("applies authored constructor defaults before body assignments", () => {
@@ -564,7 +564,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.not.include('value ?? ""');
       expect(csharp).to.include(
-        "((global::System.Func<T, global::Tsonic.Runtime.Union<string, T>>)((T __tsonic_nullish_value) => (object)__tsonic_nullish_value == null ? global::Tsonic.Runtime.Union<string, T>.From1(\"\") : global::Tsonic.Runtime.Union<string, T>.From2(__tsonic_nullish_value)))(value)"
+        "((global::System.Func<T, global::Tsonic.Internal.Union<string, T>>)((T __tsonic_nullish_value) => (object)__tsonic_nullish_value == null ? global::Tsonic.Internal.Union<string, T>.From1(\"\") : global::Tsonic.Internal.Union<string, T>.From2(__tsonic_nullish_value)))(value)"
       );
     });
 

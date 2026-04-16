@@ -6,6 +6,7 @@ import {
   printExpression,
   type IrType,
 } from "./helpers.js";
+import { normalizeRuntimeUnionCarrierNames } from "../../runtime-union-cases/helpers.js";
 
 const jsValueType: IrType = {
   kind: "referenceType",
@@ -87,14 +88,14 @@ describe("Expression Emission", () => {
       }
     );
 
-    const rendered = printExpression(result);
+    const rendered = normalizeRuntimeUnionCarrierNames(printExpression(result));
     expect(rendered).to.include("first.Match");
     expect(rendered).to.include("From1(__tsonic_union_member_1)");
     expect(rendered).to.include("From2(__tsonic_union_member_3)");
     expect(rendered).to.include("From3(__tsonic_union_member_4)");
     expect(rendered).to.include("new global::System.InvalidCastException(");
     expect(rendered).to.not.include(
-      "(global::Tsonic.Runtime.Union<object?[], string, global::js.RegExp>)first"
+      "(global::Tsonic.Internal.Union<object?[], string, global::js.RegExp>)first"
     );
   });
 
@@ -178,7 +179,7 @@ describe("Expression Emission", () => {
       pathSpecType
     );
 
-    const rendered = printExpression(result);
+    const rendered = normalizeRuntimeUnionCarrierNames(printExpression(result));
     expect(rendered).to.include("first.Match");
     expect(rendered).to.include("__tsonic_union_member_5");
     expect(rendered).to.include("new global::System.InvalidCastException(");
@@ -345,8 +346,132 @@ describe("Expression Emission", () => {
     const rendered = printExpression(result);
     expect(rendered).to.include("value.Match");
     expect(rendered).to.not.include(
-      "((global::Tsonic.Runtime.Union<int, Test.BindOptions>?)value).Match"
+      "((global::Tsonic.Internal.Union<int, Test.BindOptions>?)value).Match"
     );
+  });
+
+  it("reuses the original expr-narrowed carrier when the expected surface is the full union", () => {
+    const bytesType: IrType = {
+      kind: "referenceType",
+      name: "Bytes",
+      resolvedClrType: "Test.Bytes",
+    };
+
+    const broadType: IrType = {
+      kind: "unionType",
+      types: [
+        bytesType,
+        { kind: "primitiveType", name: "string" },
+      ],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "key",
+        inferredType: { kind: "primitiveType", name: "string" },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["key", "key"]]),
+        localValueTypes: new Map([["key", broadType]]),
+        narrowedBindings: new Map([
+          [
+            "key",
+            {
+              kind: "expr",
+              exprAst: {
+                kind: "invocationExpression",
+                expression: {
+                  kind: "memberAccessExpression",
+                  expression: {
+                    kind: "identifierExpression",
+                    identifier: "key",
+                  },
+                  memberName: "As2",
+                },
+                arguments: [],
+              },
+              storageExprAst: {
+                kind: "identifierExpression",
+                identifier: "key",
+              },
+              carrierExprAst: {
+                kind: "identifierExpression",
+                identifier: "key",
+              },
+              type: { kind: "primitiveType", name: "string" },
+              sourceType: broadType,
+            },
+          ],
+        ]),
+      },
+      broadType
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.equal("key");
+  });
+
+  it("reuses the original runtime-subset carrier when the expected surface is the full union", () => {
+    const bytesType: IrType = {
+      kind: "referenceType",
+      name: "Bytes",
+      resolvedClrType: "Test.Bytes",
+    };
+
+    const broadType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        bytesType,
+      ],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "key",
+        inferredType: { kind: "primitiveType", name: "string" },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["key", "key"]]),
+        localValueTypes: new Map([["key", broadType]]),
+        narrowedBindings: new Map([
+          [
+            "key",
+            {
+              kind: "runtimeSubset",
+              runtimeMemberNs: [2],
+              runtimeUnionArity: 2,
+              type: { kind: "primitiveType", name: "string" },
+              sourceType: broadType,
+            },
+          ],
+        ]),
+      },
+      broadType
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.equal("key");
   });
 
   it("reprojects nested runtime-subset assertions from the source carrier instead of raw subset casts", () => {
@@ -432,10 +557,10 @@ describe("Expression Emission", () => {
       }
     );
 
-    const rendered = printExpression(result);
+    const rendered = normalizeRuntimeUnionCarrierNames(printExpression(result));
     expect(rendered).to.include("value.Match");
     expect(rendered).to.not.include(
-      "((global::Tsonic.Runtime.Union<int, Test.BindOptions>?)value).Match"
+      "((global::Tsonic.Internal.Union<int, Test.BindOptions>?)value).Match"
     );
   });
 });

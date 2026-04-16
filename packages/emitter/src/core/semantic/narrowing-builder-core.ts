@@ -6,7 +6,12 @@
  * nullish guard construction/stripping, and type-narrowing predicates.
  */
 
-import { IrExpression, IrType, normalizedUnionType } from "@tsonic/frontend";
+import {
+  IrExpression,
+  IrType,
+  normalizedUnionType,
+  stableIrTypeKey,
+} from "@tsonic/frontend";
 import type { EmitterContext, NarrowedBinding } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
@@ -26,7 +31,6 @@ import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
 } from "./runtime-reification.js";
-import { registerLocalSymbolTypes } from "../format/local-names.js";
 
 export type BranchTruthiness = "truthy" | "falsy";
 
@@ -98,37 +102,10 @@ export const applyBinding = (
 ): EmitterContext => {
   const narrowedBindings = new Map(context.narrowedBindings ?? []);
   narrowedBindings.set(bindingKey, binding);
-  const narrowedContext: EmitterContext = {
+  return {
     ...context,
     narrowedBindings,
   };
-
-  if (
-    bindingKey === "this" ||
-    bindingKey.startsWith("this.") ||
-    bindingKey.includes(".")
-  ) {
-    return narrowedContext;
-  }
-
-  const semanticType = binding.type ?? binding.sourceType;
-  const storageType = (() => {
-    switch (binding.kind) {
-      case "rename":
-        return binding.sourceType ?? binding.type;
-      case "expr":
-        return binding.storageType ?? binding.sourceType ?? binding.type;
-      case "runtimeSubset":
-        return binding.sourceType ?? binding.type;
-    }
-  })();
-
-  return registerLocalSymbolTypes(
-    bindingKey,
-    semanticType,
-    storageType,
-    narrowedContext
-  );
 };
 
 export const resolveRuntimeSubsetSourceInfo = (
@@ -329,6 +306,30 @@ export const isArrayLikeNarrowingCandidate = (
   return false;
 };
 
+const hasArrayLikeNarrowingCandidate = (
+  type: IrType,
+  context: EmitterContext,
+  seen = new Set<string>()
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (isArrayLikeNarrowingCandidate(resolved, context)) {
+    return true;
+  }
+  if (resolved.kind !== "unionType") {
+    return false;
+  }
+
+  const key = stableIrTypeKey(resolved);
+  if (seen.has(key)) {
+    return false;
+  }
+  const nextSeen = new Set(seen);
+  nextSeen.add(key);
+  return resolved.types.some((member) =>
+    hasArrayLikeNarrowingCandidate(member, context, nextSeen)
+  );
+};
+
 const isBroadJsValueType = (type: IrType): boolean =>
   type.kind === "referenceType" &&
   (type.name === "JsValue" ||
@@ -347,16 +348,47 @@ const JS_VALUE_ARRAY_TYPE: IrType = {
 export const narrowTypeByArrayShape = (
   currentType: IrType | undefined,
   wantArray: boolean,
-  context: EmitterContext
+  context: EmitterContext,
+  seen = new Set<string>()
 ): IrType | undefined => {
   if (!currentType) return undefined;
 
   const resolved = resolveTypeAlias(stripNullish(currentType), context);
   if (resolved.kind === "unionType") {
-    const kept = resolved.types.filter((member): member is IrType => {
-      if (!member) return false;
+    const key = stableIrTypeKey(resolved);
+    if (seen.has(key)) {
+      return undefined;
+    }
+    const nextSeen = new Set(seen);
+    nextSeen.add(key);
+    const kept = resolved.types.flatMap((member): readonly IrType[] => {
+      if (!member) return [];
       const isArrayLike = isArrayLikeNarrowingCandidate(member, context);
-      return wantArray ? isArrayLike : !isArrayLike;
+      if (isArrayLike) {
+        return wantArray ? [member] : [];
+      }
+
+      const resolvedMember = resolveTypeAlias(stripNullish(member), context);
+      if (resolvedMember.kind === "unionType") {
+        const nested = narrowTypeByArrayShape(
+          member,
+          wantArray,
+          context,
+          nextSeen
+        );
+        if (!nested) {
+          return [];
+        }
+        if (
+          !wantArray &&
+          !hasArrayLikeNarrowingCandidate(resolvedMember, context, nextSeen)
+        ) {
+          return [member];
+        }
+        return [nested];
+      }
+
+      return wantArray ? [] : [member];
     });
     if (kept.length === 0) return undefined;
     if (kept.length === 1) return kept[0];

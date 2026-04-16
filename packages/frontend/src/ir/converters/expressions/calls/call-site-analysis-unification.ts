@@ -19,6 +19,33 @@ export const unifyTypeTemplate = (
   actual: IrType,
   substitutions: Map<string, IrType>
 ): boolean => {
+  if (actual.kind === "unionType") {
+    const nonNullishMembers = actual.types.filter(
+      (candidate): candidate is IrType =>
+        candidate !== undefined &&
+        !(
+          candidate.kind === "primitiveType" &&
+          (candidate.name === "null" || candidate.name === "undefined")
+        )
+    );
+    const nullishMembers = actual.types.filter(
+      (candidate) =>
+        candidate !== undefined &&
+        candidate.kind === "primitiveType" &&
+        (candidate.name === "null" || candidate.name === "undefined")
+    );
+
+    if (
+      nonNullishMembers.length === 1 &&
+      nonNullishMembers.length + nullishMembers.length === actual.types.length
+    ) {
+      const onlyNonNullishMember = nonNullishMembers[0];
+      if (onlyNonNullishMember) {
+        return unifyTypeTemplate(template, onlyNonNullishMember, substitutions);
+      }
+    }
+  }
+
   if (template.kind === "typeParameterType") {
     const existing = substitutions.get(template.name);
     if (!existing) {

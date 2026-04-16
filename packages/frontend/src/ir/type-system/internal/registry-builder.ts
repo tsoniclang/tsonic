@@ -23,7 +23,10 @@ import {
   convertCallableInterfaceOnlyType,
   extractHeritage,
 } from "./registry-helpers.js";
-import type { IrType } from "../../types/index.js";
+import {
+  type IrType,
+  stampRuntimeUnionAliasCarrier,
+} from "../../types/index.js";
 import {
   resolveSourceFileNamespace,
   resolveSourceFileOwnerIdentity,
@@ -59,6 +62,15 @@ export const buildTypeRegistry = (
   // Default converter returns unknownType (used during bootstrap)
   const convert: ConvertTypeFn =
     options.convertType ?? (() => ({ kind: "unknownType" }));
+
+  const namespaceFromFQName = (fqName: string, simpleName: string):
+    | string
+    | undefined => {
+    const suffix = `.${simpleName}`;
+    return fqName.endsWith(suffix)
+      ? fqName.slice(0, -suffix.length)
+      : undefined;
+  };
 
   // Helper function to process a declaration node
   const processDeclaration = (
@@ -235,7 +247,17 @@ export const buildTypeRegistry = (
       const fqName = makeFQName(simpleName);
 
       // Pure IR entry
-      const aliasedType = convert(node.type);
+      const convertedAliasedType = convert(node.type);
+      const aliasedType = sf.isDeclarationFile
+        ? convertedAliasedType
+        : stampRuntimeUnionAliasCarrier(convertedAliasedType, {
+            aliasName: simpleName,
+            fullyQualifiedName: fqName,
+            namespaceName: namespaceFromFQName(fqName, simpleName),
+            typeParameters: (node.typeParameters ?? []).map(
+              (tp) => tp.name.text
+            ),
+          });
       const aliasedMembers = extractMembersFromAliasedObjectType(aliasedType);
 
       entries.set(fqName, {

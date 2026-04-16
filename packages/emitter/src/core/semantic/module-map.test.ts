@@ -12,7 +12,12 @@ import {
   canonicalizeFilePath,
   resolveImportPath,
 } from "./module-map.js";
-import type { IrModule } from "@tsonic/frontend";
+import {
+  normalizedUnionType,
+  stampRuntimeUnionAliasCarrier,
+  type IrModule,
+  type IrType,
+} from "@tsonic/frontend";
 
 const makeModule = (filePath: string, body: readonly unknown[]): IrModule =>
   ({
@@ -427,6 +432,64 @@ describe("Module Map", () => {
         sourceFile: "node_modules/@tsonic/nodejs/src/crypto/key-object",
         sourceName: "PublicKeyObject",
       });
+    });
+
+    it("promotes source-owned runtime union aliases referenced through exported surfaces", () => {
+      const middlewareLike = stampRuntimeUnionAliasCarrier(
+        normalizedUnionType([
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "int" },
+        ]),
+        {
+          aliasName: "MiddlewareLike",
+          fullyQualifiedName: "Test.MiddlewareLike",
+        }
+      ) as Extract<IrType, { kind: "unionType" }>;
+
+      const runDeclaration = {
+        kind: "functionDeclaration" as const,
+        name: "run",
+        parameters: [
+          {
+            kind: "parameter" as const,
+            pattern: { kind: "identifierPattern" as const, name: "handler" },
+            type: middlewareLike,
+            isOptional: false,
+            isRest: false,
+            passing: "value" as const,
+          },
+        ],
+        returnType: { kind: "voidType" as const },
+        body: { kind: "blockStatement" as const, statements: [] },
+        isAsync: false,
+        isGenerator: false,
+        isExported: true,
+      };
+
+      const module = {
+        ...makeModule("src/index.ts", [
+          {
+            kind: "typeAliasDeclaration" as const,
+            name: "MiddlewareLike",
+            type: middlewareLike,
+            typeParameters: [],
+            isExported: false,
+          },
+          runDeclaration,
+        ]),
+        exports: [
+          {
+            kind: "declaration" as const,
+            declaration: runDeclaration,
+          },
+        ],
+      } satisfies IrModule;
+
+      const result = buildModuleMap([module]);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value.get("src/index")?.publicLocalTypes?.has("MiddlewareLike")).to.equal(true);
     });
   });
 });

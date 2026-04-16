@@ -1,3 +1,7 @@
+---
+title: CLR and .NET Examples
+---
+
 # CLR / .NET Examples
 
 ## Console
@@ -27,7 +31,7 @@ import { JsonSerializer } from "@tsonic/dotnet/System.Text.Json.js";
 const text = JsonSerializer.Serialize({ ok: true });
 ```
 
-## Explicit Numeric Types
+## Explicit numeric types
 
 ```ts
 import type { int } from "@tsonic/core/types.js";
@@ -37,6 +41,30 @@ const value: int = 1 as int;
 Console.WriteLine(value.ToString());
 ```
 
-## Attributes / Interop-Oriented Intrinsics
+## ASP.NET Core
 
-Use `@tsonic/core/lang.js` when you need CLR-specific semantics such as `asinterface`, `nameof`, `sizeof`, or attributes DSL support.
+```ts
+import { WebApplication } from "@tsonic/aspnetcore/Microsoft.AspNetCore.Builder.js";
+import type { ExtensionMethods } from "@tsonic/aspnetcore/Microsoft.AspNetCore.Builder.js";
+
+export function main(): void {
+  const builder = WebApplication.CreateBuilder();
+  const app = builder.Build() as ExtensionMethods<WebApplication>;
+  app.MapGet("/", () => "Hello");
+  app.Run("http://localhost:8080");
+}
+```
+
+## Attributes and interop intrinsics
+
+Use `@tsonic/core/lang.js` when you need CLR-specific semantics such as:
+
+- `asinterface`
+- `nameof`
+- `sizeof`
+- `defaultof`
+- `out`
+- attribute markers and overload-family markers
+
+The current package model keeps those CLR-facing tools explicit instead of
+hiding them behind ambient JS-style behavior.

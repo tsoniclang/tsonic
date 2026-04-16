@@ -6,6 +6,7 @@ import {
   printExpression,
   type IrType,
 } from "./helpers.js";
+import { normalizeRuntimeUnionCarrierNames } from "../../runtime-union-cases/helpers.js";
 
 const jsValueType: IrType = {
   kind: "referenceType",
@@ -89,7 +90,7 @@ describe("Expression Emission", () => {
       broadType
     );
 
-    const rendered = printExpression(result);
+    const rendered = normalizeRuntimeUnionCarrierNames(printExpression(result));
     // The projection must not produce type mismatches.
     // Each From() call must receive the correct type from the corresponding
     // Match lambda parameter.
@@ -265,7 +266,7 @@ describe("Expression Emission", () => {
     }
     // The result must not contain nested Union<Union<...>> shapes.
     // (Match Union<A>.From(Union<B>) is NOT nested — it's sibling factory calls.)
-    expect(rendered).to.not.include("Union<global::Tsonic.Runtime.Union<");
+    expect(rendered).to.not.include("Union<global::Tsonic.Internal.Union<");
   });
 
   it("does not re-wrap alias narrowing assertions that already materialize the target carrier", () => {

@@ -11,6 +11,7 @@ import {
   buildSubsetUnionType,
   toReceiverAst,
   buildUnionNarrowAst,
+  resetBranchFlowState,
   withComplementNarrowing,
   withComplementNarrowingForMembers,
   wrapInBlock,
@@ -67,7 +68,8 @@ export const tryEmitPropertyTruthinessGuard = (
     thenCtx
   );
 
-  let finalContext: EmitterContext = thenBodyCtx;
+  const basePostConditionContext = resetBranchFlowState(ctxWithId, thenBodyCtx);
+  let finalContext: EmitterContext = basePostConditionContext;
   let elseStmt: CSharpStatementAst | undefined;
 
   if (stmt.elseStatement) {
@@ -79,7 +81,7 @@ export const tryEmitPropertyTruthinessGuard = (
         candidateMemberNs,
         candidateMembers,
         memberN,
-        finalContext
+        basePostConditionContext
       );
 
       const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
@@ -106,7 +108,7 @@ export const tryEmitPropertyTruthinessGuard = (
     }
 
     const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
-      ...finalContext,
+      ...basePostConditionContext,
       narrowedBindings: ctxWithId.narrowedBindings,
     });
     elseStmt = wrapInBlock(elseStmts);
@@ -136,7 +138,7 @@ export const tryEmitPropertyTruthinessGuard = (
       candidateMemberNs,
       candidateMembers,
       memberN,
-      finalContext
+      basePostConditionContext
     );
     return [
       [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
@@ -197,7 +199,11 @@ export const tryEmitDiscriminantEqualityGuard = (
       stmt.thenStatement,
       thenCtx
     );
-    finalContext = thenBodyCtx;
+    const basePostConditionContext = resetBranchFlowState(
+      ctxWithId,
+      thenBodyCtx
+    );
+    finalContext = basePostConditionContext;
 
     let elseStmt: CSharpStatementAst | undefined;
     if (stmt.elseStatement) {
@@ -211,7 +217,7 @@ export const tryEmitDiscriminantEqualityGuard = (
             candidateMemberNs,
             candidateMembers,
             memberN,
-            finalContext
+            basePostConditionContext
           )
         );
         elseStmt = wrapInBlock(elseStmts);
@@ -233,7 +239,7 @@ export const tryEmitDiscriminantEqualityGuard = (
       }
 
       const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
-        ...finalContext,
+        ...basePostConditionContext,
         narrowedBindings: ctxWithId.narrowedBindings,
       });
       elseStmt = wrapInBlock(elseStmts);
@@ -263,7 +269,7 @@ export const tryEmitDiscriminantEqualityGuard = (
         candidateMemberNs,
         candidateMembers,
         memberN,
-        finalContext
+        basePostConditionContext
       );
       return [
         [

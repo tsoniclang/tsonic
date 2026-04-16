@@ -1,6 +1,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import type { IrType, IrInterfaceMember } from "@tsonic/frontend";
+import {
+  normalizedUnionType,
+  stampRuntimeUnionAliasCarrier,
+  type IrType,
+  type IrInterfaceMember,
+} from "@tsonic/frontend";
 import {
   buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
@@ -13,6 +18,8 @@ import { emitTypeAst } from "../../types/emitter.js";
 import { createContext } from "../../emitter-types/context.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
 import type { TypeAliasIndex } from "../../emitter-types/core.js";
+import { substituteTypeArgs } from "./type-resolution.js";
+import { createRuntimeUnionRegistry } from "./runtime-union-registry.js";
 
 const property = (
   name: string,
@@ -124,6 +131,165 @@ describe("runtime-unions", () => {
     expect(layoutOrder).to.deep.equal(frameOrder);
   });
 
+  it("reuses anonymous runtime-union carriers across generic specializations", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const openContext = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      typeParameters: new Set(["TElement"]),
+    };
+
+    const openUnion: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "int" },
+        {
+          kind: "referenceType",
+          name: "TypedArrayInput",
+          resolvedClrType: "Test.TypedArrayInput",
+          typeArguments: [{ kind: "typeParameterType", name: "TElement" }],
+        },
+      ],
+    };
+
+    const [openLayout] = buildRuntimeUnionLayout(
+      openUnion,
+      openContext,
+      emitTypeAst
+    );
+
+    const closedUnion = substituteTypeArgs(openUnion, ["TElement"], [
+      { kind: "primitiveType", name: "string" },
+    ]);
+    const [closedLayout] = buildRuntimeUnionLayout(
+      closedUnion,
+      createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      emitTypeAst
+    );
+
+    expect(openLayout?.carrierName).to.equal(closedLayout?.carrierName);
+  });
+
+  it("marks source-owned runtime union carriers public when their alias is promoted", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const middlewareLike = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "int" },
+      ]),
+      {
+        aliasName: "MiddlewareLike",
+        fullyQualifiedName: "Test.MiddlewareLike",
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      moduleNamespace: "Test",
+      localTypes: new Map([
+        [
+          "MiddlewareLike",
+          {
+            kind: "typeAlias" as const,
+            isExported: false,
+            typeParameters: [],
+            type: middlewareLike,
+          },
+        ],
+      ]),
+      publicLocalTypes: new Set(["MiddlewareLike"]),
+    };
+
+    const [layout] = buildRuntimeUnionLayout(
+      {
+        kind: "referenceType",
+        name: "MiddlewareLike",
+        resolvedClrType: "Test.MiddlewareLike",
+      },
+      context,
+      emitTypeAst
+    );
+
+    expect(layout?.carrierName).to.equal("MiddlewareLike");
+    expect(
+      runtimeUnionRegistry.definitionsByName.get("Test.MiddlewareLike")
+        ?.accessModifier
+    ).to.equal("public");
+  });
+
+  it("upgrades source-owned runtime union carriers when a later public registration arrives", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const middlewareLike = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "int" },
+      ]),
+      {
+        aliasName: "MiddlewareLike",
+        fullyQualifiedName: "Test.MiddlewareLike",
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+
+    const internalContext = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      moduleNamespace: "Test",
+      localTypes: new Map([
+        [
+          "MiddlewareLike",
+          {
+            kind: "typeAlias" as const,
+            isExported: false,
+            typeParameters: [],
+            type: middlewareLike,
+          },
+        ],
+      ]),
+    };
+    buildRuntimeUnionLayout(
+      {
+        kind: "referenceType",
+        name: "MiddlewareLike",
+        resolvedClrType: "Test.MiddlewareLike",
+      },
+      internalContext,
+      emitTypeAst
+    );
+
+    const publicContext = {
+      ...internalContext,
+      publicLocalTypes: new Set(["MiddlewareLike"]),
+    };
+    buildRuntimeUnionLayout(
+      {
+        kind: "referenceType",
+        name: "MiddlewareLike",
+        resolvedClrType: "Test.MiddlewareLike",
+      },
+      publicContext,
+      emitTypeAst
+    );
+
+    expect(
+      runtimeUnionRegistry.definitionsByName.get("Test.MiddlewareLike")
+    ).to.deep.include({
+      name: "MiddlewareLike",
+      namespaceName: "Test",
+      fullName: "Test.MiddlewareLike",
+      accessModifier: "public",
+    });
+  });
+
   it("preserves original runtime member slots for expr-narrowed unions", () => {
     const bindOptions: IrType = {
       kind: "referenceType",
@@ -231,6 +397,54 @@ describe("runtime-unions", () => {
     expect(layout?.runtimeUnionArity).to.equal(3);
     expect(layout?.members).to.have.length(3);
     expect(layout?.memberTypeAsts).to.have.length(3);
+  });
+
+  it("keeps generic template unions on the same carrier family after substitution", () => {
+    const genericUnion = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        {
+          kind: "arrayType",
+          elementType: { kind: "typeParameterType", name: "TElement" },
+        },
+        {
+          kind: "referenceType",
+          name: "IEnumerable",
+          resolvedClrType: "System.Collections.Generic.IEnumerable",
+          typeArguments: [{ kind: "primitiveType", name: "number" }],
+        },
+        { kind: "primitiveType", name: "int" },
+      ]),
+      {
+        aliasName: "IterableOrBytes",
+        fullyQualifiedName: "Test.IterableOrBytes",
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+
+    const specializedUnion = substituteTypeArgs(
+      genericUnion,
+      ["TElement"],
+      [
+        {
+          kind: "referenceType",
+          name: "byte",
+          resolvedClrType: "System.Byte",
+        },
+      ]
+    );
+
+    const context = createContext({ rootNamespace: "Test" });
+    const [genericLayout] = buildRuntimeUnionLayout(
+      genericUnion,
+      context,
+      emitTypeAst
+    );
+    const [specializedLayout] = buildRuntimeUnionLayout(
+      specializedUnion,
+      context,
+      emitTypeAst
+    );
+
+    expect(genericLayout?.carrierName).to.equal(specializedLayout?.carrierName);
   });
 
   it("preserves original runtime member slots for single-member expr narrowings", () => {
@@ -377,7 +591,7 @@ describe("runtime-unions", () => {
     });
   });
 
-  it("finds all runtime union members that satisfy a recursive alias subset target", () => {
+  it("does not treat erased recursive array members as satisfying a recursive alias subset target", () => {
     const pathSpec = {
       kind: "unionType",
       types: [],
@@ -425,9 +639,8 @@ describe("runtime-unions", () => {
       context
     );
 
-    expect(matches).to.have.length(3);
+    expect(matches).to.have.length(2);
     expect(matches.map((index) => frame.members[index]?.kind)).to.deep.equal([
-      "arrayType",
       "primitiveType",
       "referenceType",
     ]);

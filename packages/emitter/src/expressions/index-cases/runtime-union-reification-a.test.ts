@@ -9,6 +9,8 @@ import {
   type IrModule,
   type IrType,
 } from "./helpers.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { printRuntimeUnionCarrierTypeForIrType } from "../../runtime-union-cases/helpers.js";
 
 const jsValueType: IrType = {
   kind: "referenceType",
@@ -87,10 +89,18 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
+    const middlewareCarrier = printRuntimeUnionCarrierTypeForIrType(middlewareLike, [
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: { kind: "predefinedType", keyword: "string" },
+      },
+      { kind: "predefinedType", keyword: "string" },
+    ]);
     expect(result).to.include(
-      "new global::Tsonic.Runtime.Union<string[], string>[]"
+      `${middlewareCarrier}.From1(new string[] { "ok" })`
     );
-    expect(result).to.include('new string[] { "ok" }');
+    expect(result).not.to.include(".Match<string[]>");
     expect(result).to.not.include("new object[] { new object[]");
   });
 
@@ -158,8 +168,23 @@ describe("Expression Emission", () => {
       middlewareLike
     );
 
+    const middlewareCarrier = printRuntimeUnionCarrierTypeForIrType(middlewareLike, [
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: identifierType("object"),
+      },
+      identifierType("global::System.Func", [
+        { kind: "predefinedType", keyword: "string" },
+        {
+          kind: "nullableType",
+          underlyingType: { kind: "predefinedType", keyword: "object" },
+        },
+      ]),
+      identifierType("global::Test.Router"),
+    ]);
     expect(printExpression(result)).to.equal(
-      "global::Tsonic.Runtime.Union<object[], global::System.Func<string, object?>, global::Test.Router>.From2(handler)"
+      `${middlewareCarrier}.From2(handler)`
     );
   });
 
@@ -233,8 +258,22 @@ describe("Expression Emission", () => {
       middlewareLike
     );
 
+    const middlewareCarrier = printRuntimeUnionCarrierTypeForIrType(middlewareLike, [
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: identifierType("object"),
+      },
+      identifierType("global::System.Func", [
+        {
+          kind: "nullableType",
+          underlyingType: { kind: "predefinedType", keyword: "object" },
+        },
+      ]),
+      identifierType("global::Test.Router"),
+    ]);
     expect(printExpression(result)).to.equal(
-      "global::Tsonic.Runtime.Union<object[], global::System.Func<object?>, global::Test.Router>.From1(new object[] { handler })"
+      `${middlewareCarrier}.From1(new object[] { handler })`
     );
   });
 
@@ -267,6 +306,29 @@ describe("Expression Emission", () => {
     const middlewareLikeRef: IrType = {
       kind: "referenceType",
       name: "MiddlewareLike",
+    };
+    const middlewareParamUnion: IrType = {
+      kind: "unionType",
+      types: [
+        handlerType,
+        {
+          kind: "arrayType",
+          elementType: middlewareParamRef,
+          origin: "explicit",
+        },
+      ],
+    };
+    const middlewareLikeUnion: IrType = {
+      kind: "unionType",
+      types: [
+        middlewareParamRef,
+        routerType,
+        {
+          kind: "arrayType",
+          elementType: middlewareLikeRef,
+          origin: "explicit",
+        },
+      ],
     };
 
     const [result] = emitExpressionAst(
@@ -301,17 +363,7 @@ describe("Expression Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  handlerType,
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareParamRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareParamUnion,
             },
           ],
           [
@@ -319,18 +371,7 @@ describe("Expression Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  middlewareParamRef,
-                  routerType,
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareLikeRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareLikeUnion,
             },
           ],
         ]),
@@ -338,8 +379,19 @@ describe("Expression Emission", () => {
       middlewareLikeRef
     );
 
+    const middlewareCarrier = printRuntimeUnionCarrierTypeForIrType(middlewareLikeUnion, [
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: identifierType("object"),
+      },
+      identifierType("global::System.Action", [
+        { kind: "predefinedType", keyword: "string" },
+      ]),
+      identifierType("global::Test.Router"),
+    ]);
     expect(printExpression(result)).to.equal(
-      "global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From1(new object[] { global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From2(handler) })"
+      `${middlewareCarrier}.From1(new object[] { ${middlewareCarrier}.From2(handler) })`
     );
   });
 
@@ -435,18 +487,21 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include(
-      "handler.As1()[index] is global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>"
-    );
-    expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From1"
-    );
-    expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From2"
-    );
-    expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From3"
-    );
+    const handlerCarrier = printRuntimeUnionCarrierTypeForIrType(middlewareLike, [
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: identifierType("object"),
+      },
+      identifierType("global::System.Action", [
+        { kind: "predefinedType", keyword: "string" },
+      ]),
+      identifierType("global::Test.Router"),
+    ]);
+    expect(text).to.include(`handler.As1()[index] is ${handlerCarrier}`);
+    expect(text).to.include(`${handlerCarrier}.From1`);
+    expect(text).to.include(`${handlerCarrier}.From2`);
+    expect(text).to.include(`${handlerCarrier}.From3`);
     expect(text).to.include("is global::System.Array");
     expect(text).to.not.equal("(handler.As1())[index]");
   });

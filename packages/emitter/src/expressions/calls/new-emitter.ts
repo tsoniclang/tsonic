@@ -20,13 +20,9 @@ import type {
 } from "../../core/format/backend-ast/types.js";
 import {
   emitArrayConstructor,
-  emitUint8ArrayArrayLiteralConstructor,
-  emitUint8ArrayNumericLengthConstructor,
   emitListCollectionInitializer,
   isArrayConstructorCall,
   isListConstructorWithArrayLiteral,
-  isUint8ArrayConstructorWithArrayLiteral,
-  isUint8ArrayConstructorWithNumericLength,
 } from "./new-emitter-collections.js";
 import {
   emitPromiseConstructor,
@@ -49,14 +45,6 @@ export const emitNew = (
   // Special case: new List<T>([...]) → new List<T> { ... }
   if (isListConstructorWithArrayLiteral(expr)) {
     return emitListCollectionInitializer(expr, context, emitNew);
-  }
-
-  if (isUint8ArrayConstructorWithArrayLiteral(expr)) {
-    return emitUint8ArrayArrayLiteralConstructor(expr, context);
-  }
-
-  if (isUint8ArrayConstructorWithNumericLength(expr)) {
-    return emitUint8ArrayNumericLengthConstructor(expr, context);
   }
 
   // Promise constructor lowering
@@ -107,6 +95,10 @@ export const emitNew = (
     surfaceParameterTypes: expr.surfaceParameterTypes,
     restParameter: expr.surfaceRestParameter,
     surfaceRestParameter: expr.surfaceRestParameter,
+    sourceBackedParameterTypes: expr.sourceBackedParameterTypes,
+    sourceBackedSurfaceParameterTypes: expr.sourceBackedSurfaceParameterTypes,
+    sourceBackedRestParameter: expr.sourceBackedRestParameter,
+    sourceBackedReturnType: expr.sourceBackedReturnType,
   };
 
   const [argAsts, argContext] = emitCallArguments(

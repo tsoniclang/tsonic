@@ -373,7 +373,7 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     expect(lowered.modules.length).to.be.greaterThan(0);
   });
 
-  it("reuses exact local structural aliases instead of generating anonymous carriers", () => {
+  it("keeps inline structural parameters compiler-owned even when a matching alias exists", () => {
     const createInputType: IrType = {
       kind: "objectType",
       members: [
@@ -453,15 +453,15 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     if (parameterType?.kind !== "referenceType") {
       throw new Error("Expected lowered parameter type to be a referenceType");
     }
-    expect(parameterType.name).to.equal("CreateInput");
+    expect(parameterType.name).to.match(/^__Anon_/);
     expect(parameterType.typeArguments).to.equal(undefined);
     expect(parameterType.structuralMembers).to.deep.equal(createInputType.members);
     expect(
       lowered.modules.some((entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts")
-    ).to.equal(false);
+    ).to.equal(true);
   });
 
-  it("reuses exact local structural classes instead of generating anonymous carriers", () => {
+  it("keeps inline structural parameters compiler-owned even when a matching class exists", () => {
     const mkdirOptionsType: IrType = {
       kind: "objectType",
       members: [
@@ -581,15 +581,15 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     if (parameterType?.kind !== "referenceType") {
       throw new Error("Expected lowered parameter type to be a referenceType");
     }
-    expect(parameterType.name).to.equal("MkdirOptions");
+    expect(parameterType.name).to.match(/^__Anon_/);
     expect(
       lowered.modules.some(
         (entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
       )
-    ).to.equal(false);
+    ).to.equal(true);
   });
 
-  it("prefers authored local structural classes over compiler-generated carrier names", () => {
+  it("keeps compiler-generated structural carriers distinct from authored local class names", () => {
     const mkdirOptionsType: IrType = {
       kind: "objectType",
       members: [
@@ -712,7 +712,9 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     if (parameterType?.kind !== "referenceType") {
       throw new Error("Expected lowered parameter type to be a referenceType");
     }
-    expect(parameterType.name).to.equal("MkdirOptions");
+    expect(parameterType.name).to.match(/^__Anon_/);
+    expect(parameterType.name).to.not.equal("MkdirOptions");
+    expect(parameterType.name).to.not.equal("MkdirOptionsLike__0");
   });
 
   it("canonicalizes optional properties and explicit undefined to the same structural carrier shape", () => {

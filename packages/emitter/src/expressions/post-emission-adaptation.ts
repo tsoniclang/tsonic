@@ -9,6 +9,7 @@ import { emitTypeAst } from "../type-emitter.js";
 import {
   stripNullish,
   resolveTypeAlias,
+  splitRuntimeNullishUnionMembers,
 } from "../core/semantic/type-resolution.js";
 import { isAssignable } from "../core/semantic/type-compatibility.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
@@ -560,6 +561,32 @@ const resolveNumericFactoryTypeName = (
   }
 };
 
+const hasRuntimeNullishSurface = (type: IrType | undefined): boolean =>
+  type !== undefined &&
+  (splitRuntimeNullishUnionMembers(type)?.hasRuntimeNullish ?? false);
+
+const canSkipSameFamilyIntegralCast = (
+  ast: CSharpExpressionAst,
+  actualType: IrType,
+  expectedType: IrType,
+  actualNumericTypeName: string | undefined,
+  expectedNumericTypeName: string | undefined
+): boolean => {
+  if (
+    !actualNumericTypeName ||
+    !expectedNumericTypeName ||
+    actualNumericTypeName !== expectedNumericTypeName
+  ) {
+    return false;
+  }
+
+  if (ast.kind !== "conditionalExpression") {
+    return false;
+  }
+
+  return hasRuntimeNullishSurface(actualType) === hasRuntimeNullishSurface(expectedType);
+};
+
 const maybeConvertNumericTypeParamToExpectedNumericAst = (
   ast: CSharpExpressionAst,
   actualType: IrType | undefined,
@@ -804,6 +831,22 @@ export const maybeCastNumericToExpectedIntegralAst = (
   if (!expectedType || !actualType) return [ast, context];
   if (!isExpectedIntegralIrType(expectedType, context)) return [ast, context];
   if (!isNumericSourceIrType(actualType, context)) return [ast, context];
+  const actualNumericTypeName = resolveNumericFactoryTypeName(actualType, context);
+  const expectedNumericTypeName = resolveNumericFactoryTypeName(
+    expectedType,
+    context
+  );
+  if (
+    canSkipSameFamilyIntegralCast(
+      ast,
+      actualType,
+      expectedType,
+      actualNumericTypeName,
+      expectedNumericTypeName
+    )
+  ) {
+    return [ast, context];
+  }
   if (isImplicitIntegralLiteralForExpectedType(ast, expectedType, context)) {
     return [ast, context];
   }

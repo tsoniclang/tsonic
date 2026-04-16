@@ -13,7 +13,11 @@
  * - Lookups by tsName, clrName, or stableId all work uniformly
  */
 
-import type { IrType } from "../../../types/index.js";
+import type {
+  IrInterfaceMember,
+  IrParameter,
+  IrType,
+} from "../../../types/index.js";
 import type {
   TypeId,
   NominalEntry,
@@ -253,6 +257,346 @@ const convertRegistryEntry = (
   };
 };
 
+const getSourceTypeIdByFQName = (
+  fqName: string,
+  sourceRegistry: TypeRegistry,
+  entries: ReadonlyMap<string, NominalEntry>
+): TypeId | undefined => {
+  const sourceEntry = sourceRegistry.resolveNominal(fqName);
+  if (!sourceEntry) {
+    return undefined;
+  }
+
+  return entries.get(
+    makeSourceStableId(sourceEntry.ownerIdentity, sourceEntry.fullyQualifiedName)
+  )?.typeId;
+};
+
+const resolveSourceReferenceTypeId = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  sourceRegistry: TypeRegistry,
+  entries: ReadonlyMap<string, NominalEntry>,
+  tsNameToTypeId: ReadonlyMap<string, TypeId>,
+  clrNameToTypeId: ReadonlyMap<string, TypeId>,
+  ownerIdentity: string,
+  containingFQName: string
+): TypeId | undefined => {
+  if (type.typeId) {
+    return type.typeId;
+  }
+
+  if (type.resolvedClrType) {
+    const byClrName = clrNameToTypeId.get(type.resolvedClrType);
+    if (byClrName) {
+      return byClrName;
+    }
+  }
+
+  if (type.name.includes(".")) {
+    return (
+      getSourceTypeIdByFQName(type.name, sourceRegistry, entries) ??
+      clrNameToTypeId.get(type.name) ??
+      tsNameToTypeId.get(type.name)
+    );
+  }
+
+  const lastDot = containingFQName.lastIndexOf(".");
+  const containingNamespace =
+    lastDot >= 0 ? containingFQName.slice(0, lastDot) : undefined;
+  if (containingNamespace) {
+    const siblingFQName = `${containingNamespace}.${type.name}`;
+    const siblingEntry = sourceRegistry.resolveNominal(siblingFQName);
+    if (siblingEntry && siblingEntry.ownerIdentity === ownerIdentity) {
+      return entries.get(
+        makeSourceStableId(
+          siblingEntry.ownerIdentity,
+          siblingEntry.fullyQualifiedName
+        )
+      )?.typeId;
+    }
+  }
+
+  const sameOwnerMatches = sourceRegistry
+    .getFQNames(type.name)
+    .map((fqName) => sourceRegistry.resolveNominal(fqName))
+    .filter(
+      (entry): entry is TypeRegistryEntry =>
+        entry !== undefined && entry.ownerIdentity === ownerIdentity
+    );
+  if (sameOwnerMatches.length === 1) {
+    const [onlyMatch] = sameOwnerMatches;
+    return onlyMatch
+      ? entries.get(
+          makeSourceStableId(
+            onlyMatch.ownerIdentity,
+            onlyMatch.fullyQualifiedName
+          )
+        )?.typeId
+      : undefined;
+  }
+
+  const uniqueSourceFQName = sourceRegistry.getFQName(type.name);
+  if (uniqueSourceFQName) {
+    const uniqueSourceTypeId = getSourceTypeIdByFQName(
+      uniqueSourceFQName,
+      sourceRegistry,
+      entries
+    );
+    if (uniqueSourceTypeId) {
+      return uniqueSourceTypeId;
+    }
+  }
+
+  return tsNameToTypeId.get(type.name) ?? clrNameToTypeId.get(type.name);
+};
+
+const enrichSourceTypeParameters = (
+  typeParameters: readonly TypeParameterEntry[],
+  enrichType: (type: IrType | undefined) => IrType | undefined
+): readonly TypeParameterEntry[] =>
+  typeParameters.map((typeParameter) => ({
+    ...typeParameter,
+    ...(typeParameter.constraint
+      ? { constraint: enrichType(typeParameter.constraint) }
+      : {}),
+    ...(typeParameter.defaultType
+      ? { defaultType: enrichType(typeParameter.defaultType) }
+      : {}),
+  }));
+
+const enrichSourceParameters = (
+  parameters: readonly IrParameter[],
+  enrichType: (type: IrType | undefined) => IrType | undefined
+): readonly IrParameter[] =>
+  parameters.map((parameter) => ({
+    ...parameter,
+    ...(parameter.type ? { type: enrichType(parameter.type) } : {}),
+  }));
+
+const enrichSourceInterfaceMembers = (
+  members: readonly IrInterfaceMember[],
+  enrichType: (type: IrType | undefined) => IrType | undefined
+): readonly IrInterfaceMember[] =>
+  members.map((member) =>
+    member.kind === "propertySignature"
+      ? {
+          ...member,
+          type: enrichType(member.type) ?? member.type,
+        }
+      : {
+          ...member,
+          parameters: enrichSourceParameters(member.parameters, enrichType),
+          ...(member.returnType
+            ? { returnType: enrichType(member.returnType) ?? member.returnType }
+            : {}),
+          ...(member.typeParameters
+            ? {
+                typeParameters: member.typeParameters.map((typeParameter) => ({
+                  ...typeParameter,
+                  ...(typeParameter.constraint
+                    ? {
+                        constraint:
+                          enrichType(typeParameter.constraint) ??
+                          typeParameter.constraint,
+                      }
+                    : {}),
+                  ...(typeParameter.default
+                    ? {
+                        default:
+                          enrichType(typeParameter.default) ??
+                          typeParameter.default,
+                      }
+                    : {}),
+                })),
+              }
+            : {}),
+        }
+  );
+
+const enrichSourceIrType = (
+  type: IrType | undefined,
+  sourceRegistry: TypeRegistry,
+  entries: ReadonlyMap<string, NominalEntry>,
+  tsNameToTypeId: ReadonlyMap<string, TypeId>,
+  clrNameToTypeId: ReadonlyMap<string, TypeId>,
+  ownerIdentity: string,
+  containingFQName: string
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const enrichNestedType = (nested: IrType | undefined): IrType | undefined =>
+    enrichSourceIrType(
+      nested,
+      sourceRegistry,
+      entries,
+      tsNameToTypeId,
+      clrNameToTypeId,
+      ownerIdentity,
+      containingFQName
+    );
+
+  switch (type.kind) {
+    case "referenceType": {
+      const typeId = resolveSourceReferenceTypeId(
+        type,
+        sourceRegistry,
+        entries,
+        tsNameToTypeId,
+        clrNameToTypeId,
+        ownerIdentity,
+        containingFQName
+      );
+
+      return {
+        ...type,
+        ...(typeId ? { typeId } : {}),
+        ...(type.typeArguments
+          ? {
+              typeArguments: type.typeArguments.map(
+                (typeArgument) => enrichNestedType(typeArgument) ?? typeArgument
+              ),
+            }
+          : {}),
+        ...(type.structuralMembers
+          ? {
+              structuralMembers: enrichSourceInterfaceMembers(
+                type.structuralMembers,
+                enrichNestedType
+              ),
+            }
+          : {}),
+      };
+    }
+
+    case "arrayType":
+      return {
+        ...type,
+        elementType: enrichNestedType(type.elementType) ?? type.elementType,
+      };
+
+    case "tupleType":
+      return {
+        ...type,
+        elementTypes: type.elementTypes.map(
+          (elementType) => enrichNestedType(elementType) ?? elementType
+        ),
+      };
+
+    case "functionType":
+      return {
+        ...type,
+        ...(type.typeParameters
+          ? {
+              typeParameters: type.typeParameters.map((typeParameter) => ({
+                ...typeParameter,
+                ...(typeParameter.constraint
+                  ? {
+                      constraint:
+                        enrichNestedType(typeParameter.constraint) ??
+                        typeParameter.constraint,
+                    }
+                  : {}),
+                ...(typeParameter.default
+                  ? {
+                      default:
+                        enrichNestedType(typeParameter.default) ??
+                        typeParameter.default,
+                    }
+                  : {}),
+              })),
+            }
+          : {}),
+        parameters: enrichSourceParameters(type.parameters, enrichNestedType),
+        returnType: enrichNestedType(type.returnType) ?? type.returnType,
+      };
+
+    case "objectType":
+      return {
+        ...type,
+        members: enrichSourceInterfaceMembers(type.members, enrichNestedType),
+      };
+
+    case "dictionaryType":
+      return {
+        ...type,
+        keyType: enrichNestedType(type.keyType) ?? type.keyType,
+        valueType: enrichNestedType(type.valueType) ?? type.valueType,
+      };
+
+    case "unionType":
+    case "intersectionType":
+      return {
+        ...type,
+        types: type.types.map((member) => enrichNestedType(member) ?? member),
+      };
+
+    default:
+      return type;
+  }
+};
+
+const enrichSourceNominalEntry = (
+  entry: NominalEntry,
+  sourceRegistry: TypeRegistry,
+  entries: ReadonlyMap<string, NominalEntry>,
+  tsNameToTypeId: ReadonlyMap<string, TypeId>,
+  clrNameToTypeId: ReadonlyMap<string, TypeId>
+): NominalEntry => {
+  if (entry.origin !== "source") {
+    return entry;
+  }
+
+  const enrichType = (type: IrType | undefined): IrType | undefined =>
+    enrichSourceIrType(
+      type,
+      sourceRegistry,
+      entries,
+      tsNameToTypeId,
+      clrNameToTypeId,
+      entry.typeId.assemblyName,
+      entry.typeId.clrName
+    );
+
+  const members = new Map<string, MemberEntry>();
+  for (const [name, member] of entry.members) {
+    members.set(name, {
+      ...member,
+      ...(member.type ? { type: enrichType(member.type) } : {}),
+      ...(member.signatures
+        ? {
+            signatures: member.signatures.map((signature) => ({
+              ...signature,
+              parameters: signature.parameters.map((parameter) => ({
+                ...parameter,
+                type: enrichType(parameter.type) ?? parameter.type,
+              })),
+              returnType: enrichType(signature.returnType) ?? signature.returnType,
+              typeParameters: enrichSourceTypeParameters(
+                signature.typeParameters,
+                enrichType
+              ),
+            })),
+          }
+        : {}),
+    });
+  }
+
+  return {
+    ...entry,
+    ...(entry.aliasedType ? { aliasedType: enrichType(entry.aliasedType) } : {}),
+    typeParameters: enrichSourceTypeParameters(entry.typeParameters, enrichType),
+    heritage: entry.heritage.map((edge) => ({
+      ...edge,
+      typeArguments: edge.typeArguments.map(
+        (typeArgument) => enrichType(typeArgument) ?? typeArgument
+      ),
+    })),
+    members,
+  };
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // UNIFIED CATALOG BUILDER
 // ═══════════════════════════════════════════════════════════════════════════
@@ -331,6 +675,23 @@ export const buildUnifiedUniverse = (
           );
         }
       }
+    }
+
+    for (const [stableId, entry] of entries) {
+      if (entry.origin !== "source") {
+        continue;
+      }
+
+      entries.set(
+        stableId,
+        enrichSourceNominalEntry(
+          entry,
+          sourceRegistry,
+          entries,
+          tsNameToTypeId,
+          clrNameToTypeId
+        )
+      );
     }
   }
 

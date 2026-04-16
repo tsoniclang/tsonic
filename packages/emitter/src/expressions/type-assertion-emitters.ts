@@ -32,6 +32,7 @@ import {
   buildRuntimeUnionLayout,
   emitRuntimeCarrierTypeAst,
 } from "../core/semantic/runtime-unions.js";
+import { getOrRegisterRuntimeUnionCarrier } from "../core/semantic/runtime-union-registry.js";
 import {
   buildRuntimeUnionFactoryCallAst,
   buildRuntimeUnionMatchAst,
@@ -241,8 +242,19 @@ export const emitTypeAssertion = (
         nextContext = memberContext;
       }
 
+      const carrier = getOrRegisterRuntimeUnionCarrier(
+        memberTypeAsts,
+        nextContext.options.runtimeUnionRegistry,
+        targetType.runtimeCarrierFamilyKey
+          ? {
+              familyKey: targetType.runtimeCarrierFamilyKey,
+              name: targetType.runtimeCarrierName,
+              namespaceName: targetType.runtimeCarrierNamespace,
+            }
+          : undefined
+      );
       const unionTypeAst = identifierType(
-        "global::Tsonic.Runtime.Union",
+        `global::${carrier.fullName}`,
         memberTypeAsts
       );
 
@@ -441,7 +453,10 @@ export const emitTypeAssertion = (
   const preservedBroadArrayStorageAtEntry = resolveBroadArrayAssertionStorageType(
     resolvedAssertionTarget,
     sourceStorageTypeAtEntry,
-    context
+    context,
+    sourceNarrowedBinding?.kind === "expr"
+      ? sourceNarrowedBinding.type
+      : undefined
   );
 
   if (
@@ -673,7 +688,10 @@ export const emitTypeAssertion = (
   const preservedBroadArrayStorageType = resolveBroadArrayAssertionStorageType(
     resolvedAssertionTarget,
     sourceStorageTypeAtEntry,
-    sourceLayoutContext
+    sourceLayoutContext,
+    sourceNarrowedBinding?.kind === "expr"
+      ? sourceNarrowedBinding.type
+      : undefined
   );
   const runtimeCastTarget =
     preservedBroadArrayStorageType ?? runtimeTarget;
@@ -715,6 +733,17 @@ export const emitTypeAssertion = (
   }
 
   if (mustPreserveNominalCast) {
+    return [
+      {
+        kind: "castExpression",
+        type: runtimeTargetTypeAst,
+        expression: castSourceAst,
+      },
+      runtimeTargetTypeContext,
+    ];
+  }
+
+  if (preservedBroadArrayStorageType) {
     return [
       {
         kind: "castExpression",

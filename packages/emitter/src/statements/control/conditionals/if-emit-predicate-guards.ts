@@ -12,6 +12,7 @@ import {
   buildIsNCondition,
   buildCastLocalDecl,
   buildSubsetUnionType,
+  resetBranchFlowState,
   withComplementNarrowing,
   withComplementNarrowingForMembers,
   wrapInBlock,
@@ -214,7 +215,8 @@ export const tryEmitInGuard = (
     thenCtx
   );
 
-  let finalContext: EmitterContext = thenBodyCtx;
+  const basePostConditionContext = resetBranchFlowState(ctxWithId, thenBodyCtx);
+  let finalContext: EmitterContext = basePostConditionContext;
 
   let elseStmt: CSharpStatementAst | undefined;
 
@@ -227,7 +229,7 @@ export const tryEmitInGuard = (
         candidateMemberNs,
         candidateMembers,
         memberN,
-        finalContext
+        basePostConditionContext
       );
 
       const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
@@ -255,7 +257,7 @@ export const tryEmitInGuard = (
 
     // Can't narrow ELSE safely, emit without narrowing.
     const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
-      ...finalContext,
+      ...basePostConditionContext,
       narrowedBindings: ctxWithId.narrowedBindings,
     });
     elseStmt = wrapInBlock(elseStmts);
@@ -286,7 +288,7 @@ export const tryEmitInGuard = (
       candidateMemberNs,
       candidateMembers,
       memberN,
-      finalContext
+      basePostConditionContext
     );
     return [
       [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],

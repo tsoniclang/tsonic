@@ -249,7 +249,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("Task.Run<double>(async");
-      expect(csharp).not.to.include("Task.Run<global::Tsonic.Runtime.Union");
+      expect(csharp).not.to.include("Task.Run<global::Tsonic.Internal.Union");
     });
 
     it("preserves int result when Promise.then callback stays in int space", () => {
@@ -349,7 +349,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("Task.Run<int>(async");
-      expect(csharp).not.to.include("Task.Run<global::Tsonic.Runtime.Union");
+      expect(csharp).not.to.include("Task.Run<global::Tsonic.Internal.Union");
     });
 
     it("lets Promise.catch delegate casts supply exception parameter types", () => {
@@ -388,7 +388,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("global::System.Action");
       expect(csharp).not.to.include(
-        "global::System.Func<global::Tsonic.Runtime.Union<void"
+        "global::System.Func<global::Tsonic.Internal.Union<void"
       );
     });
   });
@@ -429,7 +429,7 @@ describe("End-to-End Integration", () => {
         "global::System.Threading.Tasks.Task<double>"
       );
       expect(csharp).not.to.include(
-        "global::Tsonic.Runtime.Union<global::System.Threading.Tasks.Task<T>, T>"
+        "global::Tsonic.Internal.Union<global::System.Threading.Tasks.Task<T>, T>"
       );
       expect(csharp).not.to.include("Promise.all(");
     });

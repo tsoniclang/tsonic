@@ -9,7 +9,10 @@ import type {
   ExportSource,
   ExportMap,
 } from "../../emitter-types/core.js";
-import { buildLocalTypes } from "./local-types.js";
+import {
+  buildLocalTypes,
+  collectPublicLocalTypes,
+} from "./local-types.js";
 import {
   computeDeclarationRuntimeOmittableCallArities,
   computeFunctionValueRuntimeOmittableCallArities,
@@ -249,6 +252,9 @@ export const buildModuleMap = (
       return arities;
     })();
 
+    const localTypes = buildLocalTypes(module);
+    const publicLocalTypes = collectPublicLocalTypes(module, localTypes);
+
     map.set(canonicalPath, {
       namespace: module.namespace,
       className: module.className,
@@ -257,7 +263,8 @@ export const buildModuleMap = (
       hasTypeCollision,
       exportedValueKinds,
       exportedValueCallArities,
-      localTypes: buildLocalTypes(module),
+      localTypes,
+      publicLocalTypes,
     });
   }
 

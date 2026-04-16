@@ -17,6 +17,7 @@ import {
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import type { EmitterOptions } from "../types.js";
+import { normalizeRuntimeUnionCarrierNames } from "../runtime-union-cases/helpers.js";
 
 const helpersDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(helpersDir, "../../../../");
@@ -528,10 +529,12 @@ export const compileProjectToCSharp = (
       );
     }
 
-    return [...emitResult.files.entries()]
+    return normalizeRuntimeUnionCarrierNames(
+      [...emitResult.files.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, code]) => code)
-      .join("\n\n");
+      .join("\n\n")
+    );
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

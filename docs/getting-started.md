@@ -2,59 +2,41 @@
 
 ## Requirements
 
-- Node.js `22+`
-- .NET `10` SDK
-
-Verify:
-
-```bash
-node --version
-dotnet --version
-```
+- Node.js 22+
+- .NET 10 SDK
 
 ## Install
-
-Global:
 
 ```bash
 npm install -g tsonic
 ```
 
-Local:
-
-```bash
-npm install --save-dev tsonic
-```
-
-## Initialize a Workspace
-
-### Default CLR surface
+## Create a default CLR workspace
 
 ```bash
 mkdir hello-clr
 cd hello-clr
 tsonic init
-```
-
-This creates:
-
-```text
-tsonic.workspace.json
-package.json
-packages/hello-clr/
-  package.json
-  tsonic.json
-  src/App.ts
-  tsonic.package.json
-```
-
-Run it:
-
-```bash
 tsonic run
 ```
 
-### JS surface
+Generated sample:
+
+```ts
+import { Console } from "@tsonic/dotnet/System.js";
+
+export function main(): void {
+  Console.WriteLine("Hello from Tsonic.");
+}
+```
+
+This is the simplest possible CLR-first workspace:
+
+- default surface is `clr`
+- CLR APIs are imported explicitly
+- the default generated project is an executable
+
+## Create a JS workspace
 
 ```bash
 mkdir hello-js
@@ -63,25 +45,20 @@ tsonic init --surface @tsonic/js
 tsonic run
 ```
 
-JS sample:
-
 ```ts
 export function main(): void {
-  const message = "  Hello from Tsonic JS surface!  ".trim();
-  console.log(message);
+  const value = JSON.parse<{ x: number }>('{"x": 1}');
+  console.log(JSON.stringify(value));
 }
 ```
 
-### Add Node module support
+This switches the workspace ambient world to `@tsonic/js`.
 
-`node:*` APIs are not ambient. Keep the JS surface and add the Node package:
+## Add Node modules
 
 ```bash
-tsonic init --surface @tsonic/js
 tsonic add npm @tsonic/nodejs
 ```
-
-Then author normal Node imports:
 
 ```ts
 import * as fs from "node:fs";
@@ -89,65 +66,34 @@ import * as path from "node:path";
 
 export function main(): void {
   const file = path.join("src", "App.ts");
-  console.log(fs.existsSync(file));
+  console.log(file, fs.existsSync(file));
 }
 ```
 
-## Build Commands
+This is the current package model in action:
 
-Generate C# only:
+- ambient world from `@tsonic/js`
+- Node-style modules from `@tsonic/nodejs`
 
-```bash
-tsonic generate
-```
-
-Build:
-
-```bash
-tsonic build
-```
-
-Build and run:
-
-```bash
-tsonic run
-```
-
-Run tests:
-
-```bash
-tsonic test
-```
-
-Pack a library project:
-
-```bash
-tsonic pack
-```
-
-## Add CLR Dependencies
-
-NuGet:
+## Add CLR packages
 
 ```bash
 tsonic add nuget Microsoft.Extensions.Logging 10.0.0
-```
-
-Local DLL:
-
-```bash
-tsonic add package ./libs/MyCompany.MyLib.dll
-```
-
-Regenerate local bindings/cache:
-
-```bash
 tsonic restore
 ```
 
-## Source Packages
+Then import the generated binding package:
 
-`tsonic init` makes each project npm-source-package-ready by default. The generated manifest:
+```ts
+import { ILogger_1 } from "@tsonic/microsoft-extensions/Microsoft.Extensions.Logging.js";
+```
+
+## First-party source packages
+
+`tsonic init` now produces source-package-ready projects by default. Each
+project gets a `tsonic.package.json` manifest.
+
+Example:
 
 ```json
 {
@@ -156,17 +102,18 @@ tsonic restore
   "surfaces": ["@tsonic/js"],
   "source": {
     "exports": {
-      ".": "./src/App.ts"
+      ".": "./src/App.ts",
+      "./index.js": "./src/App.ts"
     }
   }
 }
 ```
 
-Installed packages with that manifest are compiled transitively as TypeScript source, not treated as opaque external modules.
+Installed source packages with that manifest are compiled transitively as part
+of the same Tsonic program.
 
-## Next
+## What to read next
 
-- `cli.md`
-- `configuration.md`
-- `language.md`
-- `bindings.md`
+- [CLI Workflow](cli.md)
+- [Surfaces and Packages](surfaces-and-packages.md)
+- [Workspace and Project Files](workspace-and-projects.md)

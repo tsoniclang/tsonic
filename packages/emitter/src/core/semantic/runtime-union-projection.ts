@@ -18,6 +18,11 @@ import {
   findMappedRuntimeUnionMemberIndex,
 } from "./runtime-union-member-mapping.js";
 
+type RuntimeUnionProjectionBodyResult =
+  | CSharpExpressionAst
+  | readonly [CSharpExpressionAst, EmitterContext]
+  | undefined;
+
 export const buildRuntimeUnionFactoryCallAst = (
   unionTypeAst: ReturnType<typeof buildRuntimeUnionTypeAst>,
   memberIndex: number,
@@ -108,9 +113,10 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
   }) => CSharpExpressionAst | undefined;
   readonly buildUnmappedMemberBody?: (args: {
     readonly actualMember: IrType;
+    readonly parameterExpr: CSharpExpressionAst;
     readonly sourceMemberN: number;
     readonly context: EmitterContext;
-  }) => CSharpExpressionAst | undefined;
+  }) => RuntimeUnionProjectionBodyResult;
 }): [CSharpExpressionAst, EmitterContext] | undefined => {
   const targetUnionTypeAst = buildRuntimeUnionTypeAst(opts.targetLayout);
   const targetMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
@@ -165,14 +171,21 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
     });
 
     if (targetMemberIndex === undefined) {
-      const unmappedBody = opts.buildUnmappedMemberBody?.({
+      const unmappedBodyResult = opts.buildUnmappedMemberBody?.({
         actualMember,
+        parameterExpr,
         sourceMemberN,
         context: currentContext,
       });
+      const [unmappedBody, unmappedContext] = Array.isArray(
+        unmappedBodyResult
+      )
+        ? unmappedBodyResult
+        : [unmappedBodyResult, currentContext];
       if (!unmappedBody) {
         return undefined;
       }
+      currentContext = unmappedContext;
       pushLambda(unmappedBody);
       continue;
     }

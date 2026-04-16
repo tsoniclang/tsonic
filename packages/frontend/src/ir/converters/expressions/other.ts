@@ -24,8 +24,10 @@ import {
  *
  * DETERMINISTIC TYPING:
  * - Threads expectedType to both branches for consistent typing
- * - Result type is expectedType if available, otherwise derives from whenTrue branch
- * Example: `const x: int = cond ? 5 : 10` → both 5 and 10 get expectedType `int`
+ * - Result type stays as precise as the branches prove, even in contextual positions
+ * Example: `new Uint8Array(flag ? 1 : size)` keeps the conditional as `int`,
+ *   not `TypedArrayConstructorInput<byte>`, so later runtime-carrier selection
+ *   still sees the numeric slot deterministically
  */
 export const convertConditionalExpression = (
   node: ts.ConditionalExpression,
@@ -51,11 +53,11 @@ export const convertConditionalExpression = (
   );
 
   // DETERMINISTIC:
-  // - If expectedType exists, it is the contextual contract for both branches.
-  // - Otherwise infer from both branches (never from whenTrue alone).
+  // - expectedType is a contextual contract for branch conversion, not a mandate
+  //   to widen the conditional's own inferred type
+  // - infer from both branches, then only fall back to expectedType when the
+  //   branches genuinely need that broader/common surface
   const inferredType = (() => {
-    if (expectedType) return expectedType;
-
     const t = whenTrue.inferredType;
     const f = whenFalse.inferredType;
 
@@ -78,7 +80,19 @@ export const convertConditionalExpression = (
       return t;
     }
 
-    return normalizedUnionType([t, f]);
+    const branchUnion = normalizedUnionType([t, f]);
+    if (!expectedType) {
+      return branchUnion;
+    }
+
+    if (
+      ctx.typeSystem.isAssignableTo(branchUnion, expectedType) &&
+      !ctx.typeSystem.isAssignableTo(expectedType, branchUnion)
+    ) {
+      return expectedType;
+    }
+
+    return branchUnion;
   })();
 
   return {

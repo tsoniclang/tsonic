@@ -128,6 +128,24 @@ const splitSignatureTypeList = (str: string): string[] => {
 
 const stableSerialize = (value: unknown): string => JSON.stringify(value);
 
+const shouldPreferIncomingSimpleBinding = (
+  existing: SimpleBindingDescriptor | undefined,
+  incoming: SimpleBindingDescriptor
+): boolean => {
+  if (!existing) {
+    return true;
+  }
+
+  if (incoming.kind === "global" && existing.kind !== "global") {
+    return true;
+  }
+  if (incoming.kind !== "global" && existing.kind === "global") {
+    return false;
+  }
+
+  return false;
+};
+
 const mergeMemberBindings = (
   existing: readonly MemberBinding[],
   incoming: readonly MemberBinding[],
@@ -562,11 +580,7 @@ export const addBindingsToState = (
     descriptor: SimpleBindingDescriptor
   ): void => {
     const existing = state.simpleBindings.get(name);
-    if (
-      existing === undefined ||
-      descriptor.kind === "global" ||
-      existing.kind !== "global"
-    ) {
+    if (shouldPreferIncomingSimpleBinding(existing, descriptor)) {
       state.simpleBindings.set(name, descriptor);
     }
   };
@@ -633,9 +647,23 @@ export const addBindingsToState = (
       // Simple format: global/module bindings
       for (const [name, descriptor] of Object.entries(manifest.bindings)) {
         if (descriptor.kind === "global") {
-          state.simpleGlobalBindings.set(name, descriptor);
+          if (
+            shouldPreferIncomingSimpleBinding(
+              state.simpleGlobalBindings.get(name),
+              descriptor
+            )
+          ) {
+            state.simpleGlobalBindings.set(name, descriptor);
+          }
         } else {
-          state.simpleModuleBindings.set(name, descriptor);
+          if (
+            shouldPreferIncomingSimpleBinding(
+              state.simpleModuleBindings.get(name),
+              descriptor
+            )
+          ) {
+            state.simpleModuleBindings.set(name, descriptor);
+          }
         }
         setPreferredSimpleBinding(name, descriptor);
       }

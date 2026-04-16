@@ -22,6 +22,7 @@ import { emitLiteralType } from "./literals.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { resolveTypeAlias } from "../core/semantic/type-resolution.js";
 
 const RECURSIVE_TYPE_FALLBACK_AST: CSharpTypeAst = {
   kind: "predefinedType",
@@ -36,6 +37,59 @@ const getDeclaringTypeParameterAsts = (
     identifierType(context.declaringTypeParameterNameMap?.get(name) ?? name)
   );
 
+function tryEmitRuntimeUnionCarrierReferenceTypeAst(
+  type: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] | undefined {
+  if (type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const resolvedAlias = resolveTypeAlias(type, context, {
+    preserveObjectTypeAliases: true,
+  });
+  if (
+    resolvedAlias.kind !== "unionType" ||
+    !resolvedAlias.runtimeCarrierFamilyKey ||
+    !resolvedAlias.runtimeCarrierName ||
+    !resolvedAlias.runtimeCarrierNamespace
+  ) {
+    return undefined;
+  }
+
+  const typeArgumentTypes =
+    type.typeArguments && type.typeArguments.length > 0
+      ? type.typeArguments
+      : resolvedAlias.runtimeCarrierTypeArguments;
+  if (!typeArgumentTypes || typeArgumentTypes.length === 0) {
+    return [
+      identifierType(
+        `global::${resolvedAlias.runtimeCarrierNamespace}.${resolvedAlias.runtimeCarrierName}`
+      ),
+      context,
+    ];
+  }
+
+  const typeArguments: CSharpTypeAst[] = [];
+  let currentContext = context;
+  for (const typeArgument of typeArgumentTypes) {
+    const [typeArgumentAst, nextContext] = emitTypeAst(
+      typeArgument,
+      currentContext
+    );
+    typeArguments.push(typeArgumentAst);
+    currentContext = nextContext;
+  }
+
+  return [
+    identifierType(
+      `global::${resolvedAlias.runtimeCarrierNamespace}.${resolvedAlias.runtimeCarrierName}`,
+      typeArguments
+    ),
+    currentContext,
+  ];
+}
+
 const withTypeEmissionGuard = (
   type: IrType,
   context: EmitterContext,
@@ -43,6 +97,14 @@ const withTypeEmissionGuard = (
 ): [CSharpTypeAst, EmitterContext] => {
   const key = stableIrTypeKey(type);
   if (context.activeTypeEmissionKeys?.has(key)) {
+    const runtimeCarrierReference = tryEmitRuntimeUnionCarrierReferenceTypeAst(
+      type,
+      context
+    );
+    if (runtimeCarrierReference) {
+      return runtimeCarrierReference;
+    }
+
     return [RECURSIVE_TYPE_FALLBACK_AST, context];
   }
 

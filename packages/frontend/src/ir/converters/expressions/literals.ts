@@ -18,6 +18,7 @@ import { inferNumericKindFromRaw } from "../../types/numeric-helpers.js";
 import { NumericKind } from "../../types/numeric-kind.js";
 import type { ProgramContext } from "../../program-context.js";
 import { resolveAmbientGlobalSourceOwnerByName } from "./ambient-global-source-owner.js";
+import { buildSourceBackedConstructorParameterTypes } from "./calls/source-backed-constructor-metadata.js";
 
 /**
  * Derive inferredType from numericIntent (deterministic, no TypeScript).
@@ -158,6 +159,28 @@ export const convertRegularExpressionLiteral = (
     });
   }
 
+  const inferredType: IrType = {
+    kind: "referenceType",
+    name: "RegExp",
+    resolvedClrType,
+  };
+  const sourceBackedConstructorParameterTypes =
+    buildSourceBackedConstructorParameterTypes({
+      sourceNode: node,
+      callee: {
+        kind: "identifier",
+        name: "RegExp",
+        inferredType,
+        resolvedClrType,
+        resolvedAssembly,
+        sourceSpan: getSourceSpan(node),
+      },
+      constructedType: inferredType,
+      argumentCount: args.length,
+      actualArgTypes: args.map((arg) => arg.inferredType),
+      ctx,
+    });
+
   return {
     kind: "new",
     callee: {
@@ -173,11 +196,18 @@ export const convertRegularExpressionLiteral = (
       sourceSpan: getSourceSpan(node),
     },
     arguments: args,
-    inferredType: {
-      kind: "referenceType",
-      name: "RegExp",
-      resolvedClrType,
-    },
+    inferredType,
+    parameterTypes: sourceBackedConstructorParameterTypes?.parameterTypes,
+    surfaceParameterTypes:
+      sourceBackedConstructorParameterTypes?.surfaceParameterTypes,
+    sourceBackedParameterTypes:
+      sourceBackedConstructorParameterTypes?.parameterTypes,
+    sourceBackedSurfaceParameterTypes:
+      sourceBackedConstructorParameterTypes?.surfaceParameterTypes,
+    sourceBackedRestParameter:
+      sourceBackedConstructorParameterTypes?.restParameter,
+    sourceBackedReturnType: inferredType,
+    surfaceRestParameter: sourceBackedConstructorParameterTypes?.restParameter,
     sourceSpan: getSourceSpan(node),
   };
 };

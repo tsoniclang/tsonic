@@ -27,6 +27,19 @@ const readPackageName = (pkgJsonPath: string): string | undefined => {
   }
 };
 
+const isSourcePackageRoot = (packageRoot: string): boolean => {
+  const manifestPath = join(packageRoot, "tsonic.package.json");
+  if (!existsSync(manifestPath)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+      readonly kind?: unknown;
+    };
+    return parsed.kind === "tsonic-source-package";
+  } catch {
+    return false;
+  }
+};
+
 const isPathWithin = (rootPath: string, candidatePath: string): boolean => {
   const rel = relative(resolve(rootPath), resolve(candidatePath));
   return rel === "" || (!rel.startsWith("..") && rel.length > 0);
@@ -158,13 +171,22 @@ export const resolvePackageRoot = (
   projectRoot: string,
   packageName: string
 ): Result<string, string> => {
+  const sibling = tryResolveSiblingTsonicPackageRoot(packageName);
   const workspaceInstalled = tryResolveWorkspaceInstalledPackageRoot(
     projectRoot,
     packageName
   );
+
+  if (workspaceInstalled && isSourcePackageRoot(workspaceInstalled)) {
+    return { ok: true, value: workspaceInstalled };
+  }
+
+  if (sibling && isSourcePackageRoot(sibling)) {
+    return { ok: true, value: sibling };
+  }
+
   if (workspaceInstalled) return { ok: true, value: workspaceInstalled };
 
-  const sibling = tryResolveSiblingTsonicPackageRoot(packageName);
   if (sibling) return { ok: true, value: sibling };
 
   const projectPkgJson = join(projectRoot, "package.json");

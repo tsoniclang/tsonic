@@ -157,13 +157,89 @@ describe("discoverProgramInputs", () => {
         },
         {
           requiredTypeRoots: [],
-          resolvedModes: [],
+          resolvedModes: ["@tsonic/js"],
         }
       );
 
       expect(
         discovery.authoritativeTsonicPackageRoots.get("@tsonic/js")
       ).to.equal(linkedJsRoot);
+      expect(discovery.typeRoots).to.include(linkedJsRoot);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("activates installed source surface packages when sibling first-party source typeRoots are present", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/symlinked-installed-surface"
+    );
+
+    try {
+      const projectRoot = fixture.path("app");
+      const sourceRoot = fixture.path("app/src");
+      const entryFile = fixture.path("app/src/index.ts");
+      const linkedJsRoot = fixture.path("app/node_modules/@tsonic/js");
+      const linkedJsAmbientFile = fixture.path("app/node_modules/@tsonic/js/globals.ts");
+      const sourceNodejsRoot = fixture.path("app/node_modules/@tsonic/nodejs");
+
+      fs.mkdirSync(path.join(sourceNodejsRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(sourceNodejsRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/nodejs",
+            version: "10.0.49-next.0",
+            type: "module",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(sourceNodejsRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/nodejs"],
+            source: {
+              namespace: "nodejs",
+              exports: {
+                "./index.js": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(sourceNodejsRoot, "src/index.ts"),
+        "export const nodeRuntime = true;\n"
+      );
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+          surface: "@tsonic/js",
+          typeRoots: [sourceNodejsRoot],
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: ["@tsonic/js"],
+        }
+      );
+
+      expect(
+        discovery.authoritativeTsonicPackageRoots.get("@tsonic/js")
+      ).to.equal(linkedJsRoot);
+      expect(discovery.typeRoots).to.include(linkedJsRoot);
+      expect(discovery.typeRoots).to.include(fs.realpathSync(sourceNodejsRoot));
+      expect(discovery.allFiles).to.include(linkedJsAmbientFile);
     } finally {
       fixture.cleanup();
     }
@@ -255,6 +331,45 @@ describe("discoverProgramInputs", () => {
       ).to.equal(jsRoot);
       expect(discovery.typeRoots.includes(jsRoot)).to.equal(false);
       expect(discovery.allFiles.includes(jsAmbientFile)).to.equal(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("orders active source-package typeRoots from the current surface before inherited surfaces", () => {
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/sibling-nodejs-surface-before-default"
+    );
+
+    try {
+      const projectRoot = fixture.path("workspace/app");
+      const sourceRoot = fixture.path("workspace/app/src");
+      const entryFile = fixture.path("workspace/app/src/index.ts");
+      const jsRoot = fixture.path("workspace/js/versions/10");
+      const nodejsRoot = fixture.path("workspace/nodejs/versions/10");
+
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(entryFile, "export {};\n");
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+          surface: "@tsonic/nodejs",
+        },
+        {
+          requiredTypeRoots: [jsRoot, nodejsRoot],
+          resolvedModes: ["@tsonic/js", "@tsonic/nodejs"],
+        }
+      );
+
+      expect(discovery.typeRoots.indexOf(nodejsRoot)).to.be.greaterThan(-1);
+      expect(discovery.typeRoots.indexOf(jsRoot)).to.be.greaterThan(-1);
+      expect(discovery.typeRoots.indexOf(nodejsRoot)).to.be.lessThan(
+        discovery.typeRoots.indexOf(jsRoot)
+      );
     } finally {
       fixture.cleanup();
     }

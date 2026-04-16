@@ -22,16 +22,49 @@ import { buildCommand } from "../build.js";
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
 );
-const localJsPackageRoot = resolve(
-  join(repoRoot, "..", "js", "versions", "10")
+const resolveLinkedFirstPartyPackageRoot = (
+  repoName: string,
+  fallbackPackagePath: string,
+  ...localSegments: readonly string[]
+): string => {
+  const localPackageRoot = resolve(join(repoRoot, "..", repoName, ...localSegments));
+  return existsSync(localPackageRoot)
+    ? localPackageRoot
+    : join(repoRoot, fallbackPackagePath);
+};
+const linkedJsPackageRoot = resolveLinkedFirstPartyPackageRoot(
+  "js",
+  "node_modules/@tsonic/js",
+  "versions",
+  "10"
 );
-const linkedJsPackageRoot = existsSync(localJsPackageRoot)
-  ? localJsPackageRoot
-  : join(repoRoot, "node_modules/@tsonic/js");
-const linkedEfcorePackageRoot = resolve(join(repoRoot, "..", "efcore"));
-const linkedMicrosoftExtensionsPackageRoot = resolve(
-  join(repoRoot, "..", "microsoft-extensions")
+const linkedCorePackageRoot = resolveLinkedFirstPartyPackageRoot(
+  "core",
+  "node_modules/@tsonic/core",
+  "versions",
+  "10"
 );
+const linkedDotnetPackageRoot = resolveLinkedFirstPartyPackageRoot(
+  "dotnet",
+  "node_modules/@tsonic/dotnet",
+  "versions",
+  "10"
+);
+const linkedGlobalsPackageRoot = resolveLinkedFirstPartyPackageRoot(
+  "globals",
+  "node_modules/@tsonic/globals",
+  "versions",
+  "10"
+);
+const linkedEfcorePackageRoot = resolveLinkedFirstPartyPackageRoot(
+  "efcore",
+  "node_modules/@tsonic/efcore"
+);
+const linkedMicrosoftExtensionsPackageRoot =
+  resolveLinkedFirstPartyPackageRoot(
+    "microsoft-extensions",
+    "node_modules/@tsonic/microsoft-extensions"
+  );
 
 const linkDir = (target: string, linkPath: string): void => {
   mkdirSync(dirname(linkPath), { recursive: true });
@@ -90,18 +123,9 @@ describe("build command (library ref dirs)", function () {
         "utf-8"
       );
 
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/globals"),
-        join(dir, "node_modules/@tsonic/globals")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/core"),
-        join(dir, "node_modules/@tsonic/core")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/dotnet"),
-        join(dir, "node_modules/@tsonic/dotnet")
-      );
+      linkDir(linkedGlobalsPackageRoot, join(dir, "node_modules/@tsonic/globals"));
+      linkDir(linkedCorePackageRoot, join(dir, "node_modules/@tsonic/core"));
+      linkDir(linkedDotnetPackageRoot, join(dir, "node_modules/@tsonic/dotnet"));
 
       const runtimeDll = join(
         repoRoot,
@@ -203,18 +227,9 @@ describe("build command (library ref dirs)", function () {
         "utf-8"
       );
 
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/globals"),
-        join(dir, "node_modules/@tsonic/globals")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/core"),
-        join(dir, "node_modules/@tsonic/core")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/dotnet"),
-        join(dir, "node_modules/@tsonic/dotnet")
-      );
+      linkDir(linkedGlobalsPackageRoot, join(dir, "node_modules/@tsonic/globals"));
+      linkDir(linkedCorePackageRoot, join(dir, "node_modules/@tsonic/core"));
+      linkDir(linkedDotnetPackageRoot, join(dir, "node_modules/@tsonic/dotnet"));
       linkDir(
         linkedEfcorePackageRoot,
         join(dir, "node_modules/@tsonic/efcore")
@@ -331,10 +346,7 @@ describe("build command (library ref dirs)", function () {
       );
 
       linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/core"),
-        join(dir, "node_modules/@tsonic/core")
-      );
+      linkDir(linkedCorePackageRoot, join(dir, "node_modules/@tsonic/core"));
 
       const sourcePackageRoot = join(dir, "node_modules/@acme/math");
       mkdirSync(join(sourcePackageRoot, "tsonic"), { recursive: true });
@@ -481,18 +493,9 @@ describe("build command (library ref dirs)", function () {
       );
 
       // Provide required standard bindings packages (no network).
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/globals"),
-        join(dir, "node_modules/@tsonic/globals")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/core"),
-        join(dir, "node_modules/@tsonic/core")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/dotnet"),
-        join(dir, "node_modules/@tsonic/dotnet")
-      );
+      linkDir(linkedGlobalsPackageRoot, join(dir, "node_modules/@tsonic/globals"));
+      linkDir(linkedCorePackageRoot, join(dir, "node_modules/@tsonic/core"));
+      linkDir(linkedDotnetPackageRoot, join(dir, "node_modules/@tsonic/dotnet"));
 
       // Build a tiny external dependency DLL (Dep.dll) OUTSIDE the library output folder.
       const depDir = join(dir, "deps", "dep");
@@ -666,18 +669,9 @@ describe("build command (library ref dirs)", function () {
       );
 
       linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/core"),
-        join(dir, "node_modules/@tsonic/core")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/dotnet"),
-        join(dir, "node_modules/@tsonic/dotnet")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/globals"),
-        join(dir, "node_modules/@tsonic/globals")
-      );
+      linkDir(linkedCorePackageRoot, join(dir, "node_modules/@tsonic/core"));
+      linkDir(linkedDotnetPackageRoot, join(dir, "node_modules/@tsonic/dotnet"));
+      linkDir(linkedGlobalsPackageRoot, join(dir, "node_modules/@tsonic/globals"));
 
       const sourcePackageRoot = join(dir, "node_modules/@acme/runtime");
       mkdirSync(join(sourcePackageRoot, "tsonic"), { recursive: true });

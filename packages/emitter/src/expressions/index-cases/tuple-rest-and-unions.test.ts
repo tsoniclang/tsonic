@@ -283,7 +283,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include("iterator.next(new double[] { 0.5 })");
-    expect(result).to.not.include("Tsonic.Runtime.Union");
+    expect(result).to.not.include("Tsonic.Internal.Union");
     expect(result).to.not.include("ValueTuple");
   });
 
@@ -408,6 +408,6 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
     expect(result).to.include("next(args)");
     expect(result).to.not.include("System.Linq.Enumerable.Select");
-    expect(result).to.not.include("Tsonic.Runtime.Union");
+    expect(result).to.not.include("Tsonic.Internal.Union");
   });
 });

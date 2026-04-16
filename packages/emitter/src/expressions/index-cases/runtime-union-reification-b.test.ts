@@ -10,6 +10,10 @@ import {
   type IrType,
 } from "./helpers.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
+import {
+  normalizeRuntimeUnionCarrierNames,
+  printRuntimeUnionCarrierTypeForIrType,
+} from "../../runtime-union-cases/helpers.js";
 
 const jsValueType: IrType = {
   kind: "referenceType",
@@ -386,8 +390,8 @@ describe("Expression Emission", () => {
     expect(rendered).to.include("global::System.Linq.Enumerable.ToArray");
     expect(rendered).to.include(".From1(");
     expect(rendered).to.include(".From2(");
-    expect(rendered).to.not.include(
-      "(global::Tsonic.Runtime.Union<string, global::Test.Stream>[])args"
+    expect(normalizeRuntimeUnionCarrierNames(rendered)).to.not.include(
+      "(global::Tsonic.Internal.Union<string, global::Test.Stream>[])args"
     );
   });
 
@@ -815,18 +819,19 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include(
-      "handler.As1()[index] is global::Tsonic.Runtime.Union<object[], global::System.Action, global::Test.Router>"
-    );
-    expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object[], global::System.Action, global::Test.Router>.From1"
-    );
-    expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object[], global::System.Action, global::Test.Router>.From2"
-    );
-    expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object[], global::System.Action, global::Test.Router>.From3"
-    );
+    const handlerCarrier = printRuntimeUnionCarrierTypeForIrType(middlewareLike, [
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: identifierType("object"),
+      },
+      identifierType("global::System.Action"),
+      identifierType("global::Test.Router"),
+    ]);
+    expect(text).to.include(`handler.As1()[index] is ${handlerCarrier}`);
+    expect(text).to.include(`${handlerCarrier}.From1`);
+    expect(text).to.include(`${handlerCarrier}.From2`);
+    expect(text).to.include(`${handlerCarrier}.From3`);
     expect(text).to.include("is global::System.Array");
   });
 

@@ -8,6 +8,8 @@ import {
   printType,
 } from "./helpers.js";
 import type { EmitterContext, IrType } from "./helpers.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { printRuntimeUnionCarrierTypeForIrType } from "../../runtime-union-cases/helpers.js";
 describe("Reference Type Emission", () => {
   describe("Polymorphic This", () => {
     it("emits polymorphic this markers as the declaring type", () => {
@@ -53,6 +55,24 @@ describe("Reference Type Emission", () => {
         kind: "referenceType",
         name: "PathSpec",
       };
+      const pathSpecUnion: IrType = {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          {
+            kind: "referenceType",
+            name: "RegExp",
+            resolvedClrType: "System.Text.RegularExpressions.Regex",
+          },
+          {
+            kind: "arrayType",
+            elementType: pathSpecRef,
+            origin: "explicit",
+          },
+          { kind: "primitiveType", name: "null" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      };
 
       const [typeAst] = emitReferenceType(pathSpecRef, {
         ...baseContext,
@@ -62,24 +82,7 @@ describe("Reference Type Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  { kind: "primitiveType", name: "string" },
-                  {
-                    kind: "referenceType",
-                    name: "RegExp",
-                    resolvedClrType: "System.Text.RegularExpressions.Regex",
-                  },
-                  {
-                    kind: "arrayType",
-                    elementType: pathSpecRef,
-                    origin: "explicit",
-                  },
-                  { kind: "primitiveType", name: "null" },
-                  { kind: "primitiveType", name: "undefined" },
-                ],
-              },
+              type: pathSpecUnion,
             },
           ],
         ]),
@@ -87,7 +90,15 @@ describe("Reference Type Emission", () => {
 
       const printed = printType(typeAst);
       expect(printed).to.equal(
-        "global::Tsonic.Runtime.Union<object[], string, global::System.Text.RegularExpressions.Regex>?"
+        `${printRuntimeUnionCarrierTypeForIrType(pathSpecUnion, [
+          {
+            kind: "arrayType",
+            rank: 1,
+            elementType: identifierType("object"),
+          },
+          { kind: "predefinedType", keyword: "string" },
+          identifierType("global::System.Text.RegularExpressions.Regex"),
+        ])}?`
       );
     });
 
@@ -95,6 +106,21 @@ describe("Reference Type Emission", () => {
       const middlewareParamRef: IrType = {
         kind: "referenceType",
         name: "MiddlewareParam",
+      };
+      const middlewareParamUnion: IrType = {
+        kind: "unionType",
+        types: [
+          {
+            kind: "referenceType",
+            name: "MiddlewareHandler",
+            resolvedClrType: "System.Delegate",
+          },
+          {
+            kind: "arrayType",
+            elementType: middlewareParamRef,
+            origin: "explicit",
+          },
+        ],
       };
 
       const [typeAst] = emitReferenceType(middlewareParamRef, {
@@ -105,21 +131,7 @@ describe("Reference Type Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  {
-                    kind: "referenceType",
-                    name: "MiddlewareHandler",
-                    resolvedClrType: "System.Delegate",
-                  },
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareParamRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareParamUnion,
             },
           ],
         ]),
@@ -127,7 +139,14 @@ describe("Reference Type Emission", () => {
 
       const printed = printType(typeAst);
       expect(printed).to.equal(
-        "global::Tsonic.Runtime.Union<object[], global::System.Delegate>"
+        printRuntimeUnionCarrierTypeForIrType(middlewareParamUnion, [
+          {
+            kind: "arrayType",
+            rank: 1,
+            elementType: identifierType("object"),
+          },
+          identifierType("global::System.Delegate"),
+        ])
       );
     });
 
@@ -140,6 +159,37 @@ describe("Reference Type Emission", () => {
         kind: "referenceType",
         name: "MiddlewareLike",
       };
+      const middlewareParamUnion: IrType = {
+        kind: "unionType",
+        types: [
+          {
+            kind: "referenceType",
+            name: "MiddlewareHandler",
+            resolvedClrType: "System.Delegate",
+          },
+          {
+            kind: "arrayType",
+            elementType: middlewareParamRef,
+            origin: "explicit",
+          },
+        ],
+      };
+      const middlewareLikeUnion: IrType = {
+        kind: "unionType",
+        types: [
+          middlewareParamRef,
+          {
+            kind: "referenceType",
+            name: "Router",
+            resolvedClrType: "Test.Router",
+          },
+          {
+            kind: "arrayType",
+            elementType: middlewareLikeRef,
+            origin: "explicit",
+          },
+        ],
+      };
 
       const recursiveContext: EmitterContext = {
         ...baseContext,
@@ -149,21 +199,7 @@ describe("Reference Type Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  {
-                    kind: "referenceType",
-                    name: "MiddlewareHandler",
-                    resolvedClrType: "System.Delegate",
-                  },
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareParamRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareParamUnion,
             },
           ],
           [
@@ -171,22 +207,7 @@ describe("Reference Type Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  middlewareParamRef,
-                  {
-                    kind: "referenceType",
-                    name: "Router",
-                    resolvedClrType: "Test.Router",
-                  },
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareLikeRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareLikeUnion,
             },
           ],
         ]),
@@ -203,7 +224,15 @@ describe("Reference Type Emission", () => {
       );
       expect(printType(firstTypeAst)).to.equal(printType(secondTypeAst));
       expect(printType(secondTypeAst)).to.equal(
-        "global::Tsonic.Runtime.Union<object[], global::System.Delegate, global::Test.Router>"
+        printRuntimeUnionCarrierTypeForIrType(middlewareLikeUnion, [
+          {
+            kind: "arrayType",
+            rank: 1,
+            elementType: identifierType("object"),
+          },
+          identifierType("global::System.Delegate"),
+          identifierType("global::Test.Router"),
+        ])
       );
     });
 
@@ -216,6 +245,37 @@ describe("Reference Type Emission", () => {
         kind: "referenceType",
         name: "MiddlewareLike",
       };
+      const middlewareParamUnion: IrType = {
+        kind: "unionType",
+        types: [
+          {
+            kind: "referenceType",
+            name: "MiddlewareHandler",
+            resolvedClrType: "System.Delegate",
+          },
+          {
+            kind: "arrayType",
+            elementType: middlewareParamRef,
+            origin: "explicit",
+          },
+        ],
+      };
+      const middlewareLikeUnion: IrType = {
+        kind: "unionType",
+        types: [
+          middlewareParamRef,
+          {
+            kind: "referenceType",
+            name: "Router",
+            resolvedClrType: "Test.Router",
+          },
+          {
+            kind: "arrayType",
+            elementType: middlewareLikeRef,
+            origin: "explicit",
+          },
+        ],
+      };
 
       const recursiveContext: EmitterContext = {
         ...baseContext,
@@ -225,21 +285,7 @@ describe("Reference Type Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  {
-                    kind: "referenceType",
-                    name: "MiddlewareHandler",
-                    resolvedClrType: "System.Delegate",
-                  },
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareParamRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareParamUnion,
             },
           ],
           [
@@ -247,22 +293,7 @@ describe("Reference Type Emission", () => {
             {
               kind: "typeAlias",
               typeParameters: [],
-              type: {
-                kind: "unionType",
-                types: [
-                  middlewareParamRef,
-                  {
-                    kind: "referenceType",
-                    name: "Router",
-                    resolvedClrType: "Test.Router",
-                  },
-                  {
-                    kind: "arrayType",
-                    elementType: middlewareLikeRef,
-                    origin: "explicit",
-                  },
-                ],
-              },
+              type: middlewareLikeUnion,
             },
           ],
         ]),
@@ -277,13 +308,41 @@ describe("Reference Type Emission", () => {
         recursiveContext
       );
 
-      expect(printType(typeAst)).to.equal("object[]");
+      expect(printType(typeAst)).to.equal(
+        `${printRuntimeUnionCarrierTypeForIrType(middlewareLikeUnion, [
+          {
+            kind: "arrayType",
+            rank: 1,
+            elementType: identifierType("object"),
+          },
+          identifierType("global::System.Delegate"),
+          identifierType("global::Test.Router"),
+        ])}[]`
+      );
     });
 
     it("does not leak cross-module recursive alias resolution state into later emissions", () => {
       const pathSpecRef: IrType = {
         kind: "referenceType",
         name: "PathSpec",
+      };
+      const pathSpecUnion: IrType = {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          {
+            kind: "referenceType",
+            name: "RegExp",
+            resolvedClrType: "System.Text.RegularExpressions.Regex",
+          },
+          {
+            kind: "arrayType",
+            elementType: pathSpecRef,
+            origin: "explicit",
+          },
+          { kind: "primitiveType", name: "null" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
       };
 
       const crossModuleContext: EmitterContext = {
@@ -306,25 +365,7 @@ describe("Reference Type Emission", () => {
                     {
                       kind: "typeAlias",
                       typeParameters: [],
-                      type: {
-                        kind: "unionType",
-                        types: [
-                          { kind: "primitiveType", name: "string" },
-                          {
-                            kind: "referenceType",
-                            name: "RegExp",
-                            resolvedClrType:
-                              "System.Text.RegularExpressions.Regex",
-                          },
-                          {
-                            kind: "arrayType",
-                            elementType: pathSpecRef,
-                            origin: "explicit",
-                          },
-                          { kind: "primitiveType", name: "null" },
-                          { kind: "primitiveType", name: "undefined" },
-                        ],
-                      },
+                      type: pathSpecUnion,
                     },
                   ],
                 ]),
@@ -345,7 +386,15 @@ describe("Reference Type Emission", () => {
       );
       expect(printType(firstTypeAst)).to.equal(printType(secondTypeAst));
       expect(printType(secondTypeAst)).to.equal(
-        "global::Tsonic.Runtime.Union<object[], string, global::System.Text.RegularExpressions.Regex>?"
+        `${printRuntimeUnionCarrierTypeForIrType(pathSpecUnion, [
+          {
+            kind: "arrayType",
+            rank: 1,
+            elementType: identifierType("object"),
+          },
+          { kind: "predefinedType", keyword: "string" },
+          identifierType("global::System.Text.RegularExpressions.Regex"),
+        ])}?`
       );
     });
 

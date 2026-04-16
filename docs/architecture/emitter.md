@@ -2,7 +2,7 @@
 
 The emitter converts IR into `CSharpAst`, then the printer turns that into C#.
 
-## Current Architecture
+## Current architecture
 
 ```text
 IR
@@ -12,36 +12,35 @@ IR
   -> .cs text
 ```
 
-## Important Current Fact
+## Important current fact
 
 The emitter is AST-only now.
 
-The old mixed pipeline of AST plus mid-pipeline C# text shims has been removed from the supported path.
+The old mixed pipeline of AST plus mid-pipeline C# text shims is no longer the
+supported architecture.
 
-## Major Areas
+## Major areas
 
 - type emission
 - expression emission
 - statement emission
 - module assembly
-- imports/namespaces
+- imports and namespaces
 - specialization and helper synthesis
-- mutable-storage/runtime helper generation
 
-## Promise Lowering
+## Where the hard problems usually live
 
-Promise constructors and chains are normalized before final emission so the emitter works with the normalized result type rather than leaking wrapper unions into backend generics.
+Emitter bugs usually show up in clusters like:
 
-## Object Literals
+- overload specialization
+- generic substitution at call sites
+- wrapper/unwrapper normalization for unions and promises
+- conversion of source-package semantics into backend-safe shapes
 
-Emitter handles deterministic object-literal lowering for:
+That is why emitter tests, goldens, and E2E fixtures remain one of the heaviest
+parts of the `run-all` suite.
 
-- synthesized nominal helper types
-- accessors
-- shorthand methods
-- supported runtime captures
-- unknown/object-bag fallbacks where the contextual target demands it
+## Promise lowering
 
-## Output Boundary
-
-The printer is the only stage that produces final C# text.
+Promise constructors and chains are normalized before final emission so the
+emitter works with the normalized result type rather than stale wrapper shapes.

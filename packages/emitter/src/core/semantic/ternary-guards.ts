@@ -18,16 +18,15 @@ import { getPropertyType } from "./type-resolution.js";
 import { emitRemappedLocalName } from "../format/local-names.js";
 import { resolveIteratorResultReferenceType } from "./structural-resolution.js";
 import {
-  buildRuntimeUnionLayout,
   getCanonicalRuntimeUnionMembers,
   findRuntimeUnionMemberIndices,
   type EmitTypeAstLike,
 } from "./runtime-unions.js";
-import { isSemanticUnion } from "./union-semantics.js";
 import {
   getSemanticUnionMembers,
   findSemanticUnionMemberIndex,
 } from "./semantic-union-members.js";
+import { resolveNarrowedUnionMembers } from "./narrowed-union-resolution.js";
 import {
   resolveLocalTypesForReference,
   tryGetLiteralSet,
@@ -43,6 +42,8 @@ import {
 export type TernaryGuardInfo = {
   readonly originalName: string;
   readonly memberN: number;
+  readonly narrowedType: IrType;
+  readonly sourceType: IrType;
   readonly escapedOrig: string;
   readonly polarity: "positive" | "negative"; // positive = narrow whenTrue, negative = narrow whenFalse
 };
@@ -107,10 +108,14 @@ const tryResolveTernaryPredicateGuard = (
   if (runtimeIndices.length !== 1) return undefined;
   const runtimeIdx = runtimeIndices[0];
   if (runtimeIdx === undefined) return undefined;
+  const narrowedType = runtimeMembers[runtimeIdx];
+  if (!narrowedType) return undefined;
 
   return {
     originalName,
     memberN: runtimeIdx + 1,
+    narrowedType,
+    sourceType: unionSourceType,
     escapedOrig: emitRemappedLocalName(originalName, context),
     polarity: "positive",
   };
@@ -129,14 +134,14 @@ const tryResolveTernaryPredicateGuard = (
 const tryResolveTernaryDiscriminantEqualityGuard = (
   expr: IrExpression,
   context: EmitterContext,
-  emitTypeAst: EmitTypeAstLike
+  _emitTypeAst: EmitTypeAstLike
 ): TernaryGuardInfo | undefined => {
   // Normalize `!(x.prop === lit)` to `x.prop !== lit` (and vice versa) by flipping polarity.
   if (expr.kind === "unary" && expr.operator === "!") {
     const inner = tryResolveTernaryDiscriminantEqualityGuard(
       expr.expression,
       context,
-      emitTypeAst
+      _emitTypeAst
     );
     if (!inner) return undefined;
     return {
@@ -202,23 +207,22 @@ const tryResolveTernaryDiscriminantEqualityGuard = (
     return undefined;
   }
 
-  // Semantic gate: confirm this is a union before constructing runtime layout
-  if (!isSemanticUnion(unionSourceType, context)) return undefined;
-
-  const [runtimeLayout] = buildRuntimeUnionLayout(
+  const narrowedMembers = resolveNarrowedUnionMembers(
+    originalName,
     unionSourceType,
     context,
-    emitTypeAst
   );
-  if (!runtimeLayout) return undefined;
+  if (!narrowedMembers) return undefined;
 
-  const unionArity = runtimeLayout.members.length;
-  if (unionArity < 2 || unionArity > 8) return undefined;
+  const { members, candidateMemberNs } = narrowedMembers;
+  const unionArity = members.length;
+  if (unionArity < 2) return undefined;
 
-  const matchingMembers: number[] = [];
+  const matchingMembers: { readonly memberN: number; readonly type: IrType }[] =
+    [];
 
-  for (let i = 0; i < runtimeLayout.members.length; i++) {
-    const member = runtimeLayout.members[i];
+  for (let i = 0; i < members.length; i++) {
+    const member = members[i];
     if (!member) continue;
 
     let propType: IrType | undefined;
@@ -251,19 +255,24 @@ const tryResolveTernaryDiscriminantEqualityGuard = (
     const literals = tryGetLiteralSet(propType, context);
     if (!literals) continue;
     if (literals.has(literal)) {
-      matchingMembers.push(i + 1);
+      matchingMembers.push({
+        memberN: candidateMemberNs[i] ?? i + 1,
+        type: member,
+      });
     }
   }
 
   if (matchingMembers.length !== 1) return undefined;
-  const memberN = matchingMembers[0];
-  if (!memberN) return undefined;
+  const narrowedMatch = matchingMembers[0];
+  if (!narrowedMatch) return undefined;
 
   const isInequality = expr.operator === "!==" || expr.operator === "!=";
 
   return {
     originalName,
-    memberN,
+    memberN: narrowedMatch.memberN,
+    narrowedType: narrowedMatch.type,
+    sourceType: unionSourceType,
     escapedOrig: emitRemappedLocalName(originalName, context),
     polarity: isInequality ? "negative" : "positive",
   };

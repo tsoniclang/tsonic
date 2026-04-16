@@ -1,8 +1,9 @@
 # Diagnostics Architecture
 
-Diagnostics are produced primarily in the frontend and carried through later stages where needed.
+Diagnostics are produced primarily in the frontend and carried through later
+stages where needed.
 
-## Where Diagnostics Come From
+## Where diagnostics come from
 
 - config loading
 - surface/profile resolution
@@ -12,9 +13,10 @@ Diagnostics are produced primarily in the frontend and carried through later sta
 - numeric proof
 - backend emission/build orchestration
 
-## Design Rule
+## Design rule
 
-Reject ambiguity at the compiler layer rather than hoping C# will fail in a useful way later.
+Reject ambiguity at the compiler layer rather than hoping C# will fail in a
+useful way later.
 
 This is why Tsonic emits compile-time diagnostics for:
 
@@ -22,12 +24,15 @@ This is why Tsonic emits compile-time diagnostics for:
 - unsupported object-literal runtime cases
 - unresolved source-package manifest errors
 - unsupported generic function value escapes
+- bad local package ownership or missing DLL boundaries
 
-## Current Important Diagnostic Families
+## Why downstream verification still matters
 
-- module/config/source-package: `TSN1004`, `TSN8A01`–`TSN8A05`
-- unsupported/runtime-shape: `TSN2001`, `TSN7414`, `TSN7432`
-- numeric proof: `TSN5101`–`TSN5110`
-- yield lowering: `TSN6101`
+Even with strong compiler diagnostics, some failures only appear at:
 
-See `../diagnostics.md` for user-facing guidance.
+- real generated project compile time
+- runtime startup
+- application package-graph boundaries
+
+That is why diagnostics architecture and downstream verification are both part
+of the quality story.

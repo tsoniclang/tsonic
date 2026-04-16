@@ -1,5 +1,6 @@
 import type { IrType } from "../types.js";
 import { normalizedUnionType } from "../types/type-ops.js";
+import { collectNarrowingCandidateLeaves } from "./narrowing-candidates.js";
 
 type NarrowingCandidateCollector = {
   collectNarrowingCandidates(type: IrType): readonly IrType[];
@@ -30,8 +31,7 @@ export const narrowTypeByArrayShape = (
     }
   }
 
-  const expanded = collector.collectNarrowingCandidates(currentType);
-  const candidates = expanded.length > 0 ? expanded : [currentType];
+  const candidates = collectNarrowingCandidateLeaves(collector, currentType);
   const kept = candidates.filter((member): member is IrType => {
     if (!member) return false;
     return wantArray

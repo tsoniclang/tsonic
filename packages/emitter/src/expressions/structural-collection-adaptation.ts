@@ -32,11 +32,145 @@ import {
   getIterableSourceShape,
 } from "./structural-type-shapes.js";
 import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
+import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
+import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
 import {
   isExactArrayCreationToType,
   isExactExpressionToType,
   tryEmitExactComparisonTargetAst,
 } from "./exact-comparison.js";
+
+const normalizeStructuralCarrierEmissionType = (
+  type: IrType,
+  context: EmitterContext
+): IrType => {
+  const cache = new Map<IrType, IrType>();
+
+  const normalize = (current: IrType): IrType => {
+    const cached = cache.get(current);
+    if (cached) {
+      return cached;
+    }
+
+    const normalized = normalizeStructuralEmissionType(current, context);
+    const anonymousTarget =
+      resolveAnonymousStructuralReferenceType(normalized, context);
+    if (anonymousTarget) {
+      cache.set(current, anonymousTarget);
+      return anonymousTarget;
+    }
+
+    const rewritten = (() => {
+      switch (normalized.kind) {
+        case "arrayType": {
+          const elementType = normalize(normalized.elementType);
+          const tuplePrefixElementTypes = normalized.tuplePrefixElementTypes?.map(
+            normalize
+          );
+          const tupleRestElementType = normalized.tupleRestElementType
+            ? normalize(normalized.tupleRestElementType)
+            : undefined;
+          const prefixChanged =
+            !!tuplePrefixElementTypes &&
+            tuplePrefixElementTypes.some(
+              (element, index) =>
+                element !== normalized.tuplePrefixElementTypes?.[index]
+            );
+          return elementType === normalized.elementType &&
+            !prefixChanged &&
+            tupleRestElementType === normalized.tupleRestElementType
+            ? normalized
+            : {
+                ...normalized,
+                elementType,
+                ...(tuplePrefixElementTypes
+                  ? { tuplePrefixElementTypes }
+                  : {}),
+                ...(tupleRestElementType ? { tupleRestElementType } : {}),
+              };
+        }
+        case "tupleType": {
+          const elementTypes = normalized.elementTypes.map(normalize);
+          return elementTypes.every(
+            (element, index) => element === normalized.elementTypes[index]
+          )
+            ? normalized
+            : { ...normalized, elementTypes };
+        }
+        case "dictionaryType": {
+          const keyType = normalize(normalized.keyType);
+          const valueType = normalize(normalized.valueType);
+          return keyType === normalized.keyType &&
+            valueType === normalized.valueType
+            ? normalized
+            : {
+                ...normalized,
+                keyType,
+                valueType,
+              };
+        }
+        case "unionType":
+        case "intersectionType": {
+          const types = normalized.types.map(normalize);
+          return types.every((member, index) => member === normalized.types[index])
+            ? normalized
+            : {
+                ...normalized,
+                types,
+              };
+        }
+        case "functionType": {
+          const parameters = normalized.parameters.map((parameter) =>
+            parameter.type
+              ? {
+                  ...parameter,
+                  type: normalize(parameter.type),
+                }
+              : parameter
+          );
+          const returnType = normalize(normalized.returnType);
+          return parameters.every(
+            (parameter, index) => parameter === normalized.parameters[index]
+          ) && returnType === normalized.returnType
+            ? normalized
+            : {
+                ...normalized,
+                parameters,
+                returnType,
+              };
+        }
+        case "referenceType": {
+          const typeArguments = normalized.typeArguments?.map(normalize);
+          const typeArgumentsChanged =
+            !!typeArguments &&
+            typeArguments.some(
+              (argument, index) => argument !== normalized.typeArguments?.[index]
+            );
+          return !typeArgumentsChanged
+            ? normalized
+            : {
+                ...normalized,
+                ...(typeArguments ? { typeArguments } : {}),
+              };
+        }
+        case "objectType":
+        case "primitiveType":
+        case "typeParameterType":
+        case "literalType":
+        case "anyType":
+        case "unknownType":
+        case "voidType":
+        case "neverType":
+          return normalized;
+      }
+    })();
+
+    cache.set(current, rewritten);
+    return rewritten;
+  };
+
+  return normalize(type);
+};
 
 const tryResolveExactCollectionSurfaceMatch = (
   sourceType: IrType | undefined,
@@ -135,6 +269,12 @@ const isIteratorAccessExpression = (
   );
 };
 
+const isSimpleElementCast = (
+  expression: CSharpExpressionAst | undefined,
+  itemIdentifier: CSharpExpressionAst
+): expression is Extract<CSharpExpressionAst, { kind: "castExpression" }> =>
+  expression?.kind === "castExpression" && expression.expression === itemIdentifier;
+
 const buildIterableSourceAst = (
   emittedAst: CSharpExpressionAst,
   sourceType: IrType | undefined,
@@ -193,12 +333,16 @@ const hasMatchingRuntimeCarrierElementType = (
     sourceType,
     context
   );
-  const normalizedTargetType = normalizeStructuralEmissionType(
+  const normalizedTargetType = normalizeStructuralCarrierEmissionType(
     targetType,
     context
   );
-  const [sourceTypeAst, , sourceContext] = emitRuntimeCarrierTypeAst(
+  const emissionSourceType = normalizeStructuralCarrierEmissionType(
     normalizedSourceType,
+    context
+  );
+  const [sourceTypeAst, , sourceContext] = emitRuntimeCarrierTypeAst(
+    emissionSourceType,
     context,
     emitTypeAst
   );
@@ -238,11 +382,11 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   const targetElementType = getArrayElementType(expectedType, context);
   const sourceElementType = getArrayElementType(sourceType, context);
   if (targetElementType && sourceElementType) {
-    const emissionSourceElementType = normalizeStructuralEmissionType(
+    const emissionSourceElementType = normalizeStructuralCarrierEmissionType(
       sourceElementType,
       context
     );
-    const emissionTargetElementType = normalizeStructuralEmissionType(
+    const emissionTargetElementType = normalizeStructuralCarrierEmissionType(
       targetElementType,
       context
     );
@@ -290,6 +434,8 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         : undefined);
     const adaptedElementAst =
       structuralElementAdaptation?.[0] ?? upcastElementAdaptation?.[0];
+    const hasElementAdaptation =
+      adaptedElementAst !== undefined && adaptedElementAst !== itemIdentifier;
     currentContext =
       structuralElementAdaptation?.[1] ??
       upcastElementAdaptation?.[1] ??
@@ -299,8 +445,13 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       targetElementType,
       currentContext
     );
+    const canUseImplicitElementConversion = matchesExpectedEmissionType(
+      emissionSourceElementType,
+      emissionTargetElementType,
+      currentContext
+    );
     const needsElementAdaptation =
-      adaptedElementAst !== undefined || !runtimeCarrierMatches;
+      hasElementAdaptation || !runtimeCarrierMatches;
     if (
       !needsElementAdaptation &&
       matchesExpectedEmissionType(
@@ -328,13 +479,72 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       currentContext = targetElementTypeContext;
       const effectiveElementAst =
         adaptedElementAst ??
-        (!runtimeCarrierMatches
+        (!runtimeCarrierMatches && !canUseImplicitElementConversion
           ? {
               kind: "castExpression" as const,
               type: targetElementTypeAst,
               expression: itemIdentifier,
             }
           : itemIdentifier);
+      const preferDirectBroadElement =
+        isBroadObjectSlotType(targetElementType, currentContext);
+      if (
+        emittedAst.kind === "arrayCreationExpression" &&
+        emittedAst.initializer &&
+        emittedAst.sizeExpression === undefined &&
+        !hasNullishBranch(sourceType)
+      ) {
+        const inlineInitializers: CSharpExpressionAst[] = [];
+        let inlineContext = currentContext;
+        for (const elementAst of emittedAst.initializer) {
+          const inlineStructuralAdaptation = adaptStructuralExpressionAst(
+            elementAst,
+            sourceElementType,
+            inlineContext,
+            targetElementType,
+            upcastFn
+          );
+          const inlineUpcastAdaptation =
+            inlineStructuralAdaptation ??
+            (upcastFn
+              ? upcastFn(
+                  elementAst,
+                  sourceElementType,
+                  inlineContext,
+                  targetElementType,
+                  new Set<string>()
+                )
+              : undefined);
+          const inlineAdaptedAst =
+            inlineStructuralAdaptation?.[0] ??
+            inlineUpcastAdaptation?.[0];
+          inlineContext =
+            inlineStructuralAdaptation?.[1] ??
+            inlineUpcastAdaptation?.[1] ??
+            inlineContext;
+          inlineInitializers.push(
+            inlineAdaptedAst ??
+              (preferDirectBroadElement
+                ? elementAst
+                : !runtimeCarrierMatches && !canUseImplicitElementConversion
+                  ? {
+                      kind: "castExpression",
+                      type: targetElementTypeAst,
+                      expression: elementAst,
+                    }
+                  : elementAst)
+          );
+        }
+
+        return [
+          {
+            kind: "arrayCreationExpression",
+            elementType: targetElementTypeAst,
+            initializer: inlineInitializers,
+          },
+          inlineContext,
+        ];
+      }
       const selectAst: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
@@ -360,7 +570,7 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         arguments: [selectAst],
       };
       const [targetArrayTypeAst, targetArrayTypeContext] = emitTypeAst(
-        expectedType!,
+        normalizeStructuralCarrierEmissionType(expectedType!, currentContext),
         currentContext
       );
       currentContext = targetArrayTypeContext;
@@ -399,11 +609,11 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       : undefined;
   const sourceIterable = buildIterableSourceAst(emittedAst, sourceType, context);
   if (targetIterableElementType && sourceIterable) {
-    const emissionSourceIterableElementType = normalizeStructuralEmissionType(
+    const emissionSourceIterableElementType = normalizeStructuralCarrierEmissionType(
       sourceIterable.elementType,
       sourceIterable.context
     );
-    const emissionTargetIterableElementType = normalizeStructuralEmissionType(
+    const emissionTargetIterableElementType = normalizeStructuralCarrierEmissionType(
       targetIterableElementType,
       sourceIterable.context
     );
@@ -433,6 +643,8 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         : undefined);
     const adaptedElementAst =
       structuralElementAdaptation?.[0] ?? upcastElementAdaptation?.[0];
+    const hasElementAdaptation =
+      adaptedElementAst !== undefined && adaptedElementAst !== itemIdentifier;
     currentContext =
       structuralElementAdaptation?.[1] ??
       upcastElementAdaptation?.[1] ??
@@ -442,9 +654,18 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       targetIterableElementType,
       currentContext
     );
-    const effectiveElementAst = adaptedElementAst ?? itemIdentifier;
+    const canUseImplicitElementConversion = matchesExpectedEmissionType(
+      emissionSourceIterableElementType,
+      emissionTargetIterableElementType,
+      currentContext
+    );
+    const preferDirectBroadElement = isBroadObjectSlotType(
+      targetIterableElementType,
+      currentContext
+    );
     const needsElementAdaptation =
-      effectiveElementAst !== itemIdentifier || !runtimeCarrierMatches;
+      hasElementAdaptation ||
+      (!preferDirectBroadElement && !runtimeCarrierMatches);
 
     if (!needsElementAdaptation) {
       if (
@@ -475,6 +696,57 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         emitTypeAst
       );
     currentContext = targetElementTypeContext;
+    const effectiveElementAst =
+      adaptedElementAst ??
+      (preferDirectBroadElement ||
+      runtimeCarrierMatches ||
+      canUseImplicitElementConversion
+        ? itemIdentifier
+        : {
+            kind: "castExpression" as const,
+            type: targetElementTypeAst,
+            expression: itemIdentifier,
+          });
+    const canPreferDirectIterableCast =
+      expectedType !== undefined &&
+      isSimpleElementCast(effectiveElementAst, itemIdentifier) &&
+      isBroadObjectSlotType(sourceIterable.elementType, currentContext);
+    if (canPreferDirectIterableCast && expectedType) {
+      const [targetIterableTypeAst, targetIterableContext] = emitTypeAst(
+        normalizeStructuralCarrierEmissionType(expectedType, currentContext),
+        currentContext
+      );
+      const directIterableSourceAst =
+        emittedAst.kind === "castExpression"
+          ? emittedAst.expression
+          : emittedAst;
+      const castIterableAst: CSharpExpressionAst = {
+        kind: "castExpression",
+        type: targetIterableTypeAst,
+        expression: directIterableSourceAst,
+      };
+
+      if (!hasNullishBranch(sourceType)) {
+        return [castIterableAst, targetIterableContext];
+      }
+
+      if (isDirectlyReusableExpression(emittedAst)) {
+        return [
+          {
+            kind: "conditionalExpression",
+            condition: {
+              kind: "binaryExpression",
+              operatorToken: "==",
+              left: emittedAst,
+              right: nullLiteral(),
+            },
+            whenTrue: { kind: "defaultExpression" },
+            whenFalse: castIterableAst,
+          },
+          targetIterableContext,
+        ];
+      }
+    }
     const selectAst: CSharpExpressionAst = {
       kind: "invocationExpression",
       expression: {
@@ -519,7 +791,7 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   if (!targetValueType || !sourceValueType) {
     return undefined;
   }
-  const emissionTargetValueType = normalizeStructuralEmissionType(
+  const emissionTargetValueType = normalizeStructuralCarrierEmissionType(
     targetValueType,
     context
   );

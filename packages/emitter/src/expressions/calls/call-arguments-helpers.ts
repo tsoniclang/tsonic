@@ -22,7 +22,6 @@ import {
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
-import { shouldEraseRecursiveRuntimeUnionArrayElement } from "../../core/semantic/runtime-unions.js";
 import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
@@ -42,14 +41,18 @@ const argumentMayBeNullish = (
   }
 
   const transparentArg = unwrapTransparentExpression(arg);
-  const candidateType =
-    resolveEffectiveExpressionType(transparentArg, context) ??
-    transparentArg.inferredType ??
-    arg.inferredType;
-  const split = candidateType
-    ? splitRuntimeNullishUnionMembers(candidateType)
-    : undefined;
-  return split?.hasRuntimeNullish ?? false;
+  const candidateTypes = [
+    resolveEffectiveExpressionType(transparentArg, context),
+    transparentArg.inferredType,
+    arg.inferredType,
+    transparentArg.kind === "identifier"
+      ? context.localValueTypes?.get(transparentArg.name)
+      : undefined,
+  ].filter((candidate): candidate is IrType => candidate !== undefined);
+  return candidateTypes.some(
+    (candidateType) =>
+      splitRuntimeNullishUnionMembers(candidateType)?.hasRuntimeNullish ?? false
+  );
 };
 
 export const normalizeCallArgumentExpectedType = (
@@ -86,19 +89,10 @@ export const emitArrayWrapperElementTypeAst = (
     context
   );
   if (resolvedReceiverType) {
-    const elementType: IrType = shouldEraseRecursiveRuntimeUnionArrayElement(
+    const elementType = normalizeStructuralEmissionType(
       resolvedReceiverType.elementType,
       context
-    )
-      ? {
-          kind: "referenceType",
-          name: "object",
-          resolvedClrType: "System.Object",
-        }
-      : normalizeStructuralEmissionType(
-          resolvedReceiverType.elementType,
-          context
-        );
+    );
     return emitTypeAst(elementType, context);
   }
   return [identifierType("object"), context];

@@ -16,7 +16,7 @@ import type {
 import {
   getGuardPropertyType,
   extractTransparentMemberAccessTarget,
-  resolveRuntimeUnionFrame,
+  resolveGuardRuntimeUnionFrame,
   stripGlobalPrefix,
   buildRenameNarrowedMap,
   isDefinitelyTruthyLiteral,
@@ -105,16 +105,17 @@ export const tryResolveDiscriminantEqualityGuard = (
   const unionSourceType = receiver.inferredType;
   if (!unionSourceType) return undefined;
 
-  const frame = resolveRuntimeUnionFrame(
+  const frame = resolveGuardRuntimeUnionFrame(
     originalName,
     unionSourceType,
+    receiver,
     context
   );
   if (!frame) return undefined;
 
   const { members, candidateMemberNs, runtimeUnionArity } = frame;
   const unionArity = members.length;
-  if (unionArity < 2 || unionArity > 8) return undefined;
+  if (unionArity < 2) return undefined;
 
   // Find which union members have a discriminant property type that includes the literal.
   const matchingIndices: number[] = [];
@@ -236,16 +237,17 @@ export const tryResolvePropertyTruthinessGuard = (
   const unionSourceType = receiver.inferredType;
   if (!unionSourceType) return undefined;
 
-  const frame = resolveRuntimeUnionFrame(
+  const frame = resolveGuardRuntimeUnionFrame(
     originalName,
     unionSourceType,
+    receiver,
     context
   );
   if (!frame) return undefined;
 
   const { members, candidateMemberNs, runtimeUnionArity } = frame;
   const unionArity = members.length;
-  if (unionArity < 2 || unionArity > 8) return undefined;
+  if (unionArity < 2) return undefined;
 
   const matchingIndices: number[] = [];
   const matchingMemberNs: number[] = [];

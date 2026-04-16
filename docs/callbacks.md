@@ -1,53 +1,44 @@
+---
+title: Callbacks
+---
+
 # Callbacks
 
-Tsonic lowers callbacks to concrete CLR delegate shapes.
+Callback-heavy code is supported where receiver type, overload selection, and
+delegate shape can be resolved deterministically.
 
-## Plain Callbacks
+## Common supported situations
 
-```ts
-const xs = [1, 2, 3];
-const ys = xs.map((x) => x + 1);
-```
+- JS-surface array callbacks
+- Node-style request and event handlers
+- CLR delegate calls through generated binding packages
+- Express middleware and route handlers
 
-## Contextual Typing
+## Practical advice
 
-Supported:
+- annotate callback return types when a call surface is sensitive
+- prefer explicit numeric/value intent in CLR-heavy callback flows
+- treat diagnostics as real surface mismatches, not optional warnings
 
-```ts
-const f: ({ x }: { x: number }) => number = ({ x }) => x;
-const g: (x?: number) => number = (x = 0) => x + 1;
-const h: (...xs: number[]) => number = (...xs) => xs.length;
-```
-
-These are strict-valid TS cases and are part of current V1 support.
-
-## Promise Callbacks
+Example:
 
 ```ts
-async function load(): Promise<number> {
-  return 1;
-}
-
-const next = load().then((x) => x + 1);
+const ys = Enumerable.Where(xs, (x: number): boolean => x > 1);
 ```
 
-## Generic Function Values
+That explicit `boolean` return often makes the intended overload family obvious
+to the compiler.
 
-Supported in deterministic callable contexts:
+## Common sources of trouble
 
-```ts
-const id = <T>(x: T): T => x;
-const f: (x: number) => number = id;
-```
+- overloaded CLR methods with weakly inferred callback returns
+- callbacks crossing package or generic boundaries without enough type context
+- JS-surface callbacks passed into CLR-heavy APIs without explicit intent
+- callbacks that rely on dynamic `any` / `unknown` escape hatches
 
-Rejected when the value stays polymorphic with no runtime callable shape:
+## Current rule of thumb
 
-```ts
-const id = <T>(x: T): T => x;
-const copy = id;
-```
-
-## Guidance
-
-- let contextual types carry callback parameter types where possible
-- when in doubt, annotate the target callable shape instead of the callback body only
+- JS-to-JS callback flows are usually straightforward
+- CLR-bound callback flows are where explicit annotations matter most
+- if the callback crosses package, generic, or overload boundaries, be more
+  explicit than you would in ordinary TypeScript

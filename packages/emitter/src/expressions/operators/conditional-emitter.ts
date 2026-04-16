@@ -42,38 +42,51 @@ export const emitConditional = (
     whenTrueContext: EmitterContext,
     whenFalseContext: EmitterContext
   ): IrType | undefined => {
-    if (expectedType) {
-      return expectedType;
-    }
-
     const trueType = resolveBranchType(expr.whenTrue, whenTrueContext);
     const falseType = resolveBranchType(expr.whenFalse, whenFalseContext);
+    let commonBranchType: IrType | undefined;
 
     if (
       trueType &&
       falseType &&
       stableIrTypeKey(trueType) === stableIrTypeKey(falseType)
     ) {
-      return trueType;
-    }
-
-    if (trueType && falseType) {
+      commonBranchType = trueType;
+    } else if (trueType && falseType) {
       if (isAssignable(trueType, falseType)) {
-        return falseType;
-      }
-      if (isAssignable(falseType, trueType)) {
-        return trueType;
+        commonBranchType = falseType;
+      } else if (isAssignable(falseType, trueType)) {
+        commonBranchType = trueType;
       }
     }
 
-    return expr.inferredType;
+    if (expectedType) {
+      if (
+        commonBranchType &&
+        stableIrTypeKey(commonBranchType) !== stableIrTypeKey(expectedType) &&
+        isAssignable(commonBranchType, expectedType)
+      ) {
+        return commonBranchType;
+      }
+
+      return expectedType;
+    }
+
+    return commonBranchType ?? expr.inferredType;
   };
 
   // Try to detect type predicate guard in condition
   const guard = tryResolveTernaryGuard(expr.condition, context, emitTypeAst);
 
   if (guard) {
-    const { originalName, memberN, escapedOrig, polarity } = guard;
+    const {
+      originalName,
+      memberN,
+      narrowedType,
+      sourceType,
+      escapedOrig,
+      polarity,
+    } = guard;
 
     // Build condition AST: escapedOrig.IsN() or !escapedOrig.IsN()
     const isCallAst: CSharpExpressionAst = {
@@ -116,7 +129,12 @@ export const emitConditional = (
     const narrowedMap = new Map<string, NarrowedBinding>(
       context.narrowedBindings ?? []
     );
-    narrowedMap.set(originalName, { kind: "expr", exprAst });
+    narrowedMap.set(originalName, {
+      kind: "expr",
+      exprAst,
+      type: narrowedType,
+      sourceType,
+    });
 
     const narrowedContext: EmitterContext = {
       ...context,

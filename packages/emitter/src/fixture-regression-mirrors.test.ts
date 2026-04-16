@@ -75,7 +75,10 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("var now = new global::js.Date();");
       expect(csharp).to.include(
-        'var regex = new global::js.RegExp(global::Tsonic.Runtime.Union<global::js.RegExp, string>.From2("HELLO"));'
+        'var regex = new global::js.RegExp(global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("HELLO"));'
+      );
+      expect(csharp).to.include(
+        'var regexLiteral = new global::js.RegExp(global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("^[A-Z, ]+$"));'
       );
       expect(csharp).to.include('var chars = global::js.Array.from("abcd");');
       expect(csharp).to.include("var more = global::js.Array.of(6, 7, 8);");
@@ -128,7 +131,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("var data = toBytes(msg);");
       expect(csharp).to.not.include(
-        "var data = toBytes(global::Tsonic.Runtime.Union<string, global::js.Uint8Array>.From2(msg));"
+        "var data = toBytes(global::Tsonic.Internal.Union<string, global::js.Uint8Array>.From2(msg));"
       );
     });
 
@@ -362,11 +365,11 @@ describe("End-to-End Integration", () => {
 
       expect(
         csharp.match(
-          /bufferOrData\.Match<global::Tsonic\.Runtime\.Union<byte\[], global::Test\.Buffer>>\(/g
+          /bufferOrData\.Match<global::Tsonic\.Internal\.Union<byte\[], global::Test\.Buffer>>\(/g
         )?.length
       ).to.equal(2);
       expect(csharp).to.not.include(
-        "return this.writeSync(fd, (global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer>)bufferOrData"
+        "return this.writeSync(fd, (global::Tsonic.Internal.Union<byte[], string, global::Test.Buffer>)bufferOrData"
       );
     });
 
@@ -539,14 +542,14 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("Buffer.fromUint8Array((value.As3()));");
       expect(csharp).not.to.include(
-        "Buffer.fromUint8Array(((global::Tsonic.Runtime.Union<double[], global::js.Uint8Array>)"
+        "Buffer.fromUint8Array(((global::Tsonic.Internal.Union<double[], global::js.Uint8Array>)"
       );
       expect(csharp).not.to.include(
         ").Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
       );
     });
 
-    it("materializes inherited typed-array overload calls through the public union wrapper", () => {
+    it("keeps inherited typed-array overload calls on the exact iterable overload surface", () => {
       const csharp = compileToCSharp(`
         import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte, int } from "@tsonic/core/types.js";
@@ -608,13 +611,16 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("result.set(");
       expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
       expect(csharp).to.include(
-        "result.set(global::Tsonic.Runtime.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
+        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => __item), offset);"
       );
       expect(csharp).not.to.include("result.set(buffer, offset);");
       expect(csharp).not.to.include(
-        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => __item), offset);"
+        "global::Tsonic.Internal.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
       );
-      expect(csharp).not.to.include("global::Tsonic.Runtime.Union<int, double>.From1(offset)");
+      expect(csharp).not.to.include("global::Tsonic.Internal.Union<int, double>.From1(offset)");
+      expect(csharp).not.to.include(
+        "buffer.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
+      );
     });
 
     it("materializes imported typed-array overload calls through the public union wrapper", () => {
@@ -643,12 +649,15 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "result.set(global::Tsonic.Runtime.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
+        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => __item), (int)offset);"
       );
       expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
       expect(csharp).not.to.include("result.set(buffer, offset);");
       expect(csharp).not.to.include(
-        "global::Tsonic.Runtime.Union<int, double>.From1(offset)"
+        "global::Tsonic.Internal.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
+      );
+      expect(csharp).not.to.include(
+        "global::Tsonic.Internal.Union<int, double>.From1(offset)"
       );
       expect(csharp).not.to.include(
         "buffer.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
@@ -710,7 +719,10 @@ describe("End-to-End Integration", () => {
       `, "/test/test.ts", { surface: "@tsonic/js" });
 
       expect(csharp).to.include(
-        "copy.set(global::Tsonic.Runtime.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2(global::System.Linq.Enumerable.Select<byte, double>(buffer._data.__tsonic_symbol_iterator(), __item => __item)));"
+        "copy.set(global::System.Linq.Enumerable.Select<byte, double>(buffer._data.__tsonic_symbol_iterator(), __item => __item));"
+      );
+      expect(csharp).not.to.include(
+        "global::Tsonic.Internal.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
       );
       expect(csharp).not.to.include(
         "buffer._data.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
@@ -754,7 +766,7 @@ describe("End-to-End Integration", () => {
         "target.set(values, offset);"
       );
       expect(csharp).to.not.include(
-        "target.set(global::Tsonic.Runtime.Union<double[], global::System.Collections.Generic.IEnumerable<double>, int>.From2(values), global::Tsonic.Runtime.Union<int, double>.From1(offset));"
+        "target.set(global::Tsonic.Internal.Union<double[], global::System.Collections.Generic.IEnumerable<double>, int>.From2(values), global::Tsonic.Internal.Union<int, double>.From1(offset));"
       );
     });
 

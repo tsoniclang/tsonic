@@ -279,11 +279,13 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       expect(next.tempVarId).to.equal(1);
     });
 
-    it("handles 2-8 unions via IsN/AsN active-variant checks", () => {
+    it("handles carried runtime unions via IsN/AsN active-variant checks", () => {
       const ctx = createContext({ tempVarId: 0 });
       const expr = id("u", union([prim("int"), prim("string")]));
       const [text, next] = toText(expr, idAst("u"), ctx);
-      expect(text).to.match(/u is var __tsonic_truthy_union_1/);
+      expect(text).to.match(
+        /u is global::Tsonic\.Internal\.Union2_[A-F0-9]{8}<int, string> __tsonic_truthy_union_1/
+      );
       expect(text).to.include("__tsonic_truthy_union_1.Is1()");
       expect(text).to.include("__tsonic_truthy_union_1.As1()");
       expect(text).to.include("__tsonic_truthy_union_1.As2()");

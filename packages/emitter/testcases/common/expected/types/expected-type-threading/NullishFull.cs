@@ -10,7 +10,7 @@ namespace TestCases.common.types.expectedtypethreading
 
         public static int nestedNullish(int? a, int? b)
         {
-            return a ?? (int?)b ?? 999;
+            return a ?? b ?? 999;
         }
 
         public static int nullishWithExpr(int? value, int fallback)

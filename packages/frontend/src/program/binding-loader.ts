@@ -1660,22 +1660,9 @@ const addSyntheticSourcePackageBindings = (
   }
 };
 
-const sortBindingPackageRoots = (
+const preserveBindingPackageRootOrder = (
   packageRoots: readonly string[]
-): readonly string[] => {
-  const sourceRoots: string[] = [];
-  const nonSourceRoots: string[] = [];
-
-  for (const packageRoot of packageRoots) {
-    if (readSourcePackageMetadata(packageRoot) !== null) {
-      sourceRoots.push(packageRoot);
-    } else {
-      nonSourceRoots.push(packageRoot);
-    }
-  }
-
-  return [...sourceRoots, ...nonSourceRoots];
-};
+): readonly string[] => [...packageRoots];
 
 /**
  * Load bindings from a package directory and recursively from its dependencies.
@@ -1790,7 +1777,9 @@ const loadBindingsFromPackage = (
         }
       }
 
-      for (const dependencyRoot of sortBindingPackageRoots(dependencyRoots)) {
+      for (const dependencyRoot of preserveBindingPackageRootOrder(
+        dependencyRoots
+      )) {
         loadBindingsFromPackage(registry, dependencyRoot, visited, false);
       }
     } catch {
@@ -1812,7 +1801,7 @@ export const loadBindings = (typeRoots: readonly string[]): BindingRegistry => {
   const registry = new BindingRegistry();
   const visited = new Set<string>();
 
-  for (const typeRoot of sortBindingPackageRoots(typeRoots)) {
+  for (const typeRoot of preserveBindingPackageRootOrder(typeRoots)) {
     loadBindingsFromPackage(registry, typeRoot, visited, true);
   }
 

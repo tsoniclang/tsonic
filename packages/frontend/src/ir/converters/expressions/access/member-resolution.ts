@@ -39,7 +39,7 @@ const isCompilerGeneratedStructuralCarrier = (
   type: IrType | undefined
 ): boolean =>
   type?.kind === "referenceType" &&
-  (type.name.startsWith("__Anon_") || /__\d+$/.test(type.name));
+  (type.name.startsWith("__Anon_") || type.name.startsWith("__Rest_"));
 
 const hasExplicitStructuralReference = (type: IrType | undefined): boolean => {
   if (!type) return false;

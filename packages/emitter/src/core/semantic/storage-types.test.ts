@@ -1,6 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import type { IrType } from "@tsonic/frontend";
+import { normalizedUnionType, type IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
 
@@ -16,7 +16,7 @@ describe("storage-types", () => {
     usings: new Set<string>(),
   };
 
-  it("erases recursive union array storage to object[]", () => {
+  it("preserves recursive union array storage with a deterministic re-entry cut", () => {
     const handlerType: IrType = {
       kind: "functionType",
       parameters: [],
@@ -54,9 +54,20 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "arrayType",
       elementType: {
-        kind: "referenceType",
-        name: "object",
-        resolvedClrType: "System.Object",
+        kind: "unionType",
+        types: [
+          {
+            kind: "arrayType",
+            elementType: {
+              kind: "referenceType",
+              name: "object",
+              resolvedClrType: "System.Object",
+            },
+            origin: "explicit",
+          },
+          handlerType,
+          routerType,
+        ],
       },
       origin: "explicit",
     });
@@ -106,15 +117,26 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "unionType",
       types: [
-        {
-          kind: "arrayType",
-          elementType: {
-            kind: "referenceType",
-            name: "object",
-            resolvedClrType: "System.Object",
-          },
-          origin: "explicit",
-        },
+            {
+              kind: "arrayType",
+              elementType: {
+                kind: "unionType",
+                types: [
+                  {
+                    kind: "arrayType",
+                    elementType: {
+                      kind: "referenceType",
+                      name: "object",
+                      resolvedClrType: "System.Object",
+                    },
+                    origin: "explicit",
+                  },
+                  handlerType,
+                  routerType,
+                ],
+              },
+              origin: "explicit",
+            },
         { kind: "primitiveType", name: "undefined" },
       ],
     });
@@ -135,14 +157,13 @@ describe("storage-types", () => {
         },
         context
       )
-    ).to.deep.equal({
-      kind: "unionType",
-      types: [
+    ).to.deep.equal(
+      normalizedUnionType([
         { kind: "primitiveType", name: "string" },
         { kind: "primitiveType", name: "null" },
         { kind: "primitiveType", name: "undefined" },
-      ],
-    });
+      ])
+    );
   });
 
   it("leaves non-union array storage unchanged", () => {
@@ -190,17 +211,16 @@ describe("storage-types", () => {
       ],
     };
 
-    expect(normalizeRuntimeStorageType(type, genericContext)).to.deep.equal({
-      kind: "unionType",
-      types: [
+    expect(normalizeRuntimeStorageType(type, genericContext)).to.deep.equal(
+      normalizedUnionType([
         {
           kind: "referenceType",
           name: "object",
           resolvedClrType: "System.Object",
         },
         { kind: "primitiveType", name: "null" },
-      ],
-    });
+      ])
+    );
   });
 
   it("erases bare out-of-scope type-parameter storage to object", () => {
@@ -249,7 +269,7 @@ describe("storage-types", () => {
     };
 
     expect(normalizeRuntimeStorageType(type, genericContext)).to.deep.equal(
-      type
+      normalizedUnionType(type.types)
     );
   });
 
@@ -297,7 +317,7 @@ describe("storage-types", () => {
     };
 
     expect(normalizeRuntimeStorageType(type, genericContext)).to.deep.equal(
-      type
+      normalizedUnionType(type.types)
     );
   });
 
@@ -494,12 +514,15 @@ describe("storage-types", () => {
         },
         aliasContext
       )
-    ).to.deep.equal({
-      kind: "unionType",
-      types: [
-        { kind: "referenceType", name: "Readable", resolvedClrType: "nodejs.stream.Readable" },
+    ).to.deep.equal(
+      normalizedUnionType([
+        {
+          kind: "referenceType",
+          name: "Readable",
+          resolvedClrType: "nodejs.stream.Readable",
+        },
         { kind: "primitiveType", name: "undefined" },
-      ],
-    });
+      ])
+    );
   });
 });

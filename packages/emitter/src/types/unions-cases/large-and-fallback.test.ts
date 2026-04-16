@@ -7,6 +7,8 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../../emitter.js";
 import { IrModule, IrType } from "@tsonic/frontend";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { printRuntimeUnionCarrierTypeForIrType } from "../../runtime-union-cases/helpers.js";
 
 describe("Union Type Emission", () => {
   it("should emit eight-type union as Union<T1, T2, T3, T4, T5, T6, T7, T8>", () => {
@@ -65,14 +67,35 @@ describe("Union Type Emission", () => {
     };
 
     const code = emitModule(module);
+    const union8Type = (
+      module.body[5] as Extract<IrModule["body"][number], { kind: "variableDeclaration" }>
+    ).declarations[0]!.type as IrType;
 
-    // Should use Union<T1, T2, T3, T4, T5, T6, T7, T8> with global:: FQN
     expect(code).to.include(
-      "global::Tsonic.Runtime.Union<bool, double, string, Invoice, Order, Payment, Product, User> value"
+      `${printRuntimeUnionCarrierTypeForIrType(union8Type, [
+        { kind: "predefinedType", keyword: "bool" },
+        { kind: "predefinedType", keyword: "double" },
+        { kind: "predefinedType", keyword: "string" },
+        identifierType("Invoice"),
+        identifierType("Order"),
+        identifierType("Payment"),
+        identifierType("Product"),
+        identifierType("User"),
+      ])} value`
     );
   });
 
-  it("should fall back to object for unions with more than 8 types", () => {
+  it("should emit compiler-owned carriers for unions with more than 8 types", () => {
+    const makeInterface = (name: string) => ({
+      kind: "interfaceDeclaration" as const,
+      name,
+      isExported: false,
+      isStruct: false,
+      typeParameters: [],
+      extends: [],
+      members: [],
+    });
+
     const module: IrModule = {
       kind: "module",
       filePath: "/test/union9.ts",
@@ -82,6 +105,12 @@ describe("Union Type Emission", () => {
       imports: [],
       exports: [],
       body: [
+        makeInterface("T1"),
+        makeInterface("T2"),
+        makeInterface("T3"),
+        makeInterface("T4"),
+        makeInterface("T5"),
+        makeInterface("T6"),
         {
           kind: "variableDeclaration",
           declarationKind: "const",
@@ -112,9 +141,23 @@ describe("Union Type Emission", () => {
     };
 
     const code = emitModule(module);
+    const union9Type = (
+      module.body[6] as Extract<IrModule["body"][number], { kind: "variableDeclaration" }>
+    ).declarations[0]!.type as IrType;
 
-    // Should fall back to object for 9+ types
-    expect(code).to.include("object value");
+    expect(code).to.include(
+      `${printRuntimeUnionCarrierTypeForIrType(union9Type, [
+        { kind: "predefinedType", keyword: "bool" },
+        { kind: "predefinedType", keyword: "double" },
+        { kind: "predefinedType", keyword: "string" },
+        identifierType("T1"),
+        identifierType("T2"),
+        identifierType("T3"),
+        identifierType("T4"),
+        identifierType("T5"),
+        identifierType("T6"),
+      ])} value`
+    );
   });
 
   it("falls back to object at recursive union re-entry boundaries", () => {
@@ -226,6 +269,6 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
     expect(code).to.include("object value");
-    expect(code).to.not.include("global::Tsonic.Runtime.Union");
+    expect(code).to.not.include("global::Tsonic.Internal.Union");
   });
 });

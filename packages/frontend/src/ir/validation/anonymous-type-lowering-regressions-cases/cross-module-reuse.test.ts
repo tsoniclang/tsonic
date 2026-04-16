@@ -267,7 +267,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     ).to.equal(undefined);
   });
 
-  it("reuses local recursive structural aliases instead of synthesizing anonymous carriers", () => {
+  it("keeps named recursive aliases while lowering inline literals to compiler-owned carriers", () => {
     const module = createTestModule(`
       type TreeNode = {
         child?: TreeNode;
@@ -295,6 +295,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
       > => stmt.kind === "variableDeclaration"
     );
     const leafType = leafDeclaration?.declarations[0]?.type;
+    const leafInitializer = leafDeclaration?.declarations[0]?.initializer;
     const anonModule = lowered.modules.find(
       (candidate) =>
         candidate.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
@@ -304,6 +305,13 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     expect(
       leafType && leafType.kind === "referenceType" ? leafType.name : undefined
     ).to.equal("TreeNode");
-    expect(anonModule).to.equal(undefined);
+    expect(anonModule).to.not.equal(undefined);
+    expect(
+      leafInitializer &&
+        leafInitializer.kind === "object" &&
+        leafInitializer.inferredType !== undefined &&
+        leafInitializer.inferredType.kind === "referenceType" &&
+        leafInitializer.inferredType.name
+    ).to.match(/^__Anon_/);
   });
 });

@@ -2,7 +2,8 @@ import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
-import { findRuntimeUnionMemberIndex } from "./runtime-unions.js";
+import { unionMemberMatchesTarget } from "./type-resolution.js";
+import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
 
 export const buildRuntimeUnionMemberIndexByAstKey = (
   memberTypeAsts: readonly CSharpTypeAst[]
@@ -22,14 +23,24 @@ export const findMappedRuntimeUnionMemberIndex = (opts: {
   readonly actualMember: IrType;
   readonly actualMemberTypeAst?: CSharpTypeAst;
   readonly context: EmitterContext;
-}): number | undefined =>
-  (opts.actualMemberTypeAst
+}): number | undefined => {
+  const astMatch = opts.actualMemberTypeAst
     ? opts.targetMemberIndexByAstKey.get(
         stableTypeKeyFromAst(opts.actualMemberTypeAst)
       )
-    : undefined) ??
-  findRuntimeUnionMemberIndex(
-    opts.targetMembers,
-    opts.actualMember,
-    opts.context
+    : undefined;
+  if (astMatch !== undefined) {
+    return astMatch;
+  }
+
+  const semanticMatch = opts.targetMembers.findIndex(
+    (targetMember) =>
+      runtimeUnionAliasReferencesMatch(
+        opts.actualMember,
+        targetMember,
+        opts.context
+      ) ||
+      unionMemberMatchesTarget(opts.actualMember, targetMember, opts.context)
   );
+  return semanticMatch >= 0 ? semanticMatch : undefined;
+};

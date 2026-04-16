@@ -22,7 +22,9 @@ import {
   generateModuleContainerAttributeFile,
   generateJsonAotFile,
   generateJsonRuntimeFile,
+  generateRuntimeUnionFile,
 } from "./generated-files.js";
+import { createRuntimeUnionRegistry } from "./core/semantic/runtime-union-registry.js";
 
 /**
  * Result of batch emission
@@ -79,6 +81,7 @@ export const emitCSharpFiles = (
     needsJsonAot: false,
     needsRuntimeJsonSupport: false,
   };
+  const runtimeUnionRegistry = createRuntimeUnionRegistry();
 
   // Detect whether we emitted any module static container classes.
   // If so, we must include the ModuleContainerAttribute definition so those
@@ -120,6 +123,7 @@ export const emitCSharpFiles = (
       typeAliasIndex, // Pass type alias index for cross-module alias resolution
       syntheticTypeNamespaces, // Synthetic cross-module type resolution (e.g. __tsonic/* anon types)
       jsonAotRegistry, // Pass JSON AOT registry for type collection
+      runtimeUnionRegistry,
     };
     const code = emitModule(module, moduleOptions);
     results.set(outputPath, code);
@@ -144,6 +148,10 @@ export const emitCSharpFiles = (
     )
   ) {
     results.set("__tsonic_array_interop.g.cs", generateArrayInteropFile());
+  }
+
+  if (runtimeUnionRegistry.definitions.size > 0) {
+    results.set("__tsonic_unions.g.cs", generateRuntimeUnionFile(runtimeUnionRegistry));
   }
 
   // Generate __tsonic_module_containers.g.cs if any module emitted a static container.

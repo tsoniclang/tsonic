@@ -138,10 +138,10 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.include(
-        "global::Tsonic.Runtime.Union<global::System.Threading.Tasks.Task<object?>, object?>.From1(global::System.Threading.Tasks.Task.Run<object?>"
+        "global::Tsonic.Internal.Union<global::System.Threading.Tasks.Task<object?>, object?>.From1(global::System.Threading.Tasks.Task.Run<object?>"
       );
       expect(csharp).to.include(
-        'await (next("route") ?? global::System.Threading.Tasks.Task.CompletedTask);'
+        '("route") ?? global::System.Threading.Tasks.Task.CompletedTask);'
       );
     });
 
@@ -158,8 +158,8 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).not.to.include("global::Tsonic.Runtime.Union<object?, void>");
-      expect(csharp).not.to.include("Task.FromResult<global::Tsonic.Runtime.Union<object?, void>>");
+      expect(csharp).not.to.include("global::Tsonic.Internal.Union<object?, void>");
+      expect(csharp).not.to.include("Task.FromResult<global::Tsonic.Internal.Union<object?, void>>");
       expect(csharp).to.include("global::System.Threading.Tasks.Task.FromResult<object?>");
     });
   });

@@ -1,6 +1,19 @@
+---
+title: Basic Examples
+---
+
 # Basic Examples
 
-## Default CLR Surface
+## Default CLR surface
+
+Setup:
+
+```bash
+tsonic init
+tsonic run
+```
+
+Code:
 
 ```ts
 import { Console } from "@tsonic/dotnet/System.js";
@@ -10,7 +23,16 @@ export function main(): void {
 }
 ```
 
-## JS Surface
+## JS surface
+
+Setup:
+
+```bash
+tsonic init --surface @tsonic/js
+tsonic run
+```
+
+Code:
 
 ```ts
 export function main(): void {
@@ -19,7 +41,17 @@ export function main(): void {
 }
 ```
 
-## JS Surface + Node Package
+## JS surface + Node package
+
+Setup:
+
+```bash
+tsonic init --surface @tsonic/js
+tsonic add npm @tsonic/nodejs
+tsonic run
+```
+
+Code:
 
 ```ts
 import * as fs from "node:fs";
@@ -31,7 +63,9 @@ export function main(): void {
 }
 ```
 
-## Source Package Consumption
+## Source package consumption
+
+This is the current first-party package model generalized to your own packages:
 
 ```ts
 import { clamp } from "@acme/math";
@@ -40,3 +74,6 @@ export function main(): void {
   console.log(clamp(10, 0, 5).toString());
 }
 ```
+
+That works when `@acme/math` is a Tsonic source package with a compatible
+`tsonic.package.json` manifest.

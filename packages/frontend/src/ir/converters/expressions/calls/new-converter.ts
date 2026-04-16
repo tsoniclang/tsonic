@@ -20,6 +20,11 @@ import {
   applyCallSiteArgumentModifiers,
   extractArgumentPassing,
 } from "./call-site-analysis.js";
+import {
+  finalizeInvocationMetadata,
+  normalizeFinalizedInvocationArguments,
+} from "./invocation-finalization.js";
+import { buildSourceBackedConstructorParameterTypes } from "./source-backed-constructor-metadata.js";
 
 // DELETED: getConstructedType - Phase 15 uses resolveCall.returnType instead
 
@@ -205,12 +210,64 @@ export const convertNewExpression = (
 
   // Phase 15: inferredType MUST be finalResolved.returnType
   // If sigId is missing, use unknownType (do not fabricate a nominal type)
-  const inferredType: IrType = finalResolved?.returnType ?? {
-    kind: "unknownType",
-  };
-  const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
+  const sourceBackedConstructorParameterTypes =
+    buildSourceBackedConstructorParameterTypes({
+      sourceNode: node,
+      constructorExpression: node.expression,
+      callee,
+      constructedType: finalResolved?.returnType,
+      argumentCount,
+      actualArgTypes: argTypes,
+      ctx,
+    });
+  const finalizedInvocationMetadata = finalizeInvocationMetadata({
+    ctx,
+    callee,
+    receiverType:
+      callee.kind === "memberAccess" ? callee.object.inferredType : undefined,
+    callableType:
+      callee.inferredType?.kind === "functionType"
+        ? callee.inferredType
+        : undefined,
+    argumentCount,
+    argTypes,
+    explicitTypeArgs,
+    expectedType,
+    boundGlobalParameterTypes: undefined,
+    authoritativeBoundGlobalSurfaceParameterTypes: undefined,
+    authoritativeBoundGlobalReturnType: undefined,
+    sourceBackedParameterTypes:
+      sourceBackedConstructorParameterTypes?.parameterTypes,
+    sourceBackedSurfaceParameterTypes:
+      sourceBackedConstructorParameterTypes?.surfaceParameterTypes,
+    sourceBackedReturnType: finalResolved?.returnType,
+    ambientBoundGlobalSurfaceParameterTypes: undefined,
+    authoritativeDirectParameterTypes: undefined,
+    resolvedParameterTypes: finalResolved?.parameterTypes,
+    resolvedSurfaceParameterTypes: finalResolved?.surfaceParameterTypes,
+    resolvedReturnType: finalResolved?.returnType,
+    fallbackParameterTypes: initialParameterTypes,
+    fallbackSurfaceParameterTypes: initialParameterTypes,
+    exactParameterCandidates: [],
+    exactSurfaceParameterCandidates: [],
+    exactReturnCandidates: [],
+    preserveDirectSurfaceIdentity: false,
+  });
+  const inferredType: IrType =
+    finalizedInvocationMetadata.sourceBackedReturnType ??
+    finalResolved?.returnType ?? {
+      kind: "unknownType",
+    };
+  const parameterTypes =
+    finalizedInvocationMetadata.parameterTypes ?? initialParameterTypes;
   const surfaceParameterTypes =
-    finalResolved?.surfaceParameterTypes ?? parameterTypes;
+    finalizedInvocationMetadata.surfaceParameterTypes ?? parameterTypes;
+  const finalizedArguments = normalizeFinalizedInvocationArguments(
+    convertedArgs,
+    parameterTypes,
+    surfaceParameterTypes,
+    ctx
+  );
   const argumentPassingBase = finalResolved
     ? finalResolved.parameterModes.slice(0, argumentCount)
     : extractArgumentPassing(node, ctx);
@@ -237,7 +294,7 @@ export const convertNewExpression = (
   return {
     kind: "new",
     callee,
-    arguments: convertedArgs,
+    arguments: finalizedArguments,
     inferredType,
     sourceSpan: getSourceSpan(node),
     signatureId: sigId,
@@ -245,8 +302,18 @@ export const convertNewExpression = (
     argumentPassing,
     parameterTypes,
     surfaceParameterTypes,
+    sourceBackedParameterTypes:
+      finalizedInvocationMetadata.sourceBackedParameterTypes,
+    sourceBackedSurfaceParameterTypes:
+      finalizedInvocationMetadata.sourceBackedSurfaceParameterTypes,
+    sourceBackedRestParameter:
+      sourceBackedConstructorParameterTypes?.restParameter,
+    sourceBackedReturnType:
+      finalizedInvocationMetadata.sourceBackedReturnType,
     typeArguments: typeArgumentsForIr,
     requiresSpecialization,
-    surfaceRestParameter: finalResolved?.surfaceRestParameter,
+    surfaceRestParameter:
+      sourceBackedConstructorParameterTypes?.restParameter ??
+      finalResolved?.surfaceRestParameter,
   };
 };

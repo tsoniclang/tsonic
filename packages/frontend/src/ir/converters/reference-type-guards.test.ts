@@ -8,6 +8,11 @@ const makeRef = (name: string): IrType => ({
   name,
 });
 
+const makeUnion = (...types: IrType[]): IrType => ({
+  kind: "unionType",
+  types,
+});
+
 describe("reference-type-guards", () => {
   it("narrows nominal base-class values directly to instanceof targets", () => {
     const templateValue = makeRef("TemplateValue");
@@ -68,9 +73,6 @@ describe("reference-type-guards", () => {
       true
     );
 
-    expect(result).to.deep.equal({
-      kind: "unionType",
-      types: [pageValue, siteValue],
-    });
+    expect(result).to.deep.equal(makeUnion(pageValue, siteValue));
   });
 });

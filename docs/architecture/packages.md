@@ -1,8 +1,9 @@
-# Package Architecture
+# Packages
 
-Tsonic uses several package families.
+Tsonic uses several package families, and the architecture only makes sense if
+you keep those families separate.
 
-## Compiler Packages
+## Compiler packages
 
 - `@tsonic/frontend`
 - `@tsonic/emitter`
@@ -10,26 +11,58 @@ Tsonic uses several package families.
 - `@tsonic/cli`
 - `tsonic`
 
-## Core Authoring Packages
+These implement the compiler and CLI itself.
+
+## Core authoring packages
 
 - `@tsonic/core`
+- `@tsonic/globals`
+
+These support language-facing types, intrinsics, and ambient declarations.
+
+## First-party source packages
+
+- `@tsonic/js`
+- `@tsonic/nodejs`
+- `@tsonic/express`
+
+These packages are authored directly in TypeScript and consumed as source
+through `tsonic.package.json`.
+
+## Generated CLR binding packages
+
 - `@tsonic/dotnet`
+- `@tsonic/aspnetcore`
+- `@tsonic/microsoft-extensions`
+- `@tsonic/efcore*`
 
-## Surface / Runtime Packages
+These are generated from CLR metadata by `tsbindgen`.
 
-- `@tsonic/globals` — CLR ambient surface
-- `@tsonic/js` — JS ambient surface
-- `@tsonic/nodejs` — Node module package
+## Local workspace packages
 
-## Source Packages
+These are user-authored sibling projects referenced through:
 
-Tsonic-authored npm packages with `tsonic.package.json`.
+```json
+{
+  "references": {
+    "packages": [
+      {
+        "id": "@acme/domain",
+        "project": "../domain"
+      }
+    ]
+  }
+}
+```
 
-These are consumed as source, not just declarations.
+They can be owned as `source` or `dll`.
 
-## Important Separation
+## Important separation
 
 - surface package = ambient world
-- normal package = importable modules / bindings
+- normal package = importable module or binding package
+- authored source package = compiled transitively
+- generated CLR binding package = declaration + metadata package
 
-That is why `@tsonic/js` is a surface, but `@tsonic/nodejs` is a normal package.
+That is why `@tsonic/js` can be a surface while `@tsonic/nodejs` is still a
+normal package.

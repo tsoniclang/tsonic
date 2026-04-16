@@ -4,7 +4,7 @@ The frontend owns TypeScript-facing semantics.
 
 ## Responsibilities
 
-- TS Program creation
+- TypeScript program creation
 - core globals injection
 - surface profile resolution
 - source-package import resolution
@@ -12,30 +12,28 @@ The frontend owns TypeScript-facing semantics.
 - validation and diagnostics
 - IR construction
 
-## Program Creation
+## Program creation
 
 Important current behavior:
 
 - compiler core globals are injected virtually
 - `surface` selects the ambient runtime personality
 - workspace `dotnet.typeRoots` is additive
-- source-package files under `node_modules` are included in the same TS Program when resolved
+- source-package files under `node_modules` are included in the same TypeScript
+  program when resolved
 
-## Surface Profiles
+## Surface profiles
 
 Current model:
 
 - builtin `clr`
-- custom/package surfaces via `tsonic.surface.json`
-- resolved surface chains (`resolvedModes`) for compatibility checks
+- package surfaces via `tsonic.surface.json`
+- resolved surface chains for compatibility checks
 
-Example:
+This is why a package can declare compatibility with `@tsonic/js` and still be
+accepted under a workspace surface that extends it.
 
-- active surface: `@acme/surface-node`
-- resolved modes may include `@tsonic/js`
-- source packages declaring `["@tsonic/js"]` can still be accepted
-
-## Source Packages
+## Source packages
 
 The frontend recognizes installed packages with:
 
@@ -44,24 +42,27 @@ package.json
 tsonic.package.json
 ```
 
-and kind:
+and:
 
 ```json
 { "kind": "tsonic-source-package" }
 ```
 
-These are treated as TS source, not opaque module stubs.
+These are treated as source, not opaque `.d.ts` stubs.
 
-## Validation Areas
+That means the frontend has to understand:
 
-- unsupported/open-world features
-- numeric proof
-- generic function value determinism
-- object literal runtime representability
-- `import.meta`
-- dynamic `import()`
-- source-package surface mismatch
+- exports
+- ambient files
+- module aliases
+- surface compatibility
+- runtime metadata overlays
 
-## Output
+## Why this matters
 
-Frontend output is IR plus diagnostics, not C#.
+This is the point where the current stack differs most from a normal TypeScript
+toolchain:
+
+- authored source packages are part of the same program
+- generated CLR binding packages are not
+- the active surface changes ambient semantics without changing package imports

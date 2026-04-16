@@ -1,137 +1,45 @@
 # Troubleshooting
 
-## Surface Confusion
+## A program builds in TypeScript but fails in Tsonic
 
-### JS code shows CLR-style ambient members
+Check whether the construct is within the deterministic subset. Tsonic does not
+promise to accept every TypeScript pattern.
 
-Check `tsonic.workspace.json`:
+Useful checks:
 
-```json
-{
-  "surface": "@tsonic/js"
-}
-```
+- are you depending on dynamic runtime behavior?
+- is a generic function value escaping into a context Tsonic cannot monomorphize?
+- are overloads relying on inference that needs an explicit annotation?
 
-Also remember:
+## A package import fails
 
-- `@tsonic/nodejs` is not a surface
-- add it as a package instead
+Check:
 
-```bash
-tsonic add npm @tsonic/nodejs
-```
+- the active surface
+- `tsonic.package.json`
+- `tsonic.workspace.json`
+- generated binding package installation and restore state
 
-### `node:*` imports do not resolve
+Also check whether you are mixing up:
 
-You likely forgot the Node package/type roots.
+- surface selection
+- authored source packages
+- generated CLR binding packages
 
-```bash
-tsonic add npm @tsonic/nodejs
-```
+## A downstream app fails but compiler tests are green
 
-## Numeric Narrowing Errors
+That can happen. Real package graphs and published programs expose integration
+boundaries that unit tests do not. Use the downstream verifier for the affected
+repo.
 
-### `parseInt(...) as int` fails
+## A binding package looks wrong
 
-That is expected unless the narrowing is proven.
+That is usually a `tsbindgen` regen issue, not a first-party source-package
+issue. Recheck the generated binding repo and publish-wave state.
 
-Bad:
+## A local multi-project workspace behaves strangely
 
-```ts
-import type { int } from "@tsonic/core/types.js";
+Check the local package ownership mode in `references.packages`:
 
-const value = parseInt(text, 10) as int;
-```
-
-Why:
-
-- JS `parseInt` returns `number`
-- `number` means `double`
-- Tsonic will not guess `int`
-
-Fix:
-
-- keep the value as `number`, or
-- add an explicit checked conversion path in your own code/library
-
-### `Number.isFinite(x)` did not prove `int`
-
-Also expected. `Number.isFinite` proves finite double, not 32-bit integer.
-
-## Source Package Errors
-
-### Installed npm package was not treated as Tsonic source
-
-Check for:
-
-```text
-node_modules/<pkg>/tsonic.package.json
-```
-
-Expected shape:
-
-```json
-{
-  "schemaVersion": 1,
-  "kind": "tsonic-source-package",
-  "surfaces": ["@tsonic/js"],
-  "source": {
-    "exports": {
-      ".": "./src/index.ts"
-    }
-  }
-}
-```
-
-### Surface mismatch for source package
-
-Source packages declare compatible surfaces. The active workspace surface must resolve to a chain that includes one of them.
-
-## `import.meta` Errors
-
-Supported:
-
-- `import.meta`
-- `import.meta.url`
-- `import.meta.filename`
-- `import.meta.dirname`
-
-Unsupported:
-
-- `import.meta.env`
-- bundler/tool-specific extension points
-
-## Dynamic Import Errors
-
-Supported:
-
-```ts
-await import("./side-effect.js");
-const mod = await import("./module.js");
-```
-
-Unsupported:
-
-```ts
-await import(specifier);
-await import("some-package");
-```
-
-## Missing CLR / Binding Errors
-
-### Binding exists in source repo but not in installed package
-
-This is usually a packaging issue:
-
-- generated nested bindings or internal declaration files were not included in the published tarball/package
-- local sibling-repo setups can hide this if they resolve direct repo trees instead of packed contents
-
-Fix:
-
-- regenerate the package
-- inspect `npm pack --dry-run`
-- ensure bindings and internal declaration trees are shipped
-
-## Test Failures Only On Cold Runs
-
-If `run-all.sh` fails only from a cold checkout, inspect workspace test ordering and build prerequisites rather than assuming the compiler changed. Tsonic now runs workspace suites in explicit dependency order to avoid hidden warm-build dependencies.
+- `source` compiles the package into the same generated closure
+- `dll` builds a separate assembly boundary

@@ -244,6 +244,7 @@ export const tryEmitStorageCompatibleIdentifier = (
   const effectiveType = resolveEffectiveExpressionType(expr, context);
   if (
     !isBroadStorageTarget(expectedType, context) &&
+    !willCarryAsRuntimeUnion(expectedType, context) &&
     matchesExpectedEmissionType(effectiveType, expectedType, context)
   ) {
     return undefined;
@@ -435,18 +436,26 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   const shouldAvoidStorageReuse =
     shouldAvoidBroadStorageReuse ||
     shouldAvoidProjectedRuntimeUnionStorageReuse;
+  const originalRuntimeCarrierAst =
+    narrowed.carrierExprAst ??
+    narrowed.storageExprAst ??
+    (remappedLocal ? identifierExpression(remappedLocal) : undefined);
+  const [sameSourceCarrierSurface, carrierSurfaceContext] =
+    expectedType && narrowed.sourceType
+      ? matchesEmittedStorageSurface(
+          stripNullish(narrowed.sourceType),
+          expectedType,
+          context
+        )
+      : [false, context];
   const canReuseOriginalRuntimeCarrier =
     !!expectedType &&
-    !!narrowed.storageExprAst &&
+    !!originalRuntimeCarrierAst &&
     !!narrowed.sourceType &&
     willCarryAsRuntimeUnion(expectedType, context) &&
-    matchesExpectedEmissionType(
-      stripNullish(narrowed.sourceType),
-      expectedType,
-      context
-    ) &&
-    !!narrowedProjectionType &&
-    !willCarryAsRuntimeUnion(narrowedProjectionType, context);
+    sameSourceCarrierSurface &&
+    (!narrowedProjectionType ||
+      !willCarryAsRuntimeUnion(narrowedProjectionType, context));
   if (
     expectedType &&
     isBroadStorageTarget(expectedType, context) &&
@@ -463,7 +472,7 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     }
   }
   if (canReuseOriginalRuntimeCarrier) {
-    return [narrowed.carrierExprAst ?? narrowed.storageExprAst, context];
+    return [originalRuntimeCarrierAst, carrierSurfaceContext];
   }
 
   const [sameSurface, nextContext] = matchesEmittedStorageSurface(
@@ -565,7 +574,9 @@ export const matchesEmittedStorageSurface = (
     } catch (err) {
       if (
         err instanceof Error &&
-        err.message.startsWith("ICE: Unresolved reference type ")
+        (err.message.startsWith("ICE: Unresolved reference type ") ||
+          err.message.startsWith("ICE: 'unknown' type reached emitter") ||
+          err.message.startsWith("ICE: 'any' type reached emitter"))
       ) {
         return undefined;
       }

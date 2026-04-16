@@ -4,8 +4,8 @@
  * Handles the per-variant truthiness logic for union types:
  * - (T | null | undefined) nullable unions
  * - literal unions (e.g., "a" | "b")
- * - 2-8 member runtime Union<T1..Tn>
- * - fallback for unions >8 (emitted as object)
+ * - 2+ member compiler-owned runtime union carriers
+ * - fallback for broad/object-like unions emitted as object
  */
 
 import type { IrExpression, IrType } from "@tsonic/frontend";
@@ -15,7 +15,11 @@ import {
   isRuntimeNullishType,
   splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
-import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import {
+  buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+  type EmitTypeAstLike,
+} from "./runtime-unions.js";
 import { booleanLiteral, nullLiteral } from "../format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import {
@@ -37,12 +41,13 @@ export const emitUnionTruthinessConditionAst = (
   emittedAst: CSharpExpressionAst,
   unionType: Extract<IrType, { kind: "unionType" }>,
   context: EmitterContext,
-  toBooleanConditionAstFn: ToBooleanConditionAstFn
+  toBooleanConditionAstFn: ToBooleanConditionAstFn,
+  emitTypeAst: EmitTypeAstLike
 ): [CSharpExpressionAst, EmitterContext] => {
   // Align boolean-context emission with union type emission:
   // - (T | null | undefined) behaves like a nullable (falsy when nullish)
   // - literal unions behave like their primitive base at runtime
-  // - 2-8 unions emit as global::Tsonic.Runtime.Union<T1..Tn>, which requires per-variant truthiness
+  // - carried runtime unions require per-variant truthiness
 
   const runtimeNullishSplit = splitRuntimeNullishUnionMembers(unionType);
   const nonNullTypes =
@@ -176,12 +181,18 @@ export const emitUnionTruthinessConditionAst = (
     ];
   }
 
-  // 2-8 unions use runtime Union<T1..Tn>. We must inspect the active variant.
-  const runtimeMembers = getCanonicalRuntimeUnionMembers(unionType, context);
-  if (runtimeMembers) {
-    const nextId = (context.tempVarId ?? 0) + 1;
+  // Carried runtime unions use per-variant carriers. We must inspect the active variant.
+  const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
+    unionType,
+    context,
+    emitTypeAst
+  );
+  if (runtimeLayout) {
+    const runtimeMembers = runtimeLayout.members;
+    const runtimeUnionTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
+    const nextId = (layoutContext.tempVarId ?? 0) + 1;
     const ctxWithId: EmitterContext = {
-      ...context,
+      ...layoutContext,
       tempVarId: nextId,
     };
     const alloc = allocateLocalName(
@@ -256,7 +267,7 @@ export const emitUnionTruthinessConditionAst = (
 
     const chainAst = buildChain(0);
 
-    // Build: (operand is var u && u is not null && (chain))
+    // Build: (operand is UnionN_HASH<T...> u && u is not null && (chain))
     return [
       {
         kind: "parenthesizedExpression",
@@ -269,7 +280,11 @@ export const emitUnionTruthinessConditionAst = (
             left: {
               kind: "isExpression",
               expression: wrapForIs(emittedAst),
-              pattern: { kind: "varPattern", designation: u },
+              pattern: {
+                kind: "declarationPattern",
+                type: runtimeUnionTypeAst,
+                designation: u,
+              },
             },
             right: {
               kind: "isExpression",

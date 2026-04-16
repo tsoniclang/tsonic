@@ -23,6 +23,7 @@ import {
   tryEmitImplicitNarrowedStorageIdentifier,
   tryEmitImplicitRuntimeSubsetStorageIdentifier,
   tryEmitMaterializedNarrowedIdentifier,
+  matchesEmittedStorageSurface,
   tryEmitReifiedStorageIdentifier,
   tryEmitStorageCompatibleIdentifier,
   tryEmitStorageCompatibleNarrowedIdentifier,
@@ -143,15 +144,18 @@ export const emitIdentifier = (
           return [storageCompatibleExpected, context];
         }
 
+        const [sameSourceCarrierSurface, sourceCarrierContext] =
+          expectedType && narrowed.sourceType
+            ? matchesEmittedStorageSurface(
+                stripNullish(narrowed.sourceType),
+                expectedType,
+                context
+              )
+            : [false, context];
         const canReuseOriginalCarrierForExpectedTarget =
           !!expectedType &&
           !!narrowed.sourceType &&
-          ((willCarryAsRuntimeUnion(expectedType, context) &&
-            matchesExpectedEmissionType(
-              stripNullish(narrowed.sourceType),
-              expectedType,
-              context
-            )) ||
+          (sameSourceCarrierSurface ||
             (isBroadStorageTarget(expectedType, context) &&
               matchesExpectedEmissionType(
                 stripNullish(narrowed.sourceType),
@@ -159,14 +163,13 @@ export const emitIdentifier = (
                 context
               )));
         if (canReuseOriginalCarrierForExpectedTarget) {
-          const originalCarrier = tryEmitStorageCompatibleIdentifier(
-            expr,
-            context,
-            expectedType
-          );
-          if (originalCarrier) {
-            return [originalCarrier, context];
-          }
+          const originalCarrier =
+            narrowed.storageExprAst ??
+            identifierExpression(
+              context.localNameMap?.get(expr.name) ??
+                escapeCSharpIdentifier(expr.name)
+            );
+          return [originalCarrier, sourceCarrierContext];
         }
 
         const shouldPreferNarrowedSubsetTarget =

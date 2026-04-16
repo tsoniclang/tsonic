@@ -3,10 +3,17 @@ import { expect } from "chai";
 import { createContext } from "../emitter-types/context.js";
 import {
   identifierExpression,
+  identifierType,
   parseNumericLiteral,
 } from "../core/format/backend-ast/builders.js";
-import { printExpression } from "../core/format/backend-ast/printer.js";
+import {
+  printExpression,
+  printType,
+} from "../core/format/backend-ast/printer.js";
 import type { IrType } from "@tsonic/frontend";
+import { printRuntimeUnionCarrierTypeForIrType } from "../runtime-union-cases/helpers.js";
+import { emitExpressionAst } from "../expression-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
 import {
   adaptEmittedExpressionAst,
   adaptValueToExpectedTypeAst,
@@ -24,6 +31,45 @@ const jsValueType: IrType = {
 };
 
 describe("expected-type-adaptation", () => {
+  it("keeps contextual literal runtime-union materialization on the expected carrier family", () => {
+    const regexpType: IrType = {
+      kind: "referenceType",
+      name: "RegExp",
+      resolvedClrType: "js.RegExp",
+      typeId: {
+        stableId: "@tsonic/js:js.RegExp",
+        clrName: "js.RegExp",
+        assemblyName: "@tsonic/js",
+        tsName: "RegExp",
+      },
+    };
+    const expectedUnion: Extract<IrType, { kind: "unionType" }> = {
+      kind: "unionType",
+      types: [{ kind: "primitiveType", name: "string" }, regexpType],
+      runtimeCarrierFamilyKey:
+        "runtime-union:canonical:prim:string|ref#0:clr:js.RegExp::",
+    };
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+    const [expectedTypeAst] = emitTypeAst(expectedUnion, context);
+    const [valueAst] = emitExpressionAst(
+      {
+        kind: "literal",
+        value: "HELLO",
+        raw: "\"HELLO\"",
+        inferredType: { kind: "primitiveType", name: "string" },
+      },
+      context,
+      expectedUnion
+    );
+
+    expect(printExpression(valueAst)).to.equal(
+      `${printType(expectedTypeAst)}.From1("HELLO")`
+    );
+  });
+
   it("uses the shared planner for runtime-union narrowing", () => {
     const requestHandlerType: IrType = {
       kind: "functionType",
@@ -413,8 +459,26 @@ describe("expected-type-adaptation", () => {
       expectedType: expectedUnionType,
     });
 
+    const unionType = printRuntimeUnionCarrierTypeForIrType(expectedUnionType, [
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: { kind: "predefinedType", keyword: "string" },
+      },
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: identifierType("T"),
+      },
+      {
+        kind: "arrayType",
+        rank: 1,
+        elementType: identifierType("TResult"),
+      },
+    ]);
+
     expect(printExpression(adaptedAst)).to.equal(
-      "global::Tsonic.Runtime.Union<string[], T[], TResult[]>.From2(mapIterable(source.As1()))"
+      `${unionType}.From2(mapIterable(source.As1()))`
     );
   });
 
@@ -680,6 +744,59 @@ describe("expected-type-adaptation", () => {
     );
 
     expect(printExpression(castAst)).to.equal("-1");
+  });
+
+  it("does not cast conditional exact-int expressions when actual and expected numeric families already match", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      {
+        kind: "conditionalExpression",
+        condition: identifierExpression("flag"),
+        whenTrue: parseNumericLiteral("1"),
+        whenFalse: parseNumericLiteral("2"),
+      },
+      { kind: "referenceType", name: "int" },
+      context,
+      { kind: "primitiveType", name: "int" }
+    );
+
+    expect(printExpression(castAst)).to.equal("flag ? 1 : 2");
+  });
+
+  it("keeps explicit nullable exact-int casts for member-access slots even when numeric families match", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      {
+        kind: "memberAccessExpression",
+        expression: identifierExpression("query"),
+        memberName: "limit",
+      },
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      },
+      context,
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      }
+    );
+
+    expect(printExpression(castAst)).to.equal("(int?)query.limit");
   });
 
   it("does not layer an identical nullable exact-int cast twice", () => {

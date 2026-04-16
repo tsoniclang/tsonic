@@ -11,6 +11,11 @@ import { createContext } from "./emitter-types/context.js";
 import { emitAssignment } from "./expressions/operators/assignment-emitter.js";
 import { printExpression } from "./core/format/backend-ast/printer.js";
 import { emitExpressionAst } from "./expression-emitter.js";
+import {
+  normalizeRuntimeUnionCarrierNames,
+  printRuntimeUnionCarrierType,
+  printRuntimeUnionCarrierTypeForIrType,
+} from "./runtime-union-cases/helpers.js";
 
 const jsValueType: IrType = {
   kind: "referenceType",
@@ -96,6 +101,13 @@ describe("Type Assertion Emission", () => {
   });
 
   it("should preserve union types when assertion is stripped", () => {
+    const inputType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+      ],
+    };
     const module: IrModule = {
       kind: "module",
       filePath: "/test/unionAssert.ts",
@@ -112,13 +124,7 @@ describe("Type Assertion Emission", () => {
             {
               kind: "parameter",
               pattern: { kind: "identifierPattern", name: "input" },
-              type: {
-                kind: "unionType",
-                types: [
-                  { kind: "primitiveType", name: "string" },
-                  { kind: "primitiveType", name: "number" },
-                ],
-              },
+              type: inputType,
               isOptional: false,
               isRest: false,
               passing: "value",
@@ -146,9 +152,13 @@ describe("Type Assertion Emission", () => {
     const code = emitModule(module);
 
     // Should preserve union type parameter
-    expect(code).to.include("Union<double, string> input");
-    // Should return the value directly
-    expect(code).to.include("return input");
+    expect(code).to.include(
+      `${printRuntimeUnionCarrierTypeForIrType(inputType, [
+        { kind: "predefinedType", keyword: "double" },
+        { kind: "predefinedType", keyword: "string" },
+      ])} input`
+    );
+    expect(code).to.include("return input.Match<string>(");
   });
 
   it("preserves dictionary assertions as runtime casts", () => {
@@ -318,7 +328,10 @@ describe("Type Assertion Emission", () => {
     );
 
     expect(printExpression(ast)).to.equal(
-      "global::Tsonic.Runtime.Union<T, T>.From1(value)"
+      `${printRuntimeUnionCarrierType([
+        { kind: "identifierType", name: "T" },
+        { kind: "identifierType", name: "T" },
+      ])}.From1(value)`
     );
   });
 
@@ -409,10 +422,10 @@ describe("Type Assertion Emission", () => {
       context
     );
 
-    const emitted = printExpression(assignmentAst);
+    const emitted = normalizeRuntimeUnionCarrierNames(printExpression(assignmentAst));
 
     expect(emitted).to.not.include(
-      "(global::Tsonic.Runtime.Union<global::System.Action, double>"
+      "(global::Tsonic.Internal.Union<global::System.Action, double>"
     );
     expect(emitted).to.not.include(".Match");
     expect(emitted).to.include(".From2(");

@@ -49,9 +49,7 @@ export const resolveAnonymousStructuralReferenceType = (
     const clrSimpleName = stripped.resolvedClrType?.split(".").pop();
     const isCompilerGeneratedCarrier = (name: string | undefined): boolean =>
       !!name &&
-      (name.startsWith("__Anon_") ||
-        name.startsWith("__Rest_") ||
-        /Like__\d+$/.test(name));
+      (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
     if (
       isCompilerGeneratedCarrier(simpleName) ||
       isCompilerGeneratedCarrier(clrSimpleName)

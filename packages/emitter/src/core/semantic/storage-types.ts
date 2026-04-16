@@ -1,13 +1,11 @@
 import { IrType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import {
-  getCanonicalRuntimeUnionMembers,
-  shouldEraseRecursiveRuntimeUnionArrayElement,
-} from "./runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import {
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
+import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 
 const OBJECT_STORAGE_TYPE: IrType = {
   kind: "referenceType",
@@ -57,6 +55,34 @@ const normalizeOutOfScopeTypeParameters = (
       return type;
     }
     visited.add(type);
+  }
+
+  if (type.kind === "referenceType") {
+    const resolvedAlias = resolveTypeAlias(type, context, {
+      preserveObjectTypeAliases: true,
+    });
+    if (
+      resolvedAlias.kind === "unionType" &&
+      resolvedAlias.runtimeCarrierFamilyKey
+    ) {
+      if (!type.typeArguments || type.typeArguments.length === 0) {
+        return type;
+      }
+
+      const normalizedTypeArguments = type.typeArguments.map((typeArgument) =>
+        normalizeOutOfScopeTypeParameters(typeArgument, context, visited)
+      );
+      return normalizedTypeArguments.every(
+        (typeArgument, index) =>
+          stableIrTypeKey(typeArgument) ===
+          stableIrTypeKey(type.typeArguments?.[index] ?? typeArgument)
+      )
+        ? type
+        : {
+            ...type,
+            typeArguments: normalizedTypeArguments,
+          };
+    }
   }
 
   const resolved = resolveTypeAlias(type, context, {
@@ -221,16 +247,6 @@ const normalizeOutOfScopeTypeParameters = (
   }
 };
 
-const shouldEraseRuntimeUnionArrayElementStorage = (
-  arrayType: Extract<IrType, { kind: "arrayType" }>,
-  context: EmitterContext
-): boolean => {
-  return shouldEraseRecursiveRuntimeUnionArrayElement(
-    arrayType.elementType,
-    context
-  );
-};
-
 export const normalizeRuntimeStorageType = (
   type: IrType | undefined,
   context: EmitterContext,
@@ -238,6 +254,34 @@ export const normalizeRuntimeStorageType = (
 ): IrType | undefined => {
   if (!type) {
     return undefined;
+  }
+
+  if (type.kind === "referenceType") {
+    const resolvedAlias = resolveTypeAlias(type, context, {
+      preserveObjectTypeAliases: true,
+    });
+    if (
+      resolvedAlias.kind === "unionType" &&
+      resolvedAlias.runtimeCarrierFamilyKey
+    ) {
+      if (!type.typeArguments || type.typeArguments.length === 0) {
+        return type;
+      }
+
+      const normalizedTypeArguments = type.typeArguments.map((typeArgument) =>
+        normalizeOutOfScopeTypeParameters(typeArgument, context)
+      );
+      return normalizedTypeArguments.every(
+        (typeArgument, index) =>
+          stableIrTypeKey(typeArgument) ===
+          stableIrTypeKey(type.typeArguments?.[index] ?? typeArgument)
+      )
+        ? type
+        : {
+            ...type,
+            typeArguments: normalizedTypeArguments,
+          };
+    }
   }
 
   const resolved = normalizeOutOfScopeTypeParameters(type, context);
@@ -270,14 +314,6 @@ export const normalizeRuntimeStorageType = (
       return resolved;
     }
 
-    if (shouldEraseRuntimeUnionArrayElementStorage(resolved, context)) {
-      return {
-        kind: "arrayType",
-        elementType: OBJECT_STORAGE_TYPE,
-        origin: resolved.origin,
-      };
-    }
-
     const nextActive = new Set(activeArrayKeys);
     nextActive.add(arrayKey);
     const normalizedElementType =
@@ -300,10 +336,10 @@ export const normalizeRuntimeStorageType = (
     const canonicalRuntimeMembers =
       topLevelNonNullishMembers.length > 1
         ? getCanonicalRuntimeUnionMembers(
-            {
-              kind: "unionType",
-              types: [...topLevelNonNullishMembers],
-            },
+            rebuildUnionTypePreservingCarrierFamily(
+              resolved,
+              topLevelNonNullishMembers
+            ),
             context
           )
         : undefined;
@@ -326,19 +362,19 @@ export const normalizeRuntimeStorageType = (
       }
 
       if (!topLevelSplit?.hasRuntimeNullish) {
-        return {
-          kind: "unionType",
-          types: normalizedCanonicalMembers,
-        };
+        return rebuildUnionTypePreservingCarrierFamily(
+          resolved,
+          normalizedCanonicalMembers
+        );
       }
 
       const directNullishMembers = resolved.types.filter(
         isRuntimeNullishMember
       );
-      return {
-        kind: "unionType",
-        types: [...normalizedCanonicalMembers, ...directNullishMembers],
-      };
+      return rebuildUnionTypePreservingCarrierFamily(resolved, [
+        ...normalizedCanonicalMembers,
+        ...directNullishMembers,
+      ]);
     }
 
     const split = splitRuntimeNullishUnionMembers(resolved);
@@ -383,10 +419,10 @@ export const normalizeRuntimeStorageType = (
         }
         return nullishMembers.length === 0
           ? normalizedSingleMember
-          : {
-              kind: "unionType",
-              types: [normalizedSingleMember, ...nullishMembers],
-            };
+          : rebuildUnionTypePreservingCarrierFamily(resolved, [
+              normalizedSingleMember,
+              ...nullishMembers,
+            ]);
       }
     }
 
@@ -417,12 +453,12 @@ export const normalizeRuntimeStorageType = (
       return resolved;
     }
 
-    return {
-      kind: "unionType",
-      types: resolved.types.map((member) =>
+    return rebuildUnionTypePreservingCarrierFamily(
+      resolved,
+      resolved.types.map((member) =>
         isRuntimeNullishMember(member) ? member : normalizedNonNullishMember
-      ),
-    };
+      )
+    );
   }
 
   return resolved;

@@ -26,6 +26,7 @@ export type TypeSystemState = {
   readonly unifiedCatalog: UnifiedTypeCatalog;
   readonly aliasTable: AliasTable;
   readonly resolveIdentifier: (node: unknown) => DeclId | undefined;
+  readonly resolveTypeReference: (node: unknown) => DeclId | undefined;
   readonly resolveShorthandAssignment: (node: unknown) => DeclId | undefined;
   readonly resolveCallSignature: (node: unknown) => SignatureId | undefined;
   readonly resolveConstructorSignature: (

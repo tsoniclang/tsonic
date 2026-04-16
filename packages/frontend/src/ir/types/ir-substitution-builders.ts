@@ -159,9 +159,66 @@ export const substituteIrType = (
           { kind: "unionType" }
         >;
         cache.set(currentType, draft);
-        const normalized = normalizedUnionType(
-          currentType.types.map((memberType) => substitute(memberType))
+        const substitutedMembers = currentType.types.map((memberType) =>
+          substitute(memberType)
         );
+        const substitutedRuntimeCarrierTypeArguments =
+          currentType.runtimeCarrierTypeArguments?.map(substitute) ??
+          currentType.runtimeCarrierTypeParameters?.map((typeParameter) =>
+            substitute({
+              kind: "typeParameterType",
+              name: typeParameter,
+            })
+          );
+        if (currentType.preserveRuntimeLayout) {
+          (
+            draft as {
+              types: readonly IrType[];
+              runtimeCarrierFamilyKey?: string;
+              runtimeCarrierName?: string;
+              runtimeCarrierNamespace?: string;
+              runtimeCarrierTypeParameters?: readonly string[];
+              runtimeCarrierTypeArguments?: readonly IrType[];
+            }
+          ).types = substitutedMembers;
+          (
+            draft as {
+              runtimeCarrierTypeArguments?: readonly IrType[];
+            }
+          ).runtimeCarrierTypeArguments =
+            substitutedRuntimeCarrierTypeArguments;
+          return draft;
+        }
+        const normalized = normalizedUnionType(substitutedMembers, {
+          ...(currentType.runtimeCarrierFamilyKey !== undefined
+            ? { runtimeCarrierFamilyKey: currentType.runtimeCarrierFamilyKey }
+            : {}),
+          ...(currentType.runtimeCarrierName !== undefined
+            ? { runtimeCarrierName: currentType.runtimeCarrierName }
+            : {}),
+          ...(currentType.runtimeCarrierNamespace !== undefined
+            ? { runtimeCarrierNamespace: currentType.runtimeCarrierNamespace }
+            : {}),
+          ...(currentType.runtimeCarrierTypeParameters !== undefined
+            ? {
+                runtimeCarrierTypeParameters:
+                  currentType.runtimeCarrierTypeParameters,
+              }
+            : {}),
+          ...(currentType.runtimeCarrierTypeArguments !== undefined
+            ? {
+                runtimeCarrierTypeArguments:
+                  substitutedRuntimeCarrierTypeArguments,
+              }
+            : {}),
+          ...(currentType.runtimeCarrierTypeArguments === undefined &&
+          substitutedRuntimeCarrierTypeArguments !== undefined
+            ? {
+                runtimeCarrierTypeArguments:
+                  substitutedRuntimeCarrierTypeArguments,
+              }
+            : {}),
+        });
         cache.set(currentType, normalized);
         return normalized;
       }

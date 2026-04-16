@@ -96,11 +96,19 @@ export const tryResolveRuntimeUnionCastSourceIndices = (
 };
 
 export const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
-  const name = getIdentifierTypeName(type);
+  const name = getIdentifierTypeName(type) ?? "";
   return (
     name === "global::Tsonic.Runtime.Union" ||
     name === "Tsonic.Runtime.Union" ||
-    name === "Union"
+    name === "global::Tsonic.Internal.Union" ||
+    name === "Tsonic.Internal.Union" ||
+    name === "Union" ||
+    /^global::Tsonic\.Internal\.Union\d+$/.test(name) ||
+    /^Tsonic\.Internal\.Union\d+$/.test(name) ||
+    /^Union\d+$/.test(name) ||
+    /^global::Tsonic\.Internal\.Union\d+_[A-F0-9]{8}$/.test(name) ||
+    /^Tsonic\.Internal\.Union\d+_[A-F0-9]{8}$/.test(name) ||
+    /^Union\d+_[A-F0-9]{8}$/.test(name)
   );
 };
 

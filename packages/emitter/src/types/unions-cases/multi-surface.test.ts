@@ -7,9 +7,18 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../../emitter.js";
 import { IrModule } from "@tsonic/frontend";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { printRuntimeUnionCarrierTypeForIrType } from "../../runtime-union-cases/helpers.js";
 
 describe("Union Type Emission", () => {
   it("should handle union with custom types", () => {
+    const resultType = {
+      kind: "unionType",
+      types: [
+        { kind: "referenceType", name: "User", typeArguments: [] },
+        { kind: "referenceType", name: "Product", typeArguments: [] },
+      ],
+    } as const;
     const module: IrModule = {
       kind: "module",
       filePath: "/test/customUnion.ts",
@@ -42,13 +51,7 @@ describe("Union Type Emission", () => {
           kind: "functionDeclaration",
           name: "getResult",
           parameters: [],
-          returnType: {
-            kind: "unionType",
-            types: [
-              { kind: "referenceType", name: "User", typeArguments: [] },
-              { kind: "referenceType", name: "Product", typeArguments: [] },
-            ],
-          },
+          returnType: resultType,
           body: {
             kind: "blockStatement",
             statements: [
@@ -67,11 +70,24 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use Union<User, Product>
-    expect(code).to.include("Union<Product, User> getResult()");
+    // Should use the canonical runtime union carrier for Product | User
+    expect(code).to.include(
+      `${printRuntimeUnionCarrierTypeForIrType(resultType, [
+        identifierType("Product"),
+        identifierType("User"),
+      ])} getResult()`
+    );
   });
 
   it("should emit three-type union as Union<T1, T2, T3>", () => {
+    const valueType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "boolean" },
+      ],
+    } as const;
     const module: IrModule = {
       kind: "module",
       filePath: "/test/union3.ts",
@@ -89,14 +105,7 @@ describe("Union Type Emission", () => {
             {
               kind: "variableDeclarator",
               name: { kind: "identifierPattern", name: "value" },
-              type: {
-                kind: "unionType",
-                types: [
-                  { kind: "primitiveType", name: "string" },
-                  { kind: "primitiveType", name: "number" },
-                  { kind: "primitiveType", name: "boolean" },
-                ],
-              },
+              type: valueType,
               initializer: { kind: "literal", value: "hello" },
             },
           ],
@@ -106,15 +115,36 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use fully-qualified Union<T1, T2, T3>
-    expect(code).to.include(
-      "global::Tsonic.Runtime.Union<bool, double, string> value"
-    );
-    // Should NOT include using directives - uses global:: FQN
+    const unionType = printRuntimeUnionCarrierTypeForIrType(valueType, [
+      { kind: "predefinedType", keyword: "bool" },
+      { kind: "predefinedType", keyword: "double" },
+      { kind: "predefinedType", keyword: "string" },
+    ]);
+
+    expect(code).to.include(`${unionType} value`);
     expect(code).to.not.include("using Tsonic.Runtime");
   });
 
   it("flattens nested runtime union reference members into a single runtime union surface", () => {
+    const valueType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "referenceType",
+          name: "PathSpec",
+          resolvedClrType: "global::Tsonic.Runtime.Union`2",
+          typeArguments: [
+            { kind: "primitiveType", name: "string" },
+            {
+              kind: "referenceType",
+              name: "RegExp",
+              resolvedClrType: "global::js.RegExp",
+            },
+          ],
+        },
+      ],
+    } as const;
     const module: IrModule = {
       kind: "module",
       filePath: "/test/nestedRuntimeUnion.ts",
@@ -132,25 +162,7 @@ describe("Union Type Emission", () => {
             {
               kind: "variableDeclarator",
               name: { kind: "identifierPattern", name: "value" },
-              type: {
-                kind: "unionType",
-                types: [
-                  { kind: "primitiveType", name: "string" },
-                  {
-                    kind: "referenceType",
-                    name: "PathSpec",
-                    resolvedClrType: "global::Tsonic.Runtime.Union`2",
-                    typeArguments: [
-                      { kind: "primitiveType", name: "string" },
-                      {
-                        kind: "referenceType",
-                        name: "RegExp",
-                        resolvedClrType: "global::js.RegExp",
-                      },
-                    ],
-                  },
-                ],
-              },
+              type: valueType,
               initializer: { kind: "literal", value: "hello" },
             },
           ],
@@ -159,16 +171,26 @@ describe("Union Type Emission", () => {
     };
 
     const code = emitModule(module);
+    const unionType = printRuntimeUnionCarrierTypeForIrType(valueType, [
+      { kind: "predefinedType", keyword: "string" },
+      identifierType("global::js.RegExp"),
+    ]);
 
-    expect(code).to.include(
-      "global::Tsonic.Runtime.Union<string, global::js.RegExp> value"
-    );
+    expect(code).to.include(`${unionType} value`);
     expect(code).not.to.include(
-      "global::Tsonic.Runtime.Union<string, global::Tsonic.Runtime.Union"
+      "global::Tsonic.Internal.Union<string, global::Tsonic.Internal.Union"
     );
   });
 
   it("wraps multi-type unions with runtime-nullish members as nullable Union", () => {
+    const valueType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    } as const;
     const module: IrModule = {
       kind: "module",
       filePath: "/test/nullableUnion3.ts",
@@ -186,14 +208,7 @@ describe("Union Type Emission", () => {
             {
               kind: "variableDeclarator",
               name: { kind: "identifierPattern", name: "value" },
-              type: {
-                kind: "unionType",
-                types: [
-                  { kind: "primitiveType", name: "string" },
-                  { kind: "primitiveType", name: "number" },
-                  { kind: "primitiveType", name: "undefined" },
-                ],
-              },
+              type: valueType,
               initializer: { kind: "literal", value: "hello" },
             },
           ],
@@ -203,13 +218,25 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    expect(code).to.include(
-      "global::Tsonic.Runtime.Union<double, string>? value"
-    );
+    const unionType = printRuntimeUnionCarrierTypeForIrType(valueType, [
+      { kind: "predefinedType", keyword: "double" },
+      { kind: "predefinedType", keyword: "string" },
+    ]);
+
+    expect(code).to.include(`${unionType}? value`);
     expect(code).not.to.include("Union<string, double,");
   });
 
   it("should emit four-type union as Union<T1, T2, T3, T4>", () => {
+    const returnType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "boolean" },
+        { kind: "referenceType", name: "DateLike", typeArguments: [] },
+      ],
+    } as const;
     const module: IrModule = {
       kind: "module",
       filePath: "/test/union4.ts",
@@ -233,15 +260,7 @@ describe("Union Type Emission", () => {
           kind: "functionDeclaration",
           name: "process",
           parameters: [],
-          returnType: {
-            kind: "unionType",
-            types: [
-              { kind: "primitiveType", name: "string" },
-              { kind: "primitiveType", name: "number" },
-              { kind: "primitiveType", name: "boolean" },
-              { kind: "referenceType", name: "DateLike", typeArguments: [] },
-            ],
-          },
+          returnType,
           body: {
             kind: "blockStatement",
             statements: [
@@ -260,9 +279,13 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use Union<T1, T2, T3, T4> with global:: FQN
-    expect(code).to.include(
-      "global::Tsonic.Runtime.Union<bool, double, string, DateLike> process()"
-    );
+    const unionType = printRuntimeUnionCarrierTypeForIrType(returnType, [
+      { kind: "predefinedType", keyword: "bool" },
+      { kind: "predefinedType", keyword: "double" },
+      { kind: "predefinedType", keyword: "string" },
+      identifierType("DateLike"),
+    ]);
+
+    expect(code).to.include(`${unionType} process()`);
   });
 });

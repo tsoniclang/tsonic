@@ -26,6 +26,7 @@ import {
 } from "../core/semantic/comparable-types.js";
 import { resolveDirectValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
 import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
 import type {
@@ -279,6 +280,15 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       return { actualLayout, expectedLayout, differs: true };
     }
 
+    if (
+      !sameTypeAstSurface(
+        buildRuntimeUnionTypeAst(actualLayout),
+        buildRuntimeUnionTypeAst(expectedLayout)
+      )
+    ) {
+      return { actualLayout, expectedLayout, differs: true };
+    }
+
     for (
       let index = 0;
       index < actualLayout.memberTypeAsts.length;
@@ -404,7 +414,12 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     }
   }
 
-  if (normalizedExpected.kind !== "unionType") {
+  const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
+    emissionExpectedType,
+    context,
+    emitTypeAst
+  );
+  if (!runtimeLayout) {
     return undefined;
   }
 
@@ -424,13 +439,24 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     return undefined;
   }
 
-  const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
-    emissionExpectedType,
-    context,
-    emitTypeAst
+  const directMatchingMemberIndices = runtimeLayout.members.flatMap(
+    (member, index) =>
+      matchesExpectedEmissionType(emissionActualType, member, layoutContext)
+        ? [index]
+        : []
   );
-  if (!runtimeLayout) {
-    return undefined;
+  if (directMatchingMemberIndices.length === 1) {
+    const [directIndex] = directMatchingMemberIndices;
+    if (directIndex !== undefined) {
+      return [
+        buildRuntimeUnionFactoryCallAst(
+          buildRuntimeUnionTypeAst(runtimeLayout),
+          directIndex + 1,
+          ast
+        ),
+        layoutContext,
+      ];
+    }
   }
 
   if (selectedSourceMemberNs && selectedSourceMemberNs.size === 1) {

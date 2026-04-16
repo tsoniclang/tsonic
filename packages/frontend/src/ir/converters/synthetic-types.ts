@@ -258,7 +258,7 @@ export const processTypeAliasForSynthetics = (
 
   // Create rewritten type alias with new union
   const rewrittenUnion: IrUnionType = {
-    kind: "unionType",
+    ...union,
     types: rewrittenUnionTypes,
   };
 

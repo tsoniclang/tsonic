@@ -12,6 +12,7 @@ import { normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { getIdentifierTypeName } from "../format/backend-ast/utils.js";
 import { resolveLocalTypeInfo } from "./property-lookup-resolution.js";
+import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 import { substituteTypeArgs } from "./type-substitution.js";
 
 // ---------------------------------------------------------------------------
@@ -34,14 +35,12 @@ export const stripNullish = (type: IrType): IrType => {
     return nonNullish[0];
   }
 
+  if (nonNullish.length === type.types.length) {
+    return type;
+  }
+
   if (nonNullish.length > 1) {
-    if (type.preserveRuntimeLayout === true) {
-      return {
-        ...type,
-        types: nonNullish,
-      };
-    }
-    return normalizedUnionType(nonNullish);
+    return rebuildUnionTypePreservingCarrierFamily(type, nonNullish);
   }
 
   return type;
@@ -309,11 +308,12 @@ export const resolveTypeAlias = (
 
     // Substitute type arguments if present
     if (type.typeArguments && type.typeArguments.length > 0) {
-      return substituteTypeArgs(
+      const substituted = substituteTypeArgs(
         localTypeInfo.type,
         localTypeInfo.typeParameters,
         type.typeArguments
       );
+      return substituted;
     }
 
     return localTypeInfo.type;
@@ -334,11 +334,12 @@ export const resolveTypeAlias = (
     }
 
     if (type.typeArguments && type.typeArguments.length > 0) {
-      return substituteTypeArgs(
+      const substituted = substituteTypeArgs(
         importedAliasBinding.aliasType,
         importedAliasBinding.aliasTypeParameters ?? [],
         type.typeArguments
       );
+      return substituted;
     }
 
     return importedAliasBinding.aliasType;
@@ -390,11 +391,12 @@ export const resolveTypeAlias = (
       }
 
       if (type.typeArguments && type.typeArguments.length > 0) {
-        return substituteTypeArgs(
+        const substituted = substituteTypeArgs(
           match.type,
           match.typeParameters,
           type.typeArguments
         );
+        return substituted;
       }
 
       return match.type;
@@ -446,11 +448,12 @@ export const resolveTypeAlias = (
   }
 
   if (type.typeArguments && type.typeArguments.length > 0) {
-    return substituteTypeArgs(
+    const substituted = substituteTypeArgs(
       aliasEntry.type,
       aliasEntry.typeParameters,
       type.typeArguments
     );
+    return substituted;
   }
 
   return aliasEntry.type;

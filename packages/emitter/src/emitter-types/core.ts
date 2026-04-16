@@ -17,6 +17,7 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+import type { RuntimeUnionRegistry } from "../core/semantic/runtime-union-registry.js";
 
 /**
  * Module identity for import resolution
@@ -53,6 +54,11 @@ export type ModuleIdentity = {
    * - non-structural aliases are erased to their underlying type at emission time
    */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
+  /**
+   * Local type declarations that must be public because they are exported
+   * directly or reachable from an exported API surface in this module.
+   */
+  readonly publicLocalTypes?: ReadonlySet<string>;
 };
 
 /**
@@ -178,6 +184,8 @@ export type EmitterOptions = {
   readonly canonicalLocalTypeTargets?: ReadonlyMap<string, string>;
   /** JSON AOT registry for collecting types used with JsonSerializer (shared across modules) */
   readonly jsonAotRegistry?: JsonAotRegistry;
+  /** Registry of compiler-owned runtime union carrier definitions (shared across modules). */
+  readonly runtimeUnionRegistry?: RuntimeUnionRegistry;
   /**
    * Enable NativeAOT JSON context generation/rewrite.
    *
@@ -258,12 +266,14 @@ export type ImportBinding =
 export type LocalTypeInfo =
   | {
       readonly kind: "interface";
+      readonly isExported?: boolean;
       readonly typeParameters: readonly string[];
       readonly members: readonly IrInterfaceMember[];
       readonly extends: readonly IrType[];
     }
   | {
       readonly kind: "class";
+      readonly isExported?: boolean;
       readonly typeParameters: readonly string[];
       readonly members: readonly IrClassMember[];
       readonly superClass?: IrType;
@@ -271,10 +281,12 @@ export type LocalTypeInfo =
     }
   | {
       readonly kind: "enum";
+      readonly isExported?: boolean;
       readonly members: readonly string[];
     }
   | {
       readonly kind: "typeAlias";
+      readonly isExported?: boolean;
       readonly typeParameters: readonly string[];
       readonly type: IrType;
     };

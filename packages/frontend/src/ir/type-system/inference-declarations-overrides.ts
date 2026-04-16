@@ -8,6 +8,7 @@
  */
 
 import type { IrType, IrParameter } from "../types/index.js";
+import { stampRuntimeUnionAliasCarrier } from "../types/index.js";
 import * as ts from "typescript";
 import {
   substituteIrType as irSubstitute,
@@ -279,6 +280,47 @@ export const typeFromSyntax = (
   }
 
   const rawType = state.convertTypeNodeRaw(syntaxInfo.typeNode);
+  if (
+    rawType.kind === "unionType" &&
+    syntaxInfo.referenceDeclId &&
+    ts.isTypeReferenceNode(syntaxInfo.typeNode as ts.Node)
+  ) {
+    const declInfo = state.handleRegistry.getDecl(syntaxInfo.referenceDeclId);
+    const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
+      | ts.Declaration
+      | undefined;
+    const aliasBody =
+      declNode && ts.isTypeAliasDeclaration(declNode)
+        ? (() => {
+            let current: ts.TypeNode = declNode.type;
+            while (ts.isParenthesizedTypeNode(current)) {
+              current = current.type;
+            }
+            return current;
+          })()
+        : undefined;
+    if (
+      declNode &&
+      ts.isTypeAliasDeclaration(declNode) &&
+      !declNode.getSourceFile().isDeclarationFile &&
+      aliasBody &&
+      ts.isUnionTypeNode(aliasBody)
+    ) {
+      return stampRuntimeUnionAliasCarrier(
+        convertTypeNode(state, syntaxInfo.typeNode),
+        {
+          aliasName: declNode.name.text,
+          fullyQualifiedName: declInfo?.fqName ?? declNode.name.text,
+          typeParameters: (declNode.typeParameters ?? []).map(
+            (tp) => tp.name.text
+          ),
+          typeArguments: (
+            (syntaxInfo.typeNode as ts.TypeReferenceNode).typeArguments ?? []
+          ).map((typeArgument) => convertTypeNode(state, typeArgument)),
+        }
+      );
+    }
+  }
   if (
     rawType.kind !== "referenceType" ||
     !syntaxInfo.referenceDeclId

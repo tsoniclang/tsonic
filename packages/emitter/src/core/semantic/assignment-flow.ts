@@ -108,25 +108,6 @@ const tryResolveAssignmentBindingTarget = (
   return undefined;
 };
 
-const resolveWritableCarrierType = (
-  binding: NarrowedBinding | undefined
-): IrExpression["inferredType"] => {
-  if (!binding) {
-    return undefined;
-  }
-
-  switch (binding.kind) {
-    case "expr":
-      return binding.carrierExprAst
-        ? (binding.sourceType ?? binding.storageType ?? binding.type)
-        : (binding.storageType ?? binding.sourceType ?? binding.type);
-    case "runtimeSubset":
-      return binding.sourceType ?? binding.type;
-    case "rename":
-      return binding.sourceType ?? binding.type;
-  }
-};
-
 const canonicalizeAssignedTypeAgainstWritableStorage = (
   assignedType: IrExpression["inferredType"],
   writableStorageType: IrExpression["inferredType"],
@@ -164,29 +145,18 @@ export const resolveWritableTargetStorageType = (
   context: EmitterContext
 ): IrExpression["inferredType"] => {
   if (targetExpr.kind === "identifier") {
-    const narrowedCarrierType = resolveWritableCarrierType(
-      context.narrowedBindings?.get(targetExpr.name)
-    );
-    if (narrowedCarrierType) {
-      return narrowedCarrierType;
+    const declaredStorageType =
+      context.localValueTypes?.get(targetExpr.name) ??
+      context.localSemanticTypes?.get(targetExpr.name) ??
+      targetExpr.inferredType;
+    if (declaredStorageType) {
+      return declaredStorageType;
     }
 
-    return (
-      context.localValueTypes?.get(targetExpr.name) ?? targetExpr.inferredType
-    );
+    return targetExpr.inferredType;
   }
 
   if (!targetExpr.isComputed && !targetExpr.isOptional) {
-    const narrowKey = getMemberAccessNarrowKey(targetExpr);
-    if (narrowKey) {
-      const narrowedCarrierType = resolveWritableCarrierType(
-        context.narrowedBindings?.get(narrowKey)
-      );
-      if (narrowedCarrierType) {
-        return narrowedCarrierType;
-      }
-    }
-
     const receiverType =
       resolveEffectiveExpressionType(targetExpr.object, context) ??
       targetExpr.object.inferredType;

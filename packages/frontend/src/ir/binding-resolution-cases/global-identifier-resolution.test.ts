@@ -876,26 +876,26 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           setInterval: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Timers",
+            assembly: "Acme.ExternalRuntime",
+            type: "Acme.ExternalRuntime.Timers",
             csharpName: "Timers.setInterval",
           },
         },
       });
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
-        namespace: "Tsonic.JSRuntime",
+      bindings.addBindings("/test/Acme.ExternalRuntime/bindings.json", {
+        namespace: "Acme.ExternalRuntime",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Timers",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "Acme.ExternalRuntime.Timers",
+            assemblyName: "Acme.ExternalRuntime",
             methods: [
               {
                 clrName: "setInterval",
                 normalizedSignature:
                   "setInterval|(System.Action,System.Double):System.Double|static=true",
                 parameterCount: 2,
-                declaringClrType: "Tsonic.JSRuntime.Timers",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "Acme.ExternalRuntime.Timers",
+                declaringAssemblyName: "Acme.ExternalRuntime",
                 semanticSignature: {
                   parameters: [
                     {
@@ -939,8 +939,8 @@ describe("Binding Resolution in IR", () => {
                 normalizedSignature:
                   "setInterval|(System.Action_1,System.Double,System.Object):System.Double|static=true",
                 parameterCount: 3,
-                declaringClrType: "Tsonic.JSRuntime.Timers",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "Acme.ExternalRuntime.Timers",
+                declaringAssemblyName: "Acme.ExternalRuntime",
                 semanticSignature: {
                   typeParameters: ["T0"],
                   parameters: [

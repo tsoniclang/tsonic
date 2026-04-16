@@ -15,16 +15,15 @@ import {
   hasDeterministicPropertyMembership,
   matchesTypeofTag,
 } from "../../core/semantic/type-resolution.js";
-import { getCanonicalRuntimeUnionMembers } from "../../core/semantic/runtime-unions.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../core/semantic/runtime-union-matching.js";
 import {
-  isSemanticUnion,
   willCarryAsRuntimeUnion,
 } from "../../core/semantic/union-semantics.js";
+import { isBroadValueCarrierType } from "../../core/semantic/broad-array-storage.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
@@ -224,6 +223,13 @@ export const emitTypeofComparison = (
         )
       : undefined) ?? operandType;
 
+  if (
+    isBroadValueCarrierType(effectiveType, context) ||
+    isBroadValueCarrierType(target?.inferredType, context)
+  ) {
+    return undefined;
+  }
+
   const [operandAst, operandContext] = emitExpressionAst(
     target ?? directGuard.operand,
     context
@@ -244,6 +250,9 @@ export const emitTypeofComparison = (
           operandContext
         )
       : undefined) ?? operandAst;
+  if (isBroadValueCarrierType(directStorageType, operandContext)) {
+    return undefined;
+  }
   const carriesRuntimeUnion = directStorageType
     ? willCarryAsRuntimeUnion(directStorageType, operandContext)
     : willCarryAsRuntimeUnion(effectiveType, operandContext);
@@ -295,18 +304,76 @@ export const emitInOperator = (
     throw new Error("ICE: `in` operator RHS missing inferredType.");
   }
 
-  const [rhsAst, rhsCtx] = emitExpressionAst(expr.right, context);
-  const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
+  const target = unwrapTransparentNarrowingTarget(expr.right);
+  if (target?.kind === "memberAccess" && target.isOptional) {
+    throw new Error(
+      "ICE: Unsupported `in` operator on optional member access target."
+    );
+  }
 
-  // Semantic gate: only enter union dispatch if the RHS is semantically a union
-  const runtimeMembers = isSemanticUnion(rhsType, rhsCtx)
-    ? getCanonicalRuntimeUnionMembers(rhsType, rhsCtx)
-    : undefined;
-  const layoutContext = rhsCtx;
+  const bindingKey =
+    target?.kind === "identifier"
+      ? target.name
+      : target
+        ? getMemberAccessNarrowKey(target)
+        : undefined;
+  const effectiveType =
+    (bindingKey
+      ? currentNarrowedType(
+          bindingKey,
+          target?.inferredType ?? rhsType,
+          context
+        )
+      : undefined) ?? rhsType;
+
+  const [rhsAst, rhsCtx] = emitExpressionAst(target ?? expr.right, context);
+  const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
+  const resolvedEffectiveType = resolveTypeAlias(stripNullish(effectiveType), rhsCtx);
+  const singleEffectiveMember =
+    resolvedEffectiveType.kind === "unionType"
+      ? resolvedEffectiveType.types.length === 1
+        ? resolvedEffectiveType.types[0]
+        : undefined
+      : resolvedEffectiveType;
+  const propName = expr.left.value;
+
+  if (singleEffectiveMember) {
+    const hasMember = hasDeterministicPropertyMembership(
+      singleEffectiveMember,
+      propName,
+      rhsCtx
+    );
+    if (hasMember === true) {
+      return [booleanLiteral(true), rhsCtx];
+    }
+    if (hasMember === false) {
+      return [booleanLiteral(false), rhsCtx];
+    }
+  }
+
+  const directStorageType =
+    target?.kind === "identifier"
+      ? (resolveIdentifierRuntimeCarrierType(target, rhsCtx) ??
+        resolveIdentifierCarrierStorageType(target, rhsCtx))
+      : resolveDirectStorageExpressionType(target ?? expr.right, rhsAst, rhsCtx);
+  const runtimeCarrierAst =
+    (directStorageType
+      ? resolveRuntimeCarrierExpressionAst(target ?? expr.right, rhsCtx)
+      : undefined) ?? rhsAst;
+  const alignedCarrierMembers =
+    !isBroadValueCarrierType(effectiveType, rhsCtx) &&
+    !isBroadValueCarrierType(directStorageType, rhsCtx)
+      ? resolveAlignedRuntimeUnionMembers(
+          bindingKey,
+          effectiveType,
+          directStorageType,
+          rhsCtx
+        )
+      : undefined;
 
   // Union<T1..Tn>: `"error" in auth` -> auth.IsN() (where member N has the prop)
-  if (runtimeMembers) {
-    const propName = expr.left.value;
+  if (alignedCarrierMembers) {
+    const { members: runtimeMembers, candidateMemberNs } = alignedCarrierMembers;
     const matchingMembers: number[] = [];
     const unresolvedMembers: string[] = [];
 
@@ -317,14 +384,14 @@ export const emitInOperator = (
       const hasMember = hasDeterministicPropertyMembership(
         member,
         propName,
-        layoutContext
+        rhsCtx
       );
       if (hasMember === true) {
-        matchingMembers.push(i + 1);
+        matchingMembers.push(candidateMemberNs[i] ?? i + 1);
         continue;
       }
       if (hasMember === undefined) {
-        unresolvedMembers.push(formatIrTypeForDiagnostic(member, layoutContext));
+        unresolvedMembers.push(formatIrTypeForDiagnostic(member, rhsCtx));
       }
     }
 
@@ -340,17 +407,15 @@ export const emitInOperator = (
     }
 
     // Build IsN() call ASTs and chain with ||
-    const checkAsts: CSharpExpressionAst[] = matchingMembers.map(
-      (n): CSharpExpressionAst => ({
-        kind: "invocationExpression",
-        expression: {
-          kind: "memberAccessExpression",
-          expression: rhsAst,
-          memberName: `Is${n}`,
-        },
-        arguments: [],
-      })
-    );
+    const checkAsts: CSharpExpressionAst[] = matchingMembers.map((n) => ({
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: runtimeCarrierAst,
+        memberName: `Is${n}`,
+      },
+      arguments: [],
+    }));
 
     const orChain = checkAsts.reduce(
       (left, right): CSharpExpressionAst => ({

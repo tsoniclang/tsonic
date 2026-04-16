@@ -148,6 +148,49 @@ const normalizeTypeList = (
   state: StableTypeKeyState
 ): readonly IrType[] => sortByStableKey(types, stableIrTypeKeyImpl, state);
 
+const isRuntimeNullishMember = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const collectCanonicalRuntimeUnionFamilyMembers = (
+  type: Extract<IrType, { kind: "unionType" }>
+): readonly IrType[] => {
+  const flattened: IrType[] = [];
+
+  const visit = (candidate: IrType): void => {
+    if (isRuntimeNullishMember(candidate)) {
+      return;
+    }
+
+    if (candidate.kind === "unionType") {
+      for (const member of candidate.types) {
+        visit(member);
+      }
+      return;
+    }
+
+    flattened.push(candidate);
+  };
+
+  for (const member of type.types) {
+    visit(member);
+  }
+
+  if (type.preserveRuntimeLayout) {
+    return flattened;
+  }
+
+  const deduped = new Map<string, IrType>();
+  for (const member of flattened) {
+    deduped.set(stableIrTypeKey(member), member);
+  }
+
+  return normalizeTypeList(
+    Array.from(deduped.values()),
+    createStableTypeKeyState()
+  );
+};
+
 export const referenceTypeIdentity = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): string =>
@@ -340,10 +383,137 @@ const stableIrTypeKeyImpl = (
 export const stableIrTypeKey = (type: IrType): string =>
   stableIrTypeKeyImpl(type, createStableTypeKeyState());
 
+export const runtimeUnionCarrierFamilyKey = (
+  type: Extract<IrType, { kind: "unionType" }>
+): string => {
+  if (type.runtimeCarrierFamilyKey) {
+    return type.runtimeCarrierFamilyKey;
+  }
+
+  const canonicalMembers = collectCanonicalRuntimeUnionFamilyMembers(type);
+
+  if (type.preserveRuntimeLayout) {
+    return `runtime-union:preserve:${canonicalMembers
+      .map((member) => stableIrTypeKey(member))
+      .join("|")}`;
+  }
+
+  return `runtime-union:canonical:${canonicalMembers
+    .map((member) => stableIrTypeKey(member))
+    .join("|")}`;
+};
+
 export const irTypesEqual = (left: IrType, right: IrType): boolean =>
   stableIrTypeKey(left) === stableIrTypeKey(right);
 
-export const normalizedUnionType = (types: readonly IrType[]): IrType => {
+export type NormalizedUnionTypeOptions = {
+  readonly preserveRuntimeLayout?: true;
+  readonly runtimeCarrierFamilyKey?: string;
+  readonly runtimeCarrierName?: string;
+  readonly runtimeCarrierNamespace?: string;
+  readonly runtimeCarrierTypeParameters?: readonly string[];
+  readonly runtimeCarrierTypeArguments?: readonly IrType[];
+};
+
+export type RuntimeUnionAliasCarrierOptions = {
+  readonly aliasName: string;
+  readonly fullyQualifiedName: string;
+  readonly namespaceName?: string;
+  readonly typeParameters?: readonly string[];
+  readonly typeArguments?: readonly IrType[];
+};
+
+const namespaceFromFullyQualifiedName = (fullyQualifiedName: string):
+  | string
+  | undefined => {
+  const lastDot = fullyQualifiedName.lastIndexOf(".");
+  return lastDot > 0 ? fullyQualifiedName.slice(0, lastDot) : undefined;
+};
+
+export const runtimeUnionAliasCarrierFamilyKey = (
+  fullyQualifiedName: string
+): string => `runtime-union:alias:${fullyQualifiedName}`;
+
+const isRuntimeNullishCarrierMember = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const runtimeCarrierShapeKey = (type: IrType): string | undefined => {
+  if (isRuntimeNullishCarrierMember(type)) {
+    return undefined;
+  }
+
+  if (type.kind === "literalType") {
+    switch (typeof type.value) {
+      case "string":
+        return "prim:string";
+      case "number":
+        return "prim:number";
+      case "boolean":
+        return "prim:boolean";
+    }
+  }
+
+  if (type.kind === "primitiveType") {
+    return `prim:${type.name}`;
+  }
+
+  return stableIrTypeKey(type);
+};
+
+export const hasRuntimeUnionCarrierShape = (type: IrType): boolean => {
+  if (type.kind !== "unionType") {
+    return false;
+  }
+
+  const runtimeKeys = new Set<string>();
+  const visit = (candidate: IrType): void => {
+    if (candidate.kind === "unionType" && !candidate.preserveRuntimeLayout) {
+      for (const member of candidate.types) {
+        visit(member);
+      }
+      return;
+    }
+
+    const key = runtimeCarrierShapeKey(candidate);
+    if (key) {
+      runtimeKeys.add(key);
+    }
+  };
+
+  for (const member of type.types) {
+    visit(member);
+  }
+
+  return runtimeKeys.size >= 2;
+};
+
+export const stampRuntimeUnionAliasCarrier = (
+  type: IrType,
+  options: RuntimeUnionAliasCarrierOptions
+): IrType => {
+  if (type.kind !== "unionType" || !hasRuntimeUnionCarrierShape(type)) {
+    return type;
+  }
+
+  return {
+    ...type,
+    runtimeCarrierFamilyKey: runtimeUnionAliasCarrierFamilyKey(
+      options.fullyQualifiedName
+    ),
+    runtimeCarrierName: options.aliasName,
+    runtimeCarrierNamespace:
+      options.namespaceName ??
+      namespaceFromFullyQualifiedName(options.fullyQualifiedName),
+    runtimeCarrierTypeParameters: options.typeParameters,
+    runtimeCarrierTypeArguments: options.typeArguments,
+  };
+};
+
+export const normalizedUnionType = (
+  types: readonly IrType[],
+  options: NormalizedUnionTypeOptions = {}
+): IrType => {
   const flattened: IrType[] = [];
   const pushFlattened = (type: IrType): void => {
     if (type.kind === "unionType") {
@@ -368,5 +538,27 @@ export const normalizedUnionType = (types: readonly IrType[]): IrType => {
     const single = normalized[0];
     if (single) return single;
   }
-  return { kind: "unionType", types: normalized };
+  const unionType: Extract<IrType, { kind: "unionType" }> = {
+    kind: "unionType",
+    types: normalized,
+    ...(options.preserveRuntimeLayout === true
+      ? { preserveRuntimeLayout: true as const }
+      : {}),
+    ...(options.runtimeCarrierFamilyKey !== undefined
+      ? { runtimeCarrierFamilyKey: options.runtimeCarrierFamilyKey }
+      : {}),
+    ...(options.runtimeCarrierName !== undefined
+      ? { runtimeCarrierName: options.runtimeCarrierName }
+      : {}),
+    ...(options.runtimeCarrierNamespace !== undefined
+      ? { runtimeCarrierNamespace: options.runtimeCarrierNamespace }
+      : {}),
+    ...(options.runtimeCarrierTypeParameters !== undefined
+      ? { runtimeCarrierTypeParameters: options.runtimeCarrierTypeParameters }
+      : {}),
+    ...(options.runtimeCarrierTypeArguments !== undefined
+      ? { runtimeCarrierTypeArguments: options.runtimeCarrierTypeArguments }
+      : {}),
+  };
+  return unionType;
 };

@@ -7,7 +7,12 @@
  */
 
 import type { JsonAotRegistry } from "./types.js";
+import type {
+  RuntimeUnionCarrierDefinition,
+  RuntimeUnionRegistry,
+} from "./core/semantic/runtime-union-registry.js";
 import { printCompilationUnit } from "./core/format/backend-ast/printer.js";
+import { printType } from "./core/format/backend-ast/printer-precedence.js";
 import {
   identifierType as buildIdentifierType,
   qualifiedName,
@@ -138,6 +143,175 @@ namespace Tsonic.Internal
     }
 }
 `;
+
+const generateRuntimeUnionCarrier = (
+  definition: RuntimeUnionCarrierDefinition
+): string => {
+  const { name, memberTypeAsts, typeParameters, accessModifier } = definition;
+  const genericParameters = typeParameters.join(", ");
+  const genericSuffix =
+    genericParameters.length > 0 ? `<${genericParameters}>` : "";
+  const carrierType = `${name}${genericSuffix}`;
+  const memberTypes = memberTypeAsts.map(printType);
+  const fromFactories = memberTypes
+    .map(
+      (typeParameter, index) =>
+        `        public static ${carrierType} From${index + 1}(${typeParameter} value) => new ${carrierType}(value, ${index});`
+    )
+    .join("\n");
+  const isChecks = memberTypes
+    .map(
+      (_, index) =>
+        `        public bool Is${index + 1}() => _index == ${index};`
+    )
+    .join("\n");
+  const asCasts = memberTypes
+    .map(
+      (typeParameter, index) => `        public ${typeParameter} As${index + 1}()
+        {
+            if (_index != ${index})
+                throw new global::System.InvalidOperationException($"Union does not contain type {typeof(${typeParameter}).Name}");
+            return (${typeParameter})_value!;
+        }`
+    )
+    .join("\n\n");
+  const tryAs = memberTypes
+    .map(
+      (typeParameter, index) => `        public bool TryAs${index + 1}(out ${typeParameter}? value)
+        {
+            if (_index == ${index})
+            {
+                value = (${typeParameter})_value!;
+                return true;
+            }
+            value = default;
+            return false;
+        }`
+    )
+    .join("\n\n");
+  const matchResultParameters = memberTypes
+    .map(
+      (typeParameter, index) =>
+        `global::System.Func<${typeParameter}, TResult> onT${index + 1}`
+    )
+    .join(", ");
+  const matchVoidParameters = memberTypes
+    .map(
+      (typeParameter, index) =>
+        `global::System.Action<${typeParameter}> onT${index + 1}`
+    )
+    .join(", ");
+  const matchResultCases = memberTypes
+    .map(
+      (typeParameter, index) =>
+        `                ${index} => onT${index + 1}((${typeParameter})_value!),`
+    )
+    .join("\n");
+  const matchVoidCases = memberTypes
+    .map(
+      (typeParameter, index) =>
+        `                case ${index}: onT${index + 1}((${typeParameter})_value!); break;`
+    )
+    .join("\n");
+  return `    ${accessModifier} sealed class ${carrierType}
+    {
+        private readonly object? _value;
+        private readonly int _index;
+
+        private ${name}(object? value, int index)
+        {
+            _value = value;
+            _index = index;
+        }
+
+${fromFactories}
+
+${isChecks}
+
+${asCasts}
+
+${tryAs}
+
+        public TResult Match<TResult>(${matchResultParameters})
+        {
+            return _index switch
+            {
+${matchResultCases}
+                _ => throw new global::System.InvalidOperationException("Invalid union index"),
+            };
+        }
+
+        public void Match(${matchVoidParameters})
+        {
+            switch (_index)
+            {
+${matchVoidCases}
+                default:
+                    throw new global::System.InvalidOperationException("Invalid union index");
+            }
+        }
+
+        public override string? ToString()
+        {
+            return _value?.ToString();
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return obj is ${carrierType} other &&
+                _index == other._index &&
+                global::System.Collections.Generic.EqualityComparer<object?>.Default.Equals(_value, other._value);
+        }
+
+        public override int GetHashCode()
+        {
+            return global::System.HashCode.Combine(_value, _index);
+        }
+    }`;
+};
+
+export const generateRuntimeUnionFile = (
+  registry: RuntimeUnionRegistry
+): string => {
+  const definitions = [...registry.definitions.values()].sort(
+    (left, right) =>
+      left.namespaceName.localeCompare(right.namespaceName) ||
+      left.arity - right.arity ||
+      left.name.localeCompare(right.name)
+  );
+
+  const namespaces = new Map<
+    string,
+    readonly (typeof definitions)[number][]
+  >();
+  for (const definition of definitions) {
+    namespaces.set(definition.namespaceName, [
+      ...(namespaces.get(definition.namespaceName) ?? []),
+      definition,
+    ]);
+  }
+
+  const namespaceBlocks = [...namespaces.entries()]
+    .map(([namespaceName, namespaceDefinitions]) => {
+      const carriers = namespaceDefinitions
+        .map((definition) =>
+          generateRuntimeUnionCarrier(definition)
+        )
+        .join("\n\n");
+      return `namespace ${namespaceName}
+{
+${carriers}
+}`;
+    })
+    .join("\n\n");
+
+  return `// <auto-generated/>
+// Compiler-owned runtime union carriers.
+// WARNING: Do not modify this file manually
+
+${namespaceBlocks}
+`;
+};
 
 /**
  * Generate the __tsonic_json.g.cs file for NativeAOT JSON support.

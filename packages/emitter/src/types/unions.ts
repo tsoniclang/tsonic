@@ -2,12 +2,11 @@
  * Union type emission
  */
 
-import { IrType, isAwaitableIrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType, isAwaitableIrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 import {
-  identifierType,
   nullableType,
 } from "../core/format/backend-ast/builders.js";
 import {
@@ -15,7 +14,11 @@ import {
   stableTypeKeyFromAst,
 } from "../core/format/backend-ast/utils.js";
 import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolution.js";
-import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
+import {
+  buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+} from "../core/semantic/runtime-unions.js";
+import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 
 const stripNullableAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
@@ -37,51 +40,11 @@ const isObjectLikeTypeAst = (typeAst: CSharpTypeAst): boolean => {
   );
 };
 
-const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
-  const concrete = stripNullableAst(typeAst);
-  const name = getIdentifierTypeName(concrete);
-  return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "Union"
-  );
-};
-
-const flattenRuntimeUnionTypeAsts = (
-  types: readonly CSharpTypeAst[]
-): readonly CSharpTypeAst[] => {
-  const flattened: CSharpTypeAst[] = [];
-
-  const pushFlattened = (typeAst: CSharpTypeAst): void => {
-    const concrete = stripNullableAst(typeAst);
-    if (
-      isRuntimeUnionTypeAst(concrete) &&
-      (concrete.kind === "identifierType" ||
-        concrete.kind === "qualifiedIdentifierType") &&
-      concrete.typeArguments &&
-      concrete.typeArguments.length > 0
-    ) {
-      for (const member of concrete.typeArguments) {
-        pushFlattened(member);
-      }
-      return;
-    }
-
-    flattened.push(typeAst);
-  };
-
-  for (const typeAst of types) {
-    pushFlattened(typeAst);
-  }
-
-  return flattened;
-};
-
 const dedupeTypeAsts = (
   types: readonly CSharpTypeAst[]
 ): readonly CSharpTypeAst[] => {
   const deduped = new Map<string, CSharpTypeAst>();
-  for (const typeAst of flattenRuntimeUnionTypeAsts(types)) {
+  for (const typeAst of types) {
     deduped.set(stableTypeKeyFromAst(typeAst), typeAst);
   }
   return Array.from(deduped.entries())
@@ -90,7 +53,7 @@ const dedupeTypeAsts = (
 };
 
 /**
- * Emit union types as CSharpTypeAst: nullable (T?), Union<T1, T2>, or object
+ * Emit union types as CSharpTypeAst: nullable (T?), compiler-owned union carrier, or object
  */
 export const emitUnionType = (
   type: Extract<IrType, { kind: "unionType" }>,
@@ -99,8 +62,8 @@ export const emitUnionType = (
   // C# doesn't have native union types
   // Strategy:
   // 1. Nullable types (T | null | undefined) → T?
-  // 2. Two-type unions → Union<T1, T2>
-  // 3. Multi-type unions → object (fallback)
+  // 2. Multi-type unions → compiler-owned runtime carrier
+  // 3. Broad/object-like unions → object
 
   // Check if it's a nullable/runtime-absence union (T | null | undefined | void)
   const runtimeNullishSplit = splitRuntimeNullishUnionMembers(type);
@@ -141,19 +104,6 @@ export const emitUnionType = (
     return [hasNullish ? nullableType(baseTypeAst) : baseTypeAst, newContext];
   }
 
-  const rawUniqueTypeCount = new Set(
-    nonNullTypes.map((member) => stableIrTypeKey(member))
-  ).size;
-
-  if (rawUniqueTypeCount > 8) {
-    return [
-      hasNullish
-        ? nullableType({ kind: "predefinedType", keyword: "object" })
-        : { kind: "predefinedType", keyword: "object" },
-      context,
-    ];
-  }
-
   const uniqueNonNullTypeAsts: CSharpTypeAst[] = [];
   let currentContext = context;
 
@@ -168,10 +118,16 @@ export const emitUnionType = (
   const hasAwaitableMember = nonNullTypes.some((member) =>
     isAwaitableIrType(member)
   );
+  const hasSemanticBroadMember = nonNullTypes.some(
+    (member) =>
+      member.kind === "anyType" ||
+      member.kind === "unknownType" ||
+      isBroadObjectSlotType(member, currentContext)
+  );
 
   if (
     dedupedNonNullTypeAsts.length > 1 &&
-    dedupedNonNullTypeAsts.some(isObjectLikeTypeAst) &&
+    (hasSemanticBroadMember || dedupedNonNullTypeAsts.some(isObjectLikeTypeAst)) &&
     !hasAwaitableMember
   ) {
     const objectAst: CSharpTypeAst = {
@@ -203,7 +159,7 @@ export const emitUnionType = (
     return [nullableType(firstTypeAst), currentContext];
   }
 
-  // Multi-type unions (2-8 types) → Union<T1, T2, ...> (nullable if runtime-nullish)
+  // Multi-type unions (2+ types) → compiler-owned runtime carrier (nullable if runtime-nullish)
   const [runtimeLayout, runtimeLayoutContext] = buildRuntimeUnionLayout(
     type,
     context,
@@ -213,7 +169,7 @@ export const emitUnionType = (
 
   if (
     dedupedTypeAsts &&
-    dedupedTypeAsts.some(isObjectLikeTypeAst) &&
+    (hasSemanticBroadMember || dedupedTypeAsts.some(isObjectLikeTypeAst)) &&
     !hasAwaitableMember
   ) {
     const objectAst: CSharpTypeAst = {
@@ -228,20 +184,16 @@ export const emitUnionType = (
 
   if (
     dedupedTypeAsts &&
-    dedupedTypeAsts.length >= 2 &&
-    dedupedTypeAsts.length <= 8
+    dedupedTypeAsts.length >= 2
   ) {
-    const unionAst = identifierType(
-      "global::Tsonic.Runtime.Union",
-      dedupedTypeAsts
-    );
+    const unionAst = buildRuntimeUnionTypeAst(runtimeLayout);
     return [
       hasNullish ? nullableType(unionAst) : unionAst,
       runtimeLayoutContext,
     ];
   }
 
-  // Fallback for unions with more than 8 types: use object
+  // Fallback for union shapes that cannot be carried precisely: use object
   return [
     hasNullish
       ? nullableType({ kind: "predefinedType", keyword: "object" })

@@ -7,210 +7,15 @@
 
 import type {
   IrType,
-  IrPropertyDeclaration,
-  TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
-import { stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import type { LocalTypeInfo } from "../../emitter-types/core.js";
 import { resolveTypeAlias, stripNullish } from "./nullish-value-helpers.js";
-import {
-  resolveLocalTypeInfoWithoutBindings,
-  resolveBindingBackedReferenceType,
-} from "./property-member-lookup.js";
-
-type StructuralShapeMember = {
-  readonly name: string;
-  readonly isOptional: boolean;
-  readonly typeKey: string;
-};
-
-const sortStructuralShape = (
-  members: readonly StructuralShapeMember[]
-): readonly StructuralShapeMember[] =>
-  [...members].sort((left, right) => left.name.localeCompare(right.name));
-
-const stripUndefinedFromStructuralShapeType = (type: IrType): IrType => {
-  if (type.kind !== "unionType") {
-    return type;
-  }
-
-  const remaining = type.types.filter(
-    (member) =>
-      !(member.kind === "primitiveType" && member.name === "undefined")
-  );
-
-  if (remaining.length === 1 && remaining[0]) {
-    return remaining[0];
-  }
-
-  return remaining.length === type.types.length
-    ? type
-    : {
-        kind: "unionType",
-        types: remaining,
-      };
-};
-
-const hasUndefinedStructuralOptionality = (type: IrType): boolean =>
-  type.kind === "unionType" &&
-  type.types.some(
-    (member) => member.kind === "primitiveType" && member.name === "undefined"
-  );
-
-const structuralShapesEqual = (
-  left: readonly StructuralShapeMember[],
-  right: readonly StructuralShapeMember[]
-): boolean =>
-  left.length === right.length &&
-  left.every(
-    (member, index) =>
-      member.name === right[index]?.name &&
-      member.isOptional === right[index]?.isOptional &&
-      member.typeKey === right[index]?.typeKey
-  );
-
-const getObjectTypeStructuralShape = (
-  type: Extract<IrType, { kind: "objectType" }>
-): readonly StructuralShapeMember[] | undefined => {
-  if (type.members.some((member) => member.kind === "methodSignature")) {
-    return undefined;
-  }
-
-  return sortStructuralShape(
-    type.members
-      .filter(
-        (
-          member
-        ): member is Extract<typeof member, { kind: "propertySignature" }> =>
-          member.kind === "propertySignature"
-      )
-      .map((member) => ({
-        name: member.name,
-        isOptional: member.isOptional,
-        typeKey: stableIrTypeKey(member.type),
-      }))
-  );
-};
-
-const getLocalTypeInfoStructuralShape = (
-  info: LocalTypeInfo,
-  context: EmitterContext
-): readonly StructuralShapeMember[] | undefined => {
-  switch (info.kind) {
-    case "typeAlias": {
-      const resolved = resolveTypeAlias(info.type, context);
-      if (resolved.kind !== "objectType") {
-        return undefined;
-      }
-      return getObjectTypeStructuralShape(resolved);
-    }
-
-    case "interface": {
-      if (info.members.some((member) => member.kind === "methodSignature")) {
-        return undefined;
-      }
-      return sortStructuralShape(
-        info.members
-          .filter(
-            (
-              member
-            ): member is Extract<
-              typeof member,
-              { kind: "propertySignature" }
-            > => member.kind === "propertySignature"
-          )
-          .map((member) => ({
-            name: member.name,
-            isOptional: member.isOptional,
-            typeKey: stableIrTypeKey(member.type),
-          }))
-      );
-    }
-
-    case "class": {
-      if (info.members.some((member) => member.kind === "methodDeclaration")) {
-        return undefined;
-      }
-
-      const propertyMembers = info.members.filter(
-        (member): member is IrPropertyDeclaration & { type: IrType } =>
-          member.kind === "propertyDeclaration" && member.type !== undefined
-      );
-
-      return sortStructuralShape(
-        propertyMembers.map((member) => {
-          const isOptional = hasUndefinedStructuralOptionality(member.type);
-          return {
-            name: member.name,
-            isOptional,
-            typeKey: stableIrTypeKey(
-              isOptional
-                ? stripUndefinedFromStructuralShapeType(member.type)
-                : member.type
-            ),
-          };
-        })
-      );
-    }
-
-    case "enum":
-      return undefined;
-  }
-};
-
-const getBindingStructuralShape = (
-  binding: FrontendTypeBinding
-): readonly StructuralShapeMember[] | undefined => {
-  if (binding.kind === "enum") {
-    return undefined;
-  }
-
-  if (binding.members.some((member) => member.kind === "method")) {
-    return undefined;
-  }
-
-  const propertyMembers = binding.members.filter(
-    (
-      member
-    ): member is (typeof binding.members)[number] & {
-      kind: "property";
-      semanticType: IrType;
-    } => member.kind === "property" && member.semanticType !== undefined
-  );
-
-  if (propertyMembers.length !== binding.members.length) {
-    return undefined;
-  }
-
-  return sortStructuralShape(
-    propertyMembers.map((member) => ({
-      name: member.alias,
-      isOptional: member.semanticOptional === true,
-      typeKey: stableIrTypeKey(
-        member.semanticOptional === true
-          ? stripUndefinedFromStructuralShapeType(member.semanticType)
-          : member.semanticType
-      ),
-    }))
-  );
-};
-
-type StructuralReferenceCandidate = {
-  readonly dedupeKey: string;
-  readonly isCurrentLocal: boolean;
-  readonly isCurrentNamespace: boolean;
-  readonly isCompilerGenerated: boolean;
-  readonly ref: Extract<IrType, { kind: "referenceType" }>;
-};
+import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 
 const isCompilerGeneratedStructuralName = (
   name: string | undefined
 ): boolean =>
-  !!name &&
-  (name.startsWith("__Anon_") ||
-    name.startsWith("__Rest_") ||
-    /Like__\d+$/.test(name));
+  !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
 
 export const isCompilerGeneratedStructuralReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>
@@ -221,40 +26,6 @@ export const isCompilerGeneratedStructuralReferenceType = (
     isCompilerGeneratedStructuralName(simpleName) ||
     isCompilerGeneratedStructuralName(clrSimpleName)
   );
-};
-
-const isStructurallyEmittedLocalTypeInfo = (
-  info: LocalTypeInfo | undefined
-): boolean => {
-  if (!info) {
-    return false;
-  }
-
-  switch (info.kind) {
-    case "typeAlias":
-      return info.type.kind === "objectType";
-    case "interface":
-      return true;
-    case "class":
-      return info.members.every(
-        (member) => member.kind !== "methodDeclaration"
-      );
-    case "enum":
-      return false;
-  }
-};
-
-const sanitizeTypeArguments = (
-  typeArguments: readonly IrType[] | undefined
-): readonly IrType[] | undefined => {
-  if (!typeArguments || typeArguments.length === 0) {
-    return undefined;
-  }
-
-  const filtered = typeArguments.filter(
-    (typeArgument): typeArgument is IrType => typeArgument !== undefined
-  );
-  return filtered.length > 0 ? filtered : undefined;
 };
 
 const buildReferenceType = (
@@ -352,14 +123,9 @@ export const resolveIteratorResultReferenceType = (
 };
 
 /**
- * Resolve an inline/object structural type to a canonical emitted nominal reference
- * when the current compilation already declares an equivalent structural type.
- *
- * This is used in emitter-side contextual type paths that must emit a CLR type name
- * (for example array-wrapper element types or nominal object construction),
- * but sometimes receive an objectType after alias resolution. When we can prove that
- * object shape matches an existing structural alias/interface/class, we preserve the
- * canonical emitted reference instead of letting raw objectType reach type emission.
+ * Resolve structural emission-only helpers that already have an explicit reference
+ * representation. Inline structural object types intentionally stay compiler-owned
+ * and must not be rebound to authored aliases or classes here.
  */
 export const resolveStructuralReferenceType = (
   type: IrType,
@@ -373,229 +139,10 @@ export const resolveStructuralReferenceType = (
   if (iteratorResultReference) {
     return iteratorResultReference;
   }
-  const preserveCompilerGeneratedReference =
-    stripped.kind === "referenceType" &&
-    isCompilerGeneratedStructuralReferenceType(stripped);
-  let targetShape: readonly StructuralShapeMember[] | undefined;
-  let preservedTypeArguments: readonly IrType[] | undefined;
-
   if (stripped.kind === "referenceType") {
-    preservedTypeArguments = sanitizeTypeArguments(stripped.typeArguments);
-    const directLocalType = resolveLocalTypeInfoWithoutBindings(
-      stripped,
-      context
-    )?.info;
-    if (isStructurallyEmittedLocalTypeInfo(directLocalType)) {
-      const directShape = getLocalTypeInfoStructuralShape(
-        directLocalType!,
-        context
-      );
-      targetShape = directShape;
-      if (!isCompilerGeneratedStructuralReferenceType(stripped)) {
-        return stripped;
-      }
-    }
-
-    const rebound = resolveBindingBackedReferenceType(stripped, context);
-    preservedTypeArguments ??= sanitizeTypeArguments(rebound?.typeArguments);
-    const reboundLocalType = rebound
-      ? resolveLocalTypeInfoWithoutBindings(rebound, context)?.info
-      : undefined;
-    if (rebound && isStructurallyEmittedLocalTypeInfo(reboundLocalType)) {
-      const reboundShape = getLocalTypeInfoStructuralShape(
-        reboundLocalType!,
-        context
-      );
-      targetShape ??= reboundShape;
-      if (!isCompilerGeneratedStructuralReferenceType(rebound)) {
-        return rebound;
-      }
-    }
-  }
-
-  if (!targetShape) {
-    const resolved = resolveTypeAlias(stripped, context);
-    if (resolved.kind !== "objectType") {
-      return undefined;
-    }
-
-    targetShape = getObjectTypeStructuralShape(resolved);
-    if (!targetShape || targetShape.length === 0) {
-      return undefined;
-    }
-  }
-
-  const currentNamespace =
-    context.moduleNamespace ?? context.options.rootNamespace;
-  const candidates: StructuralReferenceCandidate[] = [];
-  const seenKeys = new Set<string>();
-
-  const pushCandidate = (
-    typeName: string,
-    namespace: string,
-    info: LocalTypeInfo,
-    isCurrentLocal: boolean
-  ): void => {
-    const shape = getLocalTypeInfoStructuralShape(info, context);
-    if (!shape || !structuralShapesEqual(shape, targetShape)) {
-      return;
-    }
-
-    const emittedName =
-      info.kind === "typeAlias" ? `${typeName}__Alias` : typeName;
-    const resolvedClrType =
-      isCurrentLocal && namespace === currentNamespace
-        ? undefined
-        : `${namespace}.${emittedName}`;
-    const dedupeKey = resolvedClrType ?? `${namespace}.${emittedName}`;
-    if (seenKeys.has(dedupeKey)) {
-      return;
-    }
-    seenKeys.add(dedupeKey);
-
-    candidates.push({
-      dedupeKey,
-      isCurrentLocal,
-      isCurrentNamespace: namespace === currentNamespace,
-      isCompilerGenerated:
-        isCompilerGeneratedStructuralName(typeName) ||
-        isCompilerGeneratedStructuralName(emittedName),
-      ref: buildReferenceType(
-        typeName,
-        resolvedClrType,
-        info.kind !== "enum" &&
-          preservedTypeArguments &&
-          preservedTypeArguments.length === info.typeParameters.length
-          ? preservedTypeArguments
-          : undefined
-      ),
-    });
-  };
-
-  if (context.localTypes) {
-    for (const [typeName, info] of context.localTypes.entries()) {
-      pushCandidate(typeName, currentNamespace, info, true);
-    }
-  }
-
-  if (context.options.moduleMap) {
-    for (const module of context.options.moduleMap.values()) {
-      if (!module.localTypes) continue;
-      for (const [typeName, info] of module.localTypes.entries()) {
-        pushCandidate(typeName, module.namespace, info, false);
-      }
-    }
-  }
-
-  const aliasIndex = context.options.typeAliasIndex;
-  if (aliasIndex) {
-    for (const entry of aliasIndex.byFqn.values()) {
-      const aliasShape =
-        entry.type.kind === "objectType"
-          ? getObjectTypeStructuralShape(entry.type)
-          : undefined;
-      if (!aliasShape || !structuralShapesEqual(aliasShape, targetShape)) {
-        continue;
-      }
-
-      const lastDot = entry.fqn.lastIndexOf(".");
-      const namespace =
-        lastDot === -1 ? currentNamespace : entry.fqn.slice(0, lastDot);
-      const emittedName = `${entry.name}__Alias`;
-      const resolvedClrType =
-        namespace === currentNamespace
-          ? undefined
-          : `${namespace}.${emittedName}`;
-      const dedupeKey = resolvedClrType ?? `${namespace}.${emittedName}`;
-      if (seenKeys.has(dedupeKey)) {
-        continue;
-      }
-      seenKeys.add(dedupeKey);
-
-      candidates.push({
-        dedupeKey,
-        isCurrentLocal: namespace === currentNamespace,
-        isCurrentNamespace: namespace === currentNamespace,
-        isCompilerGenerated:
-          isCompilerGeneratedStructuralName(entry.name) ||
-          isCompilerGeneratedStructuralName(emittedName),
-        ref: buildReferenceType(entry.name, resolvedClrType, undefined),
-      });
-    }
-  }
-
-  const registry = context.bindingsRegistry;
-  if (registry) {
-    for (const binding of registry.values()) {
-      const bindingShape = getBindingStructuralShape(binding);
-      if (!bindingShape || !structuralShapesEqual(bindingShape, targetShape)) {
-        continue;
-      }
-
-      const resolvedClrType = binding.name;
-      const lastDot = resolvedClrType.lastIndexOf(".");
-      const namespace =
-        lastDot === -1 ? currentNamespace : resolvedClrType.slice(0, lastDot);
-      const typeName = binding.alias.split(".").pop() ?? binding.alias;
-      const dedupeKey = resolvedClrType;
-      if (seenKeys.has(dedupeKey)) {
-        continue;
-      }
-      seenKeys.add(dedupeKey);
-
-      candidates.push({
-        dedupeKey,
-        isCurrentLocal: false,
-        isCurrentNamespace: namespace === currentNamespace,
-        isCompilerGenerated:
-          isCompilerGeneratedStructuralName(typeName) ||
-          isCompilerGeneratedStructuralName(
-            resolvedClrType.split(".").pop() ?? resolvedClrType
-          ),
-        ref: buildReferenceType(typeName, resolvedClrType, preservedTypeArguments),
-      });
-    }
-  }
-
-  const selectCandidate = (
-    options: readonly StructuralReferenceCandidate[]
-  ): IrType | undefined => {
-    const explicit = options.filter((candidate) => !candidate.isCompilerGenerated);
-    if (explicit.length === 1) {
-      return explicit[0]?.ref;
-    }
-    if (explicit.length > 1) {
-      return undefined;
-    }
-    return options.length === 1 ? options[0]?.ref : undefined;
-  };
-
-  const currentLocalMatches = candidates.filter(
-    (candidate) => candidate.isCurrentLocal
-  );
-  const currentLocalSelection = selectCandidate(currentLocalMatches);
-  if (currentLocalSelection) {
-    return currentLocalSelection;
-  }
-  if (currentLocalMatches.length > 1) {
-    return undefined;
-  }
-  if (preserveCompilerGeneratedReference) {
     return stripped;
   }
-
-  const currentNamespaceMatches = candidates.filter(
-    (candidate) => candidate.isCurrentNamespace
-  );
-  const currentNamespaceSelection = selectCandidate(currentNamespaceMatches);
-  if (currentNamespaceSelection) {
-    return currentNamespaceSelection;
-  }
-  if (currentNamespaceMatches.length > 1) {
-    return undefined;
-  }
-
-  return selectCandidate(candidates);
+  return undefined;
 };
 
 export const normalizeStructuralEmissionType = (
@@ -776,12 +323,16 @@ export const normalizeStructuralEmissionType = (
         case "unionType":
         case "intersectionType": {
           const types = current.types.map(normalize);
-          return types.some((member, index) => member !== current.types[index])
-            ? {
+          if (!types.some((member, index) => member !== current.types[index])) {
+            return current;
+          }
+
+          return current.kind === "unionType"
+            ? rebuildUnionTypePreservingCarrierFamily(current, types)
+            : {
                 ...current,
                 types,
-              }
-            : current;
+              };
         }
         case "primitiveType":
         case "typeParameterType":

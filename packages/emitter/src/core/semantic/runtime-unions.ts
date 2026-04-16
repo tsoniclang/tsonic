@@ -1,4 +1,7 @@
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import {
+  IrType,
+  stableIrTypeKey,
+} from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
@@ -11,17 +14,17 @@ import type {
 import {
   collectRuntimeUnionRawMembers,
   expandRuntimeUnionMembers,
-  hasRuntimeUnionArrayMemberWithRuntimeUnionElements as hasRuntimeUnionArrayMemberWithRuntimeUnionElementsFromExpansion,
-  shouldEraseRecursiveRuntimeUnionArrayElement as shouldEraseRecursiveRuntimeUnionArrayElementFromExpansion,
 } from "./runtime-union-expansion.js";
 import { getRuntimeUnionMemberSortKey } from "./runtime-union-ordering.js";
 import { resolveStructuralReferenceType } from "./structural-shape-matching.js";
+import { resolveLocalTypeInfo, resolveTypeAlias } from "./type-resolution.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
   findRuntimeUnionMemberIndex,
   findRuntimeUnionMemberIndices,
 } from "./runtime-union-matching.js";
+import { getOrRegisterRuntimeUnionCarrier } from "./runtime-union-registry.js";
 export {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
@@ -43,13 +46,16 @@ export const buildRuntimeUnionLayout = (
   context: EmitterContext,
   emitTypeAst: EmitTypeAstLike
 ): [RuntimeUnionLayout | undefined, EmitterContext] => {
-  const frame = buildRuntimeUnionFrame(type, context);
+  const layoutSourceType =
+    type.kind === "referenceType" ? resolveTypeAlias(type, context) : type;
+  const frame = buildRuntimeUnionFrame(layoutSourceType, context);
   if (!frame) {
     return [undefined, context];
   }
   const semanticMembers = frame.members;
   const preserveRuntimeLayout =
-    type.kind === "unionType" && type.preserveRuntimeLayout === true;
+    layoutSourceType.kind === "unionType" &&
+    layoutSourceType.preserveRuntimeLayout === true;
 
   const orderedMembers: { member: IrType; typeAst: CSharpTypeAst }[] = [];
   const byAstKey = preserveRuntimeLayout
@@ -86,24 +92,208 @@ export const buildRuntimeUnionLayout = (
     ? orderedMembers
     : Array.from(byAstKey?.values() ?? []);
 
-  if (ordered.length < 2 || ordered.length > 8) {
+  if (ordered.length < 2) {
     return [undefined, currentContext];
   }
+
+  const carrierMetadata =
+    layoutSourceType.kind === "unionType" &&
+    layoutSourceType.runtimeCarrierFamilyKey
+      ? {
+          familyKey: layoutSourceType.runtimeCarrierFamilyKey,
+          name: layoutSourceType.runtimeCarrierName,
+          namespaceName: layoutSourceType.runtimeCarrierNamespace,
+          typeParameters: layoutSourceType.runtimeCarrierTypeParameters,
+        }
+      : undefined;
+  const [sourceAliasMetadata, sourceAliasContext] = carrierMetadata
+    ? buildSourceAliasCarrierMetadata(
+        type,
+        layoutSourceType,
+        currentContext,
+        emitTypeAst
+      )
+    : [undefined, currentContext];
+
+  const carrier = getOrRegisterRuntimeUnionCarrier(
+    ordered.map((entry) => entry.typeAst),
+    sourceAliasContext.options.runtimeUnionRegistry,
+    carrierMetadata
+      ? {
+          ...carrierMetadata,
+          ...(sourceAliasMetadata?.typeParameters !== undefined
+            ? { typeParameters: sourceAliasMetadata.typeParameters }
+            : {}),
+          ...(sourceAliasMetadata?.definitionMemberTypeAsts !== undefined
+            ? {
+                definitionMemberTypeAsts:
+                  sourceAliasMetadata.definitionMemberTypeAsts,
+              }
+            : {}),
+          ...(sourceAliasMetadata?.accessModifier !== undefined
+            ? { accessModifier: sourceAliasMetadata.accessModifier }
+            : {}),
+        }
+      : undefined
+  );
 
   return [
     {
       members: ordered.map((entry) => entry.member),
       memberTypeAsts: ordered.map((entry) => entry.typeAst),
+      carrierTypeArgumentAsts:
+        sourceAliasMetadata?.typeArgumentAsts ?? ordered.map((entry) => entry.typeAst),
       runtimeUnionArity: ordered.length,
+      carrierName: carrier.name,
+      carrierFullName: carrier.fullName,
     },
-    currentContext,
+    sourceAliasContext,
+  ];
+};
+
+const buildSourceAliasCarrierMetadata = (
+  requestedType: IrType,
+  layoutSourceType: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstLike
+): [
+  | {
+      readonly typeParameters: readonly string[];
+      readonly typeArgumentAsts: readonly CSharpTypeAst[];
+      readonly definitionMemberTypeAsts: readonly CSharpTypeAst[];
+      readonly accessModifier: "public" | "internal";
+    }
+  | undefined,
+  EmitterContext,
+] => {
+  if (
+    layoutSourceType.kind !== "unionType" ||
+    !layoutSourceType.runtimeCarrierFamilyKey
+  ) {
+    return [undefined, context];
+  }
+
+  const aliasLookupReference: Extract<IrType, { kind: "referenceType" }> =
+    requestedType.kind === "referenceType"
+      ? requestedType
+      : {
+          kind: "referenceType",
+          name: layoutSourceType.runtimeCarrierName ?? "",
+          ...(layoutSourceType.runtimeCarrierNamespace &&
+          layoutSourceType.runtimeCarrierName
+            ? {
+                resolvedClrType: `${layoutSourceType.runtimeCarrierNamespace}.${layoutSourceType.runtimeCarrierName}`,
+              }
+            : {}),
+        };
+  if (aliasLookupReference.name.length === 0) {
+    return [undefined, context];
+  }
+
+  const aliasInfo = resolveLocalTypeInfo(aliasLookupReference, context);
+  if (!aliasInfo || aliasInfo.info.kind !== "typeAlias") {
+    return [undefined, context];
+  }
+  const targetModulePublicLocalTypes =
+    aliasInfo.namespace === (context.moduleNamespace ?? context.options.rootNamespace)
+      ? context.publicLocalTypes
+      : [...(context.options.moduleMap?.values() ?? [])].find(
+          (moduleInfo) =>
+            moduleInfo.namespace === aliasInfo.namespace &&
+            moduleInfo.localTypes?.has(aliasInfo.name)
+        )?.publicLocalTypes;
+  const accessModifier =
+    aliasInfo.info.isExported === true ||
+    targetModulePublicLocalTypes?.has(aliasInfo.name)
+      ? "public"
+      : "internal";
+
+  const typeParameters =
+    layoutSourceType.runtimeCarrierTypeParameters ??
+    aliasInfo.info.typeParameters;
+  const typeArgumentTypes =
+    requestedType.kind === "referenceType" &&
+    requestedType.typeArguments &&
+    requestedType.typeArguments.length > 0
+      ? requestedType.typeArguments
+      : layoutSourceType.runtimeCarrierTypeArguments &&
+          layoutSourceType.runtimeCarrierTypeArguments.length > 0
+        ? layoutSourceType.runtimeCarrierTypeArguments
+      : typeParameters.map(
+          (name): IrType => ({ kind: "typeParameterType", name })
+        );
+  const definitionContext: EmitterContext = {
+    ...context,
+    typeParameters: new Set([
+      ...(context.typeParameters ?? []),
+      ...typeParameters,
+    ]),
+  };
+  const definitionFrame = buildRuntimeUnionFrame(
+    aliasInfo.info.type,
+    definitionContext
+  );
+  if (!definitionFrame) {
+    return [undefined, context];
+  }
+
+  let currentContext = definitionContext;
+  const definitionMemberTypeAsts: CSharpTypeAst[] = [];
+  for (const member of definitionFrame.members) {
+    const carrierMember =
+      resolveStructuralReferenceType(member, currentContext) ?? member;
+    const emissionContext = currentContext.preferResolvedLocalClrIdentity
+      ? currentContext
+      : { ...currentContext, preferResolvedLocalClrIdentity: true };
+    const [memberTypeAst, nextContext] = emitTypeAst(
+      carrierMember,
+      emissionContext
+    );
+    definitionMemberTypeAsts.push(memberTypeAst);
+    currentContext =
+      emissionContext === currentContext
+        ? nextContext
+        : {
+            ...nextContext,
+            preferResolvedLocalClrIdentity:
+              currentContext.preferResolvedLocalClrIdentity,
+          };
+  }
+
+  const typeArgumentAsts: CSharpTypeAst[] = [];
+  for (const typeArgument of typeArgumentTypes) {
+    const [typeArgumentAst, nextContext] = emitTypeAst(
+      typeArgument,
+      currentContext
+    );
+    typeArgumentAsts.push(typeArgumentAst);
+    currentContext = nextContext;
+  }
+
+  return [
+    {
+      typeParameters,
+      typeArgumentAsts,
+      definitionMemberTypeAsts,
+      accessModifier,
+    },
+    {
+      ...currentContext,
+      typeParameters: context.typeParameters,
+    },
   ];
 };
 
 export const buildRuntimeUnionTypeAst = (
   layout: RuntimeUnionLayout
-): CSharpTypeAst =>
-  identifierType("global::Tsonic.Runtime.Union", [...layout.memberTypeAsts]);
+): CSharpTypeAst => {
+  const carrierName =
+    layout.carrierFullName ??
+    getOrRegisterRuntimeUnionCarrier(layout.memberTypeAsts, undefined).fullName;
+  return identifierType(`global::${carrierName}`, [
+    ...layout.carrierTypeArgumentAsts,
+  ]);
+};
 
 export const emitRuntimeCarrierTypeAst = (
   type: IrType,
@@ -127,7 +317,9 @@ export const buildRuntimeUnionFrame = (
   type: IrType,
   context: EmitterContext
 ): RuntimeUnionFrame | undefined => {
-  const members = getCanonicalRuntimeUnionMembers(type, context);
+  const frameSourceType =
+    type.kind === "referenceType" ? resolveTypeAlias(type, context) : type;
+  const members = getCanonicalRuntimeUnionMembers(frameSourceType, context);
   if (!members) {
     return undefined;
   }
@@ -138,31 +330,20 @@ export const buildRuntimeUnionFrame = (
   };
 };
 
-export const hasRuntimeUnionArrayMemberWithRuntimeUnionElements = (
-  type: IrType,
-  context: EmitterContext
-): boolean =>
-  hasRuntimeUnionArrayMemberWithRuntimeUnionElementsFromExpansion(
-    type,
-    context
-  );
-
-export const shouldEraseRecursiveRuntimeUnionArrayElement = (
-  type: IrType,
-  context: EmitterContext
-): boolean =>
-  shouldEraseRecursiveRuntimeUnionArrayElementFromExpansion(type, context);
-
 export const getCanonicalRuntimeUnionMembers = (
   type: IrType,
   context: EmitterContext
 ): readonly IrType[] | undefined => {
   const preserveRuntimeLayout =
     type.kind === "unionType" && type.preserveRuntimeLayout === true;
+  const activeAliases =
+    type.kind === "unionType" && type.runtimeCarrierFamilyKey
+      ? new Set<string>([type.runtimeCarrierFamilyKey])
+      : new Set<string>();
   const semanticMembers = preserveRuntimeLayout
-    ? collectRuntimeUnionRawMembers(type, context)
-    : expandRuntimeUnionMembers(type, context);
-  if (semanticMembers.length < 2 || semanticMembers.length > 8) {
+    ? collectRuntimeUnionRawMembers(type, context, activeAliases)
+    : expandRuntimeUnionMembers(type, context, activeAliases);
+  if (semanticMembers.length < 2) {
     return undefined;
   }
 

@@ -30,7 +30,6 @@ import type {
   IrInterfaceMember,
   IrReferenceType,
   IrClassDeclaration,
-  IrTypeAliasDeclaration,
 } from "../types.js";
 import {
   computeShapeSignature,
@@ -72,16 +71,12 @@ const lowerModule = (
     readonly loweredReferenceByStableKey: Map<string, IrReferenceType>;
   }
 ): IrModule => {
-  const localNamedStructuralReferences = collectLocalNamedStructuralReferences(
-    module
-  );
   const localDeclaredTypeReferences =
     collectLocalDeclaredTypeReferences(module);
   const ctx: LoweringContext = {
     generatedDeclarations: shared.generatedDeclarations,
     shapeToName: shared.shapeToName,
     shapeToExistingReference: shared.shapeToExistingReference,
-    localNamedStructuralReferences,
     localDeclaredTypeReferences,
     moduleFilePath: module.filePath,
     existingTypeNames: shared.existingTypeNames,
@@ -115,98 +110,6 @@ const lowerModule = (
   };
 };
 
-const collectLocalNamedStructuralReferences = (
-  module: IrModule
-): ReadonlyMap<string, IrReferenceType> => {
-  const byShape = new Map<string, IrReferenceType | null>();
-  const registerReference = (
-    signature: string,
-    reference: IrReferenceType
-  ): void => {
-    const existing = byShape.get(signature);
-    if (existing === null) {
-      return;
-    }
-
-    if (existing) {
-      byShape.set(signature, null);
-      return;
-    }
-
-    byShape.set(signature, reference);
-  };
-
-  for (const stmt of module.body) {
-    if (
-      "name" in stmt &&
-      typeof stmt.name === "string" &&
-      isReusableStructuralCarrierName(stmt.name)
-    ) {
-      continue;
-    }
-
-    if (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType") {
-      registerReference(
-        computeShapeSignature(stmt.type),
-        typeAliasToStructuralReference(stmt)
-      );
-      continue;
-    }
-
-    if (stmt.kind === "interfaceDeclaration" && stmt.extends.length === 0) {
-      registerReference(computeShapeSignature({
-        kind: "objectType",
-        members: stmt.members,
-      }), {
-        kind: "referenceType",
-        name: stmt.name,
-        resolvedClrType: `${module.namespace}.${stmt.name}`,
-        typeArguments:
-          stmt.typeParameters?.map(
-            (parameter): IrType => ({
-              kind: "typeParameterType",
-              name: parameter.name,
-            })
-          ) ?? undefined,
-        structuralMembers: stmt.members,
-      });
-      continue;
-    }
-
-    if (stmt.kind === "classDeclaration") {
-      const members = classMembersToInterfaceMembers(stmt.members);
-      if (members.length === 0) {
-        continue;
-      }
-
-      registerReference(computeShapeSignature({
-        kind: "objectType",
-        members,
-      }), {
-        kind: "referenceType",
-        name: stmt.name,
-        resolvedClrType: `${module.namespace}.${stmt.name}`,
-        typeArguments:
-          stmt.typeParameters?.map(
-            (parameter): IrType => ({
-              kind: "typeParameterType",
-              name: parameter.name,
-            })
-          ) ?? undefined,
-        structuralMembers: members,
-      });
-    }
-  }
-
-  const resolved = new Map<string, IrReferenceType>();
-  for (const [signature, reference] of byShape) {
-    if (reference) {
-      resolved.set(signature, reference);
-    }
-  }
-  return resolved;
-};
-
 const collectLocalDeclaredTypeReferences = (
   module: IrModule
 ): ReadonlyMap<string, IrReferenceType> => {
@@ -237,22 +140,6 @@ const collectLocalDeclaredTypeReferences = (
 
   return references;
 };
-
-const typeAliasToStructuralReference = (
-  stmt: IrTypeAliasDeclaration
-): IrReferenceType => ({
-  kind: "referenceType",
-  name: stmt.name,
-  typeArguments:
-    stmt.typeParameters?.map(
-      (parameter): IrType => ({
-        kind: "typeParameterType",
-        name: parameter.name,
-      })
-    ) ?? undefined,
-  structuralMembers:
-    stmt.type.kind === "objectType" ? stmt.type.members : undefined,
-});
 
 const findCommonNamespacePrefix = (namespaces: readonly string[]): string => {
   if (namespaces.length === 0) return "";
