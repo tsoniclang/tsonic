@@ -77,7 +77,9 @@ describe("Attribute Collection Pass", () => {
       expect(result.ok).to.be.true;
       const mod = assertDefined(result.modules[0]);
       const ifaceDecl = mod.body[0] as IrInterfaceDeclaration;
-      const prop = ifaceDecl.members.find((m) => m.kind === "propertySignature");
+      const prop = ifaceDecl.members.find(
+        (m) => m.kind === "propertySignature"
+      );
       expect(
         prop && "attributes" in prop ? prop.attributes : undefined
       ).to.have.length(1);

@@ -59,6 +59,48 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("Task.FromResult(__tsonic_await_value_0)");
     });
 
+    it("normalizes alias-backed Promise-or-value unions before await", () => {
+      const source = `
+        type IgnoredHandlerResult = void | JsValue | Promise<void | JsValue>;
+
+        declare function invoke(flag: boolean): IgnoredHandlerResult;
+
+        export async function run(flag: boolean): Promise<void | JsValue> {
+          return await invoke(flag);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await (invoke(flag)?.Match");
+      expect(csharp).to.include("Task.FromResult(__tsonic_await_value_");
+      expect(csharp).not.to.include(
+        "await global::System.Threading.Tasks.Task.FromResult(invoke(flag));"
+      );
+    });
+
+    it("normalizes alias-backed Promise-or-value unions in bare await statements", () => {
+      const source = `
+        type IgnoredHandlerResult = void | JsValue | Promise<void | JsValue>;
+
+        declare function invoke(flag: boolean): IgnoredHandlerResult;
+
+        export async function run(flag: boolean): Promise<void> {
+          await invoke(flag);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await (invoke(flag)?.Match");
+      expect(csharp).to.include(
+        "global::System.Threading.Tasks.Task.FromResult<object?>"
+      );
+      expect(csharp).not.to.include(
+        "global::System.Threading.Tasks.Task.FromResult<IgnoredHandlerResult>"
+      );
+    });
+
     it("wraps pure sync unions directly when awaiting", () => {
       const source = `
         declare function render(flag: boolean):
@@ -77,9 +119,9 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.include(
-        "await global::System.Threading.Tasks.Task.FromResult(render(flag));"
+        "(await global::System.Threading.Tasks.Task.FromResult(render(flag))).Match<"
       );
-      expect(csharp).not.to.include("render(flag).Match");
+      expect(csharp).not.to.include("await render(flag).Match");
     });
 
     it("wraps pure sync nullish unions directly when awaiting", () => {
@@ -100,6 +142,32 @@ describe("End-to-End Integration", () => {
         "?? global::System.Threading.Tasks.Task.CompletedTask"
       );
       expect(csharp).not.to.include("maybeText(flag).Match");
+    });
+
+    it("materializes awaited structural return adaptation through an async IIFE", () => {
+      const source = `
+        interface MetricsResult {
+          rows: string[];
+          totals: number;
+        }
+
+        declare function load(): Promise<{ rows: string[]; totals: number }>;
+
+        export async function run(): Promise<MetricsResult> {
+          return await load();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /return await \(\(global::System\.Func<global::System\.Threading\.Tasks\.Task<[^>]+>>\)\(async \(\) =>/
+      );
+      expect(csharp).to.include("var __struct = await load();");
+      expect(csharp).to.match(
+        /return new [^{]+ \{ rows = __struct\.rows, totals = __struct\.totals \};/
+      );
+      expect(csharp).not.to.include("((global::System.Func<MetricsResult");
     });
 
     it("normalizes mixed Task-or-void unions before await", () => {
@@ -158,9 +226,15 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).not.to.include("global::Tsonic.Internal.Union<object?, void>");
-      expect(csharp).not.to.include("Task.FromResult<global::Tsonic.Internal.Union<object?, void>>");
-      expect(csharp).to.include("global::System.Threading.Tasks.Task.FromResult<object?>");
+      expect(csharp).not.to.include(
+        "global::Tsonic.Internal.Union<object?, void>"
+      );
+      expect(csharp).not.to.include(
+        "Task.FromResult<global::Tsonic.Internal.Union<object?, void>>"
+      );
+      expect(csharp).to.include(
+        "global::System.Threading.Tasks.Task.FromResult<object?>"
+      );
     });
   });
 

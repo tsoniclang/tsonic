@@ -10,6 +10,7 @@ import { emitIdentifier } from "../../../expressions/identifiers.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import { emitBooleanConditionAst } from "../../../core/semantic/boolean-context.js";
 import { applyConditionBranchNarrowing } from "../../../core/semantic/condition-branch-narrowing.js";
+import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
 import {
   tryResolveInstanceofGuard,
   tryResolveSimpleNullableGuard,
@@ -94,10 +95,13 @@ export const tryEmitInstanceofGuard = (
     thenStatementAst = thenBlock;
     thenCtxAfter = thenBlockCtx;
   } else {
-    const [thenStmts, nextCtx] = emitBranchScopedStatementAst(stmt.thenStatement, {
-      ...ctxAfterRhs,
-      narrowedBindings: narrowedMap,
-    });
+    const [thenStmts, nextCtx] = emitBranchScopedStatementAst(
+      stmt.thenStatement,
+      {
+        ...ctxAfterRhs,
+        narrowedBindings: narrowedMap,
+      }
+    );
     thenStatementAst = wrapInBlock(thenStmts);
     thenCtxAfter = nextCtx;
   }
@@ -141,11 +145,7 @@ export const tryEmitInstanceofGuard = (
     } else if (!thenTerminates && elseTerminates) {
       finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtx);
     } else {
-      finalContext = mergeBranchExitContext(
-        ctxAfterRhs,
-        thenCtxAfter,
-        elseCtx
-      );
+      finalContext = mergeBranchExitContext(ctxAfterRhs, thenCtxAfter, elseCtx);
     }
   }
 
@@ -282,10 +282,13 @@ export const tryEmitNegatedInstanceofGuard = (
     thenStatementAst = thenBlock;
     thenCtxAfter = thenBlockCtx;
   } else {
-    const [thenStmts, nextCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
-      ...ctxAfterRhs,
-      narrowedBindings: narrowedMap,
-    });
+    const [thenStmts, nextCtx] = emitBranchScopedStatementAst(
+      stmt.elseStatement,
+      {
+        ...ctxAfterRhs,
+        narrowedBindings: narrowedMap,
+      }
+    );
     thenStatementAst = wrapInBlock(thenStmts);
     thenCtxAfter = nextCtx;
   }
@@ -331,12 +334,18 @@ export const tryEmitNullableGuard = (
   stmt: IfStatement,
   context: EmitterContext
 ): GuardResult => {
-  const simpleNullableGuard = tryResolveSimpleNullableGuard(stmt.condition);
+  const simpleNullableGuard = tryResolveSimpleNullableGuard(
+    stmt.condition,
+    context
+  );
   const nullableGuard =
     simpleNullableGuard ?? tryResolveNullableGuard(stmt.condition, context);
   if (!nullableGuard || !nullableGuard.isValueType) return undefined;
 
   const { key, targetExpr, narrowsInThen, strippedType } = nullableGuard;
+  const effectiveTargetType =
+    resolveEffectiveExpressionType(targetExpr, context) ??
+    targetExpr.inferredType;
 
   // Avoid stacking `.Value` (see detailed comment in original text emitter)
   const [idAst] =
@@ -361,7 +370,7 @@ export const tryEmitNullableGuard = (
         memberName: "Value",
       },
       strippedType,
-      targetExpr.inferredType,
+      effectiveTargetType,
       idAst
     )
   );

@@ -43,8 +43,7 @@ export const isArrayLikeNarrowingCandidate = (
   }
   if (
     resolved.kind === "referenceType" &&
-    (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray")
+    (resolved.name === "Array" || resolved.name === "ReadonlyArray")
   ) {
     return true;
   }
@@ -200,7 +199,10 @@ export const tryExtractArrayIsArrayGuard = (
 
 export type TypeofGuardRefinement = {
   readonly bindingKey: string;
-  readonly targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
+  readonly targetExpr: Extract<
+    IrExpression,
+    { kind: "identifier" | "memberAccess" }
+  >;
   readonly tag: string;
   readonly matchTag: boolean;
 };
@@ -210,7 +212,10 @@ const tryExtractDirectTypeofGuard = (
 ):
   | {
       readonly bindingKey: string;
-      readonly targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
+      readonly targetExpr: Extract<
+        IrExpression,
+        { kind: "identifier" | "memberAccess" }
+      >;
       readonly tag: string;
       readonly matchesInTruthyBranch: boolean;
     }
@@ -231,7 +236,10 @@ const tryExtractDirectTypeofGuard = (
   ):
     | {
         readonly bindingKey: string;
-        readonly targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
+        readonly targetExpr: Extract<
+          IrExpression,
+          { kind: "identifier" | "memberAccess" }
+        >;
         readonly tag: string;
       }
     | undefined => {

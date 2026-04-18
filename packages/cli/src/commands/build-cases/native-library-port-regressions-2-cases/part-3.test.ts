@@ -295,19 +295,13 @@ describe("build command (native library port regressions)", function () {
       expect(result.ok).to.equal(true);
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.match(
-        /global::js\.Object\.entries\([^\n]*root\)/
-      );
+      expect(tree).to.match(/global::js\.Object\.entries\([^\n]*root\)/);
       expect(tree).to.not.include(
         "(global::System.Collections.Generic.Dictionary<string, object?>)root"
       );
       expect(tree).to.not.include("global::System.Linq.Enumerable");
-      expect(tree).to.include(
-        "global::js.Number.toString((double)value)"
-      );
-      expect(tree).to.include(
-        "global::js.String.toUpperCase((string)value)"
-      );
+      expect(tree).to.include("global::js.Number.toString((double)value)");
+      expect(tree).to.include("global::js.String.toUpperCase((string)value)");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

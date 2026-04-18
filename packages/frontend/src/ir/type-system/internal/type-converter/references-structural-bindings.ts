@@ -38,9 +38,7 @@ const bindingAliasClrIdentityCache = new Map<
 
 const tsonicSourcePackageFileCache = new Map<string, boolean>();
 
-export const isTsonicSourcePackageFile = (
-  fileName: string
-): boolean => {
+export const isTsonicSourcePackageFile = (fileName: string): boolean => {
   const normalized = fileName.replace(/\\/g, "/");
   const cached = tsonicSourcePackageFileCache.get(normalized);
   if (cached !== undefined) return cached;
@@ -181,9 +179,7 @@ export const resolveSourceClrIdentity = (
     return undefined;
   }
 
-  const bindingsPath = findOwningBindingsJson(
-    sourceFile.fileName
-  );
+  const bindingsPath = findOwningBindingsJson(sourceFile.fileName);
   if (bindingsPath) {
     const exactClrName =
       buildBindingAliasClrIdentityMap(bindingsPath).get(fqName);
@@ -330,8 +326,7 @@ export const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
   const isSourceBindingsDecl =
     sourceFile.isDeclarationFile && isTsonicBindingsDeclarationFile(fileName);
   const isSourcePackageFile =
-    !sourceFile.isDeclarationFile &&
-    isTsonicSourcePackageFile(fileName);
+    !sourceFile.isDeclarationFile && isTsonicSourcePackageFile(fileName);
 
   // Skip external library types, but keep first-party/source-package bindings
   // extractable even when they are installed under node_modules.

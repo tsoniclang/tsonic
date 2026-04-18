@@ -157,6 +157,110 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("updates.active.Value.Value");
   });
 
+  it("should reuse the narrowed member read in comparisons and string calls", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "binary",
+            operator: "!==",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "rule" },
+              property: "maxCount",
+              isComputed: false,
+              isOptional: false,
+              inferredType: {
+                kind: "unionType",
+                types: [
+                  { kind: "referenceType", name: "double" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+            },
+            right: { kind: "identifier", name: "undefined" },
+          },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: ">",
+                  left: {
+                    kind: "identifier",
+                    name: "nextCount",
+                    inferredType: {
+                      kind: "referenceType",
+                      name: "double",
+                    },
+                  },
+                  right: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "rule" },
+                    property: "maxCount",
+                    isComputed: false,
+                    isOptional: false,
+                    inferredType: {
+                      kind: "unionType",
+                      types: [
+                        { kind: "referenceType", name: "double" },
+                        { kind: "primitiveType", name: "undefined" },
+                      ],
+                    },
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "expressionStatement",
+                      expression: {
+                        kind: "call",
+                        callee: { kind: "identifier", name: "String" },
+                        arguments: [
+                          {
+                            kind: "memberAccess",
+                            object: { kind: "identifier", name: "rule" },
+                            property: "maxCount",
+                            isComputed: false,
+                            isOptional: false,
+                            inferredType: {
+                              kind: "unionType",
+                              types: [
+                                { kind: "referenceType", name: "double" },
+                                { kind: "primitiveType", name: "undefined" },
+                              ],
+                            },
+                          },
+                        ],
+                        isOptional: false,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("nextCount > rule.maxCount.Value");
+    expect(result).to.include("String(rule.maxCount.Value)");
+    expect(result).to.not.include("rule.maxCount.Value.Value");
+  });
+
   it("should not fold value-type undefined guards to constants", () => {
     const module: IrModule = {
       kind: "module",

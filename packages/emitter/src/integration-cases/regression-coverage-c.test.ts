@@ -1,6 +1,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { compileProjectToCSharp, compileToCSharp } from "./helpers.js";
+import { normalizeRuntimeUnionCarrierNames } from "../runtime-union-cases/helpers.js";
 
 describe("End-to-End Integration", () => {
   describe("Regression Coverage", () => {
@@ -29,7 +30,9 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).not.to.include("CreateParams createParams =");
       expect(csharp).not.to.include("subscribe(createParams);");
-      expect(csharp).not.to.include("subscribe(((global::System.Func<CreateParams>)(() =>");
+      expect(csharp).not.to.include(
+        "subscribe(((global::System.Func<CreateParams>)(() =>"
+      );
     });
 
     it("uses runtime equality for JsValue-vs-boolean strict comparisons", () => {
@@ -162,10 +165,149 @@ describe("End-to-End Integration", () => {
         "else if (((global::System.Object)(generatorOrEncodingStr)) != null && generatorOrEncodingStr.Is2())"
       );
       expect(csharp).to.include(
-        'decodeInputBytes(global::Tsonic.Internal.Union<double, string>.From2((generatorOrEncodingStr.As2())), generatorEncoding ?? "base64");'
+        'decodeInputBytes(generatorOrEncodingStr, generatorEncoding ?? "base64");'
       );
       expect(csharp).not.to.include(
         "default(string) : (generatorOrEncodingStr.As2())).As2()"
+      );
+    });
+
+    it("keeps sibling typeof fallback checks on the original nullable union carrier", () => {
+      const csharp = compileToCSharp(`
+        export class LookupOptions {
+          family: number | string | null = null;
+        }
+
+        export function run(options: LookupOptions | null): number | null {
+          if (options === null) {
+            return null;
+          }
+
+          const family = options.family;
+          if (typeof family === "string") {
+            if (family === "IPv4") {
+              return 4;
+            }
+            if (family === "IPv6") {
+              return 6;
+            }
+            return null;
+          }
+
+          if (typeof family === "number") {
+            if (family === 0) {
+              return 0;
+            }
+            if (family === 4) {
+              return 4;
+            }
+            if (family === 6) {
+              return 6;
+            }
+          }
+
+          return null;
+        }
+      `);
+
+      expect(csharp).to.include(
+        "if (((global::System.Object)(family)) != null && family.Is1())"
+      );
+      expect(csharp).not.to.include(
+        'if (global::Tsonic.Runtime.Operators.@typeof((object)family == null ? default(double) : (family.As1())) == "number")'
+      );
+    });
+
+    it("preserves instanceof catch narrowing across conditional fallbacks", () => {
+      const csharp = compileToCSharp(
+        `
+          type SendFileCallback = (error: Error | null) => void;
+
+          export function run(callback?: SendFileCallback): string {
+            try {
+              throw new Error("boom");
+            } catch (error) {
+              const resolved =
+                error instanceof Error ? error : new Error("sendFile failed");
+              if (callback) {
+                callback(resolved);
+                return "callback";
+              }
+              return resolved.message;
+            }
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        'error is global::js.Error ? (global::js.Error)error : new global::js.Error("sendFile failed")'
+      );
+      expect(csharp).not.to.include(
+        'error is global::js.Error ? error : new global::js.Error("sendFile failed")'
+      );
+      expect(csharp).not.to.include(
+        'error is global::js.Error ? (object?)(global::js.Error)error : new global::js.Error("sendFile failed")'
+      );
+    });
+
+    it("collapses literal-plus-string optional callback aliases before default emission", () => {
+      const csharp = compileToCSharp(`
+        type NextControl = "route" | "router" | string | null | undefined;
+        type NextFunction = (value?: NextControl) => void | Promise<void>;
+
+        export async function run(next: NextFunction): Promise<void> {
+          await next(undefined);
+        }
+      `);
+
+      expect(csharp).to.include("next(default(string?))");
+      expect(csharp).not.to.include("next(default(object))");
+    });
+
+    it("uses source-backed call surfaces through asinterface structural views", () => {
+      const csharp = normalizeRuntimeUnionCarrierNames(
+        compileToCSharp(
+          `
+            import { asinterface } from "@tsonic/core/lang.js";
+            import type { ServerResponse } from "@tsonic/nodejs/http.js";
+
+            interface TextEndableResponse {
+              end(chunk: string): void;
+            }
+
+            interface ResponseHeaderLookup {
+              getHeader(name: string): string | readonly string[] | undefined;
+            }
+
+            declare function normalizeHeaderValue(
+              value: string | readonly string[] | undefined
+            ): string | undefined;
+
+            export function run(resp: ServerResponse, text: string): string | undefined {
+              asinterface<TextEndableResponse>(resp).end(text);
+              return normalizeHeaderValue(
+                asinterface<ResponseHeaderLookup>(resp).getHeader("x-test")
+              );
+            }
+          `,
+          "/test/test.ts",
+          { surface: "@tsonic/nodejs" }
+        )
+      );
+
+      expect(csharp).to.match(
+        /resp\.end\(global::Tsonic\.Internal\.Union<[^>]+>\.From4\(text\)\);/
+      );
+      expect(csharp).to.include(
+        'normalizeHeaderValue(resp.getHeader("x-test") == null ? default(global::Tsonic.Internal.Union<string[], string>?) : global::Tsonic.Internal.Union<string[], string>.From2(resp.getHeader("x-test")));'
+      );
+      expect(csharp).not.to.include("resp.end(text);");
+      expect(csharp).not.to.include(
+        'normalizeHeaderValue(resp.getHeader("x-test"));'
       );
     });
 
@@ -266,7 +408,7 @@ describe("End-to-End Integration", () => {
         'if (global::Tsonic.Runtime.Operators.@typeof(value) != "object")'
       );
       expect(csharp).not.to.include(
-        'if (!(((global::System.Object)(value)) != null && (value.Is1() || value.Is2())))'
+        "if (!(((global::System.Object)(value)) != null && (value.Is1() || value.Is2())))"
       );
     });
 
@@ -364,9 +506,7 @@ describe("End-to-End Integration", () => {
         "src/index.ts"
       );
 
-      expect(csharp).to.include(
-        "createServer((global::TLSSocket _socket) =>"
-      );
+      expect(csharp).to.include("createServer((global::TLSSocket _socket) =>");
       expect(csharp).not.to.include(
         "global::Tsonic.Internal.Union<global::System.Action<TLSSocket>, TlsOptions>.From1"
       );
@@ -457,12 +597,10 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include(
-        "new TLSServer(global::Tsonic.Internal.Union<global::System.Action<global::Test.TLSSocket>, global::Test.TlsOptions>.From1((TLSSocket _socket) =>"
+      expect(csharp).to.match(
+        /new TLSServer\(global::Tsonic\.Internal\.Union<global::System\.Action<(?:global::Test\.)?TLSSocket>, (?:global::Test\.)?TlsOptions>\.From1\(\(TLSSocket _socket\) =>/
       );
-      expect(csharp).not.to.include(
-        "new TLSServer((TLSSocket _socket) =>"
-      );
+      expect(csharp).not.to.include("new TLSServer((TLSSocket _socket) =>");
     });
 
     it("adapts named constructor arguments to inline structural constructor parameter types", () => {
@@ -491,9 +629,7 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include(
-        "new SocketAddress(new global::Test.__Anon_"
-      );
+      expect(csharp).to.include("new SocketAddress(new global::Test.__Anon_");
       expect(csharp).to.include("address = options.address");
       expect(csharp).to.include("family = options.family");
       expect(csharp).to.include("flowlabel = options.flowlabel");
@@ -569,9 +705,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("new global::Test.__Anon_");
-      expect(csharp).to.include(
-        'var input = new global::Test.__Anon_'
-      );
+      expect(csharp).to.include("var input = new global::Test.__Anon_");
       expect(csharp).to.include('fullName = "Bot"');
       expect(csharp).to.include('shortName = "bot"');
       expect(csharp).to.include("botType = botType");
@@ -600,9 +734,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         'CreateInput__Alias input = new CreateInput__Alias { fullName = "Bot", shortName = "bot", botType = botType };'
       );
-      expect(csharp).to.include(
-        "createBotDomain(new global::Test.__Anon_"
-      );
+      expect(csharp).to.include("createBotDomain(new global::Test.__Anon_");
       expect(csharp).to.include("fullName = input.fullName");
       expect(csharp).to.include("shortName = input.shortName");
       expect(csharp).to.include("botType = input.botType");
@@ -723,7 +855,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(
         /new global::Test\.__Anon_[A-Za-z0-9_]+ \{ user = new global::Test\.__Anon_[A-Za-z0-9_]+ \{ name = "Alice" \} \}/
       );
-      expect(csharp).not.to.include("new global::js.RangeError { name = \"Alice\" }");
+      expect(csharp).not.to.include(
+        'new global::js.RangeError { name = "Alice" }'
+      );
     });
 
     it("reuses structural alias carrier members in typeof checks over boolean unions", () => {
@@ -1071,9 +1205,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "public static async global::System.Threading.Tasks.Task mkdir(string path, MkdirOptions options)"
       );
-      expect(csharp).to.include(
-        "await implOptions(path, options);"
-      );
+      expect(csharp).to.include("await implOptions(path, options);");
       expect(csharp).to.not.include(
         "public static global::System.Threading.Tasks.Task mkdir(string path, global::Test.__Anon_"
       );
@@ -1104,9 +1236,7 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include(
-        "fs.mkdirSync(dir, new global::Test.__Anon_"
-      );
+      expect(csharp).to.include("fs.mkdirSync(dir, new global::Test.__Anon_");
       expect(csharp).to.include("recursive = options.recursive");
       expect(csharp).to.include("mode = options.mode");
       expect(csharp).to.not.include("fs.mkdirSync(dir, options);");
@@ -1128,9 +1258,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("fs.mkdirSync(dir, options);");
-      expect(csharp).to.not.include(
-        "fs.mkdirSync(dir, new global::js.__Anon_"
-      );
+      expect(csharp).to.not.include("fs.mkdirSync(dir, new global::js.__Anon_");
     });
 
     it("preserves imported named structural instances at async structural overload call sites", () => {
@@ -1149,9 +1277,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("fs.mkdir(dir, options)");
-      expect(csharp).to.not.include(
-        "fs.mkdir(dir, new global::js.__Anon_"
-      );
+      expect(csharp).to.not.include("fs.mkdir(dir, new global::js.__Anon_");
     });
 
     it("materializes imported structural object literals at structural overload call sites", () => {
@@ -1177,7 +1303,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "fs.mkdirSync(dir, new global::nodejs.MkdirOptions { recursive = options.recursive, mode = (int?)options.mode });"
+        "fs.mkdirSync(dir, new global::nodejs.MkdirOptions { recursive = options.recursive, mode = options.mode });"
       );
       expect(csharp).to.not.include("fs.mkdirSync(dir, new global::js.__Anon_");
     });
@@ -1293,12 +1419,8 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "public global::System.Threading.Tasks.Task<string> readFile(string path, string encoding)"
       );
-      expect(csharp).to.include(
-        "return readFile(path);"
-      );
-      expect(csharp).to.include(
-        "return readFile(path, encoding);"
-      );
+      expect(csharp).to.include("return readFile(path);");
+      expect(csharp).to.include("return readFile(path, encoding);");
       expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
       expect(csharp).to.not.include(
         "(global::System.Threading.Tasks.Task<global::Tsonic.Internal.Union<byte[], string>>)test.readFile(path)"
@@ -1363,9 +1485,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "public static string readFileSync(string path, string encoding)"
       );
-      expect(csharp).to.include(
-        "public byte[] readFileSync(string path)"
-      );
+      expect(csharp).to.include("public byte[] readFileSync(string path)");
       expect(csharp).to.include(
         "public string readFileSync(string path, string encoding)"
       );
@@ -1409,13 +1529,19 @@ describe("End-to-End Integration", () => {
         O(readFileSync_text).family(readFileSync);
       `);
 
-      expect(csharp).to.include("public static global::Test.Buffer readFileSync(string path)");
-      expect(csharp).to.include("public static string readFileSync(string path, string encoding)");
+      expect(csharp).to.include(
+        "public static global::Test.Buffer readFileSync(string path)"
+      );
+      expect(csharp).to.include(
+        "public static string readFileSync(string path, string encoding)"
+      );
       expect(csharp).to.include("return implBytes(path);");
       expect(csharp).to.include("return implText(path, encoding);");
       expect(csharp).not.to.include("readFileSync_buffer");
       expect(csharp).not.to.include("readFileSync_text");
-      expect(csharp).not.to.include("global::Tsonic.Internal.Union<string, global::Test.Buffer>");
+      expect(csharp).not.to.include(
+        "global::Tsonic.Internal.Union<string, global::Test.Buffer>"
+      );
     });
 
     it("prefers deterministic numeric overloads for erased number arguments", () => {
@@ -1510,6 +1636,83 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("?? 0");
     });
 
+    it("collapses imported nullish date fallbacks to the concrete receiver type", () => {
+      const csharp = compileToCSharp(
+        `
+          import { statSync } from "@tsonic/nodejs/fs.js";
+
+          class FrontMatter {
+            date: Date | undefined = undefined;
+          }
+
+          export function render(fm: FrontMatter): string {
+            const lastModifiedAt = new Date(statSync("tsonic.workspace.json").mtimeMs);
+            const dateUtc = fm.date ?? lastModifiedAt;
+            return dateUtc.toISOString();
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include("var dateUtc = fm.date ?? lastModifiedAt;");
+      expect(csharp).to.include("return dateUtc.toISOString();");
+      expect(csharp).to.not.include("dateUtc.As");
+    });
+
+    it("keeps constructor-backed nullish fallbacks direct in constructor arguments", () => {
+      const csharp = compileToCSharp(`
+        class Page {}
+
+        class Box {
+          constructor(page: Page) {}
+        }
+
+        class Holder {
+          page: Page | undefined = undefined;
+        }
+
+        export function run(holder: Holder): Box {
+          const fallback = new Page();
+          const selected = holder.page ?? fallback;
+          return new Box(selected);
+        }
+      `);
+
+      expect(csharp).to.include("var selected = holder.page ?? fallback;");
+      expect(csharp).to.include("return new Box(selected);");
+      expect(csharp).not.to.include(
+        "return new Box(global::Tsonic.Internal.Union<global::Test.Page, global::Test.Page>.From1(selected));"
+      );
+    });
+
+    it("preserves ?? fallbacks after dictionary safe-access lowering for value types", () => {
+      const csharp = compileToCSharp(
+        `
+          export function run(
+            allowedCounts: Record<string, number>,
+            name: string,
+          ): number {
+            const current = allowedCounts[name] ?? 0;
+            const nextCount = current + 1;
+            allowedCounts[name] = nextCount;
+            return nextCount;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "ContainsKey(__tsonic_key) ? __tsonic_dict[__tsonic_key] : default"
+      );
+      expect(csharp).to.include("?? 0");
+    });
+
     it("keeps JsValue spread-array conditionals on object arrays instead of numeric unions", () => {
       const csharp = compileToCSharp(`
         declare function inspect(value: JsValue): string;
@@ -1526,7 +1729,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).not.to.include("Union<double[], object?[]>");
       expect(csharp).not.to.include("(double)message");
-      expect(csharp).not.to.include(".toArray().join(\" \")");
+      expect(csharp).not.to.include('.toArray().join(" ")');
     });
 
     it("avoids identity Match projections for identical optional union passthrough calls", () => {
@@ -1651,7 +1854,9 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("global::Test.MiddlewareLike[] items = (handler.As1());");
+      expect(csharp).to.include(
+        "global::Test.MiddlewareLike[] items = (handler.As1());"
+      );
       expect(csharp).not.to.include("handler.Match<object?[]>");
       expect(csharp).not.to.include(".Match<object[]>(");
     });
@@ -1776,8 +1981,83 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         ".As2())).Match<global::System.Func<Request__Alias, Response__Alias, global::System.Func<string?, global::System.Threading.Tasks.Task?>, global::Tsonic.Internal.Union<global::System.Threading.Tasks.Task<object?>, object?>>>("
       );
-      expect(csharp).to.include(".As1())(error, request, response, next).Match(");
+      expect(csharp).to.include(
+        ".As1())(error, request, response, next).Match("
+      );
       expect(csharp).not.to.include("handler.Is2()");
+    });
+
+    it("passes callable and nominal source-union members directly into broad JsValue guard predicates", () => {
+      const csharp = compileToCSharp(`
+        class Router {}
+
+        type PathSpec = string | RegExp | readonly PathSpec[];
+        type RequestHandler = (request: string) => void;
+
+        declare function isPathSpec(value: JsValue): value is PathSpec;
+
+        export function run(first: PathSpec | RequestHandler | Router): boolean {
+          return isPathSpec(first);
+        }
+      `);
+
+      expect(csharp).to.include("first.Match<object?>(");
+      expect(csharp.split(".Match<object?>(").length - 1).to.equal(2);
+      expect(csharp).not.to.include("new global::System.InvalidCastException");
+    });
+
+    it("narrows predicate-guarded source unions before exact branch-local call arguments", () => {
+      const csharp = compileToCSharp(`
+        class Router {}
+
+        type PathSpec = string | RegExp | readonly PathSpec[];
+        type RequestHandler = (request: string) => void;
+        type MiddlewareLike = RequestHandler | Router;
+
+        declare function isPathSpec(value: JsValue): value is PathSpec;
+        declare function addMiddlewareLayer(path: PathSpec, handlers: readonly MiddlewareLike[]): void;
+        declare function useRootMiddleware(first: MiddlewareLike, rest: readonly MiddlewareLike[]): void;
+
+        export function run(first: PathSpec | MiddlewareLike, rest: readonly MiddlewareLike[]): void {
+          if (isPathSpec(first)) {
+            addMiddlewareLayer(first, rest);
+            return;
+          }
+
+          useRootMiddleware(first, rest);
+        }
+      `);
+
+      expect(csharp).to.include("if (isPathSpec(first.Match<object?>(");
+      expect(csharp).to.include("addMiddlewareLayer((first.As1()), rest);");
+      expect(csharp).to.include("useRootMiddleware((first.As2()), rest);");
+      expect(csharp).not.to.include("addMiddlewareLayer(first, rest);");
+      expect(csharp).not.to.include("useRootMiddleware(first, rest);");
+    });
+
+    it("keeps broad JsValue call arguments on their storage carrier after typeof narrowing", () => {
+      const csharp = compileToCSharp(`
+        declare function toNumericValue(value: JsValue): number;
+
+        export function run(value?: JsValue): number {
+          if (value === undefined || value === null) {
+            return 0;
+          }
+
+          if (typeof value === "boolean") {
+            return value ? 1 : 0;
+          }
+
+          if (typeof value === "string") {
+            return value.length;
+          }
+
+          return toNumericValue(value);
+        }
+      `);
+
+      expect(csharp).to.include("return toNumericValue(value);");
+      expect(csharp).not.to.include("toNumericValue(value.Match<object?>");
     });
 
     it("keeps recursive Array.isArray fallthrough guards on the original runtime carrier", () => {
@@ -1822,7 +2102,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "for (int index = 0; index < (pathSpec.As1()).Length; index += 1)"
       );
-      expect(csharp).to.include("if (matchesPathSpec((pathSpec.As1())[index], requestPath))");
+      expect(csharp).to.include(
+        "if (matchesPathSpec((pathSpec.As1())[index], requestPath))"
+      );
     });
 
     it("preserves runtime carrier slot numbers in typeof string guards over aliased unions", () => {
@@ -1843,6 +2125,44 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("pathOrName.Is1()");
       expect(csharp).not.to.include("pathOrName.Is3()");
       expect(csharp).to.include("pathOrName.As1()");
+    });
+
+    it("keeps js Date nullish constructor fallbacks direct in constructor arguments", () => {
+      const csharp = compileToCSharp(
+        `
+          class Holder {
+            public date: Date | undefined;
+
+            public constructor(date?: Date) {
+              this.date = date;
+            }
+          }
+
+          class Box {
+            public readonly value: Date;
+
+            public constructor(value: Date) {
+              this.value = value;
+            }
+          }
+
+          export function wrap(holder: Holder): Box {
+            const fallback = new Date(0);
+            const selected = holder.date ?? fallback;
+            return new Box(selected);
+          }
+        `,
+        "/test/src/index.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "var fallback = new global::js.Date((object)(double)0);"
+      );
+      expect(csharp).to.include("var selected = holder.date ?? fallback;");
+      expect(csharp).to.include("return new Box(selected);");
+      expect(csharp).not.to.include("Union2_");
+      expect(csharp).not.to.include(".From1(selected)");
     });
 
     it("returns narrowed string members from overload implementations with broad return types", () => {
@@ -1941,6 +2261,105 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("rewraps identifier typed-array constructor arguments through the selected source-backed surface arm", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/typed-array-core.ts": `
+            export type TypedArrayInput<TElement extends number> =
+              | readonly TElement[]
+              | Iterable<number>;
+
+            export type TypedArrayConstructorInput<TElement extends number> =
+              | number
+              | TypedArrayInput<TElement>;
+
+            export class Uint16Array {
+              public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+                void lengthOrValues;
+              }
+            }
+          `,
+          "src/index.ts": `
+            import { Uint16Array } from "./typed-array-core.js";
+
+            export function run(values: number[]): Uint16Array {
+              return new Uint16Array(values);
+            }
+          `,
+        },
+        "src/index.ts",
+        {
+          surface: "@tsonic/js",
+        },
+        {
+          sourceRootRelativePath: "src",
+          rootNamespace: "Test",
+        }
+      );
+
+      expect(csharp).to.include("new global::Test.Uint16Array(");
+      expect(csharp).to.include("global::js.TypedArrayConstructorInput");
+      expect(csharp).to.include(".From2(global::js.TypedArrayInput");
+      expect(csharp).to.include(".From1(");
+      expect(csharp).not.to.include(
+        "new global::Test.Uint16Array((global::js.TypedArrayConstructorInput"
+      );
+    });
+
+    it("rewraps null-guarded member-access typed-array constructor arguments through the selected source-backed surface arm", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/typed-array-core.ts": `
+            export type TypedArrayInput<TElement extends number> =
+              | readonly TElement[]
+              | Iterable<number>;
+
+            export type TypedArrayConstructorInput<TElement extends number> =
+              | number
+              | TypedArrayInput<TElement>;
+
+            export class Uint8Array {
+              public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+                void lengthOrValues;
+              }
+            }
+          `,
+          "src/index.ts": `
+            import type { byte } from "@tsonic/core/types.js";
+            import { Uint8Array } from "./typed-array-core.js";
+
+            class Parameters {
+              public Modulus: byte[] | null = null;
+            }
+
+            export function run(parameters: Parameters): Uint8Array {
+              if (parameters.Modulus === null || parameters.Modulus === undefined) {
+                throw new Error("missing");
+              }
+
+              return new Uint8Array(parameters.Modulus);
+            }
+          `,
+        },
+        "src/index.ts",
+        {
+          surface: "@tsonic/js",
+        },
+        {
+          sourceRootRelativePath: "src",
+          rootNamespace: "Test",
+        }
+      );
+
+      expect(csharp).to.include("new global::Test.Uint8Array(");
+      expect(csharp).to.include(
+        ".From2(global::js.TypedArrayInput<byte[], global::System.Collections.Generic.IEnumerable<double>>.From1(parameters.Modulus))"
+      );
+      expect(csharp).not.to.include(
+        "new global::Test.Uint8Array((global::js.TypedArrayConstructorInput"
+      );
+    });
+
     it("lowers Uint8Array.set array literals through byte arrays", () => {
       const csharp = compileToCSharp(
         `
@@ -1983,6 +2402,38 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).not.to.include(
         "new global::js.Uint8Array(new byte[] { (byte)generatorOrEncoding })"
+      );
+    });
+
+    it("rewraps plain string call arguments through runtime-union surfaces", () => {
+      const csharp = normalizeRuntimeUnionCarrierNames(
+        compileToCSharp(
+          `
+            declare class Buffer {
+              public static from(
+                value: number[] | Uint8Array | string,
+                encodingOrOffset?: number | string,
+              ): Buffer;
+            }
+
+            declare function toUint8Array(value: Buffer): Uint8Array;
+
+            export function run(rawText: string): Uint8Array {
+              return toUint8Array(Buffer.from(rawText, "utf-8"));
+            }
+          `,
+          "/test/test.ts",
+          {
+            surface: "@tsonic/js",
+          }
+        )
+      );
+
+      expect(csharp).to.include(
+        'Buffer.from(global::Tsonic.Internal.Union<double[], global::js.Uint8Array, string>.From3(rawText), global::Tsonic.Internal.Union<double, string>.From2("utf-8"))'
+      );
+      expect(csharp).not.to.include(
+        'Buffer.from(rawText, global::Tsonic.Internal.Union<double, string>.From2("utf-8"))'
       );
     });
 
@@ -2047,9 +2498,11 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1("
+        "return new global::js.Uint8Array(totalLength == 0 ? global::js.TypedArrayConstructorInput<byte>.From1(1) : global::js.TypedArrayConstructorInput<byte>.From1((int)totalLength));"
       );
-      expect(csharp).not.to.include("TypedArrayConstructorInput<byte>.From3(");
+      expect(csharp).not.to.include(
+        "return new global::js.Uint8Array(totalLength == 0 ? global::js.TypedArrayConstructorInput<byte>.From2("
+      );
     });
 
     it("keeps narrowed Uint8Array length access as a direct member read", () => {
@@ -2070,7 +2523,62 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("chunk__is_1.length");
-      expect(csharp).not.to.include("new global::js.Array<object>(chunk__is_1).length");
+      expect(csharp).not.to.include(
+        "new global::js.Array<object>(chunk__is_1).length"
+      );
+    });
+
+    it("materializes imported nullable value-type member reads exactly once after null guards", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/options.ts": `
+            export interface MultipartField {
+              name: string;
+              maxCount?: number;
+            }
+          `,
+          "src/index.ts": `
+            import type { MultipartField } from "./options.js";
+
+            function findAllowRule(
+              allowList: readonly MultipartField[],
+              fieldname: string
+            ): MultipartField | undefined {
+              for (let index = 0; index < allowList.length; index += 1) {
+                const candidate = allowList[index]!;
+                if (candidate.name.toLowerCase() === fieldname.toLowerCase()) {
+                  return candidate;
+                }
+              }
+
+              return undefined;
+            }
+
+            export function run(
+              allowList: readonly MultipartField[],
+              fieldname: string
+            ): void {
+              const rule = findAllowRule(allowList, fieldname);
+              if (!rule) {
+                return;
+              }
+
+              if (rule.maxCount !== undefined) {
+                const current = 0;
+                const nextCount = current + 1;
+                if (nextCount > rule.maxCount) {
+                  throw new Error(String(rule.maxCount));
+                }
+              }
+            }
+          `,
+        },
+        "src/index.ts"
+      );
+
+      expect(csharp).to.include("if (nextCount > rule.maxCount.Value)");
+      expect(csharp).to.include("String(rule.maxCount.Value)");
+      expect(csharp).not.to.include("rule.maxCount.Value.Value");
     });
 
     it("keeps source-package Uint8Array length reads direct inside array-like wrappers", () => {
@@ -2094,7 +2602,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("if (chunk.Is3())");
       expect(csharp).to.include("chunk__is_1.length");
       expect(csharp).to.include("chunk__is_1.at(index)");
-      expect(csharp).not.to.include("new global::js.Array<object>(chunk__is_1).length");
+      expect(csharp).not.to.include(
+        "new global::js.Array<object>(chunk__is_1).length"
+      );
     });
 
     it("lowers non-byte typed-array array-literal constructors through concrete CLR arrays", () => {
@@ -2407,6 +2917,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "return optionsOrListener.allowHalfOpen ?? false;"
       );
+      expect(csharp).not.to.include(
+        "return ((TlsOptions__Alias)optionsOrListener).allowHalfOpen ?? false;"
+      );
     });
 
     it("materializes typeof complements before later constructor arguments", () => {
@@ -2451,10 +2964,13 @@ describe("End-to-End Integration", () => {
         "if (((global::System.Object)(optionsOrListener)) != null)"
       );
       expect(csharp).to.include(
-        "return new TLSServer(optionsOrListener, secureConnectionListener ?? null);"
+        "return new TLSServer(global::Tsonic.Internal.Union<global::System.Action<TLSSocket>, TlsOptions__Alias>.From2((optionsOrListener.As2())), secureConnectionListener ?? null);"
       );
       expect(csharp).not.to.include(
         "return new TLSServer((TlsOptions__Alias)(optionsOrListener.As2()), secureConnectionListener ?? null);"
+      );
+      expect(csharp).not.to.include(
+        "return new TLSServer(optionsOrListener, secureConnectionListener ?? null);"
       );
     });
 
@@ -2498,11 +3014,74 @@ describe("End-to-End Integration", () => {
         "global::Tsonic.Internal.Union<byte[], global::js.Uint8Array, string, global::Test.Buffer>"
       );
       expect(csharp).to.include(
-        "__tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot materialize runtime union functionType to unionType\")"
+        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot materialize runtime union functionType to unionType")'
       );
       expect(csharp).not.to.include(
         "var value = (global::Tsonic.Internal.Union<byte[], global::js.Uint8Array, string, global::Test.Buffer>)chunkOrCallback;"
       );
+    });
+
+    it("tightens sequential typeof-plus-undefined ternary locals before storage reuse", () => {
+      const csharp = compileToCSharp(
+        `
+          type Locals = {
+            readonly name: string;
+          };
+
+          type RenderCallback = (error: object | undefined, html: string) => void;
+
+          export function render(
+            localsOrCallback?: Locals | RenderCallback,
+            maybeCallback?: RenderCallback,
+          ): void {
+            const locals =
+              typeof localsOrCallback === "function" ||
+              localsOrCallback === undefined
+                ? { name: "fallback" }
+                : localsOrCallback;
+            const callback =
+              typeof localsOrCallback === "function"
+                ? localsOrCallback
+                : maybeCallback;
+            callback?.(undefined, locals.name);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("var locals =");
+      expect(csharp).to.match(
+        /:\s*\(global::Test\.__Anon_[A-Za-z0-9_]+\)\(localsOrCallback\.As2\(\)\);/
+      );
+      expect(csharp).not.to.include("localsOrCallback == null ? default");
+      expect(csharp).not.to.match(
+        /\(\(global::System\.Object\)\(localsOrCallback\)\) == null \? default\(global::Test\.__Anon_[A-Za-z0-9_]+\)/
+      );
+    });
+
+    it("reuses ternary discriminant narrowings without rematerializing matched members", () => {
+      const csharp = compileToCSharp(
+        `
+          type Shape =
+            | { kind: "square"; side: number }
+            | { kind: "circle"; radius: number };
+
+          export function tern(s: Shape): number {
+            return s.kind === "circle" ? s.radius : 0;
+          }
+
+          export function tern2(s: Shape): number {
+            return s.kind !== "circle" ? 0 : s.radius;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("return s.Is1() ? (s.As1()).radius : 0;");
+      expect(csharp).to.include("return !s.Is1() ? 0 : (s.As1()).radius;");
+      expect(csharp).not.to.include("(s.As1()).Match<");
     });
 
     it("wraps narrowed typeof members before union-typed call arguments", () => {
@@ -2563,9 +3142,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include(
-        "encodeOutputBytes(publicKey, encoding).Match"
-      );
+      expect(csharp).to.include("encodeOutputBytes(publicKey, encoding).Match");
       expect(csharp).not.to.include(
         "global::Tsonic.Internal.Union<string, global::Uint8Array>.From1(encodeOutputBytes(publicKey, encoding))"
       );
@@ -2805,8 +3382,12 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("p.argv = default(string[]);");
-      expect(csharp).to.include("Assert.Equal((object)(double)0, (object)(double)p.argv.Length);");
-      expect(csharp).to.not.include("new global::js.Array<object>((object)p.argv).length");
+      expect(csharp).to.include(
+        "Assert.Equal((object)(double)0, (object)(double)p.argv.Length);"
+      );
+      expect(csharp).to.not.include(
+        "new global::js.Array<object>((object)p.argv).length"
+      );
     });
 
     it("erases compiler-generated structural assertion casts for nominal receivers", () => {

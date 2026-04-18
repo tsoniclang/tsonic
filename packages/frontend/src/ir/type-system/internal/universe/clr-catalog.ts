@@ -264,7 +264,10 @@ export const loadClrCatalog = (
       }
 
       for (const depName of dependencyNames) {
-        const dependencyRoot = resolveDependencyPackageRoot(resolvedRoot, depName);
+        const dependencyRoot = resolveDependencyPackageRoot(
+          resolvedRoot,
+          depName
+        );
         if (dependencyRoot) {
           visitPackageRoot(dependencyRoot, false);
         }

@@ -16,6 +16,8 @@ import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import { getSemanticUnionMembers } from "./semantic-union-members.js";
+import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import { shouldUseBroadObjectForUnionStorage } from "./storage-types.js";
 
 /**
  * Is this type a semantic union (>= 2 non-nullish members)?
@@ -46,4 +48,14 @@ export const isSemanticUnion = (
 export const willCarryAsRuntimeUnion = (
   type: IrType,
   context: EmitterContext
-): boolean => getCanonicalRuntimeUnionMembers(type, context) !== undefined;
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (
+    resolved.kind === "unionType" &&
+    shouldUseBroadObjectForUnionStorage(resolved, context)
+  ) {
+    return false;
+  }
+
+  return getCanonicalRuntimeUnionMembers(type, context) !== undefined;
+};

@@ -289,7 +289,9 @@ export const filterTypeByResolvedCandidates = (
   const kept = collectNarrowingCandidateLeaves(
     ctx.typeSystem,
     currentType
-  ).filter((candidate): candidate is IrType => !!candidate && predicate(candidate));
+  ).filter(
+    (candidate): candidate is IrType => !!candidate && predicate(candidate)
+  );
 
   if (kept.length === 0) return undefined;
   if (kept.length === 1) return kept[0];

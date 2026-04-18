@@ -27,8 +27,9 @@ const typeContainsPoison = (type: IrType | undefined): boolean => {
 
     case "functionType":
       return (
-        type.parameters.some((parameter) => typeContainsPoison(parameter.type)) ||
-        typeContainsPoison(type.returnType)
+        type.parameters.some((parameter) =>
+          typeContainsPoison(parameter.type)
+        ) || typeContainsPoison(type.returnType)
       );
 
     case "dictionaryType":
@@ -41,15 +42,17 @@ const typeContainsPoison = (type: IrType | undefined): boolean => {
       return type.types.some((member) => typeContainsPoison(member));
 
     case "referenceType":
-      return type.typeArguments?.some((arg) => typeContainsPoison(arg)) ?? false;
+      return (
+        type.typeArguments?.some((arg) => typeContainsPoison(arg)) ?? false
+      );
 
     case "objectType":
       return type.members.some((member) =>
         member.kind === "propertySignature"
           ? typeContainsPoison(member.type)
           : member.parameters.some((parameter) =>
-                typeContainsPoison(parameter.type)
-              ) || typeContainsPoison(member.returnType)
+              typeContainsPoison(parameter.type)
+            ) || typeContainsPoison(member.returnType)
       );
 
     case "primitiveType":

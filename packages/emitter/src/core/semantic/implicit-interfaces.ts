@@ -68,8 +68,7 @@ const buildCanonicalInterfaceRef = (
   name,
   resolvedClrType:
     sourceRef?.typeId?.clrName ??
-    (sourceRef?.resolvedClrType &&
-    sourceRef.resolvedClrType !== sourceRef.name
+    (sourceRef?.resolvedClrType && sourceRef.resolvedClrType !== sourceRef.name
       ? sourceRef.resolvedClrType
       : undefined) ??
     `${namespace}.${name}`,
@@ -116,7 +115,9 @@ const getInterfaceCompatibilityInfo = (
   );
   const typeArguments = ref?.typeArguments ?? [];
   if (info.typeParameters.length === 0 || typeArguments.length === 0) {
-    return filteredMembers === info.members ? info : { ...info, members: filteredMembers };
+    return filteredMembers === info.members
+      ? info
+      : { ...info, members: filteredMembers };
   }
 
   return {
@@ -151,12 +152,8 @@ const typeKeyEquals = (
 };
 
 const buildCanonicalMethodTypeSubstitution = (
-  typeParameters:
-    | readonly { readonly name: string }[]
-    | undefined
-):
-  | ReadonlyMap<string, IrType>
-  | undefined => {
+  typeParameters: readonly { readonly name: string }[] | undefined
+): ReadonlyMap<string, IrType> | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
   }
@@ -175,9 +172,7 @@ const buildCanonicalMethodTypeSubstitution = (
 
 const canonicalizeMethodType = (
   type: IrType | undefined,
-  typeParameters:
-    | readonly { readonly name: string }[]
-    | undefined
+  typeParameters: readonly { readonly name: string }[] | undefined
 ): IrType | undefined => {
   const substitution = buildCanonicalMethodTypeSubstitution(typeParameters);
   if (!type || !substitution || substitution.size === 0) {
@@ -236,7 +231,11 @@ const findCompatibleMethod = (
 
     const memberTypeParameters = member.typeParameters;
     let parametersMatch = true;
-    for (let paramIndex = 0; paramIndex < member.parameters.length; paramIndex += 1) {
+    for (
+      let paramIndex = 0;
+      paramIndex < member.parameters.length;
+      paramIndex += 1
+    ) {
       const sourceParam = member.parameters[paramIndex];
       const targetParam = target.parameters[paramIndex];
       if (!sourceParam || !targetParam) {
@@ -270,7 +269,10 @@ const findCompatibleMethod = (
 
     if (
       !typeKeyEquals(
-        canonicalizeMethodType(member.returnType ?? VOID_TYPE, memberTypeParameters),
+        canonicalizeMethodType(
+          member.returnType ?? VOID_TYPE,
+          memberTypeParameters
+        ),
         targetReturnType
       )
     ) {
@@ -365,7 +367,10 @@ const resolveExplicitInterfaceMatches = (
     if (!resolved || resolved.info.kind !== "interface") continue;
 
     const name = getReferenceLeafName(impl);
-    const compatibilityInfo = getInterfaceCompatibilityInfo(resolved.info, impl);
+    const compatibilityInfo = getInterfaceCompatibilityInfo(
+      resolved.info,
+      impl
+    );
     const matches = collectCompatibleMembers(classInfo, compatibilityInfo);
     if (!matches) continue;
 

@@ -5,16 +5,12 @@
  * comparison logic and the normalizeStructuralEmissionType deep walker.
  */
 
-import type {
-  IrType,
-} from "@tsonic/frontend";
+import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveTypeAlias, stripNullish } from "./nullish-value-helpers.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 
-const isCompilerGeneratedStructuralName = (
-  name: string | undefined
-): boolean =>
+const isCompilerGeneratedStructuralName = (name: string | undefined): boolean =>
   !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
 
 export const isCompilerGeneratedStructuralReferenceType = (
@@ -60,9 +56,7 @@ const tryResolveIteratorResultVariant = (
   }
 
   const properties = members.filter(
-    (
-      member
-    ): member is Extract<typeof member, { kind: "propertySignature" }> =>
+    (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
       member.kind === "propertySignature"
   );
   if (properties.length !== 2) {
@@ -104,7 +98,9 @@ export const resolveIteratorResultReferenceType = (
 
   const variants = resolved.types
     .map((member) => tryResolveIteratorResultVariant(member, context))
-    .filter((variant): variant is IteratorResultVariant => variant !== undefined);
+    .filter(
+      (variant): variant is IteratorResultVariant => variant !== undefined
+    );
   if (variants.length !== 2) {
     return undefined;
   }

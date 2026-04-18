@@ -110,7 +110,12 @@ describe("IR Builder", function () {
       if (!bodyDeclaration) return;
 
       const exportDeclaration = result.value.exports.find(
-        (entry): entry is { kind: "declaration"; declaration: IrVariableDeclaration } =>
+        (
+          entry
+        ): entry is {
+          kind: "declaration";
+          declaration: IrVariableDeclaration;
+        } =>
           entry.kind === "declaration" &&
           entry.declaration.kind === "variableDeclaration"
       );
@@ -266,7 +271,10 @@ describe("IR Builder", function () {
       if (!numeric.ok) return;
 
       const refreshCtx = createProgramContext(testProgram, options);
-      const refreshed = runCallResolutionRefreshPass(numeric.modules, refreshCtx);
+      const refreshed = runCallResolutionRefreshPass(
+        numeric.modules,
+        refreshCtx
+      );
       const refreshedClass = refreshed.modules[0]?.body.find(
         (stmt): stmt is IrClassDeclaration =>
           stmt.kind === "classDeclaration" && stmt.name === "Derived"
@@ -304,6 +312,5 @@ describe("IR Builder", function () {
       const refreshedSoundness = validateIrSoundness(refreshed.modules);
       expect(refreshedSoundness.ok).to.equal(true);
     });
-
   });
 });

@@ -7,6 +7,7 @@
  */
 
 import { tsbindgenClrTypeNameToTsTypeName } from "../tsbindgen/names.js";
+// eslint-disable-next-line no-restricted-imports -- binding loader needs the raw CLR signature parser during manifest ingestion.
 import { parseMethodSignature } from "../ir/type-system/internal/universe/clr-raw-converter.js";
 import type {
   MemberBinding,
@@ -230,11 +231,7 @@ const mergeNamespaceBinding = (
     }
     mergedTypes.set(
       type.alias,
-      mergeTypeBinding(
-        mergedTypes.get(type.alias),
-        type,
-        `${incoming.alias}`
-      )
+      mergeTypeBinding(mergedTypes.get(type.alias), type, `${incoming.alias}`)
     );
   }
 
@@ -335,7 +332,8 @@ const remapRegisteredTypeAlias = (
 
   const clrNames = state.clrTypeNamesByAlias.get(fromAlias);
   if (clrNames) {
-    const destinationNames = state.clrTypeNamesByAlias.get(toAlias) ?? new Set();
+    const destinationNames =
+      state.clrTypeNamesByAlias.get(toAlias) ?? new Set();
     for (const clrName of clrNames) {
       destinationNames.add(clrName);
     }
@@ -351,7 +349,9 @@ const remapRegisteredTypeAlias = (
     );
     state.tsBaseTypes.delete(fromAlias);
   }
-  for (const [typeAlias, baseAlias] of Array.from(state.tsBaseTypes.entries())) {
+  for (const [typeAlias, baseAlias] of Array.from(
+    state.tsBaseTypes.entries()
+  )) {
     if (baseAlias === fromAlias) {
       state.tsBaseTypes.set(typeAlias, toAlias);
     }
@@ -369,7 +369,9 @@ const remapRegisteredTypeAlias = (
     );
     state.tsSupertypes.delete(fromAlias);
   }
-  for (const [typeAlias, supertypes] of Array.from(state.tsSupertypes.entries())) {
+  for (const [typeAlias, supertypes] of Array.from(
+    state.tsSupertypes.entries()
+  )) {
     if (!supertypes.has(fromAlias)) {
       continue;
     }
@@ -406,7 +408,9 @@ const remapRegisteredTypeAlias = (
     }
   }
 
-  for (const [namespaceAlias, namespace] of Array.from(state.namespaces.entries())) {
+  for (const [namespaceAlias, namespace] of Array.from(
+    state.namespaces.entries()
+  )) {
     let changed = false;
     const remappedTypes = namespace.types.map((type) => {
       if (type.alias !== fromAlias || type.name !== expectedTypeName) {
@@ -438,7 +442,8 @@ const remapRegisteredTypeAlias = (
         const serialized = stableSerialize(overload);
         if (
           !existingOverloads.some(
-            (candidate: MemberBinding) => stableSerialize(candidate) === serialized
+            (candidate: MemberBinding) =>
+              stableSerialize(candidate) === serialized
           )
         ) {
           existingOverloads.push(overload);
@@ -477,9 +482,14 @@ const canonicalizeTypeBinding = (
           };
     }
 
-    const existingQualifiedAlias = getQualifiedTypeAlias(namespaceName, existing);
+    const existingQualifiedAlias = getQualifiedTypeAlias(
+      namespaceName,
+      existing
+    );
     if (existingQualifiedAlias === existing.alias) {
-      throw new Error(`Conflicting type binding for ${namespaceName}:${type.alias}`);
+      throw new Error(
+        `Conflicting type binding for ${namespaceName}:${type.alias}`
+      );
     }
 
     remapRegisteredTypeAlias(
@@ -513,12 +523,17 @@ const throwOnExplicitAliasConflict = (
     return;
   }
 
-  const existingNamespace = extractNamespaceKey(existing.name)?.replace(/_/g, ".");
+  const existingNamespace = extractNamespaceKey(existing.name)?.replace(
+    /_/g,
+    "."
+  );
   if (existingNamespace !== namespaceName) {
     return;
   }
 
-  throw new Error(`Conflicting type binding for ${namespaceName}:${type.alias}`);
+  throw new Error(
+    `Conflicting type binding for ${namespaceName}:${type.alias}`
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -545,7 +560,9 @@ export const addBindingsToState = (
   const addMemberOverload = (key: string, member: MemberBinding): void => {
     const existing = state.memberOverloads.get(key) ?? [];
     const serialized = stableSerialize(member);
-    if (existing.some((candidate) => stableSerialize(candidate) === serialized)) {
+    if (
+      existing.some((candidate) => stableSerialize(candidate) === serialized)
+    ) {
       return;
     }
     existing.push(member);
@@ -562,7 +579,9 @@ export const addBindingsToState = (
     );
     const existing = state.clrMemberOverloads.get(clrTargetKey) ?? [];
     const serialized = stableSerialize(member);
-    if (existing.some((candidate) => stableSerialize(candidate) === serialized)) {
+    if (
+      existing.some((candidate) => stableSerialize(candidate) === serialized)
+    ) {
       return;
     }
     existing.push(member);

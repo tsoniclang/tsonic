@@ -111,7 +111,10 @@ tsonic restore
 ```
 
 ```ts
-import { DbContext, DbSet } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
+import {
+  DbContext,
+  DbSet,
+} from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
 import { SqliteDbContextOptionsBuilderExtensions } from "@tsonic/efcore-sqlite/Microsoft.EntityFrameworkCore.js";
 
 export class TodoItem {

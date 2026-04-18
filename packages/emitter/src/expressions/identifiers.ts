@@ -18,6 +18,7 @@ import type {
 } from "../core/format/backend-ast/types.js";
 import {
   buildRuntimeSubsetExpressionAst,
+  tryEmitExactStorageCompatibleNarrowedIdentifier,
   isBroadStorageTarget,
   tryEmitCollapsedStorageIdentifier,
   tryEmitImplicitNarrowedStorageIdentifier,
@@ -107,13 +108,28 @@ export const emitIdentifier = (
           context,
         ];
       } else if (narrowed.kind === "expr") {
+        const exactStorageCompatible =
+          tryEmitExactStorageCompatibleNarrowedIdentifier(
+            expr,
+            narrowed,
+            context,
+            expectedType
+          );
+        if (exactStorageCompatible) {
+          return exactStorageCompatible;
+        }
+
         const storageCompatible = tryEmitStorageCompatibleNarrowedIdentifier(
           expr,
           narrowed,
           context,
           expectedType
         );
-        if (storageCompatible) {
+        if (
+          storageCompatible &&
+          expectedType &&
+          isBroadStorageTarget(expectedType, context)
+        ) {
           return storageCompatible;
         }
 
@@ -124,6 +140,10 @@ export const emitIdentifier = (
         );
         if (materializedNarrowed) {
           return materializedNarrowed;
+        }
+
+        if (storageCompatible) {
+          return storageCompatible;
         }
 
         const implicitStorage = tryEmitImplicitNarrowedStorageIdentifier(

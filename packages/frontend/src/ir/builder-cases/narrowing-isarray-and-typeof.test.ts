@@ -324,7 +324,10 @@ describe("IR Builder", function () {
         );
 
         expect(mountsInit.targetType?.kind).to.equal("arrayType");
-        if (!mountsInit.targetType || mountsInit.targetType.kind !== "arrayType") {
+        if (
+          !mountsInit.targetType ||
+          mountsInit.targetType.kind !== "arrayType"
+        ) {
           return;
         }
         expect(mountsInit.targetType.elementType.kind).to.equal("unknownType");
@@ -434,7 +437,9 @@ describe("IR Builder", function () {
         if (!result.ok) return;
 
         const aliasDecl = result.value.body.find(
-          (stmt): stmt is Extract<typeof stmt, { kind: "typeAliasDeclaration" }> =>
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "typeAliasDeclaration" }> =>
             stmt.kind === "typeAliasDeclaration" &&
             stmt.name === "MkdirOptionsLike"
         );
@@ -486,7 +491,11 @@ describe("IR Builder", function () {
         if (optionalRead.object.inferredType?.kind !== "unionType") return;
         expect(
           optionalRead.object.inferredType.types.map((member) =>
-            member.kind === "primitiveType" ? member.name : member.kind === "referenceType" ? member.name : member.kind
+            member.kind === "primitiveType"
+              ? member.name
+              : member.kind === "referenceType"
+                ? member.name
+                : member.kind
           )
         ).to.deep.equal(["undefined", "MkdirOptions"]);
       } finally {
@@ -741,13 +750,20 @@ describe("IR Builder", function () {
 
         const fromNonString = bufferClass.members.find(
           (member): member is IrMethodDeclaration =>
-            member.kind === "methodDeclaration" && member.name === "fromNonString"
+            member.kind === "methodDeclaration" &&
+            member.name === "fromNonString"
         );
         expect(fromNonString).to.not.equal(undefined);
         if (!fromNonString?.body) return;
 
         const predicateIf = fromNonString.body.statements.find(
-          (stmt, index): stmt is Extract<typeof fromNonString.body.statements[number], { kind: "ifStatement" }> =>
+          (
+            stmt,
+            index
+          ): stmt is Extract<
+            (typeof fromNonString.body.statements)[number],
+            { kind: "ifStatement" }
+          > =>
             index > 0 &&
             stmt.kind === "ifStatement" &&
             stmt.condition.kind === "call" &&
@@ -763,7 +779,11 @@ describe("IR Builder", function () {
         expect(parameterType.types).to.have.length(3);
         expect(
           parameterType.types.map((member) =>
-            member.kind === "referenceType" ? member.name : member.kind === "arrayType" ? "array" : member.kind
+            member.kind === "referenceType"
+              ? member.name
+              : member.kind === "arrayType"
+                ? "array"
+                : member.kind
           )
         ).to.deep.equal(["array", "Buffer", "Uint8Array"]);
       } finally {

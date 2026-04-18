@@ -134,34 +134,34 @@ export const emitFunctionDeclarationAst = (
       }
       returnTypeAst = generatorReturnTypeAst;
     } else {
-    const exchangeType = identifierType(
-      `${csharpBaseName}_exchange`,
-      generatorHelperTypeArguments.length > 0
-        ? generatorHelperTypeArguments
-        : undefined
-    );
-    const wrapperType = identifierType(
-      `${csharpBaseName}_Generator`,
-      generatorHelperTypeArguments.length > 0
-        ? generatorHelperTypeArguments
-        : undefined
-    );
-    if (isBidirectional) {
-      returnTypeAst = wrapperType;
-    } else {
-      if (stmt.isAsync) {
-        modifiers.push("async");
-        returnTypeAst = identifierType(
-          "global::System.Collections.Generic.IAsyncEnumerable",
-          [exchangeType]
-        );
+      const exchangeType = identifierType(
+        `${csharpBaseName}_exchange`,
+        generatorHelperTypeArguments.length > 0
+          ? generatorHelperTypeArguments
+          : undefined
+      );
+      const wrapperType = identifierType(
+        `${csharpBaseName}_Generator`,
+        generatorHelperTypeArguments.length > 0
+          ? generatorHelperTypeArguments
+          : undefined
+      );
+      if (isBidirectional) {
+        returnTypeAst = wrapperType;
       } else {
-        returnTypeAst = identifierType(
-          "global::System.Collections.Generic.IEnumerable",
-          [exchangeType]
-        );
+        if (stmt.isAsync) {
+          modifiers.push("async");
+          returnTypeAst = identifierType(
+            "global::System.Collections.Generic.IAsyncEnumerable",
+            [exchangeType]
+          );
+        } else {
+          returnTypeAst = identifierType(
+            "global::System.Collections.Generic.IEnumerable",
+            [exchangeType]
+          );
+        }
       }
-    }
     }
   } else if (stmt.returnType) {
     const [retAst, retCtx] = emitTypeAst(stmt.returnType, currentContext);
@@ -431,8 +431,8 @@ export const emitFunctionDeclarationAst = (
 
   finalBodyStatements.push(...bodyBlock.statements);
 
-  const wrapperFns: CSharpStatementAst[] = paramsResult.wrapperPrefixLengths.map(
-    (prefixLength) => {
+  const wrapperFns: CSharpStatementAst[] =
+    paramsResult.wrapperPrefixLengths.map((prefixLength) => {
       const invocation: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
@@ -459,10 +459,12 @@ export const emitFunctionDeclarationAst = (
         returnType: returnTypeAst,
         name: emittedName,
         typeParameters: typeParamNames,
-        parameters: paramsResult.paramAsts.slice(0, prefixLength).map((param) => ({
-          ...param,
-          defaultValue: undefined,
-        })),
+        parameters: paramsResult.paramAsts
+          .slice(0, prefixLength)
+          .map((param) => ({
+            ...param,
+            defaultValue: undefined,
+          })),
         body: {
           kind: "blockStatement",
           statements: isVoidReturnType(returnTypeAst)
@@ -470,8 +472,7 @@ export const emitFunctionDeclarationAst = (
             : [{ kind: "returnStatement", expression: invocation }],
         },
       };
-    }
-  );
+    });
 
   const localFn: CSharpStatementAst = {
     kind: "localFunctionStatement",

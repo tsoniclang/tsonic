@@ -107,10 +107,13 @@ export const tryEmitPropertyTruthinessGuard = (
       ];
     }
 
-    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
-      ...basePostConditionContext,
-      narrowedBindings: ctxWithId.narrowedBindings,
-    });
+    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(
+      stmt.elseStatement,
+      {
+        ...basePostConditionContext,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      }
+    );
     elseStmt = wrapInBlock(elseStmts);
     finalContext = {
       ...elseCtx,
@@ -238,10 +241,13 @@ export const tryEmitDiscriminantEqualityGuard = (
         ];
       }
 
-      const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
-        ...basePostConditionContext,
-        narrowedBindings: ctxWithId.narrowedBindings,
-      });
+      const [elseStmts, elseCtx] = emitBranchScopedStatementAst(
+        stmt.elseStatement,
+        {
+          ...basePostConditionContext,
+          narrowedBindings: ctxWithId.narrowedBindings,
+        }
+      );
       elseStmt = wrapInBlock(elseStmts);
       finalContext = {
         ...elseCtx,
@@ -299,17 +305,20 @@ export const tryEmitDiscriminantEqualityGuard = (
     let thenCtx: EmitterContext;
 
     if (unionArity === 2) {
-      const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(stmt.thenStatement, {
-        ...withComplementNarrowing(
-          originalName,
-          escapedOrig,
-          runtimeUnionArity,
-          candidateMemberNs,
-          candidateMembers,
-          memberN,
-          ctxWithId
-        ),
-      });
+      const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
+        stmt.thenStatement,
+        {
+          ...withComplementNarrowing(
+            originalName,
+            escapedOrig,
+            runtimeUnionArity,
+            candidateMemberNs,
+            candidateMembers,
+            memberN,
+            ctxWithId
+          ),
+        }
+      );
       thenStmt = wrapInBlock(thenStmts);
       thenCtx = thenCtxAfter;
     } else {

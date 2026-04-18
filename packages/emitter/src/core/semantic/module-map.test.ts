@@ -489,7 +489,9 @@ describe("Module Map", () => {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.get("src/index")?.publicLocalTypes?.has("MiddlewareLike")).to.equal(true);
+      expect(
+        result.value.get("src/index")?.publicLocalTypes?.has("MiddlewareLike")
+      ).to.equal(true);
     });
   });
 });

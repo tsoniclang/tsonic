@@ -111,7 +111,8 @@ const convertFunctionTypeParameters = (
       : undefined,
     variance: undefined,
     isStructuralConstraint:
-      !!typeParameter.constraint && ts.isTypeLiteralNode(typeParameter.constraint),
+      !!typeParameter.constraint &&
+      ts.isTypeLiteralNode(typeParameter.constraint),
     structuralMembers: undefined,
   }));
 };

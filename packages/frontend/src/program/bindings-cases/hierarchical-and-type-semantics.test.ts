@@ -186,7 +186,8 @@ describe("Binding System", () => {
         namespace: "Microsoft.EntityFrameworkCore",
         types: [
           {
-            clrName: "Microsoft.EntityFrameworkCore.SqliteDbContextOptionsBuilderExtensions",
+            clrName:
+              "Microsoft.EntityFrameworkCore.SqliteDbContextOptionsBuilderExtensions",
             assemblyName: "Microsoft.EntityFrameworkCore.Sqlite",
             kind: "Class",
             methods: [],
@@ -419,9 +420,7 @@ describe("Binding System", () => {
       });
 
       const emitterTypes = registry.getEmitterTypeMap();
-      expect(emitterTypes.get("Uint8Array")?.name).to.equal(
-        "js.Uint8Array"
-      );
+      expect(emitterTypes.get("Uint8Array")?.name).to.equal("js.Uint8Array");
       expect(emitterTypes.has("Uint8ArrayConstructor")).to.equal(false);
     });
 

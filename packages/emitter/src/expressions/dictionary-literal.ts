@@ -16,6 +16,7 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+import { buildInvokedLambdaExpressionAst } from "./invoked-lambda.js";
 import {
   emitObjectMemberName,
   isDictionaryLikeSpreadType,
@@ -184,33 +185,15 @@ export const emitDictionaryLiteralWithSpreads = (
     expression: { kind: "identifierExpression", identifier: "__tmp" },
   });
 
-  const funcTypeAst: CSharpTypeAst = identifierType("global::System.Func", [
-    dictTypeAst,
-  ]);
-  const lambdaAst: CSharpExpressionAst = {
-    kind: "lambdaExpression",
-    isAsync: false,
-    parameters: [],
-    body: { kind: "blockStatement", statements: bodyStatements },
-  };
-  const castAst: CSharpExpressionAst = {
-    kind: "castExpression",
-    type: funcTypeAst,
-    expression: {
-      kind: "parenthesizedExpression",
-      expression: lambdaAst,
-    },
-  };
-
   return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "parenthesizedExpression",
-        expression: castAst,
-      },
+    buildInvokedLambdaExpressionAst({
+      parameters: [],
+      parameterTypes: [],
+      body: { kind: "blockStatement", statements: bodyStatements },
       arguments: [],
-    },
+      returnType: dictTypeAst,
+      context: currentContext,
+    }),
     currentContext,
   ];
 };

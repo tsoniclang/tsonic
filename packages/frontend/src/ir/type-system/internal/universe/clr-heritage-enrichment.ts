@@ -52,8 +52,7 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
     }
 
     for (const [tsName, memberTypes] of info.memberTypesByTsName) {
-      const merged =
-        mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
+      const merged = mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
       for (const [memberName, type] of memberTypes) {
         if (!merged.has(memberName)) {
           merged.set(memberName, type);

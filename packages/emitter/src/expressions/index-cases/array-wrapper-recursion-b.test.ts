@@ -387,7 +387,11 @@ describe("Expression Emission", () => {
     });
 
     const text = normalizeRuntimeUnionCarrierNames(printExpression(result));
-    expect(text).to.include("global::Tsonic.Internal.ArrayInterop.WrapArray(result)");
-    expect(text).to.not.include("new global::js.Array<global::Tsonic.Internal.Union");
+    expect(text).to.include(
+      "global::Tsonic.Internal.ArrayInterop.WrapArray(result)"
+    );
+    expect(text).to.not.include(
+      "new global::js.Array<global::Tsonic.Internal.Union"
+    );
   });
 });

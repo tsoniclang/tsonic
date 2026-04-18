@@ -143,7 +143,9 @@ export const resolveHeritageTypeName = (
   sourceRoot: string,
   rootNamespace: string
 ): string | undefined => {
-  const isDeclaredInGlobalBlock = (decl: ts.Declaration | undefined): boolean => {
+  const isDeclaredInGlobalBlock = (
+    decl: ts.Declaration | undefined
+  ): boolean => {
     let current: ts.Node | undefined = decl;
     while (current) {
       if (
@@ -209,12 +211,12 @@ export const resolveHeritageTypeName = (
   // Source-authored types use namespace-based FQ names.
   const ns =
     sourceFile && !sourceFile.isDeclarationFile
-      ? resolveContainingSourcePackageNamespace(sourceFile.fileName) ??
+      ? (resolveContainingSourcePackageNamespace(sourceFile.fileName) ??
         resolveSourceFileNamespace(
           sourceFile.fileName,
           sourceRoot,
           rootNamespace
-        )
+        ))
       : undefined;
 
   return ns ? `${ns}.${simpleName}` : simpleName;

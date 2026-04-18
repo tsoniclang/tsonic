@@ -19,8 +19,9 @@ const hasDefaultModifier = (node: ts.Node): boolean => {
   }
   const modifiers = ts.getModifiers(node);
   return (
-    modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ??
-    false
+    modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword
+    ) ?? false
   );
 };
 

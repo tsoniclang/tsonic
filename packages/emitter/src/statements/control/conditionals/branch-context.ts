@@ -78,7 +78,9 @@ const getBindingCarrierAst = (
 
   switch (binding.kind) {
     case "expr":
-      return binding.carrierExprAst ?? binding.storageExprAst ?? binding.exprAst;
+      return (
+        binding.carrierExprAst ?? binding.storageExprAst ?? binding.exprAst
+      );
     case "runtimeSubset":
       return binding.storageExprAst;
     case "rename":
@@ -106,8 +108,7 @@ const getBindingStorageType = (
 const sameCarrierAst = (
   left: CSharpExpressionAst | undefined,
   right: CSharpExpressionAst | undefined
-): boolean =>
-  !left || !right || JSON.stringify(left) === JSON.stringify(right);
+): boolean => !left || !right || JSON.stringify(left) === JSON.stringify(right);
 
 const mergeJoinedBinding = (
   baseBinding: NarrowedBinding | undefined,
@@ -116,9 +117,11 @@ const mergeJoinedBinding = (
   context: EmitterContext
 ): [NarrowedBinding | undefined, EmitterContext] => {
   const preferredType =
-    getBindingEffectiveType(preferredBinding) ?? getBindingEffectiveType(baseBinding);
+    getBindingEffectiveType(preferredBinding) ??
+    getBindingEffectiveType(baseBinding);
   const alternateType =
-    getBindingEffectiveType(alternateBinding) ?? getBindingEffectiveType(baseBinding);
+    getBindingEffectiveType(alternateBinding) ??
+    getBindingEffectiveType(baseBinding);
   if (!preferredType || !alternateType) {
     return [baseBinding, context];
   }
@@ -151,7 +154,8 @@ const mergeJoinedBinding = (
 
   const mergedStorageType =
     joinTypes(
-      getBindingStorageType(preferredBinding) ?? getBindingStorageType(baseBinding),
+      getBindingStorageType(preferredBinding) ??
+        getBindingStorageType(baseBinding),
       getBindingStorageType(alternateBinding) ??
         getBindingStorageType(baseBinding)
     ) ?? mergedSourceType;
@@ -698,13 +702,13 @@ export const emitBranchScopedStatementAst = (
     emittedStatements = flattenedStatements;
     innerContext = currentContext;
   } else {
-    [emittedStatements, innerContext] = emitStatementAst(bodyStmt, scopedContext);
+    [emittedStatements, innerContext] = emitStatementAst(
+      bodyStmt,
+      scopedContext
+    );
   }
 
-  return [
-    emittedStatements,
-    restoreEscapedBranchScope(bodyCtx, innerContext),
-  ];
+  return [emittedStatements, restoreEscapedBranchScope(bodyCtx, innerContext)];
 };
 
 /**

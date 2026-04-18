@@ -27,7 +27,9 @@ describe("resolveDependencyPackageRoot", () => {
 
     try {
       const packageRoot = fixture.path("app/node_modules/@tsonic/globals");
-      const installedDotnetRoot = fixture.path("app/node_modules/@tsonic/dotnet");
+      const installedDotnetRoot = fixture.path(
+        "app/node_modules/@tsonic/dotnet"
+      );
 
       expect(
         resolveDependencyPackageRoot(packageRoot, "@tsonic/dotnet")
@@ -67,7 +69,9 @@ describe("resolveDependencyPackageRoot", () => {
 
     try {
       const projectRoot = fixture.path("workspace/packages/app");
-      const installedNodejsRoot = fixture.path("workspace/node_modules/@tsonic/nodejs");
+      const installedNodejsRoot = fixture.path(
+        "workspace/node_modules/@tsonic/nodejs"
+      );
 
       expect(
         resolveDependencyPackageRoot(
@@ -110,7 +114,9 @@ describe("resolveDependencyPackageRoot", () => {
     );
 
     try {
-      const installedNodejsRoot = fixture.path("consumer/node_modules/@tsonic/nodejs");
+      const installedNodejsRoot = fixture.path(
+        "consumer/node_modules/@tsonic/nodejs"
+      );
       const jsSiblingRoot = fixture.path("workspace/js-next/versions/10");
 
       expect(
@@ -134,10 +140,18 @@ describe("resolveDependencyPackageRoot", () => {
       process.chdir(projectRoot);
 
       expect(
-        resolveDependencyPackageRoot(projectRoot, "node:http", "installed-first")
+        resolveDependencyPackageRoot(
+          projectRoot,
+          "node:http",
+          "installed-first"
+        )
       ).to.equal(undefined);
       expect(
-        resolveDependencyPackageRoot(projectRoot, "node:path", "installed-first")
+        resolveDependencyPackageRoot(
+          projectRoot,
+          "node:path",
+          "installed-first"
+        )
       ).to.equal(undefined);
       expect(
         resolveDependencyPackageRoot(projectRoot, "node:fs", "installed-first")

@@ -195,7 +195,9 @@ const isSameTypeForNullableUnwrap = (
 const astAlreadyCastsToConcreteValueType = (
   ast: CSharpExpressionAst
 ): boolean => {
-  const isConcreteValueTypeAst = (targetAst: ReturnType<typeof stripNullableTypeAst>): boolean => {
+  const isConcreteValueTypeAst = (
+    targetAst: ReturnType<typeof stripNullableTypeAst>
+  ): boolean => {
     if (targetAst.kind === "predefinedType") {
       return (
         targetAst.keyword === "int" ||
@@ -250,7 +252,10 @@ const astAlreadyCastsToConcreteValueType = (
     case "asExpression":
       return isConcreteValueTypeAst(stripNullableTypeAst(ast.type));
     case "defaultExpression":
-      return ast.type !== undefined && isConcreteValueTypeAst(stripNullableTypeAst(ast.type));
+      return (
+        ast.type !== undefined &&
+        isConcreteValueTypeAst(stripNullableTypeAst(ast.type))
+      );
     case "objectCreationExpression":
       return isConcreteValueTypeAst(stripNullableTypeAst(ast.type));
     case "conditionalExpression":
@@ -436,7 +441,10 @@ const isNumericSourceIrType = (
   if (!type) return false;
   const resolved = resolveTypeAlias(stripNullish(type), context);
   if (resolved.kind === "typeParameterType") {
-    return (context.typeParamConstraints?.get(resolved.name) ?? "unconstrained") === "numeric";
+    return (
+      (context.typeParamConstraints?.get(resolved.name) ?? "unconstrained") ===
+      "numeric"
+    );
   }
   return (
     (resolved.kind === "primitiveType" &&
@@ -584,7 +592,10 @@ const canSkipSameFamilyIntegralCast = (
     return false;
   }
 
-  return hasRuntimeNullishSurface(actualType) === hasRuntimeNullishSurface(expectedType);
+  return (
+    hasRuntimeNullishSurface(actualType) ===
+    hasRuntimeNullishSurface(expectedType)
+  );
 };
 
 const maybeConvertNumericTypeParamToExpectedNumericAst = (
@@ -601,8 +612,8 @@ const maybeConvertNumericTypeParamToExpectedNumericAst = (
   }
 
   if (
-    (context.typeParamConstraints?.get(resolvedActual.name) ?? "unconstrained") !==
-    "numeric"
+    (context.typeParamConstraints?.get(resolvedActual.name) ??
+      "unconstrained") !== "numeric"
   ) {
     return [ast, context];
   }
@@ -611,7 +622,10 @@ const maybeConvertNumericTypeParamToExpectedNumericAst = (
     return [ast, context];
   }
 
-  const targetFactoryType = resolveNumericFactoryTypeName(expectedType, context);
+  const targetFactoryType = resolveNumericFactoryTypeName(
+    expectedType,
+    context
+  );
   if (!targetFactoryType) {
     return [ast, context];
   }
@@ -831,7 +845,10 @@ export const maybeCastNumericToExpectedIntegralAst = (
   if (!expectedType || !actualType) return [ast, context];
   if (!isExpectedIntegralIrType(expectedType, context)) return [ast, context];
   if (!isNumericSourceIrType(actualType, context)) return [ast, context];
-  const actualNumericTypeName = resolveNumericFactoryTypeName(actualType, context);
+  const actualNumericTypeName = resolveNumericFactoryTypeName(
+    actualType,
+    context
+  );
   const expectedNumericTypeName = resolveNumericFactoryTypeName(
     expectedType,
     context

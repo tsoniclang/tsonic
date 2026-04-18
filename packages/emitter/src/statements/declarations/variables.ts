@@ -44,7 +44,10 @@ const registerConditionAlias = (
   originalName: string,
   declarationKind: "const" | "let" | "var",
   initializer: Extract<
-    Extract<IrStatement, { kind: "variableDeclaration" }>["declarations"][number],
+    Extract<
+      IrStatement,
+      { kind: "variableDeclaration" }
+    >["declarations"][number],
     { kind: "variableDeclarator" }
   >["initializer"],
   context: EmitterContext

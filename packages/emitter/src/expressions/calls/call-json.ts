@@ -271,7 +271,9 @@ const emitGlobalJsonCall = (
 
   const deserializeTarget =
     expr.typeArguments?.[0] ??
-    (isConcreteGlobalJsonParseTarget(expectedType) ? expectedType : undefined) ??
+    (isConcreteGlobalJsonParseTarget(expectedType)
+      ? expectedType
+      : undefined) ??
     (isConcreteGlobalJsonParseTarget(expr.inferredType)
       ? expr.inferredType
       : undefined);
@@ -288,7 +290,4 @@ const emitGlobalJsonCall = (
   return emitRuntimeJsonParseCall(expr, context);
 };
 
-export {
-  emitJsonSerializerCall,
-  emitGlobalJsonCall,
-};
+export { emitJsonSerializerCall, emitGlobalJsonCall };

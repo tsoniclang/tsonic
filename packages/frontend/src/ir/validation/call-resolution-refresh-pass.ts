@@ -1,9 +1,5 @@
 import type { ProgramContext } from "../program-context.js";
-import {
-  IrExpression,
-  IrModule,
-  IrStatement,
-} from "../types.js";
+import { IrExpression, IrModule, IrStatement } from "../types.js";
 import {
   collectResolutionArguments,
   resolveCallableCandidate,
@@ -39,16 +35,39 @@ const preserveResolvedReturnType = (
     return current;
   }
 
-  if (
-    hasDeclaredReturnType === false &&
-    current &&
-    next &&
-    nextIsBroadOrVoid
-  ) {
+  if (hasDeclaredReturnType === false && current && next && nextIsBroadOrVoid) {
     return current;
   }
 
   return next ?? current;
+};
+
+const preserveConcreteRefreshExpectedType = (
+  current: IrExpression["inferredType"],
+  explicitExpected: IrExpression["inferredType"] | undefined,
+  sourceBackedReturnType: IrExpression["inferredType"] | undefined
+): IrExpression["inferredType"] => {
+  if (explicitExpected) {
+    return explicitExpected;
+  }
+
+  const concreteCurrent =
+    current &&
+    current.kind !== "voidType" &&
+    current.kind !== "unknownType" &&
+    current.kind !== "anyType"
+      ? current
+      : undefined;
+  if (concreteCurrent) {
+    return concreteCurrent;
+  }
+
+  return sourceBackedReturnType &&
+    sourceBackedReturnType.kind !== "voidType" &&
+    sourceBackedReturnType.kind !== "unknownType" &&
+    sourceBackedReturnType.kind !== "anyType"
+    ? sourceBackedReturnType
+    : explicitExpected;
 };
 
 const refreshSpreadArgument = (
@@ -130,7 +149,9 @@ const refreshExpression = (
         {
           argumentCount,
           receiverType:
-            callee.kind === "memberAccess" ? callee.object.inferredType : undefined,
+            callee.kind === "memberAccess"
+              ? callee.object.inferredType
+              : undefined,
           explicitTypeArgs: expr.typeArguments,
           argTypes,
           expectedReturnType: expr.resolutionExpectedReturnType,
@@ -145,8 +166,8 @@ const refreshExpression = (
       );
       const authoritativeBoundGlobalSurfaceParameterTypes =
         usesAuthoritativeSurfaceBindings
-        ? boundGlobalCallParameterTypes?.parameterTypes
-        : undefined;
+          ? boundGlobalCallParameterTypes?.parameterTypes
+          : undefined;
       const authoritativeBoundGlobalReturnType =
         usesAuthoritativeSurfaceBindings
           ? boundGlobalCallParameterTypes?.returnType
@@ -196,7 +217,9 @@ const refreshExpression = (
         ctx,
         callee,
         receiverType:
-          callee.kind === "memberAccess" ? callee.object.inferredType : undefined,
+          callee.kind === "memberAccess"
+            ? callee.object.inferredType
+            : undefined,
         callableType:
           directStructuralResolution?.callableType ??
           directCalleeResolution?.callableType ??
@@ -207,15 +230,18 @@ const refreshExpression = (
         argTypes,
         explicitTypeArgs: expr.typeArguments,
         expectedType: expr.resolutionExpectedReturnType,
-        boundGlobalParameterTypes: boundGlobalCallParameterTypes?.parameterTypes,
+        boundGlobalParameterTypes:
+          boundGlobalCallParameterTypes?.parameterTypes,
         authoritativeBoundGlobalSurfaceParameterTypes,
         authoritativeBoundGlobalReturnType,
         sourceBackedParameterTypes: expr.sourceBackedParameterTypes,
-        sourceBackedSurfaceParameterTypes: expr.sourceBackedSurfaceParameterTypes,
+        sourceBackedSurfaceParameterTypes:
+          expr.sourceBackedSurfaceParameterTypes,
         sourceBackedReturnType: expr.sourceBackedReturnType,
         ambientBoundGlobalSurfaceParameterTypes:
           preservedAmbientBoundGlobalSurfaceParameterTypes,
-        authoritativeDirectParameterTypes: authoritativeDirectCalleeParameterTypes,
+        authoritativeDirectParameterTypes:
+          authoritativeDirectCalleeParameterTypes,
         resolvedParameterTypes: resolved?.parameterTypes,
         resolvedSurfaceParameterTypes: resolved?.surfaceParameterTypes,
         resolvedReturnType: resolved?.returnType,
@@ -240,14 +266,14 @@ const refreshExpression = (
       });
       const refreshedRestParameter = boundGlobalCallParameterTypes
         ? boundGlobalCallParameterTypes.restParameter
-        : expr.sourceBackedRestParameter ??
+        : (expr.sourceBackedRestParameter ??
           resolved?.restParameter ??
-          expr.restParameter;
+          expr.restParameter);
       const refreshedSurfaceRestParameter = boundGlobalCallParameterTypes
         ? boundGlobalCallParameterTypes.restParameter
-        : expr.sourceBackedRestParameter ??
+        : (expr.sourceBackedRestParameter ??
           resolved?.surfaceRestParameter ??
-          expr.surfaceRestParameter;
+          expr.surfaceRestParameter);
 
       return {
         ...expr,
@@ -256,15 +282,15 @@ const refreshExpression = (
         dynamicImportNamespace,
         inferredType: preserveResolvedReturnType(
           expr.inferredType,
-          finalizedInvocationMetadata.sourceBackedReturnType ?? resolved?.returnType,
+          finalizedInvocationMetadata.sourceBackedReturnType ??
+            resolved?.returnType,
           resolved?.hasDeclaredReturnType
         ),
         parameterTypes: finalizedInvocationMetadata.parameterTypes,
-        surfaceParameterTypes: finalizedInvocationMetadata.surfaceParameterTypes,
-        restParameter:
-          refreshedRestParameter,
-        surfaceRestParameter:
-          refreshedSurfaceRestParameter,
+        surfaceParameterTypes:
+          finalizedInvocationMetadata.surfaceParameterTypes,
+        restParameter: refreshedRestParameter,
+        surfaceRestParameter: refreshedSurfaceRestParameter,
         sourceBackedParameterTypes:
           finalizedInvocationMetadata.sourceBackedParameterTypes,
         sourceBackedSurfaceParameterTypes:
@@ -300,18 +326,25 @@ const refreshExpression = (
       const argTypes = arguments_.map((argument) =>
         argument.kind === "spread" ? undefined : argument.inferredType
       );
+      const refreshedExpectedReturnType = preserveConcreteRefreshExpectedType(
+        expr.inferredType,
+        expr.resolutionExpectedReturnType,
+        expr.sourceBackedReturnType
+      );
       const resolved = ctx.typeSystem.resolveCall({
         sigId: expr.signatureId,
         argumentCount: arguments_.length,
         explicitTypeArgs: expr.typeArguments,
         argTypes,
-        expectedReturnType: expr.resolutionExpectedReturnType,
+        expectedReturnType: refreshedExpectedReturnType,
       });
       const finalizedInvocationMetadata = finalizeInvocationMetadata({
         ctx,
         callee,
         receiverType:
-          callee.kind === "memberAccess" ? callee.object.inferredType : undefined,
+          callee.kind === "memberAccess"
+            ? callee.object.inferredType
+            : undefined,
         callableType:
           callee.inferredType?.kind === "functionType"
             ? callee.inferredType
@@ -319,12 +352,13 @@ const refreshExpression = (
         argumentCount: arguments_.length,
         argTypes,
         explicitTypeArgs: expr.typeArguments,
-        expectedType: expr.resolutionExpectedReturnType,
+        expectedType: refreshedExpectedReturnType,
         boundGlobalParameterTypes: undefined,
         authoritativeBoundGlobalSurfaceParameterTypes: undefined,
         authoritativeBoundGlobalReturnType: undefined,
         sourceBackedParameterTypes: expr.sourceBackedParameterTypes,
-        sourceBackedSurfaceParameterTypes: expr.sourceBackedSurfaceParameterTypes,
+        sourceBackedSurfaceParameterTypes:
+          expr.sourceBackedSurfaceParameterTypes,
         sourceBackedReturnType: expr.sourceBackedReturnType,
         ambientBoundGlobalSurfaceParameterTypes: undefined,
         authoritativeDirectParameterTypes: undefined,
@@ -541,9 +575,7 @@ const refreshStatement = <T extends IrStatement>(
         condition: stmt.condition
           ? refreshExpression(stmt.condition, ctx)
           : undefined,
-        update: stmt.update
-          ? refreshExpression(stmt.update, ctx)
-          : undefined,
+        update: stmt.update ? refreshExpression(stmt.update, ctx) : undefined,
         body: refreshStatement(stmt.body, ctx),
       } as T;
 

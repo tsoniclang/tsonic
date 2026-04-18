@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 export { describe, it } from "mocha";
 export { expect } from "chai";
 export {
@@ -130,7 +131,10 @@ export const makeParameter = (name: string) => ({
   passing: "value" as const,
 });
 
-export const makeTypedParameter = (name: string, type: IrType): IrParameter => ({
+export const makeTypedParameter = (
+  name: string,
+  type: IrType
+): IrParameter => ({
   ...makeParameter(name),
   type,
 });
@@ -232,7 +236,14 @@ export const makeMethodMarkerCall = (
   expression: makeCall(
     makeMemberAccess(
       makeCall(
-        makeMemberAccess(makeCall(makeIdentifier(apiObjectName), [], [makeReferenceType(typeName)]), "method"),
+        makeMemberAccess(
+          makeCall(
+            makeIdentifier(apiObjectName),
+            [],
+            [makeReferenceType(typeName)]
+          ),
+          "method"
+        ),
         [makeSelector(memberName)]
       ),
       "family"
@@ -252,7 +263,14 @@ export const makeMethodMarkerCallWithSelector = (
   expression: makeCall(
     makeMemberAccess(
       makeCall(
-        makeMemberAccess(makeCall(makeIdentifier(apiObjectName), [], [makeReferenceType(typeName)]), "method"),
+        makeMemberAccess(
+          makeCall(
+            makeIdentifier(apiObjectName),
+            [],
+            [makeReferenceType(typeName)]
+          ),
+          "method"
+        ),
         [selector]
       ),
       "family"

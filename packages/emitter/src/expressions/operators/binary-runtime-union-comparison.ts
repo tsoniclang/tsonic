@@ -21,7 +21,7 @@ import {
 import {
   resolveRuntimeCarrierExpressionAst,
   resolveDirectStorageExpressionType,
-  resolveIdentifierCarrierStorageType,
+  resolveIdentifierRuntimeCarrierType,
 } from "../direct-storage-types.js";
 import { stripNullish } from "../../core/semantic/type-resolution.js";
 
@@ -180,7 +180,7 @@ export const emitRuntimeUnionLiteralComparison = (
   const [unionAst, unionContext] = emitExpressionAst(unionTarget, context);
   const directStorageType =
     unionTarget.kind === "identifier"
-      ? resolveIdentifierCarrierStorageType(unionTarget, unionContext)
+      ? resolveIdentifierRuntimeCarrierType(unionTarget, unionContext)
       : resolveDirectStorageExpressionType(unionTarget, unionAst, unionContext);
   const runtimeCarrierType =
     directStorageType &&

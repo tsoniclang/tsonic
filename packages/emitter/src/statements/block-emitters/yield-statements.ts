@@ -63,7 +63,8 @@ export const emitYieldExpressionAst = (
     }
   } else {
     if (expr.expression) {
-      const directYieldExpectedType = getDirectYieldExpectedType(currentContext);
+      const directYieldExpectedType =
+        getDirectYieldExpectedType(currentContext);
       const [valueAst, newContext] = emitExpressionAst(
         expr.expression,
         currentContext,
@@ -155,7 +156,8 @@ export const emitYieldStatementAst = (
     }
   } else {
     if (stmt.output) {
-      const directYieldExpectedType = getDirectYieldExpectedType(currentContext);
+      const directYieldExpectedType =
+        getDirectYieldExpectedType(currentContext);
       const [valueAst, newContext] = emitExpressionAst(
         stmt.output,
         currentContext,

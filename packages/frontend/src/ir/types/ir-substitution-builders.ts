@@ -51,7 +51,8 @@ export const substituteIrType = (
 
       case "referenceType": {
         if (
-          (!currentType.typeArguments || currentType.typeArguments.length === 0) &&
+          (!currentType.typeArguments ||
+            currentType.typeArguments.length === 0) &&
           (!currentType.structuralMembers ||
             currentType.structuralMembers.length === 0)
         ) {
@@ -94,7 +95,8 @@ export const substituteIrType = (
           }
         );
 
-        (draft as { typeArguments?: readonly IrType[] }).typeArguments = newArgs;
+        (draft as { typeArguments?: readonly IrType[] }).typeArguments =
+          newArgs;
         if (newStructuralMembers !== undefined) {
           (
             draft as {
@@ -145,11 +147,10 @@ export const substituteIrType = (
           { kind: "tupleType" }
         >;
         cache.set(currentType, draft);
-        (
-          draft as { elementTypes: readonly IrType[] }
-        ).elementTypes = currentType.elementTypes.map((elementType) =>
-          substitute(elementType)
-        );
+        (draft as { elementTypes: readonly IrType[] }).elementTypes =
+          currentType.elementTypes.map((elementType) =>
+            substitute(elementType)
+          );
         return draft;
       }
 

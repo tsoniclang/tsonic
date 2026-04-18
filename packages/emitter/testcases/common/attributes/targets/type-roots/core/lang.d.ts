@@ -72,10 +72,7 @@ declare module "@tsonic/core/lang.js" {
   export interface AttributesApi {
     <T>(): TypeAttributeBuilder<T>;
     <F extends Function>(fn: F): FunctionAttributeBuilder;
-    attr(
-      ctor: AttributeCtor,
-      ...args: readonly JsValue[]
-    ): AttributeDescriptor;
+    attr(ctor: AttributeCtor, ...args: readonly JsValue[]): AttributeDescriptor;
   }
 
   export declare const attributes: AttributesApi;

@@ -60,10 +60,7 @@ describe("add-common module resolution", () => {
       });
 
       const selfReq = createRequire(import.meta.url);
-      const selfPkgRoot = resolve(
-        selfReq.resolve("@tsonic/tsbindgen"),
-        ".."
-      );
+      const selfPkgRoot = resolve(selfReq.resolve("@tsonic/tsbindgen"), "..");
       const expectedDll = resolve(selfPkgRoot, "lib", "tsbindgen.dll");
 
       const result = resolveTsbindgenDllPath(projectRoot);

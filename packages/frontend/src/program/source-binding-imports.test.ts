@@ -16,7 +16,9 @@ describe("resolveSourceBindingFiles", () => {
 
     try {
       const projectRoot = fixture.path("workspace/proof/js");
-      const resolverFile = fixture.path("workspace/proof/js/__tsonic_resolver__.ts");
+      const resolverFile = fixture.path(
+        "workspace/proof/js/__tsonic_resolver__.ts"
+      );
       const authoritativeJsRoot = fixture.path("workspace/js-next/versions/10");
 
       const bindings = new BindingRegistry();
@@ -60,8 +62,12 @@ describe("resolveSourceBindingFiles", () => {
       const projectRoot = fixture.path("app");
       const resolverFile = fixture.path("app/__tsonic_resolver__.ts");
       const surfaceRoot = fixture.path("app/node_modules/@fixture/js");
-      const stringPath = fixture.path("app/node_modules/@fixture/js/src/String.ts");
-      const timersPath = fixture.path("app/node_modules/@fixture/js/src/timers.ts");
+      const stringPath = fixture.path(
+        "app/node_modules/@fixture/js/src/String.ts"
+      );
+      const timersPath = fixture.path(
+        "app/node_modules/@fixture/js/src/timers.ts"
+      );
 
       const bindings = loadBindings([surfaceRoot]);
       const result = resolveSourceBackedBindingFiles(

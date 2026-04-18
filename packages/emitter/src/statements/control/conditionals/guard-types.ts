@@ -27,6 +27,7 @@ import {
   resolveLocalTypesForReference,
   tryGetLiteralSet,
 } from "../../../core/semantic/guard-primitives.js";
+import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
 import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
 import type {
   CSharpExpressionAst,
@@ -273,9 +274,7 @@ export const resolveRuntimeUnionFrame = resolveNarrowedUnionMembers;
 export const resolveGuardRuntimeUnionFrame = (
   originalName: string,
   effectiveType: IrType,
-  identifierTarget:
-    | Extract<IrExpression, { kind: "identifier" }>
-    | undefined,
+  identifierTarget: Extract<IrExpression, { kind: "identifier" }> | undefined,
   context: EmitterContext
 ): RuntimeUnionFrame | undefined => {
   const carrierSourceType =
@@ -430,7 +429,8 @@ export const isNullOrUndefined = (expr: IrExpression): boolean => {
  * This is the core check for patterns like: id !== undefined, id !== null, id != null
  */
 export const tryResolveSimpleNullableGuard = (
-  condition: IrExpression
+  condition: IrExpression,
+  context: EmitterContext
 ): NullableGuardInfo | undefined => {
   if (condition.kind !== "binary") return undefined;
 
@@ -461,7 +461,8 @@ export const tryResolveSimpleNullableGuard = (
 
   if (!key) return undefined;
 
-  const idType = operand.inferredType;
+  const idType =
+    resolveEffectiveExpressionType(operand, context) ?? operand.inferredType;
   if (!idType) return undefined;
 
   // Check if type is nullable (has null or undefined in union)
@@ -493,20 +494,20 @@ export const tryResolveSimpleNullableGuard = (
  */
 export const tryResolveNullableGuard = (
   condition: IrExpression,
-  _context: EmitterContext
+  context: EmitterContext
 ): NullableGuardInfo | undefined => {
   // First try the simple case
-  const simple = tryResolveSimpleNullableGuard(condition);
+  const simple = tryResolveSimpleNullableGuard(condition, context);
   if (simple) return simple;
 
   // If this is a && logical expression, search inside it
   if (condition.kind === "logical" && condition.operator === "&&") {
     // Check left side
-    const leftGuard = tryResolveNullableGuard(condition.left, _context);
+    const leftGuard = tryResolveNullableGuard(condition.left, context);
     if (leftGuard) return leftGuard;
 
     // Check right side
-    const rightGuard = tryResolveNullableGuard(condition.right, _context);
+    const rightGuard = tryResolveNullableGuard(condition.right, context);
     if (rightGuard) return rightGuard;
   }
 

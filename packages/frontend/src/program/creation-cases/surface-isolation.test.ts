@@ -83,9 +83,9 @@ describe("Program Creation – surface isolation", function () {
       const soundness = validateIrSoundness([moduleResult.value]);
       expect(soundness.ok).to.equal(false);
       expect(
-        soundness.diagnostics.some((diagnostic) =>
-          diagnostic.code === "TSN5203" &&
-          diagnostic.message.includes("Trim")
+        soundness.diagnostics.some(
+          (diagnostic) =>
+            diagnostic.code === "TSN5203" && diagnostic.message.includes("Trim")
         )
       ).to.equal(true);
     } finally {

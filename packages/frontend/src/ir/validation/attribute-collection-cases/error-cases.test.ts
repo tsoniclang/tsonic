@@ -20,10 +20,7 @@ import {
   makeTypeRootCall,
   runAttributeCollectionPass,
 } from "./helpers.js";
-import type {
-  IrClassDeclaration,
-  IrInterfaceDeclaration,
-} from "./helpers.js";
+import type { IrClassDeclaration, IrInterfaceDeclaration } from "./helpers.js";
 
 describe("Attribute Collection Pass", () => {
   describe("Error cases", () => {
@@ -249,10 +246,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeTypeRootCall("User"),
-              "nope"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "nope"),
             [
               makeIdentifier(
                 "SerializableAttribute",

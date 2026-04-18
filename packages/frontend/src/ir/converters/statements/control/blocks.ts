@@ -34,7 +34,10 @@ const tryResolveReadableAssignedAccessType = (
   ctx: ProgramContext
 ): IrType | undefined => {
   if (ts.isPropertyAccessExpression(expr) || ts.isPropertyAccessChain(expr)) {
-    const receiverType = getCurrentTypeForAccessExpression(expr.expression, ctx);
+    const receiverType = getCurrentTypeForAccessExpression(
+      expr.expression,
+      ctx
+    );
     if (!receiverType) {
       return undefined;
     }
@@ -42,10 +45,7 @@ const tryResolveReadableAssignedAccessType = (
     return getReadableMemberTypeForNarrowing(receiverType, expr.name.text, ctx);
   }
 
-  if (
-    ts.isElementAccessExpression(expr) ||
-    ts.isElementAccessChain(expr)
-  ) {
+  if (ts.isElementAccessExpression(expr) || ts.isElementAccessChain(expr)) {
     const propertyExpr = expr.argumentExpression;
     if (
       !propertyExpr ||
@@ -55,7 +55,10 @@ const tryResolveReadableAssignedAccessType = (
       return undefined;
     }
 
-    const receiverType = getCurrentTypeForAccessExpression(expr.expression, ctx);
+    const receiverType = getCurrentTypeForAccessExpression(
+      expr.expression,
+      ctx
+    );
     if (!receiverType) {
       return undefined;
     }
@@ -134,7 +137,10 @@ export const convertBlockStatement = (
   const statements: IrStatement[] = [];
 
   for (let index = 0; index < node.statements.length; index++) {
-    const s = node.statements[index]!;
+    const s = node.statements[index];
+    if (!s) {
+      continue;
+    }
     const converted = convertStatement(s, currentCtx, expectedReturnType);
     statements.push(...flattenStatementResult(converted));
 

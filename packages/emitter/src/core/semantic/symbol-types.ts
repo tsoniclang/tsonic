@@ -34,9 +34,7 @@
 import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
-import {
-  registerLocalSymbolTypes,
-} from "../format/local-names.js";
+import { registerLocalSymbolTypes } from "../format/local-names.js";
 import { deriveForOfElementType } from "./iteration-types.js";
 import {
   resolveSemanticVariableInitializerType,

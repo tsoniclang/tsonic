@@ -130,34 +130,34 @@ export const emitFunctionDeclaration = (
       }
       returnTypeAst = generatorReturnTypeAst;
     } else {
-    const exchangeType = identifierType(
-      `${csharpBaseName}_exchange`,
-      generatorHelperTypeArguments.length > 0
-        ? generatorHelperTypeArguments
-        : undefined
-    );
-    const wrapperType = identifierType(
-      `${csharpBaseName}_Generator`,
-      generatorHelperTypeArguments.length > 0
-        ? generatorHelperTypeArguments
-        : undefined
-    );
-    if (isBidirectional) {
-      returnTypeAst = wrapperType;
-    } else {
-      if (stmt.isAsync) {
-        modifiers.push("async");
-        returnTypeAst = identifierType(
-          "global::System.Collections.Generic.IAsyncEnumerable",
-          [exchangeType]
-        );
+      const exchangeType = identifierType(
+        `${csharpBaseName}_exchange`,
+        generatorHelperTypeArguments.length > 0
+          ? generatorHelperTypeArguments
+          : undefined
+      );
+      const wrapperType = identifierType(
+        `${csharpBaseName}_Generator`,
+        generatorHelperTypeArguments.length > 0
+          ? generatorHelperTypeArguments
+          : undefined
+      );
+      if (isBidirectional) {
+        returnTypeAst = wrapperType;
       } else {
-        returnTypeAst = identifierType(
-          "global::System.Collections.Generic.IEnumerable",
-          [exchangeType]
-        );
+        if (stmt.isAsync) {
+          modifiers.push("async");
+          returnTypeAst = identifierType(
+            "global::System.Collections.Generic.IAsyncEnumerable",
+            [exchangeType]
+          );
+        } else {
+          returnTypeAst = identifierType(
+            "global::System.Collections.Generic.IEnumerable",
+            [exchangeType]
+          );
+        }
       }
-    }
     }
   } else if (stmt.returnType) {
     const [retAst, retCtx] = emitTypeAst(stmt.returnType, currentContext);
@@ -360,25 +360,25 @@ export const emitFunctionDeclaration = (
       ...paramDestructuringStmts,
     ];
 
-  if (stmt.isGenerator && usesExchangeBasedLowering) {
-    finalBodyStatements.push({
-      kind: "localDeclarationStatement",
+    if (stmt.isGenerator && usesExchangeBasedLowering) {
+      finalBodyStatements.push({
+        kind: "localDeclarationStatement",
         modifiers: [],
         type: { kind: "varType" },
         declarators: [
           {
-          name: reservedLocals.generatorExchangeVar,
-          initializer: {
-            kind: "objectCreationExpression",
-            type: identifierType(
-              `${csharpBaseName}_exchange`,
-              generatorHelperTypeArguments.length > 0
-                ? generatorHelperTypeArguments
-                : undefined
-            ),
-            arguments: [],
+            name: reservedLocals.generatorExchangeVar,
+            initializer: {
+              kind: "objectCreationExpression",
+              type: identifierType(
+                `${csharpBaseName}_exchange`,
+                generatorHelperTypeArguments.length > 0
+                  ? generatorHelperTypeArguments
+                  : undefined
+              ),
+              arguments: [],
+            },
           },
-        },
         ],
       });
     }
@@ -436,8 +436,8 @@ export const emitFunctionDeclaration = (
       ? typeParamAsts.map((typeParameter) => identifierType(typeParameter.name))
       : undefined;
 
-  const wrapperMembers: CSharpMemberAst[] = paramsResult.wrapperPrefixLengths.map(
-    (prefixLength) => {
+  const wrapperMembers: CSharpMemberAst[] =
+    paramsResult.wrapperPrefixLengths.map((prefixLength) => {
       const invocation: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
@@ -462,10 +462,12 @@ export const emitFunctionDeclaration = (
         name: emittedName,
         typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
-        parameters: paramsResult.paramAsts.slice(0, prefixLength).map((param) => ({
-          ...param,
-          defaultValue: undefined,
-        })),
+        parameters: paramsResult.paramAsts
+          .slice(0, prefixLength)
+          .map((param) => ({
+            ...param,
+            defaultValue: undefined,
+          })),
         body: {
           kind: "blockStatement",
           statements: isVoidReturnType(returnTypeAst)
@@ -473,8 +475,7 @@ export const emitFunctionDeclaration = (
             : [{ kind: "returnStatement", expression: invocation }],
         },
       };
-    }
-  );
+    });
 
   const methodAst: CSharpMemberAst = {
     kind: "methodDeclaration",

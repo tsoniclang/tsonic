@@ -31,8 +31,11 @@ describe("test command", function () {
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -52,8 +55,11 @@ describe("test command", function () {
 
       writeFileSync(
         join(dir, "packages", "app", "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "app", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 

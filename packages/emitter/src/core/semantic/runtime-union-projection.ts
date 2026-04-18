@@ -13,6 +13,7 @@ import {
   buildRuntimeUnionTypeAst,
   type RuntimeUnionLayout,
 } from "./runtime-unions.js";
+import { stripNullableTypeAst } from "../format/backend-ast/utils.js";
 import {
   buildRuntimeUnionMemberIndexByAstKey,
   findMappedRuntimeUnionMemberIndex,
@@ -33,7 +34,7 @@ export const buildRuntimeUnionFactoryCallAst = (
     kind: "memberAccessExpression",
     expression: {
       kind: "typeReferenceExpression",
-      type: unionTypeAst,
+      type: stripNullableTypeAst(unionTypeAst),
     },
     memberName: `From${memberIndex}`,
   },
@@ -177,9 +178,7 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
         sourceMemberN,
         context: currentContext,
       });
-      const [unmappedBody, unmappedContext] = Array.isArray(
-        unmappedBodyResult
-      )
+      const [unmappedBody, unmappedContext] = Array.isArray(unmappedBodyResult)
         ? unmappedBodyResult
         : [unmappedBodyResult, currentContext];
       if (!unmappedBody) {

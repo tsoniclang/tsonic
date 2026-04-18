@@ -76,7 +76,12 @@ describe("IR Builder", function () {
       expect(coreSourceFile).to.not.equal(undefined);
       if (!coreSourceFile) return;
 
-      const coreResult = buildIrModule(coreSourceFile, testProgram, options, ctx);
+      const coreResult = buildIrModule(
+        coreSourceFile,
+        testProgram,
+        options,
+        ctx
+      );
       expect(coreResult.ok).to.equal(true);
       if (!coreResult.ok) return;
 
@@ -143,8 +148,12 @@ describe("IR Builder", function () {
       if (!result.ok) return;
 
       const createFn = result.value.body.find(
-        (stmt): stmt is Extract<(typeof result.value.body)[number], { kind: "functionDeclaration" }> =>
-          stmt.kind === "functionDeclaration" && stmt.name === "create"
+        (
+          stmt
+        ): stmt is Extract<
+          (typeof result.value.body)[number],
+          { kind: "functionDeclaration" }
+        > => stmt.kind === "functionDeclaration" && stmt.name === "create"
       );
       expect(createFn).to.not.equal(undefined);
       if (!createFn) return;
@@ -157,11 +166,14 @@ describe("IR Builder", function () {
       expect(ctorExpr?.kind).to.equal("new");
       if (!ctorExpr || ctorExpr.kind !== "new") return;
 
-      expect(ctorExpr.parameterTypes?.[0]).to.deep.equal({
-        kind: "primitiveType",
-        name: "number",
-      });
-      expect(ctorExpr.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
+      expect(ctorExpr.parameterTypes?.[0]?.kind).to.equal("referenceType");
+      if (ctorExpr.parameterTypes?.[0]?.kind !== "referenceType") return;
+      expect(ctorExpr.parameterTypes[0].name).to.equal(
+        "TypedArrayConstructorInput"
+      );
+      expect(ctorExpr.surfaceParameterTypes?.[0]?.kind).to.equal(
+        "referenceType"
+      );
       if (ctorExpr.surfaceParameterTypes?.[0]?.kind !== "referenceType") return;
       expect(ctorExpr.surfaceParameterTypes[0].name).to.equal(
         "TypedArrayConstructorInput"
@@ -172,6 +184,148 @@ describe("IR Builder", function () {
         kind: "primitiveType",
         name: "number",
       });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps bare numeric constructor arguments on the selected numeric arm while preserving the source-backed surface", () => {
+    const files = {
+      "src/typed-array-core.ts": `
+        export type TypedArrayInput<TElement extends number> =
+          | readonly TElement[]
+          | Iterable<number>;
+
+        export type TypedArrayConstructorInput<TElement extends number> =
+          | number
+          | TypedArrayInput<TElement>;
+
+        export class Uint16Array {
+          public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+            void lengthOrValues;
+          }
+        }
+      `,
+      "src/index.ts": `
+        import { Uint16Array } from "./typed-array-core.js";
+
+        export function create(totalLength: number): Uint16Array {
+          return new Uint16Array(totalLength);
+        }
+      `,
+    };
+
+    const { sourceFile, testProgram, ctx, options, cleanup } =
+      createFilesystemTestProgram(files, "src/index.ts");
+
+    try {
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const createFn = result.value.body.find(
+        (
+          stmt
+        ): stmt is Extract<
+          (typeof result.value.body)[number],
+          { kind: "functionDeclaration" }
+        > => stmt.kind === "functionDeclaration" && stmt.name === "create"
+      );
+      expect(createFn).to.not.equal(undefined);
+      if (!createFn) return;
+
+      const returnStmt = createFn.body.statements[0];
+      expect(returnStmt?.kind).to.equal("returnStatement");
+      if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+      const ctorExpr = returnStmt.expression;
+      expect(ctorExpr?.kind).to.equal("new");
+      if (!ctorExpr || ctorExpr.kind !== "new") return;
+
+      expect(ctorExpr.parameterTypes?.[0]?.kind).to.equal("referenceType");
+      if (ctorExpr.parameterTypes?.[0]?.kind !== "referenceType") return;
+      expect(ctorExpr.parameterTypes[0].name).to.equal(
+        "TypedArrayConstructorInput"
+      );
+      expect(ctorExpr.surfaceParameterTypes?.[0]?.kind).to.equal(
+        "referenceType"
+      );
+      if (ctorExpr.surfaceParameterTypes?.[0]?.kind !== "referenceType") return;
+      expect(ctorExpr.surfaceParameterTypes[0].name).to.equal(
+        "TypedArrayConstructorInput"
+      );
+      expect(ctorExpr.arguments[0]?.kind).to.equal("identifier");
+      if (ctorExpr.arguments[0]?.kind !== "identifier") return;
+      expect(ctorExpr.arguments[0].inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "number",
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("expands alias-backed await expression result types instead of preserving the pre-await carrier", () => {
+    const files = {
+      "src/index.ts": `
+        type MaybeAsyncText = void | string | Promise<void | string>;
+
+        declare function invoke(flag: boolean): MaybeAsyncText;
+
+        export async function run(flag: boolean): Promise<void | string> {
+          await invoke(flag);
+        }
+      `,
+    };
+
+    const { sourceFile, testProgram, ctx, options, cleanup } =
+      createFilesystemTestProgram(files, "src/index.ts");
+
+    try {
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const runFn = result.value.body.find(
+        (
+          stmt
+        ): stmt is Extract<
+          (typeof result.value.body)[number],
+          { kind: "functionDeclaration" }
+        > => stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(runFn).to.not.equal(undefined);
+      if (!runFn) return;
+
+      const awaitStmt = runFn.body.statements[0];
+      expect(awaitStmt?.kind).to.equal("expressionStatement");
+      if (!awaitStmt || awaitStmt.kind !== "expressionStatement") return;
+
+      const awaitExpr = awaitStmt.expression;
+      expect(awaitExpr.kind).to.equal("await");
+      if (awaitExpr.kind !== "await") return;
+
+      expect(awaitExpr.inferredType?.kind).to.equal("unionType");
+      if (awaitExpr.inferredType?.kind !== "unionType") return;
+
+      expect(
+        awaitExpr.inferredType.types.some(
+          (member) =>
+            member.kind === "referenceType" && member.name === "MaybeAsyncText"
+        )
+      ).to.equal(false);
+      expect(
+        awaitExpr.inferredType.types.some(
+          (member) =>
+            member.kind === "referenceType" && member.name === "Promise"
+        )
+      ).to.equal(false);
+      expect(
+        awaitExpr.inferredType.types.some(
+          (member) =>
+            member.kind === "primitiveType" && member.name === "string"
+        )
+      ).to.equal(true);
     } finally {
       cleanup();
     }

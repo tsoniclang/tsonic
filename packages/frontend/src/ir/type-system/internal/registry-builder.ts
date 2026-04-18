@@ -25,8 +25,11 @@ import {
 } from "./registry-helpers.js";
 import {
   type IrType,
+  type IrTypeAliasDeclaration,
+  type IrTypeParameter,
   stampRuntimeUnionAliasCarrier,
 } from "../../types/index.js";
+import { processTypeAliasForSynthetics } from "../../converters/synthetic-types.js";
 import {
   resolveSourceFileNamespace,
   resolveSourceFileOwnerIdentity,
@@ -63,14 +66,29 @@ export const buildTypeRegistry = (
   const convert: ConvertTypeFn =
     options.convertType ?? (() => ({ kind: "unknownType" }));
 
-  const namespaceFromFQName = (fqName: string, simpleName: string):
-    | string
-    | undefined => {
+  const namespaceFromFQName = (
+    fqName: string,
+    simpleName: string
+  ): string | undefined => {
     const suffix = `.${simpleName}`;
     return fqName.endsWith(suffix)
       ? fqName.slice(0, -suffix.length)
       : undefined;
   };
+
+  const convertIrTypeParameters = (
+    typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined
+  ): readonly IrTypeParameter[] =>
+    (typeParameters ?? []).map((typeParameter) => ({
+      kind: "typeParameter",
+      name: typeParameter.name.text,
+      ...(typeParameter.constraint
+        ? { constraint: convert(typeParameter.constraint) }
+        : {}),
+      ...(typeParameter.default
+        ? { default: convert(typeParameter.default) }
+        : {}),
+    }));
 
   // Helper function to process a declaration node
   const processDeclaration = (
@@ -248,7 +266,7 @@ export const buildTypeRegistry = (
 
       // Pure IR entry
       const convertedAliasedType = convert(node.type);
-      const aliasedType = sf.isDeclarationFile
+      const stampedAliasedType = sf.isDeclarationFile
         ? convertedAliasedType
         : stampRuntimeUnionAliasCarrier(convertedAliasedType, {
             aliasName: simpleName,
@@ -258,7 +276,42 @@ export const buildTypeRegistry = (
               (tp) => tp.name.text
             ),
           });
+      const baseAlias: IrTypeAliasDeclaration = {
+        kind: "typeAliasDeclaration",
+        name: simpleName,
+        typeParameters: convertIrTypeParameters(node.typeParameters),
+        type: stampedAliasedType,
+        isExported:
+          (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0,
+        isStruct: false,
+      };
+      const processedAlias = processTypeAliasForSynthetics(baseAlias);
+      const aliasedType = processedAlias.typeAlias.type;
       const aliasedMembers = extractMembersFromAliasedObjectType(aliasedType);
+
+      for (const synthetic of processedAlias.syntheticInterfaces) {
+        const syntheticFqName = makeFQName(synthetic.name);
+        entries.set(syntheticFqName, {
+          kind: "interface",
+          name: synthetic.name,
+          fullyQualifiedName: syntheticFqName,
+          ownerIdentity,
+          isDeclarationFile: sf.isDeclarationFile,
+          preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
+          typeParameters:
+            synthetic.typeParameters?.map((typeParameter) => ({
+              name: typeParameter.name,
+              constraint: typeParameter.constraint,
+              defaultType: typeParameter.default,
+            })) ?? [],
+          members: extractMembersFromAliasedObjectType({
+            kind: "objectType",
+            members: synthetic.members,
+          }),
+          heritage: [],
+        });
+        recordSimpleName(synthetic.name, syntheticFqName);
+      }
 
       entries.set(fqName, {
         kind: "typeAlias",
@@ -354,8 +407,7 @@ export const buildTypeRegistry = (
     },
   };
 };
-  const preservesAssemblyIdentity = (fileName: string): boolean => {
-    const normalized =
-      path.sep === "/" ? fileName : fileName.replace(/\\/g, "/");
-    return normalized.includes("/tsonic/bindings/");
-  };
+const preservesAssemblyIdentity = (fileName: string): boolean => {
+  const normalized = path.sep === "/" ? fileName : fileName.replace(/\\/g, "/");
+  return normalized.includes("/tsonic/bindings/");
+};

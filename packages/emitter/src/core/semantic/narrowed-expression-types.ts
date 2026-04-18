@@ -14,13 +14,13 @@ import type { EmitterContext } from "../../types.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
+import { isAssignable } from "./type-compatibility.js";
 
 const withOptionalUndefined = (type: IrType): IrType => {
   if (
     type.kind === "unionType" &&
     type.types.some(
-      (member) =>
-        member.kind === "primitiveType" && member.name === "undefined"
+      (member) => member.kind === "primitiveType" && member.name === "undefined"
     )
   ) {
     return type;
@@ -65,8 +65,8 @@ const tryResolveIdentifierExpressionType = (
   context: EmitterContext
 ): IrType | undefined => {
   const direct =
-    context.localValueTypes?.get(identifier) ??
-    context.localSemanticTypes?.get(identifier);
+    context.localSemanticTypes?.get(identifier) ??
+    context.localValueTypes?.get(identifier);
   if (direct) {
     return direct;
   }
@@ -74,8 +74,8 @@ const tryResolveIdentifierExpressionType = (
   for (const [sourceName, emittedName] of context.localNameMap ?? []) {
     if (emittedName === identifier) {
       return (
-        context.localValueTypes?.get(sourceName) ??
-        context.localSemanticTypes?.get(sourceName)
+        context.localSemanticTypes?.get(sourceName) ??
+        context.localValueTypes?.get(sourceName)
       );
     }
   }
@@ -104,7 +104,10 @@ const projectionCarrierTypesMatch = (
     return baseFamily !== undefined && baseFamily === receiverFamily;
   }
 
-  return stableIrTypeKey(stripNullish(baseType)) === stableIrTypeKey(stripNullish(receiverType));
+  return (
+    stableIrTypeKey(stripNullish(baseType)) ===
+    stableIrTypeKey(stripNullish(receiverType))
+  );
 };
 
 const tryResolveProjectionReceiverType = (
@@ -121,7 +124,9 @@ const tryResolveProjectionReceiverType = (
 
 const tryExtractRuntimeUnionProjection = (
   exprAst: CSharpExpressionAst
-): { readonly memberN: number; readonly receiverAst?: CSharpExpressionAst } | undefined => {
+):
+  | { readonly memberN: number; readonly receiverAst?: CSharpExpressionAst }
+  | undefined => {
   const target = unwrapProjectionAst(exprAst);
   if (target.kind !== "invocationExpression") {
     return undefined;
@@ -256,6 +261,36 @@ export const resolveEffectiveExpressionType = (
 
   if (expr.kind === "defaultof") {
     return expr.targetType;
+  }
+
+  if (expr.kind === "logical" && expr.operator === "??") {
+    const leftType =
+      resolveEffectiveExpressionType(expr.left, context) ??
+      expr.left.inferredType;
+    const rightType =
+      resolveEffectiveExpressionType(expr.right, context) ??
+      expr.right.inferredType;
+
+    if (!leftType) {
+      return rightType;
+    }
+
+    const nonNullishLeft = stripNullish(leftType) ?? leftType;
+    if (!rightType) {
+      return nonNullishLeft;
+    }
+
+    if (stableIrTypeKey(nonNullishLeft) === stableIrTypeKey(rightType)) {
+      return nonNullishLeft;
+    }
+
+    if (isAssignable(rightType, nonNullishLeft)) {
+      return nonNullishLeft;
+    }
+
+    if (isAssignable(nonNullishLeft, rightType)) {
+      return rightType;
+    }
   }
 
   const baseType = expr.inferredType;

@@ -6,9 +6,7 @@ import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import {
-  buildModuleDependencyGraph,
-} from "@tsonic/frontend";
+import { buildModuleDependencyGraph } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import { DiagnosticsMode, Scenario } from "./types.js";
 

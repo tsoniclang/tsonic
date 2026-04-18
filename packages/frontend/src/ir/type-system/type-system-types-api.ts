@@ -444,7 +444,7 @@ export type TypeSystemConfig = {
    * but must never use TypeScript computed type APIs directly.
    *
    * These accept `unknown` to keep the TypeSystem public surface TS-free.
-  */
+   */
   readonly resolveIdentifier: (node: unknown) => DeclId | undefined;
   readonly resolveTypeReference: (node: unknown) => DeclId | undefined;
   readonly resolveShorthandAssignment: (node: unknown) => DeclId | undefined;

@@ -1,4 +1,5 @@
 import * as ts from "typescript";
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -80,7 +81,9 @@ type InlineSurfaceManifest = {
 const isScriptLikeFile = (relativePath: string): boolean =>
   SCRIPT_FILE_SUFFIXES.some((suffix) => relativePath.endsWith(suffix));
 
-const readJsonObject = (filePath: string): Record<string, unknown> | undefined => {
+const readJsonObject = (
+  filePath: string
+): Record<string, unknown> | undefined => {
   if (!ts.sys.fileExists(filePath)) {
     return undefined;
   }
@@ -323,7 +326,10 @@ const populateAuthoritativeWorkspaceNodeModules = (
     return;
   }
 
-  const requestedPackages = collectReferencedAuthoritativePackages(files, surface);
+  const requestedPackages = collectReferencedAuthoritativePackages(
+    files,
+    surface
+  );
   if (requestedPackages.size === 0) {
     return;
   }
@@ -353,7 +359,9 @@ const populateAuthoritativeWorkspaceNodeModules = (
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     symlinkWorkspaceEntry(authoritativeRoot, targetPath);
 
-    for (const dependencyName of readFirstPartyPackageDependencies(authoritativeRoot)) {
+    for (const dependencyName of readFirstPartyPackageDependencies(
+      authoritativeRoot
+    )) {
       if (!visitedPackages.has(dependencyName)) {
         pendingPackages.push(dependencyName);
       }
@@ -400,10 +408,13 @@ export const compileProjectToCSharp = (
     readonly rootNamespace?: string;
   }
 ): string => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-emitter-project-"));
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "tsonic-emitter-project-")
+  );
 
   try {
-    const explicitNodeModulesPackageRoots = getExplicitNodeModulesPackageRoots(files);
+    const explicitNodeModulesPackageRoots =
+      getExplicitNodeModulesPackageRoots(files);
     populateAuthoritativeWorkspaceNodeModules(
       tempDir,
       explicitNodeModulesPackageRoots,
@@ -531,9 +542,9 @@ export const compileProjectToCSharp = (
 
     return normalizeRuntimeUnionCarrierNames(
       [...emitResult.files.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, code]) => code)
-      .join("\n\n")
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, code]) => code)
+        .join("\n\n")
     );
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

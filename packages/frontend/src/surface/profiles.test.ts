@@ -160,7 +160,9 @@ describe("Frontend Surface Profiles", () => {
     );
     try {
       const projectRoot = fixture.path("workspace/nodejs");
-      const installedJsRoot = fixture.path("workspace/nodejs/node_modules/@tsonic/js");
+      const installedJsRoot = fixture.path(
+        "workspace/nodejs/node_modules/@tsonic/js"
+      );
       const siblingJsRoot = fixture.path("workspace/js/versions/10");
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });

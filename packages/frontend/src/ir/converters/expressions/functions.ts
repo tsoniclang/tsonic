@@ -16,6 +16,7 @@ import { convertBlockStatement } from "../statements/control.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { withParameterTypeEnv } from "../type-env.js";
 import type { ProgramContext } from "../../program-context.js";
+import { getReturnExpressionExpectedType } from "../return-expression-types.js";
 
 const isNullishPrimitive = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
@@ -247,8 +248,13 @@ export const convertFunctionExpression = (
   const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
 
   const returnType =
-    declaredReturnType ?? (useExpectedReturnType ? expectedReturnType : undefined);
+    declaredReturnType ??
+    (useExpectedReturnType ? expectedReturnType : undefined);
   const inferredReturnType = returnType ?? ({ kind: "unknownType" } as const);
+  const returnExpressionType = getReturnExpressionExpectedType(
+    returnType,
+    !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+  );
 
   // DETERMINISTIC: Build function type from declared parameters and return type
   const inferredType = {
@@ -264,7 +270,7 @@ export const convertFunctionExpression = (
     returnType: declaredReturnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, bodyCtx, returnType)
+      ? convertBlockStatement(node.body, bodyCtx, returnExpressionType)
       : { kind: "blockStatement", statements: [] },
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
@@ -304,6 +310,10 @@ export const convertArrowFunction = (
   const contextualReturnType =
     declaredReturnType ??
     (useExpectedReturnType ? expectedReturnType : undefined);
+  const returnExpressionType = getReturnExpressionExpectedType(
+    contextualReturnType,
+    !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+  );
 
   // DETERMINISTIC: Pass expectedType for parameter type inference
   const parameters = convertLambdaParameters(
@@ -318,21 +328,23 @@ export const convertArrowFunction = (
   // - Block body: return statements get the expected type
   // - Expression body: the expression gets the expected type
   const body = ts.isBlock(node.body)
-    ? convertBlockStatement(
-        node.body,
-        bodyCtx,
-        declaredReturnType ?? expectedReturnType
-      )
-    : convertExpression(node.body, bodyCtx, contextualReturnType);
+    ? convertBlockStatement(node.body, bodyCtx, returnExpressionType)
+    : convertExpression(node.body, bodyCtx, returnExpressionType);
+
+  const expressionBodyReturnType = !ts.isBlock(node.body)
+    ? (body as ReturnType<typeof convertExpression>).inferredType
+    : undefined;
 
   const returnType =
     declaredReturnType ??
-    (useExpectedReturnType
-      ? expectedReturnType
-      : !ts.isBlock(node.body)
-        ? ((body as ReturnType<typeof convertExpression>).inferredType ??
-          ({ kind: "unknownType" } as const))
-        : expectedReturnType);
+    (expressionBodyReturnType &&
+    useExpectedReturnType &&
+    expectedReturnType &&
+    ctx.typeSystem.isAssignableTo(expressionBodyReturnType, expectedReturnType)
+      ? expressionBodyReturnType
+      : useExpectedReturnType
+        ? expectedReturnType
+        : (expressionBodyReturnType ?? expectedReturnType));
 
   // DETERMINISTIC TYPING: contextualType comes from expectedType
   const contextualType = expectedType;

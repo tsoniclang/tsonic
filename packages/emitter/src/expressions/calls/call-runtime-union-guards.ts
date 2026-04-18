@@ -17,9 +17,8 @@ import {
 } from "../../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
-  resolveIdentifierCarrierStorageType,
   resolveRuntimeCarrierExpressionAst,
-  resolveDirectStorageExpressionType,
+  resolveRuntimeCarrierIrType,
 } from "../direct-storage-types.js";
 
 const buildRuntimeUnionMemberOrChain = (
@@ -160,29 +159,14 @@ export const emitRuntimeUnionArrayIsArrayCall = (
     target ?? argument,
     context
   );
-  const directStorageType =
-    target?.kind === "identifier"
-      ? (argumentContext.localValueTypes?.get(target.name) ??
-        resolveIdentifierCarrierStorageType(target, argumentContext))
-      : resolveDirectStorageExpressionType(
-          target ?? argument,
-          argumentAst,
-          argumentContext
-        );
   const runtimeCarrierAst =
-    (directStorageType
-      ? resolveRuntimeCarrierExpressionAst(
-          target ?? argument,
-          argumentContext
-        )
-      : undefined) ?? argumentAst;
-  const runtimeCarrierType = directStorageType
-    ? willCarryAsRuntimeUnion(directStorageType, argumentContext)
-      ? directStorageType
-      : undefined
-    : willCarryAsRuntimeUnion(effectiveType, argumentContext)
+    resolveRuntimeCarrierExpressionAst(target ?? argument, argumentContext) ??
+    argumentAst;
+  const runtimeCarrierType =
+    resolveRuntimeCarrierIrType(target ?? argument, argumentContext) ??
+    (willCarryAsRuntimeUnion(effectiveType, argumentContext)
       ? effectiveType
-      : undefined;
+      : undefined);
   if (!runtimeCarrierType) {
     return [buildSystemArrayCheck(argumentAst), argumentContext];
   }

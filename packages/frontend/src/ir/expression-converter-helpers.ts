@@ -156,7 +156,10 @@ const isPureNullishType = (type: IrType | undefined): boolean => {
   if (type.kind !== "unionType") {
     return false;
   }
-  return type.types.length > 0 && type.types.every((member) => isPureNullishType(member));
+  return (
+    type.types.length > 0 &&
+    type.types.every((member) => isPureNullishType(member))
+  );
 };
 
 export const shouldPreserveExplicitStorageType = (

@@ -444,10 +444,7 @@ export const findUnionMemberIndex = (
       resolvedCandidate.kind === "referenceType"
     ) {
       if (
-        referenceTypesShareNominalIdentity(
-          resolvedMember,
-          resolvedCandidate
-        )
+        referenceTypesShareNominalIdentity(resolvedMember, resolvedCandidate)
       ) {
         return true;
       }

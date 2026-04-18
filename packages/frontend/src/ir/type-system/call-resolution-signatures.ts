@@ -11,6 +11,4 @@ export {
   lookupStructuralMember,
 } from "./call-resolution-signatures-raw.js";
 
-export {
-  computeReceiverSubstitution,
-} from "./call-resolution-signatures-catalog.js";
+export { computeReceiverSubstitution } from "./call-resolution-signatures-catalog.js";

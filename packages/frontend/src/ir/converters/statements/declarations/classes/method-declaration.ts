@@ -18,6 +18,7 @@ import {
   isPrivateClassMemberName,
 } from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
+import { getReturnExpressionExpectedType } from "../../../return-expression-types.js";
 
 /**
  * Convert method declaration to IR
@@ -57,6 +58,10 @@ export const convertMethod = (
   const returnType = node.type
     ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;
+  const returnExpressionType = getReturnExpressionExpectedType(
+    returnType,
+    !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+  );
   const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
 
   return {
@@ -67,7 +72,7 @@ export const convertMethod = (
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, bodyCtx, returnType)
+      ? convertBlockStatement(node.body, bodyCtx, returnExpressionType)
       : undefined,
     isStatic: hasStaticModifier(node),
     isAsync: !!node.modifiers?.some(

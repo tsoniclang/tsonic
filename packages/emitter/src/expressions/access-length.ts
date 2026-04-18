@@ -24,9 +24,7 @@ import {
   getIdentifierTypeLeafName,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
-import type {
-  CSharpExpressionAst,
-} from "../core/format/backend-ast/types.js";
+import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   isPlainObjectIrType,
   isObjectTypeAst,
@@ -199,8 +197,10 @@ export const tryEmitConcreteReceiverLengthAccess = (
     return undefined;
   }
 
-  const preservedReceiver =
-    tryEmitBroadArrayAssertionReceiverStorageAst(expr.object, context);
+  const preservedReceiver = tryEmitBroadArrayAssertionReceiverStorageAst(
+    expr.object,
+    context
+  );
   const effectiveObjectAst = preservedReceiver?.[0] ?? objectAst;
   const effectiveObjectContext = preservedReceiver?.[1] ?? context;
   const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
@@ -352,8 +352,10 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
     ];
   }
 
-  const preservedReceiver =
-    tryEmitBroadArrayAssertionReceiverStorageAst(expr.object, context);
+  const preservedReceiver = tryEmitBroadArrayAssertionReceiverStorageAst(
+    expr.object,
+    context
+  );
   const effectiveObjectAst = preservedReceiver?.[0] ?? objectAst;
   const effectiveObjectContext = preservedReceiver?.[1] ?? context;
   const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
@@ -423,11 +425,11 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
             kind: "defaultExpression",
             type: nullableType({ kind: "predefinedType", keyword: "int" }),
           },
-            whenFalse: {
-              kind: "memberAccessExpression",
-              expression: buildNativeArrayInteropWrapAst(objectAst),
-              memberName: "length",
-            },
+          whenFalse: {
+            kind: "memberAccessExpression",
+            expression: buildNativeArrayInteropWrapAst(objectAst),
+            memberName: "length",
+          },
         }
       : {
           kind: "memberAccessExpression",

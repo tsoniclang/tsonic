@@ -10,9 +10,7 @@ import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { resolveArrayLikeReceiverType } from "../core/semantic/type-resolution.js";
 import { resolveTypeMemberKind } from "../core/semantic/member-surfaces.js";
-import {
-  unwrapTransparentExpression,
-} from "../core/semantic/transparent-expressions.js";
+import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import {
   identifierExpression,
@@ -44,6 +42,8 @@ import {
   isLengthPropertyName,
   tryEmitJsSurfaceArrayLikeLengthAccess,
 } from "./access-length.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
+import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 
 /**
  * Emit a member access that has a resolved memberBinding from the
@@ -89,7 +89,8 @@ export const tryEmitMemberBindingAccess = (
   );
   const receiverHasDeterministicMember =
     !!receiverType &&
-    resolveTypeMemberKind(receiverType, sourcePropertyName, context) !== undefined;
+    resolveTypeMemberKind(receiverType, sourcePropertyName, context) !==
+      undefined;
   const bindingTargetsStringLength =
     usage === "value" &&
     typeof expr.property === "string" &&
@@ -176,8 +177,10 @@ export const tryEmitMemberBindingAccess = (
         withObject
       );
     } else {
-      const [, receiverTypeContext] =
-        resolveEmittedReceiverTypeAst(expr.object, withObject);
+      const [, receiverTypeContext] = resolveEmittedReceiverTypeAst(
+        expr.object,
+        withObject
+      );
       elementContext = receiverTypeContext;
     }
 
@@ -342,8 +345,8 @@ export const tryEmitMemberBindingAccess = (
         : undefined;
     const transparentReceiverType =
       transparentReceiver !== undefined
-        ? resolveEffectiveReceiverType(transparentReceiver, context) ??
-          transparentReceiver.inferredType
+        ? (resolveEffectiveReceiverType(transparentReceiver, context) ??
+          transparentReceiver.inferredType)
         : undefined;
     const transparentReceiverAlreadyExposesMember =
       transparentReceiverType !== undefined &&
@@ -356,6 +359,23 @@ export const tryEmitMemberBindingAccess = (
       transparentReceiverAlreadyExposesMember && transparentReceiver
         ? emitExpressionAst(transparentReceiver, context)
         : emitExpressionAst(expr.object, context);
+    const receiverSourceExpr =
+      transparentReceiverAlreadyExposesMember && transparentReceiver
+        ? transparentReceiver
+        : expr.object;
+    const receiverStorageType = resolveDirectStorageIrType(
+      receiverSourceExpr,
+      context
+    );
+    const [materializedReceiverAst, materializedReceiverContext] =
+      materializeDirectNarrowingAst(
+        objectAst,
+        receiverStorageType,
+        receiverType,
+        newContext
+      );
+    const receiverAst = materializedReceiverAst;
+    const receiverContext = materializedReceiverContext;
     const emittedSourceMemberName = emitMemberName(
       expr.object,
       receiverType,
@@ -370,19 +390,19 @@ export const tryEmitMemberBindingAccess = (
       return [
         {
           kind: "conditionalMemberAccessExpression",
-          expression: objectAst,
+          expression: receiverAst,
           memberName: emittedMemberName,
         },
-        newContext,
+        receiverContext,
       ];
     }
     return [
       {
         kind: "memberAccessExpression",
-        expression: objectAst,
+        expression: receiverAst,
         memberName: emittedMemberName,
       },
-      newContext,
+      receiverContext,
     ];
   }
 };

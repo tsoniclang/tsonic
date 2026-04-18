@@ -85,7 +85,9 @@ describe("Attribute Collection Pass", () => {
       expect(result.ok).to.be.true;
       const mod = assertDefined(result.modules[0]);
       const ifaceDecl = mod.body[0] as IrInterfaceDeclaration;
-      const method = ifaceDecl.members.find((m) => m.kind === "methodSignature");
+      const method = ifaceDecl.members.find(
+        (m) => m.kind === "methodSignature"
+      );
       expect(
         method && "attributes" in method ? method.attributes : undefined
       ).to.have.length(1);
@@ -364,9 +366,10 @@ describe("Attribute Collection Pass", () => {
             makeMemberAccess(
               makeCall(
                 makeMemberAccess(
-                  makeCall(makeMemberAccess(makeTypeRootCall("User"), "method"), [
-                    makeSelector("save"),
-                  ]),
+                  makeCall(
+                    makeMemberAccess(makeTypeRootCall("User"), "method"),
+                    [makeSelector("save")]
+                  ),
                   "target"
                 ),
                 [] // wrong arity

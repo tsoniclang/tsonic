@@ -2,6 +2,7 @@
  * Tests for emitting `new` on shadowing members.
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrClassMember } from "@tsonic/frontend";

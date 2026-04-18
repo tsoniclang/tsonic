@@ -14,7 +14,7 @@ import { getTypedArrayStorageElementType } from "../calls/new-emitter-collection
 import { maybeCastNumericToExpectedIntegralAst } from "../post-emission-adaptation.js";
 import { resolveWritableTargetStorageType } from "../../core/semantic/assignment-flow.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
-import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 
 /**
  * Emit an assignment expression as CSharpExpressionAst
@@ -78,14 +78,13 @@ export const emitAssignment = (
       expectedElementType
     );
     const numericAssignmentActualType =
-      ((expr.right.inferredType?.kind === "literalType" &&
+      (expr.right.inferredType?.kind === "literalType" &&
         typeof expr.right.inferredType.value === "number") ||
-        (expr.right.kind === "literal" && typeof expr.right.value === "number"))
+      (expr.right.kind === "literal" && typeof expr.right.value === "number")
         ? ({ kind: "primitiveType", name: "number" } as const)
         : expr.right.inferredType;
     const [adaptedRightAst, adaptedRightContext] =
-      numericAssignmentActualType &&
-      expectedElementType.kind !== "arrayType"
+      numericAssignmentActualType && expectedElementType.kind !== "arrayType"
         ? maybeCastNumericToExpectedIntegralAst(
             rightAst,
             numericAssignmentActualType,
@@ -110,38 +109,26 @@ export const emitAssignment = (
       };
 
       return [
-        {
-          kind: "invocationExpression",
-          expression: {
-            kind: "parenthesizedExpression",
-            expression: {
-              kind: "castExpression",
-              type: identifierType("global::System.Func", [returnTypeAst]),
-              expression: {
-                kind: "parenthesizedExpression",
-                expression: {
-                  kind: "lambdaExpression",
-                  isAsync: false,
-                  parameters: [],
-                  body: {
-                    kind: "blockStatement",
-                    statements: [
-                      {
-                        kind: "expressionStatement",
-                        expression: setterCall,
-                      },
-                      {
-                        kind: "returnStatement",
-                        expression: adaptedRightAst,
-                      },
-                    ],
-                  },
-                },
+        buildInvokedLambdaExpressionAst({
+          parameters: [],
+          parameterTypes: [],
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: setterCall,
               },
-            },
+              {
+                kind: "returnStatement",
+                expression: adaptedRightAst,
+              },
+            ],
           },
           arguments: [],
-        },
+          returnType: returnTypeAst,
+          context: adaptedRightContext,
+        }),
         adaptedRightContext,
       ];
     }
@@ -213,10 +200,12 @@ export const emitAssignment = (
     leftContext = ctx;
     if (leftExpr.kind === "identifier") {
       leftType =
-        resolveWritableTargetStorageType(leftExpr, ctx) ?? leftExpr.inferredType;
+        resolveWritableTargetStorageType(leftExpr, ctx) ??
+        leftExpr.inferredType;
     } else if (leftExpr.kind === "memberAccess" && !leftExpr.isComputed) {
       leftType =
-        resolveWritableTargetStorageType(leftExpr, ctx) ?? leftExpr.inferredType;
+        resolveWritableTargetStorageType(leftExpr, ctx) ??
+        leftExpr.inferredType;
     } else {
       leftType = leftExpr.inferredType;
     }

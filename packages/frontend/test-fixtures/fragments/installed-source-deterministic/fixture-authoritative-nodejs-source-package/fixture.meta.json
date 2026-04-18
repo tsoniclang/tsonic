@@ -1,0 +1,8 @@
+{
+  "copyDirectories": [
+    {
+      "from": "../nodejs/versions/10",
+      "to": "app/node_modules/@tsonic/nodejs"
+    }
+  ]
+}

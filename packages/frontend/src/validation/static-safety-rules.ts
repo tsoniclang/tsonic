@@ -49,8 +49,15 @@ const nodeIsWithin = (node: ts.Node, container: ts.Node | undefined): boolean =>
   !!container && node.pos >= container.pos && node.end <= container.end;
 
 const isInsideOverloadStubSignatureType = (node: ts.Node): boolean => {
-  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
-    if (!ts.isFunctionDeclaration(current) && !ts.isMethodDeclaration(current)) {
+  for (
+    let current: ts.Node | undefined = node.parent;
+    current;
+    current = current.parent
+  ) {
+    if (
+      !ts.isFunctionDeclaration(current) &&
+      !ts.isMethodDeclaration(current)
+    ) {
       continue;
     }
 
@@ -62,7 +69,9 @@ const isInsideOverloadStubSignatureType = (node: ts.Node): boolean => {
       return true;
     }
 
-    return current.parameters.some((parameter) => nodeIsWithin(node, parameter.type));
+    return current.parameters.some((parameter) =>
+      nodeIsWithin(node, parameter.type)
+    );
   }
 
   return false;

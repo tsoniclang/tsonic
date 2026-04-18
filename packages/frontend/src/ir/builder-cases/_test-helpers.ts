@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 /**
  * Shared test helpers for IR Builder tests.
  */

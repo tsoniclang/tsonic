@@ -81,7 +81,9 @@ describe("JSON NativeAOT registry", () => {
 
     const code = result.files.get("index.cs");
     expect(code).to.not.equal(undefined);
-    expect(code).to.include('global::js.JSON.parse("{\\"title\\":\\"hello\\"}")');
+    expect(code).to.include(
+      'global::js.JSON.parse("{\\"title\\":\\"hello\\"}")'
+    );
     expect(code).to.not.include("TsonicJson.Options");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
@@ -228,9 +230,7 @@ describe("JSON NativeAOT registry", () => {
     const code = result.files.get("index.cs");
     const runtimeFile = result.files.get("__tsonic_json_runtime.g.cs");
     expect(code).to.not.equal(undefined);
-    expect(code).to.include(
-      "global::MyApp.TsonicJsonRuntime.Stringify(value)"
-    );
+    expect(code).to.include("global::MyApp.TsonicJsonRuntime.Stringify(value)");
     expect(runtimeFile).to.not.equal(undefined);
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
@@ -449,7 +449,9 @@ describe("JSON NativeAOT registry", () => {
     expect(code).to.include(
       "global::System.Text.Json.JsonSerializer.Serialize(parsed, global::MyApp.TsonicJson.Options)"
     );
-    expect(code).to.not.include("global::MyApp.TsonicJsonRuntime.Stringify(parsed)");
+    expect(code).to.not.include(
+      "global::MyApp.TsonicJsonRuntime.Stringify(parsed)"
+    );
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });
 

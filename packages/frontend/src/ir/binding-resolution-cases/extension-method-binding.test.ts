@@ -335,9 +335,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(memberExpr.memberBinding).to.not.equal(undefined);
       expect(memberExpr.memberBinding?.isExtensionMethod).to.equal(true);
-      expect(memberExpr.memberBinding?.type).to.equal(
-        "js.Number"
-      );
+      expect(memberExpr.memberBinding?.type).to.equal("js.Number");
       expect(memberExpr.memberBinding?.member).to.equal("toString");
       expect(memberExpr.memberBinding?.emitSemantics?.callStyle).to.equal(
         "receiver"
@@ -416,7 +414,9 @@ describe("Binding Resolution in IR", () => {
         )
       );
       expect(
-        soundness.diagnostics.some((diagnostic) => diagnostic.code === "TSN5201")
+        soundness.diagnostics.some(
+          (diagnostic) => diagnostic.code === "TSN5201"
+        )
       ).to.equal(true);
     });
 
@@ -478,7 +478,9 @@ describe("Binding Resolution in IR", () => {
       if (returnStmt.expression.kind !== "call") return;
       if (returnStmt.expression.callee.kind !== "memberAccess") return;
 
-      expect(returnStmt.expression.callee.memberBinding).to.not.equal(undefined);
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
+        undefined
+      );
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
         "js.Number"
       );

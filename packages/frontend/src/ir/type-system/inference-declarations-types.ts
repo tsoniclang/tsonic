@@ -69,7 +69,8 @@ const convertSignatureTypeParameters = (
       : undefined,
     variance: undefined,
     isStructuralConstraint:
-      !!typeParameter.constraint && ts.isTypeLiteralNode(typeParameter.constraint),
+      !!typeParameter.constraint &&
+      ts.isTypeLiteralNode(typeParameter.constraint),
     structuralMembers: undefined,
   }));
 };
@@ -159,7 +160,10 @@ const getNamedRuntimeDeclarationDeclId = (
       : undefined;
   }
 
-  if (ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name)) {
+  if (
+    ts.isVariableDeclaration(declaration) &&
+    ts.isIdentifier(declaration.name)
+  ) {
     return state.resolveIdentifier(declaration.name);
   }
 
@@ -187,9 +191,9 @@ const buildModuleNamespaceTypeFromSymbol = (
 
   seen.add(moduleSymbol);
 
-  const exportSymbols = [...state.checker.getExportsOfModule(moduleSymbol)].sort(
-    (left, right) => left.getName().localeCompare(right.getName())
-  );
+  const exportSymbols = [
+    ...state.checker.getExportsOfModule(moduleSymbol),
+  ].sort((left, right) => left.getName().localeCompare(right.getName()));
 
   const members: IrInterfaceMember[] = [];
 
@@ -372,7 +376,9 @@ const getDeclarationTypeParameterArity = (
 
 const buildNominalReferenceType = (
   state: TypeSystemState,
-  declInfo: NonNullable<ReturnType<TypeSystemState["handleRegistry"]["getDecl"]>>,
+  declInfo: NonNullable<
+    ReturnType<TypeSystemState["handleRegistry"]["getDecl"]>
+  >,
   declaration: ts.Declaration | undefined
 ): IrReferenceType => {
   const namedDeclaration = declaration as ts.NamedDeclaration | undefined;

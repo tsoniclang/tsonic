@@ -276,8 +276,10 @@ export const resolveSourceReferenceFQName = (
         return (
           entryMember.kind === "method" &&
           (entryMember.methodSignatures?.some(
-            (signature) => signature.parameters.length === member.parameters.length
-          ) ?? false)
+            (signature) =>
+              signature.parameters.length === member.parameters.length
+          ) ??
+            false)
         );
       }
 
@@ -314,7 +316,9 @@ export const normalizeToNominal = (
         ? resolveTypeIdByName(state, sourceFqName, arity)
         : undefined) ??
       type.typeId ??
-      (!sourceFqName ? resolveTypeIdByName(state, type.name, arity) : undefined);
+      (!sourceFqName
+        ? resolveTypeIdByName(state, type.name, arity)
+        : undefined);
     if (!typeId) return undefined;
     return { typeId, typeArgs: type.typeArguments ?? [] };
   }

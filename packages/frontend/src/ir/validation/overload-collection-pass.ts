@@ -544,12 +544,8 @@ const tryDetectOverloadMarker = (
 };
 
 const buildCanonicalTypeSubstitution = (
-  typeParameters:
-    | readonly { readonly name: string }[]
-    | undefined
-):
-  | ReadonlyMap<string, IrType>
-  | undefined => {
+  typeParameters: readonly { readonly name: string }[] | undefined
+): ReadonlyMap<string, IrType> | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
   }
@@ -568,9 +564,7 @@ const buildCanonicalTypeSubstitution = (
 
 const canonicalizeCallableType = (
   type: IrType | undefined,
-  typeParameters:
-    | readonly { readonly name: string }[]
-    | undefined
+  typeParameters: readonly { readonly name: string }[] | undefined
 ): IrType | undefined => {
   const substitution = buildCanonicalTypeSubstitution(typeParameters);
   if (!type || !substitution || substitution.size === 0) {
@@ -591,9 +585,7 @@ const belongsToCurrentProject = (
 
 const normalizeComparableInterfaceMember = (
   member: Extract<
-    NonNullable<
-      Extract<IrType, { kind: "objectType" }>["members"]
-    >[number],
+    NonNullable<Extract<IrType, { kind: "objectType" }>["members"]>[number],
     { kind: "propertySignature" } | { kind: "methodSignature" }
   >,
   projectAssemblyName: string,
@@ -746,13 +738,12 @@ const normalizeComparableType = (
           nextActiveTypes
         )
       );
-      const normalizedMembers = type.structuralMembers?.map(
-        (member) =>
-          normalizeComparableInterfaceMember(
-            member,
-            projectAssemblyName,
-            nextActiveTypes
-          )
+      const normalizedMembers = type.structuralMembers?.map((member) =>
+        normalizeComparableInterfaceMember(
+          member,
+          projectAssemblyName,
+          nextActiveTypes
+        )
       );
 
       if (
@@ -777,11 +768,7 @@ const normalizeComparableType = (
       return {
         ...type,
         types: type.types.map((member) =>
-          normalizeComparableType(
-            member,
-            projectAssemblyName,
-            nextActiveTypes
-          )
+          normalizeComparableType(member, projectAssemblyName, nextActiveTypes)
         ),
       };
 
@@ -789,11 +776,7 @@ const normalizeComparableType = (
       return {
         ...type,
         types: type.types.map((member) =>
-          normalizeComparableType(
-            member,
-            projectAssemblyName,
-            nextActiveTypes
-          )
+          normalizeComparableType(member, projectAssemblyName, nextActiveTypes)
         ),
       };
   }
@@ -847,8 +830,10 @@ const parametersMatchExactly = (
       ? normalizeComparableType(rightType, projectAssemblyName)
       : undefined;
 
-    if ((normalizedLeftType ? stableIrTypeKey(normalizedLeftType) : undefined) !==
-        (normalizedRightType ? stableIrTypeKey(normalizedRightType) : undefined)) {
+    if (
+      (normalizedLeftType ? stableIrTypeKey(normalizedLeftType) : undefined) !==
+      (normalizedRightType ? stableIrTypeKey(normalizedRightType) : undefined)
+    ) {
       return false;
     }
   }
@@ -863,7 +848,9 @@ const callableMatchesExactly = (
 ): boolean => {
   const leftTypeParameters = left.typeParameters;
   const rightTypeParameters = right.typeParameters;
-  if ((leftTypeParameters?.length ?? 0) !== (rightTypeParameters?.length ?? 0)) {
+  if (
+    (leftTypeParameters?.length ?? 0) !== (rightTypeParameters?.length ?? 0)
+  ) {
     return false;
   }
 
@@ -887,12 +874,14 @@ const callableMatchesExactly = (
     right.returnType ?? VOID_TYPE,
     rightTypeParameters
   );
-  return stableIrTypeKey(
-    normalizeComparableType(leftReturn ?? VOID_TYPE, projectAssemblyName)
-  ) ===
+  return (
+    stableIrTypeKey(
+      normalizeComparableType(leftReturn ?? VOID_TYPE, projectAssemblyName)
+    ) ===
     stableIrTypeKey(
       normalizeComparableType(rightReturn ?? VOID_TYPE, projectAssemblyName)
-    );
+    )
+  );
 };
 
 const collectFunctionEntriesByName = (
@@ -910,7 +899,10 @@ const collectFunctionEntriesByName = (
 
 const collectClassEntriesByName = (
   module: IrModule
-): ReadonlyMap<string, { readonly index: number; readonly declaration: IrClassDeclaration }> => {
+): ReadonlyMap<
+  string,
+  { readonly index: number; readonly declaration: IrClassDeclaration }
+> => {
   const entries = new Map<
     string,
     { readonly index: number; readonly declaration: IrClassDeclaration }
@@ -960,7 +952,10 @@ const getOrCreateFunctionFamilyState = (
     return undefined;
   }
 
-  const implementationStub = implementationEntries[0]!;
+  const [implementationStub] = implementationEntries;
+  if (!implementationStub) {
+    return undefined;
+  }
   return {
     familyName: marker.familyName,
     publicSignatures,
@@ -979,7 +974,11 @@ const getOrCreateMethodFamilyState = (
   diagnostics: Diagnostic[]
 ): MethodFamilyState | undefined => {
   const familyEntries: ClassMethodEntry[] = [];
-  for (let memberIndex = 0; memberIndex < classDeclaration.members.length; memberIndex += 1) {
+  for (
+    let memberIndex = 0;
+    memberIndex < classDeclaration.members.length;
+    memberIndex += 1
+  ) {
     const member = classDeclaration.members[memberIndex];
     if (!member || member.kind !== "methodDeclaration") continue;
     if (member.name !== marker.familyName) continue;
@@ -1018,7 +1017,10 @@ const getOrCreateMethodFamilyState = (
     return undefined;
   }
 
-  const implementationStub = implementationEntries[0]!;
+  const [implementationStub] = implementationEntries;
+  if (!implementationStub) {
+    return undefined;
+  }
   return {
     classIndex,
     familyName: marker.familyName,
@@ -1034,7 +1036,11 @@ const findUniqueRealMethodTarget = (
   targetMemberName: string
 ): ClassMethodEntry | "missing" | "ambiguous" => {
   const matches: ClassMethodEntry[] = [];
-  for (let memberIndex = 0; memberIndex < classDeclaration.members.length; memberIndex += 1) {
+  for (
+    let memberIndex = 0;
+    memberIndex < classDeclaration.members.length;
+    memberIndex += 1
+  ) {
     const member = classDeclaration.members[memberIndex];
     if (!member || member.kind !== "methodDeclaration") continue;
     if (member.name !== targetMemberName) continue;
@@ -1043,7 +1049,8 @@ const findUniqueRealMethodTarget = (
 
   if (matches.length === 0) return "missing";
   if (matches.length > 1) return "ambiguous";
-  return matches[0]!;
+  const [match] = matches;
+  return match ?? "missing";
 };
 
 const validateFunctionLegacyOverloads = (
@@ -1197,7 +1204,10 @@ const collectModuleOverloads = (
         continue;
       }
 
-      const targetEntry = targetEntries[0]!;
+      const [targetEntry] = targetEntries;
+      if (!targetEntry) {
+        continue;
+      }
       if (targetEntry.declaration.isDeclarationOnly === true) {
         diagnostics.push(
           createDiagnostic(
@@ -1262,7 +1272,8 @@ const collectModuleOverloads = (
         signatureIndex < activeFamilyState.publicSignatures.length;
         signatureIndex += 1
       ) {
-        const publicSignature = activeFamilyState.publicSignatures[signatureIndex];
+        const publicSignature =
+          activeFamilyState.publicSignatures[signatureIndex];
         if (
           publicSignature &&
           callableMatchesExactly(
@@ -1289,9 +1300,16 @@ const collectModuleOverloads = (
         continue;
       }
 
-      const signatureIndex = matchingSignatureIndices[0]!;
-      const existingTarget = activeFamilyState.matchedTargetsBySignature.get(signatureIndex);
-      if (existingTarget !== undefined && existingTarget !== targetEntry.index) {
+      const [signatureIndex] = matchingSignatureIndices;
+      if (signatureIndex === undefined) {
+        continue;
+      }
+      const existingTarget =
+        activeFamilyState.matchedTargetsBySignature.get(signatureIndex);
+      if (
+        existingTarget !== undefined &&
+        existingTarget !== targetEntry.index
+      ) {
         diagnostics.push(
           createDiagnostic(
             "TSN4005",
@@ -1303,7 +1321,10 @@ const collectModuleOverloads = (
         continue;
       }
 
-      activeFamilyState.matchedTargetsBySignature.set(signatureIndex, targetEntry.index);
+      activeFamilyState.matchedTargetsBySignature.set(
+        signatureIndex,
+        targetEntry.index
+      );
       functionUpdates.set(targetEntry.index, {
         overloadFamily: buildPublicOverloadFamilyMember({
           ownerKind: "function",
@@ -1371,7 +1392,8 @@ const collectModuleOverloads = (
         removedMemberIndices.add(removedIndex);
       }
       classMemberRemovals.set(classEntry.index, removedMemberIndices);
-      const consumedNames = consumedMethodFamilies.get(classEntry.index) ?? new Set<string>();
+      const consumedNames =
+        consumedMethodFamilies.get(classEntry.index) ?? new Set<string>();
       consumedNames.add(
         `${methodTarget.declaration.isStatic ? "static" : "instance"}:${marker.familyName}`
       );
@@ -1379,7 +1401,10 @@ const collectModuleOverloads = (
     }
     const activeFamilyState = familyState;
 
-    if (methodTarget.memberIndex === activeFamilyState.implementationStub.memberIndex) {
+    if (
+      methodTarget.memberIndex ===
+      activeFamilyState.implementationStub.memberIndex
+    ) {
       diagnostics.push(
         createDiagnostic(
           "TSN4005",
@@ -1416,7 +1441,8 @@ const collectModuleOverloads = (
       signatureIndex < activeFamilyState.publicSignatures.length;
       signatureIndex += 1
     ) {
-      const publicSignature = activeFamilyState.publicSignatures[signatureIndex];
+      const publicSignature =
+        activeFamilyState.publicSignatures[signatureIndex];
       if (
         publicSignature &&
         callableMatchesExactly(
@@ -1443,8 +1469,12 @@ const collectModuleOverloads = (
       continue;
     }
 
-    const signatureIndex = matchingSignatureIndices[0]!;
-    const existingTarget = activeFamilyState.matchedTargetsBySignature.get(signatureIndex);
+    const [signatureIndex] = matchingSignatureIndices;
+    if (signatureIndex === undefined) {
+      continue;
+    }
+    const existingTarget =
+      activeFamilyState.matchedTargetsBySignature.get(signatureIndex);
     if (
       existingTarget !== undefined &&
       existingTarget !== methodTarget.memberIndex
@@ -1460,8 +1490,13 @@ const collectModuleOverloads = (
       continue;
     }
 
-    activeFamilyState.matchedTargetsBySignature.set(signatureIndex, methodTarget.memberIndex);
-    const updates = classMethodUpdates.get(classEntry.index) ?? new Map<number, MethodUpdate>();
+    activeFamilyState.matchedTargetsBySignature.set(
+      signatureIndex,
+      methodTarget.memberIndex
+    );
+    const updates =
+      classMethodUpdates.get(classEntry.index) ??
+      new Map<number, MethodUpdate>();
     updates.set(methodTarget.memberIndex, {
       overloadFamily: buildPublicOverloadFamilyMember({
         ownerKind: "method",
@@ -1470,13 +1505,16 @@ const collectModuleOverloads = (
         signatureIndex,
         publicSignatureCount: activeFamilyState.publicSignatures.length,
       }),
-      accessibility: activeFamilyState.implementationStub.declaration.accessibility,
+      accessibility:
+        activeFamilyState.implementationStub.declaration.accessibility,
     });
     classMethodUpdates.set(classEntry.index, updates);
   }
 
   for (const [familyName, state] of functionFamilyStates) {
-    if (state.matchedTargetsBySignature.size !== state.publicSignatures.length) {
+    if (
+      state.matchedTargetsBySignature.size !== state.publicSignatures.length
+    ) {
       diagnostics.push(
         createDiagnostic(
           "TSN2004",
@@ -1489,7 +1527,9 @@ const collectModuleOverloads = (
   }
 
   for (const state of methodFamilyStates.values()) {
-    if (state.matchedTargetsBySignature.size !== state.publicSignatures.length) {
+    if (
+      state.matchedTargetsBySignature.size !== state.publicSignatures.length
+    ) {
       diagnostics.push(
         createDiagnostic(
           "TSN2004",
@@ -1501,7 +1541,11 @@ const collectModuleOverloads = (
     }
   }
 
-  validateFunctionLegacyOverloads(module, consumedFunctionFamilyNames, diagnostics);
+  validateFunctionLegacyOverloads(
+    module,
+    consumedFunctionFamilyNames,
+    diagnostics
+  );
   validateClassLegacyOverloads(module, consumedMethodFamilies, diagnostics);
 
   if (
@@ -1641,7 +1685,9 @@ export const runOverloadCollectionPass = (
 
   for (const module of modules) {
     const collected = collectModuleOverloads(module, diagnostics);
-    processedModules.push(collected ? rebuildModule(module, collected) : module);
+    processedModules.push(
+      collected ? rebuildModule(module, collected) : module
+    );
   }
 
   return {

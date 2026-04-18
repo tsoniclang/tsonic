@@ -9,10 +9,7 @@ import type {
   ExportSource,
   ExportMap,
 } from "../../emitter-types/core.js";
-import {
-  buildLocalTypes,
-  collectPublicLocalTypes,
-} from "./local-types.js";
+import { buildLocalTypes, collectPublicLocalTypes } from "./local-types.js";
 import {
   computeDeclarationRuntimeOmittableCallArities,
   computeFunctionValueRuntimeOmittableCallArities,

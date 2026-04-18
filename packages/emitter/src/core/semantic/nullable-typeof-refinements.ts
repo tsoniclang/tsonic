@@ -4,16 +4,18 @@
  * and applyArrayIsArrayRefinement.
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, type IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { stableIrTypeKey } from "@tsonic/frontend";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
+import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
 import {
   matchesTypeofTag,
   narrowTypeByTypeofTag,
   narrowTypeByNotTypeofTag,
   stripNullish,
   isDefinitelyValueType,
+  resolveTypeAlias,
 } from "./type-resolution.js";
 import { unwrapTransparentNarrowingTarget } from "./transparent-expressions.js";
 import {
@@ -22,6 +24,7 @@ import {
   buildUnionNarrowAst,
   withoutNarrowedBinding,
   applyBinding,
+  buildExprBinding,
   buildProjectedExprBinding,
   tryStripConditionalNullishGuardAst,
   narrowTypeByArrayShape,
@@ -36,10 +39,152 @@ import {
   applyDirectTypeNarrowing,
 } from "./narrowing-builders.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
+import { resolveIdentifierRuntimeCarrierType } from "./direct-storage-ir-types.js";
 import {
   resolveRuntimeArrayMemberStorageType,
   SYSTEM_ARRAY_STORAGE_TYPE,
 } from "./broad-array-storage.js";
+
+const resolveRefinementCurrentType = (
+  bindingKey: string,
+  targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
+  context: EmitterContext
+) =>
+  currentNarrowedType(
+    bindingKey,
+    resolveEffectiveExpressionType(targetExpr, context) ??
+      targetExpr.inferredType,
+    context
+  );
+
+const supportsDeterministicTruthyNullishRefinement = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (isDefinitelyValueType(resolved)) {
+    return false;
+  }
+
+  switch (resolved.kind) {
+    case "referenceType":
+    case "objectType":
+    case "arrayType":
+    case "tupleType":
+    case "dictionaryType":
+    case "functionType":
+      return true;
+    case "unionType":
+      return resolved.types.every((member) =>
+        supportsDeterministicTruthyNullishRefinement(member, context)
+      );
+    case "intersectionType":
+      return resolved.types.every((member) =>
+        supportsDeterministicTruthyNullishRefinement(member, context)
+      );
+    default:
+      return false;
+  }
+};
+
+export const applyTruthinessNullishRefinement = (
+  condition: IrExpression,
+  branch: BranchTruthiness,
+  context: EmitterContext,
+  emitExprAst: EmitExprAstFn
+): EmitterContext | undefined => {
+  if (branch !== "truthy") {
+    return undefined;
+  }
+
+  const target = unwrapTransparentNarrowingTarget(condition);
+  if (!target) {
+    return undefined;
+  }
+
+  const bindingKey =
+    target.kind === "identifier"
+      ? target.name
+      : getMemberAccessNarrowKey(target);
+  if (!bindingKey) {
+    return undefined;
+  }
+
+  const currentType = resolveRefinementCurrentType(bindingKey, target, context);
+  if (!currentType) {
+    return undefined;
+  }
+
+  const strippedType = stripNullish(currentType);
+  if (stableIrTypeKey(strippedType) === stableIrTypeKey(currentType)) {
+    return undefined;
+  }
+
+  if (!supportsDeterministicTruthyNullishRefinement(strippedType, context)) {
+    return undefined;
+  }
+
+  const existingBinding = context.narrowedBindings?.get(bindingKey);
+  const [projectedTargetAst, projectedTargetContext] = emitExprAst(
+    target,
+    context
+  );
+  const [rawTargetAst, rawTargetContext] = emitExprAst(
+    target,
+    withoutNarrowedBinding(context, bindingKey)
+  );
+  const sourceType = resolveExistingNarrowingSourceType(
+    bindingKey,
+    currentType,
+    context
+  );
+  const carrierExprAst =
+    existingBinding?.kind === "expr"
+      ? (existingBinding.carrierExprAst ?? rawTargetAst)
+      : rawTargetAst;
+  const rawIdentifierStorageType =
+    target.kind === "identifier"
+      ? rawTargetContext.localValueTypes?.get(target.name)
+      : undefined;
+  const rawIdentifierCarrierType =
+    target.kind === "identifier"
+      ? resolveIdentifierRuntimeCarrierType(target, rawTargetContext)
+      : undefined;
+  const storageType =
+    (existingBinding?.kind === "expr"
+      ? existingBinding.storageType
+      : undefined) ??
+    rawIdentifierStorageType ??
+    currentType ??
+    target.inferredType;
+  const carrierType =
+    (existingBinding?.kind === "expr"
+      ? existingBinding.carrierType
+      : undefined) ??
+    rawIdentifierCarrierType ??
+    sourceType ??
+    storageType;
+  const projectedExprAst =
+    existingBinding?.kind === "expr"
+      ? existingBinding.exprAst
+      : projectedTargetAst;
+  const tightenedExprAst =
+    tryStripConditionalNullishGuardAst(projectedExprAst) ?? projectedExprAst;
+
+  return applyBinding(
+    bindingKey,
+    buildExprBinding(
+      tightenedExprAst,
+      strippedType,
+      sourceType,
+      tightenedExprAst,
+      strippedType,
+      carrierExprAst,
+      carrierType
+    ),
+    projectedTargetContext
+  );
+};
 
 export const applySimpleNullableRefinement = (
   condition: IrExpression,
@@ -74,7 +219,7 @@ export const applySimpleNullableRefinement = (
         : getMemberAccessNarrowKey(operand);
     if (!key) return undefined;
 
-    const idType = currentNarrowedType(key, operand.inferredType, context);
+    const idType = resolveRefinementCurrentType(key, operand, context);
     if (!idType) return undefined;
     const stripped = stripNullish(idType);
     if (stableIrTypeKey(stripped) === stableIrTypeKey(idType)) {
@@ -101,9 +246,9 @@ export const applySimpleNullableRefinement = (
     return undefined;
   }
 
-  const currentType = currentNarrowedType(
+  const currentType = resolveRefinementCurrentType(
     nullableGuard.key,
-    nullableGuard.targetExpr.inferredType,
+    nullableGuard.targetExpr,
     context
   );
   if (!currentType) {
@@ -129,14 +274,37 @@ export const applySimpleNullableRefinement = (
     currentType,
     context
   );
-  const storageExprAst =
-    existingBinding?.kind === "expr"
-      ? (existingBinding.storageExprAst ?? rawTargetAst)
-      : rawTargetAst;
   const carrierExprAst =
     existingBinding?.kind === "expr"
-      ? (existingBinding.carrierExprAst ?? storageExprAst)
+      ? (existingBinding.carrierExprAst ??
+        existingBinding.storageExprAst ??
+        rawTargetAst)
       : rawTargetAst;
+  const rawIdentifierStorageType =
+    nullableGuard.targetExpr.kind === "identifier"
+      ? rawTargetContext.localValueTypes?.get(nullableGuard.targetExpr.name)
+      : undefined;
+  const rawIdentifierCarrierType =
+    nullableGuard.targetExpr.kind === "identifier"
+      ? resolveIdentifierRuntimeCarrierType(
+          nullableGuard.targetExpr,
+          rawTargetContext
+        )
+      : undefined;
+  const storageType =
+    (existingBinding?.kind === "expr"
+      ? existingBinding.storageType
+      : undefined) ??
+    rawIdentifierStorageType ??
+    currentType ??
+    nullableGuard.targetExpr.inferredType;
+  const carrierType =
+    (existingBinding?.kind === "expr"
+      ? existingBinding.carrierType
+      : undefined) ??
+    rawIdentifierCarrierType ??
+    sourceType ??
+    storageType;
   const projectedExprAst =
     existingBinding?.kind === "expr"
       ? existingBinding.exprAst
@@ -155,15 +323,19 @@ export const applySimpleNullableRefinement = (
             projectedExprAst,
           projectedTargetContext,
         ];
+  const storageCompatibleExprAst = materializedExprAst;
+  const storageCompatibleType = strippedType;
 
   return applyBinding(
     nullableGuard.key,
-    buildProjectedExprBinding(
+    buildExprBinding(
       materializedExprAst,
       strippedType,
       sourceType,
+      storageCompatibleExprAst,
+      storageCompatibleType,
       carrierExprAst,
-      strippedType
+      carrierType
     ),
     materializedContext
   );
@@ -226,9 +398,9 @@ export const applyDirectTypeofRefinement = (
   const matchTag =
     branch === "truthy" ? matchesInTruthyBranch : !matchesInTruthyBranch;
 
-  const currentType = currentNarrowedType(
+  const currentType = resolveRefinementCurrentType(
     directGuard.bindingKey,
-    directGuard.targetExpr.inferredType,
+    directGuard.targetExpr,
     context
   );
   const narrowedType = matchTag
@@ -386,20 +558,23 @@ export const applyArrayIsArrayRefinement = (
     branch === "truthy"
       ? direct.narrowsInTruthyBranch
       : !direct.narrowsInTruthyBranch;
-  const currentType = currentNarrowedType(
+  const currentType = resolveRefinementCurrentType(
     direct.bindingKey,
-    direct.targetExpr.inferredType,
+    direct.targetExpr,
     context
   );
   const predicateTargetType =
-    condition.kind === "call" &&
-    condition.narrowing?.kind === "typePredicate"
+    condition.kind === "call" && condition.narrowing?.kind === "typePredicate"
       ? condition.narrowing.targetType
       : undefined;
 
   const narrowedType =
     narrowTypeByArrayShape(currentType, wantArray, context) ??
-    narrowTypeByArrayShape(direct.targetExpr.inferredType, wantArray, context) ??
+    narrowTypeByArrayShape(
+      direct.targetExpr.inferredType,
+      wantArray,
+      context
+    ) ??
     (wantArray
       ? predicateTargetType
       : narrowTypeByNotAssignableTarget(

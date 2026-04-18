@@ -13,9 +13,7 @@ export const buildRuntimeUnionCarrierTypeAst = (
     undefined,
     semanticFamilyKey ? { familyKey: semanticFamilyKey } : undefined
   );
-  return identifierType(`global::${carrier.fullName}`, [
-    ...memberTypeAsts,
-  ]);
+  return identifierType(`global::${carrier.fullName}`, [...memberTypeAsts]);
 };
 
 export const printRuntimeUnionCarrierType = (
@@ -44,6 +42,9 @@ export const normalizeRuntimeUnionCarrierNames = (text: string): string =>
       "global::Tsonic.Internal.Union"
     )
     .replace(/\bTsonic\.Internal\.Union\d+(?=<)/g, "Tsonic.Internal.Union")
-    .replace(/\bTsonic\.Internal\.Union\d+_[A-F0-9]{8}\b/g, "Tsonic.Internal.Union")
+    .replace(
+      /\bTsonic\.Internal\.Union\d+_[A-F0-9]{8}\b/g,
+      "Tsonic.Internal.Union"
+    )
     .replace(/\bUnion\d+(?=<)/g, "Union")
     .replace(/\bUnion\d+_[A-F0-9]{8}\b/g, "Union");

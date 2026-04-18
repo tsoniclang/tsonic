@@ -16,7 +16,9 @@ const createInstalledJsSourceSurfaceWorkspace = (): {
   readonly workspaceRoot: string;
   readonly projectRoot: string;
 } => {
-  const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-config-js-surface-"));
+  const workspaceRoot = mkdtempSync(
+    join(tmpdir(), "tsonic-config-js-surface-")
+  );
   const projectRoot = join(workspaceRoot, "packages", "myapp");
   const jsRoot = join(workspaceRoot, "node_modules", "@tsonic", "js");
   mkdirSync(projectRoot, { recursive: true });
@@ -98,7 +100,8 @@ describe("Config (surfaces and type roots)", () => {
   });
 
   it("should resolve @tsonic/js surface from workspace config", () => {
-    const { workspaceRoot, projectRoot } = createInstalledJsSourceSurfaceWorkspace();
+    const { workspaceRoot, projectRoot } =
+      createInstalledJsSourceSurfaceWorkspace();
     try {
       const result = resolveConfig(
         makeWorkspaceConfig({ surface: "@tsonic/js" }),
@@ -115,7 +118,8 @@ describe("Config (surfaces and type roots)", () => {
   });
 
   it("should append required @tsonic/js typeRoots when partially configured", () => {
-    const { workspaceRoot, projectRoot } = createInstalledJsSourceSurfaceWorkspace();
+    const { workspaceRoot, projectRoot } =
+      createInstalledJsSourceSurfaceWorkspace();
     try {
       const result = resolveConfig(
         makeWorkspaceConfig({

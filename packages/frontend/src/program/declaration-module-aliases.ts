@@ -132,10 +132,7 @@ const collectAmbientGlobalImportsFromNode = (
   declarationFile: string,
   imports: DeclarationGlobalImport[]
 ): void => {
-  if (
-    !ts.isVariableDeclaration(node) ||
-    !ts.isIdentifier(node.name)
-  ) {
+  if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name)) {
     return;
   }
 

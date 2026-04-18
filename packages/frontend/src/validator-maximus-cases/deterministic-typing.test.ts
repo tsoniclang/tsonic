@@ -405,7 +405,8 @@ describe("Maximus Validation Coverage", () => {
             export type Exception = Internal.Exception;
             export const Exception: typeof Internal.Exception;
           `,
-          "/test/node_modules/@fixture/dotnet/System/internal/index.js": "export {};",
+          "/test/node_modules/@fixture/dotnet/System/internal/index.js":
+            "export {};",
           "/test/node_modules/@fixture/dotnet/System/internal/index.d.ts": `
             export interface Exception$instance {
               readonly Message: string;

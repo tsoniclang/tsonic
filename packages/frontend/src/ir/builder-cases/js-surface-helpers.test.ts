@@ -2,6 +2,7 @@
  * IR Builder tests: JS surface helpers - global bindings, regex, spread arrays
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as fs from "node:fs";
@@ -15,10 +16,7 @@ import {
   runCallResolutionRefreshPass,
   runNumericProofPass,
 } from "../validation/index.js";
-import {
-  createProgram,
-  createProgramContext,
-} from "./_test-helpers.js";
+import { createProgram, createProgramContext } from "./_test-helpers.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
@@ -31,7 +29,11 @@ const installRepoPackage = (
   packageName: string,
   sourceRoot: string
 ): void => {
-  const packageRoot = path.join(tempDir, "node_modules", ...packageName.split("/"));
+  const packageRoot = path.join(
+    tempDir,
+    "node_modules",
+    ...packageName.split("/")
+  );
   fs.mkdirSync(path.dirname(packageRoot), { recursive: true });
   fs.cpSync(sourceRoot, packageRoot, { recursive: true });
 };
@@ -163,14 +165,14 @@ describe("IR Builder", function () {
         if (!moduleResult.ok) return;
 
         const vecClass = moduleResult.value.body.find(
-          (stmt) =>
-            stmt.kind === "classDeclaration" && stmt.name === "Vec"
+          (stmt) => stmt.kind === "classDeclaration" && stmt.name === "Vec"
         );
         expect(vecClass).to.not.equal(undefined);
         if (!vecClass || vecClass.kind !== "classDeclaration") return;
 
         const readMethod = vecClass.members.find(
-          (member) => member.kind === "methodDeclaration" && member.name === "read"
+          (member) =>
+            member.kind === "methodDeclaration" && member.name === "read"
         );
         expect(readMethod).to.not.equal(undefined);
         if (
@@ -194,7 +196,8 @@ describe("IR Builder", function () {
         });
 
         const writeMethod = vecClass.members.find(
-          (member) => member.kind === "methodDeclaration" && member.name === "write"
+          (member) =>
+            member.kind === "methodDeclaration" && member.name === "write"
         );
         expect(writeMethod).to.not.equal(undefined);
         if (
@@ -206,7 +209,8 @@ describe("IR Builder", function () {
 
         const writeExprStmt = writeMethod.body.statements[0];
         expect(writeExprStmt?.kind).to.equal("expressionStatement");
-        if (!writeExprStmt || writeExprStmt.kind !== "expressionStatement") return;
+        if (!writeExprStmt || writeExprStmt.kind !== "expressionStatement")
+          return;
 
         const writeExpr = writeExprStmt.expression;
         expect(writeExpr.kind).to.equal("assignment");
@@ -219,14 +223,14 @@ describe("IR Builder", function () {
         });
 
         const holderClass = moduleResult.value.body.find(
-          (stmt) =>
-            stmt.kind === "classDeclaration" && stmt.name === "Holder"
+          (stmt) => stmt.kind === "classDeclaration" && stmt.name === "Holder"
         );
         expect(holderClass).to.not.equal(undefined);
         if (!holderClass || holderClass.kind !== "classDeclaration") return;
 
         const holderReadMethod = holderClass.members.find(
-          (member) => member.kind === "methodDeclaration" && member.name === "read"
+          (member) =>
+            member.kind === "methodDeclaration" && member.name === "read"
         );
         expect(holderReadMethod).to.not.equal(undefined);
         if (
@@ -238,7 +242,8 @@ describe("IR Builder", function () {
 
         const holderReadStmt = holderReadMethod.body.statements[0];
         expect(holderReadStmt?.kind).to.equal("returnStatement");
-        if (!holderReadStmt || holderReadStmt.kind !== "returnStatement") return;
+        if (!holderReadStmt || holderReadStmt.kind !== "returnStatement")
+          return;
 
         const holderReadExpr = holderReadStmt.expression;
         expect(holderReadExpr?.kind).to.equal("memberAccess");
@@ -307,7 +312,8 @@ describe("IR Builder", function () {
         if (!holderClass || holderClass.kind !== "classDeclaration") return;
 
         const holderReadMethod = holderClass.members.find(
-          (member) => member.kind === "methodDeclaration" && member.name === "read"
+          (member) =>
+            member.kind === "methodDeclaration" && member.name === "read"
         );
         expect(holderReadMethod).to.not.equal(undefined);
         if (
@@ -320,7 +326,8 @@ describe("IR Builder", function () {
 
         const holderReadStmt = holderReadMethod.body.statements[0];
         expect(holderReadStmt?.kind).to.equal("returnStatement");
-        if (!holderReadStmt || holderReadStmt.kind !== "returnStatement") return;
+        if (!holderReadStmt || holderReadStmt.kind !== "returnStatement")
+          return;
 
         const holderReadExpr = holderReadStmt.expression;
         expect(holderReadExpr?.kind).to.equal("memberAccess");
@@ -332,7 +339,8 @@ describe("IR Builder", function () {
         });
 
         const holderWriteMethod = holderClass.members.find(
-          (member) => member.kind === "methodDeclaration" && member.name === "write"
+          (member) =>
+            member.kind === "methodDeclaration" && member.name === "write"
         );
         expect(holderWriteMethod).to.not.equal(undefined);
         if (
@@ -345,7 +353,10 @@ describe("IR Builder", function () {
 
         const holderWriteStmt = holderWriteMethod.body.statements[0];
         expect(holderWriteStmt?.kind).to.equal("expressionStatement");
-        if (!holderWriteStmt || holderWriteStmt.kind !== "expressionStatement") {
+        if (
+          !holderWriteStmt ||
+          holderWriteStmt.kind !== "expressionStatement"
+        ) {
           return;
         }
 
@@ -400,14 +411,14 @@ describe("IR Builder", function () {
         if (!result.ok) return;
 
         const readerClass = result.value.body.find(
-          (stmt) =>
-            stmt.kind === "classDeclaration" && stmt.name === "Reader"
+          (stmt) => stmt.kind === "classDeclaration" && stmt.name === "Reader"
         );
         expect(readerClass).to.not.equal(undefined);
         if (!readerClass || readerClass.kind !== "classDeclaration") return;
 
         const readMethod = readerClass.members.find(
-          (member) => member.kind === "methodDeclaration" && member.name === "read"
+          (member) =>
+            member.kind === "methodDeclaration" && member.name === "read"
         );
         expect(readMethod).to.not.equal(undefined);
         if (
@@ -501,8 +512,7 @@ describe("IR Builder", function () {
         if (!result.ok) return;
 
         const holderClass = result.value.body.find(
-          (stmt) =>
-            stmt.kind === "classDeclaration" && stmt.name === "Holder"
+          (stmt) => stmt.kind === "classDeclaration" && stmt.name === "Holder"
         );
         expect(holderClass).to.not.equal(undefined);
         if (!holderClass || holderClass.kind !== "classDeclaration") return;
@@ -517,7 +527,10 @@ describe("IR Builder", function () {
         }
 
         expect(valueProperty.type?.kind).to.equal("referenceType");
-        if (!valueProperty.type || valueProperty.type.kind !== "referenceType") {
+        if (
+          !valueProperty.type ||
+          valueProperty.type.kind !== "referenceType"
+        ) {
           return;
         }
         expect(valueProperty.type.name).to.equal("byte");
@@ -698,26 +711,18 @@ describe("IR Builder", function () {
             },
           ]);
         }
-        expect(firstSurfaceParameterType?.kind).to.equal("unionType");
-        if (firstSurfaceParameterType?.kind === "unionType") {
-          expect(firstSurfaceParameterType.types).to.have.length(2);
-          expect(
-            firstSurfaceParameterType.types.some(
-              (candidate) =>
-                candidate.kind === "arrayType" &&
-                candidate.elementType.kind === "referenceType" &&
-                candidate.elementType.name === "byte"
-            )
-          ).to.equal(true);
-          expect(
-            firstSurfaceParameterType.types.some(
-              (candidate) =>
-                candidate.kind === "referenceType" &&
-                candidate.name === "Iterable" &&
-                candidate.typeArguments?.[0]?.kind === "primitiveType" &&
-                candidate.typeArguments[0].name === "number"
-            )
-          ).to.equal(true);
+        expect(firstSurfaceParameterType?.kind).to.equal("referenceType");
+        if (firstSurfaceParameterType?.kind === "referenceType") {
+          expect(firstSurfaceParameterType.kind).to.equal("referenceType");
+          expect(firstSurfaceParameterType.name).to.equal("TypedArrayInput");
+          expect(firstSurfaceParameterType.typeArguments).to.have.length(1);
+          expect(firstSurfaceParameterType.typeArguments?.[0]).to.deep.include({
+            kind: "referenceType",
+            name: "byte",
+          });
+          expect(firstSurfaceParameterType.typeId?.tsName).to.equal(
+            "TypedArrayInput"
+          );
         }
         expect(secondParameterType).to.deep.equal({
           kind: "unionType",
@@ -738,8 +743,7 @@ describe("IR Builder", function () {
           expect(
             secondSurfaceParameterType.types.some(
               (candidate) =>
-                candidate.kind === "primitiveType" &&
-                candidate.name === "int"
+                candidate.kind === "primitiveType" && candidate.name === "int"
             )
           ).to.equal(true);
           expect(
@@ -959,7 +963,8 @@ describe("IR Builder", function () {
 
         const findIndexDecl = fn.body.statements[2];
         expect(findIndexDecl?.kind).to.equal("variableDeclaration");
-        if (!findIndexDecl || findIndexDecl.kind !== "variableDeclaration") return;
+        if (!findIndexDecl || findIndexDecl.kind !== "variableDeclaration")
+          return;
         const findIndexCall = findIndexDecl.declarations[0]?.initializer;
         expect(findIndexCall?.kind).to.equal("call");
         if (!findIndexCall || findIndexCall.kind !== "call") return;
@@ -967,7 +972,8 @@ describe("IR Builder", function () {
         const findRuntimeCallback = findCall.parameterTypes?.[0];
         const findSurfaceCallback = findCall.surfaceParameterTypes?.[0];
         const findIndexRuntimeCallback = findIndexCall.parameterTypes?.[0];
-        const findIndexSurfaceCallback = findIndexCall.surfaceParameterTypes?.[0];
+        const findIndexSurfaceCallback =
+          findIndexCall.surfaceParameterTypes?.[0];
 
         expect(findRuntimeCallback?.kind).to.equal("functionType");
         expect(findSurfaceCallback?.kind).to.equal("functionType");
@@ -1062,15 +1068,15 @@ describe("IR Builder", function () {
         expect(moduleResult.ok).to.equal(true);
         if (!moduleResult.ok) return;
 
-        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
         const proofResult = runNumericProofPass(lowered);
         expect(proofResult.ok).to.equal(true);
         if (!proofResult.ok) return;
 
-        const refreshed = runCallResolutionRefreshPass(
-          proofResult.modules,
-          ctx
-        ).modules[0];
+        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx)
+          .modules[0];
         const valuesDecl = refreshed?.body.find(
           (statement): statement is IrVariableDeclaration =>
             statement.kind === "variableDeclaration"
@@ -1203,15 +1209,15 @@ describe("IR Builder", function () {
         expect(moduleResult.ok).to.equal(true);
         if (!moduleResult.ok) return;
 
-        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
         const proofResult = runNumericProofPass(lowered);
         expect(proofResult.ok).to.equal(true);
         if (!proofResult.ok) return;
 
-        const refreshed = runCallResolutionRefreshPass(
-          proofResult.modules,
-          ctx
-        ).modules[0];
+        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx)
+          .modules[0];
         const entriesDecl = refreshed?.body.find(
           (statement): statement is IrVariableDeclaration =>
             statement.kind === "variableDeclaration"
@@ -2061,7 +2067,12 @@ describe("IR Builder", function () {
         );
         installMinimalClrRoots(tempDir);
 
-        const surfaceRoot = path.join(tempDir, "node_modules", "@fixture", "js");
+        const surfaceRoot = path.join(
+          tempDir,
+          "node_modules",
+          "@fixture",
+          "js"
+        );
         fs.mkdirSync(surfaceRoot, { recursive: true });
         fs.writeFileSync(
           path.join(surfaceRoot, "package.json"),
@@ -2270,7 +2281,9 @@ describe("IR Builder", function () {
         expect(trimCall.callee.object.callee.object.callee.kind).to.equal(
           "memberAccess"
         );
-        if (trimCall.callee.object.callee.object.callee.kind !== "memberAccess") {
+        if (
+          trimCall.callee.object.callee.object.callee.kind !== "memberAccess"
+        ) {
           return;
         }
         expect(

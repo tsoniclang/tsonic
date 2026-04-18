@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

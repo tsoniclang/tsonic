@@ -286,10 +286,11 @@ const resolveContextualEmissionType = (
     return undefined;
   }
 
-  const anonymousEmissionType =
-    canPreferAnonymousStructuralTarget(contextualType)
-      ? resolveAnonymousStructuralReferenceType(contextualType, context)
-      : undefined;
+  const anonymousEmissionType = canPreferAnonymousStructuralTarget(
+    contextualType
+  )
+    ? resolveAnonymousStructuralReferenceType(contextualType, context)
+    : undefined;
 
   return (
     anonymousEmissionType ??

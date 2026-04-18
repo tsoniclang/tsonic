@@ -242,7 +242,10 @@ export const resolveCanonicalDeclaringTypeName = (
 
     if (ts.isTypeLiteralNode(parent)) {
       const container = parent.parent;
-      if (ts.isVariableDeclaration(container) && ts.isIdentifier(container.name)) {
+      if (
+        ts.isVariableDeclaration(container) &&
+        ts.isIdentifier(container.name)
+      ) {
         const resolvedName =
           resolveDeclarationSymbolFQName(
             ctx,
@@ -371,8 +374,7 @@ const buildResolvedParameterNodes = (
     }
 
     const rawDeclaredType =
-      parameter.typeNode &&
-      ts.isTypeNode(parameter.typeNode as ts.Node)
+      parameter.typeNode && ts.isTypeNode(parameter.typeNode as ts.Node)
         ? ctx.checker.getTypeFromTypeNode(parameter.typeNode as ts.TypeNode)
         : undefined;
     if (rawDeclaredType && typeContainsTypeParameter(ctx, rawDeclaredType)) {
@@ -400,7 +402,9 @@ const buildResolvedParameterNodes = (
       ) ?? (parameter.typeNode as ts.TypeNode | undefined);
     if (
       serializeTypeNodeForComparison(resolvedTypeNode) !==
-      serializeTypeNodeForComparison(parameter.typeNode as ts.TypeNode | undefined)
+      serializeTypeNodeForComparison(
+        parameter.typeNode as ts.TypeNode | undefined
+      )
     ) {
       changed = true;
     }
@@ -492,7 +496,9 @@ const typeContainsTypeParameter = (
     const declaration = signature.getDeclaration();
     for (const parameter of signature.getParameters()) {
       const parameterDeclaration =
-        parameter.valueDeclaration ?? parameter.getDeclarations()?.[0] ?? declaration;
+        parameter.valueDeclaration ??
+        parameter.getDeclarations()?.[0] ??
+        declaration;
       if (!parameterDeclaration) {
         continue;
       }
@@ -601,7 +607,11 @@ const resolveTransparentTypeQueryTarget = (
         return ctx.checker.getSymbolAtLocation(typeNode.exprName);
       }
 
-      if (ts.isImportTypeNode(typeNode) && typeNode.isTypeOf && typeNode.qualifier) {
+      if (
+        ts.isImportTypeNode(typeNode) &&
+        typeNode.isTypeOf &&
+        typeNode.qualifier
+      ) {
         return ctx.checker.getSymbolAtLocation(typeNode.qualifier);
       }
 
@@ -734,7 +744,10 @@ export const resolveTypeReference = (
         ctx,
         current
       );
-      if (!transparentTypeQueryTarget || transparentTypeQueryTarget === current) {
+      if (
+        !transparentTypeQueryTarget ||
+        transparentTypeQueryTarget === current
+      ) {
         break;
       }
 
@@ -748,8 +761,8 @@ export const resolveTypeReference = (
     typeName: ts.EntityName
   ): ts.Symbol | undefined => {
     const symbol = ts.isIdentifier(typeName)
-      ? resolveLexicalTypeParameterSymbol(typeName) ??
-        ctx.checker.getSymbolAtLocation(typeName)
+      ? (resolveLexicalTypeParameterSymbol(typeName) ??
+        ctx.checker.getSymbolAtLocation(typeName))
       : ctx.checker.getSymbolAtLocation(typeName.right);
     if (!symbol) return undefined;
 

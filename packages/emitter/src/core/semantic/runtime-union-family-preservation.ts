@@ -34,8 +34,7 @@ export const rebuildUnionTypePreservingCarrierFamily = (
       : {}),
     ...(sourceUnion.runtimeCarrierTypeArguments !== undefined
       ? {
-          runtimeCarrierTypeArguments:
-            sourceUnion.runtimeCarrierTypeArguments,
+          runtimeCarrierTypeArguments: sourceUnion.runtimeCarrierTypeArguments,
         }
       : {}),
   });

@@ -211,9 +211,7 @@ export const registerJsonAotType = (
   registry.needsJsonAot = true;
 };
 
-export const registerJsonRuntimeSupport = (
-  context: EmitterContext
-): void => {
+export const registerJsonRuntimeSupport = (context: EmitterContext): void => {
   const registry = context.options.jsonAotRegistry;
   if (!registry) {
     return;

@@ -10,9 +10,7 @@ export const hasSurfaceRoot = (
   roots.includes(`node_modules/${surfacePackage}`) ||
   roots.some((root) =>
     new RegExp(
-      `[/\\\\]node_modules[/\\\\]${surfacePackage
-        .split("/")
-        .join("[/\\\\]")}$`
+      `[/\\\\]node_modules[/\\\\]${surfacePackage.split("/").join("[/\\\\]")}$`
     ).test(root)
   ) ||
   roots.some((root) =>

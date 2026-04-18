@@ -9,6 +9,10 @@
 
 import type { IrType, IrFunctionType } from "../types/index.js";
 import * as ts from "typescript";
+import {
+  substituteIrType as irSubstitute,
+  type TypeSubstitutionMap as IrSubstitutionMap,
+} from "../types/ir-substitution.js";
 import type { TypeParameterInfo, ParameterMode, SignatureId } from "./types.js";
 import { unknownType, voidType } from "./types.js";
 import type {
@@ -17,7 +21,11 @@ import type {
   TypePredicateResult,
   Site,
 } from "./type-system-state.js";
-import { emitDiagnostic, addUndefinedToType } from "./type-system-state.js";
+import {
+  emitDiagnostic,
+  addUndefinedToType,
+  resolveTypeIdByName,
+} from "./type-system-state.js";
 import { convertTypeNode } from "./call-resolution-utilities.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -41,17 +49,19 @@ export const getRawSignature = (
   // Convert parameter types from TypeNodes to IrTypes
   const effectiveParameters = sigInfo.resolvedParameters ?? sigInfo.parameters;
 
-  const parameterTypes: (IrType | undefined)[] = effectiveParameters.map((p) => {
-    const baseType = p.typeNode
-      ? convertTypeNode(state, p.typeNode)
-      : undefined;
-    if (!baseType) return undefined;
-    // Optional/defaulted parameters must accept explicit `undefined` at call sites.
-    return p.isOptional ? addUndefinedToType(baseType) : baseType;
-  });
+  const rawParameterTypes: (IrType | undefined)[] = effectiveParameters.map(
+    (p) => {
+      const baseType = p.typeNode
+        ? convertTypeNode(state, p.typeNode)
+        : undefined;
+      if (!baseType) return undefined;
+      // Optional/defaulted parameters must accept explicit `undefined` at call sites.
+      return p.isOptional ? addUndefinedToType(baseType) : baseType;
+    }
+  );
 
   // Convert a TypeScript `this:` parameter type (if present) to an IrType.
-  const thisParameterType: IrType | undefined = (() => {
+  const rawThisParameterType: IrType | undefined = (() => {
     const n = sigInfo.thisTypeNode as ts.TypeNode | undefined;
     return n ? convertTypeNode(state, n) : undefined;
   })();
@@ -71,33 +81,76 @@ export const getRawSignature = (
   // TypeScript syntax, but constructor call resolution must still infer the enclosing
   // class type parameters from arguments / expected return context so `new Box(value)`
   // emits `new Box<T>(value)` when appropriate.
-  const typeParameters: TypeParameterInfo[] = (
-    isConstructor
-      ? (sigInfo.typeParameters && sigInfo.typeParameters.length > 0
-          ? sigInfo.typeParameters
-          : (sigInfo.declaringTypeParameterNames ?? []).map((name) => ({
-              name,
-              constraintNode: undefined,
-              defaultNode: undefined,
-            }))
-        ).map((tp) => ({
-          name: tp.name,
-          constraint: tp.constraintNode
-            ? convertTypeNode(state, tp.constraintNode)
-            : undefined,
-          defaultType: tp.defaultNode
-            ? convertTypeNode(state, tp.defaultNode)
-            : undefined,
-        }))
-      : (sigInfo.typeParameters ?? []).map((tp) => ({
-          name: tp.name,
-          constraint: tp.constraintNode
-            ? convertTypeNode(state, tp.constraintNode)
-            : undefined,
-          defaultType: tp.defaultNode
-            ? convertTypeNode(state, tp.defaultNode)
-            : undefined,
-        }))
+  const rawTypeParameters: TypeParameterInfo[] = isConstructor
+    ? (sigInfo.typeParameters && sigInfo.typeParameters.length > 0
+        ? sigInfo.typeParameters
+        : (sigInfo.declaringTypeParameterNames ?? []).map((name) => ({
+            name,
+            constraintNode: undefined,
+            defaultNode: undefined,
+          }))
+      ).map((tp) => ({
+        name: tp.name,
+        constraint: tp.constraintNode
+          ? convertTypeNode(state, tp.constraintNode)
+          : undefined,
+        defaultType: tp.defaultNode
+          ? convertTypeNode(state, tp.defaultNode)
+          : undefined,
+      }))
+    : (sigInfo.typeParameters ?? []).map((tp) => ({
+        name: tp.name,
+        constraint: tp.constraintNode
+          ? convertTypeNode(state, tp.constraintNode)
+          : undefined,
+        defaultType: tp.defaultNode
+          ? convertTypeNode(state, tp.defaultNode)
+          : undefined,
+      }));
+  const constructorTypeParameterRenames =
+    isConstructor && rawTypeParameters.length > 0
+      ? new Map(
+          rawTypeParameters.map((typeParameter, index) => [
+            typeParameter.name,
+            {
+              kind: "typeParameterType" as const,
+              name: `__ctor_${sigId.id}_${index}_${typeParameter.name}`,
+            } satisfies IrType,
+          ])
+        )
+      : undefined;
+  const applyConstructorTypeParameterRename = (
+    type: IrType | undefined
+  ): IrType | undefined =>
+    type &&
+    constructorTypeParameterRenames &&
+    constructorTypeParameterRenames.size > 0
+      ? irSubstitute(type, constructorTypeParameterRenames as IrSubstitutionMap)
+      : type;
+  const parameterTypes = rawParameterTypes.map((parameterType) =>
+    applyConstructorTypeParameterRename(parameterType)
+  );
+  const thisParameterType =
+    applyConstructorTypeParameterRename(rawThisParameterType);
+  const typeParameters: TypeParameterInfo[] = rawTypeParameters.map(
+    (typeParameter) => {
+      const renamedTypeParameter = constructorTypeParameterRenames?.get(
+        typeParameter.name
+      );
+      return {
+        ...typeParameter,
+        name:
+          renamedTypeParameter?.kind === "typeParameterType"
+            ? renamedTypeParameter.name
+            : typeParameter.name,
+        constraint: applyConstructorTypeParameterRename(
+          typeParameter.constraint
+        ),
+        defaultType: applyConstructorTypeParameterRename(
+          typeParameter.defaultType
+        ),
+      };
+    }
   );
 
   const hasDeclaredReturnType =
@@ -105,8 +158,13 @@ export const getRawSignature = (
 
   // Convert return type
   const returnType: IrType = (() => {
-    if (sigInfo.returnTypeNode)
-      return convertTypeNode(state, sigInfo.returnTypeNode);
+    if (sigInfo.returnTypeNode) {
+      return (
+        applyConstructorTypeParameterRename(
+          convertTypeNode(state, sigInfo.returnTypeNode)
+        ) ?? voidType
+      );
+    }
 
     // Class constructor declarations do not have return type annotations in TS syntax.
     // Deterministically synthesize the constructed instance type using the declaring
@@ -120,11 +178,23 @@ export const getRawSignature = (
             name: tp.name,
           }) satisfies IrType
       );
+      const typeId =
+        resolveTypeIdByName(
+          state,
+          sigInfo.declaringTypeTsName,
+          typeArguments.length
+        ) ?? resolveTypeIdByName(state, sigInfo.declaringTypeTsName);
 
       return {
         kind: "referenceType",
         name: sigInfo.declaringTypeTsName,
         ...(typeArguments.length > 0 ? { typeArguments } : {}),
+        ...(typeId
+          ? {
+              typeId,
+              resolvedClrType: typeId.clrName,
+            }
+          : {}),
       };
     }
 
@@ -135,7 +205,10 @@ export const getRawSignature = (
   let typePredicate: TypePredicateResult | undefined;
   if (sigInfo.typePredicate) {
     const pred = sigInfo.typePredicate;
-    const targetType = convertTypeNode(state, pred.targetTypeNode);
+    const targetType =
+      applyConstructorTypeParameterRename(
+        convertTypeNode(state, pred.targetTypeNode)
+      ) ?? unknownType;
     if (pred.kind === "param") {
       typePredicate = {
         kind: "param",
@@ -158,6 +231,8 @@ export const getRawSignature = (
     })),
     thisParameterType,
     returnType,
+    constructsDeclaringType:
+      isConstructor && sigInfo.returnTypeNode === undefined,
     hasDeclaredReturnType,
     parameterModes,
     typeParameters,

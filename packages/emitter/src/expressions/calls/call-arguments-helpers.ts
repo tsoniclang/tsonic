@@ -25,6 +25,7 @@ import {
 import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import { unwrapTransparentExpression } from "../../core/semantic/transparent-expressions.js";
 
 const isExplicitNullishArgument = (arg: IrExpression): boolean =>
@@ -64,20 +65,24 @@ export const normalizeCallArgumentExpectedType = (
   const emissionAlignedType = normalizedType
     ? normalizeStructuralEmissionType(normalizedType, context)
     : normalizedType;
-  if (!emissionAlignedType) {
-    return emissionAlignedType;
+  const storageAlignedType = emissionAlignedType
+    ? (normalizeRuntimeStorageType(emissionAlignedType, context) ??
+      emissionAlignedType)
+    : emissionAlignedType;
+  if (!storageAlignedType) {
+    return storageAlignedType;
   }
 
-  const split = splitRuntimeNullishUnionMembers(emissionAlignedType);
+  const split = splitRuntimeNullishUnionMembers(storageAlignedType);
   if (!split?.hasRuntimeNullish) {
-    return emissionAlignedType;
+    return storageAlignedType;
   }
 
   if (argumentMayBeNullish(arg, context)) {
-    return emissionAlignedType;
+    return storageAlignedType;
   }
 
-  return stripNullish(emissionAlignedType);
+  return stripNullish(storageAlignedType);
 };
 
 export const emitArrayWrapperElementTypeAst = (

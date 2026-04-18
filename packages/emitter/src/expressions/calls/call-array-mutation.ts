@@ -18,12 +18,9 @@ import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-exp
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
 import { needsIntCast } from "./call-analysis.js";
-import {
-  emitCallArguments,
-  wrapIntCast,
-} from "./call-arguments.js";
-import { buildDelegateType } from "./call-promise.js";
+import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
+import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
@@ -311,53 +308,40 @@ export const emitArrayMutationInteropCall = (
   );
   currentContext = returnTypeContext;
 
-  const lambdaAst: CSharpExpressionAst = {
-    kind: "lambdaExpression",
-    isAsync: false,
-    parameters: [],
-    body: {
-      kind: "blockStatement",
-      statements: [
-        ...captured.setupStatements,
-        createVarLocal(wrapperTemp.emittedName, {
-          ...buildNativeArrayInteropWrapAst(captured.readExpression),
-        }),
-        createVarLocal(resultTemp.emittedName, mutationCall),
-        {
-          kind: "expressionStatement",
-          expression: {
-            kind: "assignmentExpression",
-            operatorToken: "=",
-            left: captured.writeExpression,
-            right: mutatedArrayAst,
-          },
-        },
-        {
-          kind: "returnStatement",
-          expression: returnExpression,
-        },
-      ],
-    },
-  };
-
-  const delegateCastAst: CSharpExpressionAst = {
-    kind: "castExpression",
-    type: buildDelegateType([], returnTypeAst),
-    expression: {
-      kind: "parenthesizedExpression",
-      expression: lambdaAst,
-    },
-  };
-
   return [
-    wrapIntCast(needsIntCast(expr, expr.callee.property), {
-      kind: "invocationExpression",
-      expression: {
-        kind: "parenthesizedExpression",
-        expression: delegateCastAst,
-      },
-      arguments: [],
-    }),
+    wrapIntCast(
+      needsIntCast(expr, expr.callee.property),
+      buildInvokedLambdaExpressionAst({
+        parameters: [],
+        parameterTypes: [],
+        body: {
+          kind: "blockStatement",
+          statements: [
+            ...captured.setupStatements,
+            createVarLocal(wrapperTemp.emittedName, {
+              ...buildNativeArrayInteropWrapAst(captured.readExpression),
+            }),
+            createVarLocal(resultTemp.emittedName, mutationCall),
+            {
+              kind: "expressionStatement",
+              expression: {
+                kind: "assignmentExpression",
+                operatorToken: "=",
+                left: captured.writeExpression,
+                right: mutatedArrayAst,
+              },
+            },
+            {
+              kind: "returnStatement",
+              expression: returnExpression,
+            },
+          ],
+        },
+        arguments: [],
+        returnType: returnTypeAst,
+        context: currentContext,
+      })
+    ),
     currentContext,
   ];
 };

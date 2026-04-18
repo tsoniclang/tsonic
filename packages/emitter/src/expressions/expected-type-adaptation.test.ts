@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { createContext } from "../emitter-types/context.js";
@@ -10,19 +11,28 @@ import {
   printExpression,
   printType,
 } from "../core/format/backend-ast/printer.js";
-import type { IrType } from "@tsonic/frontend";
-import { printRuntimeUnionCarrierTypeForIrType } from "../runtime-union-cases/helpers.js";
+import {
+  normalizedUnionType,
+  stampRuntimeUnionAliasCarrier,
+  type IrType,
+} from "@tsonic/frontend";
+import {
+  normalizeRuntimeUnionCarrierNames,
+  printRuntimeUnionCarrierTypeForIrType,
+} from "../runtime-union-cases/helpers.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
   adaptEmittedExpressionAst,
   adaptValueToExpectedTypeAst,
+  tryEmitCarrierPreservingExpressionAst,
 } from "./expected-type-adaptation.js";
 import {
   maybeBoxJsNumberAsObjectAst,
   maybeCastNumericToExpectedIntegralAst,
   maybeUnwrapNullableValueTypeAst,
 } from "./post-emission-adaptation.js";
+import { createRuntimeUnionRegistry } from "../core/semantic/runtime-union-registry.js";
 
 const jsValueType: IrType = {
   kind: "referenceType",
@@ -58,7 +68,7 @@ describe("expected-type-adaptation", () => {
       {
         kind: "literal",
         value: "HELLO",
-        raw: "\"HELLO\"",
+        raw: '"HELLO"',
         inferredType: { kind: "primitiveType", name: "string" },
       },
       context,
@@ -317,6 +327,68 @@ describe("expected-type-adaptation", () => {
 
     expect(result).to.not.equal(undefined);
     expect(printExpression(result![0])).to.include("handler.Match");
+  });
+
+  it("projects runtime-union values into unknown sinks through object match arms", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const actualType: IrType = normalizedUnionType([
+      { kind: "primitiveType", name: "string" },
+      {
+        kind: "referenceType",
+        name: "BufferLike",
+        resolvedClrType: "Test.BufferLike",
+      },
+    ]);
+
+    const result = adaptValueToExpectedTypeAst({
+      valueAst: identifierExpression("result"),
+      actualType,
+      context,
+      expectedType: { kind: "unknownType", explicit: true },
+      allowUnionNarrowing: false,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(printExpression(result![0])).to.equal(
+      "result.Match<object>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2)"
+    );
+  });
+
+  it("projects runtime-union values into object sinks through object match arms", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const actualType: IrType = normalizedUnionType([
+      { kind: "primitiveType", name: "string" },
+      {
+        kind: "referenceType",
+        name: "BufferLike",
+        resolvedClrType: "Test.BufferLike",
+      },
+    ]);
+
+    const result = adaptValueToExpectedTypeAst({
+      valueAst: identifierExpression("result"),
+      actualType,
+      context,
+      expectedType: {
+        kind: "referenceType",
+        name: "object",
+        resolvedClrType: "System.Object",
+      },
+      allowUnionNarrowing: false,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(printExpression(result![0])).to.equal(
+      "result.Match<object>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2)"
+    );
   });
 
   it("selects the exact runtime-union array arm for generic call returns", () => {
@@ -685,6 +757,207 @@ describe("expected-type-adaptation", () => {
     );
   });
 
+  it("preserves top-level nullish when adapting nullable source-backed values into optional runtime unions", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/nodejs",
+    });
+
+    const actualType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+    const expectedType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        },
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const result = adaptValueToExpectedTypeAst({
+      valueAst: identifierExpression("header"),
+      actualType,
+      context,
+      expectedType,
+      allowUnionNarrowing: false,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(
+      normalizeRuntimeUnionCarrierNames(printExpression(result![0]))
+    ).to.equal(
+      "header == null ? default(global::Tsonic.Internal.Union<string[], string>?) : global::Tsonic.Internal.Union<string[], string>.From2(header)"
+    );
+  });
+
+  it("rewraps optional source-owned alias arguments through the alias carrier", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const mkdirOptionsLike = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        { kind: "primitiveType", name: "boolean" },
+        {
+          kind: "referenceType",
+          name: "MkdirOptions",
+          resolvedClrType: "Test.MkdirOptions",
+        },
+      ]),
+      {
+        aliasName: "MkdirOptionsLike",
+        fullyQualifiedName: "Test.MkdirOptionsLike",
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      moduleNamespace: "Test",
+      localTypes: new Map([
+        [
+          "MkdirOptionsLike",
+          {
+            kind: "typeAlias" as const,
+            isExported: true,
+            typeParameters: [],
+            type: mkdirOptionsLike,
+          },
+        ],
+      ]),
+      publicLocalTypes: new Set(["MkdirOptionsLike"]),
+    };
+
+    const expectedType = normalizedUnionType([
+      {
+        kind: "referenceType",
+        name: "MkdirOptionsLike",
+        resolvedClrType: "Test.MkdirOptionsLike",
+      },
+      { kind: "primitiveType", name: "undefined" },
+    ]);
+
+    const result = adaptValueToExpectedTypeAst({
+      valueAst: identifierExpression("recursive"),
+      actualType: { kind: "primitiveType", name: "boolean" },
+      context,
+      expectedType,
+      allowUnionNarrowing: false,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(printExpression(result![0])).to.equal(
+      "global::Test.MkdirOptionsLike.From1(recursive)"
+    );
+  });
+
+  it("rewraps numeric runtime-union alias arguments through the selected integral slot", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const typedArrayConstructorInput = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        { kind: "primitiveType", name: "int" },
+        {
+          kind: "referenceType",
+          name: "TypedArrayInput",
+          resolvedClrType: "js.TypedArrayInput",
+          typeArguments: [
+            {
+              kind: "referenceType",
+              name: "byte",
+              resolvedClrType: "System.Byte",
+            },
+          ],
+        },
+      ]),
+      {
+        aliasName: "TypedArrayConstructorInput",
+        fullyQualifiedName: "js.TypedArrayConstructorInput",
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      moduleNamespace: "js",
+      localTypes: new Map([
+        [
+          "TypedArrayConstructorInput",
+          {
+            kind: "typeAlias" as const,
+            isExported: true,
+            typeParameters: ["TElement"],
+            type: typedArrayConstructorInput,
+          },
+        ],
+      ]),
+      publicLocalTypes: new Set(["TypedArrayConstructorInput"]),
+    };
+
+    const expectedType: IrType = {
+      kind: "referenceType",
+      name: "TypedArrayConstructorInput",
+      resolvedClrType: "js.TypedArrayConstructorInput",
+      typeArguments: [
+        {
+          kind: "referenceType",
+          name: "byte",
+          resolvedClrType: "System.Byte",
+        },
+      ],
+    };
+
+    const binaryResult = adaptValueToExpectedTypeAst({
+      valueAst: {
+        kind: "binaryExpression",
+        operatorToken: "-",
+        left: identifierExpression("end"),
+        right: identifierExpression("start"),
+      },
+      actualType: { kind: "primitiveType", name: "number" },
+      context,
+      expectedType,
+      allowUnionNarrowing: false,
+    });
+
+    expect(binaryResult).to.not.equal(undefined);
+    expect(printExpression(binaryResult![0])).to.equal(
+      "global::js.TypedArrayConstructorInput<byte>.From1((int)(end - start))"
+    );
+
+    const conditionalResult = adaptValueToExpectedTypeAst({
+      valueAst: {
+        kind: "conditionalExpression",
+        condition: {
+          kind: "binaryExpression",
+          operatorToken: "==",
+          left: identifierExpression("totalLength"),
+          right: parseNumericLiteral("0"),
+        },
+        whenTrue: parseNumericLiteral("1"),
+        whenFalse: identifierExpression("totalLength"),
+      },
+      actualType: { kind: "primitiveType", name: "number" },
+      context,
+      expectedType,
+      allowUnionNarrowing: false,
+    });
+
+    expect(conditionalResult).to.not.equal(undefined);
+    expect(printExpression(conditionalResult![0])).to.equal(
+      "global::js.TypedArrayConstructorInput<byte>.From1((int)(totalLength == 0 ? 1 : totalLength))"
+    );
+  });
+
   it("casts JS numeric expressions into integral expected slots", () => {
     const context = createContext({
       rootNamespace: "Test",
@@ -875,5 +1148,119 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(unwrappedAst)).to.equal(
       "(double)(object)options.startTime"
     );
+  });
+
+  it("reuses the materialized carrier surface for broad-to-union predicate narrowings", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const middlewareHandlerCarrier = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        {
+          kind: "functionType",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "req" },
+              type: {
+                kind: "referenceType",
+                name: "Request",
+                resolvedClrType: "Test.Request",
+              },
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+        },
+        {
+          kind: "functionType",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "err" },
+              type: {
+                kind: "referenceType",
+                name: "object",
+                resolvedClrType: "System.Object",
+              },
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+        },
+      ]),
+      {
+        aliasName: "MiddlewareHandler",
+        fullyQualifiedName: "Test.MiddlewareHandler",
+      }
+    );
+    const middlewareHandlerType: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareHandler",
+      resolvedClrType: "Test.MiddlewareHandler",
+    };
+    const broadObjectType: IrType = {
+      kind: "referenceType",
+      name: "object",
+      resolvedClrType: "System.Object",
+    };
+
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      moduleNamespace: "Test",
+      localTypes: new Map([
+        [
+          "MiddlewareHandler",
+          {
+            kind: "typeAlias" as const,
+            isExported: true,
+            typeParameters: [],
+            type: middlewareHandlerCarrier,
+          },
+        ],
+      ]),
+      publicLocalTypes: new Set(["MiddlewareHandler"]),
+      localNameMap: new Map([["handler", "handler"]]),
+      localValueTypes: new Map([["handler", broadObjectType]]),
+      narrowedBindings: new Map([
+        [
+          "handler",
+          {
+            kind: "expr" as const,
+            exprAst: {
+              kind: "castExpression" as const,
+              type: identifierType("MiddlewareHandler"),
+              expression: identifierExpression("handler"),
+            },
+            storageExprAst: identifierExpression("handler"),
+            storageType: broadObjectType,
+            carrierExprAst: identifierExpression("handler"),
+            carrierType: broadObjectType,
+            type: middlewareHandlerType,
+            sourceType: broadObjectType,
+          },
+        ],
+      ]),
+    };
+
+    const result = tryEmitCarrierPreservingExpressionAst({
+      expr: {
+        kind: "identifier",
+        name: "handler",
+        inferredType: broadObjectType,
+      },
+      expectedType: middlewareHandlerType,
+      context,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(printExpression(result!.ast)).to.equal("(MiddlewareHandler)handler");
   });
 });

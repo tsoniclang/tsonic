@@ -28,9 +28,18 @@ describe("narrowing builder core", () => {
 
     const binding = {
       kind: "expr" as const,
-      exprAst: { kind: "identifierExpression" as const, identifier: "cur__site" },
-      storageExprAst: { kind: "identifierExpression" as const, identifier: "cur" },
-      carrierExprAst: { kind: "identifierExpression" as const, identifier: "cur" },
+      exprAst: {
+        kind: "identifierExpression" as const,
+        identifier: "cur__site",
+      },
+      storageExprAst: {
+        kind: "identifierExpression" as const,
+        identifier: "cur",
+      },
+      carrierExprAst: {
+        kind: "identifierExpression" as const,
+        identifier: "cur",
+      },
       storageType: siteValueType,
       type: siteValueType,
       sourceType: valueType,

@@ -87,7 +87,7 @@ export const generateNugetBindings = ({
         error:
           `PackageReference '${declared.id}' is marked as 'types: false' but it contains CLR assemblies.\n` +
           `This package is part of the bindings dependency closure and therefore requires bindings.\n` +
-          `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+          `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
       };
     }
     if (declared?.types !== undefined) continue;
@@ -132,7 +132,7 @@ export const generateNugetBindings = ({
             error:
               `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
               `It is required by '${node.packageId}' and therefore requires bindings.\n` +
-              `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+              `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
           };
         }
 
@@ -209,7 +209,7 @@ export const generateNugetBindings = ({
           error:
             `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
             `It is required by '${node.packageId}' and therefore requires bindings.\n` +
-            `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+            `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
         };
       }
 

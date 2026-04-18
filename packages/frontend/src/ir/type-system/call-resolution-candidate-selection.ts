@@ -7,7 +7,10 @@ import type {
 } from "./type-system-state.js";
 import { getRawSignature } from "./call-resolution-signatures.js";
 import { resolveCall } from "./call-resolution-resolve.js";
-import { scoreSignatureMatch } from "./call-resolution-scoring.js";
+import {
+  refineParameterTypeForConcreteArgument,
+  scoreSignatureMatch,
+} from "./call-resolution-scoring.js";
 import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 import {
   containsMethodTypeParameter,
@@ -146,7 +149,8 @@ const scoreSurfaceTypeSpecificity = (type: IrType | undefined): number => {
               ? scoreSurfaceTypeSpecificity(member.type)
               : member.parameters.reduce(
                   (parameterTotal, parameter) =>
-                    parameterTotal + scoreSurfaceTypeSpecificity(parameter.type),
+                    parameterTotal +
+                    scoreSurfaceTypeSpecificity(parameter.type),
                   scoreSurfaceTypeSpecificity(member.returnType)
                 )),
           0
@@ -261,10 +265,7 @@ const scoreParameterSpecificity = (
           (total, member) =>
             total +
             (member.kind === "propertySignature"
-              ? scoreParameterSpecificity(
-                  member.type,
-                  methodTypeParameterNames
-                )
+              ? scoreParameterSpecificity(member.type, methodTypeParameterNames)
               : member.parameters.reduce(
                   (parameterTotal, parameter) =>
                     parameterTotal +
@@ -298,7 +299,10 @@ const scoreParameterSpecificity = (
     case "neverType":
       return 3;
     default:
-      return containsMethodTypeParameter(parameterType, methodTypeParameterNames)
+      return containsMethodTypeParameter(
+        parameterType,
+        methodTypeParameterNames
+      )
         ? 1
         : 2;
   }
@@ -326,10 +330,10 @@ const scoreSignatureSpecificity = (
   return expandedParameterTypes
     .slice(0, argumentCount)
     .reduce(
-    (total, parameterType) =>
-      total +
-      scoreParameterSpecificity(parameterType, methodTypeParameterNames),
-    0
+      (total, parameterType) =>
+        total +
+        scoreParameterSpecificity(parameterType, methodTypeParameterNames),
+      0
     );
 };
 
@@ -370,19 +374,30 @@ const scoreConcreteSurfaceExactness = (
     if (!rawParameterType || !argumentType) {
       continue;
     }
+    const compatibleParameterType =
+      refineParameterTypeForConcreteArgument(
+        state,
+        rawParameterType,
+        argumentType
+      ) ?? rawParameterType;
 
-    if (containsMethodTypeParameter(rawParameterType, methodTypeParameterNames)) {
+    if (
+      containsMethodTypeParameter(
+        compatibleParameterType,
+        methodTypeParameterNames
+      )
+    ) {
       continue;
     }
 
-    if (typesEqual(rawParameterType, argumentType)) {
+    if (typesEqual(compatibleParameterType, argumentType)) {
       exactness += 1;
       continue;
     }
 
     if (
-      isAssignableTo(state, argumentType, rawParameterType) &&
-      isAssignableTo(state, rawParameterType, argumentType)
+      isAssignableTo(state, argumentType, compatibleParameterType) &&
+      isAssignableTo(state, compatibleParameterType, argumentType)
     ) {
       exactness += 1;
     }
@@ -411,9 +426,7 @@ const countCompatibleArguments = (
       continue;
     }
 
-    if (
-      scoreSignatureMatch(state, [parameterType], [argumentType], 1) > 0
-    ) {
+    if (scoreSignatureMatch(state, [parameterType], [argumentType], 1) > 0) {
       compatible += 1;
     }
   }
@@ -621,7 +634,11 @@ const buildCandidateScore = (
     argTypes,
     argumentCount
   );
-  const specificityScore = scoreSignatureSpecificity(state, sigId, argumentCount);
+  const specificityScore = scoreSignatureSpecificity(
+    state,
+    sigId,
+    argumentCount
+  );
   const surfaceSpecificityScore = scoreSurfaceParameterSpecificity(
     resolved,
     argumentCount
@@ -632,7 +649,8 @@ const buildCandidateScore = (
     resolved.selectionMeta.parameterCount === argumentCount
       ? 1
       : 0;
-  const nonRest = resolved.selectionMeta && !resolved.selectionMeta.hasRestParameter ? 1 : 0;
+  const nonRest =
+    resolved.selectionMeta && !resolved.selectionMeta.hasRestParameter ? 1 : 0;
 
   return [
     receiverCompatibilityScore,
@@ -654,7 +672,9 @@ const compareCandidateScores = (
   right: CandidateScore
 ): number => {
   for (let index = 0; index < left.length; index += 1) {
-    const delta = left[index]! - right[index]!;
+    const leftScore = left[index] ?? 0;
+    const rightScore = right[index] ?? 0;
+    const delta = leftScore - rightScore;
     if (delta !== 0) {
       return delta;
     }
@@ -700,9 +720,7 @@ export const selectBestCallCandidate = (
   }
 
   const definedArgTypes =
-    query.argTypes?.filter(
-      (type): type is IrType => type !== undefined
-    ) ?? [];
+    query.argTypes?.filter((type): type is IrType => type !== undefined) ?? [];
   if (definedArgTypes.length === 0) {
     const chosenSigId = fallbackSigId ?? orderedCandidates[0];
     if (!chosenSigId) {

@@ -20,9 +20,7 @@ import {
   findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../core/semantic/runtime-union-matching.js";
-import {
-  willCarryAsRuntimeUnion,
-} from "../../core/semantic/union-semantics.js";
+import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import { isBroadValueCarrierType } from "../../core/semantic/broad-array-storage.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "../../core/semantic/transparent-expressions.js";
@@ -30,9 +28,9 @@ import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js"
 import { currentNarrowedType } from "../../core/semantic/narrowing-builders.js";
 import { resolveAlignedRuntimeUnionMembers } from "../../core/semantic/narrowed-union-resolution.js";
 import {
-  resolveIdentifierCarrierStorageType,
   resolveIdentifierRuntimeCarrierType,
   resolveRuntimeCarrierExpressionAst,
+  resolveRuntimeCarrierIrType,
   resolveDirectStorageExpressionType,
 } from "../direct-storage-types.js";
 import {
@@ -235,14 +233,17 @@ export const emitTypeofComparison = (
     context
   );
   const directStorageType =
-    target?.kind === "identifier"
-      ? (resolveIdentifierRuntimeCarrierType(target, operandContext) ??
-        resolveIdentifierCarrierStorageType(target, operandContext))
+    resolveRuntimeCarrierIrType(
+      target ?? directGuard.operand,
+      operandContext
+    ) ??
+    (target?.kind === "identifier"
+      ? resolveIdentifierRuntimeCarrierType(target, operandContext)
       : resolveDirectStorageExpressionType(
           target ?? directGuard.operand,
           operandAst,
           operandContext
-        );
+        ));
   const runtimeCarrierAst =
     (directStorageType
       ? resolveRuntimeCarrierExpressionAst(
@@ -328,7 +329,10 @@ export const emitInOperator = (
 
   const [rhsAst, rhsCtx] = emitExpressionAst(target ?? expr.right, context);
   const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
-  const resolvedEffectiveType = resolveTypeAlias(stripNullish(effectiveType), rhsCtx);
+  const resolvedEffectiveType = resolveTypeAlias(
+    stripNullish(effectiveType),
+    rhsCtx
+  );
   const singleEffectiveMember =
     resolvedEffectiveType.kind === "unionType"
       ? resolvedEffectiveType.types.length === 1
@@ -352,10 +356,14 @@ export const emitInOperator = (
   }
 
   const directStorageType =
-    target?.kind === "identifier"
-      ? (resolveIdentifierRuntimeCarrierType(target, rhsCtx) ??
-        resolveIdentifierCarrierStorageType(target, rhsCtx))
-      : resolveDirectStorageExpressionType(target ?? expr.right, rhsAst, rhsCtx);
+    resolveRuntimeCarrierIrType(target ?? expr.right, rhsCtx) ??
+    (target?.kind === "identifier"
+      ? resolveIdentifierRuntimeCarrierType(target, rhsCtx)
+      : resolveDirectStorageExpressionType(
+          target ?? expr.right,
+          rhsAst,
+          rhsCtx
+        ));
   const runtimeCarrierAst =
     (directStorageType
       ? resolveRuntimeCarrierExpressionAst(target ?? expr.right, rhsCtx)
@@ -373,7 +381,8 @@ export const emitInOperator = (
 
   // Union<T1..Tn>: `"error" in auth` -> auth.IsN() (where member N has the prop)
   if (alignedCarrierMembers) {
-    const { members: runtimeMembers, candidateMemberNs } = alignedCarrierMembers;
+    const { members: runtimeMembers, candidateMemberNs } =
+      alignedCarrierMembers;
     const matchingMembers: number[] = [];
     const unresolvedMembers: string[] = [];
 
@@ -509,7 +518,7 @@ export const emitInstanceof = (
   );
   const directStorageType =
     target?.kind === "identifier"
-      ? resolveIdentifierCarrierStorageType(target, leftContext)
+      ? resolveIdentifierRuntimeCarrierType(target, leftContext)
       : resolveDirectStorageExpressionType(
           target ?? expr.left,
           leftAst,

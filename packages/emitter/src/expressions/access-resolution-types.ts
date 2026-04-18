@@ -235,8 +235,7 @@ export const emitMemberName = (
             ): member is Extract<
               (typeof localInfo.members)[number],
               { kind: "methodSignature" }
-            > =>
-              member.kind === "methodSignature" && member.name === memberName
+            > => member.kind === "methodSignature" && member.name === memberName
           );
           if (method?.overloadFamily?.publicName) {
             return emitCSharpName(

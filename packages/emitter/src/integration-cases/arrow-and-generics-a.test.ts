@@ -118,22 +118,22 @@ describe("End-to-End Integration", () => {
             null,
             2
           ),
-        "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@fixture/js",
-            extends: ["@tsonic/js"],
-            requiredTypeRoots: ["."],
-          },
-          null,
-          2
-        ),
-        "node_modules/@fixture/js/globals.ts": [
-          'import type { JsValue } from "@tsonic/core/types.js";',
-          "",
-          "declare global {",
-          "  function setInterval(",
-          "    handler: (...args: JsValue[]) => void,",
+          "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: "@fixture/js",
+              extends: ["@tsonic/js"],
+              requiredTypeRoots: ["."],
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/globals.ts": [
+            'import type { JsValue } from "@tsonic/core/types.js";',
+            "",
+            "declare global {",
+            "  function setInterval(",
+            "    handler: (...args: JsValue[]) => void,",
             "    timeout?: number,",
             "    ...args: JsValue[]",
             "  ): number;",
@@ -156,134 +156,135 @@ describe("End-to-End Integration", () => {
             2
           ),
           "node_modules/@fixture/js/Acme.ExternalRuntime.d.ts": "export {};\n",
-          "node_modules/@fixture/js/Acme.ExternalRuntime/bindings.json": JSON.stringify(
-            {
-              namespace: "Acme.ExternalRuntime",
-              types: [
-                {
-                  clrName: "Acme.ExternalRuntime.Timers",
-                  assemblyName: "Acme.ExternalRuntime",
-                  methods: [
-                    {
-                      clrName: "setInterval",
-                      normalizedSignature:
-                        "setInterval|(System.Action,System.Double):System.Double|static=true",
-                      parameterCount: 2,
-                      declaringClrType: "Acme.ExternalRuntime.Timers",
-                      declaringAssemblyName: "Acme.ExternalRuntime",
-                      semanticSignature: {
-                        parameters: [
-                          {
-                            kind: "parameter",
-                            pattern: {
-                              kind: "identifierPattern",
-                              name: "handler",
+          "node_modules/@fixture/js/Acme.ExternalRuntime/bindings.json":
+            JSON.stringify(
+              {
+                namespace: "Acme.ExternalRuntime",
+                types: [
+                  {
+                    clrName: "Acme.ExternalRuntime.Timers",
+                    assemblyName: "Acme.ExternalRuntime",
+                    methods: [
+                      {
+                        clrName: "setInterval",
+                        normalizedSignature:
+                          "setInterval|(System.Action,System.Double):System.Double|static=true",
+                        parameterCount: 2,
+                        declaringClrType: "Acme.ExternalRuntime.Timers",
+                        declaringAssemblyName: "Acme.ExternalRuntime",
+                        semanticSignature: {
+                          parameters: [
+                            {
+                              kind: "parameter",
+                              pattern: {
+                                kind: "identifierPattern",
+                                name: "handler",
+                              },
+                              type: {
+                                kind: "referenceType",
+                                name: "System.Action",
+                                resolvedClrType: "System.Action",
+                              },
+                              isOptional: false,
+                              isRest: false,
+                              passing: "value",
                             },
-                            type: {
-                              kind: "referenceType",
-                              name: "System.Action",
-                              resolvedClrType: "System.Action",
+                            {
+                              kind: "parameter",
+                              pattern: {
+                                kind: "identifierPattern",
+                                name: "timeout",
+                              },
+                              type: {
+                                kind: "primitiveType",
+                                name: "number",
+                              },
+                              isOptional: false,
+                              isRest: false,
+                              passing: "value",
                             },
-                            isOptional: false,
-                            isRest: false,
-                            passing: "value",
+                          ],
+                          returnType: {
+                            kind: "primitiveType",
+                            name: "number",
                           },
-                          {
-                            kind: "parameter",
-                            pattern: {
-                              kind: "identifierPattern",
-                              name: "timeout",
-                            },
-                            type: {
-                              kind: "primitiveType",
-                              name: "number",
-                            },
-                            isOptional: false,
-                            isRest: false,
-                            passing: "value",
-                          },
-                        ],
-                        returnType: {
-                          kind: "primitiveType",
-                          name: "number",
                         },
                       },
-                    },
-                    {
-                      clrName: "setInterval",
-                      normalizedSignature:
-                        "setInterval|(System.Action_1,System.Double,System.Object):System.Double|static=true",
-                      parameterCount: 3,
-                      declaringClrType: "Acme.ExternalRuntime.Timers",
-                      declaringAssemblyName: "Acme.ExternalRuntime",
-                      semanticSignature: {
-                        typeParameters: ["T0"],
-                        parameters: [
-                          {
-                            kind: "parameter",
-                            pattern: {
-                              kind: "identifierPattern",
-                              name: "handler",
+                      {
+                        clrName: "setInterval",
+                        normalizedSignature:
+                          "setInterval|(System.Action_1,System.Double,System.Object):System.Double|static=true",
+                        parameterCount: 3,
+                        declaringClrType: "Acme.ExternalRuntime.Timers",
+                        declaringAssemblyName: "Acme.ExternalRuntime",
+                        semanticSignature: {
+                          typeParameters: ["T0"],
+                          parameters: [
+                            {
+                              kind: "parameter",
+                              pattern: {
+                                kind: "identifierPattern",
+                                name: "handler",
+                              },
+                              type: {
+                                kind: "referenceType",
+                                name: "Action_1",
+                                resolvedClrType: "System.Action`1",
+                                typeArguments: [
+                                  {
+                                    kind: "typeParameterType",
+                                    name: "T0",
+                                  },
+                                ],
+                              },
+                              isOptional: false,
+                              isRest: false,
+                              passing: "value",
                             },
-                            type: {
-                              kind: "referenceType",
-                              name: "Action_1",
-                              resolvedClrType: "System.Action`1",
-                              typeArguments: [
-                                {
-                                  kind: "typeParameterType",
-                                  name: "T0",
-                                },
-                              ],
+                            {
+                              kind: "parameter",
+                              pattern: {
+                                kind: "identifierPattern",
+                                name: "timeout",
+                              },
+                              type: {
+                                kind: "primitiveType",
+                                name: "number",
+                              },
+                              isOptional: false,
+                              isRest: false,
+                              passing: "value",
                             },
-                            isOptional: false,
-                            isRest: false,
-                            passing: "value",
+                            {
+                              kind: "parameter",
+                              pattern: {
+                                kind: "identifierPattern",
+                                name: "arg0",
+                              },
+                              type: {
+                                kind: "typeParameterType",
+                                name: "T0",
+                              },
+                              isOptional: false,
+                              isRest: false,
+                              passing: "value",
+                            },
+                          ],
+                          returnType: {
+                            kind: "primitiveType",
+                            name: "number",
                           },
-                          {
-                            kind: "parameter",
-                            pattern: {
-                              kind: "identifierPattern",
-                              name: "timeout",
-                            },
-                            type: {
-                              kind: "primitiveType",
-                              name: "number",
-                            },
-                            isOptional: false,
-                            isRest: false,
-                            passing: "value",
-                          },
-                          {
-                            kind: "parameter",
-                            pattern: {
-                              kind: "identifierPattern",
-                              name: "arg0",
-                            },
-                            type: {
-                              kind: "typeParameterType",
-                              name: "T0",
-                            },
-                            isOptional: false,
-                            isRest: false,
-                            passing: "value",
-                          },
-                        ],
-                        returnType: {
-                          kind: "primitiveType",
-                          name: "number",
                         },
                       },
-                    },
-                  ],
-                  properties: [],
-                  fields: [],
-                },
-              ],
-            },
-            null,
-            2
-          ),
+                    ],
+                    properties: [],
+                    fields: [],
+                  },
+                ],
+              },
+              null,
+              2
+            ),
         },
         "src/index.ts",
         {
@@ -565,10 +566,9 @@ describe("End-to-End Integration", () => {
         "if (candidate is Application candidate__is_1)"
       );
       expect(csharp).to.include("candidate__is_1.mountpath =");
-      expect(csharp).to.include(
-        "return global::Tsonic.Internal.Union<string[], string>.From2(candidate__is_1.mountpath);"
-      );
+      expect(csharp).to.include("return candidate__is_1.mountpath;");
       expect(csharp).to.not.include("candidate.mountpath =");
+      expect(csharp).to.not.include("candidate__is_1.mountpath.Match<");
     });
 
     it("preserves storage-type reassignment after instanceof local narrowing", () => {
@@ -675,10 +675,10 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.match(/public\s+static\s+double\s+numericIdentity<T>\s*\(T value\)/);
-      expect(csharp).to.include(
-        "where T : global::System.Numerics.INumber<T>"
+      expect(csharp).to.match(
+        /public\s+static\s+double\s+numericIdentity<T>\s*\(T value\)/
       );
+      expect(csharp).to.include("where T : global::System.Numerics.INumber<T>");
       expect(csharp).to.include(
         "return global::System.Double.CreateChecked(value);"
       );

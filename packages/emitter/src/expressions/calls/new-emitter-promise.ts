@@ -12,6 +12,7 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 
 export const isPromiseConstructorCall = (
   expr: Extract<IrExpression, { kind: "new" }>
@@ -114,7 +115,8 @@ const normalizePromiseExecutorExpectedType = (
     return executorType;
   }
 
-  const voidPromiseValue = promiseValueType === undefined && isVoidPromiseValue(expr);
+  const voidPromiseValue =
+    promiseValueType === undefined && isVoidPromiseValue(expr);
   if (!promiseValueType && !voidPromiseValue) {
     return executorType;
   }
@@ -188,8 +190,7 @@ export const emitPromiseConstructor = (
   }
 
   const resolveParam =
-    executor.kind === "arrowFunction" ||
-    executor.kind === "functionExpression"
+    executor.kind === "arrowFunction" || executor.kind === "functionExpression"
       ? executor.parameters[0]
       : undefined;
   const resolveParamName =
@@ -200,7 +201,11 @@ export const emitPromiseConstructor = (
     resolveParamName !== undefined && promiseValueType
       ? new Map(currentContext.promiseResolveValueTypes ?? [])
       : undefined;
-  if (promiseResolveValueTypes && promiseValueType && resolveParamName !== undefined) {
+  if (
+    promiseResolveValueTypes &&
+    promiseValueType &&
+    resolveParamName !== undefined
+  ) {
     promiseResolveValueTypes.set(resolveParamName, promiseValueType);
   }
 
@@ -511,35 +516,18 @@ export const emitPromiseConstructor = (
     },
   ];
 
-  const funcTypeAst: CSharpTypeAst = identifierType("global::System.Func", [
-    taskTypeAst,
-  ]);
-  const lambdaAst: CSharpExpressionAst = {
-    kind: "lambdaExpression",
-    isAsync: false,
-    parameters: [],
-    body: {
-      kind: "blockStatement",
-      statements: bodyStatements,
-    },
-  };
-  const castAst: CSharpExpressionAst = {
-    kind: "castExpression",
-    type: funcTypeAst,
-    expression: {
-      kind: "parenthesizedExpression",
-      expression: lambdaAst,
-    },
-  };
   return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "parenthesizedExpression",
-        expression: castAst,
+    buildInvokedLambdaExpressionAst({
+      parameters: [],
+      parameterTypes: [],
+      body: {
+        kind: "blockStatement",
+        statements: bodyStatements,
       },
       arguments: [],
-    },
+      returnType: taskTypeAst,
+      context: currentContext,
+    }),
     currentContext,
   ];
 };

@@ -70,7 +70,7 @@ export const resolveNugetPackagesDir = (projectRoot: string): string => {
 
 export const buildDotnetProcessEnv = (
   projectRoot: string
-): NodeJS.ProcessEnv => {
+): Record<string, string | undefined> => {
   const configuredPackagesDir = process.env.NUGET_PACKAGES;
   if (
     typeof configuredPackagesDir === "string" &&

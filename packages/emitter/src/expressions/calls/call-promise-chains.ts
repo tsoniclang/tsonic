@@ -251,13 +251,12 @@ export const emitPromiseThenCatchFinally = (
   })();
   const normalizedFrontendPromiseChainResultIr =
     normalizePromiseChainResultIrType(expr.inferredType);
-  const preferredPromiseChainResultIr =
-    prefersFrontendPromiseChainResultType(
-      normalizedFrontendPromiseChainResultIr,
-      currentContext
-    )
-      ? normalizedFrontendPromiseChainResultIr
-      : normalizedPromiseChainResultIr;
+  const preferredPromiseChainResultIr = prefersFrontendPromiseChainResultType(
+    normalizedFrontendPromiseChainResultIr,
+    currentContext
+  )
+    ? normalizedFrontendPromiseChainResultIr
+    : normalizedPromiseChainResultIr;
 
   let outputResultType = getTaskResultType(defaultOutputTaskType);
   let outputTaskType = defaultOutputTaskType;

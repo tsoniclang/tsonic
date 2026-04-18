@@ -246,9 +246,9 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
         continue;
       }
 
-      const ambientTargetClass = collectTopLevelClassDeclarations(sourceFile).get(
-        target.exportName.split(".").pop() ?? target.exportName
-      );
+      const ambientTargetClass = collectTopLevelClassDeclarations(
+        sourceFile
+      ).get(target.exportName.split(".").pop() ?? target.exportName);
       if (ambientTargetClass) {
         return ambientTargetClass;
       }
@@ -353,11 +353,14 @@ export const buildSourceBackedConstructorParameterTypes = (opts: {
 
   const declaredParameterTypes = declaration.parameters.map((parameter) => {
     const declaredType = parameter.type
-      ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(parameter.type))
+      ? ctx.typeSystem.typeFromSyntax(
+          ctx.binding.captureTypeSyntax(parameter.type)
+        )
       : ({ kind: "unknownType" } as const);
     const specializedType =
       ownerSubstitution && ownerSubstitution.size > 0
-        ? substituteTypeParameters(declaredType, ownerSubstitution) ?? declaredType
+        ? (substituteTypeParameters(declaredType, ownerSubstitution) ??
+          declaredType)
         : declaredType;
     return parameter.questionToken
       ? addUndefinedToType(specializedType)
@@ -374,8 +377,14 @@ export const buildSourceBackedConstructorParameterTypes = (opts: {
   const surfaceParameterTypes = expandedDeclaredParameterTypes;
   const selectionParameterTypes = surfaceParameterTypes.map(
     (parameterType) =>
-      expandAuthoritativeSourceBackedSurfaceType(parameterType, ctx) ??
-      parameterType
+      expandAuthoritativeSourceBackedSurfaceType(
+        parameterType,
+        ctx,
+        new Set(),
+        {
+          preserveCarrierIdentity: false,
+        }
+      ) ?? parameterType
   );
 
   return {

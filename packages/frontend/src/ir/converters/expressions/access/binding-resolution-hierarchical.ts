@@ -266,7 +266,9 @@ export const resolveHierarchicalBinding = (
           ...getAliasesForExactClrType(simpleBinding.staticType, "static"),
           simpleBinding.staticType,
           tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
-        ].filter((candidate): candidate is string => typeof candidate === "string");
+        ].filter(
+          (candidate): candidate is string => typeof candidate === "string"
+        );
 
         for (const candidate of staticCandidates) {
           const staticBinding = tryResolveOwnerMemberBinding(
@@ -284,7 +286,9 @@ export const resolveHierarchicalBinding = (
           ...getAliasesForExactClrType(simpleBinding.type, "instance"),
           simpleBinding.type,
           tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
-        ].filter((candidate): candidate is string => typeof candidate === "string");
+        ].filter(
+          (candidate): candidate is string => typeof candidate === "string"
+        );
 
         for (const candidate of instanceCandidates) {
           const instanceBinding = tryResolveOwnerMemberBinding(
@@ -305,7 +309,9 @@ export const resolveHierarchicalBinding = (
           simpleBinding.staticType
             ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType)
             : undefined,
-        ].filter((candidate): candidate is string => typeof candidate === "string");
+        ].filter(
+          (candidate): candidate is string => typeof candidate === "string"
+        );
 
         if (
           sourceOwnedAliases.some((alias) =>

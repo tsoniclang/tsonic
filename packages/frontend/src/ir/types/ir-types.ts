@@ -2,11 +2,7 @@
  * Type system types for IR (IrType and its variants)
  */
 
-import {
-  IrParameter,
-  IrInterfaceMember,
-  IrTypeParameter,
-} from "./helpers.js";
+import { IrParameter, IrInterfaceMember, IrTypeParameter } from "./helpers.js";
 import type { TypeId } from "../type-system/index.js";
 
 export type IrType =
@@ -105,6 +101,19 @@ export type IrArrayType = {
    */
   readonly tuplePrefixElementTypes?: readonly IrType[];
   readonly tupleRestElementType?: IrType;
+  /**
+   * Semantic element type preserved when the runtime storage element type was
+   * intentionally erased for compiler-owned recursive carrier storage.
+   *
+   * Example:
+   * - `type MiddlewareLike = Handler | Router | MiddlewareLike[]`
+   * - runtime carrier member becomes `object[]`
+   * - `storageErasedElementType` remains `MiddlewareLike`
+   *
+   * This metadata is for compiler-owned emitter decisions only. It does not
+   * change semantic type equality or runtime storage shape.
+   */
+  readonly storageErasedElementType?: IrType;
 };
 
 /**

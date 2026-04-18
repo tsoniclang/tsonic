@@ -1,7 +1,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../../builder.js";
-import { IrCallExpression, IrFunctionDeclaration, IrType } from "../../types.js";
+import {
+  IrCallExpression,
+  IrFunctionDeclaration,
+  IrType,
+} from "../../types.js";
 import {
   runAnonymousTypeLoweringPass,
   runCallResolutionRefreshPass,
@@ -140,9 +144,7 @@ describe("IR Builder", function () {
       if (!result.ok) return;
 
       const box = result.value.body.find(
-        (
-          stmt
-        ): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+        (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
           stmt.kind === "classDeclaration" && stmt.name === "Box"
       );
       expect(box).to.not.equal(undefined);
@@ -191,9 +193,7 @@ describe("IR Builder", function () {
       if (!result.ok) return;
 
       const transformer = result.value.body.find(
-        (
-          stmt
-        ): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+        (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
           stmt.kind === "classDeclaration" && stmt.name === "Transformer"
       );
       expect(transformer).to.not.equal(undefined);
@@ -211,9 +211,7 @@ describe("IR Builder", function () {
       if (!combine?.body) return;
 
       const returnStmt = combine.body.statements.find(
-        (
-          stmt
-        ): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+        (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
           stmt.kind === "returnStatement"
       );
       expect(returnStmt?.expression?.kind).to.equal("new");
@@ -221,14 +219,239 @@ describe("IR Builder", function () {
         return;
       }
 
-      expect(returnStmt.expression.inferredType).to.deep.equal({
+      const inferredType = returnStmt.expression.inferredType;
+      expect(inferredType).to.deep.include({
         kind: "referenceType",
         name: "Transformer",
         typeArguments: [{ kind: "typeParameterType", name: "T" }],
       });
+      if (!inferredType || inferredType.kind !== "referenceType") {
+        return;
+      }
+      expect(inferredType.resolvedClrType).to.equal("TestApp.Transformer");
+      expect(inferredType.typeId).to.deep.equal({
+        stableId: "TestApp:TestApp.Transformer",
+        clrName: "TestApp.Transformer",
+        assemblyName: "TestApp",
+        tsName: "Transformer",
+      });
       expect(returnStmt.expression.typeArguments).to.deep.equal([
         { kind: "typeParameterType", name: "T" },
       ]);
+    });
+
+    it("preserves generic constructor inference for nested callback and promise sites through refresh passes", () => {
+      const source = `
+        export class IntervalIterationResult<T> {
+          public constructor(
+            public readonly done: boolean,
+            public readonly value: T | undefined
+          ) {}
+        }
+
+        export class IntervalAsyncIterator<T> {
+          public enqueue(value?: T): void {
+            const waiter: (result: IntervalIterationResult<T>) => void = () => {};
+            waiter(new IntervalIterationResult(false, value));
+          }
+
+          public next(value?: T): Promise<IntervalIterationResult<T>> {
+            return Promise.resolve(new IntervalIterationResult(false, value));
+          }
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const lowered = runAnonymousTypeLoweringPass([result.value]).modules;
+      const proofResult = runNumericProofPass(lowered);
+      expect(proofResult.ok).to.equal(true);
+      if (!proofResult.ok) return;
+
+      const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+      const finalModules = runAnonymousTypeLoweringPass(
+        refreshed.modules
+      ).modules;
+      const finalModule = finalModules.find(
+        (module) =>
+          module.filePath === "/test/test.ts" || module.filePath === "test.ts"
+      );
+      expect(finalModule).to.not.equal(undefined);
+      if (!finalModule) return;
+
+      const iteratorClass = finalModule.body.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+          stmt.kind === "classDeclaration" &&
+          stmt.name === "IntervalAsyncIterator"
+      );
+      expect(iteratorClass).to.not.equal(undefined);
+      if (!iteratorClass) return;
+
+      const nextMethod = iteratorClass.members.find(
+        (
+          member
+        ): member is Extract<
+          (typeof iteratorClass.members)[number],
+          { kind: "methodDeclaration" }
+        > => member.kind === "methodDeclaration" && member.name === "next"
+      );
+      expect(nextMethod).to.not.equal(undefined);
+      if (!nextMethod?.body) return;
+
+      const returnStmt = nextMethod.body.statements.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+          stmt.kind === "returnStatement"
+      );
+      expect(returnStmt?.expression?.kind).to.equal("call");
+      if (!returnStmt?.expression || returnStmt.expression.kind !== "call") {
+        return;
+      }
+
+      const promiseResolveArg = returnStmt.expression.arguments[0];
+      expect(promiseResolveArg?.kind).to.equal("new");
+      if (!promiseResolveArg || promiseResolveArg.kind !== "new") {
+        return;
+      }
+
+      expect(promiseResolveArg.inferredType).to.deep.include({
+        kind: "referenceType",
+        name: "IntervalIterationResult",
+        typeArguments: [{ kind: "typeParameterType", name: "T" }],
+      });
+      expect(promiseResolveArg.typeArguments).to.deep.equal([
+        { kind: "typeParameterType", name: "T" },
+      ]);
+    });
+
+    it("preserves generic constructor inference for imported queue callback sites through refresh passes", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": `
+            import { Queue } from "@tsonic/dotnet/System.Collections.Generic.js";
+
+            export class IntervalIterationResult<T> {
+              public constructor(
+                public readonly done: boolean,
+                public readonly value: T | undefined
+              ) {}
+            }
+
+            export class IntervalAsyncIterator<T> {
+              private readonly waiters: Queue<
+                (result: IntervalIterationResult<T>) => void
+              > = new Queue<(result: IntervalIterationResult<T>) => void>();
+
+              public enqueue(value?: T): void {
+                if (this.waiters.Count > 0) {
+                  const waiter = this.waiters.Dequeue();
+                  waiter(new IntervalIterationResult(false, value));
+                }
+              }
+
+              public next(value?: T): Promise<IntervalIterationResult<T>> {
+                return Promise.resolve(new IntervalIterationResult(false, value));
+              }
+            }
+          `,
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic.d.ts": `
+            export declare class Queue<T> {
+              Count: number;
+              constructor();
+              Dequeue(): T;
+              Enqueue(value: T): void;
+            }
+          `,
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([result.value]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          fixture.ctx
+        );
+        const finalModules = runAnonymousTypeLoweringPass(
+          refreshed.modules
+        ).modules;
+        const finalModule = finalModules.find(
+          (module) =>
+            module.filePath === "index.ts" ||
+            module.filePath === "/src/index.ts"
+        );
+        expect(finalModule).to.not.equal(undefined);
+        if (!finalModule) return;
+
+        const iteratorClass = finalModule.body.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+            stmt.kind === "classDeclaration" &&
+            stmt.name === "IntervalAsyncIterator"
+        );
+        expect(iteratorClass).to.not.equal(undefined);
+        if (!iteratorClass) return;
+
+        const nextMethod = iteratorClass.members.find(
+          (
+            member
+          ): member is Extract<
+            (typeof iteratorClass.members)[number],
+            { kind: "methodDeclaration" }
+          > => member.kind === "methodDeclaration" && member.name === "next"
+        );
+        expect(nextMethod).to.not.equal(undefined);
+        if (!nextMethod?.body) return;
+
+        const returnStmt = nextMethod.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+        expect(returnStmt?.expression?.kind).to.equal("call");
+        if (!returnStmt?.expression || returnStmt.expression.kind !== "call") {
+          return;
+        }
+
+        const promiseResolveArg = returnStmt.expression.arguments[0];
+        expect(promiseResolveArg?.kind).to.equal("new");
+        if (!promiseResolveArg || promiseResolveArg.kind !== "new") {
+          return;
+        }
+
+        expect(promiseResolveArg.inferredType).to.deep.include({
+          kind: "referenceType",
+          name: "IntervalIterationResult",
+          typeArguments: [{ kind: "typeParameterType", name: "T" }],
+        });
+        expect(promiseResolveArg.typeArguments).to.deep.equal([
+          { kind: "typeParameterType", name: "T" },
+        ]);
+      } finally {
+        fixture.cleanup();
+      }
     });
 
     it("keeps named structural parameters for generic object literal arguments through proof and refresh passes", () => {
@@ -270,9 +493,12 @@ describe("IR Builder", function () {
       if (!proofResult.ok) return;
 
       const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
-      const finalModules = runAnonymousTypeLoweringPass(refreshed.modules).modules;
+      const finalModules = runAnonymousTypeLoweringPass(
+        refreshed.modules
+      ).modules;
       const finalModule = finalModules.find(
-        (module) => module.filePath === "/test/test.ts" || module.filePath === "test.ts"
+        (module) =>
+          module.filePath === "/test/test.ts" || module.filePath === "test.ts"
       );
       expect(finalModule).to.not.equal(undefined);
       if (!finalModule) return;
@@ -313,7 +539,8 @@ describe("IR Builder", function () {
       expect(addCall.surfaceParameterTypes).to.have.length(1);
       const addParameterType = addCall.parameterTypes?.[0];
       expect(addParameterType).to.not.equal(undefined);
-      if (!addParameterType || addParameterType.kind !== "referenceType") return;
+      if (!addParameterType || addParameterType.kind !== "referenceType")
+        return;
 
       expect(addParameterType).to.deep.include({
         kind: "referenceType",
@@ -375,9 +602,12 @@ describe("IR Builder", function () {
       if (!proofResult.ok) return;
 
       const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
-      const finalModules = runAnonymousTypeLoweringPass(refreshed.modules).modules;
+      const finalModules = runAnonymousTypeLoweringPass(
+        refreshed.modules
+      ).modules;
       const finalModule = finalModules.find(
-        (module) => module.filePath === "/test/test.ts" || module.filePath === "test.ts"
+        (module) =>
+          module.filePath === "/test/test.ts" || module.filePath === "test.ts"
       );
       expect(finalModule).to.not.equal(undefined);
       if (!finalModule) return;
@@ -437,12 +667,12 @@ describe("IR Builder", function () {
 
       expect(parameterNames).to.not.be.empty;
       expect(surfaceNames).to.not.be.empty;
-      expect(parameterNames.every((name) => !name.startsWith("__Anon_"))).to.equal(
-        true
-      );
-      expect(surfaceNames.every((name) => !name.startsWith("__Anon_"))).to.equal(
-        true
-      );
+      expect(
+        parameterNames.every((name) => !name.startsWith("__Anon_"))
+      ).to.equal(true);
+      expect(
+        surfaceNames.every((name) => !name.startsWith("__Anon_"))
+      ).to.equal(true);
       expect(
         parameterNames.some(
           (name) => name === "Shape" || name.startsWith("Shape__")
@@ -456,32 +686,27 @@ describe("IR Builder", function () {
     });
 
     it("does not invent a simple-name source type identity when multiple modules share that name", () => {
-      const {
-        sourceFile,
-        testProgram,
-        ctx,
-        options,
-        cleanup,
-      } = createFilesystemTestProgram(
-        {
-          "src/stream/readable.ts": `
+      const { sourceFile, testProgram, ctx, options, cleanup } =
+        createFilesystemTestProgram(
+          {
+            "src/stream/readable.ts": `
             export class Readable {
               public on(eventName: string): void {}
             }
           `,
-          "src/child_process/child-process.ts": `
+            "src/child_process/child-process.ts": `
             export type Readable = unknown;
           `,
-          "src/readline/interface.ts": `
+            "src/readline/interface.ts": `
             import type { Readable } from "../stream/readable.ts";
 
             export class Interface {
               private _input: Readable | undefined;
             }
           `,
-        },
-        "src/readline/interface.ts"
-      );
+          },
+          "src/readline/interface.ts"
+        );
 
       try {
         const result = buildIrModule(sourceFile, testProgram, options, ctx);
@@ -489,9 +714,7 @@ describe("IR Builder", function () {
         if (!result.ok) return;
 
         const iface = result.value.body.find(
-          (
-            stmt
-          ): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+          (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
             stmt.kind === "classDeclaration" && stmt.name === "Interface"
         );
         expect(iface).to.not.equal(undefined);

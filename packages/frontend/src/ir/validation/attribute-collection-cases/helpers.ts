@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-module-boundary-types, @typescript-eslint/no-explicit-any */
 /**
  * Shared test helpers for attribute collection pass tests.
  */
@@ -76,7 +77,6 @@ export const makeIdentifier = (name: string, resolvedClrType?: string) => ({
   resolvedClrType,
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const makeTypedIdentifier = (
   name: string,
   inferredType: unknown
@@ -95,7 +95,6 @@ export const makeRefType = (name: string, resolvedClrType?: string) => ({
 /**
  * Helper to create a minimal member access IR
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const makeMemberAccess = (object: any, property: string): any => ({
   kind: "memberAccess" as const,
   object,
@@ -107,7 +106,7 @@ export const makeMemberAccess = (object: any, property: string): any => ({
 /**
  * Helper to create a minimal call IR
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export const makeCall = (
   callee: any,
   args: readonly any[],
@@ -134,7 +133,6 @@ export const makeObject = (properties: readonly unknown[]) => ({
   properties,
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const makeObjectProp = (key: string | unknown, value: unknown): any => ({
   kind: "property" as const,
   key,
@@ -142,20 +140,17 @@ export const makeObjectProp = (key: string | unknown, value: unknown): any => ({
   shorthand: false as const,
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const makeObjectSpread = (expression: unknown): any => ({
   kind: "spread" as const,
   expression,
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const makeUnaryTypeof = (expression: unknown): any => ({
   kind: "unary" as const,
   operator: "typeof" as const,
   expression,
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const makeSpreadArg = (expression: unknown): any => ({
   kind: "spread" as const,
   expression,
@@ -235,7 +230,10 @@ export const makeTypeMarkerCallWithTarget = (
   kind: "expressionStatement" as const,
   expression: makeCall(
     makeMemberAccess(
-      makeCall(makeMemberAccess(makeTypeRootCall(targetName, apiObjectName), "target"), [targetArg]),
+      makeCall(
+        makeMemberAccess(makeTypeRootCall(targetName, apiObjectName), "target"),
+        [targetArg]
+      ),
       "add"
     ),
     [makeIdentifier(attrName, `Test.${attrName}`)]
@@ -262,7 +260,10 @@ export const makeCtorMarkerCallWithTarget = (
   expression: makeCall(
     makeMemberAccess(
       makeCall(
-        makeMemberAccess(makeMemberAccess(makeTypeRootCall(targetName), "ctor"), "target"),
+        makeMemberAccess(
+          makeMemberAccess(makeTypeRootCall(targetName), "ctor"),
+          "target"
+        ),
         [targetArg]
       ),
       "add"
@@ -279,10 +280,9 @@ export const makeMethodMarkerCall = (
   kind: "expressionStatement" as const,
   expression: makeCall(
     makeMemberAccess(
-      makeCall(
-        makeMemberAccess(makeTypeRootCall(targetName), "method"),
-        [selector]
-      ),
+      makeCall(makeMemberAccess(makeTypeRootCall(targetName), "method"), [
+        selector,
+      ]),
       "add"
     ),
     [makeIdentifier(attrName, `Test.${attrName}`)]
@@ -300,7 +300,9 @@ export const makeMethodMarkerCallWithTarget = (
     makeMemberAccess(
       makeCall(
         makeMemberAccess(
-          makeCall(makeMemberAccess(makeTypeRootCall(targetName), "method"), [selector]),
+          makeCall(makeMemberAccess(makeTypeRootCall(targetName), "method"), [
+            selector,
+          ]),
           "target"
         ),
         [targetArg]
@@ -320,10 +322,9 @@ export const makePropMarkerCall = (
   kind: "expressionStatement" as const,
   expression: makeCall(
     makeMemberAccess(
-      makeCall(
-        makeMemberAccess(makeTypeRootCall(targetName), "prop"),
-        [selector]
-      ),
+      makeCall(makeMemberAccess(makeTypeRootCall(targetName), "prop"), [
+        selector,
+      ]),
       "add"
     ),
     [makeIdentifier(attrName, `Test.${attrName}`)]
@@ -341,7 +342,9 @@ export const makePropMarkerCallWithTarget = (
     makeMemberAccess(
       makeCall(
         makeMemberAccess(
-          makeCall(makeMemberAccess(makeTypeRootCall(targetName), "prop"), [makeSelector(propName)]),
+          makeCall(makeMemberAccess(makeTypeRootCall(targetName), "prop"), [
+            makeSelector(propName),
+          ]),
           "target"
         ),
         [targetArg]
@@ -373,10 +376,9 @@ export const makeAddDescriptorMarkerCall = (
   varName: string
 ) => ({
   kind: "expressionStatement" as const,
-  expression: makeCall(
-    makeMemberAccess(makeTypeRootCall(targetName), "add"),
-    [makeIdentifier(varName)]
-  ),
+  expression: makeCall(makeMemberAccess(makeTypeRootCall(targetName), "add"), [
+    makeIdentifier(varName),
+  ]),
 });
 
 export const makeInlineDescriptorMarkerCall = (
@@ -384,15 +386,12 @@ export const makeInlineDescriptorMarkerCall = (
   attrName: string
 ) => ({
   kind: "expressionStatement" as const,
-  expression: makeCall(
-    makeMemberAccess(makeTypeRootCall(targetName), "add"),
-    [
-      makeCall(makeMemberAccess(makeIdentifier("A"), "attr"), [
-        makeIdentifier(attrName, `Test.${attrName}`),
-        makeLiteral("msg"),
-      ]),
-    ]
-  ),
+  expression: makeCall(makeMemberAccess(makeTypeRootCall(targetName), "add"), [
+    makeCall(makeMemberAccess(makeIdentifier("A"), "attr"), [
+      makeIdentifier(attrName, `Test.${attrName}`),
+      makeLiteral("msg"),
+    ]),
+  ]),
 });
 
 export const makeFunctionMarkerCall = (

@@ -30,7 +30,10 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          typeRoots: ["node_modules/@tsonic/node-temp", "node_modules/@tsonic/js-temp"],
+          typeRoots: [
+            "node_modules/@tsonic/node-temp",
+            "node_modules/@tsonic/js-temp",
+          ],
         });
 
         expect(programResult.ok).to.equal(true);

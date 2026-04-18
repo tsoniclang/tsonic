@@ -378,7 +378,9 @@ describe("CLI Surface Profiles", () => {
   });
 
   it("prefers a sibling source package over an installed legacy surface package relative to the workspace root", () => {
-    const parentRoot = mkdtempSync(join(tmpdir(), "tsonic-cli-source-surface-"));
+    const parentRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-cli-source-surface-")
+    );
     const workspaceRoot = join(parentRoot, "nodejs");
     try {
       mkdirSync(workspaceRoot, { recursive: true });

@@ -86,7 +86,7 @@ export const tryEmitArrayIsArrayGuard = (
           condCtxAfterCond
         );
   const runtimeCarrierAst =
-    ((identifierCarrierStorageType &&
+    (identifierCarrierStorageType &&
     willCarryAsRuntimeUnion(identifierCarrierStorageType, condCtxAfterCond)
       ? resolveRuntimeCarrierExpressionAst(
           arrayIsArrayGuard.targetExpr,
@@ -98,19 +98,20 @@ export const tryEmitArrayIsArrayGuard = (
           arrayIsArrayGuard.targetExpr,
           condCtxAfterCond
         )
-      : undefined)) ?? emittedTargetAst;
+      : undefined) ??
+    emittedTargetAst;
   const runtimeCarrierType =
     identifierCarrierStorageType &&
     willCarryAsRuntimeUnion(identifierCarrierStorageType, condCtxAfterCond)
       ? identifierCarrierStorageType
       : directStorageType
-    ? willCarryAsRuntimeUnion(directStorageType, condCtxAfterCond)
-      ? directStorageType
-      : undefined
-    : effectiveTargetType &&
-        willCarryAsRuntimeUnion(effectiveTargetType, condCtxAfterCond)
-      ? effectiveTargetType
-      : undefined;
+        ? willCarryAsRuntimeUnion(directStorageType, condCtxAfterCond)
+          ? directStorageType
+          : undefined
+        : effectiveTargetType &&
+            willCarryAsRuntimeUnion(effectiveTargetType, condCtxAfterCond)
+          ? effectiveTargetType
+          : undefined;
   const runtimeUnionFrame =
     runtimeCarrierType &&
     resolveRuntimeUnionFrame(
@@ -302,7 +303,11 @@ export const tryEmitArrayIsArrayGuard = (
 
   let finalContext: EmitterContext = thenTerminates
     ? fallthroughContext
-    : mergeBranchExitContext(condCtxAfterCond, thenCtxAfter, fallthroughContext);
+    : mergeBranchExitContext(
+        condCtxAfterCond,
+        thenCtxAfter,
+        fallthroughContext
+      );
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
@@ -419,12 +424,12 @@ export const tryEmitTypeofGuard = (
   };
   const falsyFallthroughContext =
     falsyTypeofRefinements.length > 0
-      ? applyConditionBranchNarrowing(
+      ? (applyConditionBranchNarrowing(
           stmt.condition,
           "falsy",
           elseBaseContext,
           emitExprAstCb
-        ) ?? elseBaseContext
+        ) ?? elseBaseContext)
       : elseBaseContext;
   let finalContext: EmitterContext = thenTerminates
     ? falsyFallthroughContext
@@ -465,7 +470,11 @@ export const tryEmitTypeofGuard = (
     }
   }
 
-  if (!stmt.elseStatement && thenTerminates && falsyTypeofRefinements.length > 0) {
+  if (
+    !stmt.elseStatement &&
+    thenTerminates &&
+    falsyTypeofRefinements.length > 0
+  ) {
     finalContext = applyConditionBranchNarrowing(
       stmt.condition,
       "falsy",

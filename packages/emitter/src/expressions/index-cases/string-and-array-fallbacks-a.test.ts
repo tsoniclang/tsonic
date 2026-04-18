@@ -39,9 +39,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include("value.length");
-    expect(result).not.to.include(
-      "global::js.String.length(value)"
-    );
+    expect(result).not.to.include("global::js.String.length(value)");
   });
 
   it("should emit CLR Length for structural array length without member binding", () => {

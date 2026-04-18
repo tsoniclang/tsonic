@@ -148,6 +148,26 @@ const normalizeTypeList = (
   state: StableTypeKeyState
 ): readonly IrType[] => sortByStableKey(types, stableIrTypeKeyImpl, state);
 
+const shouldDropLiteralInPresenceOfPrimitive = (
+  type: IrType,
+  primitiveFamilies: ReadonlySet<"string" | "number" | "boolean">
+): boolean => {
+  if (type.kind !== "literalType") {
+    return false;
+  }
+
+  switch (typeof type.value) {
+    case "string":
+      return primitiveFamilies.has("string");
+    case "number":
+      return primitiveFamilies.has("number");
+    case "boolean":
+      return primitiveFamilies.has("boolean");
+    default:
+      return false;
+  }
+};
+
 const isRuntimeNullishMember = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
   (type.name === "null" || type.name === "undefined");
@@ -423,9 +443,9 @@ export type RuntimeUnionAliasCarrierOptions = {
   readonly typeArguments?: readonly IrType[];
 };
 
-const namespaceFromFullyQualifiedName = (fullyQualifiedName: string):
-  | string
-  | undefined => {
+const namespaceFromFullyQualifiedName = (
+  fullyQualifiedName: string
+): string | undefined => {
   const lastDot = fullyQualifiedName.lastIndexOf(".");
   return lastDot > 0 ? fullyQualifiedName.slice(0, lastDot) : undefined;
 };
@@ -498,6 +518,7 @@ export const stampRuntimeUnionAliasCarrier = (
 
   return {
     ...type,
+    preserveRuntimeLayout: true,
     runtimeCarrierFamilyKey: runtimeUnionAliasCarrierFamilyKey(
       options.fullyQualifiedName
     ),
@@ -526,8 +547,24 @@ export const normalizedUnionType = (
   };
   for (const t of types) pushFlattened(t);
 
+  const primitiveFamilies = new Set<"string" | "number" | "boolean">();
+  for (const type of flattened) {
+    if (
+      type.kind === "primitiveType" &&
+      (type.name === "string" ||
+        type.name === "number" ||
+        type.name === "boolean")
+    ) {
+      primitiveFamilies.add(type.name);
+    }
+  }
+
+  const canonicalized = flattened.filter(
+    (type) => !shouldDropLiteralInPresenceOfPrimitive(type, primitiveFamilies)
+  );
+
   const deduped = new Map<string, IrType>();
-  for (const t of flattened) {
+  for (const t of canonicalized) {
     deduped.set(stableIrTypeKey(t), t);
   }
   const normalized = normalizeTypeList(

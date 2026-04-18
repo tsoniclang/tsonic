@@ -33,9 +33,7 @@ const normalizeTypeName = (type: IrType | undefined): string | undefined => {
 };
 
 const buildOwnerTypeSubstitution = (
-  typeParameters:
-    | readonly { readonly name: string }[]
-    | undefined,
+  typeParameters: readonly { readonly name: string }[] | undefined,
   heritageRef: IrType | undefined
 ): ReadonlyMap<string, IrType> | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
@@ -65,9 +63,7 @@ const buildOwnerTypeSubstitution = (
 };
 
 const buildCanonicalMethodTypeSubstitution = (
-  typeParameters:
-    | readonly { readonly name: string }[]
-    | undefined
+  typeParameters: readonly { readonly name: string }[] | undefined
 ): ReadonlyMap<string, IrType> | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
@@ -88,9 +84,7 @@ const buildCanonicalMethodTypeSubstitution = (
 
 const canonicalizeMethodType = (
   type: IrType | undefined,
-  methodTypeParameters:
-    | readonly { readonly name: string }[]
-    | undefined,
+  methodTypeParameters: readonly { readonly name: string }[] | undefined,
   ownerSubstitution?: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
   if (!type) {
@@ -111,7 +105,10 @@ const canonicalizeMethodType = (
   return substituteIrType(current, methodSubstitution);
 };
 
-const typesEqual = (left: IrType | undefined, right: IrType | undefined): boolean => {
+const typesEqual = (
+  left: IrType | undefined,
+  right: IrType | undefined
+): boolean => {
   if (!left || !right) {
     return left === right;
   }
@@ -121,12 +118,8 @@ const typesEqual = (left: IrType | undefined, right: IrType | undefined): boolea
 const parametersExactlyMatch = (
   left: IrParameter,
   right: IrParameter,
-  leftMethodTypeParameters:
-    | readonly { readonly name: string }[]
-    | undefined,
-  rightMethodTypeParameters:
-    | readonly { readonly name: string }[]
-    | undefined,
+  leftMethodTypeParameters: readonly { readonly name: string }[] | undefined,
+  rightMethodTypeParameters: readonly { readonly name: string }[] | undefined,
   leftOwnerSubstitution?: ReadonlyMap<string, IrType>,
   rightOwnerSubstitution?: ReadonlyMap<string, IrType>
 ): boolean =>
@@ -152,7 +145,9 @@ const methodsSignatureMatchExactly = (
   leftOwnerSubstitution?: ReadonlyMap<string, IrType>,
   rightOwnerSubstitution?: ReadonlyMap<string, IrType>
 ): boolean => {
-  if ((left.typeParameters?.length ?? 0) !== (right.typeParameters?.length ?? 0)) {
+  if (
+    (left.typeParameters?.length ?? 0) !== (right.typeParameters?.length ?? 0)
+  ) {
     return false;
   }
 
@@ -230,7 +225,9 @@ const reportMissingOrMismatchedMethod = (
     return;
   }
 
-  const actualNames = [...new Set(compatibleMembers.map(getIrMemberPublicName))];
+  const actualNames = [
+    ...new Set(compatibleMembers.map(getIrMemberPublicName)),
+  ];
   diagnostics.push(
     createDiagnostic(
       "TSN4005",
@@ -295,7 +292,8 @@ const verifyClassInterfaceConsistency = (
 
       const matchingPublicNames = compatibleMembers.filter(
         (ownMember) =>
-          getIrMemberPublicName(ownMember) === getIrMemberPublicName(ifaceMember)
+          getIrMemberPublicName(ownMember) ===
+          getIrMemberPublicName(ifaceMember)
       );
 
       if (matchingPublicNames.length === 1) {
@@ -334,7 +332,12 @@ export const runOverloadFamilyConsistencyPass = (
         continue;
       }
 
-      verifyClassInterfaceConsistency(statement, module, interfaces, diagnostics);
+      verifyClassInterfaceConsistency(
+        statement,
+        module,
+        interfaces,
+        diagnostics
+      );
     }
   }
 

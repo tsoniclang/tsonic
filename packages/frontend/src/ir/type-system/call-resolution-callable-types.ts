@@ -91,6 +91,7 @@ const toRawSignature = (type: IrFunctionType): RawSignatureInfo => {
     })),
     thisParameterType: undefined,
     returnType: type.returnType,
+    constructsDeclaringType: false,
     hasDeclaredReturnType: true,
     parameterModes: type.parameters.map((parameter) => parameter.passing),
     typeParameters,
@@ -162,7 +163,8 @@ const scoreSurfaceTypeSpecificity = (type: IrType | undefined): number => {
               ? scoreSurfaceTypeSpecificity(member.type)
               : member.parameters.reduce(
                   (parameterTotal, parameter) =>
-                    parameterTotal + scoreSurfaceTypeSpecificity(parameter.type),
+                    parameterTotal +
+                    scoreSurfaceTypeSpecificity(parameter.type),
                   scoreSurfaceTypeSpecificity(member.returnType)
                 )),
           0
@@ -325,7 +327,16 @@ const buildCallableScore = (
   candidate: IrFunctionType,
   resolved: ResolvedCall,
   query: CallableTypeQuery
-): readonly [number, number, number, number, number, number, number, number] => {
+): readonly [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+] => {
   const hasRest = candidate.parameters.some((parameter) => parameter.isRest);
   const exactArity =
     !hasRest && candidate.parameters.length === query.argumentCount;
@@ -387,11 +398,31 @@ const buildCallableScore = (
 };
 
 const compareCallableScores = (
-  left: readonly [number, number, number, number, number, number, number, number],
-  right: readonly [number, number, number, number, number, number, number, number]
+  left: readonly [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ],
+  right: readonly [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ]
 ): number => {
   for (let index = 0; index < left.length; index += 1) {
-    const delta = left[index]! - right[index]!;
+    const leftScore = left[index] ?? 0;
+    const rightScore = right[index] ?? 0;
+    const delta = leftScore - rightScore;
     if (delta !== 0) {
       return delta;
     }
@@ -506,8 +537,11 @@ export const resolveCallableType = (
   type: IrType | undefined,
   query: CallableTypeQuery
 ): ResolvedCallableType | undefined => {
-  const arityCompatibleCandidates = flattenCallableCandidates(state, type).filter(
-    (candidate) => canAcceptArgumentCount(candidate, query.argumentCount)
+  const arityCompatibleCandidates = flattenCallableCandidates(
+    state,
+    type
+  ).filter((candidate) =>
+    canAcceptArgumentCount(candidate, query.argumentCount)
   );
   const candidates =
     query.explicitTypeArgs && query.explicitTypeArgs.length > 0
@@ -530,7 +564,12 @@ export const resolveCallableType = (
       continue;
     }
 
-    const score = buildCallableScore(state, candidate, resolved.resolved, query);
+    const score = buildCallableScore(
+      state,
+      candidate,
+      resolved.resolved,
+      query
+    );
     if (!best || !bestScore || compareCallableScores(score, bestScore) > 0) {
       best = resolved;
       bestScore = score;

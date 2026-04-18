@@ -55,7 +55,10 @@ describe("Fixture fast coverage", function () {
     if (!result.ok) return;
 
     const localIndex = findModuleByFilePath(result.value.modules, "index.ts");
-    const localPathing = findModuleByFilePath(result.value.modules, "pathing.ts");
+    const localPathing = findModuleByFilePath(
+      result.value.modules,
+      "pathing.ts"
+    );
     const localSystemInfo = findModuleByFilePath(
       result.value.modules,
       "system-info.ts"
@@ -314,7 +317,10 @@ describe("Fixture fast coverage", function () {
       );
       expect(fs.existsSync(path.join(coreRoot, "package.json"))).to.equal(true);
 
-      const metaPath = path.join(fixtureRoot(scenario.fixtureName), "e2e.meta.json");
+      const metaPath = path.join(
+        fixtureRoot(scenario.fixtureName),
+        "e2e.meta.json"
+      );
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as {
         readonly expectedErrors?: readonly string[];
       };

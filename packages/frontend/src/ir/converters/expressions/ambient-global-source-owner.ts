@@ -32,7 +32,10 @@ const getDeclarationTypeNode = (
   if (ts.isVariableDeclaration(declaration)) {
     return declaration.type;
   }
-  if (ts.isPropertySignature(declaration) || ts.isPropertyDeclaration(declaration)) {
+  if (
+    ts.isPropertySignature(declaration) ||
+    ts.isPropertyDeclaration(declaration)
+  ) {
     return declaration.type;
   }
   return undefined;
@@ -108,10 +111,7 @@ const extractImportTypeTarget = (
     }
 
     const namedBindings = statement.importClause.namedBindings;
-    if (
-      namedBindings &&
-      ts.isNamedImports(namedBindings)
-    ) {
+    if (namedBindings && ts.isNamedImports(namedBindings)) {
       for (const element of namedBindings.elements) {
         if (element.name.text !== rootIdentifier.text) {
           continue;
@@ -148,13 +148,19 @@ const resolveTopLevelLocalOwner = (
       return `${namespace}.${localName}`;
     }
 
-    if (ts.isFunctionDeclaration(statement) && statement.name?.text === localName) {
+    if (
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === localName
+    ) {
       return `${namespace}.${fileClass}.${localName}`;
     }
 
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name) && declaration.name.text === localName) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === localName
+        ) {
           return `${namespace}.${fileClass}.${localName}`;
         }
       }
@@ -181,7 +187,9 @@ const resolveExportOwnerFromSourceFile = (
       (ts.isClassDeclaration(statement) ||
         ts.isEnumDeclaration(statement) ||
         ts.isFunctionDeclaration(statement)) &&
-      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) &&
+      statement.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+      ) &&
       statement.name?.text === exportName
     ) {
       return resolveTopLevelLocalOwner(sourceFile, exportName, ctx);
@@ -189,10 +197,15 @@ const resolveExportOwnerFromSourceFile = (
 
     if (
       ts.isVariableStatement(statement) &&
-      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+      statement.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+      )
     ) {
       for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name) && declaration.name.text === exportName) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === exportName
+        ) {
           return resolveTopLevelLocalOwner(sourceFile, exportName, ctx);
         }
       }
@@ -212,7 +225,10 @@ const resolveExportOwnerFromSourceFile = (
       }
 
       const targetName = element.propertyName?.text ?? element.name.text;
-      if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) {
+      if (
+        !statement.moduleSpecifier ||
+        !ts.isStringLiteral(statement.moduleSpecifier)
+      ) {
         return resolveTopLevelLocalOwner(sourceFile, targetName, ctx);
       }
 
@@ -257,7 +273,9 @@ const resolveAmbientExportOwnerByName = (
   exportName: string,
   ctx: ProgramContext
 ): string | undefined => {
-  const declarationFilePath = normalizeFilePath(declaration.getSourceFile().fileName);
+  const declarationFilePath = normalizeFilePath(
+    declaration.getSourceFile().fileName
+  );
 
   const packageMetadata = [...ctx.authoritativeTsonicPackageRoots.values()]
     .map((packageRoot) => readSourcePackageMetadata(packageRoot))
@@ -265,7 +283,8 @@ const resolveAmbientExportOwnerByName = (
       (metadata) =>
         metadata !== null &&
         metadata.ambientPaths.some(
-          (ambientPath) => normalizeFilePath(ambientPath) === declarationFilePath
+          (ambientPath) =>
+            normalizeFilePath(ambientPath) === declarationFilePath
         )
     );
 

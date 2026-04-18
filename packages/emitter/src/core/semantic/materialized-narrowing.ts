@@ -26,11 +26,64 @@ import { buildRuntimeUnionFactoryCallAst } from "./runtime-union-projection.js";
 import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
 import {
   isDefinitelyValueType,
+  resolveLocalTypeInfo,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "./type-resolution.js";
 import { willCarryAsRuntimeUnion } from "./union-semantics.js";
+import { resolveRuntimeMaterializationTargetType } from "./runtime-materialization-targets.js";
+import { resolveTypeMemberKind } from "./member-surfaces.js";
+
+const resolveMaterializationBroadnessType = (
+  type: IrType,
+  context: EmitterContext
+): IrType =>
+  resolveTypeAlias(
+    stripNullish(resolveRuntimeMaterializationTargetType(type, context)),
+    context,
+    { preserveObjectTypeAliases: true }
+  );
+
+const isUnemittableStructuralReferenceTarget = (
+  type: IrType,
+  context: EmitterContext
+): type is Extract<IrType, { kind: "referenceType" }> => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind !== "referenceType") {
+    return false;
+  }
+
+  if (!resolved.structuralMembers || resolved.structuralMembers.length === 0) {
+    return false;
+  }
+
+  if (resolved.resolvedClrType || resolved.typeId) {
+    return false;
+  }
+
+  return !resolveLocalTypeInfo(resolved, context);
+};
+
+const sourceAlreadyExposesStructuralTarget = (
+  sourceType: IrType,
+  targetType: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): boolean =>
+  targetType.structuralMembers?.every(
+    (member) =>
+      resolveTypeMemberKind(sourceType, member.name, context) !== undefined
+  ) ?? false;
+
+const preferEmittableMaterializationTarget = (
+  sourceType: IrType,
+  narrowedType: IrType,
+  context: EmitterContext
+): IrType =>
+  isUnemittableStructuralReferenceTarget(narrowedType, context) &&
+  sourceAlreadyExposesStructuralTarget(sourceType, narrowedType, context)
+    ? sourceType
+    : narrowedType;
 
 const isExactExpressionToType = (
   ast: CSharpExpressionAst,
@@ -62,6 +115,109 @@ const isExactExpressionToType = (
   }
 };
 
+const isAlreadyMaterializedNullableValueRead = (
+  ast: CSharpExpressionAst
+): boolean =>
+  (ast.kind === "memberAccessExpression" ||
+    ast.kind === "conditionalMemberAccessExpression") &&
+  ast.memberName === "Value";
+
+const canDeterministicallyMaterializeSourceType = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext,
+  seen = new Set<string>()
+): boolean => {
+  const comparableSourceType =
+    unwrapParameterModifierType(sourceType) ?? sourceType;
+  const comparableTargetType =
+    unwrapParameterModifierType(targetType) ?? targetType;
+  const pairKey = `${stableIrTypeKey(comparableSourceType)}=>${stableIrTypeKey(
+    comparableTargetType
+  )}`;
+  if (seen.has(pairKey)) {
+    return false;
+  }
+  seen.add(pairKey);
+
+  if (
+    runtimeUnionAliasReferencesMatch(
+      comparableSourceType,
+      comparableTargetType,
+      context
+    )
+  ) {
+    return true;
+  }
+
+  const resolvedSource = resolveTypeAlias(
+    stripNullish(
+      resolveRuntimeMaterializationTargetType(comparableSourceType, context)
+    ),
+    context,
+    { preserveObjectTypeAliases: true }
+  );
+  if (
+    resolvedSource.kind !== "unknownType" &&
+    resolvedSource.kind !== "anyType" &&
+    resolvedSource.kind !== "objectType" &&
+    !(
+      resolvedSource.kind === "referenceType" &&
+      resolvedSource.name === "object"
+    ) &&
+    !willCarryAsRuntimeUnion(comparableTargetType, context) &&
+    !(
+      splitRuntimeNullishUnionMembers(comparableTargetType)
+        ?.hasRuntimeNullish ?? false
+    ) &&
+    matchesExpectedEmissionType(
+      comparableSourceType,
+      comparableTargetType,
+      context
+    )
+  ) {
+    return true;
+  }
+
+  const [targetRuntimeLayout, targetRuntimeLayoutContext] =
+    buildRuntimeUnionLayout(comparableTargetType, context, emitTypeAst);
+  if (
+    !targetRuntimeLayout ||
+    willCarryAsRuntimeUnion(comparableSourceType, context)
+  ) {
+    return false;
+  }
+
+  const directlyMatchingMembers = targetRuntimeLayout.members.flatMap(
+    (member, index) =>
+      member &&
+      matchesExpectedEmissionType(
+        comparableSourceType,
+        member,
+        targetRuntimeLayoutContext
+      )
+        ? [index]
+        : []
+  );
+  if (directlyMatchingMembers.length === 1) {
+    return true;
+  }
+
+  const recursivelyMaterializableMembers = targetRuntimeLayout.members.flatMap(
+    (member, index) =>
+      member &&
+      canDeterministicallyMaterializeSourceType(
+        comparableSourceType,
+        member,
+        targetRuntimeLayoutContext,
+        new Set(seen)
+      )
+        ? [index]
+        : []
+  );
+  return recursivelyMaterializableMembers.length === 1;
+};
+
 export const materializeDirectNarrowingAst = (
   sourceAst: CSharpExpressionAst,
   sourceType: IrType | undefined,
@@ -76,8 +232,20 @@ export const materializeDirectNarrowingAst = (
     unwrapParameterModifierType(sourceType) ?? sourceType;
   const comparableNarrowedType =
     unwrapParameterModifierType(narrowedType) ?? narrowedType;
-  const sourceWasParameterModifierWrapped =
-    comparableSourceType !== sourceType;
+  const comparableEmissionTargetType = preferEmittableMaterializationTarget(
+    comparableSourceType,
+    comparableNarrowedType,
+    context
+  );
+  const materializationSourceType = resolveRuntimeMaterializationTargetType(
+    comparableSourceType,
+    context
+  );
+  const materializationNarrowedType = resolveRuntimeMaterializationTargetType(
+    comparableEmissionTargetType,
+    context
+  );
+  const sourceWasParameterModifierWrapped = comparableSourceType !== sourceType;
 
   if (
     runtimeUnionAliasReferencesMatch(
@@ -88,13 +256,82 @@ export const materializeDirectNarrowingAst = (
   ) {
     return [sourceAst, context];
   }
+  if (
+    runtimeUnionAliasReferencesMatch(
+      comparableSourceType,
+      comparableEmissionTargetType,
+      context
+    )
+  ) {
+    return [sourceAst, context];
+  }
 
-  const [sourceTypeAst, sourceTypeContext] = emitTypeAst(
+  const resolvedSource = resolveMaterializationBroadnessType(
     comparableSourceType,
     context
   );
+  const resolvedTarget = resolveMaterializationBroadnessType(
+    comparableEmissionTargetType,
+    context
+  );
+  const isBroadTarget =
+    resolvedTarget.kind === "unknownType" ||
+    resolvedTarget.kind === "anyType" ||
+    resolvedTarget.kind === "objectType" ||
+    (resolvedTarget.kind === "referenceType" &&
+      resolvedTarget.name === "object");
+  if (isBroadTarget) {
+    return [sourceAst, context];
+  }
+  const shouldReifyBroadSourceToRuntimeUnion =
+    (resolvedSource.kind === "unknownType" ||
+      resolvedSource.kind === "anyType" ||
+      resolvedSource.kind === "objectType" ||
+      (resolvedSource.kind === "referenceType" &&
+        resolvedSource.name === "object")) &&
+    willCarryAsRuntimeUnion(comparableEmissionTargetType, context);
+  if (shouldReifyBroadSourceToRuntimeUnion) {
+    const reificationPlan = tryBuildRuntimeReificationPlan(
+      sourceAst,
+      materializationNarrowedType,
+      context,
+      emitTypeAst
+    );
+    if (reificationPlan) {
+      return [reificationPlan.value, reificationPlan.context];
+    }
+  }
+
+  const isBroadSource =
+    resolvedSource.kind === "unknownType" ||
+    resolvedSource.kind === "anyType" ||
+    resolvedSource.kind === "objectType" ||
+    (resolvedSource.kind === "referenceType" &&
+      resolvedSource.name === "object");
+  if (isBroadSource) {
+    const [targetTypeAst, nextContext] = emitTypeAst(
+      materializationNarrowedType,
+      context
+    );
+    const concreteTargetTypeAst = stripNullableTypeAst(targetTypeAst);
+    return isExactExpressionToType(sourceAst, concreteTargetTypeAst)
+      ? [sourceAst, nextContext]
+      : [
+          {
+            kind: "castExpression",
+            type: targetTypeAst,
+            expression: sourceAst,
+          },
+          nextContext,
+        ];
+  }
+
+  const [sourceTypeAst, sourceTypeContext] = emitTypeAst(
+    materializationSourceType,
+    context
+  );
   const [targetTypeAst, nextContext] = emitTypeAst(
-    comparableNarrowedType,
+    materializationNarrowedType,
     sourceTypeContext
   );
   const concreteSourceTypeAst = stripNullableTypeAst(sourceTypeAst);
@@ -103,7 +340,7 @@ export const materializeDirectNarrowingAst = (
   if (
     !requiresValueTypeMaterialization(
       comparableSourceType,
-      comparableNarrowedType,
+      materializationNarrowedType,
       context
     ) &&
     sameConcreteTypeAstSurface(concreteSourceTypeAst, concreteTargetTypeAst)
@@ -123,14 +360,18 @@ export const materializeDirectNarrowingAst = (
   }
 
   const [targetRuntimeLayout, targetRuntimeLayoutContext] =
-    buildRuntimeUnionLayout(comparableNarrowedType, context, emitTypeAst);
+    buildRuntimeUnionLayout(comparableEmissionTargetType, context, emitTypeAst);
   if (
     targetRuntimeLayout &&
     !willCarryAsRuntimeUnion(comparableSourceType, context)
   ) {
     const matchingTargetMemberIndices = targetRuntimeLayout.members.flatMap(
       (member, index) =>
-        matchesExpectedEmissionType(comparableSourceType, member, targetRuntimeLayoutContext)
+        matchesExpectedEmissionType(
+          comparableSourceType,
+          member,
+          targetRuntimeLayoutContext
+        )
           ? [index]
           : []
     );
@@ -147,39 +388,54 @@ export const materializeDirectNarrowingAst = (
         ];
       }
     }
-  }
 
-  const resolvedSource = resolveTypeAlias(
-    stripNullish(comparableSourceType),
-    context
-  );
-  const shouldReifyBroadSourceToRuntimeUnion =
-    (resolvedSource.kind === "unknownType" ||
-      resolvedSource.kind === "anyType" ||
-      resolvedSource.kind === "objectType" ||
-      (resolvedSource.kind === "referenceType" &&
-        resolvedSource.name === "object")) &&
-    willCarryAsRuntimeUnion(comparableNarrowedType, context);
-  if (shouldReifyBroadSourceToRuntimeUnion) {
-    const reificationPlan = tryBuildRuntimeReificationPlan(
-      sourceAst,
-      comparableNarrowedType,
-      context,
-      emitTypeAst
+    const recursivelyMaterializedMembers = targetRuntimeLayout.members.flatMap(
+      (member, index) => {
+        if (
+          !member ||
+          !canDeterministicallyMaterializeSourceType(
+            comparableSourceType,
+            member,
+            targetRuntimeLayoutContext
+          )
+        ) {
+          return [];
+        }
+
+        const materialized = materializeDirectNarrowingAst(
+          sourceAst,
+          comparableSourceType,
+          member,
+          targetRuntimeLayoutContext
+        );
+        return materialized
+          ? [
+              {
+                index,
+                valueAst: materialized[0],
+                context: materialized[1],
+              },
+            ]
+          : [];
+      }
     );
-    if (reificationPlan) {
-      return [reificationPlan.value, reificationPlan.context];
+    if (recursivelyMaterializedMembers.length === 1) {
+      const [materializedMember] = recursivelyMaterializedMembers;
+      if (materializedMember) {
+        return [
+          buildRuntimeUnionFactoryCallAst(
+            buildRuntimeUnionTypeAst(targetRuntimeLayout),
+            materializedMember.index + 1,
+            materializedMember.valueAst
+          ),
+          materializedMember.context,
+        ];
+      }
     }
   }
   const canReuseAssignableSurface =
     !sourceWasParameterModifierWrapped &&
-    resolvedSource.kind !== "unknownType" &&
-    resolvedSource.kind !== "anyType" &&
-    resolvedSource.kind !== "objectType" &&
-    !(
-      resolvedSource.kind === "referenceType" &&
-      resolvedSource.name === "object"
-    ) &&
+    !isBroadSource &&
     matchesExpectedEmissionType(
       comparableSourceType,
       comparableNarrowedType,
@@ -194,10 +450,6 @@ export const materializeDirectNarrowingAst = (
   }
 
   const splitSource = splitRuntimeNullishUnionMembers(comparableSourceType);
-  const resolvedTarget = resolveTypeAlias(
-    stripNullish(comparableNarrowedType),
-    context
-  );
   if (
     splitSource?.hasRuntimeNullish &&
     splitSource.nonNullishMembers.length === 1 &&
@@ -209,6 +461,10 @@ export const materializeDirectNarrowingAst = (
       stableIrTypeKey(resolveTypeAlias(stripNullish(baseMember), context)) ===
         stableIrTypeKey(resolvedTarget)
     ) {
+      if (isAlreadyMaterializedNullableValueRead(sourceAst)) {
+        return [sourceAst, nextContext];
+      }
+
       return [
         {
           kind: "memberAccessExpression",

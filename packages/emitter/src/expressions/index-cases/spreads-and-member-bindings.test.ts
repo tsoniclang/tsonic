@@ -588,9 +588,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include(
-      'global::js.String.split(path, "/")'
-    );
+    expect(result).to.include('global::js.String.split(path, "/")');
     expect(result).not.to.include('path.split("/")');
   });
 
@@ -638,9 +636,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include(
-      "global::js.Number.toString(value)"
-    );
+    expect(result).to.include("global::js.Number.toString(value)");
     expect(result).not.to.include("value.toString()");
   });
 });

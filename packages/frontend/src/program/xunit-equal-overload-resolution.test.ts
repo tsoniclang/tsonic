@@ -55,7 +55,9 @@ const findEqualCallStatement = (
       candidate.body,
       candidate.thenStatement,
       candidate.elseStatement,
-    ].filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
+    ].filter(
+      (entry): entry is NonNullable<typeof entry> => entry !== undefined
+    );
 
     for (const nested of nestedBlocks) {
       const nestedStatements =
@@ -138,10 +140,7 @@ const formatTypeName = (type: IrType | undefined): string => {
   if (!type) {
     return "missing";
   }
-  if (
-    type.kind === "primitiveType" ||
-    type.kind === "referenceType"
-  ) {
+  if (type.kind === "primitiveType" || type.kind === "referenceType") {
     return type.name;
   }
   return type.kind;
@@ -271,9 +270,7 @@ describe("Dependency Graph", function () {
   });
 
   it("keeps string equality class overloads through facade re-exports when char aliases flow into string surfaces", () => {
-    const { fixture, result } = buildFixtureGraph(
-      "char-string-class-reexport"
-    );
+    const { fixture, result } = buildFixtureGraph("char-string-class-reexport");
 
     try {
       expectGraphSuccess(result);

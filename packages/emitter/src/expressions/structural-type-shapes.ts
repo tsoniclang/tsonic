@@ -256,7 +256,11 @@ const resolveIteratorMemberFromReference = (
   nextVisited.add(visitKey);
 
   const structuralDirect = resolvedRef.structuralMembers
-    ? resolveIteratorMemberFromMembers(resolvedRef.structuralMembers, [], undefined)
+    ? resolveIteratorMemberFromMembers(
+        resolvedRef.structuralMembers,
+        [],
+        undefined
+      )
     : undefined;
   if (structuralDirect) {
     return structuralDirect;
@@ -349,8 +353,7 @@ const resolveIteratorMemberFromReference = (
   }
 
   return (
-    resolveIteratorMemberFromBindingRegistry(resolvedRef, context) ??
-    undefined
+    resolveIteratorMemberFromBindingRegistry(resolvedRef, context) ?? undefined
   );
 };
 
@@ -444,6 +447,22 @@ export const getArrayElementType = (
   context: EmitterContext
 ): IrType | undefined => getArrayLikeElementType(type, context);
 
+export const getSemanticArrayElementType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "arrayType") {
+    return resolved.storageErasedElementType ?? resolved.elementType;
+  }
+
+  return getArrayLikeElementType(type, context);
+};
+
 export const isObjectLikeTypeAst = (
   type: CSharpTypeAst | undefined
 ): boolean => {
@@ -496,7 +515,10 @@ export const getIterableSourceShape = (
     return undefined;
   }
 
-  const elementType = deriveForOfElementType(iteratorMember.returnType, context);
+  const elementType = deriveForOfElementType(
+    iteratorMember.returnType,
+    context
+  );
   if (!elementType) {
     return undefined;
   }

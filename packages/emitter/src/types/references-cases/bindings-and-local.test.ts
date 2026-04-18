@@ -1,6 +1,7 @@
 import {
   createModuleWithType,
   describe,
+  emitCSharpFiles,
   emitModule,
   expect,
   it,
@@ -138,6 +139,95 @@ describe("Reference Type Emission", () => {
 
       expect(result).to.include("global::Acme.Messages.__Anon_8be6_614f176b x");
       expect(result).to.not.include("__Anon_local x");
+    });
+
+    it("should canonicalize unresolved anonymous structural references to a unique cross-module source type", () => {
+      const externalModule: IrModule = {
+        kind: "module",
+        filePath: "/src/node-server.ts",
+        namespace: "nodejs",
+        className: "node_server",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "interfaceDeclaration",
+            name: "__Anon_128f_b479f151",
+            isExported: true,
+            isStruct: false,
+            typeParameters: [],
+            extends: [],
+            members: [
+              {
+                kind: "propertySignature",
+                name: "port",
+                type: { kind: "primitiveType", name: "number" },
+                isOptional: false,
+                isReadonly: false,
+              },
+              {
+                kind: "propertySignature",
+                name: "address",
+                type: { kind: "primitiveType", name: "string" },
+                isOptional: false,
+                isReadonly: false,
+              },
+              {
+                kind: "propertySignature",
+                name: "family",
+                type: { kind: "primitiveType", name: "string" },
+                isOptional: false,
+                isReadonly: false,
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const localModule = createModuleWithType({
+        kind: "referenceType",
+        name: "__Anon_missing",
+        structuralMembers: [
+          {
+            kind: "propertySignature",
+            name: "port",
+            type: { kind: "primitiveType", name: "number" },
+            isOptional: false,
+            isReadonly: false,
+          },
+          {
+            kind: "propertySignature",
+            name: "address",
+            type: { kind: "primitiveType", name: "string" },
+            isOptional: false,
+            isReadonly: false,
+          },
+          {
+            kind: "propertySignature",
+            name: "family",
+            type: { kind: "primitiveType", name: "string" },
+            isOptional: false,
+            isReadonly: false,
+          },
+        ],
+      });
+
+      const result = emitCSharpFiles([externalModule, localModule], {
+        rootNamespace: "Test",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) {
+        return;
+      }
+
+      const consumerCode = Array.from(result.files.entries()).find(
+        ([filePath]) => filePath.endsWith("test.cs")
+      )?.[1];
+      expect(consumerCode).to.not.equal(undefined);
+      expect(consumerCode).to.include("global::nodejs.__Anon_128f_b479f151 x");
+      expect(consumerCode).to.not.include("__Anon_missing x");
     });
   });
 

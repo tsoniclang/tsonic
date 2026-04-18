@@ -26,7 +26,7 @@ namespace TestCases.common.edgecases.clickmeternullabilityregressions
         public static string? run(Query__Alias query, Bucket bucket, string ua)
         {
             takeInt(bucket.pageviews);
-            takeMaybeInt((int?)query.limit);
+            takeMaybeInt(query.limit);
             var userAgent = ua.Trim() == "" ? default(string) : ua;
             return userAgent;
         }

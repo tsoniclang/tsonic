@@ -62,11 +62,14 @@ export const loadProjectConfig = (
       }
 
       for (const entry of packages) {
-        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        if (
+          entry === null ||
+          typeof entry !== "object" ||
+          Array.isArray(entry)
+        ) {
           return {
             ok: false,
-            error:
-              `${PROJECT_CONFIG_FILE}: 'references.packages' entries must be objects`,
+            error: `${PROJECT_CONFIG_FILE}: 'references.packages' entries must be objects`,
           };
         }
 
@@ -74,8 +77,7 @@ export const loadProjectConfig = (
         if (typeof id !== "string" || id.trim().length === 0) {
           return {
             ok: false,
-            error:
-              `${PROJECT_CONFIG_FILE}: 'references.packages[].id' must be a non-empty string`,
+            error: `${PROJECT_CONFIG_FILE}: 'references.packages[].id' must be a non-empty string`,
           };
         }
 
@@ -83,8 +85,7 @@ export const loadProjectConfig = (
         if (typeof project !== "string" || project.trim().length === 0) {
           return {
             ok: false,
-            error:
-              `${PROJECT_CONFIG_FILE}: 'references.packages[].project' must be a non-empty string`,
+            error: `${PROJECT_CONFIG_FILE}: 'references.packages[].project' must be a non-empty string`,
           };
         }
 
@@ -92,8 +93,7 @@ export const loadProjectConfig = (
         if (mode !== undefined && mode !== "source" && mode !== "dll") {
           return {
             ok: false,
-            error:
-              `${PROJECT_CONFIG_FILE}: 'references.packages[].mode' must be 'source' or 'dll' when present`,
+            error: `${PROJECT_CONFIG_FILE}: 'references.packages[].mode' must be 'source' or 'dll' when present`,
           };
         }
       }

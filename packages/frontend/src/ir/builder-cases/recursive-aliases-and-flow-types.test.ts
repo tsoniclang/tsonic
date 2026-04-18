@@ -652,7 +652,9 @@ describe("IR Builder", function () {
         expect(itemsInitializer.inferredType.elementType.kind).to.equal(
           "referenceType"
         );
-        if (itemsInitializer.inferredType.elementType.kind !== "referenceType") {
+        if (
+          itemsInitializer.inferredType.elementType.kind !== "referenceType"
+        ) {
           return;
         }
         expect(itemsInitializer.inferredType.elementType.name).to.equal("Item");

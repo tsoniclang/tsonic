@@ -83,14 +83,11 @@ export const emitPropertyMember = (
   const emittedMemberType =
     member.type && accessibility === "private"
       ? (normalizeRuntimeStorageType(member.type, storageContext) ??
-          member.type)
+        member.type)
       : member.type;
   if (emittedMemberType) {
     try {
-      const [tAst, newContext] = emitTypeAst(
-        emittedMemberType,
-        currentContext
-      );
+      const [tAst, newContext] = emitTypeAst(emittedMemberType, currentContext);
       typeAst = tAst;
       currentContext = newContext;
     } catch (error) {
@@ -103,8 +100,7 @@ export const emitPropertyMember = (
       const location =
         locationBits.length > 0 ? locationBits.join(" :: ") : member.name;
       const detail = JSON.stringify(emittedMemberType, null, 2);
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       throw new Error(
         `Failed to emit property type at ${location}: ${message}\n${detail}`
       );
@@ -152,8 +148,7 @@ export const emitPropertyMember = (
 
   // Case 2: Auto-property (no explicit accessors)
   if (!hasAccessors) {
-    const usesPrivateSetter =
-      member.isReadonly && needsMutableStorage;
+    const usesPrivateSetter = member.isReadonly && needsMutableStorage;
     const setterAccessibility =
       usesPrivateSetter && accessibility !== "private" ? "private" : undefined;
     const propAst: CSharpMemberAst = {

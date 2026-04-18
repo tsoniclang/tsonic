@@ -57,7 +57,9 @@ describe("Destructuring Pattern Lowering", () => {
 
       const result = emitModule(module);
 
-      const loopTempMatch = result.match(/foreach \(var (__item(?:__\d+)?) in entries\)/);
+      const loopTempMatch = result.match(
+        /foreach \(var (__item(?:__\d+)?) in entries\)/
+      );
       expect(loopTempMatch?.[1]).to.not.equal(undefined);
       const loopTemp = loopTempMatch?.[1] ?? "__item";
 

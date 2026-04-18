@@ -13,6 +13,7 @@ import type { BindingRegistry } from "../program/bindings.js";
 import { simpleBindingContributesTypeIdentity } from "../program/binding-registry.js";
 import type { TsonicProgram } from "../program.js";
 import type { IrBuildOptions } from "./builder/types.js";
+/* eslint-disable no-restricted-imports -- this factory is the bootstrap boundary for type-system internals. */
 import { buildNominalEnv } from "./type-system/internal/nominal-env.js";
 import { convertCapturedTypeNode } from "./type-system/internal/type-converter.js";
 import { createTypeSystem } from "./type-system/type-system.js";
@@ -23,6 +24,7 @@ import {
   loadClrCatalog,
 } from "./type-system/internal/universe/index.js";
 import type { AssemblyTypeCatalog } from "./type-system/internal/universe/types.js";
+/* eslint-enable no-restricted-imports */
 import type { ProgramContext } from "./program-context-types.js";
 import {
   findPackageRootForFile,
@@ -92,7 +94,6 @@ export const createProgramContext = (
 
     return symbols as ReadonlySet<ts.Symbol>;
   })();
-
   // Build TypeRegistry from all source files INCLUDING declaration files from typeRoots
   // Declaration files contain globals (String, Array, etc.) needed for method resolution
   //
@@ -130,7 +131,10 @@ export const createProgramContext = (
     );
   });
 
-  const catalogSourceFiles = [...program.sourceFiles, ...declarationSourceFiles];
+  const catalogSourceFiles = [
+    ...program.sourceFiles,
+    ...declarationSourceFiles,
+  ];
   const lookupSourceFiles = [
     ...program.sourceFiles,
     ...program.declarationSourceFiles,
@@ -148,7 +152,6 @@ export const createProgramContext = (
     rootNamespace: options.rootNamespace,
     binding: program.binding,
   });
-
   // Load assembly type catalog only from CLR packages that actually participate
   // in this compilation. Airplane-grade: do not crawl node_modules opportunistically.
   const nodeModulesPath = path.resolve(
@@ -193,7 +196,6 @@ export const createProgramContext = (
     const pkgRoot = resolvePackageRootFromBindingsPath(bindingsPath);
     if (pkgRoot) extraPackageRoots.push(pkgRoot);
   }
-
   const assemblyCatalog = withSimpleTypeAliases(
     loadClrCatalog(nodeModulesPath, [
       ...(program.options.typeRoots ?? []),
@@ -209,7 +211,6 @@ export const createProgramContext = (
     assemblyCatalog,
     program.options.rootNamespace
   );
-
   // Phase 6: Build NominalEnv from UnifiedTypeCatalog (TypeId-based)
   // No longer requires TypeRegistry, convertType, or binding
   const nominalEnv = buildNominalEnv(unifiedCatalog);
@@ -255,14 +256,12 @@ export const createProgramContext = (
     tsCompilerOptions: program.program.getCompilerOptions(),
     sourceFilesByPath,
   });
-
   return {
     projectRoot: program.options.projectRoot,
     sourceRoot: options.sourceRoot,
     authoritativeTsonicPackageRoots:
       program.authoritativeTsonicPackageRoots ?? new Map<string, string>(),
-    declarationModuleAliases:
-      program.declarationModuleAliases ?? new Map(),
+    declarationModuleAliases: program.declarationModuleAliases ?? new Map(),
     rootNamespace: options.rootNamespace,
     surface: program.options.surface ?? "clr",
     checker: program.checker,

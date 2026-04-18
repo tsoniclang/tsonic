@@ -214,7 +214,9 @@ const traceLengthAccessOrigin = (
   return { expression, throughAssertion };
 };
 
-const unwrapComparableExpression = (expression: ts.Expression): ts.Expression => {
+const unwrapComparableExpression = (
+  expression: ts.Expression
+): ts.Expression => {
   let current = expression;
   for (;;) {
     if (
@@ -225,10 +227,7 @@ const unwrapComparableExpression = (expression: ts.Expression): ts.Expression =>
       continue;
     }
 
-    if (
-      ts.isAsExpression(current) ||
-      ts.isTypeAssertionExpression(current)
-    ) {
+    if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
       current = current.expression;
       continue;
     }
@@ -284,7 +283,9 @@ const areSameExpressionTarget = (
 
 const extractArrayIsArrayGuard = (
   expression: ts.Expression
-): { readonly target: ts.Expression; readonly negated: boolean } | undefined => {
+):
+  | { readonly target: ts.Expression; readonly negated: boolean }
+  | undefined => {
   const candidate = unwrapComparableExpression(expression);
   if (ts.isPrefixUnaryExpression(candidate)) {
     if (candidate.operator !== ts.SyntaxKind.ExclamationToken) {
@@ -344,7 +345,11 @@ const isWithinSameFunctionArrayGuard = (
       continue;
     }
 
-    if (!guard.negated && node.pos >= parent.thenStatement.pos && node.end <= parent.thenStatement.end) {
+    if (
+      !guard.negated &&
+      node.pos >= parent.thenStatement.pos &&
+      node.end <= parent.thenStatement.end
+    ) {
       return true;
     }
 

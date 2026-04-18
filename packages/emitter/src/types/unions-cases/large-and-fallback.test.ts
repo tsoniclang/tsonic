@@ -3,6 +3,7 @@
  * Verifies TypeScript unions map to C# Union<T1, T2>
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../../emitter.js";
@@ -68,7 +69,10 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
     const union8Type = (
-      module.body[5] as Extract<IrModule["body"][number], { kind: "variableDeclaration" }>
+      module.body[5] as Extract<
+        IrModule["body"][number],
+        { kind: "variableDeclaration" }
+      >
     ).declarations[0]!.type as IrType;
 
     expect(code).to.include(
@@ -142,7 +146,10 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
     const union9Type = (
-      module.body[6] as Extract<IrModule["body"][number], { kind: "variableDeclaration" }>
+      module.body[6] as Extract<
+        IrModule["body"][number],
+        { kind: "variableDeclaration" }
+      >
     ).declarations[0]!.type as IrType;
 
     expect(code).to.include(

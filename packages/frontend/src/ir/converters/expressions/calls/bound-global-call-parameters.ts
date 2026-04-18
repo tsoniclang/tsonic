@@ -1,4 +1,7 @@
-import { buildResolvedRestParameter, expandParameterTypesForArguments } from "../../../type-system/type-system-call-resolution.js";
+import {
+  buildResolvedRestParameter,
+  expandParameterTypesForArguments,
+} from "../../../type-system/type-system-call-resolution.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { IrCallExpression, IrType } from "../../../types.js";
 import type { IrParameter } from "../../../types.js";
@@ -72,7 +75,9 @@ export const getBoundGlobalCallParameterTypes = (
       memberName
     )
     ?.filter(
-      (overload): overload is typeof overload & {
+      (
+        overload
+      ): overload is typeof overload & {
         readonly semanticSignature: NonNullable<
           typeof overload.semanticSignature
         >;
@@ -94,7 +99,10 @@ export const getBoundGlobalCallParameterTypes = (
     return undefined;
   }
 
-  const selected = arityCompatible[0]!;
+  const [selected] = arityCompatible;
+  if (!selected) {
+    return undefined;
+  }
   const parameterTypes = expandParameterTypesForArguments(
     selected.semanticSignature.parameters,
     selected.semanticSignature.parameters.map((parameter) => parameter.type),

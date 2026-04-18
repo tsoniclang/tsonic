@@ -116,12 +116,12 @@ They are:
 
 ## Practical decision table
 
-| You want | Use |
-| --- | --- |
-| JS globals and JS-style methods | `surface: "@tsonic/js"` |
-| Node-style modules | `@tsonic/nodejs` package |
-| Express-style routing | `@tsonic/express` package |
-| CLR BCL APIs | `@tsonic/dotnet` |
-| ASP.NET Core APIs | `@tsonic/aspnetcore` |
+| You want                                      | Use                                         |
+| --------------------------------------------- | ------------------------------------------- |
+| JS globals and JS-style methods               | `surface: "@tsonic/js"`                     |
+| Node-style modules                            | `@tsonic/nodejs` package                    |
+| Express-style routing                         | `@tsonic/express` package                   |
+| CLR BCL APIs                                  | `@tsonic/dotnet`                            |
+| ASP.NET Core APIs                             | `@tsonic/aspnetcore`                        |
 | Local workspace package compiled transitively | `references.packages` with `mode: "source"` |
-| Local workspace package as assembly boundary | `references.packages` with `mode: "dll"` |
+| Local workspace package as assembly boundary  | `references.packages` with `mode: "dll"`    |

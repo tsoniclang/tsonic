@@ -154,11 +154,12 @@ export const computeReceiverSubstitution = (
     arityHint,
     declaringClrType
   );
-  const resolvedDeclaringTypeParameterNames = resolveDeclaringTypeParameterNames(
-    state,
-    declaringTypeIds,
-    declaringTypeParameterNames
-  );
+  const resolvedDeclaringTypeParameterNames =
+    resolveDeclaringTypeParameterNames(
+      state,
+      declaringTypeIds,
+      declaringTypeParameterNames
+    );
   let emptyInstantiation: TypeSubstitutionMap | undefined;
 
   for (const declaringTypeId of declaringTypeIds) {
@@ -181,12 +182,10 @@ export const computeReceiverSubstitution = (
       normalized.typeArgs.length === resolvedDeclaringTypeParameterNames.length
     ) {
       const directSubstitutionEntries =
-        resolvedDeclaringTypeParameterNames.flatMap(
-        (name, index) => {
+        resolvedDeclaringTypeParameterNames.flatMap((name, index) => {
           const typeArgument = normalized.typeArgs[index];
           return typeArgument ? [[name, typeArgument] as const] : [];
-        }
-      );
+        });
       return new Map(directSubstitutionEntries);
     }
   }

@@ -59,19 +59,19 @@ export const emitIfStatementAst = (
     if (result) return result;
   }
 
-  // Case A3b: Property truthiness guard (result.success)
+  // Case A3a: Property truthiness guard (result.success)
   {
     const result = tryEmitPropertyTruthinessGuard(stmt, context);
     if (result) return result;
   }
 
-  // Case A4: Discriminant equality guard (shape.kind === "circle")
+  // Case A3b: Discriminant equality guard (shape.kind === "circle")
   {
     const result = tryEmitDiscriminantEqualityGuard(stmt, context);
     if (result) return result;
   }
 
-  // Case A2: Instanceof guard (x instanceof Foo)
+  // Case A4: Instanceof guard (x instanceof Foo)
   {
     const result = tryEmitInstanceofGuard(stmt, context);
     if (result) return result;
@@ -208,19 +208,18 @@ export const emitIfStatementAst = (
     semanticCondContext,
     thenContext
   );
-  const falsyPostConditionContext =
-    applyConditionBranchNarrowing(
-      stmt.condition,
-      "falsy",
-      {
-        ...basePostConditionContext,
-        narrowedBindings: semanticCondContext.narrowedBindings,
-      },
-      emitExprAstCb
-    ) ?? {
+  const falsyPostConditionContext = applyConditionBranchNarrowing(
+    stmt.condition,
+    "falsy",
+    {
       ...basePostConditionContext,
       narrowedBindings: semanticCondContext.narrowedBindings,
-    };
+    },
+    emitExprAstCb
+  ) ?? {
+    ...basePostConditionContext,
+    narrowedBindings: semanticCondContext.narrowedBindings,
+  };
   let finalContext: EmitterContext = thenTerminates
     ? falsyPostConditionContext
     : mergeBranchExitContext(

@@ -104,7 +104,11 @@ describe("type-resolution", () => {
         kind: "unionType",
         types: [
           { kind: "primitiveType", name: "string" },
-          { kind: "referenceType", name: "RegExp", resolvedClrType: "js.RegExp" },
+          {
+            kind: "referenceType",
+            name: "RegExp",
+            resolvedClrType: "js.RegExp",
+          },
         ],
         runtimeCarrierFamilyKey:
           "runtime-union:canonical:prim:string|ref#0:clr:js.RegExp::",
@@ -118,7 +122,11 @@ describe("type-resolution", () => {
         kind: "unionType",
         types: [
           { kind: "primitiveType", name: "string" },
-          { kind: "referenceType", name: "RegExp", resolvedClrType: "js.RegExp" },
+          {
+            kind: "referenceType",
+            name: "RegExp",
+            resolvedClrType: "js.RegExp",
+          },
           { kind: "primitiveType", name: "undefined" },
         ],
         runtimeCarrierFamilyKey:
@@ -164,7 +172,9 @@ describe("type-resolution", () => {
               "RequestHandler",
               {
                 kind: "type",
-                typeAst: identifierType("global::App.express.runtime.RequestHandler"),
+                typeAst: identifierType(
+                  "global::App.express.runtime.RequestHandler"
+                ),
                 aliasType: requestHandler.type,
                 aliasTypeParameters: requestHandler.typeParameters,
               },
@@ -187,46 +197,43 @@ describe("type-resolution", () => {
       };
 
       const ref: IrType = { kind: "referenceType", name: "Readable" };
-      const result = resolveTypeAlias(
-        ref,
-        {
-          ...makeContext(undefined, {
-            moduleMap: new Map([
-              [
-                "/nodejs/stream/readable.ts",
-                {
-                  namespace: "nodejs.stream",
-                  className: "readable",
-                  filePath: "/nodejs/stream/readable.ts",
-                  hasRuntimeContainer: true,
-                  hasTypeCollision: false,
-                  localTypes: new Map(),
-                },
-              ],
-              [
-                "/nodejs/child_process/child-process.ts",
-                {
-                  namespace: "nodejs.child_process",
-                  className: "child_process",
-                  filePath: "/nodejs/child_process/child-process.ts",
-                  hasRuntimeContainer: true,
-                  hasTypeCollision: false,
-                  localTypes: new Map([["Readable", unrelatedReadableAlias]]),
-                },
-              ],
-            ]),
-          }),
-          importBindings: new Map([
+      const result = resolveTypeAlias(ref, {
+        ...makeContext(undefined, {
+          moduleMap: new Map([
             [
-              "Readable",
+              "/nodejs/stream/readable.ts",
               {
-                kind: "type",
-                typeAst: identifierType("global::nodejs.stream.Readable"),
+                namespace: "nodejs.stream",
+                className: "readable",
+                filePath: "/nodejs/stream/readable.ts",
+                hasRuntimeContainer: true,
+                hasTypeCollision: false,
+                localTypes: new Map(),
+              },
+            ],
+            [
+              "/nodejs/child_process/child-process.ts",
+              {
+                namespace: "nodejs.child_process",
+                className: "child_process",
+                filePath: "/nodejs/child_process/child-process.ts",
+                hasRuntimeContainer: true,
+                hasTypeCollision: false,
+                localTypes: new Map([["Readable", unrelatedReadableAlias]]),
               },
             ],
           ]),
-        }
-      );
+        }),
+        importBindings: new Map([
+          [
+            "Readable",
+            {
+              kind: "type",
+              typeAst: identifierType("global::nodejs.stream.Readable"),
+            },
+          ],
+        ]),
+      });
 
       expect(result).to.deep.equal(ref);
     });

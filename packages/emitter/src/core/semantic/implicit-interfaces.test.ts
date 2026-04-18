@@ -267,9 +267,7 @@ describe("implicit-interfaces", () => {
         {
           kind: "interface",
           typeParameters: [],
-          members: [
-            methodSignature("close", [], voidType, family),
-          ],
+          members: [methodSignature("close", [], voidType, family)],
           extends: [],
         },
       ],
@@ -278,9 +276,7 @@ describe("implicit-interfaces", () => {
         {
           kind: "class",
           typeParameters: [],
-          members: [
-            methodDeclaration("close_impl", [], stringType, family),
-          ],
+          members: [methodDeclaration("close_impl", [], stringType, family)],
           implements: [{ kind: "referenceType", name: "IClosable" }],
         },
       ],
@@ -347,7 +343,9 @@ describe("implicit-interfaces", () => {
     expect(matches).to.have.length(1);
     expect(matches[0]?.isExplicit).to.equal(true);
     expect(matches[0]?.ref.resolvedClrType).to.equal("System.IDisposable");
-    expect(matches[0]?.methodMatches.map((match) => match.classMember.name)).to.deep.equal(["Dispose"]);
+    expect(
+      matches[0]?.methodMatches.map((match) => match.classMember.name)
+    ).to.deep.equal(["Dispose"]);
   });
 
   it("specializes explicit generic interfaces with concrete type arguments", () => {
@@ -375,7 +373,12 @@ describe("implicit-interfaces", () => {
           members: [
             methodDeclaration(
               "compareTo",
-              [parameter("other", { kind: "referenceType", name: "NumberValue" })],
+              [
+                parameter("other", {
+                  kind: "referenceType",
+                  name: "NumberValue",
+                }),
+              ],
               numberType
             ),
           ],
@@ -407,6 +410,8 @@ describe("implicit-interfaces", () => {
     expect(matches[0]?.ref.typeArguments).to.deep.equal([
       { kind: "referenceType", name: "NumberValue" },
     ]);
-    expect(matches[0]?.methodMatches.map((match) => match.classMember.name)).to.deep.equal(["compareTo"]);
+    expect(
+      matches[0]?.methodMatches.map((match) => match.classMember.name)
+    ).to.deep.equal(["compareTo"]);
   });
 });

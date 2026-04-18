@@ -8,6 +8,7 @@
 
 export {
   applySimpleNullableRefinement,
+  applyTruthinessNullishRefinement,
   applyDirectTypeofRefinement,
   applyArrayIsArrayRefinement,
 } from "./nullable-typeof-refinements.js";

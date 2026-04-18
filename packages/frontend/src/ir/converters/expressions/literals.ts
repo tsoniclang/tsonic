@@ -132,8 +132,7 @@ export const convertRegularExpressionLiteral = (
           node,
           ctx,
           ts.SymbolFlags.Value
-        ) ??
-        undefined);
+        ) ?? undefined);
   const resolvedAssembly =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.assembly

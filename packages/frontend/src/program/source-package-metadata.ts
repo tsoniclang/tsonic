@@ -192,7 +192,10 @@ const resolveAmbientPaths = (
 };
 
 const isPathWithinRoot = (filePath: string, rootPath: string): boolean => {
-  const relative = path.relative(path.resolve(rootPath), path.resolve(filePath));
+  const relative = path.relative(
+    path.resolve(rootPath),
+    path.resolve(filePath)
+  );
   return (
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))
@@ -293,10 +296,7 @@ export const readSourcePackageMetadata = (
       metadataCache.set(normalizedRoot, null);
       return null;
     }
-    const moduleAliases = parseModuleAliases(
-      packageName,
-      source.moduleAliases
-    );
+    const moduleAliases = parseModuleAliases(packageName, source.moduleAliases);
     if (moduleAliases === undefined) {
       metadataCache.set(normalizedRoot, null);
       return null;

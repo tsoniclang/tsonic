@@ -124,7 +124,7 @@ const buildMetaPlans = (
           error:
             `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
             `It is required by meta-package root '${node.packageId}', which must produce real CLR bindings.\n` +
-            `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+            `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
         };
       }
 
@@ -158,7 +158,7 @@ const buildMetaPlans = (
         error:
           `Cannot auto-generate meta-package bindings for '${node.packageId}': no seed DLLs found.\n` +
           `This package contains no compile-time DLLs and none of its dependency DLLs are eligible for claiming.\n` +
-          `Fix: provide an explicit bindings package via 'types: \"<pkg>\"' or reference a non-meta package that contains the required APIs.`,
+          `Fix: provide an explicit bindings package via 'types: "<pkg>"' or reference a non-meta package that contains the required APIs.`,
       };
     }
 

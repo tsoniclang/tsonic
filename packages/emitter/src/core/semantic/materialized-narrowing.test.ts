@@ -159,4 +159,206 @@ describe("materialized narrowing", () => {
     expect(ast.kind).to.equal("castExpression");
     expect(ast).to.not.equal(sourceAst);
   });
+
+  it("casts broad unknown sources without trying to emit unknown type ASTs", () => {
+    const sourceAst = {
+      kind: "identifierExpression" as const,
+      identifier: "value",
+    };
+
+    const [ast] = materializeDirectNarrowingAst(
+      sourceAst,
+      { kind: "unknownType", explicit: true },
+      { kind: "primitiveType", name: "string" },
+      context
+    );
+
+    expect(ast).to.deep.equal({
+      kind: "castExpression",
+      type: { kind: "predefinedType", keyword: "string" },
+      expression: sourceAst,
+    });
+  });
+
+  it("leaves values unchanged when the narrowed target stays broad unknown", () => {
+    const sourceAst = {
+      kind: "identifierExpression" as const,
+      identifier: "value",
+    };
+
+    const [ast] = materializeDirectNarrowingAst(
+      sourceAst,
+      { kind: "primitiveType", name: "string" },
+      { kind: "unknownType", explicit: true },
+      context
+    );
+
+    expect(ast).to.deep.equal(sourceAst);
+  });
+
+  it("casts broad object storage into source-owned object aliases", () => {
+    const sourceAst = {
+      kind: "identifierExpression" as const,
+      identifier: "optionsOrListener",
+    };
+    const aliasType: IrType = {
+      kind: "referenceType",
+      name: "TlsOptions",
+      structuralMembers: [
+        {
+          kind: "propertySignature",
+          name: "allowHalfOpen",
+          type: { kind: "primitiveType", name: "boolean" },
+          isOptional: true,
+          isReadonly: true,
+        },
+      ],
+    };
+
+    const [ast] = materializeDirectNarrowingAst(
+      sourceAst,
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "undefined" },
+          {
+            kind: "referenceType",
+            name: "object",
+            resolvedClrType: "System.Object",
+          },
+        ],
+      },
+      aliasType,
+      {
+        ...context,
+        localTypes: new Map([
+          [
+            "TlsOptions",
+            {
+              kind: "typeAlias" as const,
+              isExported: true,
+              typeParameters: [],
+              type: {
+                kind: "objectType",
+                members: [
+                  {
+                    kind: "propertySignature",
+                    name: "allowHalfOpen",
+                    type: { kind: "primitiveType", name: "boolean" },
+                    isOptional: true,
+                    isReadonly: true,
+                  },
+                ],
+              },
+            },
+          ],
+        ]),
+      }
+    );
+
+    expect(ast).to.deep.equal({
+      kind: "castExpression",
+      type: { kind: "identifierType", name: "TlsOptions__Alias" },
+      expression: sourceAst,
+    });
+  });
+
+  it("reuses emittable source aliases when narrowed flow surfaces are anonymous structural references", () => {
+    const sourceAst = {
+      kind: "identifierExpression" as const,
+      identifier: "control",
+    };
+    const sourceAliasType: IrType = {
+      kind: "referenceType",
+      name: "HandlerControl",
+    };
+    const narrowedStructuralType: IrType = {
+      kind: "referenceType",
+      name: "__Anon_128f_b479f151",
+      structuralMembers: [
+        {
+          kind: "propertySignature",
+          name: "ended",
+          type: { kind: "primitiveType", name: "boolean" },
+          isOptional: false,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature",
+          name: "control",
+          type: {
+            kind: "unionType",
+            types: [
+              { kind: "primitiveType", name: "string" },
+              { kind: "primitiveType", name: "null" },
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+          isOptional: true,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature",
+          name: "error",
+          type: { kind: "referenceType", name: "JsValue" },
+          isOptional: true,
+          isReadonly: false,
+        },
+      ],
+    };
+
+    const [ast] = materializeDirectNarrowingAst(
+      sourceAst,
+      sourceAliasType,
+      narrowedStructuralType,
+      {
+        ...context,
+        localTypes: new Map([
+          [
+            "HandlerControl",
+            {
+              kind: "typeAlias" as const,
+              isExported: false,
+              typeParameters: [],
+              type: {
+                kind: "objectType",
+                members: [
+                  {
+                    kind: "propertySignature",
+                    name: "ended",
+                    type: { kind: "primitiveType", name: "boolean" },
+                    isOptional: false,
+                    isReadonly: false,
+                  },
+                  {
+                    kind: "propertySignature",
+                    name: "control",
+                    type: {
+                      kind: "unionType",
+                      types: [
+                        { kind: "primitiveType", name: "string" },
+                        { kind: "primitiveType", name: "null" },
+                        { kind: "primitiveType", name: "undefined" },
+                      ],
+                    },
+                    isOptional: true,
+                    isReadonly: false,
+                  },
+                  {
+                    kind: "propertySignature",
+                    name: "error",
+                    type: { kind: "referenceType", name: "JsValue" },
+                    isOptional: true,
+                    isReadonly: false,
+                  },
+                ],
+              },
+            },
+          ],
+        ]),
+      }
+    );
+
+    expect(ast).to.deep.equal(sourceAst);
+  });
 });

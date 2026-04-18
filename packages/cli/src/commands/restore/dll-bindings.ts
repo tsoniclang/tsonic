@@ -315,7 +315,7 @@ export const restoreDllBindings = ({
         error:
           `Assembly '${assembly.name}' depends on '${depAssembly?.name ?? depId}', but that dependency is configured with 'types: false'.\n` +
           `Bindings generation for '${assembly.name}' requires bindings for all referenced assemblies.\n` +
-          `Fix: remove 'types: false' for '${depAssembly?.name ?? depId}' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+          `Fix: remove 'types: false' for '${depAssembly?.name ?? depId}' or provide an external bindings package via 'types: "<pkg>"'.`,
       };
     }
 

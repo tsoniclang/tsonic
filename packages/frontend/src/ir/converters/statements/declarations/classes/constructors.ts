@@ -3,10 +3,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  IrClassMember,
-  IrStatement,
-} from "../../../../types.js";
+import { IrClassMember, IrStatement } from "../../../../types.js";
 import { convertBlockStatement } from "../../control.js";
 import {
   hasReadonlyModifier,

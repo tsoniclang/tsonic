@@ -39,7 +39,10 @@ import {
   toGlobalClr,
   withResolvingTypeAlias,
 } from "./reference-lookup.js";
-import { resolveBindingBackedStructuralTypeAst } from "./reference-structural-signatures.js";
+import {
+  resolveBindingBackedStructuralTypeAst,
+  resolveCanonicalStructuralReferenceTypeAst,
+} from "./reference-structural-signatures.js";
 import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
@@ -111,9 +114,7 @@ export const emitReferenceType = (
   const resolvedAlias = resolveTypeAlias(type, context, {
     preserveObjectTypeAliases: true,
   });
-  if (
-    stableIrTypeKey(resolvedAlias) !== stableIrTypeKey(type)
-  ) {
+  if (stableIrTypeKey(resolvedAlias) !== stableIrTypeKey(type)) {
     if (
       resolvedAlias.kind === "unionType" &&
       resolvedAlias.runtimeCarrierFamilyKey
@@ -220,7 +221,10 @@ export const emitReferenceType = (
             )
           : typeInfo.type;
       if (context.resolvingTypeAliases?.has(name)) {
-        return emitRecursiveAliasFallbackType(substitutedUnderlyingType, context);
+        return emitRecursiveAliasFallbackType(
+          substitutedUnderlyingType,
+          context
+        );
       }
       const [resolvedAst, resolvedContext] = emitTypeAst(
         substitutedUnderlyingType,
@@ -406,11 +410,18 @@ export const emitReferenceType = (
         if (underlyingKind !== "objectType") {
           const substitutedUnderlyingType =
             typeArguments && typeArguments.length > 0
-              ? substituteTypeArgs(info.type, info.typeParameters, typeArguments)
+              ? substituteTypeArgs(
+                  info.type,
+                  info.typeParameters,
+                  typeArguments
+                )
               : info.type;
           const aliasKey = keyForResolvedLocalType(name, namespace);
           if (context.resolvingTypeAliases?.has(aliasKey)) {
-            return emitRecursiveAliasFallbackType(substitutedUnderlyingType, context);
+            return emitRecursiveAliasFallbackType(
+              substitutedUnderlyingType,
+              context
+            );
           }
           const [resolvedAst, resolvedContext] = emitTypeAst(
             substitutedUnderlyingType,
@@ -643,9 +654,25 @@ export const emitReferenceType = (
     return [identifierType(qualified), context];
   }
 
+  const canonicalStructuralTypeAst =
+    !currentModuleLocalType && type.kind === "referenceType"
+      ? resolveCanonicalStructuralReferenceTypeAst(type, context)
+      : undefined;
+  if (canonicalStructuralTypeAst) {
+    if (typeArguments && typeArguments.length > 0) {
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [
+        attachTypeArgumentsIfSupported(canonicalStructuralTypeAst, typeArgAsts),
+        newContext,
+      ];
+    }
+
+    return [canonicalStructuralTypeAst, context];
+  }
+
   // Hard failure: unresolved external reference type
   // This should never happen if the IR soundness gate is working correctly
   throw new Error(
-    `ICE: Unresolved reference type '${name}' (no resolvedClrType, no import binding, no registry binding, not local)`
+    `ICE: Unresolved reference type '${name}' (no resolvedClrType, no import binding, no registry binding, not local; structuralMembers=${type.structuralMembers?.length ?? 0}; typeId=${type.typeId?.clrName ?? "none"})`
   );
 };

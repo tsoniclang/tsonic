@@ -26,7 +26,10 @@ import {
   buildRuntimeUnionMatchAst,
   tryBuildRuntimeUnionProjectionToLayoutAst,
 } from "./runtime-union-projection.js";
-import { resolveDirectValueSurfaceType } from "./direct-value-surfaces.js";
+import {
+  resolveDirectRuntimeCarrierType,
+  resolveDirectValueSurfaceType,
+} from "./direct-value-surfaces.js";
 import {
   getArrayLikeElementType,
   resolveTypeAlias,
@@ -46,6 +49,7 @@ import {
   getRuntimeUnionAliasReferenceKey,
   runtimeUnionAliasReferencesMatch,
 } from "./runtime-union-alias-identity.js";
+import { resolveRuntimeMaterializationTargetType } from "./runtime-materialization-targets.js";
 
 export type EmitTypeAstFn = (
   type: IrType,
@@ -110,7 +114,9 @@ const tryBuildArrayElementMaterializationAst = (
       const itemExpr = identifierExpression(itemName);
       const selectAst: CSharpExpressionAst = {
         kind: "invocationExpression",
-        expression: identifierExpression("global::System.Linq.Enumerable.Select"),
+        expression: identifierExpression(
+          "global::System.Linq.Enumerable.Select"
+        ),
         typeArguments: [sourceElementTypeAst, targetElementTypeAst],
         arguments: [
           valueAst,
@@ -128,7 +134,9 @@ const tryBuildArrayElementMaterializationAst = (
       };
       const toArrayAst: CSharpExpressionAst = {
         kind: "invocationExpression",
-        expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+        expression: identifierExpression(
+          "global::System.Linq.Enumerable.ToArray"
+        ),
         typeArguments: [targetElementTypeAst],
         arguments: [selectAst],
       };
@@ -216,7 +224,11 @@ export const tryBuildRuntimeMaterializationAst = (
   const effectiveSourceFrame =
     sourceFrame ??
     (() => {
-      const [sourceLayout] = buildRuntimeUnionLayout(sourceType, context, emitTypeAst);
+      const [sourceLayout] = buildRuntimeUnionLayout(
+        sourceType,
+        context,
+        emitTypeAst
+      );
       if (!sourceLayout) {
         return undefined;
       }
@@ -312,13 +324,6 @@ export const tryBuildRuntimeMaterializationAst = (
         ) {
           body = parameterExpr;
           sawReachableMatch = true;
-        } else if (
-          getRuntimeUnionAliasReferenceKey(actualMember, targetLayoutContext)
-        ) {
-          body = buildInvalidRuntimeUnionMaterializationExpression(
-            actualMember,
-            targetType
-          );
         } else {
           const targetMemberIndex = findRuntimeUnionMemberIndex(
             targetLayout.members,
@@ -414,6 +419,19 @@ export const tryBuildRuntimeMaterializationAst = (
     targetType,
     targetLayoutContext
   );
+  const directRuntimeCarrierType = resolveDirectRuntimeCarrierType(
+    valueAst,
+    targetLayoutContext
+  );
+  if (directRuntimeCarrierType) {
+    const [directCarrierTypeAst, directCarrierContext] = emitTypeAst(
+      directRuntimeCarrierType,
+      nextContext
+    );
+    if (sameTypeAstSurface(directCarrierTypeAst, targetTypeAst)) {
+      return [valueAst, directCarrierContext];
+    }
+  }
   const directValueSurfaceType = resolveDirectValueSurfaceType(
     valueAst,
     targetLayoutContext
@@ -529,8 +547,17 @@ export const tryBuildRuntimeReificationPlan = (
   context: EmitterContext,
   emitTypeAst: EmitTypeAstFn
 ): RuntimeReificationPlan | undefined => {
+  const materializationExpectedType = resolveRuntimeMaterializationTargetType(
+    expectedType,
+    context
+  );
   const resolvedExpected = resolveTypeAlias(
-    stripNullish(expectedType),
+    stripNullish(materializationExpectedType),
+    context,
+    { preserveObjectTypeAliases: true }
+  );
+  const directRuntimeCarrierType = resolveDirectRuntimeCarrierType(
+    valueAst,
     context
   );
   const directValueSurfaceType = resolveDirectValueSurfaceType(
@@ -568,17 +595,44 @@ export const tryBuildRuntimeReificationPlan = (
   }
 
   if (resolvedExpected.kind === "unionType") {
-    if (directValueSurfaceType) {
+    if (directRuntimeCarrierType) {
       const materialized = tryBuildRuntimeMaterializationAst(
         valueAst,
-        directValueSurfaceType,
-        expectedType,
+        directRuntimeCarrierType,
+        materializationExpectedType,
         context,
         emitTypeAst
       );
       if (materialized) {
         const [unionTypeAst, materializedContext] = emitTypeAst(
-          expectedType,
+          materializationExpectedType,
+          materialized[1]
+        );
+        return {
+          condition: {
+            kind: "isExpression",
+            expression: boxValueAst(valueAst),
+            pattern: {
+              kind: "typePattern",
+              type: stripNullableTypeAst(unionTypeAst),
+            },
+          },
+          value: materialized[0],
+          context: materializedContext,
+        };
+      }
+    }
+    if (directValueSurfaceType) {
+      const materialized = tryBuildRuntimeMaterializationAst(
+        valueAst,
+        directValueSurfaceType,
+        materializationExpectedType,
+        context,
+        emitTypeAst
+      );
+      if (materialized) {
+        const [unionTypeAst, materializedContext] = emitTypeAst(
+          materializationExpectedType,
           materialized[1]
         );
         return {
@@ -606,24 +660,53 @@ export const tryBuildRuntimeReificationPlan = (
     const runtimeFrame = buildRuntimeUnionFrame(expectedType, unionTypeContext);
     const members = runtimeFrame?.members ?? runtimeLayout.members;
 
-    const cases: RuntimeReificationPlan[] = [
-      {
-        condition: {
-          kind: "isExpression",
-          expression: valueAst,
-          pattern: {
-            kind: "typePattern",
-            type: concreteUnionTypeAst,
+    const canDirectlyCarryExpectedUnion = (() => {
+      const directCarryType =
+        directRuntimeCarrierType ?? directValueSurfaceType;
+      if (!directCarryType) {
+        return true;
+      }
+
+      if (
+        directCarryType.kind === "anyType" ||
+        directCarryType.kind === "unknownType" ||
+        isBroadObjectSlotType(directCarryType, unionTypeContext) ||
+        runtimeUnionAliasReferencesMatch(
+          directCarryType,
+          expectedType,
+          unionTypeContext
+        )
+      ) {
+        return true;
+      }
+
+      const [directTypeAst] = emitTypeAst(directCarryType, unionTypeContext);
+      return sameTypeAstSurface(
+        stripNullableTypeAst(directTypeAst),
+        concreteUnionTypeAst
+      );
+    })();
+
+    const cases: RuntimeReificationPlan[] = canDirectlyCarryExpectedUnion
+      ? [
+          {
+            condition: {
+              kind: "isExpression",
+              expression: valueAst,
+              pattern: {
+                kind: "typePattern",
+                type: concreteUnionTypeAst,
+              },
+            },
+            value: {
+              kind: "castExpression",
+              type: concreteUnionTypeAst,
+              expression: valueAst,
+            },
+            context: unionTypeContext,
           },
-        },
-        value: {
-          kind: "castExpression",
-          type: concreteUnionTypeAst,
-          expression: valueAst,
-        },
-        context: unionTypeContext,
-      },
-    ];
+        ]
+      : [];
 
     let currentContext = unionTypeContext;
     for (let index = 0; index < members.length; index += 1) {

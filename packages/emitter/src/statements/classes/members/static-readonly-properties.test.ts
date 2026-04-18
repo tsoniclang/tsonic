@@ -128,5 +128,4 @@ describe("Static readonly property emission", () => {
     expect(code).to.include("{ get; init; }");
     expect(code).to.not.include("private set");
   });
-
 });

@@ -155,12 +155,14 @@ export const buildExprBinding = (
   sourceType: IrType | undefined,
   storageExprAst?: CSharpExpressionAst,
   storageType?: IrType,
-  carrierExprAst?: CSharpExpressionAst
+  carrierExprAst?: CSharpExpressionAst,
+  carrierType?: IrType
 ): Extract<NarrowedBinding, { kind: "expr" }> => ({
   kind: "expr",
   exprAst,
   storageExprAst,
   carrierExprAst,
+  carrierType,
   storageType,
   type,
   sourceType,
@@ -171,7 +173,8 @@ export const buildProjectedExprBinding = (
   type: IrType | undefined,
   sourceType: IrType | undefined,
   carrierExprAst: CSharpExpressionAst,
-  storageType?: IrType
+  storageType?: IrType,
+  carrierType?: IrType
 ): Extract<NarrowedBinding, { kind: "expr" }> =>
   buildExprBinding(
     exprAst,
@@ -179,7 +182,8 @@ export const buildProjectedExprBinding = (
     sourceType,
     exprAst,
     storageType ?? type,
-    carrierExprAst
+    carrierExprAst,
+    carrierType
   );
 
 export const resolveExistingNarrowingSourceType = (
@@ -298,8 +302,7 @@ export const isArrayLikeNarrowingCandidate = (
   }
   if (
     resolved.kind === "referenceType" &&
-    (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray")
+    (resolved.name === "Array" || resolved.name === "ReadonlyArray")
   ) {
     return true;
   }

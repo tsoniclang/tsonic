@@ -145,14 +145,19 @@ export const scoreSignatureMatch = (
     const pt = parameterTypes[i];
     const at = argTypes[i];
     if (!pt || !at) continue;
+    const compatibleParameterType =
+      refineParameterTypeForConcreteArgument(state, pt, at) ?? pt;
 
-    const functionLikeScore = scoreFunctionLikeCompatibility(pt, at);
+    const functionLikeScore = scoreFunctionLikeCompatibility(
+      compatibleParameterType,
+      at
+    );
     if (functionLikeScore !== 0) {
       score += functionLikeScore;
       continue;
     }
 
-    score += scoreTypeCompatibility(pt, at);
+    score += scoreTypeCompatibility(compatibleParameterType, at);
   }
 
   return score;

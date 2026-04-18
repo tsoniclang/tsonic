@@ -1,10 +1,6 @@
 {
   "schemaVersion": 1,
   "id": "@tsonic/nodejs",
-  "extends": [
-    "@tsonic/js"
-  ],
-  "requiredTypeRoots": [
-    "."
-  ]
+  "extends": ["@tsonic/js"],
+  "requiredTypeRoots": ["."]
 }

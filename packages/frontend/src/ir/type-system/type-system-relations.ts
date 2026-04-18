@@ -32,6 +32,7 @@ import {
   resolveTypeIdByName,
 } from "./type-system-state.js";
 import { getIterableShape } from "./iterable-type-shapes.js";
+import { expandReferenceAlias } from "./type-alias-expansion.js";
 
 const CLR_NUMERIC_PRIMITIVE_NAMES = new Set([
   "byte",
@@ -81,7 +82,9 @@ const getClrPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
 
 const getNumericTypeName = (type: IrType): string | undefined => {
   if (type.kind === "primitiveType") {
-    return type.name;
+    return type.name === "number" || CLR_NUMERIC_PRIMITIVE_NAMES.has(type.name)
+      ? type.name
+      : undefined;
   }
 
   if (type.kind !== "referenceType") {
@@ -103,7 +106,11 @@ const isNumericWideningAssignable = (
 ): boolean => {
   const sourceName = getNumericTypeName(source);
   const targetName = getNumericTypeName(target);
-  return targetName === "number" && sourceName !== undefined && sourceName !== "number";
+  return (
+    targetName === "number" &&
+    sourceName !== undefined &&
+    sourceName !== "number"
+  );
 };
 
 const isArrayInstanceTarget = (type: IrType): boolean => {
@@ -242,7 +249,9 @@ export const matchesInstanceofTarget = (
       }
 
       const chain = state.nominalEnv.getInheritanceChain(sourceNominal.typeId);
-      return chain.some((typeId) => typeId.stableId === targetNominal.typeId.stableId);
+      return chain.some(
+        (typeId) => typeId.stableId === targetNominal.typeId.stableId
+      );
     }
   }
 
@@ -311,13 +320,18 @@ export const instantiate = (
 const resolveAliasExpansion = (
   state: TypeSystemState,
   type: IrType
-): 
+):
   | {
       readonly key: string;
       readonly expanded: IrType;
     }
   | undefined => {
   if (type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const expanded = expandReferenceAlias(state, type);
+  if (!expanded) {
     return undefined;
   }
 
@@ -330,33 +344,6 @@ const resolveAliasExpansion = (
     );
   if (!typeId) {
     return undefined;
-  }
-
-  const entry = state.unifiedCatalog.getByTypeId(typeId);
-  if (!entry?.aliasedType) {
-    return undefined;
-  }
-
-  let expanded = entry.aliasedType;
-  if (
-    entry.typeParameters.length > 0 &&
-    (type.typeArguments?.length ?? 0) > 0
-  ) {
-    const subst = new Map<string, IrType>();
-    for (
-      let index = 0;
-      index < Math.min(entry.typeParameters.length, type.typeArguments?.length ?? 0);
-      index += 1
-    ) {
-      const typeParameter = entry.typeParameters[index];
-      const typeArgument = type.typeArguments?.[index];
-      if (typeParameter && typeArgument) {
-        subst.set(typeParameter.name, typeArgument);
-      }
-    }
-    if (subst.size > 0) {
-      expanded = irSubstitute(expanded, subst as IrSubstitutionMap);
-    }
   }
 
   return {
@@ -406,7 +393,9 @@ const resolveNominalMemberEntry = (
     return undefined;
   }
 
-  const substituteMemberType = (type: IrType | undefined): IrType | undefined =>
+  const substituteMemberType = (
+    type: IrType | undefined
+  ): IrType | undefined =>
     type
       ? irSubstitute(type, lookupResult.substitution as IrSubstitutionMap)
       : undefined;
@@ -510,14 +499,14 @@ const isStructurallyAssignable = (
         matches.length === 1
           ? matches
           : source.kind === "referenceType"
-            ? resolveNominalMemberEntry(
+            ? (resolveNominalMemberEntry(
                 state,
                 source,
                 targetMember.name
               )?.signatures.filter(
                 (signature) =>
                   signature.parameters.length === targetMember.parameters.length
-              ) ?? []
+              ) ?? [])
             : [];
 
       if (comparableMatches.length !== 1) {

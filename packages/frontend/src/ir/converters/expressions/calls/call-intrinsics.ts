@@ -289,7 +289,11 @@ export const tryConvertIntrinsicCall = (
       arguments: argExpr ? [argExpr] : [],
       isOptional: false,
       intrinsicKind: "globalSymbol",
-      inferredType: { kind: "referenceType", name: "object", typeArguments: [] },
+      inferredType: {
+        kind: "referenceType",
+        name: "object",
+        typeArguments: [],
+      },
       sourceSpan: getSourceSpan(node),
     };
   }

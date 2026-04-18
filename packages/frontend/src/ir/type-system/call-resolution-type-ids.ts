@@ -35,6 +35,7 @@ import {
   resolveSourceReferenceFQName,
 } from "./type-system-state.js";
 import { typesEqual } from "./type-system-relations.js";
+import { resolveInstalledSourcePackageNamespace } from "../../program/source-file-identity.js";
 
 export const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
 
@@ -111,9 +112,7 @@ const substitutePolymorphicThisImpl = (
     case "referenceType": {
       const substituted = {
         ...type,
-        ...(type.typeArguments
-          ? { typeArguments: type.typeArguments }
-          : {}),
+        ...(type.typeArguments ? { typeArguments: type.typeArguments } : {}),
         ...(type.structuralMembers
           ? { structuralMembers: type.structuralMembers }
           : {}),
@@ -270,9 +269,7 @@ const attachTypeIdsImpl = (
     case "referenceType": {
       const sourceFqName = resolveSourceReferenceFQName(state, type);
       const typeId =
-        (sourceFqName
-          ? resolveTypeIdByName(state, sourceFqName, type.typeArguments?.length)
-          : undefined) ??
+        type.typeId ??
         (type.resolvedClrType
           ? resolveTypeIdByName(
               state,
@@ -280,7 +277,9 @@ const attachTypeIdsImpl = (
               type.typeArguments?.length
             )
           : undefined) ??
-        type.typeId ??
+        (sourceFqName
+          ? resolveTypeIdByName(state, sourceFqName, type.typeArguments?.length)
+          : undefined) ??
         (!sourceFqName
           ? resolveTypeIdByName(state, type.name, type.typeArguments?.length)
           : undefined);
@@ -370,7 +369,9 @@ const attachTypeIdsImpl = (
         types: type.types,
       };
       cache.set(type, attached);
-      attached.types = type.types.map((t) => attachTypeIdsImpl(state, t, cache));
+      attached.types = type.types.map((t) =>
+        attachTypeIdsImpl(state, t, cache)
+      );
       return attached;
     }
 
@@ -382,7 +383,8 @@ const attachTypeIdsImpl = (
 export const attachParameterTypeIds = (
   state: TypeSystemState,
   p: IrParameter
-): IrParameter => attachParameterTypeIdsImpl(state, p, new Map<IrType, IrType>());
+): IrParameter =>
+  attachParameterTypeIdsImpl(state, p, new Map<IrType, IrType>());
 
 export const attachTypeParameterTypeIds = (
   state: TypeSystemState,
@@ -442,13 +444,54 @@ const stampSourceUnionAliasReferenceCarrier = (
   return stampRuntimeUnionAliasCarrier(type, {
     aliasName: declNode.name.text,
     fullyQualifiedName: declInfo?.fqName ?? declNode.name.text,
-    typeParameters: (declNode.typeParameters ?? []).map(
-      (tp) => tp.name.text
-    ),
+    typeParameters: (declNode.typeParameters ?? []).map((tp) => tp.name.text),
     typeArguments: (typeReferenceNode.typeArguments ?? []).map((typeArgument) =>
       convertTypeNode(state, typeArgument)
     ),
   });
+};
+
+const preferInstalledSourceSurfaceAliasTypeId = (
+  state: TypeSystemState,
+  node: unknown,
+  type: IrType
+): IrType => {
+  if (
+    !ts.isTypeReferenceNode(node as ts.Node) ||
+    type.kind !== "referenceType"
+  ) {
+    return type;
+  }
+
+  const typeReferenceNode = node as ts.TypeReferenceNode;
+  const typeName = typeReferenceNode.typeName;
+  if (!ts.isIdentifier(typeName)) {
+    return type;
+  }
+
+  const aliasTypeId = state.aliasTable.get(typeName.text);
+  if (!aliasTypeId) {
+    return type;
+  }
+
+  const declId = state.resolveTypeReference(typeReferenceNode);
+  const declInfo = declId ? state.handleRegistry.getDecl(declId) : undefined;
+  const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
+    | ts.Declaration
+    | undefined;
+  const sourceFilePath = declNode?.getSourceFile().fileName;
+  if (
+    !sourceFilePath ||
+    !resolveInstalledSourcePackageNamespace(sourceFilePath)
+  ) {
+    return type;
+  }
+
+  return {
+    ...type,
+    typeId: aliasTypeId,
+    resolvedClrType: aliasTypeId.clrName,
+  };
 };
 
 /**
@@ -465,7 +508,11 @@ export const convertTypeNode = (
   return stampSourceUnionAliasReferenceCarrier(
     state,
     node,
-    attachTypeIds(state, state.convertTypeNodeRaw(node))
+    preferInstalledSourceSurfaceAliasTypeId(
+      state,
+      node,
+      attachTypeIds(state, state.convertTypeNodeRaw(node))
+    )
   );
 };
 

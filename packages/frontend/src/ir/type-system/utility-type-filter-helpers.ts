@@ -18,6 +18,7 @@ import type { TypeSystemState, Site } from "./type-system-state.js";
 import { emitDiagnostic, isNullishPrimitive } from "./type-system-state.js";
 import { typesEqual } from "./type-system-relations.js";
 import { getAwaitedIrType } from "../types/type-ops.js";
+import { expandReferenceAlias } from "./type-alias-expansion.js";
 
 import { extractLiteralKeys } from "./utility-type-mapped-helpers.js";
 
@@ -126,17 +127,29 @@ export const expandNonNullableUtility = (type: IrType): IrType => {
 /**
  * Expand Awaited<T>: Recursively unwrap Promise/Task/ValueTask.
  */
-export const expandAwaitedUtility = (type: IrType): IrType => {
+export const expandAwaitedUtility = (
+  state: TypeSystemState,
+  type: IrType
+): IrType => {
+  if (type.kind === "referenceType") {
+    const expandedAlias = expandReferenceAlias(state, type);
+    if (expandedAlias) {
+      return expandAwaitedUtility(state, expandedAlias);
+    }
+  }
+
   const awaited = getAwaitedIrType(type);
   if (awaited) {
     return awaited.kind === "voidType"
       ? awaited
-      : expandAwaitedUtility(awaited);
+      : expandAwaitedUtility(state, awaited);
   }
 
   // Union: Awaited each member
   if (type.kind === "unionType") {
-    const expanded = type.types.map(expandAwaitedUtility);
+    const expanded = type.types.map((member) =>
+      expandAwaitedUtility(state, member)
+    );
     return { kind: "unionType", types: expanded };
   }
 

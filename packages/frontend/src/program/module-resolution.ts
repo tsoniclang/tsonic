@@ -246,12 +246,11 @@ export const createResolveModuleFromPackageRoot = (
     }
 
     const sourcePackageMetadata = readSourcePackageMetadata(packageRoot);
-    const exportedResolution =
-      (sourcePackageMetadata
-        ? tryResolveFromSourceManifest(packageRoot, subpath) ??
-          tryResolveFromPackageJsonExports(packageRoot, subpath)
-        : tryResolveFromPackageJsonExports(packageRoot, subpath) ??
-          tryResolveFromSourceManifest(packageRoot, subpath));
+    const exportedResolution = sourcePackageMetadata
+      ? (tryResolveFromSourceManifest(packageRoot, subpath) ??
+        tryResolveFromPackageJsonExports(packageRoot, subpath))
+      : (tryResolveFromPackageJsonExports(packageRoot, subpath) ??
+        tryResolveFromSourceManifest(packageRoot, subpath));
     if (exportedResolution) {
       packageRootModuleResolutionCache.set(cacheKey, exportedResolution);
       return exportedResolution;

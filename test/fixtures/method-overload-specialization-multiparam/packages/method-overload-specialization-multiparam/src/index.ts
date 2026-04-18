@@ -22,8 +22,12 @@ class Overloads {
   }
 }
 
-O<Overloads>().method(x => x.foo_xy).family(x => x.Foo);
-O<Overloads>().method(x => x.foo_pq).family(x => x.Foo);
+O<Overloads>()
+  .method((x) => x.foo_xy)
+  .family((x) => x.Foo);
+O<Overloads>()
+  .method((x) => x.foo_pq)
+  .family((x) => x.Foo);
 
 const o = new Overloads();
 Console.WriteLine(o.Foo(new X(), new Y()));

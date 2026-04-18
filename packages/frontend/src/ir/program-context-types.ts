@@ -45,7 +45,10 @@ export type ProgramContext = {
   /**
    * Ambient declaration-module aliases (for example `node:http` -> `@tsonic/nodejs/http.js`).
    */
-  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
+  readonly declarationModuleAliases: ReadonlyMap<
+    string,
+    DeclarationModuleAlias
+  >;
 
   /**
    * Root namespace for generated module/type names.

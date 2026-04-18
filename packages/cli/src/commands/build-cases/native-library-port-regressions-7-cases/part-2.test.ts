@@ -539,7 +539,9 @@ describe("build command (native library port regressions)", function () {
       expect(tree).to.include("wait(int? delay = default)");
       expect(tree).to.include("int __defaulted_delay = delay ?? 1;");
       expect(tree).to.include("readDelay__Delegate(int delay = 0)");
-      expect(tree).to.include("return new global::Demo.Pkg.DelayBox().wait() + global::Demo.Pkg.index.readDelay();");
+      expect(tree).to.include(
+        "return new global::Demo.Pkg.DelayBox().wait() + global::Demo.Pkg.index.readDelay();"
+      );
       expect(tree).not.to.include("readDelay(default(int?))");
     } finally {
       rmSync(dir, { recursive: true, force: true });

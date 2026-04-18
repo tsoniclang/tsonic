@@ -50,6 +50,13 @@ type LocalStructuralMethodMember = {
   readonly returnType: IrType;
 };
 
+type StructuralReferenceMatch = {
+  readonly key: string;
+  readonly name: string;
+  readonly resolvedClrType: string;
+  readonly isExternal: boolean;
+};
+
 const toGlobalClr = (clr: string): string => {
   const trimmed = clr.trim();
   return trimmed.startsWith("global::") ? trimmed : `global::${trimmed}`;
@@ -229,6 +236,126 @@ const buildBindingStructuralSignature = (
   return members.length === 0 ? undefined : members.join("|");
 };
 
+const isCompilerGeneratedStructuralName = (name: string | undefined): boolean =>
+  !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
+
+const collectCanonicalStructuralMatches = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): readonly StructuralReferenceMatch[] => {
+  if (!isCompilerGeneratedStructuralName(type.name)) {
+    return [];
+  }
+
+  const signature =
+    buildReferenceStructuralSignature(type) ??
+    buildLocalTypeStructuralSignature(
+      resolveLocalTypeInfo(type, context)?.info
+    );
+  if (!signature) {
+    return [];
+  }
+
+  const currentNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
+  const matches = new Map<string, StructuralReferenceMatch>();
+  const addMatch = (
+    name: string,
+    resolvedClrType: string,
+    isExternal: boolean
+  ): void => {
+    matches.set(resolvedClrType, {
+      key: resolvedClrType,
+      name,
+      resolvedClrType,
+      isExternal,
+    });
+  };
+
+  const collectLocalMatches = (
+    localTypes: ReadonlyMap<string, LocalTypeInfo>,
+    namespace: string
+  ): void => {
+    for (const [typeName, info] of localTypes.entries()) {
+      if (!isCompilerGeneratedStructuralName(typeName)) {
+        continue;
+      }
+
+      const localSignature = buildLocalTypeStructuralSignature(info);
+      if (!localSignature || localSignature !== signature) {
+        continue;
+      }
+
+      addMatch(
+        typeName,
+        `${namespace}.${typeName}`,
+        namespace !== currentNamespace
+      );
+    }
+  };
+
+  if (context.localTypes) {
+    collectLocalMatches(context.localTypes, currentNamespace);
+  }
+  if (context.options.moduleMap) {
+    for (const module of context.options.moduleMap.values()) {
+      if (!module.localTypes) {
+        continue;
+      }
+      collectLocalMatches(module.localTypes, module.namespace);
+    }
+  }
+
+  for (const binding of context.bindingsRegistry?.values() ?? []) {
+    const bindingSignature = buildBindingStructuralSignature(binding);
+    if (!bindingSignature || bindingSignature !== signature) {
+      continue;
+    }
+
+    const aliasLeaf = binding.alias.split(".").pop() ?? binding.alias;
+    const nameLeaf = binding.name.split(".").pop() ?? binding.name;
+    const preferredName = isCompilerGeneratedStructuralName(aliasLeaf)
+      ? aliasLeaf
+      : nameLeaf;
+    if (!isCompilerGeneratedStructuralName(preferredName)) {
+      continue;
+    }
+
+    addMatch(
+      preferredName,
+      binding.name,
+      !binding.name.startsWith(`${currentNamespace}.`)
+    );
+  }
+
+  return [...matches.values()];
+};
+
+const pickCanonicalStructuralMatch = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  matches: readonly StructuralReferenceMatch[]
+): StructuralReferenceMatch | undefined => {
+  if (matches.length === 0) {
+    return undefined;
+  }
+
+  const exactNameMatches = matches.filter((match) => match.name === type.name);
+  if (exactNameMatches.length === 1) {
+    return exactNameMatches[0];
+  }
+
+  if (matches.length === 1) {
+    return matches[0];
+  }
+
+  const externalMatches = matches.filter((match) => match.isExternal);
+  if (externalMatches.length === 1) {
+    return externalMatches[0];
+  }
+
+  return undefined;
+};
+
 export const resolveBindingBackedStructuralTypeAst = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
@@ -264,4 +391,17 @@ export const resolveBindingBackedStructuralTypeAst = (
 
   const match = [...matches.values()][0];
   return match ? clrTypeNameToTypeAst(toGlobalClr(match.name)) : undefined;
+};
+
+export const resolveCanonicalStructuralReferenceTypeAst = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): CSharpTypeAst | undefined => {
+  const match = pickCanonicalStructuralMatch(
+    type,
+    collectCanonicalStructuralMatches(type, context)
+  );
+  return match
+    ? clrTypeNameToTypeAst(toGlobalClr(match.resolvedClrType))
+    : undefined;
 };

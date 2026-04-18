@@ -37,7 +37,13 @@ export const getPropertyType = (
 export const resolveLocalTypeInfo = (
   ref: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
-): { readonly info: LocalTypeInfo; readonly namespace: string; readonly name: string } | undefined => {
+):
+  | {
+      readonly info: LocalTypeInfo;
+      readonly namespace: string;
+      readonly name: string;
+    }
+  | undefined => {
   const direct = resolveLocalTypeInfoWithoutBindings(ref, context);
   if (direct) {
     return direct;
@@ -54,7 +60,13 @@ export const resolveLocalTypeInfo = (
 export const resolveLocalTypeInfoWithoutBindings = (
   ref: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
-): { readonly info: LocalTypeInfo; readonly namespace: string; readonly name: string } | undefined => {
+):
+  | {
+      readonly info: LocalTypeInfo;
+      readonly namespace: string;
+      readonly name: string;
+    }
+  | undefined => {
   const simpleLookupName = ref.name.includes(".")
     ? (ref.name.split(".").pop() ?? ref.name)
     : ref.name;

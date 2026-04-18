@@ -67,8 +67,7 @@ const createMockContext = (options: {
     },
     bindings: {
       getType: options.getType ?? (() => undefined),
-      getExactBindingByKind:
-        options.getExactBindingByKind ?? (() => undefined),
+      getExactBindingByKind: options.getExactBindingByKind ?? (() => undefined),
     },
   }) as unknown as ProgramContext;
 
@@ -143,7 +142,10 @@ describe("narrowing-resolvers-equality", () => {
         name: "CryptoNamespace",
       }),
       typeOfMember: (receiver, member) => {
-        if (receiver.kind === "referenceType" && receiver.name === "CryptoNamespace") {
+        if (
+          receiver.kind === "referenceType" &&
+          receiver.name === "CryptoNamespace"
+        ) {
           return member.name === "ECDsa"
             ? {
                 kind: "referenceType",

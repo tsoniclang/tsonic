@@ -257,13 +257,11 @@ describe("Dependency Graph", function () {
 
       const packageEntryModule = result.value.modules.find(
         (module) =>
-          module.className === "console" &&
-          module.namespace === "Fixture.Js"
+          module.className === "console" && module.namespace === "Fixture.Js"
       );
       const packageHelperModule = result.value.modules.find(
         (module) =>
-          module.className === "helper" &&
-          module.namespace === "Fixture.Js"
+          module.className === "helper" && module.namespace === "Fixture.Js"
       );
 
       expect(packageEntryModule).to.not.equal(undefined);

@@ -90,9 +90,7 @@ describe("Binding System", () => {
 
       const mapOverloads = registry.getMemberOverloads("Array", "map");
       expect(mapOverloads).to.not.equal(undefined);
-      expect(mapOverloads?.[0]?.binding.type).to.equal(
-        "Acme.Runtime.Array`1"
-      );
+      expect(mapOverloads?.[0]?.binding.type).to.equal("Acme.Runtime.Array`1");
 
       const lengthOverloads = registry.getMemberOverloads("Array", "length");
       expect(lengthOverloads).to.not.equal(undefined);
@@ -155,15 +153,11 @@ describe("Binding System", () => {
 
       const pushOverloads = registry.getMemberOverloads("Array", "push");
       expect(pushOverloads).to.not.equal(undefined);
-      expect(pushOverloads?.[0]?.binding.type).to.equal(
-        "Acme.Runtime.Array`1"
-      );
+      expect(pushOverloads?.[0]?.binding.type).to.equal("Acme.Runtime.Array`1");
 
       const joinOverloads = registry.getMemberOverloads("Array", "join");
       expect(joinOverloads).to.not.equal(undefined);
-      expect(joinOverloads?.[0]?.binding.type).to.equal(
-        "Acme.Runtime.Array`1"
-      );
+      expect(joinOverloads?.[0]?.binding.type).to.equal("Acme.Runtime.Array`1");
     });
 
     it("should resolve tsbindgen types by CLR name", () => {

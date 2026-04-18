@@ -442,7 +442,9 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     };
 
     const lowered = runAnonymousTypeLoweringPass([module]);
-    const loweredModule = lowered.modules.find((entry) => entry.filePath === "bot.ts");
+    const loweredModule = lowered.modules.find(
+      (entry) => entry.filePath === "bot.ts"
+    );
     const functionDecl = loweredModule?.body.find(
       (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
         stmt.kind === "functionDeclaration" && stmt.name === "createBotDomain"
@@ -455,9 +457,13 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     }
     expect(parameterType.name).to.match(/^__Anon_/);
     expect(parameterType.typeArguments).to.equal(undefined);
-    expect(parameterType.structuralMembers).to.deep.equal(createInputType.members);
+    expect(parameterType.structuralMembers).to.deep.equal(
+      createInputType.members
+    );
     expect(
-      lowered.modules.some((entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts")
+      lowered.modules.some(
+        (entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+      )
     ).to.equal(true);
   });
 
@@ -570,7 +576,9 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     };
 
     const lowered = runAnonymousTypeLoweringPass([module]);
-    const loweredModule = lowered.modules.find((entry) => entry.filePath === "fs.ts");
+    const loweredModule = lowered.modules.find(
+      (entry) => entry.filePath === "fs.ts"
+    );
     const functionDecl = loweredModule?.body.find(
       (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
         stmt.kind === "functionDeclaration" && stmt.name === "mkdirSync"
@@ -701,7 +709,9 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     };
 
     const lowered = runAnonymousTypeLoweringPass([module]);
-    const loweredModule = lowered.modules.find((entry) => entry.filePath === "fs.ts");
+    const loweredModule = lowered.modules.find(
+      (entry) => entry.filePath === "fs.ts"
+    );
     const functionDecl = loweredModule?.body.find(
       (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
         stmt.kind === "functionDeclaration" && stmt.name === "mkdirSync"

@@ -1,6 +1,7 @@
 import * as ts from "typescript";
 import type { IrType } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
+// eslint-disable-next-line no-restricted-imports -- heritage resolution is a frontend conversion boundary.
 import { resolveHeritageTypeName } from "../type-system/internal/registry-helpers-extraction.js";
 
 export const resolveHeritageReferenceType = (

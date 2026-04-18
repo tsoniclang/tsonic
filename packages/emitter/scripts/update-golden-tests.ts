@@ -12,9 +12,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import {
-  buildModuleDependencyGraph,
-} from "@tsonic/frontend";
+import { buildModuleDependencyGraph } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../src/emitter.js";
 import { parseConfigYaml } from "../src/golden-tests/config-parser.js";
 
