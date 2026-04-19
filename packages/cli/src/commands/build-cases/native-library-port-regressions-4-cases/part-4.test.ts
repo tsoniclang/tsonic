@@ -158,12 +158,8 @@ describe("build command (native library port regressions)", function () {
         join(projectRoot, "generated", "index.cs"),
         "utf-8"
       );
-      expect(generatedText).to.include(
-        'global::js.ConsoleModule.error("bad")'
-      );
-      expect(generatedText).to.include(
-        'global::js.ConsoleModule.log("ok")'
-      );
+      expect(generatedText).to.include('global::js.ConsoleModule.error("bad")');
+      expect(generatedText).to.include('global::js.ConsoleModule.log("ok")');
       expect(generatedText).to.not.include("global::System.Console.Error");
     } finally {
       rmSync(dir, { recursive: true, force: true });

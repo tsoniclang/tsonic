@@ -110,6 +110,69 @@ describe("Expression Emission", () => {
     expect(printExpression(result)).to.equal("(object[])value");
   });
 
+  it("erases broad object assertions when flow storage already carries System.Array", () => {
+    const broadObjectType: IrType = {
+      kind: "referenceType",
+      name: "object",
+      resolvedClrType: "System.Object",
+    };
+
+    const jsValueArrayType: IrType = {
+      kind: "arrayType",
+      elementType: jsValueType,
+      origin: "explicit",
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "value",
+          inferredType: jsValueType,
+        },
+        targetType: broadObjectType,
+        inferredType: broadObjectType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        narrowedBindings: new Map([
+          [
+            "value",
+            {
+              kind: "expr",
+              exprAst: {
+                kind: "identifierExpression",
+                identifier: "value",
+              },
+              storageExprAst: {
+                kind: "identifierExpression",
+                identifier: "value",
+              },
+              type: jsValueArrayType,
+              sourceType: jsValueType,
+              storageType: {
+                kind: "referenceType",
+                name: "System.Array",
+                resolvedClrType: "System.Array",
+              },
+            },
+          ],
+        ]),
+      }
+    );
+
+    expect(printExpression(result)).to.equal("value");
+  });
+
   it("materializes runtime-union array locals when broad object arrays are expected", () => {
     const handlerType: IrType = {
       kind: "functionType",
@@ -475,9 +538,7 @@ describe("Expression Emission", () => {
     const rendered = printExpression(result);
     expect(rendered).to.include("result.Is2()");
     expect(rendered).to.include("!= null");
-    expect(rendered).to.not.include(
-      "result is global::js.Uint8Array"
-    );
+    expect(rendered).to.not.include("result is global::js.Uint8Array");
   });
 
   it("keeps runtime-union carrier checks when narrowed bindings expose a non-union surface", () => {
@@ -819,15 +880,18 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    const handlerCarrier = printRuntimeUnionCarrierTypeForIrType(middlewareLike, [
-      {
-        kind: "arrayType",
-        rank: 1,
-        elementType: identifierType("object"),
-      },
-      identifierType("global::System.Action"),
-      identifierType("global::Test.Router"),
-    ]);
+    const handlerCarrier = printRuntimeUnionCarrierTypeForIrType(
+      middlewareLike,
+      [
+        {
+          kind: "arrayType",
+          rank: 1,
+          elementType: identifierType("object"),
+        },
+        identifierType("global::System.Action"),
+        identifierType("global::Test.Router"),
+      ]
+    );
     expect(text).to.include(`handler.As1()[index] is ${handlerCarrier}`);
     expect(text).to.include(`${handlerCarrier}.From1`);
     expect(text).to.include(`${handlerCarrier}.From2`);

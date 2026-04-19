@@ -48,17 +48,13 @@ const getWrapperBindingCandidates = (
     }
   };
 
-  if (
-    inferredType.kind === "arrayType" ||
-    inferredType.kind === "tupleType"
-  ) {
+  if (inferredType.kind === "arrayType" || inferredType.kind === "tupleType") {
     pushCandidate("Array");
     return candidates;
   }
 
   if (inferredType.kind === "referenceType") {
-    const simpleName =
-      inferredType.name.split(".").pop() ?? inferredType.name;
+    const simpleName = inferredType.name.split(".").pop() ?? inferredType.name;
     if (
       simpleName === "Array" ||
       simpleName === "ReadonlyArray" ||
@@ -306,12 +302,8 @@ export const resolveHierarchicalBindingFromMemberId = (
     return aliases.some((alias) => ctx.bindings.hasSourceOwnedTypeAlias(alias));
   })();
 
-  let overloadsAll =
-    staticOverloads ?? globalOwnerOverloads;
-  if (
-    sourceOwnedGlobalOwner &&
-    (!overloadsAll || overloadsAll.length === 0)
-  ) {
+  let overloadsAll = staticOverloads ?? globalOwnerOverloads;
+  if (sourceOwnedGlobalOwner && (!overloadsAll || overloadsAll.length === 0)) {
     return undefined;
   }
 
@@ -340,7 +332,9 @@ export const resolveHierarchicalBindingFromMemberId = (
           ...getAliasesForExactClrType(ctx, simpleBinding.staticType, "static"),
           simpleBinding.staticType,
           tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
-        ].filter((candidate): candidate is string => typeof candidate === "string");
+        ].filter(
+          (candidate): candidate is string => typeof candidate === "string"
+        );
 
         for (const candidate of staticCandidates) {
           const resolved = ctx.bindings.getMemberOverloads(

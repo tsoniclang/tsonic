@@ -22,20 +22,28 @@ import {
   identifierExpression,
   identifierType,
 } from "../core/format/backend-ast/builders.js";
-import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
+import {
+  sameTypeAstSurface,
+  stripNullableTypeAst,
+} from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
 import { tryBuildRuntimeReificationPlan } from "../core/semantic/runtime-reification.js";
-import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import {
+  resolveEffectiveExpressionType,
+  tryResolveRuntimeUnionMemberType,
+} from "../core/semantic/narrowed-expression-types.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { tryEmitExactComparisonTargetAst } from "./exact-comparison.js";
 import {
   isObjectTypeAst,
   isPlainObjectIrType,
@@ -58,7 +66,8 @@ const resolveReceiverStorageAst = (
   }
 
   return identifierExpression(
-    context.localNameMap?.get(sourceExpr.name) ?? escapeCSharpIdentifier(sourceExpr.name)
+    context.localNameMap?.get(sourceExpr.name) ??
+      escapeCSharpIdentifier(sourceExpr.name)
   );
 };
 
@@ -314,6 +323,57 @@ export const tryEmitStorageCompatibleNarrowedMemberRead = (
   );
 };
 
+export const tryEmitMaterializedNarrowedMemberRead = (
+  narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (expectedType) {
+    const carrierAst = narrowed.carrierExprAst ?? narrowed.storageExprAst;
+    const carrierType =
+      narrowed.carrierType ?? narrowed.sourceType ?? narrowed.storageType;
+    const narrowedExactSurface = narrowed.type
+      ? tryEmitExactComparisonTargetAst(narrowed.type, context)
+      : undefined;
+    const expectedExactSurface = tryEmitExactComparisonTargetAst(
+      expectedType,
+      narrowedExactSurface?.[1] ?? context
+    );
+    const targetSurfaceDiffers =
+      !narrowedExactSurface ||
+      !expectedExactSurface ||
+      !sameTypeAstSurface(narrowedExactSurface[0], expectedExactSurface[0]);
+    if (targetSurfaceDiffers && carrierAst && carrierType) {
+      return materializeDirectNarrowingAst(
+        carrierAst,
+        carrierType,
+        expectedType,
+        context
+      );
+    }
+  }
+
+  const targetType = expectedType ?? narrowed.type;
+  const effectiveType = narrowed.type ?? narrowed.sourceType;
+  if (!targetType || !effectiveType) {
+    return undefined;
+  }
+
+  const sourceType =
+    tryResolveRuntimeUnionMemberType(
+      effectiveType,
+      narrowed.exprAst,
+      context
+    ) ?? effectiveType;
+
+  return materializeDirectNarrowingAst(
+    narrowed.exprAst,
+    sourceType,
+    targetType,
+    context
+  );
+};
+
 const tryExtractRuntimeUnionMemberN = (
   exprAst: CSharpExpressionAst
 ): number | undefined => {
@@ -393,12 +453,15 @@ const tryResolveBroadArrayAssertionReceiverTypeAst = (
       : undefined;
     const sourceStorageType =
       narrowed?.kind === "expr"
-        ? narrowed.storageType ?? narrowed.sourceType ?? narrowed.type
+        ? (narrowed.storageType ?? narrowed.sourceType ?? narrowed.type)
         : sourceExpr.kind === "identifier"
           ? context.localValueTypes?.get(sourceExpr.name)
           : undefined;
-    const sourceStorageAst =
-      resolveReceiverStorageAst(sourceExpr, narrowed, context);
+    const sourceStorageAst = resolveReceiverStorageAst(
+      sourceExpr,
+      narrowed,
+      context
+    );
 
     return { narrowed, sourceStorageType, sourceStorageAst };
   };
@@ -406,7 +469,10 @@ const tryResolveBroadArrayAssertionReceiverTypeAst = (
   const resolvePreservedStorageType = () => {
     if (receiverExpr.kind === "typeAssertion") {
       const sourceExpr = unwrapTransparentExpression(receiverExpr.expression);
-      if (sourceExpr.kind !== "identifier" && sourceExpr.kind !== "memberAccess") {
+      if (
+        sourceExpr.kind !== "identifier" &&
+        sourceExpr.kind !== "memberAccess"
+      ) {
         return undefined;
       }
 
@@ -418,7 +484,10 @@ const tryResolveBroadArrayAssertionReceiverTypeAst = (
       );
     }
 
-    if (receiverExpr.kind !== "identifier" && receiverExpr.kind !== "memberAccess") {
+    if (
+      receiverExpr.kind !== "identifier" &&
+      receiverExpr.kind !== "memberAccess"
+    ) {
       return undefined;
     }
 
@@ -460,8 +529,8 @@ export const tryEmitBroadArrayAssertionReceiverStorageAst = (
   const targetType =
     receiverExpr.kind === "typeAssertion"
       ? receiverExpr.targetType
-      : resolveEffectiveExpressionType(receiverExpr, context) ??
-        receiverExpr.inferredType;
+      : (resolveEffectiveExpressionType(receiverExpr, context) ??
+        receiverExpr.inferredType);
   const narrowKey =
     sourceExpr.kind === "identifier"
       ? sourceExpr.name
@@ -471,22 +540,24 @@ export const tryEmitBroadArrayAssertionReceiverStorageAst = (
     : undefined;
   const sourceStorageType =
     narrowed?.kind === "expr"
-      ? narrowed.storageType ?? narrowed.sourceType ?? narrowed.type
+      ? (narrowed.storageType ?? narrowed.sourceType ?? narrowed.type)
       : sourceExpr.kind === "identifier"
         ? context.localValueTypes?.get(sourceExpr.name)
         : undefined;
-  const preservedStorageType =
-    resolveBroadArrayReceiverAssertionStorageType(
-      targetType,
-      sourceStorageType,
-      context
-    );
+  const preservedStorageType = resolveBroadArrayReceiverAssertionStorageType(
+    targetType,
+    sourceStorageType,
+    context
+  );
   if (!preservedStorageType) {
     return undefined;
   }
 
-  const sourceStorageAst =
-    resolveReceiverStorageAst(sourceExpr, narrowed, context);
+  const sourceStorageAst = resolveReceiverStorageAst(
+    sourceExpr,
+    narrowed,
+    context
+  );
   if (!sourceStorageAst) {
     return undefined;
   }
@@ -530,8 +601,10 @@ export const resolveEmittedReceiverTypeAst = (
       const narrowed = context.narrowedBindings.get(narrowKey);
       if (narrowed?.kind === "expr") {
         if (narrowed.storageType) {
-          const normalizedStorageType =
-            normalizeStructuralEmissionType(narrowed.storageType, context);
+          const normalizedStorageType = normalizeStructuralEmissionType(
+            narrowed.storageType,
+            context
+          );
           return emitTypeAst(normalizedStorageType, context);
         }
 
@@ -555,7 +628,6 @@ export const resolveEmittedReceiverTypeAst = (
             context
           );
         }
-
       }
     }
   }

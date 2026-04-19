@@ -1,4 +1,4 @@
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType, isAwaitableIrType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import {
@@ -6,12 +6,77 @@ import {
   splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
+import { isBroadObjectSlotType } from "./js-value-types.js";
 
 const OBJECT_STORAGE_TYPE: IrType = {
   kind: "referenceType",
   name: "object",
   resolvedClrType: "System.Object",
 };
+
+export const isObjectStorageType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const resolved = resolveTypeAlias(type, context);
+  return (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "object" ||
+      resolved.resolvedClrType === "System.Object" ||
+      resolved.resolvedClrType === "global::System.Object")
+  );
+};
+
+export function shouldUseBroadObjectForUnionStorage(
+  type: Extract<IrType, { kind: "unionType" }>,
+  context: EmitterContext,
+  activeArrayKeys: ReadonlySet<string> = new Set<string>()
+): boolean {
+  const split = splitRuntimeNullishUnionMembers(type);
+  const nonNullishMembers = split?.nonNullishMembers ?? type.types;
+  if (nonNullishMembers.length < 2) {
+    return false;
+  }
+
+  const canonicalRuntimeMembers = getCanonicalRuntimeUnionMembers(
+    rebuildUnionTypePreservingCarrierFamily(type, nonNullishMembers),
+    context
+  );
+  const runtimeMembers =
+    canonicalRuntimeMembers && canonicalRuntimeMembers.length > 1
+      ? canonicalRuntimeMembers
+      : nonNullishMembers;
+  if (
+    runtimeMembers.length < 2 ||
+    runtimeMembers.some((member) => isAwaitableIrType(member))
+  ) {
+    return false;
+  }
+
+  const normalizedMembers: IrType[] = [];
+  for (const member of runtimeMembers) {
+    const normalizedMember =
+      normalizeRuntimeStorageType(member, context, activeArrayKeys) ?? member;
+    if (
+      normalizedMembers.some(
+        (candidate) =>
+          stableIrTypeKey(candidate) === stableIrTypeKey(normalizedMember)
+      )
+    ) {
+      continue;
+    }
+    normalizedMembers.push(normalizedMember);
+  }
+
+  return (
+    normalizedMembers.length > 1 &&
+    normalizedMembers.some((member) => isBroadObjectSlotType(member, context))
+  );
+}
 
 const isInScopeTypeParameter = (
   name: string,
@@ -330,6 +395,19 @@ export const normalizeRuntimeStorageType = (
   }
 
   if (resolved.kind === "unionType") {
+    if (
+      shouldUseBroadObjectForUnionStorage(resolved, context, activeArrayKeys)
+    ) {
+      const split = splitRuntimeNullishUnionMembers(resolved);
+      const nullishMembers = resolved.types.filter(isRuntimeNullishMember);
+      return split?.hasRuntimeNullish
+        ? rebuildUnionTypePreservingCarrierFamily(resolved, [
+            OBJECT_STORAGE_TYPE,
+            ...nullishMembers,
+          ])
+        : OBJECT_STORAGE_TYPE;
+    }
+
     const topLevelSplit = splitRuntimeNullishUnionMembers(resolved);
     const topLevelNonNullishMembers =
       topLevelSplit?.nonNullishMembers ?? resolved.types;

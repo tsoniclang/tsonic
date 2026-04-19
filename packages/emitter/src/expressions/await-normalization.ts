@@ -2,7 +2,11 @@ import { IrType, isAwaitableIrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
-import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolution.js";
+import {
+  resolveTypeAlias,
+  splitRuntimeNullishUnionMembers,
+  stripNullish,
+} from "../core/semantic/type-resolution.js";
 import {
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
@@ -60,7 +64,8 @@ const getAwaitTaskResultCarrierType = (
     return nonNullishMembers[0];
   }
 
-  return resultType.kind === "unionType" && resultType.preserveRuntimeLayout === true
+  return resultType.kind === "unionType" &&
+    resultType.preserveRuntimeLayout === true
     ? {
         ...resultType,
         types: nonNullishMembers,
@@ -163,6 +168,18 @@ const isDefinitelyNonAwaitableType = (type: IrType | undefined): boolean => {
   );
 };
 
+const resolveSemanticAwaitNormalizationType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type || type.kind === "unionType") {
+    return type;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return resolved.kind === "unionType" ? resolved : type;
+};
+
 const buildPromotedAwaitResultValueAst = (
   valueAst: CSharpExpressionAst,
   valueType: IrType,
@@ -211,6 +228,19 @@ export const emitNormalizedAwaitTaskAst = (
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
+  const semanticValueType = resolveSemanticAwaitNormalizationType(
+    valueType,
+    currentContext
+  );
+
+  if (semanticValueType && semanticValueType !== valueType) {
+    return emitNormalizedAwaitTaskAst(
+      valueAst,
+      semanticValueType,
+      resultType,
+      currentContext
+    );
+  }
 
   if (isDefinitelyNonAwaitableType(valueType)) {
     const explicitResultType = requiresExplicitTaskFromResultType(valueAst)

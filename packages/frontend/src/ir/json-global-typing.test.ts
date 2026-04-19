@@ -37,7 +37,7 @@ const buildJsonRoundtripModule = (): IrModule => {
 
   expect(programResult.ok).to.equal(true);
   if (!programResult.ok) {
-      throw new Error(
+    throw new Error(
       programResult.error.diagnostics
         .map((d: { message: string }) => d.message)
         .join("; ")
@@ -69,7 +69,9 @@ const buildJsonRoundtripModule = (): IrModule => {
   const anonymous = runAnonymousTypeLoweringPass([buildResult.value]);
   const refreshed = runCallResolutionRefreshPass(anonymous.modules, ctx);
   const numeric = runNumericProofPass(refreshed.modules);
-  const module = numeric.modules.find((candidate) => candidate.filePath === "index.ts");
+  const module = numeric.modules.find(
+    (candidate) => candidate.filePath === "index.ts"
+  );
   if (!module) {
     throw new Error("Expected json-native-roundtrip IR module.");
   }
@@ -83,7 +85,9 @@ describe("IR Builder", function () {
     it("preserves concrete typed JSON.parse results instead of widening them back to JsValue", () => {
       const module = buildJsonRoundtripModule();
       const main = module.body.find(
-        (statement): statement is Extract<
+        (
+          statement
+        ): statement is Extract<
           IrModule["body"][number],
           { kind: "functionDeclaration" }
         > =>

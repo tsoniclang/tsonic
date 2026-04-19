@@ -71,7 +71,9 @@ const loadMetadataFromPackage = (
   }
 
   const sourcePackageRoot = isSourcePackageRoot(absoluteRoot);
-  const bindingsFiles = sourcePackageRoot ? [] : scanForBindingsFiles(absoluteRoot);
+  const bindingsFiles = sourcePackageRoot
+    ? []
+    : scanForBindingsFiles(absoluteRoot);
   let discoveredClrBindingsInPackage = false;
 
   for (const bindingsPath of bindingsFiles) {
@@ -93,9 +95,7 @@ const loadMetadataFromPackage = (
 
   const hasBindingsManifest =
     !sourcePackageRoot &&
-    fs.existsSync(
-    path.join(absoluteRoot, "tsonic.bindings.json")
-    );
+    fs.existsSync(path.join(absoluteRoot, "tsonic.bindings.json"));
   const hasSurfaceManifest = fs.existsSync(
     path.join(absoluteRoot, "tsonic.surface.json")
   );

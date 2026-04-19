@@ -11,7 +11,6 @@ import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { getPropertyType } from "../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../core/format/local-names.js";
-import { identifierType } from "../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
@@ -19,6 +18,7 @@ import type {
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
 import type { LocalTypeInfo } from "../emitter-types/core.js";
+import { buildInvokedLambdaExpressionAst } from "./invoked-lambda.js";
 import {
   emitObjectMemberName,
   getDeterministicObjectKeyName,
@@ -114,33 +114,15 @@ export const emitObjectWithSpreads = (
     expression: { kind: "identifierExpression", identifier: "__tmp" },
   });
 
-  // IIFE: ((System.Func<T>)(() => { body }))()
-  const funcTypeAst: CSharpTypeAst = identifierType("global::System.Func", [
-    typeAst,
-  ]);
-  const lambdaAst: CSharpExpressionAst = {
-    kind: "lambdaExpression",
-    isAsync: false,
-    parameters: [],
-    body: { kind: "blockStatement", statements: bodyStatements },
-  };
-  const castAst: CSharpExpressionAst = {
-    kind: "castExpression",
-    type: funcTypeAst,
-    expression: {
-      kind: "parenthesizedExpression",
-      expression: lambdaAst,
-    },
-  };
   return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "parenthesizedExpression",
-        expression: castAst,
-      },
+    buildInvokedLambdaExpressionAst({
+      parameters: [],
+      parameterTypes: [],
+      body: { kind: "blockStatement", statements: bodyStatements },
       arguments: [],
-    },
+      returnType: typeAst,
+      context: currentContext,
+    }),
     currentContext,
   ];
 };

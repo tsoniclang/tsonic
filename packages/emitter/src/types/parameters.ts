@@ -98,7 +98,10 @@ const NUMERIC_CONSTRAINT_CLR_TYPES = new Set([
 
 const isNumericConstraintType = (type: IrType): boolean => {
   if (type.kind === "primitiveType") {
-    return type.name === "number" || NUMERIC_CONSTRAINT_REFERENCE_TYPES.has(type.name);
+    return (
+      type.name === "number" ||
+      NUMERIC_CONSTRAINT_REFERENCE_TYPES.has(type.name)
+    );
   }
 
   if (type.kind !== "referenceType") {

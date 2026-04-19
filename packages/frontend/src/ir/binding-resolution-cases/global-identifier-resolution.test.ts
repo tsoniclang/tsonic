@@ -1056,10 +1056,8 @@ describe("Binding Resolution in IR", () => {
       expect(proofResult.ok).to.equal(true);
       if (!proofResult.ok) return;
 
-      const refreshed = runCallResolutionRefreshPass(
-        proofResult.modules,
-        ctx
-      ).modules[0];
+      const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx)
+        .modules[0];
       const refreshedFuncDecl = refreshed?.body[0];
       expect(refreshedFuncDecl?.kind).to.equal("functionDeclaration");
       if (refreshedFuncDecl?.kind !== "functionDeclaration") return;

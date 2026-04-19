@@ -103,9 +103,7 @@ const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
   });
 };
 
-const resolveSiblingSearchRoots = (
-  projectRoot: string
-): readonly string[] => {
+const resolveSiblingSearchRoots = (projectRoot: string): readonly string[] => {
   const roots = new Set<string>();
   for (const candidateRoot of findAncestorLookupRoots(projectRoot)) {
     roots.add(resolve(candidateRoot));
@@ -354,7 +352,9 @@ const loadCustomSurfaceProfile = (
   if (existsSync(manifestPath)) {
     let parsed: SurfaceManifest;
     try {
-      parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as SurfaceManifest;
+      parsed = JSON.parse(
+        readFileSync(manifestPath, "utf-8")
+      ) as SurfaceManifest;
     } catch {
       return undefined;
     }

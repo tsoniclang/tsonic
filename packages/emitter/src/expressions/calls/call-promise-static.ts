@@ -31,7 +31,9 @@ export const emitPromiseStaticCall = (
   let currentContext = context;
   const emittedOutputType =
     expr.inferredType ??
-    (expectedType && isAwaitableIrType(expectedType) ? expectedType : undefined);
+    (expectedType && isAwaitableIrType(expectedType)
+      ? expectedType
+      : undefined);
   let [outputTaskType, outputTaskContext] = emitTypeAst(
     emittedOutputType ?? {
       kind: "referenceType",
@@ -56,11 +58,15 @@ export const emitPromiseStaticCall = (
   }
   if (
     outputResultType &&
-    containsTypeParameter(expr.inferredType ?? emittedOutputType ?? expectedType ?? {
-      kind: "referenceType",
-      name: "Promise",
-      typeArguments: [{ kind: "referenceType", name: "object" }],
-    }) &&
+    containsTypeParameter(
+      expr.inferredType ??
+        emittedOutputType ??
+        expectedType ?? {
+          kind: "referenceType",
+          name: "Promise",
+          typeArguments: [{ kind: "referenceType", name: "object" }],
+        }
+    ) &&
     expectedType &&
     isAwaitableIrType(expectedType)
   ) {

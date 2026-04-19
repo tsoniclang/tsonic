@@ -35,10 +35,7 @@ import {
 import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
 // Import from split modules
 import { emitDynamicImportCall } from "./call-dynamic-import.js";
-import {
-  emitJsonSerializerCall,
-  emitGlobalJsonCall,
-} from "./call-json.js";
+import { emitJsonSerializerCall, emitGlobalJsonCall } from "./call-json.js";
 import { emitGlobalSymbolCall } from "./call-symbol.js";
 import {
   emitPromiseStaticCall,
@@ -208,12 +205,18 @@ const emitCallableStaticAccessorCall = (
 
   const arityText = binding.type.match(/`(\d+)$/)?.[1];
   const genericArity = arityText ? Number.parseInt(arityText, 10) : 0;
-  const ownerTypeArgs = getCallableStaticAccessorOwnerTypeArgs(expr, genericArity);
+  const ownerTypeArgs = getCallableStaticAccessorOwnerTypeArgs(
+    expr,
+    genericArity
+  );
 
   let currentContext = context;
   const ownerTypeArgAsts: CSharpTypeAst[] = [];
   for (const typeArgument of ownerTypeArgs) {
-    const [typeArgAst, typeArgContext] = emitTypeAst(typeArgument, currentContext);
+    const [typeArgAst, typeArgContext] = emitTypeAst(
+      typeArgument,
+      currentContext
+    );
     ownerTypeArgAsts.push(typeArgAst);
     currentContext = typeArgContext;
   }
@@ -323,11 +326,15 @@ const emitSyntheticArraySliceCall = (
   return [
     {
       kind: "invocationExpression",
-      expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+      expression: identifierExpression(
+        "global::System.Linq.Enumerable.ToArray"
+      ),
       arguments: [
         {
           kind: "invocationExpression",
-          expression: identifierExpression("global::System.Linq.Enumerable.Skip"),
+          expression: identifierExpression(
+            "global::System.Linq.Enumerable.Skip"
+          ),
           arguments: [receiverAst, startAst],
         },
       ],
@@ -346,7 +353,10 @@ export const emitCall = (
 ): [CSharpExpressionAst, EmitterContext] => {
   const normalizedExpr = normalizePromiseResolveCall(expr, context);
 
-  const syntheticArraySlice = emitSyntheticArraySliceCall(normalizedExpr, context);
+  const syntheticArraySlice = emitSyntheticArraySliceCall(
+    normalizedExpr,
+    context
+  );
   if (syntheticArraySlice) {
     return syntheticArraySlice;
   }
@@ -496,7 +506,8 @@ export const emitCall = (
     return extensionResult;
   }
 
-  const callableStaticAccessor = tryGetCallableStaticAccessorCall(normalizedExpr);
+  const callableStaticAccessor =
+    tryGetCallableStaticAccessorCall(normalizedExpr);
   if (callableStaticAccessor) {
     return emitCallableStaticAccessorCall(
       normalizedExpr,

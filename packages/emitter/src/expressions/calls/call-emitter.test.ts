@@ -171,7 +171,9 @@ describe("call-emitter", () => {
     };
 
     const [ast] = emitCall(expr, context);
-    expect(printExpression(ast)).to.equal("global::nodejs.labels.formatLabel()");
+    expect(printExpression(ast)).to.equal(
+      "global::nodejs.labels.formatLabel()"
+    );
   });
 
   it("does not invent receiver parameter types for imported method calls without explicit call metadata", () => {
@@ -276,7 +278,10 @@ describe("call-emitter", () => {
         object: {
           kind: "identifier" as const,
           name: "ch",
-          inferredType: { kind: "primitiveType" as const, name: "char" as const },
+          inferredType: {
+            kind: "primitiveType" as const,
+            name: "char" as const,
+          },
         },
         property: "toString",
         isComputed: false,
@@ -284,7 +289,10 @@ describe("call-emitter", () => {
         inferredType: {
           kind: "functionType" as const,
           parameters: [],
-          returnType: { kind: "primitiveType" as const, name: "string" as const },
+          returnType: {
+            kind: "primitiveType" as const,
+            name: "string" as const,
+          },
         },
         memberBinding: {
           kind: "method" as const,
@@ -326,8 +334,7 @@ describe("call-emitter", () => {
           inferredType: {
             kind: "referenceType" as const,
             name: "Architecture" as const,
-            resolvedClrType:
-              "System.Runtime.InteropServices.Architecture",
+            resolvedClrType: "System.Runtime.InteropServices.Architecture",
           },
         },
         property: "toString",
@@ -336,7 +343,10 @@ describe("call-emitter", () => {
         inferredType: {
           kind: "functionType" as const,
           parameters: [],
-          returnType: { kind: "primitiveType" as const, name: "string" as const },
+          returnType: {
+            kind: "primitiveType" as const,
+            name: "string" as const,
+          },
         },
         memberBinding: {
           kind: "method" as const,

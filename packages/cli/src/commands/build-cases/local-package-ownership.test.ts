@@ -180,9 +180,16 @@ const writeSourcePackageProject = (options: {
         }
       : {}),
   });
-  writeFileSync(join(projectRoot, "src", "index.ts"), options.sourceText, "utf-8");
+  writeFileSync(
+    join(projectRoot, "src", "index.ts"),
+    options.sourceText,
+    "utf-8"
+  );
 
-  linkDir(projectRoot, nodeModulesPackagePath(options.workspaceRoot, options.packageId));
+  linkDir(
+    projectRoot,
+    nodeModulesPackagePath(options.workspaceRoot, options.packageId)
+  );
 };
 
 const writeReexportSourcePackageProject = (options: {
@@ -249,13 +256,19 @@ const writeReexportSourcePackageProject = (options: {
     "utf-8"
   );
 
-  linkDir(projectRoot, nodeModulesPackagePath(options.workspaceRoot, options.packageId));
+  linkDir(
+    projectRoot,
+    nodeModulesPackagePath(options.workspaceRoot, options.packageId)
+  );
 };
 
 const writeAppProject = (
   workspaceRoot: string,
   mode?: "dll"
-): { readonly projectRoot: string; readonly config: ReturnType<typeof resolveConfig> } => {
+): {
+  readonly projectRoot: string;
+  readonly config: ReturnType<typeof resolveConfig>;
+} => {
   const projectRoot = join(workspaceRoot, "packages", "app");
   mkdirSync(join(projectRoot, "src"), { recursive: true });
 
@@ -382,7 +395,14 @@ describe("build command (local package ownership)", function () {
       ).to.equal(true);
       expect(
         existsSync(
-          join(workspaceRoot, "packages", "lib", "dist", "net10.0", "Acme.Lib.dll")
+          join(
+            workspaceRoot,
+            "packages",
+            "lib",
+            "dist",
+            "net10.0",
+            "Acme.Lib.dll"
+          )
         )
       ).to.equal(false);
 
@@ -414,7 +434,14 @@ describe("build command (local package ownership)", function () {
 
       expect(
         existsSync(
-          join(workspaceRoot, "packages", "lib", "dist", "net10.0", "Acme.Lib.dll")
+          join(
+            workspaceRoot,
+            "packages",
+            "lib",
+            "dist",
+            "net10.0",
+            "Acme.Lib.dll"
+          )
         )
       ).to.equal(true);
       expect(
@@ -555,7 +582,14 @@ describe("build command (local package ownership)", function () {
 
       expect(
         existsSync(
-          join(workspaceRoot, "packages", "dep", "dist", "net10.0", "Acme.Dep.dll")
+          join(
+            workspaceRoot,
+            "packages",
+            "dep",
+            "dist",
+            "net10.0",
+            "Acme.Dep.dll"
+          )
         )
       ).to.equal(true);
       expect(
@@ -720,7 +754,9 @@ describe("build command (local package ownership)", function () {
       );
       if (existsSync(anonymousTypesPath)) {
         const anonymousTypes = readFileSync(anonymousTypesPath, "utf-8");
-        expect(anonymousTypes).to.not.include("global::Acme.Shared.Widget left");
+        expect(anonymousTypes).to.not.include(
+          "global::Acme.Shared.Widget left"
+        );
         expect(anonymousTypes).to.not.include(
           "global::Acme.Shared.Widget right"
         );

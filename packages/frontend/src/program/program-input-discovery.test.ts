@@ -180,7 +180,9 @@ describe("discoverProgramInputs", () => {
       const sourceRoot = fixture.path("app/src");
       const entryFile = fixture.path("app/src/index.ts");
       const linkedJsRoot = fixture.path("app/node_modules/@tsonic/js");
-      const linkedJsAmbientFile = fixture.path("app/node_modules/@tsonic/js/globals.ts");
+      const linkedJsAmbientFile = fixture.path(
+        "app/node_modules/@tsonic/js/globals.ts"
+      );
       const sourceNodejsRoot = fixture.path("app/node_modules/@tsonic/nodejs");
 
       fs.mkdirSync(path.join(sourceNodejsRoot, "src"), { recursive: true });
@@ -311,7 +313,9 @@ describe("discoverProgramInputs", () => {
       const sourceRoot = fixture.path("app/src");
       const entryFile = fixture.path("app/src/index.ts");
       const jsRoot = fixture.path("app/node_modules/@tsonic/js");
-      const jsAmbientFile = fixture.path("app/node_modules/@tsonic/js/globals.ts");
+      const jsAmbientFile = fixture.path(
+        "app/node_modules/@tsonic/js/globals.ts"
+      );
 
       const discovery = discoverProgramInputs(
         [entryFile],

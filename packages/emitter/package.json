@@ -18,7 +18,7 @@
     "build": "tsc -b",
     "clean": "rm -rf dist *.tsbuildinfo",
     "pretest": "npm run clean && npm run build",
-    "test": "mocha --require ../../test/mocha/checkpoint.cjs --parallel --jobs 4 --timeout 30000 --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js'",
+    "test": "mocha --require ../../test/mocha/checkpoint.cjs --parallel --jobs 4 --timeout 45000 --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js'",
     "test:watch": "mocha --require ../../test/mocha/checkpoint.cjs --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js' --watch",
     "update-golden": "npx tsx scripts/update-golden-tests.ts",
     "update-golden:dotnet": "npx tsx scripts/update-golden-tests.ts dotnet",

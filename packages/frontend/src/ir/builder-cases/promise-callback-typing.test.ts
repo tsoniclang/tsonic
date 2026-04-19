@@ -2,6 +2,7 @@
  * IR Builder tests: Promise callback typing
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as path from "node:path";
@@ -136,10 +137,22 @@ describe("IR Builder", function () {
       expect(ctor?.kind).to.equal("new");
       if (!ctor || ctor.kind !== "new") return;
 
-      expect(ctor.inferredType).to.deep.equal({
+      expect(ctor.inferredType?.kind).to.equal("referenceType");
+      if (!ctor.inferredType || ctor.inferredType.kind !== "referenceType") {
+        return;
+      }
+
+      expect(ctor.inferredType).to.deep.include({
         kind: "referenceType",
         name: "Promise",
         typeArguments: [{ kind: "voidType" }],
+        resolvedClrType: "TestApp.Promise",
+      });
+      expect(ctor.inferredType.typeId).to.deep.equal({
+        stableId: "TestApp:TestApp.Promise",
+        clrName: "TestApp.Promise",
+        assemblyName: "TestApp",
+        tsName: "Promise",
       });
 
       const executor = ctor.arguments[0];
@@ -297,7 +310,8 @@ describe("IR Builder", function () {
 
       const yieldFn = module.body.find(
         (stmt): stmt is IrFunctionDeclaration =>
-          stmt.kind === "functionDeclaration" && stmt.name === "yieldToEventLoop"
+          stmt.kind === "functionDeclaration" &&
+          stmt.name === "yieldToEventLoop"
       );
       expect(yieldFn).to.not.equal(undefined);
       if (!yieldFn) return;
@@ -310,10 +324,22 @@ describe("IR Builder", function () {
       expect(ctor?.kind).to.equal("new");
       if (!ctor || ctor.kind !== "new") return;
 
-      expect(ctor.inferredType).to.deep.equal({
+      expect(ctor.inferredType?.kind).to.equal("referenceType");
+      if (!ctor.inferredType || ctor.inferredType.kind !== "referenceType") {
+        return;
+      }
+
+      expect(ctor.inferredType).to.deep.include({
         kind: "referenceType",
         name: "Promise",
         typeArguments: [{ kind: "voidType" }],
+        resolvedClrType: "TestApp.Promise",
+      });
+      expect(ctor.inferredType.typeId).to.deep.equal({
+        stableId: "TestApp:TestApp.Promise",
+        clrName: "TestApp.Promise",
+        assemblyName: "TestApp",
+        tsName: "Promise",
       });
 
       const mainFn = module.body.find(
@@ -567,10 +593,11 @@ describe("IR Builder", function () {
       if (!programResult.ok) return;
 
       const program = programResult.value;
-      const arraySourceFile = program.sourceFiles.find((file) =>
-        file.fileName.endsWith("/src/array-object.ts") &&
-        (file.fileName.includes("/node_modules/@tsonic/js/") ||
-          file.fileName.includes("/js/versions/10/"))
+      const arraySourceFile = program.sourceFiles.find(
+        (file) =>
+          file.fileName.endsWith("/src/array-object.ts") &&
+          (file.fileName.includes("/node_modules/@tsonic/js/") ||
+            file.fileName.includes("/js/versions/10/"))
       );
       expect(arraySourceFile).to.not.equal(undefined);
       if (!arraySourceFile) return;
@@ -609,7 +636,9 @@ describe("IR Builder", function () {
       if (!arrayClass) return;
 
       const fromMethods = arrayClass.members.filter(
-        (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
+        (
+          member
+        ): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
           member.kind === "methodDeclaration" &&
           member.isStatic &&
           member.overloadFamily?.publicName === "from" &&
@@ -617,9 +646,7 @@ describe("IR Builder", function () {
       );
       expect(fromMethods).to.have.length(4);
 
-      expect(
-        fromMethods.map((method) => method.name)
-      ).to.deep.equal([
+      expect(fromMethods.map((method) => method.name)).to.deep.equal([
         "from_string",
         "from_stringMapped",
         "from_iterable",
@@ -677,10 +704,11 @@ describe("IR Builder", function () {
       if (!programResult.ok) return;
 
       const program = programResult.value;
-      const arraySourceFile = program.sourceFiles.find((file) =>
-        file.fileName.endsWith("/src/array-object.ts") &&
-        (file.fileName.includes("/node_modules/@tsonic/js/") ||
-          file.fileName.includes("/js/versions/10/"))
+      const arraySourceFile = program.sourceFiles.find(
+        (file) =>
+          file.fileName.endsWith("/src/array-object.ts") &&
+          (file.fileName.includes("/node_modules/@tsonic/js/") ||
+            file.fileName.includes("/js/versions/10/"))
       );
       expect(arraySourceFile).to.not.equal(undefined);
       if (!arraySourceFile) return;
@@ -719,7 +747,9 @@ describe("IR Builder", function () {
       if (!arrayClass) return;
 
       const fromMethods = arrayClass.members.filter(
-        (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
+        (
+          member
+        ): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
           member.kind === "methodDeclaration" &&
           member.isStatic &&
           member.overloadFamily?.publicName === "from" &&
@@ -753,7 +783,7 @@ describe("IR Builder", function () {
               ? type.name
               : type?.kind === "primitiveType"
                 ? type.name
-                : type?.kind ?? "missing"
+                : (type?.kind ?? "missing")
           ),
         };
       });
@@ -861,7 +891,9 @@ describe("IR Builder", function () {
         expect(snapshotInitializer.inferredType.elementType.kind).to.equal(
           "referenceType"
         );
-        if (snapshotInitializer.inferredType.elementType.kind !== "referenceType") {
+        if (
+          snapshotInitializer.inferredType.elementType.kind !== "referenceType"
+        ) {
           return;
         }
         expect(snapshotInitializer.inferredType.elementType.name).to.equal(
@@ -886,7 +918,9 @@ describe("IR Builder", function () {
         expect(forOf.expression.inferredType.elementType.kind).to.equal(
           "referenceType"
         );
-        if (forOf.expression.inferredType.elementType.kind !== "referenceType") {
+        if (
+          forOf.expression.inferredType.elementType.kind !== "referenceType"
+        ) {
           return;
         }
         expect(forOf.expression.inferredType.elementType.name).to.equal(
@@ -954,7 +988,8 @@ describe("IR Builder", function () {
       if (!result.ok) return;
 
       const assertionErrorClass = result.value.body.find(
-        (stmt) => stmt.kind === "classDeclaration" && stmt.name === "AssertionError"
+        (stmt) =>
+          stmt.kind === "classDeclaration" && stmt.name === "AssertionError"
       );
       expect(assertionErrorClass).to.not.equal(undefined);
       if (
@@ -991,7 +1026,10 @@ describe("IR Builder", function () {
       expect(expectedType).to.not.equal(undefined);
       const optionalActualType = {
         kind: "unionType" as const,
-        types: [actualType!, { kind: "primitiveType" as const, name: "undefined" }],
+        types: [
+          actualType!,
+          { kind: "primitiveType" as const, name: "undefined" },
+        ],
       };
       const optionalExpectedType = {
         kind: "unionType" as const,
@@ -1003,7 +1041,9 @@ describe("IR Builder", function () {
       expect(ctor.parameterTypes?.[1]).to.deep.equal(actualType);
       expect(ctor.surfaceParameterTypes?.[1]).to.deep.equal(optionalActualType);
       expect(ctor.parameterTypes?.[2]).to.deep.equal(expectedType);
-      expect(ctor.surfaceParameterTypes?.[2]).to.deep.equal(optionalExpectedType);
+      expect(ctor.surfaceParameterTypes?.[2]).to.deep.equal(
+        optionalExpectedType
+      );
     });
 
     it("contextually types explicit lambda parameters from rest callbacks as element values", () => {
@@ -1055,7 +1095,10 @@ describe("IR Builder", function () {
       if (!listenerSurface || listenerSurface.kind !== "functionType") return;
       const listenerParameterType = listenerSurface.parameters[0]?.type;
       expect(listenerParameterType?.kind).to.equal("arrayType");
-      if (!listenerParameterType || listenerParameterType.kind !== "arrayType") {
+      if (
+        !listenerParameterType ||
+        listenerParameterType.kind !== "arrayType"
+      ) {
         return;
       }
 
@@ -1111,7 +1154,8 @@ describe("IR Builder", function () {
 
       const queryDecl = decl.declarations[0];
       expect(queryDecl?.initializer?.kind).to.equal("call");
-      if (!queryDecl?.initializer || queryDecl.initializer.kind !== "call") return;
+      if (!queryDecl?.initializer || queryDecl.initializer.kind !== "call")
+        return;
 
       const call = queryDecl.initializer;
       expect(call.inferredType).to.not.equal(undefined);

@@ -28,14 +28,11 @@ describe("branch-context", () => {
 
     const merged = mergeBranchContextMeta(preferred, alternate);
 
-    expect([...merged.usedLocalNames ?? []].sort()).to.deep.equal([
+    expect([...(merged.usedLocalNames ?? [])].sort()).to.deep.equal([
       "listener",
       "result",
     ]);
     expect(merged.tempVarId).to.equal(5);
-    expect([...merged.usings].sort()).to.deep.equal([
-      "System",
-      "System.Linq",
-    ]);
+    expect([...merged.usings].sort()).to.deep.equal(["System", "System.Linq"]);
   });
 });

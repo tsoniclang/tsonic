@@ -22,9 +22,9 @@ describe("runtime-union-member-mapping", () => {
     ]);
 
     expect(indexByAstKey.get("predefined:string")).to.equal(0);
-    expect(
-      indexByAstKey.get("qualifiedIdentifier:global::js.RegExp")
-    ).to.equal(1);
+    expect(indexByAstKey.get("qualifiedIdentifier:global::js.RegExp")).to.equal(
+      1
+    );
   });
 
   it("prefers emitted member-type mapping before semantic fallback", () => {

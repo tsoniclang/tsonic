@@ -15,6 +15,7 @@ import type {
   IrFunctionDeclaration,
   IrExpression,
   IrExpressionStatement,
+  IrVariableDeclaration,
 } from "../types.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
@@ -46,7 +47,8 @@ const expectNoDeterministicTypingDiagnostics = (
   const projectRoot = options?.projectRoot ?? tempDir;
   const sourceRoot = options?.sourceRoot ?? path.join(projectRoot, "src");
   const rootNamespace = options?.rootNamespace ?? "TestApp";
-  const packageRoot = options?.packageRoot ?? path.join(tempDir, "node_modules/@fixture/js");
+  const packageRoot =
+    options?.packageRoot ?? path.join(tempDir, "node_modules/@fixture/js");
   const entryPath = path.join(projectRoot, entryRelativePath);
   const programResult = createProgram([entryPath], {
     projectRoot,
@@ -73,12 +75,10 @@ const expectNoDeterministicTypingDiagnostics = (
   expect(codes).to.not.include("TSN5201");
   expect(codes).to.not.include("TSN7414");
 
-  const importedFilePath = path.join(
-    packageRoot,
-    importedRelativePath
-  );
+  const importedFilePath = path.join(packageRoot, importedRelativePath);
   const importedSourceFile = program.sourceFiles.find(
-    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(importedFilePath)
+    (sourceFile) =>
+      path.resolve(sourceFile.fileName) === path.resolve(importedFilePath)
   );
   expect(importedSourceFile).to.not.equal(undefined);
   if (!importedSourceFile) {
@@ -212,12 +212,17 @@ describe("IR Builder", function () {
         expect(moduleResult.ok).to.equal(true);
         if (!moduleResult.ok) return;
 
-        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
         const proofResult = runNumericProofPass(lowered);
         expect(proofResult.ok).to.equal(true);
         if (!proofResult.ok) return;
 
-        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        );
         const module = refreshed.modules[0];
         expect(module).to.not.equal(undefined);
         if (!module) return;
@@ -377,12 +382,17 @@ describe("IR Builder", function () {
         expect(moduleResult.ok).to.equal(true);
         if (!moduleResult.ok) return;
 
-        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
         const proofResult = runNumericProofPass(lowered);
         expect(proofResult.ok).to.equal(true);
         if (!proofResult.ok) return;
 
-        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        );
         const module = refreshed.modules[0];
         expect(module).to.not.equal(undefined);
         if (!module) return;
@@ -497,12 +507,17 @@ describe("IR Builder", function () {
         expect(moduleResult.ok).to.equal(true);
         if (!moduleResult.ok) return;
 
-        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
         const proofResult = runNumericProofPass(lowered);
         expect(proofResult.ok).to.equal(true);
         if (!proofResult.ok) return;
 
-        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        );
         const module = refreshed.modules[0];
         expect(module).to.not.equal(undefined);
         if (!module) return;
@@ -558,11 +573,11 @@ describe("IR Builder", function () {
                 candidate.body &&
                 (candidate.body as { readonly kind?: string }).kind ===
                   "blockStatement"
-                  ? (
+                  ? ((
                       candidate.body as {
                         readonly statements?: readonly unknown[];
                       }
-                    ).statements ?? []
+                    ).statements ?? [])
                   : [candidate.body];
               const nested = findCallStatement(bodyStatements);
               if (nested) {
@@ -590,7 +605,9 @@ describe("IR Builder", function () {
         if (callExpr.kind !== "call") return;
 
         expect(callExpr.parameterTypes?.[0]?.kind).to.equal("referenceType");
-        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
+        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal(
+          "referenceType"
+        );
         expect(callExpr.surfaceParameterTypes?.[1]?.kind).to.equal("unionType");
 
         if (
@@ -675,12 +692,17 @@ describe("IR Builder", function () {
         expect(moduleResult.ok).to.equal(true);
         if (!moduleResult.ok) return;
 
-        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
         const proofResult = runNumericProofPass(lowered);
         expect(proofResult.ok).to.equal(true);
         if (!proofResult.ok) return;
 
-        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        );
         const module = refreshed.modules[0];
         expect(module).to.not.equal(undefined);
         if (!module) return;
@@ -719,7 +741,9 @@ describe("IR Builder", function () {
         ]);
         expect(callExpr.parameterTypes[0].typeId?.tsName).to.equal("Iterable");
         expect(callExpr.parameterTypes?.[1]?.kind).to.equal("unionType");
-        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
+        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal(
+          "referenceType"
+        );
         expect(callExpr.surfaceParameterTypes?.[1]?.kind).to.equal("unionType");
 
         if (
@@ -807,12 +831,17 @@ describe("IR Builder", function () {
         expect(moduleResult.ok).to.equal(true);
         if (!moduleResult.ok) return;
 
-        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
         const proofResult = runNumericProofPass(lowered);
         expect(proofResult.ok).to.equal(true);
         if (!proofResult.ok) return;
 
-        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        );
         const module = refreshed.modules[0];
         expect(module).to.not.equal(undefined);
         if (!module) return;
@@ -839,7 +868,9 @@ describe("IR Builder", function () {
         if (callExpr.kind !== "call") return;
 
         expect(callExpr.parameterTypes?.[0]?.kind).to.equal("arrayType");
-        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
+        expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal(
+          "referenceType"
+        );
 
         if (
           callExpr.parameterTypes?.[0]?.kind !== "arrayType" ||
@@ -993,7 +1024,9 @@ describe("IR Builder", function () {
           programResult.ok
             ? undefined
             : programResult.error.diagnostics
-                .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+                .map(
+                  (diagnostic) => `${diagnostic.code}: ${diagnostic.message}`
+                )
                 .join("\n")
         ).to.equal(true);
         if (!programResult.ok) return;
@@ -1026,8 +1059,12 @@ describe("IR Builder", function () {
         if (!moduleResult.ok) return;
 
         let dataAccessType: IrExpression["inferredType"] | undefined;
-        let nullableMessageRetentionAccess: IrExpression["inferredType"] | undefined;
-        let coalescedMessageRetentionType: IrExpression["inferredType"] | undefined;
+        let nullableMessageRetentionAccess:
+          | IrExpression["inferredType"]
+          | undefined;
+        let coalescedMessageRetentionType:
+          | IrExpression["inferredType"]
+          | undefined;
 
         visitIr(moduleResult.value.body, (value) => {
           const expression = value as Partial<IrExpression>;
@@ -1035,10 +1072,7 @@ describe("IR Builder", function () {
             return;
           }
 
-          if (
-            expression.property === "data" &&
-            dataAccessType === undefined
-          ) {
+          if (expression.property === "data" && dataAccessType === undefined) {
             dataAccessType = expression.inferredType;
             return;
           }
@@ -1065,7 +1099,9 @@ describe("IR Builder", function () {
         expect(dataAccessType?.kind).to.equal("referenceType");
         if (dataAccessType?.kind === "referenceType") {
           expect(dataAccessType.name).to.equal("Channel");
-          expect(dataAccessType.resolvedClrType).to.equal("fixture.domain.Channel");
+          expect(dataAccessType.resolvedClrType).to.equal(
+            "fixture.domain.Channel"
+          );
         }
         expect(nullableMessageRetentionAccess).to.deep.equal({
           kind: "unionType",
@@ -1109,7 +1145,9 @@ describe("IR Builder", function () {
           programResult.ok
             ? undefined
             : programResult.error.diagnostics
-                .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+                .map(
+                  (diagnostic) => `${diagnostic.code}: ${diagnostic.message}`
+                )
                 .join("\n")
         ).to.equal(true);
         if (!programResult.ok) return;
@@ -1181,6 +1219,510 @@ describe("IR Builder", function () {
             (nextValueType?.kind === "referenceType" &&
               nextValueType.typeId !== undefined)
         ).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps imported source-package generic constructor sites deterministic through refresh passes", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/authoritative-tsonic-js",
+        "fragments/installed-source-deterministic/fixture-generic-constructor-refresh-surface",
+        "imported-source-generic-constructor-refresh",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const importedFilePath = fixture.path(
+          "app/node_modules/@fixture/pkg/src/timers-module.ts"
+        );
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+          surface: "@fixture/pkg",
+        });
+
+        expect(
+          programResult.ok,
+          programResult.ok
+            ? undefined
+            : programResult.error.diagnostics
+                .map(
+                  (diagnostic) => `${diagnostic.code}: ${diagnostic.message}`
+                )
+                .join("\n")
+        ).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const importedSourceFile = program.sourceFiles.find(
+          (file) =>
+            path.resolve(file.fileName) === path.resolve(importedFilePath)
+        );
+        expect(importedSourceFile).to.not.equal(undefined);
+        if (!importedSourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          importedSourceFile,
+          program,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        );
+        const finalModules = runAnonymousTypeLoweringPass(
+          refreshed.modules
+        ).modules;
+        const finalModule = finalModules[0];
+        expect(finalModule).to.not.equal(undefined);
+        if (!finalModule) return;
+
+        const unknownNews: string[] = [];
+        const seen = new WeakSet<object>();
+        const visit = (value: unknown): void => {
+          if (!value || typeof value !== "object") {
+            return;
+          }
+          if (seen.has(value)) {
+            return;
+          }
+          seen.add(value);
+
+          if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+          }
+
+          const expression = value as {
+            readonly kind?: string;
+            readonly inferredType?: { readonly kind?: string };
+            readonly sourceSpan?: {
+              readonly file?: string;
+              readonly line?: number;
+              readonly column?: number;
+            };
+          };
+          if (
+            expression.kind === "new" &&
+            expression.inferredType?.kind === "unknownType"
+          ) {
+            unknownNews.push(
+              `${expression.sourceSpan?.file ?? importedFilePath}:${
+                expression.sourceSpan?.line ?? 0
+              }:${expression.sourceSpan?.column ?? 0}`
+            );
+          }
+
+          Object.values(value).forEach(visit);
+        };
+
+        visit(finalModule);
+
+        expect(unknownNews).to.deep.equal([]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("collapses authoritative js Date constructor nullish fallbacks to the canonical nominal type", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/authoritative-tsonic-js",
+        "global-date-nullish-fallback",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(
+          programResult.ok,
+          programResult.ok
+            ? undefined
+            : programResult.error.diagnostics
+                .map(
+                  (diagnostic) => `${diagnostic.code}: ${diagnostic.message}`
+                )
+                .join("\n")
+        ).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const wrapFn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "wrap"
+        );
+        expect(wrapFn).to.not.equal(undefined);
+        if (!wrapFn) return;
+
+        const fallbackDecl = wrapFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "fallback"
+            )
+        );
+        expect(fallbackDecl).to.not.equal(undefined);
+        if (!fallbackDecl) return;
+
+        const fallbackInit = fallbackDecl.declarations[0]?.initializer;
+        expect(fallbackInit?.kind).to.equal("new");
+        expect(fallbackInit?.inferredType?.kind).to.equal("referenceType");
+        if (
+          !fallbackInit ||
+          fallbackInit.kind !== "new" ||
+          fallbackInit.inferredType?.kind !== "referenceType"
+        ) {
+          return;
+        }
+
+        expect(fallbackInit.inferredType.typeId?.tsName).to.equal("Date");
+
+        const selectedDecl = wrapFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "selected"
+            )
+        );
+        expect(selectedDecl).to.not.equal(undefined);
+        if (!selectedDecl) return;
+
+        const selectedInit = selectedDecl.declarations[0]?.initializer;
+        expect(selectedInit?.kind).to.equal("logical");
+        if (!selectedInit || selectedInit.kind !== "logical") return;
+
+        expect(selectedInit.inferredType?.kind).to.equal("referenceType");
+        if (selectedInit.inferredType?.kind !== "referenceType") return;
+
+        expect(selectedInit.inferredType.typeId?.stableId).to.equal(
+          fallbackInit.inferredType.typeId?.stableId
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps authoritative nodejs timers generic constructor sites deterministic", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/authoritative-tsonic-js",
+        "fragments/installed-source-deterministic/fixture-authoritative-nodejs-source-package",
+        "imported-nodejs-timers-module",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const importedFilePath = fixture.path(
+          "app/node_modules/@tsonic/nodejs/src/timers-module.ts"
+        );
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(
+          programResult.ok,
+          programResult.ok
+            ? undefined
+            : programResult.error.diagnostics
+                .map(
+                  (diagnostic) => `${diagnostic.code}: ${diagnostic.message}`
+                )
+                .join("\n")
+        ).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const importedSourceFile = program.sourceFiles.find(
+          (file) =>
+            path.resolve(file.fileName) === path.resolve(importedFilePath)
+        );
+        expect(importedSourceFile).to.not.equal(undefined);
+        if (!importedSourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          importedSourceFile,
+          program,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        );
+        const finalModules = runAnonymousTypeLoweringPass(
+          refreshed.modules
+        ).modules;
+        const finalModule = finalModules[0];
+        expect(finalModule).to.not.equal(undefined);
+        if (!finalModule) return;
+
+        const unknownNews: string[] = [];
+        const seen = new WeakSet<object>();
+        const visit = (value: unknown): void => {
+          if (!value || typeof value !== "object") {
+            return;
+          }
+          if (seen.has(value)) {
+            return;
+          }
+          seen.add(value);
+
+          if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+          }
+
+          const expression = value as {
+            readonly kind?: string;
+            readonly inferredType?: { readonly kind?: string };
+            readonly sourceSpan?: {
+              readonly file?: string;
+              readonly line?: number;
+              readonly column?: number;
+            };
+          };
+          if (
+            expression.kind === "new" &&
+            expression.inferredType?.kind === "unknownType"
+          ) {
+            unknownNews.push(
+              `${expression.sourceSpan?.file ?? importedFilePath}:${
+                expression.sourceSpan?.line ?? 0
+              }:${expression.sourceSpan?.column ?? 0}`
+            );
+          }
+
+          Object.values(value).forEach(visit);
+        };
+
+        visit(finalModule);
+        expect(unknownNews).to.deep.equal([]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps authoritative nodejs fs callback typing deterministic through refresh passes", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/authoritative-tsonic-js",
+        "fragments/installed-source-deterministic/fixture-authoritative-nodejs-source-package",
+        "imported-nodejs-fs-module",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const importedFilePath = fixture.path(
+          "app/node_modules/@tsonic/nodejs/src/fs-module.ts"
+        );
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(
+          programResult.ok,
+          programResult.ok
+            ? undefined
+            : programResult.error.diagnostics
+                .map(
+                  (diagnostic) => `${diagnostic.code}: ${diagnostic.message}`
+                )
+                .join("\n")
+        ).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const importedSourceFile = program.sourceFiles.find(
+          (file) =>
+            path.resolve(file.fileName) === path.resolve(importedFilePath)
+        );
+        expect(importedSourceFile).to.not.equal(undefined);
+        if (!importedSourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          importedSourceFile,
+          program,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([
+          moduleResult.value,
+        ]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        ).modules;
+        const finalModules = runAnonymousTypeLoweringPass(refreshed).modules;
+        const finalModule = finalModules.find(
+          (module) =>
+            module.filePath === "node_modules/@tsonic/nodejs/src/fs-module.ts"
+        );
+        expect(finalModule).to.not.equal(undefined);
+        if (!finalModule) return;
+
+        const readdirDecl = finalModule.body.find(
+          (statement): statement is IrVariableDeclaration =>
+            statement.kind === "variableDeclaration" &&
+            statement.declarations.some(
+              (declaration) =>
+                declaration.name.kind === "identifierPattern" &&
+                declaration.name.name === "readdirSync"
+            )
+        );
+        expect(readdirDecl).to.not.equal(undefined);
+        if (!readdirDecl) return;
+
+        const readdirInit = readdirDecl.declarations[0]?.initializer;
+        expect(readdirInit?.kind).to.equal("arrowFunction");
+        if (!readdirInit || readdirInit.kind !== "arrowFunction") return;
+
+        const filterCall = readdirInit.body;
+        expect(filterCall.kind).to.equal("call");
+        if (filterCall.kind !== "call") return;
+
+        const mapCall =
+          filterCall.callee.kind === "memberAccess"
+            ? filterCall.callee.object
+            : undefined;
+        expect(mapCall?.kind).to.equal("call");
+        if (!mapCall || mapCall.kind !== "call") return;
+
+        const mapCallback = mapCall.arguments[0];
+        expect(mapCallback?.kind).to.equal("arrowFunction");
+        if (!mapCallback || mapCallback.kind !== "arrowFunction") return;
+
+        expect(mapCallback.inferredType?.kind).to.equal("functionType");
+        if (mapCallback.inferredType?.kind === "functionType") {
+          expect(mapCallback.inferredType.returnType).to.deep.equal({
+            kind: "primitiveType",
+            name: "string",
+          });
+        }
+
+        expect(mapCall.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: {
+            kind: "primitiveType",
+            name: "string",
+          },
+          origin: "explicit",
+        });
+
+        const filterCallback = filterCall.parameterTypes?.[0];
+        expect(filterCallback?.kind).to.equal("functionType");
+        if (filterCallback?.kind === "functionType") {
+          expect(filterCallback.parameters[0]?.type).to.deep.equal({
+            kind: "primitiveType",
+            name: "string",
+          });
+        }
+
+        expect(filterCall.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: {
+            kind: "primitiveType",
+            name: "string",
+          },
+          origin: "explicit",
+        });
       } finally {
         fixture.cleanup();
       }

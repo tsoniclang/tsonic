@@ -8,6 +8,8 @@
 
 import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
+import { normalizedUnionType } from "../types/type-ops.js";
+import type { IrType } from "../types.js";
 import { narrowTypeByArrayShape } from "./array-type-guards.js";
 import { narrowTypeByAssignableTarget } from "./reference-type-guards.js";
 import {
@@ -15,6 +17,7 @@ import {
   getCurrentTypeForAccessPath,
   type AccessPathTarget,
 } from "./access-paths.js";
+import { collectNarrowingCandidateLeaves } from "./narrowing-candidates.js";
 import {
   type TypeNarrowing,
   unwrapExpr,
@@ -35,11 +38,144 @@ import {
   narrowTypeByPropertyTruthiness,
 } from "./narrowing-property-helpers.js";
 
+const KNOWN_VALUE_LIKE_REFERENCE_NAMES = new Set([
+  "sbyte",
+  "byte",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "nint",
+  "nuint",
+  "half",
+  "float",
+  "double",
+  "decimal",
+  "bool",
+  "boolean",
+  "char",
+  "Int128",
+  "UInt128",
+  "SByte",
+  "Byte",
+  "Int16",
+  "UInt16",
+  "Int32",
+  "UInt32",
+  "Int64",
+  "UInt64",
+  "Half",
+  "Single",
+  "Double",
+  "Decimal",
+  "Boolean",
+  "Char",
+]);
+
+const isNullishCandidate = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const isDeterministicallyTruthyCandidate = (type: IrType): boolean => {
+  switch (type.kind) {
+    case "objectType":
+    case "arrayType":
+    case "tupleType":
+    case "dictionaryType":
+    case "functionType":
+      return true;
+    case "referenceType":
+      return !KNOWN_VALUE_LIKE_REFERENCE_NAMES.has(type.name);
+    case "literalType":
+      if (typeof type.value === "string") {
+        return type.value.length > 0;
+      }
+      if (typeof type.value === "boolean") {
+        return type.value;
+      }
+      if (typeof type.value === "number") {
+        return type.value !== 0 && !Number.isNaN(type.value);
+      }
+      return false;
+    default:
+      return false;
+  }
+};
+
+const buildCandidateUnion = (
+  candidates: readonly IrType[]
+): IrType | undefined => {
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  return normalizedUnionType(candidates);
+};
+
+const narrowTypeByDirectTruthiness = (
+  currentType: IrType | undefined,
+  wantTruthy: boolean,
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (!currentType) {
+    return undefined;
+  }
+
+  const candidates = collectNarrowingCandidateLeaves(
+    ctx.typeSystem,
+    currentType
+  ).filter((candidate): candidate is IrType => candidate !== undefined);
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  const nullishCandidates = candidates.filter((candidate: IrType) =>
+    isNullishCandidate(candidate)
+  );
+  if (nullishCandidates.length === 0) {
+    return undefined;
+  }
+
+  const nonNullishCandidates = candidates.filter(
+    (candidate: IrType) => !isNullishCandidate(candidate)
+  );
+  if (
+    nonNullishCandidates.length === 0 ||
+    nonNullishCandidates.some(
+      (candidate: IrType) => !isDeterministicallyTruthyCandidate(candidate)
+    )
+  ) {
+    return undefined;
+  }
+
+  return wantTruthy
+    ? buildCandidateUnion(nonNullishCandidates)
+    : buildCandidateUnion(nullishCandidates);
+};
+
 const tryResolveTruthyNarrowing = (
   expr: ts.Expression,
   ctx: ProgramContext
 ): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
+  const directTarget = getAccessPathTarget(unwrapped, ctx);
+  if (directTarget) {
+    const targetType = narrowTypeByDirectTruthiness(
+      getCurrentTypeForAccessPath(directTarget, ctx),
+      true,
+      ctx
+    );
+    if (targetType) {
+      return makeTypeNarrowing(directTarget, targetType);
+    }
+  }
+
   const arrayTarget = extractArrayIsArrayTarget(unwrapped, ctx);
   if (arrayTarget) {
     const targetType = narrowTypeByArrayShape(
@@ -242,6 +378,18 @@ const tryResolveFalsyNarrowing = (
   ctx: ProgramContext
 ): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
+  const directTarget = getAccessPathTarget(unwrapped, ctx);
+  if (directTarget) {
+    const targetType = narrowTypeByDirectTruthiness(
+      getCurrentTypeForAccessPath(directTarget, ctx),
+      false,
+      ctx
+    );
+    if (targetType) {
+      return makeTypeNarrowing(directTarget, targetType);
+    }
+  }
+
   const arrayTarget = extractArrayIsArrayTarget(unwrapped, ctx);
   if (arrayTarget) {
     const targetType = narrowTypeByArrayShape(

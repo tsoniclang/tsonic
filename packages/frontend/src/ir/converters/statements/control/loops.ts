@@ -12,6 +12,7 @@ import {
   IrForInStatement,
   IrType,
 } from "../../../types.js";
+import { normalizedUnionType } from "../../../types/type-ops.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { convertStatementSingle } from "../../../statement-converter.js";
@@ -65,6 +66,24 @@ const deriveForOfElementType = (
 ): IrType | undefined => {
   const normalized = normalizeForIteration(type);
   if (!normalized) return undefined;
+
+  if (normalized.kind === "unionType") {
+    const memberElementTypes: IrType[] = [];
+
+    for (const member of normalized.types) {
+      const memberElementType = deriveForOfElementType(member);
+      if (!memberElementType) {
+        return undefined;
+      }
+      memberElementTypes.push(memberElementType);
+    }
+
+    if (memberElementTypes.length === 0) {
+      return undefined;
+    }
+
+    return normalizedUnionType(memberElementTypes);
+  }
 
   if (normalized.kind === "arrayType") {
     return normalized.elementType;

@@ -135,7 +135,8 @@ describe("Overload Collection Pass", () => {
     const output = assertDefined(result.modules[0]);
     const parser = output.body[0] as IrClassDeclaration;
     const methods = parser.members.filter(
-      (member): member is IrMethodDeclaration => member.kind === "methodDeclaration"
+      (member): member is IrMethodDeclaration =>
+        member.kind === "methodDeclaration"
     );
 
     expect(methods.map((member) => member.name)).to.deep.equal([
@@ -146,10 +147,9 @@ describe("Overload Collection Pass", () => {
       "public",
       "public",
     ]);
-    expect(methods.map((member) => member.overloadFamily?.publicName)).to.deep.equal([
-      "Parse",
-      "Parse",
-    ]);
+    expect(
+      methods.map((member) => member.overloadFamily?.publicName)
+    ).to.deep.equal(["Parse", "Parse"]);
     expect(
       methods.map((member) => member.overloadFamily?.publicSignatureIndex)
     ).to.deep.equal([0, 1]);
@@ -206,22 +206,25 @@ describe("Overload Collection Pass", () => {
     const output = assertDefined(result.modules[0]);
     const parser = output.body[0] as IrClassDeclaration;
     const methods = parser.members.filter(
-      (member): member is IrMethodDeclaration => member.kind === "methodDeclaration"
+      (member): member is IrMethodDeclaration =>
+        member.kind === "methodDeclaration"
     );
 
     expect(methods.map((member) => member.name)).to.deep.equal([
       "parse_string",
       "parse_bytes",
     ]);
-    expect(methods.map((member) => member.isStatic)).to.deep.equal([true, true]);
+    expect(methods.map((member) => member.isStatic)).to.deep.equal([
+      true,
+      true,
+    ]);
     expect(methods.map((member) => member.accessibility)).to.deep.equal([
       "public",
       "public",
     ]);
-    expect(methods.map((member) => member.overloadFamily?.publicName)).to.deep.equal([
-      "Parse",
-      "Parse",
-    ]);
+    expect(
+      methods.map((member) => member.overloadFamily?.publicName)
+    ).to.deep.equal(["Parse", "Parse"]);
     expect(
       methods.map((member) => member.overloadFamily?.publicSignatureIndex)
     ).to.deep.equal([0, 1]);

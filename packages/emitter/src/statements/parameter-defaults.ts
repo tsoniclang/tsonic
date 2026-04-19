@@ -58,7 +58,8 @@ export const preservesNullableShadowType = (
       return true;
     case "defaultExpression":
       return (
-        initializer.type === undefined || initializer.type.kind === "nullableType"
+        initializer.type === undefined ||
+        initializer.type.kind === "nullableType"
       );
     case "parenthesizedExpression":
     case "castExpression":

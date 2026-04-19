@@ -15,6 +15,7 @@ import {
   IrNameOfExpression,
   IrSizeOfExpression,
 } from "@tsonic/frontend";
+import type { NarrowedBinding } from "../emitter-types/core.js";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
@@ -59,9 +60,11 @@ import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
 import { isExactArrayCreationToType } from "./exact-comparison.js";
 import { tryAdaptStructuralCollectionExpressionAst } from "./structural-collection-adaptation.js";
+import { resolveBroadArrayAssertionStorageType } from "../core/semantic/broad-array-storage.js";
 import {
-  resolveBroadArrayAssertionStorageType,
-} from "../core/semantic/broad-array-storage.js";
+  isBroadObjectPassThroughType,
+  isBroadObjectSlotType,
+} from "../core/semantic/js-value-types.js";
 
 // ---------------------------------------------------------------------------
 // Polymorphic-this helpers (used by orchestrator and emitTypeAssertion)
@@ -88,7 +91,7 @@ export const isSuperMemberCallExpression = (expr: IrExpression): boolean =>
 export const getNarrowedBindingForExpression = (
   expr: IrExpression,
   context: EmitterContext
-) => {
+): NarrowedBinding | undefined => {
   if (!context.narrowedBindings) {
     return undefined;
   }
@@ -196,9 +199,7 @@ export const emitTypeAssertion = (
       return false;
     }
 
-    return rest.every((member) =>
-      areIrTypesEquivalent(member, first, context)
-    );
+    return rest.every((member) => areIrTypesEquivalent(member, first, context));
   };
 
   const maybeAdaptDegenerateDuplicateUnion = (
@@ -450,14 +451,15 @@ export const emitTypeAssertion = (
     runtimeAssertionTarget.kind !== "arrayType" &&
     runtimeAssertionTarget.kind !== "dictionaryType" &&
     !willCarryAsRuntimeUnion(runtimeAssertionTarget, context);
-  const preservedBroadArrayStorageAtEntry = resolveBroadArrayAssertionStorageType(
-    resolvedAssertionTarget,
-    sourceStorageTypeAtEntry,
-    context,
-    sourceNarrowedBinding?.kind === "expr"
-      ? sourceNarrowedBinding.type
-      : undefined
-  );
+  const preservedBroadArrayStorageAtEntry =
+    resolveBroadArrayAssertionStorageType(
+      resolvedAssertionTarget,
+      sourceStorageTypeAtEntry,
+      context,
+      sourceNarrowedBinding?.kind === "expr"
+        ? sourceNarrowedBinding.type
+        : undefined
+    );
 
   if (
     (resolvedAssertionTarget.kind === "primitiveType" &&
@@ -482,8 +484,7 @@ export const emitTypeAssertion = (
 
   if (
     narrowedSourceAlreadyMatches &&
-    (preservesStorageSurfaceAtEntry ||
-      canPreserveNarrowedProjectionAtEntry) &&
+    (preservesStorageSurfaceAtEntry || canPreserveNarrowedProjectionAtEntry) &&
     !mustPreserveExplicitRuntimeAssertion &&
     !involvesDegenerateDuplicateUnion
   ) {
@@ -600,6 +601,27 @@ export const emitTypeAssertion = (
     return emitExpressionAst(expr.expression, context, expectedType);
   }
 
+  const broadObjectPassThroughSourceType =
+    sourceStorageTypeAtEntry ??
+    currentTransparentSourceType ??
+    sourceExpressionTypeAtEntry;
+  const preservesBroadObjectAssertionCarrier =
+    isBroadObjectSlotType(runtimeAssertionTarget, context) &&
+    !mustPreserveExplicitRuntimeAssertion &&
+    !!broadObjectPassThroughSourceType &&
+    isBroadObjectPassThroughType(broadObjectPassThroughSourceType, context);
+
+  if (
+    preservesBroadObjectAssertionCarrier &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      expectedType ?? runtimeAssertionTarget
+    );
+  }
+
   const runtimeEmissionTarget = resolveRuntimeMaterializationTargetType(
     expr.targetType,
     context
@@ -693,8 +715,7 @@ export const emitTypeAssertion = (
       ? sourceNarrowedBinding.type
       : undefined
   );
-  const runtimeCastTarget =
-    preservedBroadArrayStorageType ?? runtimeTarget;
+  const runtimeCastTarget = preservedBroadArrayStorageType ?? runtimeTarget;
   const [
     runtimeTargetTypeAst,
     runtimeTargetUnionLayout,

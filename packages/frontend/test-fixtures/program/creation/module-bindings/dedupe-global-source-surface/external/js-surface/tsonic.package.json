@@ -1,13 +1,9 @@
 {
   "schemaVersion": 1,
   "kind": "tsonic-source-package",
-  "surfaces": [
-    "@fixture/js"
-  ],
+  "surfaces": ["@fixture/js"],
   "source": {
-    "ambient": [
-      "./globals.ts"
-    ],
+    "ambient": ["./globals.ts"],
     "exports": {
       "./console.js": "./src/console.ts"
     }

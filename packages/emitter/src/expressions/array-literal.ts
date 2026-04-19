@@ -115,17 +115,20 @@ const shouldCoerceArrayLiteralElementToExpectedType = (
 const emitArrayElementAst = (
   element: IrExpression,
   expectedElementType: IrType | undefined,
+  semanticElementType: IrType | undefined,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
+  const adaptationExpectedElementType =
+    semanticElementType ?? expectedElementType;
   const transparentElement = unwrapTransparentExpression(element);
   const coercedExpectedElementType =
-    expectedElementType !== undefined &&
+    adaptationExpectedElementType !== undefined &&
     shouldCoerceArrayLiteralElementToExpectedType(
       transparentElement,
-      expectedElementType,
+      adaptationExpectedElementType,
       context
     )
-      ? expectedElementType
+      ? adaptationExpectedElementType
       : undefined;
   const elementExpr = coercedExpectedElementType
     ? ({
@@ -137,7 +140,7 @@ const emitArrayElementAst = (
     : element;
 
   if (
-    expectedElementType &&
+    adaptationExpectedElementType &&
     (transparentElement.kind === "identifier" ||
       transparentElement.kind === "memberAccess")
   ) {
@@ -156,18 +159,18 @@ const emitArrayElementAst = (
         valueAst: rawElemAst,
         actualType: actualElementType,
         context: rawContext,
-        expectedType: expectedElementType,
+        expectedType: adaptationExpectedElementType,
       }) ?? [rawElemAst, rawContext];
 
     return maybeCastNumericToExpectedIntegralAst(
       adaptedElementAst,
       actualElementType,
       adaptedElementContext,
-      expectedElementType
+      adaptationExpectedElementType
     );
   }
 
-  return emitExpressionAst(elementExpr, context, expectedElementType);
+  return emitExpressionAst(elementExpr, context, adaptationExpectedElementType);
 };
 
 /**
@@ -207,6 +210,7 @@ export const emitArray = (
   };
   let elementTypeResolved = false;
   let expectedElementType: IrType | undefined = undefined;
+  let semanticElementType: IrType | undefined = undefined;
 
   // Priority 1: Use explicit type annotation
   if (effectiveExpectedType) {
@@ -232,6 +236,7 @@ export const emitArray = (
 
     if (resolvedExpected.kind === "arrayType") {
       expectedElementType = resolvedExpected.elementType;
+      semanticElementType = resolvedExpected.storageErasedElementType;
       const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
       elementTypeAst = typeAst;
       elementTypeResolved = true;
@@ -248,6 +253,7 @@ export const emitArray = (
       const firstArg = resolvedExpected.typeArguments[0];
       if (firstArg) {
         expectedElementType = firstArg;
+        semanticElementType = undefined;
         const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
@@ -265,6 +271,7 @@ export const emitArray = (
       const firstArg = resolvedExpected.typeArguments[0];
       if (firstArg) {
         expectedElementType = firstArg;
+        semanticElementType = undefined;
         const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
@@ -282,6 +289,7 @@ export const emitArray = (
       const firstArg = resolvedExpected.typeArguments[0];
       if (firstArg) {
         expectedElementType = firstArg;
+        semanticElementType = undefined;
         const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
@@ -393,6 +401,7 @@ export const emitArray = (
       const [elemAst, newContext] = emitArrayElementAst(
         element,
         expectedElementType,
+        semanticElementType,
         currentContext
       );
       inlineElements.push(elemAst);
@@ -460,6 +469,7 @@ export const emitArray = (
       const [elemAst, newContext] = emitArrayElementAst(
         element,
         expectedElementType,
+        semanticElementType,
         currentContext
       );
       elementAsts.push(elemAst);

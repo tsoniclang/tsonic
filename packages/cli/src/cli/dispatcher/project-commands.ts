@@ -59,7 +59,10 @@ const resolveProjectConfigPath = (
   if (nearest) return { ok: true, value: nearest };
 
   if (projects.length === 1) {
-    return { ok: true, value: join(projects[0]!, PROJECT_CONFIG_FILE) };
+    const [projectRoot] = projects;
+    if (projectRoot) {
+      return { ok: true, value: join(projectRoot, PROJECT_CONFIG_FILE) };
+    }
   }
 
   return {
@@ -251,11 +254,12 @@ export const resolveProjectCommandConfig = (
     return { ok: true, value: resolvedConfig };
   }
 
-  const testsConfig = baseProjectConfig.tests!;
   const outputDirectory =
-    testsConfig.outputDirectory ?? `${resolvedConfig.outputDirectory}-test`;
+    baseProjectConfig.tests?.outputDirectory ??
+    `${resolvedConfig.outputDirectory}-test`;
   const outputName =
-    testsConfig.outputName ?? `${resolvedConfig.outputName}.tests`;
+    baseProjectConfig.tests?.outputName ??
+    `${resolvedConfig.outputName}.tests`;
 
   return {
     ok: true,

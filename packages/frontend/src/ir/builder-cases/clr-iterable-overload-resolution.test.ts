@@ -51,7 +51,9 @@ const findEqualCallStatement = (
       candidate.body,
       candidate.thenStatement,
       candidate.elseStatement,
-    ].filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
+    ].filter(
+      (entry): entry is NonNullable<typeof entry> => entry !== undefined
+    );
 
     for (const nested of nestedBlocks) {
       const nestedStatements =
@@ -117,7 +119,9 @@ const findEqualCallStatements = (
         candidate.body,
         candidate.thenStatement,
         candidate.elseStatement,
-      ].filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
+      ].filter(
+        (entry): entry is NonNullable<typeof entry> => entry !== undefined
+      );
 
       for (const nested of nestedBlocks) {
         const nestedStatements =
@@ -386,7 +390,7 @@ describe("IR Builder", function () {
             type: "module",
           }),
           "src/index.ts": [
-            "import type { IEnumerable } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
+            'import type { IEnumerable } from "@tsonic/dotnet/System.Collections.Generic.js";',
             "",
             "declare const Symbol: {",
             "  readonly iterator: unique symbol;",
@@ -1098,7 +1102,9 @@ describe("IR Builder", function () {
           fixture.ctx
         );
         if (!result.ok) {
-          expect.fail(`Expected build success, got diagnostic: ${result.error.message}`);
+          expect.fail(
+            `Expected build success, got diagnostic: ${result.error.message}`
+          );
           return;
         }
 
@@ -1244,6 +1250,100 @@ describe("IR Builder", function () {
         expect(thirdCall.parameterTypes).to.deep.equal([
           { kind: "unknownType", explicit: true },
           { kind: "unknownType", explicit: true },
+        ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps optional broad-object scalar equality generic when later arguments include undefined", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import { Assert } from "xunit-types/Xunit.js";',
+            'import type { JsValue } from "@tsonic/core/types.js";',
+            "",
+            "export function run(): void {",
+            "  let received: JsValue | undefined = undefined;",
+            "  Assert.Equal(42, received);",
+            "}",
+          ].join("\n"),
+          "node_modules/@tsonic/core/package.json": JSON.stringify({
+            name: "@tsonic/core",
+            type: "module",
+          }),
+          "node_modules/@tsonic/core/types.js": "export {};",
+          "node_modules/@tsonic/core/types.d.ts": [
+            "export type JsValue = object | string | number | boolean | bigint | symbol | null;",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js":
+            'export { Assert as Assert } from "./Xunit/internal/index.js";',
+          "node_modules/xunit-types/Xunit.d.ts":
+            'export { Assert as Assert } from "./Xunit/internal/index.js";',
+          "node_modules/xunit-types/Xunit/internal/index.js":
+            "export const Assert = undefined;",
+          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+            'import type { double } from "@tsonic/core/types.js";',
+            "",
+            "export interface Assert$instance {}",
+            "",
+            "export declare const Assert: (abstract new() => Assert$instance) & {",
+            "  Equal(expected: double, actual: double): void;",
+            "  Equal(expected: string, actual: string): void;",
+            "  Equal<T>(expected: T, actual: T): void;",
+            "};",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runDecl = result.value.body.find(
+          (statement): statement is IrFunctionDeclaration =>
+            statement.kind === "functionDeclaration" && statement.name === "run"
+        );
+        expect(runDecl).to.not.equal(undefined);
+        if (!runDecl?.body) {
+          return;
+        }
+
+        const callStatement = findEqualCallStatement(runDecl.body.statements);
+        expect(callStatement).to.not.equal(undefined);
+        if (
+          !callStatement ||
+          callStatement.kind !== "expressionStatement" ||
+          callStatement.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        expect(callStatement.expression.parameterTypes).to.deep.equal([
+          { kind: "referenceType", name: "object" },
+          {
+            kind: "unionType",
+            types: [
+              { kind: "primitiveType", name: "undefined" },
+              { kind: "referenceType", name: "object" },
+            ],
+          },
         ]);
       } finally {
         fixture.cleanup();
@@ -1639,11 +1739,11 @@ describe("IR Builder", function () {
                 candidate.body &&
                 (candidate.body as { readonly kind?: string }).kind ===
                   "blockStatement"
-                  ? (
+                  ? ((
                       candidate.body as {
                         readonly statements?: readonly unknown[];
                       }
-                    ).statements ?? []
+                    ).statements ?? [])
                   : [candidate.body];
               const nested = findSetCall(bodyStatements);
               if (nested) {
@@ -1711,6 +1811,5 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
-
   });
 });

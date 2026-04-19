@@ -4,9 +4,7 @@
 
 import * as ts from "typescript";
 import { IrType } from "../../../types.js";
-import {
-  normalizedUnionType,
-} from "../../../types/type-ops.js";
+import { normalizedUnionType } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
 
 /**

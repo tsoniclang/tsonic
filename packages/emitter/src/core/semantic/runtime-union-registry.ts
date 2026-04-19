@@ -189,8 +189,7 @@ export const getOrRegisterRuntimeUnionCarrier = (
       );
     }
 
-    const nextNamespaceName =
-      metadata.namespaceName ?? existing.namespaceName;
+    const nextNamespaceName = metadata.namespaceName ?? existing.namespaceName;
     if (
       metadata.namespaceName &&
       existing.namespaceName !== metadata.namespaceName &&
@@ -228,13 +227,14 @@ export const getOrRegisterRuntimeUnionCarrier = (
       metadata.definitionMemberTypeAsts ?? existing.memberTypeAsts;
     if (
       metadata.definitionMemberTypeAsts &&
-      existing.memberTypeAsts.length === metadata.definitionMemberTypeAsts.length &&
+      existing.memberTypeAsts.length ===
+        metadata.definitionMemberTypeAsts.length &&
       existing.memberTypeAsts.some(
         (memberTypeAst, index) =>
           stableTypeKeyFromAst(memberTypeAst) !==
-            stableTypeKeyFromAst(
-              metadata.definitionMemberTypeAsts?.[index] ?? memberTypeAst
-            )
+          stableTypeKeyFromAst(
+            metadata.definitionMemberTypeAsts?.[index] ?? memberTypeAst
+          )
       ) &&
       existing.memberTypeAsts.some(
         (memberTypeAst, index) =>
@@ -295,10 +295,17 @@ export const getOrRegisterRuntimeUnionCarrier = (
   );
   const namespaceName =
     metadata?.namespaceName ?? DEFAULT_RUNTIME_UNION_NAMESPACE;
-  const name = buildRuntimeUnionCarrierName(key, memberTypeAsts.length, metadata);
+  const name = buildRuntimeUnionCarrierName(
+    key,
+    memberTypeAsts.length,
+    metadata
+  );
   const typeParameters =
     metadata?.typeParameters?.map(escapeCSharpIdentifier) ??
-    Array.from({ length: memberTypeAsts.length }, (_, index) => `T${index + 1}`);
+    Array.from(
+      { length: memberTypeAsts.length },
+      (_, index) => `T${index + 1}`
+    );
   const definitionMemberTypeAsts =
     metadata?.definitionMemberTypeAsts ??
     typeParameters.map((typeParameter) => ({

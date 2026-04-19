@@ -255,16 +255,13 @@ export const applyAssignmentStatementNarrowing = (
         ? targetExprAst
         : materializedExprAst,
     storageExprAst: targetExprAst,
-    type:
-      preserveConcreteStorageSurface
-        ? comparableStorageType
-        : preservedReadableType ??
-          comparableAssignedType,
-    sourceType:
-      preserveConcreteStorageSurface
-        ? comparableStorageType
-        : preservedReadableType ??
-          comparableStorageType,
+    storageType: comparableStorageType,
+    type: preserveConcreteStorageSurface
+      ? comparableStorageType
+      : (preservedReadableType ?? comparableAssignedType),
+    sourceType: preserveConcreteStorageSurface
+      ? comparableStorageType
+      : (preservedReadableType ?? comparableStorageType),
   };
   narrowedBindings.set(bindingTarget.bindingKey, nextBinding);
 

@@ -129,7 +129,9 @@ export const parseConfigYaml = (yamlContent: string): readonly TestEntry[] => {
           surface !== null &&
           typeof surface !== "string"
         ) {
-          throw new Error(`surface must be a string when provided for ${input}`);
+          throw new Error(
+            `surface must be a string when provided for ${input}`
+          );
         }
 
         // Validate that mode is only set when diagnostics are expected

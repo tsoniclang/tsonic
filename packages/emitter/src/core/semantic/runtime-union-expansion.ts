@@ -11,6 +11,16 @@ import {
   getRuntimeUnionReferenceMembers,
 } from "./runtime-union-shared.js";
 
+const BROAD_OBJECT_REFERENCE_TYPE = BROAD_OBJECT_TYPE as Extract<
+  IrType,
+  { kind: "referenceType" }
+>;
+
+const isBroadObjectReferenceType = (type: IrType): boolean =>
+  type.kind === "referenceType" &&
+  type.name === BROAD_OBJECT_REFERENCE_TYPE.name &&
+  type.resolvedClrType === BROAD_OBJECT_REFERENCE_TYPE.resolvedClrType;
+
 const toRecursiveFallbackType = (type: IrType): IrType => {
   if (type.kind === "arrayType") {
     return type;
@@ -175,20 +185,19 @@ export const expandRuntimeUnionMembers = (
       nextActiveTypes,
       true
     );
-    if (elementMembers.length !== 1) {
-      return [
-        {
-          kind: "arrayType",
-          elementType: BROAD_OBJECT_TYPE,
-          origin: type.origin,
-        },
-      ];
-    }
-
+    const erasedElementType =
+      elementMembers.length === 1
+        ? (elementMembers[0] ?? BROAD_OBJECT_TYPE)
+        : BROAD_OBJECT_TYPE;
+    const needsStorageErasedElementMetadata =
+      isBroadObjectReferenceType(erasedElementType);
     return [
       {
         ...type,
-        elementType: elementMembers[0] ?? BROAD_OBJECT_TYPE,
+        elementType: erasedElementType,
+        ...(needsStorageErasedElementMetadata
+          ? { storageErasedElementType: type.elementType }
+          : {}),
       },
     ];
   }

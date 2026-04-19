@@ -211,10 +211,14 @@ describe("IR Builder", function () {
       expect(dataDecl).to.not.equal(undefined);
       const dataInit = dataDecl?.declarations[0]?.initializer;
       expect(
-        dataInit?.kind === "typeAssertion" ? dataInit.expression.kind : dataInit?.kind
+        dataInit?.kind === "typeAssertion"
+          ? dataInit.expression.kind
+          : dataInit?.kind
       ).to.equal("memberAccess");
       const narrowedDataType =
-        dataInit?.kind === "typeAssertion" ? dataInit.inferredType : dataInit?.inferredType;
+        dataInit?.kind === "typeAssertion"
+          ? dataInit.inferredType
+          : dataInit?.inferredType;
       expect(narrowedDataType?.kind).to.equal("arrayType");
       if (!narrowedDataType || narrowedDataType.kind !== "arrayType") {
         return;

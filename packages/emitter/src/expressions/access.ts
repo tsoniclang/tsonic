@@ -40,6 +40,7 @@ import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   type MemberAccessUsage,
   maybeReifyStorageErasedMemberRead,
+  tryEmitMaterializedNarrowedMemberRead,
   tryEmitStorageCompatibleNarrowedMemberRead,
   hasPropertyFromBindingsRegistry,
   resolveEffectiveReceiverType,
@@ -53,6 +54,8 @@ import {
 import { tryEmitMemberBindingAccess } from "./access-binding.js";
 import { emitComputedAccess } from "./access-computed.js";
 import { emitPropertyAccess } from "./access-property.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
+import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 
 /**
  * Emit a member access expression as CSharpExpressionAst
@@ -77,6 +80,14 @@ export const emitMemberAccess = (
         ];
       }
       if (narrowed.kind === "expr") {
+        const materializedNarrowed = tryEmitMaterializedNarrowedMemberRead(
+          narrowed,
+          context,
+          expectedType
+        );
+        if (materializedNarrowed) {
+          return materializedNarrowed;
+        }
         const storageCompatible = tryEmitStorageCompatibleNarrowedMemberRead(
           narrowed,
           expr,
@@ -97,7 +108,8 @@ export const emitMemberAccess = (
   }
 
   const objectType = resolveEffectiveReceiverType(expr.object, context);
-  const propertyName = typeof expr.property === "string" ? expr.property : undefined;
+  const propertyName =
+    typeof expr.property === "string" ? expr.property : undefined;
 
   if (
     !expr.isComputed &&
@@ -122,7 +134,10 @@ export const emitMemberAccess = (
       ];
     }
 
-    const [receiverTypeAst] = resolveEmittedReceiverTypeAst(expr.object, context);
+    const [receiverTypeAst] = resolveEmittedReceiverTypeAst(
+      expr.object,
+      context
+    );
     const receiverTypeName = receiverTypeAst
       ? getIdentifierTypeName(stripNullableTypeAst(receiverTypeAst))
       : undefined;
@@ -192,10 +207,18 @@ export const emitMemberAccess = (
           context
         ) === true
       ) {
-        const [objectAst, newContext] = emitExpressionAst(
+        const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+        const receiverStorageType = resolveDirectStorageIrType(
           expr.object,
           context
         );
+        const [materializedReceiverAst, materializedReceiverContext] =
+          materializeDirectNarrowingAst(
+            objectAst,
+            receiverStorageType,
+            receiverNarrowedType,
+            newContext
+          );
         const escapedProp = emitMemberName(
           expr.object,
           receiverNarrowedType,
@@ -208,10 +231,10 @@ export const emitMemberAccess = (
             kind: expr.isOptional
               ? "conditionalMemberAccessExpression"
               : "memberAccessExpression",
-            expression: objectAst,
+            expression: materializedReceiverAst,
             memberName: escapedProp,
           },
-          newContext,
+          materializedReceiverContext,
         ];
       }
 

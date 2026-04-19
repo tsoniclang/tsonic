@@ -415,9 +415,7 @@ export const needsCoercion = (
     typeof expr.expression.value === "number"
   ) {
     const signedValue =
-      expr.operator === "-"
-        ? -expr.expression.value
-        : expr.expression.value;
+      expr.operator === "-" ? -expr.expression.value : expr.expression.value;
     if (allowConstantLiteralNarrowing(signedValue)) {
       return false;
     }

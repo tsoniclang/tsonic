@@ -397,7 +397,11 @@ const collectReferencedAnonymousTypeNames = (
   }
 
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (key === "inferredType" && !includeInferredTypeMetadata) {
+    if (
+      key === "inferredType" &&
+      !includeInferredTypeMetadata &&
+      !shouldTraverseInferredTypeMetadata(value, entry)
+    ) {
       continue;
     }
     collectReferencedAnonymousTypeNames(
@@ -407,6 +411,67 @@ const collectReferencedAnonymousTypeNames = (
       includeInferredTypeMetadata
     );
   }
+};
+
+const shouldTraverseInferredTypeMetadata = (
+  owner: unknown,
+  inferredType: unknown
+): boolean => {
+  if (!containsAnonymousReferenceType(inferredType, new WeakSet<object>())) {
+    return false;
+  }
+
+  if (!owner || typeof owner !== "object") {
+    return true;
+  }
+
+  const record = owner as {
+    readonly kind?: unknown;
+    readonly importedFrom?: unknown;
+    readonly resolvedClrType?: unknown;
+    readonly resolvedAssembly?: unknown;
+    readonly originalName?: unknown;
+  };
+
+  if (
+    record.kind === "identifier" &&
+    (record.importedFrom !== undefined ||
+      record.resolvedClrType !== undefined ||
+      record.resolvedAssembly !== undefined ||
+      (typeof record.originalName === "string" &&
+        record.originalName.startsWith('"') &&
+        record.originalName.endsWith('"')))
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+const containsAnonymousReferenceType = (
+  value: unknown,
+  seen: WeakSet<object>
+): boolean => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  if (seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+
+  if (isAnonymousReferenceType(value)) {
+    return true;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => containsAnonymousReferenceType(entry, seen));
+  }
+
+  return Object.values(value as Record<string, unknown>).some((entry) =>
+    containsAnonymousReferenceType(entry, seen)
+  );
 };
 
 const collectPriorSyntheticAnonymousDeclarations = (
@@ -537,7 +602,10 @@ export const runAnonymousTypeLoweringPass = (
     );
   }
   const anonymousDeclarationByName = new Map(
-    allAnonymousDeclarations.map((declaration) => [declaration.name, declaration])
+    allAnonymousDeclarations.map((declaration) => [
+      declaration.name,
+      declaration,
+    ])
   );
   const declarationQueue = Array.from(referencedAnonymousNames);
   while (declarationQueue.length > 0) {

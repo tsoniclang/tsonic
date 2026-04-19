@@ -1,17 +1,11 @@
 {
   "schemaVersion": 1,
   "kind": "tsonic-source-package",
-  "surfaces": [
-    "@tsonic/js"
-  ],
-  "requiredTypeRoots": [
-    "."
-  ],
+  "surfaces": ["@tsonic/js"],
+  "requiredTypeRoots": ["."],
   "source": {
     "namespace": "js",
-    "ambient": [
-      "./globals.ts"
-    ],
+    "ambient": ["./globals.ts"],
     "exports": {
       ".": "./src/index.ts",
       "./index.js": "./src/index.ts"

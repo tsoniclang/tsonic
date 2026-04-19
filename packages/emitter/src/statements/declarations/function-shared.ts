@@ -184,7 +184,10 @@ export const buildParameterAsts = (
   readonly destructuringParams: readonly DestructuringParamInfo[];
   readonly runtimeDefaultInitializers: readonly RuntimeParameterDefaultInfo[];
   readonly wrapperPrefixLengths: readonly number[];
-  readonly suppressedDefaultArguments: readonly (CSharpExpressionAst | undefined)[];
+  readonly suppressedDefaultArguments: readonly (
+    | CSharpExpressionAst
+    | undefined
+  )[];
   readonly context: EmitterContext;
 } => {
   let currentCtx = context;

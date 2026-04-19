@@ -12,7 +12,11 @@ export const installRepoPackage = (
   packageName: string,
   sourceRoot: string
 ): string => {
-  const packageRoot = path.join(tempDir, "node_modules", ...packageName.split("/"));
+  const packageRoot = path.join(
+    tempDir,
+    "node_modules",
+    ...packageName.split("/")
+  );
   fs.mkdirSync(path.dirname(packageRoot), { recursive: true });
   fs.cpSync(sourceRoot, packageRoot, { recursive: true });
   return packageRoot;

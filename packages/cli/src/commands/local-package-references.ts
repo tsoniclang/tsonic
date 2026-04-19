@@ -8,11 +8,7 @@ import {
   resolveConfig,
 } from "../config.js";
 import { applyPackageManifestWorkspaceOverlay } from "../package-manifests/bindings.js";
-import type {
-  ResolvedConfig,
-  Result,
-  TsonicProjectConfig,
-} from "../types.js";
+import type { ResolvedConfig, Result, TsonicProjectConfig } from "../types.js";
 
 type PackageJsonShape = {
   readonly name?: unknown;
@@ -63,7 +59,10 @@ const readJsonFile = <T>(filePath: string): Result<T, string> => {
   }
 
   try {
-    return { ok: true, value: JSON.parse(readFileSync(filePath, "utf-8")) as T };
+    return {
+      ok: true,
+      value: JSON.parse(readFileSync(filePath, "utf-8")) as T,
+    };
   } catch (error) {
     return {
       ok: false,
@@ -74,10 +73,7 @@ const readJsonFile = <T>(filePath: string): Result<T, string> => {
 
 const loadEffectiveWorkspaceConfig = (
   workspaceRoot: string
-): Result<
-  Parameters<typeof resolveConfig>[0],
-  string
-> => {
+): Result<Parameters<typeof resolveConfig>[0], string> => {
   const workspaceConfigPath = join(workspaceRoot, WORKSPACE_CONFIG_FILE);
   const workspaceConfigResult = loadWorkspaceConfig(workspaceConfigPath);
   if (!workspaceConfigResult.ok) return workspaceConfigResult;
@@ -120,8 +116,7 @@ const validateSourcePackageManifest = (
   if (manifestResult.value.kind !== "tsonic-source-package") {
     return {
       ok: false,
-      error:
-        `Local package project at ${projectRoot} must declare kind "tsonic-source-package" in tsonic.package.json.`,
+      error: `Local package project at ${projectRoot} must declare kind "tsonic-source-package" in tsonic.package.json.`,
     };
   }
 
@@ -180,8 +175,7 @@ export const resolveLocalPackageBuildReferences = (
     if (seenProjects.has(normalizedProjectRoot)) {
       return {
         ok: false,
-        error:
-          `Duplicate local package project '${normalizedProjectRoot}' in ${join(config.projectRoot, PROJECT_CONFIG_FILE)}.`,
+        error: `Duplicate local package project '${normalizedProjectRoot}' in ${join(config.projectRoot, PROJECT_CONFIG_FILE)}.`,
       };
     }
     seenProjects.add(normalizedProjectRoot);
@@ -207,8 +201,9 @@ export const resolveLocalPackageBuildReferences = (
       };
     }
 
-    const manifestValidationResult =
-      validateSourcePackageManifest(normalizedProjectRoot);
+    const manifestValidationResult = validateSourcePackageManifest(
+      normalizedProjectRoot
+    );
     if (!manifestValidationResult.ok) return manifestValidationResult;
 
     const referencedProjectResult = resolveReferencedProjectConfig(
@@ -218,8 +213,7 @@ export const resolveLocalPackageBuildReferences = (
     if (!referencedProjectResult.ok) {
       return {
         ok: false,
-        error:
-          `Failed to resolve local package reference '${entry.id}':\n${referencedProjectResult.error}`,
+        error: `Failed to resolve local package reference '${entry.id}':\n${referencedProjectResult.error}`,
       };
     }
 
@@ -229,21 +223,18 @@ export const resolveLocalPackageBuildReferences = (
       if (outputType !== "library") {
         return {
           ok: false,
-          error:
-            `Local package reference '${entry.id}' uses mode 'dll' but project '${normalizedProjectRoot}' is not a library build.`,
+          error: `Local package reference '${entry.id}' uses mode 'dll' but project '${normalizedProjectRoot}' is not a library build.`,
         };
       }
       if (referencedConfig.outputConfig.nativeAot) {
         return {
           ok: false,
-          error:
-            `Local package reference '${entry.id}' uses mode 'dll' but project '${normalizedProjectRoot}' builds a NativeAOT library, not a managed CLR DLL.`,
+          error: `Local package reference '${entry.id}' uses mode 'dll' but project '${normalizedProjectRoot}' builds a NativeAOT library, not a managed CLR DLL.`,
         };
       }
 
-      const targetFrameworks = referencedConfig.outputConfig.targetFrameworks ?? [
-        referencedConfig.dotnetVersion,
-      ];
+      const targetFrameworks = referencedConfig.outputConfig
+        .targetFrameworks ?? [referencedConfig.dotnetVersion];
       if (!targetFrameworks.includes(config.dotnetVersion)) {
         return {
           ok: false,
@@ -301,9 +292,7 @@ export const collectTransitiveDllLocalPackageReferences = (
   const visitedProjectRoots = new Set<string>();
   const stack: string[] = [];
 
-  const visitConfig = (
-    currentConfig: ResolvedConfig
-  ): Result<void, string> => {
+  const visitConfig = (currentConfig: ResolvedConfig): Result<void, string> => {
     const normalizedProjectRoot = resolve(currentConfig.projectRoot);
     if (visitedProjectRoots.has(normalizedProjectRoot)) {
       return { ok: true, value: undefined };

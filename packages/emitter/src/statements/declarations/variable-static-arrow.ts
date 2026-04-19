@@ -33,6 +33,7 @@ import {
   isCSharpOptionalParameterDefaultAst,
   supportsNullCoalescingParameterDefault,
 } from "../parameter-defaults.js";
+import { seedLocalNameMapFromParameters } from "./function-shared.js";
 
 export const getAsyncBodyReturnType = (
   isAsync: boolean,
@@ -40,22 +41,6 @@ export const getAsyncBodyReturnType = (
 ): IrType | undefined => {
   if (!isAsync || !returnType) return returnType;
   return getAwaitedIrType(returnType) ?? returnType;
-};
-
-export const seedLocalNameMapFromParameters = (
-  params: readonly IrParameter[],
-  context: EmitterContext
-): EmitterContext => {
-  const map = new Map(context.localNameMap ?? []);
-  const used = new Set<string>();
-  for (const p of params) {
-    if (p.pattern.kind === "identifierPattern") {
-      const emitted = escapeCSharpIdentifier(p.pattern.name);
-      map.set(p.pattern.name, emitted);
-      used.add(emitted);
-    }
-  }
-  return { ...context, localNameMap: map, usedLocalNames: used };
 };
 
 /**

@@ -75,18 +75,16 @@ describe("Program Creation – package resolution", function () {
       if (!result.ok) return;
 
       expect(
-        result.value.program
-          .getSourceFiles()
-          .filter((sourceFile) => {
-            try {
-              return (
-                fs.realpathSync(sourceFile.fileName) ===
-                fs.realpathSync(path.join(externalRoot, "src", "path-module.ts"))
-              );
-            } catch {
-              return false;
-            }
-          })
+        result.value.program.getSourceFiles().filter((sourceFile) => {
+          try {
+            return (
+              fs.realpathSync(sourceFile.fileName) ===
+              fs.realpathSync(path.join(externalRoot, "src", "path-module.ts"))
+            );
+          } catch {
+            return false;
+          }
+        })
       ).to.have.lengthOf(1);
     } finally {
       fixture.cleanup();

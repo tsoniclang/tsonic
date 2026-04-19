@@ -7,7 +7,7 @@ import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
-import { resolveIdentifierCarrierStorageType } from "../../../expressions/direct-storage-types.js";
+import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
 import { hasDeterministicPropertyMembership } from "../../../core/semantic/type-resolution.js";
@@ -16,7 +16,6 @@ import {
   findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../../core/semantic/runtime-unions.js";
-import { resolveAlignedRuntimeUnionMembers } from "../../../core/semantic/narrowed-union-resolution.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 import { buildRuntimeSubsetExpressionAst } from "../../../core/semantic/narrowing-builders.js";
@@ -342,7 +341,7 @@ export const tryResolveInstanceofGuard = (
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const carrierSourceType =
     (target.kind === "identifier"
-      ? resolveIdentifierCarrierStorageType(target, context)
+      ? resolveIdentifierRuntimeCarrierType(target, context)
       : undefined) ??
     context.narrowedBindings?.get(originalName)?.sourceType ??
     unionSourceType;
@@ -355,10 +354,10 @@ export const tryResolveInstanceofGuard = (
   });
   const runtimeUnionFrame =
     currentType && inferredRhsType
-      ? resolveAlignedRuntimeUnionMembers(
+      ? resolveGuardRuntimeUnionFrame(
           originalName,
           currentType,
-          carrierSourceType,
+          target.kind === "identifier" ? target : undefined,
           context
         )
       : undefined;

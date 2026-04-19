@@ -245,6 +245,22 @@ describe("type-ops", () => {
     ]);
   });
 
+  it("drops literal members when the matching primitive is present", () => {
+    const normalized = normalizedUnionType([
+      { kind: "literalType", value: "route" },
+      { kind: "literalType", value: "router" },
+      { kind: "primitiveType", name: "string" },
+      { kind: "primitiveType", name: "undefined" },
+    ]);
+
+    expect(normalized.kind).to.equal("unionType");
+    if (normalized.kind !== "unionType") return;
+    expect(normalized.types).to.deep.equal([
+      { kind: "primitiveType", name: "string" },
+      { kind: "primitiveType", name: "undefined" },
+    ]);
+  });
+
   it("collapses duplicate unions created by substitution", () => {
     const duplicated: IrType = {
       kind: "unionType",
@@ -473,8 +489,7 @@ describe("type-ops", () => {
     if (substituted.kind !== "referenceType") return;
 
     const valueMember = substituted.structuralMembers?.find(
-      (member) =>
-        member.kind === "propertySignature" && member.name === "value"
+      (member) => member.kind === "propertySignature" && member.name === "value"
     );
     expect(valueMember).to.not.equal(undefined);
     if (!valueMember || valueMember.kind !== "propertySignature") return;

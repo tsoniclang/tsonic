@@ -278,7 +278,10 @@ const rebindObjectLiteralThisInStatement = (
               objectLiteralThisType
             )
           : undefined,
-        body: rebindObjectLiteralThisInStatement(stmt.body, objectLiteralThisType),
+        body: rebindObjectLiteralThisInStatement(
+          stmt.body,
+          objectLiteralThisType
+        ),
       };
 
     case "forOfStatement":
@@ -289,7 +292,10 @@ const rebindObjectLiteralThisInStatement = (
           stmt.expression,
           objectLiteralThisType
         ),
-        body: rebindObjectLiteralThisInStatement(stmt.body, objectLiteralThisType),
+        body: rebindObjectLiteralThisInStatement(
+          stmt.body,
+          objectLiteralThisType
+        ),
       };
 
     case "whileStatement":
@@ -299,7 +305,10 @@ const rebindObjectLiteralThisInStatement = (
           stmt.condition,
           objectLiteralThisType
         ),
-        body: rebindObjectLiteralThisInStatement(stmt.body, objectLiteralThisType),
+        body: rebindObjectLiteralThisInStatement(
+          stmt.body,
+          objectLiteralThisType
+        ),
       };
 
     case "switchStatement":
@@ -620,10 +629,16 @@ export const rebindObjectLiteralThisInClassMember = (
           )
         : undefined,
       getterBody: member.getterBody
-        ? rebindObjectLiteralThisInBlock(member.getterBody, objectLiteralThisType)
+        ? rebindObjectLiteralThisInBlock(
+            member.getterBody,
+            objectLiteralThisType
+          )
         : undefined,
       setterBody: member.setterBody
-        ? rebindObjectLiteralThisInBlock(member.setterBody, objectLiteralThisType)
+        ? rebindObjectLiteralThisInBlock(
+            member.setterBody,
+            objectLiteralThisType
+          )
         : undefined,
     };
   }

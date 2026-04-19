@@ -1,7 +1,4 @@
-import {
-  IrType,
-  stableIrTypeKey,
-} from "@tsonic/frontend";
+import { IrType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
@@ -18,6 +15,7 @@ import {
 import { getRuntimeUnionMemberSortKey } from "./runtime-union-ordering.js";
 import { resolveStructuralReferenceType } from "./structural-shape-matching.js";
 import { resolveLocalTypeInfo, resolveTypeAlias } from "./type-resolution.js";
+import { matchesSemanticExpectedType } from "./expected-type-matching.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
@@ -142,7 +140,8 @@ export const buildRuntimeUnionLayout = (
       members: ordered.map((entry) => entry.member),
       memberTypeAsts: ordered.map((entry) => entry.typeAst),
       carrierTypeArgumentAsts:
-        sourceAliasMetadata?.typeArgumentAsts ?? ordered.map((entry) => entry.typeAst),
+        sourceAliasMetadata?.typeArgumentAsts ??
+        ordered.map((entry) => entry.typeAst),
       runtimeUnionArity: ordered.length,
       carrierName: carrier.name,
       carrierFullName: carrier.fullName,
@@ -157,13 +156,15 @@ const buildSourceAliasCarrierMetadata = (
   context: EmitterContext,
   emitTypeAst: EmitTypeAstLike
 ): [
-  | {
-      readonly typeParameters: readonly string[];
-      readonly typeArgumentAsts: readonly CSharpTypeAst[];
-      readonly definitionMemberTypeAsts: readonly CSharpTypeAst[];
-      readonly accessModifier: "public" | "internal";
-    }
-  | undefined,
+  (
+    | {
+        readonly typeParameters: readonly string[];
+        readonly typeArgumentAsts: readonly CSharpTypeAst[];
+        readonly definitionMemberTypeAsts: readonly CSharpTypeAst[];
+        readonly accessModifier: "public" | "internal";
+      }
+    | undefined
+  ),
   EmitterContext,
 ] => {
   if (
@@ -195,7 +196,8 @@ const buildSourceAliasCarrierMetadata = (
     return [undefined, context];
   }
   const targetModulePublicLocalTypes =
-    aliasInfo.namespace === (context.moduleNamespace ?? context.options.rootNamespace)
+    aliasInfo.namespace ===
+    (context.moduleNamespace ?? context.options.rootNamespace)
       ? context.publicLocalTypes
       : [...(context.options.moduleMap?.values() ?? [])].find(
           (moduleInfo) =>
@@ -219,9 +221,9 @@ const buildSourceAliasCarrierMetadata = (
       : layoutSourceType.runtimeCarrierTypeArguments &&
           layoutSourceType.runtimeCarrierTypeArguments.length > 0
         ? layoutSourceType.runtimeCarrierTypeArguments
-      : typeParameters.map(
-          (name): IrType => ({ kind: "typeParameterType", name })
-        );
+        : typeParameters.map(
+            (name): IrType => ({ kind: "typeParameterType", name })
+          );
   const definitionContext: EmitterContext = {
     ...context,
     typeParameters: new Set([
@@ -334,15 +336,19 @@ export const getCanonicalRuntimeUnionMembers = (
   type: IrType,
   context: EmitterContext
 ): readonly IrType[] | undefined => {
+  const canonicalSourceType =
+    type.kind === "referenceType" ? resolveTypeAlias(type, context) : type;
   const preserveRuntimeLayout =
-    type.kind === "unionType" && type.preserveRuntimeLayout === true;
+    canonicalSourceType.kind === "unionType" &&
+    canonicalSourceType.preserveRuntimeLayout === true;
   const activeAliases =
-    type.kind === "unionType" && type.runtimeCarrierFamilyKey
-      ? new Set<string>([type.runtimeCarrierFamilyKey])
+    canonicalSourceType.kind === "unionType" &&
+    canonicalSourceType.runtimeCarrierFamilyKey
+      ? new Set<string>([canonicalSourceType.runtimeCarrierFamilyKey])
       : new Set<string>();
   const semanticMembers = preserveRuntimeLayout
-    ? collectRuntimeUnionRawMembers(type, context, activeAliases)
-    : expandRuntimeUnionMembers(type, context, activeAliases);
+    ? collectRuntimeUnionRawMembers(canonicalSourceType, context, activeAliases)
+    : expandRuntimeUnionMembers(canonicalSourceType, context, activeAliases);
   if (semanticMembers.length < 2) {
     return undefined;
   }
@@ -351,9 +357,83 @@ export const getCanonicalRuntimeUnionMembers = (
     return semanticMembers;
   }
 
+  const mergeEquivalentRuntimeUnionMembers = (
+    existing: IrType,
+    candidate: IrType
+  ): IrType => {
+    if (existing.kind !== "arrayType" || candidate.kind !== "arrayType") {
+      return candidate;
+    }
+
+    const existingSemanticElementType =
+      existing.storageErasedElementType ?? existing.elementType;
+    const candidateSemanticElementType =
+      candidate.storageErasedElementType ?? candidate.elementType;
+    const getSemanticArrayOwnerBreadth = (elementType: IrType): number => {
+      const resolved = resolveTypeAlias(elementType, context);
+      return resolved.kind === "unionType" ? resolved.types.length : 1;
+    };
+
+    const candidateAcceptsExisting = matchesSemanticExpectedType(
+      existingSemanticElementType,
+      candidateSemanticElementType,
+      context
+    );
+    const existingAcceptsCandidate = matchesSemanticExpectedType(
+      candidateSemanticElementType,
+      existingSemanticElementType,
+      context
+    );
+    const candidateBreadth = getSemanticArrayOwnerBreadth(
+      candidateSemanticElementType
+    );
+    const existingBreadth = getSemanticArrayOwnerBreadth(
+      existingSemanticElementType
+    );
+
+    const preferredBase =
+      candidateAcceptsExisting && !existingAcceptsCandidate
+        ? candidate
+        : existingAcceptsCandidate && !candidateAcceptsExisting
+          ? existing
+          : candidateBreadth !== existingBreadth
+            ? candidateBreadth > existingBreadth
+              ? candidate
+              : existing
+            : candidate.storageErasedElementType &&
+                !existing.storageErasedElementType
+              ? candidate
+              : existing.storageErasedElementType &&
+                  !candidate.storageErasedElementType
+                ? existing
+                : stableIrTypeKey(candidateSemanticElementType).localeCompare(
+                      stableIrTypeKey(existingSemanticElementType)
+                    ) >= 0
+                  ? candidate
+                  : existing;
+
+    const preferredSemanticElementType =
+      preferredBase === candidate
+        ? candidateSemanticElementType
+        : existingSemanticElementType;
+
+    return preferredBase.storageErasedElementType ===
+      preferredSemanticElementType
+      ? preferredBase
+      : {
+          ...preferredBase,
+          storageErasedElementType: preferredSemanticElementType,
+        };
+  };
+
   const deduped = new Map<string, IrType>();
   for (const member of semanticMembers) {
-    deduped.set(stableIrTypeKey(member), member);
+    const key = stableIrTypeKey(member);
+    const existing = deduped.get(key);
+    deduped.set(
+      key,
+      existing ? mergeEquivalentRuntimeUnionMembers(existing, member) : member
+    );
   }
 
   return Array.from(deduped.entries())

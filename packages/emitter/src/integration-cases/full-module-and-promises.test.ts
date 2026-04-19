@@ -163,7 +163,9 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("global::Tsonic.Runtime.IteratorResult<string>");
+      expect(csharp).to.include(
+        "global::Tsonic.Runtime.IteratorResult<string>"
+      );
       expect(csharp).to.include("first.done");
       expect(csharp).to.include("first.value");
       expect(csharp).to.not.include("first.Match");
@@ -425,9 +427,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("Task.WhenAll");
       expect(csharp).to.include("Enumerable.Select");
-      expect(csharp).to.include(
-        "global::System.Threading.Tasks.Task<double>"
-      );
+      expect(csharp).to.include("global::System.Threading.Tasks.Task<double>");
       expect(csharp).not.to.include(
         "global::Tsonic.Internal.Union<global::System.Threading.Tasks.Task<T>, T>"
       );
@@ -489,7 +489,9 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("System.Func<global::System.Threading.Tasks.Task<object?>>");
+      expect(csharp).to.include(
+        "System.Func<global::System.Threading.Tasks.Task<object?>>"
+      );
       expect(csharp).to.include("Task.FromException<object?>");
       expect(csharp).not.to.include("Task.FromException(new");
     });
@@ -510,7 +512,9 @@ describe("End-to-End Integration", () => {
         surface: "@tsonic/js",
       });
 
-      expect(csharp).to.include("System.Func<global::System.Threading.Tasks.Task<object?>>");
+      expect(csharp).to.include(
+        "System.Func<global::System.Threading.Tasks.Task<object?>>"
+      );
       expect(csharp).to.include("Task.FromException<object?>");
       expect(csharp).not.to.include("Task.FromException<T>");
     });

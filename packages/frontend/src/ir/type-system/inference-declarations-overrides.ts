@@ -321,10 +321,7 @@ export const typeFromSyntax = (
       );
     }
   }
-  if (
-    rawType.kind !== "referenceType" ||
-    !syntaxInfo.referenceDeclId
-  ) {
+  if (rawType.kind !== "referenceType" || !syntaxInfo.referenceDeclId) {
     return convertTypeNode(state, syntaxInfo.typeNode);
   }
 
@@ -357,8 +354,7 @@ export const typeFromSyntax = (
   }
 
   const exactClrName =
-    ts.isTypeAliasDeclaration(declNode) &&
-    ts.isTypeLiteralNode(declNode.type)
+    ts.isTypeAliasDeclaration(declNode) && ts.isTypeLiteralNode(declNode.type)
       ? `${nominalEntry.fullyQualifiedName}__Alias`
       : nominalEntry.fullyQualifiedName;
   const exactTypeId = resolveTypeIdByName(

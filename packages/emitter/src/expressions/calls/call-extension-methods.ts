@@ -112,11 +112,13 @@ const adaptExtensionReceiverAst = (
   }
 
   const adaptationSourceExpr =
-    receiverExpr.kind === "asinterface" ? receiverExpr.expression : receiverExpr;
+    receiverExpr.kind === "asinterface"
+      ? receiverExpr.expression
+      : receiverExpr;
   const adaptationSourceType =
     receiverExpr.kind === "asinterface"
-      ? resolveEffectiveExpressionType(receiverExpr.expression, context) ??
-        receiverExpr.expression.inferredType
+      ? (resolveEffectiveExpressionType(receiverExpr.expression, context) ??
+        receiverExpr.expression.inferredType)
       : receiverType;
 
   if (
@@ -282,13 +284,14 @@ export const tryEmitExtensionMethodCall = (
   );
   currentContext = argContext;
 
-  const [adaptedReceiverAst, adaptedReceiverContext] = adaptExtensionReceiverAst(
-    receiverExpr,
-    receiverAst,
-    receiverType,
-    binding.receiverExpectedType,
-    currentContext
-  );
+  const [adaptedReceiverAst, adaptedReceiverContext] =
+    adaptExtensionReceiverAst(
+      receiverExpr,
+      receiverAst,
+      receiverType,
+      binding.receiverExpectedType,
+      currentContext
+    );
   currentContext = adaptedReceiverContext;
 
   // Prepend receiver as first argument (static extension call)

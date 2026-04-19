@@ -39,6 +39,8 @@ import {
 import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
 import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
+import { getAcceptedSurfaceType } from "../core/semantic/defaults.js";
+import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst
@@ -195,11 +197,29 @@ export const emitComputedAccess = (
 
   if (accessKind === "dictionary") {
     if (context.options.surface === "@tsonic/js" && usage !== "write") {
+      const storageObjectType =
+        resolveDirectStorageCompatibleExpressionType({
+          expr: expr.object,
+          valueAst: objectAst,
+          context: finalContext,
+        }) ?? objectType;
+      const resolvedStorageObjectType = storageObjectType
+        ? resolveTypeAlias(stripNullish(storageObjectType), context)
+        : undefined;
+      const storageValueType =
+        resolvedStorageObjectType?.kind === "dictionaryType"
+          ? (getAcceptedSurfaceType(
+              resolvedStorageObjectType.valueType,
+              true
+            ) ?? resolvedStorageObjectType.valueType)
+          : undefined;
       const fallbackType =
+        storageValueType ??
         expectedType ??
         expr.inferredType ??
         (resolvedObjectType?.kind === "dictionaryType"
-          ? resolvedObjectType.valueType
+          ? (getAcceptedSurfaceType(resolvedObjectType.valueType, true) ??
+            resolvedObjectType.valueType)
           : undefined);
       const [resultTypeAst, typeContext] = fallbackType
         ? emitTypeAst(fallbackType, finalContext)
@@ -209,7 +229,8 @@ export const emitComputedAccess = (
           objectAst,
           propAst,
           expr.isOptional,
-          resultTypeAst
+          resultTypeAst,
+          typeContext
         ),
         typeContext,
       ];
@@ -315,11 +336,10 @@ export const emitComputedAccess = (
     expr.object.kind === "trycast"
       ? receiverSourceContext
       : finalContext;
-  const preservedReceiver =
-    tryEmitBroadArrayAssertionReceiverStorageAst(
-      expr.object,
-      receiverResolutionContext
-    );
+  const preservedReceiver = tryEmitBroadArrayAssertionReceiverStorageAst(
+    expr.object,
+    receiverResolutionContext
+  );
   const desiredType = expectedType ?? expr.inferredType;
   const adaptBroadArrayElementRead = (
     valueAst: CSharpExpressionAst,
@@ -396,7 +416,11 @@ export const emitComputedAccess = (
   };
 
   const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
-  if (usage === "value" && arrayLikeReceiver && isRuntimeUnionMemberProjectionAst(objectAst)) {
+  if (
+    usage === "value" &&
+    arrayLikeReceiver &&
+    isRuntimeUnionMemberProjectionAst(objectAst)
+  ) {
     const storageReceiverType =
       normalizeRuntimeStorageType(objectType, context) ?? objectType;
     const storageElementType =

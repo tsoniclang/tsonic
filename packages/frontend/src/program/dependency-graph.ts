@@ -61,7 +61,8 @@ const tryConvertProgramBuildExceptionToDiagnostics = (
     return undefined;
   }
 
-  const invalidNativeMetadataPrefix = "Invalid native source package metadata at ";
+  const invalidNativeMetadataPrefix =
+    "Invalid native source package metadata at ";
   if (err.message.startsWith(invalidNativeMetadataPrefix)) {
     const manifestPath = err.message
       .slice(invalidNativeMetadataPrefix.length)
@@ -374,7 +375,6 @@ export const buildModuleDependencyGraph = (
       ambientGlobalSourceFiles.push(resolvedGlobalImport.value.resolvedPath);
     }
   }
-
   // Track all discovered files for later type checking
   const allDiscoveredFiles: string[] = [...ambientSupportFiles];
 
@@ -525,7 +525,9 @@ export const buildModuleDependencyGraph = (
         continue;
       }
       if (installedPackage.value) {
-        if (isQueueableTsSourceDependency(installedPackage.value.resolvedPath)) {
+        if (
+          isQueueableTsSourceDependency(installedPackage.value.resolvedPath)
+        ) {
           queue.push(installedPackage.value.resolvedPath);
         }
         continue;
@@ -546,7 +548,6 @@ export const buildModuleDependencyGraph = (
       );
     }
   }
-
   // If any diagnostics from discovery, fail the build
   if (diagnostics.length > 0) {
     return error(diagnostics);
@@ -575,7 +576,6 @@ export const buildModuleDependencyGraph = (
     ...options,
     sourceRoot: sourceRootAbs,
   });
-
   if (!programResult.ok) {
     return error(programResult.error.diagnostics);
   }
@@ -585,7 +585,6 @@ export const buildModuleDependencyGraph = (
   // Load CLR bindings before IR building
   // This scans all imports and loads their bindings upfront
   discoverAndLoadClrBindings(tsonicProgram, options.verbose);
-
   // Run source-level validation (imports, exports, unsupported features, generics)
   const validationCollector = validateProgram(tsonicProgram);
   if (validationCollector.diagnostics.length > 0) {
@@ -614,7 +613,6 @@ export const buildModuleDependencyGraph = (
   }
 
   const modules: IrModule[] = [...irResult.value];
-
   // Run rest type synthesis pass - attaches rest shape info for object rest destructuring
   // and generates synthetic types for rest objects.
   //

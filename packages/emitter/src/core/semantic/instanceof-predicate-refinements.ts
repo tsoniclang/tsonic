@@ -3,7 +3,7 @@
  * Handles applyInstanceofRefinement and applyPredicateCallRefinement.
  */
 
-import { IrExpression, stableIrTypeKey } from "@tsonic/frontend";
+import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -14,6 +14,7 @@ import {
 } from "./runtime-unions.js";
 import { normalizeInstanceofTargetType } from "./instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "./transparent-expressions.js";
+import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
 import {
   type BranchTruthiness,
   type EmitExprAstFn,
@@ -38,6 +39,29 @@ export const applyInstanceofRefinement = (
   context: EmitterContext,
   emitExprAst: EmitExprAstFn
 ): EmitterContext | undefined => {
+  const resolveExactInstanceofTargetType = (
+    expr: IrExpression
+  ): IrType | undefined => {
+    const normalized = normalizeInstanceofTargetType(expr.inferredType);
+    if (!normalized) {
+      return undefined;
+    }
+
+    if (
+      normalized.kind === "referenceType" &&
+      !normalized.resolvedClrType &&
+      "resolvedClrType" in expr &&
+      typeof expr.resolvedClrType === "string"
+    ) {
+      return {
+        ...normalized,
+        resolvedClrType: expr.resolvedClrType,
+      };
+    }
+
+    return normalized;
+  };
+
   const guard = (() => {
     if (condition.kind !== "binary" || condition.operator !== "instanceof") {
       return undefined;
@@ -56,16 +80,16 @@ export const applyInstanceofRefinement = (
       target,
       withoutNarrowedBinding(context, originalName)
     );
-    const inferredRhsType = normalizeInstanceofTargetType(
-      condition.right.inferredType
-    );
+    const inferredRhsType = resolveExactInstanceofTargetType(condition.right);
     if (!inferredRhsType) {
       return undefined;
     }
 
     const currentType = currentNarrowedType(
       originalName,
-      target.inferredType ?? condition.left.inferredType,
+      resolveEffectiveExpressionType(target, context) ??
+        target.inferredType ??
+        condition.left.inferredType,
       context
     );
     const runtimeUnionFrame =
@@ -265,7 +289,9 @@ export const applyPredicateCallRefinement = (
 
   const currentType = currentNarrowedType(
     bindingKey,
-    target.inferredType ?? arg.inferredType,
+    resolveEffectiveExpressionType(target, context) ??
+      target.inferredType ??
+      arg.inferredType,
     context
   );
   if (!currentType) {

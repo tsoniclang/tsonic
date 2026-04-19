@@ -156,7 +156,7 @@ export const expandUtility = (
     case "Parameters":
       return expandParametersUtility(state, firstArg, site);
     case "Awaited":
-      return expandAwaitedUtility(firstArg);
+      return expandAwaitedUtility(state, firstArg);
     case "InstanceType":
       // InstanceType<T> - not fully supported yet, return as-is
       return firstArg;

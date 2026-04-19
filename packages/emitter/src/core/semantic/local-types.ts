@@ -121,9 +121,7 @@ const buildTypeAliasInfo = (stmt: IrTypeAliasDeclaration): LocalTypeInfo => ({
 
 const walkTypeRefs = (
   type: IrType | undefined,
-  onReference: (
-    ref: Extract<IrType, { kind: "referenceType" }>
-  ) => void,
+  onReference: (ref: Extract<IrType, { kind: "referenceType" }>) => void,
   seen: WeakSet<object> = new WeakSet<object>()
 ): void => {
   if (!type) return;

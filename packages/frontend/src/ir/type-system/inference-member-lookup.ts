@@ -32,7 +32,10 @@ import {
   buildCallableOverloadFamilyType,
   buildStructuralMethodFamilyType,
 } from "./inference-utilities.js";
-import { convertTypeNode, attachTypeIds } from "./type-system-call-resolution.js";
+import {
+  convertTypeNode,
+  attachTypeIds,
+} from "./type-system-call-resolution.js";
 
 const getAmbientInterfaceLookupTarget = (
   receiver: IrType
@@ -87,11 +90,17 @@ const getAmbientInterfaceLookupTarget = (
   return undefined;
 };
 
-const getTypeElementName = (name: ts.PropertyName | undefined): string | undefined => {
+const getTypeElementName = (
+  name: ts.PropertyName | undefined
+): string | undefined => {
   if (!name) {
     return undefined;
   }
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+  if (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNumericLiteral(name)
+  ) {
     return name.text;
   }
   return undefined;
@@ -101,7 +110,9 @@ const resolveStructuralMemberType = (
   members: readonly IrInterfaceMember[],
   memberName: string
 ): IrType | undefined => {
-  const matchingMembers = members.filter((member) => member.name === memberName);
+  const matchingMembers = members.filter(
+    (member) => member.name === memberName
+  );
   if (matchingMembers.length === 0) {
     return undefined;
   }
@@ -109,10 +120,8 @@ const resolveStructuralMemberType = (
   const propertyMembers = matchingMembers.filter(
     (
       member
-    ): member is Extract<
-      IrInterfaceMember,
-      { kind: "propertySignature" }
-    > => member.kind === "propertySignature"
+    ): member is Extract<IrInterfaceMember, { kind: "propertySignature" }> =>
+      member.kind === "propertySignature"
   );
   if (propertyMembers.length > 0) {
     const [property] = propertyMembers;
@@ -145,7 +154,10 @@ const collectAmbientInterfaceDeclarations = (
   sink: ts.InterfaceDeclaration[]
 ): void => {
   for (const statement of statements) {
-    if (ts.isInterfaceDeclaration(statement) && statement.name.text === interfaceName) {
+    if (
+      ts.isInterfaceDeclaration(statement) &&
+      statement.name.text === interfaceName
+    ) {
       sink.push(statement);
       continue;
     }
@@ -199,7 +211,9 @@ const applyAmbientSubstitution = (
   type: IrType,
   substitution: ReadonlyMap<string, IrType> | undefined
 ): IrType =>
-  substitution && substitution.size > 0 ? irSubstitute(type, substitution) : type;
+  substitution && substitution.size > 0
+    ? irSubstitute(type, substitution)
+    : type;
 
 const convertAmbientMethodTypeParameters = (
   state: TypeSystemState,
@@ -227,7 +241,8 @@ const convertAmbientMethodTypeParameters = (
       : undefined,
     variance: undefined,
     isStructuralConstraint:
-      !!typeParameter.constraint && ts.isTypeLiteralNode(typeParameter.constraint),
+      !!typeParameter.constraint &&
+      ts.isTypeLiteralNode(typeParameter.constraint),
     structuralMembers: undefined,
   }));
 };
@@ -241,10 +256,15 @@ const convertAmbientParameter = (
   kind: "parameter",
   pattern: {
     kind: "identifierPattern",
-    name: ts.isIdentifier(parameter.name) ? parameter.name.text : `param${index}`,
+    name: ts.isIdentifier(parameter.name)
+      ? parameter.name.text
+      : `param${index}`,
   },
   type: parameter.type
-    ? applyAmbientSubstitution(convertTypeNode(state, parameter.type), substitution)
+    ? applyAmbientSubstitution(
+        convertTypeNode(state, parameter.type),
+        substitution
+      )
     : undefined,
   initializer: undefined,
   isOptional: !!parameter.questionToken || !!parameter.initializer,
@@ -260,7 +280,9 @@ const flattenCallableAmbientType = (
   }
 
   if (type.kind === "intersectionType") {
-    const flattened = type.types.flatMap((part) => flattenCallableAmbientType(part));
+    const flattened = type.types.flatMap((part) =>
+      flattenCallableAmbientType(part)
+    );
     return flattened.length === type.types.length ? flattened : [];
   }
 
@@ -320,10 +342,7 @@ const lookupJsStringRuntimeMember = (
     return INT_IR_TYPE;
   }
 
-  if (
-    memberName === "charCodeAt" ||
-    memberName === "codePointAt"
-  ) {
+  if (memberName === "charCodeAt" || memberName === "codePointAt") {
     return {
       kind: "functionType",
       parameters: [makeValueParameter("index", INT_IR_TYPE)],
@@ -331,10 +350,7 @@ const lookupJsStringRuntimeMember = (
     };
   }
 
-  if (
-    memberName === "indexOf" ||
-    memberName === "lastIndexOf"
-  ) {
+  if (memberName === "indexOf" || memberName === "lastIndexOf") {
     return {
       kind: "functionType",
       parameters: [
@@ -373,7 +389,10 @@ const lookupJsArrayRuntimeMember = (
     return undefined;
   }
 
-  const runtimeMember = state.unifiedCatalog.getMember(runtimeTypeId, memberName);
+  const runtimeMember = state.unifiedCatalog.getMember(
+    runtimeTypeId,
+    memberName
+  );
   if (!runtimeMember) {
     return undefined;
   }
@@ -450,7 +469,10 @@ const lookupAmbientInterfaceMember = (
   }
 
   const propertyResults: IrType[] = [];
-  const methodResults: Extract<IrInterfaceMember, { kind: "methodSignature" }>[] = [];
+  const methodResults: Extract<
+    IrInterfaceMember,
+    { kind: "methodSignature" }
+  >[] = [];
   const inheritedResults: IrType[] = [];
 
   for (const sourceFile of state.sourceFilesByPath.values()) {
@@ -478,13 +500,19 @@ const lookupAmbientInterfaceMember = (
 
         if (ts.isPropertySignature(member)) {
           const propertyType = member.type
-            ? applyAmbientSubstitution(convertTypeNode(state, member.type), substitution)
+            ? applyAmbientSubstitution(
+                convertTypeNode(state, member.type),
+                substitution
+              )
             : unknownType;
           propertyResults.push(
             member.questionToken
               ? {
                   kind: "unionType",
-                  types: [propertyType, { kind: "primitiveType", name: "undefined" }],
+                  types: [
+                    propertyType,
+                    { kind: "primitiveType", name: "undefined" },
+                  ],
                 }
               : propertyType
           );
@@ -498,7 +526,10 @@ const lookupAmbientInterfaceMember = (
         const returnType = member.type
           ? ts.isTypePredicateNode(member.type)
             ? ({ kind: "primitiveType", name: "boolean" } as const)
-            : applyAmbientSubstitution(convertTypeNode(state, member.type), substitution)
+            : applyAmbientSubstitution(
+                convertTypeNode(state, member.type),
+                substitution
+              )
           : undefined;
 
         methodResults.push({
@@ -581,7 +612,9 @@ const lookupAmbientInterfaceMember = (
 
   if (
     onlyInherited &&
-    inheritedResults.every((inheritedType) => typesEqual(inheritedType, onlyInherited))
+    inheritedResults.every((inheritedType) =>
+      typesEqual(inheritedType, onlyInherited)
+    )
   ) {
     return attachTypeIds(state, onlyInherited);
   }
@@ -681,7 +714,11 @@ export const resolveMemberTypeNoDiag = (
     }
   }
 
-  const ambientMember = lookupAmbientInterfaceMember(state, receiver, memberName);
+  const ambientMember = lookupAmbientInterfaceMember(
+    state,
+    receiver,
+    memberName
+  );
   if (ambientMember) {
     return ambientMember;
   }
@@ -699,7 +736,10 @@ export const resolveMemberTypeNoDiag = (
       receiver.structuralMembers &&
       receiver.structuralMembers.length > 0
     ) {
-      return resolveStructuralMemberType(receiver.structuralMembers, memberName);
+      return resolveStructuralMemberType(
+        receiver.structuralMembers,
+        memberName
+      );
     }
     return undefined;
   }

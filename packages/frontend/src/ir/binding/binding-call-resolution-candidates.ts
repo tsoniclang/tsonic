@@ -50,7 +50,6 @@ export const resolveCallSignatureCandidates = (
   ctx: BindingContext,
   node: ts.CallExpression
 ): readonly SignatureId[] | undefined => {
-
   const collectSignatureCandidates = (
     signatures: readonly ts.Signature[]
   ): readonly SignatureId[] | undefined => {

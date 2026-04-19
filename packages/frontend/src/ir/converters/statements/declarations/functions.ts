@@ -12,6 +12,7 @@ import {
 } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { withParameterTypeEnv } from "../../type-env.js";
+import { getReturnExpressionExpectedType } from "../../return-expression-types.js";
 
 /**
  * Convert function declaration
@@ -27,6 +28,10 @@ export const convertFunctionDeclaration = (
   const returnType = node.type
     ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;
+  const returnExpressionType = getReturnExpressionExpectedType(
+    returnType,
+    !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+  );
   const parameters = convertParameters(node.parameters, ctx);
   const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
 
@@ -38,7 +43,7 @@ export const convertFunctionDeclaration = (
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, bodyCtx, returnType)
+      ? convertBlockStatement(node.body, bodyCtx, returnExpressionType)
       : { kind: "blockStatement", statements: [] },
     isDeclarationOnly: node.body ? undefined : true,
     isAsync: !!node.modifiers?.some(

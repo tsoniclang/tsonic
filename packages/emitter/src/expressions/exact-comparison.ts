@@ -231,7 +231,10 @@ export const isExactArrayCreationToType = (
   targetType: CSharpTypeAst
 ): boolean => {
   const concreteTargetType = stripNullableTypeAst(targetType);
-  if (concreteTargetType.kind !== "arrayType" || concreteTargetType.rank !== 1) {
+  if (
+    concreteTargetType.kind !== "arrayType" ||
+    concreteTargetType.rank !== 1
+  ) {
     return false;
   }
 
@@ -314,6 +317,14 @@ const isExactRuntimeUnionMatchToType = (
 
   if (ast.arguments.length === 0) {
     return false;
+  }
+
+  const [explicitTypeArgument] = ast.typeArguments ?? [];
+  if (
+    explicitTypeArgument &&
+    sameTypeAstSurface(explicitTypeArgument, targetType)
+  ) {
+    return true;
   }
 
   return ast.arguments.every((argument) => {

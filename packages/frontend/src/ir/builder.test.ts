@@ -10,6 +10,7 @@ import "./builder-cases/for-of-loops.test.js";
 import "./builder-cases/implements-and-struct.test.js";
 import "./builder-cases/import-extraction.test.js";
 import "./builder-cases/installed-source-package-deterministic-typing.test.js";
+import "./builder-cases/invocation-flow-assertions.test.js";
 import "./builder-cases/js-surface-helpers.test.js";
 import "./builder-cases/module-structure-and-exports.test.js";
 import "./builder-cases/namespace-imports-and-function-narrowing.test.js";

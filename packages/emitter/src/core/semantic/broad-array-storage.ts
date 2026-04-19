@@ -118,7 +118,9 @@ const isRuntimeUnionElementArrayTarget = (
   }
 
   const resolvedElement = resolveTypeAlias(stripNullish(elementType), context);
-  return resolvedElement.kind === "unionType" && resolvedElement.types.length > 1;
+  return (
+    resolvedElement.kind === "unionType" && resolvedElement.types.length > 1
+  );
 };
 
 export const resolveBroadArrayAssertionStorageType = (
@@ -138,7 +140,10 @@ export const resolveBroadArrayAssertionStorageType = (
     }
 
     if (isBroadArrayStorageTarget(sourceStorageType, context)) {
-      return normalizeRuntimeStorageType(sourceStorageType, context) ?? sourceStorageType;
+      return (
+        normalizeRuntimeStorageType(sourceStorageType, context) ??
+        sourceStorageType
+      );
     }
   }
 
@@ -159,7 +164,10 @@ export const resolveRuntimeArrayMemberStorageType = (
 ): IrType => {
   const normalizedMemberStorage =
     normalizeRuntimeStorageType(memberType, context) ?? memberType;
-  const resolved = resolveTypeAlias(stripNullish(normalizedMemberStorage), context);
+  const resolved = resolveTypeAlias(
+    stripNullish(normalizedMemberStorage),
+    context
+  );
 
   return resolved.kind === "arrayType"
     ? normalizedMemberStorage

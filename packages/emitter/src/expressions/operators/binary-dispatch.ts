@@ -337,12 +337,13 @@ export const emitBinary = (
         nonNullishTarget.kind === "identifier"
           ? nonNullishTarget.name
           : undefined;
-      return targetKey ? resultContext.narrowedBindings?.get(targetKey) : undefined;
-    })();
-    const narrowedSourceBase =
-      activeNarrowedBinding?.sourceType
-        ? stripNullish(activeNarrowedBinding.sourceType)
+      return targetKey
+        ? resultContext.narrowedBindings?.get(targetKey)
         : undefined;
+    })();
+    const narrowedSourceBase = activeNarrowedBinding?.sourceType
+      ? stripNullish(activeNarrowedBinding.sourceType)
+      : undefined;
     const emissionType =
       resolveEffectiveExpressionType(nonNullishTarget, nonNullishContext) ??
       nonNullishTarget.inferredType;
@@ -409,7 +410,9 @@ export const emitBinary = (
         type: identifierType("global::System.Object"),
         expression: {
           kind: "parenthesizedExpression",
-          expression: needsObjectCastForRuntimeUnion ? runtimeCarrierAst : nonNullishAst,
+          expression: needsObjectCastForRuntimeUnion
+            ? runtimeCarrierAst
+            : nonNullishAst,
         },
       };
       return [

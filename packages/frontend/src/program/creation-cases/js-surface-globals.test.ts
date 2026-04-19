@@ -152,8 +152,12 @@ describe("Program Creation – JS surface globals", function () {
     try {
       const tempDir = fixture.path("app");
       const srcDir = fixture.path("app/src");
-      const stringPath = fixture.path("app/node_modules/@fixture/js/src/String.ts");
-      const timersPath = fixture.path("app/node_modules/@fixture/js/src/timers.ts");
+      const stringPath = fixture.path(
+        "app/node_modules/@fixture/js/src/String.ts"
+      );
+      const timersPath = fixture.path(
+        "app/node_modules/@fixture/js/src/timers.ts"
+      );
       const entryPath = fixture.path("app/src/index.ts");
 
       const result = createProgram([entryPath], {
@@ -195,14 +199,17 @@ describe("Program Creation – JS surface globals", function () {
 
       fs.mkdirSync(installedJsSrcRoot, { recursive: true });
 
-      fs.writeFileSync(entryPath, [
-        'const message = "  hello  ".trim();',
-        "console.log(message);",
-        "String(message);",
-        "Number.isNaN(0);",
-        "export const ok = message.length;",
-        "",
-      ].join("\n"));
+      fs.writeFileSync(
+        entryPath,
+        [
+          'const message = "  hello  ".trim();',
+          "console.log(message);",
+          "String(message);",
+          "Number.isNaN(0);",
+          "export const ok = message.length;",
+          "",
+        ].join("\n")
+      );
 
       fs.writeFileSync(
         path.join(installedJsRoot, "package.json"),

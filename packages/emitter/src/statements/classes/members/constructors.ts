@@ -235,14 +235,13 @@ const extractSuperCallAst = (
       parameterTypeOverrides
     );
     currentContext = newContext;
-    const [argAsts, adaptedContext] =
-      adaptSuperCallArgumentsToBaseParameters(
-        rawArgAsts,
-        superCall.arguments,
-        constructorParameters,
-        parameterTypeOverrides,
-        currentContext
-      );
+    const [argAsts, adaptedContext] = adaptSuperCallArgumentsToBaseParameters(
+      rawArgAsts,
+      superCall.arguments,
+      constructorParameters,
+      parameterTypeOverrides,
+      currentContext
+    );
     currentContext = adaptedContext;
     const remainingStatements = statements.slice(1);
     return [argAsts, remainingStatements, currentContext];
@@ -279,10 +278,10 @@ const resolveSuperConstructorParameterTypeOverrides = (
   }
 
   const constructors = resolvedSuperClass.info.members.filter(
-    (member): member is Extract<
-      typeof member,
-      { kind: "constructorDeclaration" }
-    > => member.kind === "constructorDeclaration"
+    (
+      member
+    ): member is Extract<typeof member, { kind: "constructorDeclaration" }> =>
+      member.kind === "constructorDeclaration"
   );
   if (constructors.length === 0) {
     return undefined;

@@ -99,10 +99,7 @@ describe("Type Converter - Tuple Rest Lowering", () => {
 
     let alias: ts.TypeAliasDeclaration | undefined;
     for (const statement of sourceFile.statements) {
-      if (
-        ts.isTypeAliasDeclaration(statement) &&
-        statement.name.text === "T"
-      ) {
+      if (ts.isTypeAliasDeclaration(statement) && statement.name.text === "T") {
         alias = statement;
         break;
       }

@@ -69,7 +69,10 @@ const collectGenerators = (
             context,
             stmt.name
           ),
-          typeParameters: [...ownerTypeParameters, ...(member.typeParameters ?? [])],
+          typeParameters: [
+            ...ownerTypeParameters,
+            ...(member.typeParameters ?? []),
+          ],
         });
       }
     }

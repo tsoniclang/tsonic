@@ -88,10 +88,16 @@ describe("IR Builder", function () {
         if (!parseCall || parseCall.kind !== "call") return;
         expect(parseCall.callee.kind).to.equal("memberAccess");
         if (parseCall.callee.kind !== "memberAccess") return;
-        expect(parseCall.callee.object.inferredType?.kind).to.equal("objectType");
+        expect(parseCall.callee.object.inferredType?.kind).to.equal(
+          "objectType"
+        );
         if (parseCall.callee.object.inferredType?.kind !== "objectType") return;
         expect(
-          [...parseCall.callee.object.inferredType.members.map((member) => member.name)].sort()
+          [
+            ...parseCall.callee.object.inferredType.members.map(
+              (member) => member.name
+            ),
+          ].sort()
         ).to.deep.equal(["basename", "parse", "ParsedPathError"].sort());
         const errorMember = parseCall.callee.object.inferredType.members.find(
           (member) => member.name === "ParsedPathError"
@@ -573,8 +579,14 @@ describe("IR Builder", function () {
       );
 
       try {
-        const moduleResults = fixture.testProgram.sourceFiles.map((sourceFile) =>
-          buildIrModule(sourceFile, fixture.testProgram, fixture.options, fixture.ctx)
+        const moduleResults = fixture.testProgram.sourceFiles.map(
+          (sourceFile) =>
+            buildIrModule(
+              sourceFile,
+              fixture.testProgram,
+              fixture.options,
+              fixture.ctx
+            )
         );
         expect(moduleResults.every((result) => result.ok)).to.equal(true);
         if (!moduleResults.every((result) => result.ok)) return;
@@ -586,7 +598,8 @@ describe("IR Builder", function () {
         expect(lowered.ok).to.equal(true);
         expect(
           lowered.modules.some(
-            (module) => module.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+            (module) =>
+              module.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
           )
         ).to.equal(false);
       } finally {
@@ -615,8 +628,14 @@ describe("IR Builder", function () {
       );
 
       try {
-        const moduleResults = fixture.testProgram.sourceFiles.map((sourceFile) =>
-          buildIrModule(sourceFile, fixture.testProgram, fixture.options, fixture.ctx)
+        const moduleResults = fixture.testProgram.sourceFiles.map(
+          (sourceFile) =>
+            buildIrModule(
+              sourceFile,
+              fixture.testProgram,
+              fixture.options,
+              fixture.ctx
+            )
         );
         expect(moduleResults.every((result) => result.ok)).to.equal(true);
         if (!moduleResults.every((result) => result.ok)) return;
@@ -627,7 +646,8 @@ describe("IR Builder", function () {
 
         expect(lowered.ok).to.equal(true);
         const anonModule = lowered.modules.find(
-          (module) => module.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+          (module) =>
+            module.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
         );
         expect(anonModule).to.not.equal(undefined);
         if (!anonModule) return;
@@ -657,9 +677,13 @@ describe("IR Builder", function () {
         expect(initializer.expression.kind).to.equal("call");
         if (initializer.expression.kind !== "call") return;
 
-        const sourceBackedReturnType = initializer.expression.sourceBackedReturnType;
+        const sourceBackedReturnType =
+          initializer.expression.sourceBackedReturnType;
         expect(sourceBackedReturnType?.kind).to.equal("unionType");
-        if (!sourceBackedReturnType || sourceBackedReturnType.kind !== "unionType") {
+        if (
+          !sourceBackedReturnType ||
+          sourceBackedReturnType.kind !== "unionType"
+        ) {
           return;
         }
         for (const branch of sourceBackedReturnType.types) {

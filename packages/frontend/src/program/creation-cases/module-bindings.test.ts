@@ -19,7 +19,9 @@ describe("Program Creation – module bindings", function () {
       const projectRoot = fixture.path("app");
       const srcDir = fixture.path("app/src");
       const entryPath = fixture.path("app/src/index.ts");
-      const packageEntry = fixture.path("app/node_modules/@tsonic/nodejs/src/fs.ts");
+      const packageEntry = fixture.path(
+        "app/node_modules/@tsonic/nodejs/src/fs.ts"
+      );
 
       const result = createProgram([entryPath], {
         projectRoot,
@@ -52,9 +54,10 @@ describe("Program Creation – module bindings", function () {
       );
       if (!ts.isNamedImports(importDecl.importClause.namedBindings)) return;
 
-      const importSpecifier = importDecl.importClause.namedBindings.elements.find(
-        (element) => element.name.text === "readFileSync"
-      );
+      const importSpecifier =
+        importDecl.importClause.namedBindings.elements.find(
+          (element) => element.name.text === "readFileSync"
+        );
       expect(importSpecifier).to.not.equal(undefined);
       if (!importSpecifier) return;
 
@@ -133,7 +136,9 @@ describe("Program Creation – module bindings", function () {
       const projectRoot = fixture.path("app");
       const srcDir = fixture.path("app/src");
       const entryPath = fixture.path("app/src/index.ts");
-      const packageEntry = fixture.path("app/node_modules/@fixture/js/src/console.ts");
+      const packageEntry = fixture.path(
+        "app/node_modules/@fixture/js/src/console.ts"
+      );
 
       const result = createProgram([entryPath], {
         projectRoot,
@@ -234,7 +239,9 @@ describe("Program Creation – module bindings", function () {
       const projectRoot = fixture.path("app");
       const srcDir = fixture.path("app/src");
       const entryPath = fixture.path("app/src/index.ts");
-      const packageEntry = fixture.path("app/node_modules/@acme/math/src/index.ts");
+      const packageEntry = fixture.path(
+        "app/node_modules/@acme/math/src/index.ts"
+      );
 
       const result = createProgram([entryPath], {
         projectRoot,
@@ -277,13 +284,18 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const consoleSourceFiles = result.value.sourceFiles.filter((sourceFile) => {
-        try {
-          return fs.realpathSync(sourceFile.fileName) === fs.realpathSync(consolePath);
-        } catch {
-          return false;
+      const consoleSourceFiles = result.value.sourceFiles.filter(
+        (sourceFile) => {
+          try {
+            return (
+              fs.realpathSync(sourceFile.fileName) ===
+              fs.realpathSync(consolePath)
+            );
+          } catch {
+            return false;
+          }
         }
-      });
+      );
       expect(consoleSourceFiles).to.have.lengthOf(1);
     } finally {
       fixture.cleanup();

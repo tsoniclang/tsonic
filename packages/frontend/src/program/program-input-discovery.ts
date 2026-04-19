@@ -166,10 +166,7 @@ const addInstalledSourcePackageCandidate = (
   packageIndex.set(packageName, packageRoot);
 };
 
-const isDirectoryLikeEntry = (
-  rootPath: string,
-  entry: fs.Dirent
-): boolean => {
+const isDirectoryLikeEntry = (rootPath: string, entry: fs.Dirent): boolean => {
   if (entry.isDirectory()) {
     return true;
   }
@@ -245,7 +242,10 @@ export type ProgramInputDiscovery = {
   readonly typeRoots: readonly string[];
   readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
   readonly namespaceIndexFiles: readonly string[];
-  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
+  readonly declarationModuleAliases: ReadonlyMap<
+    string,
+    DeclarationModuleAlias
+  >;
   readonly allFiles: readonly string[];
   readonly tsOptions: ts.CompilerOptions;
 };
@@ -306,10 +306,7 @@ export const discoverProgramInputs = (
   const currentProjectSourceMetadata = readSourcePackageMetadata(
     options.projectRoot
   );
-  if (
-    currentProjectPackageName &&
-    currentProjectSourceMetadata
-  ) {
+  if (currentProjectPackageName && currentProjectSourceMetadata) {
     const normalizedProjectRoot = canonicalizeRootDirPath(options.projectRoot);
     authoritativeTsonicPackageRoots.set(
       currentProjectPackageName,
@@ -347,7 +344,11 @@ export const discoverProgramInputs = (
   const waveQueue = Array.from(activeAuthoritativeSourcePackageRoots.entries());
   const visitedWaveRoots = new Set<string>();
   while (waveQueue.length > 0) {
-    const [packageName, packageRoot] = waveQueue.shift()!;
+    const nextWaveEntry = waveQueue.shift();
+    if (!nextWaveEntry) {
+      continue;
+    }
+    const [packageName, packageRoot] = nextWaveEntry;
     const visitKey = `${packageName}::${path.resolve(packageRoot)}`;
     if (visitedWaveRoots.has(visitKey)) {
       continue;

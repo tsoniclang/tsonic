@@ -15,8 +15,12 @@ import {
 import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
 import { isBooleanType } from "./helpers.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
-import { identifierType } from "../../core/format/backend-ast/builders.js";
-import { adaptValueToExpectedTypeAst } from "../expected-type-adaptation.js";
+import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";
+import {
+  adaptValueToExpectedTypeAst,
+  resolveDirectStorageCompatibleExpressionType,
+} from "../expected-type-adaptation.js";
+import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 
 /**
  * Check if an expression AST can still produce a nullable value type.
@@ -39,7 +43,38 @@ const preservesNullableValueFallback = (ast: CSharpExpressionAst): boolean => {
     case "memberAccessExpression":
       return preservesNullableValueFallback(ast.expression);
     case "invocationExpression":
-      return preservesNullableValueFallback(ast.expression);
+      return (
+        preservesNullableValueFallback(ast.expression) ||
+        (() => {
+          let callee = ast.expression;
+          while (callee.kind === "parenthesizedExpression") {
+            callee = callee.expression;
+          }
+          if (callee.kind !== "castExpression") {
+            return false;
+          }
+
+          const castTypeName = getIdentifierTypeName(callee.type);
+          if (
+            castTypeName !== "Func" &&
+            castTypeName !== "System.Func" &&
+            castTypeName !== "global::System.Func"
+          ) {
+            return false;
+          }
+
+          const typeArguments =
+            callee.type.kind === "identifierType" ||
+            callee.type.kind === "qualifiedIdentifierType"
+              ? callee.type.typeArguments
+              : undefined;
+          const returnType =
+            typeArguments && typeArguments.length > 0
+              ? typeArguments[typeArguments.length - 1]
+              : undefined;
+          return returnType?.kind === "nullableType";
+        })()
+      );
     case "elementAccessExpression":
       return preservesNullableValueFallback(ast.expression);
     case "parenthesizedExpression":
@@ -128,7 +163,8 @@ const buildSingleEvalGenericNullishAst = (
             types: [nonNullLeftType, rightType],
           } satisfies IrType)
       : undefined;
-  const targetType = expectedType ?? synthesizedUnionTarget ?? expr.inferredType;
+  const targetType =
+    expectedType ?? synthesizedUnionTarget ?? expr.inferredType;
   if (!targetType) {
     return undefined;
   }
@@ -154,59 +190,42 @@ const buildSingleEvalGenericNullishAst = (
     targetType
   );
 
-  const adaptedLeft =
-    adaptValueToExpectedTypeAst({
-      valueAst: tempIdentifier,
-      actualType: leftType,
-      context: rightContext,
-      expectedType: targetType,
-    }) ?? [tempIdentifier, rightContext];
-  const adaptedRight =
-    adaptValueToExpectedTypeAst({
-      valueAst: rawRightAst,
-      actualType: rightType,
-      context: adaptedLeft[1],
-      expectedType: targetType,
-    }) ?? [rawRightAst, adaptedLeft[1]];
+  const adaptedLeft = adaptValueToExpectedTypeAst({
+    valueAst: tempIdentifier,
+    actualType: leftType,
+    context: rightContext,
+    expectedType: targetType,
+  }) ?? [tempIdentifier, rightContext];
+  const adaptedRight = adaptValueToExpectedTypeAst({
+    valueAst: rawRightAst,
+    actualType: rightType,
+    context: adaptedLeft[1],
+    expectedType: targetType,
+  }) ?? [rawRightAst, adaptedLeft[1]];
 
   return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "parenthesizedExpression",
-        expression: {
-          kind: "castExpression",
-          type: identifierType("global::System.Func", [
-            parameterTypeAst,
-            returnTypeAst,
-          ]),
-          expression: {
-            kind: "parenthesizedExpression",
-            expression: {
-              kind: "lambdaExpression",
-              isAsync: false,
-              parameters: [{ name: tempName, type: parameterTypeAst }],
-              body: {
-                kind: "conditionalExpression",
-                condition: {
-                  kind: "binaryExpression",
-                  operatorToken: "==",
-                  left: {
-                    kind: "castExpression",
-                    type: { kind: "predefinedType", keyword: "object" },
-                    expression: tempIdentifier,
-                  },
-                  right: { kind: "nullLiteralExpression" },
-                },
-                whenTrue: adaptedRight[0],
-                whenFalse: adaptedLeft[0],
-              },
-            },
+    buildInvokedLambdaExpressionAst({
+      parameters: [{ name: tempName, type: parameterTypeAst }],
+      parameterTypes: [parameterTypeAst],
+      body: {
+        kind: "conditionalExpression",
+        condition: {
+          kind: "binaryExpression",
+          operatorToken: "==",
+          left: {
+            kind: "castExpression",
+            type: { kind: "predefinedType", keyword: "object" },
+            expression: tempIdentifier,
           },
+          right: { kind: "nullLiteralExpression" },
         },
+        whenTrue: adaptedRight[0],
+        whenFalse: adaptedLeft[0],
       },
       arguments: [leftAst],
-    },
+      returnType: returnTypeAst,
+      context: adaptedRight[1],
+    }),
     adaptedRight[1],
   ];
 };
@@ -386,10 +405,12 @@ export const emitLogical = (
 
   // If the left operand is a non-nullable value type, `??` is invalid in C# and the
   // fallback is unreachable. Emit only the left operand.
-  const directLeftStorageType = resolveDirectValueSurfaceType(
-    leftAst,
-    leftContext
-  );
+  const directLeftStorageType =
+    resolveDirectStorageCompatibleExpressionType({
+      expr: expr.left,
+      valueAst: leftAst,
+      context: leftContext,
+    }) ?? resolveDirectValueSurfaceType(leftAst, leftContext);
   const leftPreservesRuntimeNullish =
     hasUnionMember(directLeftStorageType, isUndefinedPrimitive) ||
     hasUnionMember(directLeftStorageType, isNullPrimitive);
@@ -402,7 +423,10 @@ export const emitLogical = (
     // Conditional access (`?.` / `?[`) produces nullable value types in C# even when the
     // underlying member type is non-nullable (e.g., `string?.Length` → `int?`).
     // In that case the fallback is still meaningful and must be preserved.
-    if (!preservesNullableValueFallback(leftAst) && !leftPreservesRuntimeNullish) {
+    if (
+      !preservesNullableValueFallback(leftAst) &&
+      !leftPreservesRuntimeNullish
+    ) {
       return [leftAst, leftContext];
     }
   }

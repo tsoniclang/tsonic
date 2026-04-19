@@ -32,7 +32,10 @@ export type ResolveImportOptions = {
   readonly projectRoot?: string;
   readonly surface?: string;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
-  readonly declarationModuleAliases?: ReadonlyMap<string, DeclarationModuleAlias>;
+  readonly declarationModuleAliases?: ReadonlyMap<
+    string,
+    DeclarationModuleAlias
+  >;
 };
 
 const findAuthoritativePackageRootForImport = (
@@ -78,7 +81,10 @@ const findCaseMismatchPath = (
   let currentDir = containingDir;
 
   for (let i = 0; i < segments.length; i += 1) {
-    const segment = segments[i]!;
+    const segment = segments[i];
+    if (!segment) {
+      continue;
+    }
     const entries = fs.readdirSync(currentDir);
     if (entries.includes(segment)) {
       currentDir = path.join(currentDir, segment);
@@ -223,7 +229,10 @@ export const resolveImport = (
             canonicalImportSpecifier,
             authoritativePackageRoot
           )
-        : resolveInstalledPackageImport(canonicalImportSpecifier, containingFile);
+        : resolveInstalledPackageImport(
+            canonicalImportSpecifier,
+            containingFile
+          );
     if (!installedPackage.ok) return installedPackage;
     if (installedPackage.value) {
       return ok({

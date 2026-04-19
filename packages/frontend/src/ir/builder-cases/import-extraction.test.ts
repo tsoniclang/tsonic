@@ -7,6 +7,7 @@ import { expect } from "chai";
 import * as ts from "typescript";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
+import type { BindingFile } from "../../program/binding-types.js";
 import {
   createProgram,
   createProgramContext,
@@ -312,32 +313,29 @@ describe("IR Builder", function () {
         tempDir,
         "node_modules/@tsonic/dotnet/System/bindings.json"
       );
-      ctx.bindings.addBindings(
-        systemBindingsPath,
-        {
-          namespace: "System",
-          types: [
-            {
-              alias: "Console",
-              clrName: "System.Console",
-              assemblyName: "System.Console",
-              kind: "Class",
-              methods: [],
-              properties: [],
-              fields: [],
-            },
-            {
-              alias: "DateTimeOffset",
-              clrName: "System.DateTimeOffset",
-              assemblyName: "System.Runtime",
-              kind: "Class",
-              methods: [],
-              properties: [],
-              fields: [],
-            },
-          ],
-        } as any
-      );
+      ctx.bindings.addBindings(systemBindingsPath, {
+        namespace: "System",
+        types: [
+          {
+            alias: "Console",
+            clrName: "System.Console",
+            assemblyName: "System.Console",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+          {
+            alias: "DateTimeOffset",
+            clrName: "System.DateTimeOffset",
+            assemblyName: "System.Runtime",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      } as BindingFile);
 
       try {
         const result = buildIrModule(sourceFile, testProgram, options, ctx);
@@ -641,12 +639,7 @@ describe("IR Builder", function () {
               : { isClr: false as const },
         };
 
-        const result = buildIrModule(
-          sourceFile,
-          testProgram,
-          options,
-          ctx
-        );
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
         expect(result.ok).to.equal(true);
         if (!result.ok) return;
@@ -659,9 +652,7 @@ describe("IR Builder", function () {
         expect(imp.resolvedNamespace).to.equal(undefined);
         expect(imp.resolvedClrType).to.equal(undefined);
         expect(imp.resolvedPath).to.equal(
-          fixture.path(
-            "app/node_modules/@tsonic/nodejs/src/process-module.ts"
-          )
+          fixture.path("app/node_modules/@tsonic/nodejs/src/process-module.ts")
         );
       } finally {
         fixture.cleanup();
@@ -780,12 +771,7 @@ describe("IR Builder", function () {
         };
         (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
-        const result = buildIrModule(
-          sourceFile,
-          program,
-          options,
-          ctx
-        );
+        const result = buildIrModule(sourceFile, program, options, ctx);
 
         expect(result.ok).to.equal(true);
         if (!result.ok) return;
@@ -855,12 +841,7 @@ describe("IR Builder", function () {
         };
         (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
-        const result = buildIrModule(
-          sourceFile,
-          program,
-          options,
-          ctx
-        );
+        const result = buildIrModule(sourceFile, program, options, ctx);
 
         expect(result.ok).to.equal(true);
         if (!result.ok) return;
@@ -916,7 +897,9 @@ describe("IR Builder", function () {
         expect(response.resolvedClrType).to.equal(undefined);
 
         const serverDecl = result.value.body.find(
-          (stmt): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
             stmt.kind === "variableDeclaration" &&
             stmt.declarations[0]?.name.kind === "identifierPattern" &&
             stmt.declarations[0]?.name.name === "server"
@@ -937,7 +920,9 @@ describe("IR Builder", function () {
         );
 
         const handlerDecl = result.value.body.find(
-          (stmt): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
             stmt.kind === "variableDeclaration" &&
             stmt.declarations[0]?.name.kind === "identifierPattern" &&
             stmt.declarations[0]?.name.name === "handler"
@@ -1032,7 +1017,9 @@ describe("IR Builder", function () {
         if (!result.ok) return;
 
         const overloads = result.value.body.filter(
-          (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
             stmt.kind === "functionDeclaration" && stmt.name === "createServer"
         );
         expect(overloads.length).to.be.greaterThan(0);

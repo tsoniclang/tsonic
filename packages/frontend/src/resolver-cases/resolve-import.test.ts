@@ -175,17 +175,24 @@ describe("Module Resolver", () => {
     });
 
     it("should resolve installed tsonic source packages", () => {
-      const fixture = materializeResolveImportFixture("installed-source-package");
+      const fixture = materializeResolveImportFixture(
+        "installed-source-package"
+      );
 
       try {
         const projectRoot = fixture.path("app");
         const packageRoot = fixture.path("app/node_modules/@acme/math");
         const containingFile = fixture.path("app/src/index.ts");
 
-        const result = resolveImport("@acme/math", containingFile, projectRoot, {
+        const result = resolveImport(
+          "@acme/math",
+          containingFile,
           projectRoot,
-          surface: "@tsonic/js",
-        });
+          {
+            projectRoot,
+            surface: "@tsonic/js",
+          }
+        );
 
         expect(result.ok).to.equal(true);
         if (result.ok) {
@@ -201,7 +208,9 @@ describe("Module Resolver", () => {
     });
 
     it("should resolve installed source-package subpath exports", () => {
-      const fixture = materializeResolveImportFixture("installed-source-package");
+      const fixture = materializeResolveImportFixture(
+        "installed-source-package"
+      );
 
       try {
         const projectRoot = fixture.path("app");
@@ -260,7 +269,9 @@ describe("Module Resolver", () => {
     });
 
     it("should prefer direct source-package imports over CLR resolution", () => {
-      const fixture = materializeResolveImportFixture("source-package-over-clr");
+      const fixture = materializeResolveImportFixture(
+        "source-package-over-clr"
+      );
 
       try {
         const projectRoot = fixture.path("app");
@@ -340,7 +351,9 @@ describe("Module Resolver", () => {
     });
 
     it("should reject source-package local imports that only match the package root by string prefix", () => {
-      const fixture = materializeResolveImportFixture("installed-source-package");
+      const fixture = materializeResolveImportFixture(
+        "installed-source-package"
+      );
 
       try {
         const packageEntry = fixture.path(
@@ -372,14 +385,21 @@ describe("Module Resolver", () => {
         const projectRoot = fixture.path("app");
         const containingFile = fixture.path("app/src/index.ts");
 
-        const result = resolveImport("@acme/math", containingFile, projectRoot, {
+        const result = resolveImport(
+          "@acme/math",
+          containingFile,
           projectRoot,
-          surface: "@tsonic/js",
-        });
+          {
+            projectRoot,
+            surface: "@tsonic/js",
+          }
+        );
 
         expect(result.ok).to.equal(false);
         if (!result.ok) {
-          expect(result.error.message).to.include("not compatible with surface");
+          expect(result.error.message).to.include(
+            "not compatible with surface"
+          );
         }
       } finally {
         fixture.cleanup();
@@ -387,16 +407,23 @@ describe("Module Resolver", () => {
     });
 
     it("should allow source packages on compatible parent surfaces", () => {
-      const fixture = materializeResolveImportFixture("compatible-parent-surface");
+      const fixture = materializeResolveImportFixture(
+        "compatible-parent-surface"
+      );
 
       try {
         const projectRoot = fixture.path("app");
         const containingFile = fixture.path("app/src/index.ts");
 
-        const result = resolveImport("@acme/math", containingFile, projectRoot, {
+        const result = resolveImport(
+          "@acme/math",
+          containingFile,
           projectRoot,
-          surface: "@acme/surface-node",
-        });
+          {
+            projectRoot,
+            surface: "@acme/surface-node",
+          }
+        );
 
         expect(result.ok).to.equal(true);
       } finally {
@@ -440,7 +467,9 @@ describe("Module Resolver", () => {
     });
 
     it("should resolve sibling source-package dependencies from imported wave files", () => {
-      const fixture = materializeResolveImportFixture("sibling-wave-dependency");
+      const fixture = materializeResolveImportFixture(
+        "sibling-wave-dependency"
+      );
 
       try {
         const projectRoot = fixture.path("workspace");
@@ -472,7 +501,9 @@ describe("Module Resolver", () => {
     });
 
     it("should prefer sibling source-package dependencies over installed CLR shadows", () => {
-      const fixture = materializeResolveImportFixture("sibling-wave-over-shadow");
+      const fixture = materializeResolveImportFixture(
+        "sibling-wave-over-shadow"
+      );
 
       try {
         const projectRoot = fixture.path("workspace");

@@ -12,10 +12,7 @@ import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { needsIntCast } from "./call-analysis.js";
-import {
-  emitCallArguments,
-  wrapIntCast,
-} from "./call-arguments.js";
+import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 import {
   isArrayWrapperBindingType,

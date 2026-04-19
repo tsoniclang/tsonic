@@ -49,12 +49,18 @@ describe("call resolution type ids", () => {
         },
       ];
 
-      const substituted = substitutePolymorphicThis(recursiveType, receiverType);
+      const substituted = substitutePolymorphicThis(
+        recursiveType,
+        receiverType
+      );
 
       expect(substituted).to.not.equal(undefined);
       expect(substituted?.kind).to.equal("referenceType");
 
-      const reference = substituted as Extract<IrType, { kind: "referenceType" }>;
+      const reference = substituted as Extract<
+        IrType,
+        { kind: "referenceType" }
+      >;
       const selfMember = reference.structuralMembers?.[0];
       const valueMember = reference.structuralMembers?.[1];
       const nextMember = reference.structuralMembers?.[2];
@@ -68,7 +74,9 @@ describe("call resolution type ids", () => {
         valueMember?.kind !== "propertySignature" ||
         nextMember?.kind !== "methodSignature"
       ) {
-        throw new Error("Expected recursive structural members to be preserved");
+        throw new Error(
+          "Expected recursive structural members to be preserved"
+        );
       }
 
       expect(selfMember.type).to.equal(reference);

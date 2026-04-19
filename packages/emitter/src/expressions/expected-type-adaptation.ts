@@ -1,11 +1,13 @@
-import { stableIrTypeKey, type IrExpression, type IrType } from "@tsonic/frontend";
+import {
+  stableIrTypeKey,
+  type IrExpression,
+  type IrType,
+} from "@tsonic/frontend";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import type { EmitterContext } from "../types.js";
-import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import { sameTypeAstSurface } from "../core/format/backend-ast/utils.js";
-import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import {
   matchesExpectedEmissionType,
   requiresValueTypeMaterialization,
@@ -29,7 +31,10 @@ import {
 } from "./runtime-union-adaptation.js";
 import {
   resolveDirectStorageExpressionType,
+  resolveDirectStorageIrType,
   resolveIdentifierRuntimeCarrierType,
+  resolveRuntimeCarrierExpressionAst,
+  resolveRuntimeCarrierIrType,
 } from "./direct-storage-types.js";
 import { resolveDirectValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
 import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
@@ -41,7 +46,10 @@ import {
   findExactRuntimeUnionMemberIndices,
 } from "../core/semantic/runtime-unions.js";
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
-import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
+import {
+  isBroadObjectPassThroughType,
+  isBroadObjectSlotType,
+} from "../core/semantic/js-value-types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
@@ -52,6 +60,8 @@ import {
 } from "../core/semantic/type-resolution.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
+import { identifierExpression } from "../core/format/backend-ast/builders.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 const isBroadCarrierPreservingTarget = (
   type: IrType | undefined,
@@ -76,7 +86,21 @@ const matchesRuntimeUnionCarrierSurface = (
     !willCarryAsRuntimeUnion(actualType, context) &&
     !willCarryAsRuntimeUnion(expectedType, context)
   ) {
-    return true;
+    const actualExactSurface = tryEmitExactComparisonTargetAst(
+      actualType,
+      context
+    );
+    if (!actualExactSurface) {
+      return false;
+    }
+    const expectedExactSurface = tryEmitExactComparisonTargetAst(
+      expectedType,
+      actualExactSurface[1]
+    );
+    return (
+      !!expectedExactSurface &&
+      sameTypeAstSurface(actualExactSurface[0], expectedExactSurface[0])
+    );
   }
 
   const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
@@ -110,8 +134,14 @@ const hasMatchingRuntimeCarrierFamily = (
   }
 
   const resolvedActual = resolveTypeAlias(stripNullish(actualType), context);
-  const resolvedExpected = resolveTypeAlias(stripNullish(expectedType), context);
-  if (resolvedActual.kind !== "unionType" || resolvedExpected.kind !== "unionType") {
+  const resolvedExpected = resolveTypeAlias(
+    stripNullish(expectedType),
+    context
+  );
+  if (
+    resolvedActual.kind !== "unionType" ||
+    resolvedExpected.kind !== "unionType"
+  ) {
     return false;
   }
 
@@ -136,8 +166,9 @@ export const resolveCarrierPreservingSourceType = (
   const sourceHasRuntimeNullish =
     splitRuntimeNullishUnionMembers(sourceType)?.hasRuntimeNullish ?? false;
   const targetHasRuntimeNullish =
-    splitRuntimeNullishUnionMembers(carrierTargetType)?.hasRuntimeNullish ?? false;
-  if (sourceHasRuntimeNullish !== targetHasRuntimeNullish) {
+    splitRuntimeNullishUnionMembers(carrierTargetType)?.hasRuntimeNullish ??
+    false;
+  if (sourceHasRuntimeNullish && !targetHasRuntimeNullish) {
     return undefined;
   }
   return matchesExpectedEmissionType(
@@ -207,6 +238,27 @@ const resolveRawRuntimeUnionProjectionSourceType = (
   return sourceType;
 };
 
+const resolveActiveCarrierSourceType = (
+  carrierType: IrType | undefined,
+  effectiveExpressionType: IrType | undefined
+): IrType | undefined => {
+  if (!carrierType) {
+    return undefined;
+  }
+
+  const carrierHasRuntimeNullish =
+    splitRuntimeNullishUnionMembers(carrierType)?.hasRuntimeNullish ?? false;
+  const effectiveHasRuntimeNullish =
+    (effectiveExpressionType
+      ? splitRuntimeNullishUnionMembers(effectiveExpressionType)
+          ?.hasRuntimeNullish
+      : false) ?? false;
+
+  return carrierHasRuntimeNullish && !effectiveHasRuntimeNullish
+    ? stripNullish(carrierType)
+    : carrierType;
+};
+
 const stillUsesRawRuntimeProjectionSourceType = (
   effectiveExpressionType: IrType | undefined,
   rawProjectionSourceType: IrType | undefined,
@@ -235,6 +287,20 @@ const stillUsesRawRuntimeProjectionSourceType = (
   );
 };
 
+const unwrapTransparentAst = (
+  ast: CSharpExpressionAst
+): CSharpExpressionAst => {
+  let current = ast;
+  while (
+    current.kind === "parenthesizedExpression" ||
+    current.kind === "castExpression" ||
+    current.kind === "asExpression"
+  ) {
+    current = current.expression;
+  }
+  return current;
+};
+
 export const resolveCarrierPreservingRawExpectedType = (opts: {
   readonly expr: IrExpression;
   readonly selectedExpectedType: IrType | undefined;
@@ -261,21 +327,101 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
   if (!isCarrierPreservingExpectedType(carrierTargetType, context)) {
     return contextualExpectedType;
   }
+  const narrowKey =
+    transparentExpr.kind === "identifier"
+      ? transparentExpr.name
+      : transparentExpr.kind === "memberAccess"
+        ? getMemberAccessNarrowKey(transparentExpr)
+        : undefined;
+  const narrowed = narrowKey
+    ? context.narrowedBindings?.get(narrowKey)
+    : undefined;
+  const hasProjectedNarrowing =
+    narrowed?.kind === "expr" || narrowed?.kind === "runtimeSubset";
   const effectiveExpressionType =
     resolveEffectiveExpressionType(transparentExpr, context) ??
     transparentExpr.inferredType;
   const expressionStillCarriesRuntimeUnion =
     !!effectiveExpressionType &&
     willCarryAsRuntimeUnion(stripNullish(effectiveExpressionType), context);
-
-  if (transparentExpr.kind === "identifier") {
-    const storageType = resolveIdentifierRuntimeCarrierType(
+  if (!hasProjectedNarrowing) {
+    const directStorageType = resolveDirectStorageIrType(
       transparentExpr,
       context
     );
+
+    if (
+      directStorageType &&
+      resolveCarrierPreservingSourceType(
+        directStorageType,
+        carrierTargetType,
+        context
+      )
+    ) {
+      return carrierTargetType;
+    }
+
+    const directRawProjectionSourceType =
+      resolveRawRuntimeUnionProjectionSourceType(
+        directStorageType,
+        carrierTargetType,
+        context
+      );
+    if (
+      directRawProjectionSourceType &&
+      expressionStillCarriesRuntimeUnion &&
+      stillUsesRawRuntimeProjectionSourceType(
+        effectiveExpressionType ?? directStorageType,
+        directRawProjectionSourceType,
+        context
+      )
+    ) {
+      return directRawProjectionSourceType;
+    }
+
+    if (transparentExpr.kind === "identifier") {
+      const storageType = resolveIdentifierRuntimeCarrierType(
+        transparentExpr,
+        context
+      );
+      if (
+        resolveCarrierPreservingSourceType(
+          storageType,
+          carrierTargetType,
+          context
+        )
+      ) {
+        return carrierTargetType;
+      }
+      const rawProjectionSourceType =
+        resolveRawRuntimeUnionProjectionSourceType(
+          storageType,
+          carrierTargetType,
+          context
+        );
+      if (
+        rawProjectionSourceType &&
+        expressionStillCarriesRuntimeUnion &&
+        stillUsesRawRuntimeProjectionSourceType(
+          effectiveExpressionType ?? storageType,
+          rawProjectionSourceType,
+          context
+        )
+      ) {
+        return rawProjectionSourceType;
+      }
+    }
+  } else if (narrowed?.kind === "expr") {
+    const narrowedCarrierType = resolveActiveCarrierSourceType(
+      resolveRuntimeCarrierIrType(transparentExpr, context) ??
+        narrowed.sourceType ??
+        narrowed.storageType ??
+        narrowed.type,
+      effectiveExpressionType
+    );
     if (
       resolveCarrierPreservingSourceType(
-        storageType,
+        narrowedCarrierType,
         carrierTargetType,
         context
       )
@@ -283,7 +429,7 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
       return carrierTargetType;
     }
     const rawProjectionSourceType = resolveRawRuntimeUnionProjectionSourceType(
-      storageType,
+      narrowedCarrierType,
       carrierTargetType,
       context
     );
@@ -291,43 +437,7 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
       rawProjectionSourceType &&
       expressionStillCarriesRuntimeUnion &&
       stillUsesRawRuntimeProjectionSourceType(
-        effectiveExpressionType ?? storageType,
-        rawProjectionSourceType,
-        context
-      )
-    ) {
-      return rawProjectionSourceType;
-    }
-  }
-
-  const narrowKey =
-    transparentExpr.kind === "identifier"
-      ? transparentExpr.name
-      : transparentExpr.kind === "memberAccess"
-        ? getMemberAccessNarrowKey(transparentExpr)
-        : undefined;
-  const narrowed = narrowKey ? context.narrowedBindings?.get(narrowKey) : undefined;
-  if (
-    (narrowed?.kind === "expr" || narrowed?.kind === "runtimeSubset") &&
-    resolveCarrierPreservingSourceType(
-      narrowed.sourceType,
-      carrierTargetType,
-      context
-    )
-  ) {
-    return carrierTargetType;
-  }
-  if (narrowed?.kind === "expr" || narrowed?.kind === "runtimeSubset") {
-    const rawProjectionSourceType = resolveRawRuntimeUnionProjectionSourceType(
-      narrowed.sourceType,
-      carrierTargetType,
-      context
-    );
-    if (
-      rawProjectionSourceType &&
-      expressionStillCarriesRuntimeUnion &&
-      stillUsesRawRuntimeProjectionSourceType(
-        effectiveExpressionType ?? narrowed.sourceType,
+        effectiveExpressionType ?? narrowedCarrierType,
         rawProjectionSourceType,
         context
       )
@@ -338,12 +448,42 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
 
   if (
     selectedExpectedType &&
-    stableIrTypeKey(selectedExpectedType) !== stableIrTypeKey(carrierTargetType) &&
-    matchesExpectedEmissionType(
-      selectedExpectedType,
-      carrierTargetType,
-      context
-    )
+    stableIrTypeKey(selectedExpectedType) !==
+      stableIrTypeKey(carrierTargetType) &&
+    (() => {
+      const [carrierLayout, layoutContext] = buildRuntimeUnionLayout(
+        carrierTargetType,
+        context,
+        emitTypeAst
+      );
+      if (carrierLayout) {
+        const exactMemberIndices = findExactRuntimeUnionMemberIndices(
+          carrierLayout.members,
+          selectedExpectedType,
+          layoutContext
+        );
+        if (exactMemberIndices.length === 1) {
+          return true;
+        }
+
+        const emissionMatchingMembers = carrierLayout.members.filter((member) =>
+          matchesExpectedEmissionType(
+            selectedExpectedType,
+            member,
+            layoutContext
+          )
+        );
+        if (emissionMatchingMembers.length === 1) {
+          return true;
+        }
+      }
+
+      return matchesExpectedEmissionType(
+        selectedExpectedType,
+        carrierTargetType,
+        context
+      );
+    })()
   ) {
     return selectedExpectedType;
   }
@@ -357,6 +497,22 @@ export const resolveDirectStorageCompatibleExpressionType = (opts: {
   readonly context: EmitterContext;
 }): IrType | undefined =>
   resolveDirectStorageExpressionType(opts.expr, opts.valueAst, opts.context);
+
+export const resolveDirectStorageCompatibleIrType = (opts: {
+  readonly expr: IrExpression;
+  readonly context: EmitterContext;
+}): IrType | undefined => resolveDirectStorageIrType(opts.expr, opts.context);
+
+export const resolveRuntimeCarrierCompatibleExpressionAst = (opts: {
+  readonly expr: IrExpression;
+  readonly context: EmitterContext;
+}): CSharpExpressionAst | undefined =>
+  resolveRuntimeCarrierExpressionAst(opts.expr, opts.context);
+
+export const resolveRuntimeCarrierCompatibleIrType = (opts: {
+  readonly expr: IrExpression;
+  readonly context: EmitterContext;
+}): IrType | undefined => resolveRuntimeCarrierIrType(opts.expr, opts.context);
 
 export const tryEmitCarrierPreservingExpressionAst = (opts: {
   readonly expr: IrExpression;
@@ -375,53 +531,30 @@ export const tryEmitCarrierPreservingExpressionAst = (opts: {
   }
 
   const transparentExpr = unwrapTransparentExpression(expr);
-  if (transparentExpr.kind === "identifier") {
-    const storageType = resolveIdentifierRuntimeCarrierType(
-      transparentExpr,
-      context
-    );
-    const carrierSourceType = resolveCarrierPreservingSourceType(
-      storageType,
-      expectedType,
-      context
-    );
-    if (carrierSourceType) {
-      return {
-        ast: identifierExpression(
-          context.localNameMap?.get(transparentExpr.name) ??
-            escapeCSharpIdentifier(transparentExpr.name)
-        ),
-        context,
-        actualType: carrierSourceType,
-      };
-    }
-  }
-
-  const narrowKey =
-    transparentExpr.kind === "identifier"
-      ? transparentExpr.name
-      : transparentExpr.kind === "memberAccess"
-        ? getMemberAccessNarrowKey(transparentExpr)
-        : undefined;
-  const narrowed = narrowKey ? context.narrowedBindings?.get(narrowKey) : undefined;
-  if (narrowed?.kind !== "expr" && narrowed?.kind !== "runtimeSubset") {
+  const carrierAst = resolveRuntimeCarrierExpressionAst(
+    transparentExpr,
+    context
+  );
+  const effectiveExpressionType =
+    resolveEffectiveExpressionType(transparentExpr, context) ??
+    transparentExpr.inferredType;
+  if (
+    isBroadObjectSlotType(expectedType, context) &&
+    effectiveExpressionType &&
+    willCarryAsRuntimeUnion(stripNullish(effectiveExpressionType), context)
+  ) {
     return undefined;
   }
-
+  const carrierType = resolveActiveCarrierSourceType(
+    resolveRuntimeCarrierIrType(transparentExpr, context),
+    effectiveExpressionType
+  );
   const carrierSourceType = resolveCarrierPreservingSourceType(
-    narrowed.sourceType,
+    carrierType,
     expectedType,
     context
   );
-  if (!carrierSourceType) {
-    return undefined;
-  }
-
-  const carrierAst =
-    narrowed.kind === "expr"
-      ? narrowed.carrierExprAst ?? narrowed.storageExprAst
-      : narrowed.storageExprAst;
-  if (carrierAst) {
+  if (carrierSourceType && carrierAst) {
     return {
       ast: carrierAst,
       context,
@@ -429,56 +562,7 @@ export const tryEmitCarrierPreservingExpressionAst = (opts: {
     };
   }
 
-  if (transparentExpr.kind === "identifier") {
-    return {
-      ast: identifierExpression(
-        context.localNameMap?.get(transparentExpr.name) ??
-          escapeCSharpIdentifier(transparentExpr.name)
-      ),
-      context,
-      actualType: carrierSourceType,
-    };
-  }
-
   return undefined;
-};
-
-const isBroadCarrierPassThroughActualType = (
-  type: IrType | undefined,
-  context: EmitterContext,
-  seen = new Set<IrType>()
-): boolean => {
-  if (!type || seen.has(type)) {
-    return false;
-  }
-  seen.add(type);
-
-  const resolved = resolveComparableType(type, context);
-  switch (resolved.kind) {
-    case "referenceType":
-    case "objectType":
-    case "arrayType":
-    case "tupleType":
-    case "dictionaryType":
-      return true;
-    case "literalType":
-      return typeof resolved.value === "string";
-    case "primitiveType":
-      return resolved.name === "string";
-    case "unionType":
-      return resolved.types.every((member) => {
-        const comparableMember = resolveComparableType(member, context);
-        return (
-          comparableMember.kind === "primitiveType" &&
-            comparableMember.name === "null" ||
-          comparableMember.kind === "primitiveType" &&
-            comparableMember.name === "undefined" ||
-          isBroadCarrierPassThroughActualType(member, context, seen)
-        );
-      });
-    default:
-      return false;
-  }
 };
 
 const isJsNumericAdaptationSource = (
@@ -510,10 +594,10 @@ const isJsNumericAdaptationSource = (
       return resolved.types.every((member) => {
         const comparableMember = resolveComparableType(member, context);
         return (
-          comparableMember.kind === "primitiveType" &&
-            comparableMember.name === "null" ||
-          comparableMember.kind === "primitiveType" &&
-            comparableMember.name === "undefined" ||
+          (comparableMember.kind === "primitiveType" &&
+            comparableMember.name === "null") ||
+          (comparableMember.kind === "primitiveType" &&
+            comparableMember.name === "undefined") ||
           isJsNumericAdaptationSource(member, context, seen)
         );
       });
@@ -541,7 +625,10 @@ const matchesDirectCarrierAst = (
 
   switch (left.kind) {
     case "identifierExpression":
-      return right.kind === "identifierExpression" && left.identifier === right.identifier;
+      return (
+        right.kind === "identifierExpression" &&
+        left.identifier === right.identifier
+      );
     case "parenthesizedExpression":
       return (
         right.kind === "parenthesizedExpression" &&
@@ -562,6 +649,39 @@ const matchesDirectCarrierAst = (
     default:
       return false;
   }
+};
+
+const preferNarrowedEffectiveActualType = (
+  directStorageType: IrType | undefined,
+  effectiveExpressionType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!directStorageType) {
+    return effectiveExpressionType;
+  }
+
+  if (!effectiveExpressionType) {
+    return directStorageType;
+  }
+
+  if (isBroadObjectSlotType(directStorageType, context)) {
+    return directStorageType;
+  }
+
+  return stableIrTypeKey(effectiveExpressionType) !==
+    stableIrTypeKey(directStorageType) &&
+    matchesExpectedEmissionType(
+      effectiveExpressionType,
+      directStorageType,
+      context
+    ) &&
+    !matchesExpectedEmissionType(
+      directStorageType,
+      effectiveExpressionType,
+      context
+    )
+    ? effectiveExpressionType
+    : directStorageType;
 };
 
 const trySelectExactRuntimeUnionMembers = (
@@ -662,10 +782,15 @@ export const adaptValueToExpectedTypeAst = (opts: {
     valueAst.kind === "identifierExpression"
       ? (() => {
           const narrowed = context.narrowedBindings?.get(valueAst.identifier);
-          if (narrowed?.kind !== "expr" || !narrowed.carrierExprAst) {
+          if (narrowed?.kind !== "expr") {
             return undefined;
           }
-          if (!matchesDirectCarrierAst(valueAst, narrowed.carrierExprAst)) {
+          const narrowedStorageAst =
+            narrowed.storageExprAst ?? narrowed.exprAst;
+          if (!narrowedStorageAst) {
+            return undefined;
+          }
+          if (!matchesDirectCarrierAst(valueAst, narrowedStorageAst)) {
             return undefined;
           }
           if (
@@ -674,18 +799,17 @@ export const adaptValueToExpectedTypeAst = (opts: {
           ) {
             return undefined;
           }
-          const carrierSourceType = narrowed.sourceType;
+          const carrierSourceType =
+            narrowed.storageType ??
+            (narrowed.storageExprAst ? narrowed.type : undefined);
           if (!carrierSourceType) {
             return undefined;
           }
-          const strippedCarrierType = stripNullish(carrierSourceType);
-          return matchesExpectedEmissionType(
-            strippedCarrierType,
+          return resolveCarrierPreservingSourceType(
+            carrierSourceType,
             expectedType,
             context
-          )
-            ? strippedCarrierType
-            : undefined;
+          );
         })()
       : undefined;
   if (narrowedCarrierSourceType) {
@@ -694,7 +818,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
 
   if (
     isBroadCarrierPreservingTarget(expectedType, context) &&
-    isBroadCarrierPassThroughActualType(actualType, context)
+    isBroadObjectPassThroughType(actualType, context)
   ) {
     return [valueAst, context];
   }
@@ -709,7 +833,10 @@ export const adaptValueToExpectedTypeAst = (opts: {
     return [valueAst, context];
   }
 
-  const directValueSurfaceType = resolveDirectValueSurfaceType(valueAst, context);
+  const directValueSurfaceType = resolveDirectValueSurfaceType(
+    valueAst,
+    context
+  );
   if (
     directValueSurfaceType &&
     resolveCarrierPreservingSourceType(
@@ -817,11 +944,61 @@ export const adaptEmittedExpressionAst = (opts: {
     !preservedTypeForAdaptation
       ? expr.expression
       : expr;
+  const broadPassThroughSourceIdentifier = (() => {
+    if (
+      !expectedType ||
+      !isBroadCarrierPreservingTarget(expectedType, castedContext) ||
+      adaptationSourceExpr.kind !== "identifier"
+    ) {
+      return undefined;
+    }
+
+    const unwrappedCastedAst = unwrapTransparentAst(castedAst);
+    const identifierName =
+      castedContext.localNameMap?.get(adaptationSourceExpr.name) ??
+      escapeCSharpIdentifier(adaptationSourceExpr.name);
+    if (
+      unwrappedCastedAst.kind !== "identifierExpression" ||
+      unwrappedCastedAst.identifier !== identifierName
+    ) {
+      return undefined;
+    }
+
+    const originalCarrierType =
+      context.localValueTypes?.get(adaptationSourceExpr.name) ??
+      context.localSemanticTypes?.get(adaptationSourceExpr.name) ??
+      adaptationSourceExpr.inferredType;
+    if (
+      !originalCarrierType ||
+      willCarryAsRuntimeUnion(originalCarrierType, castedContext)
+    ) {
+      return undefined;
+    }
+    if (
+      !matchesExpectedEmissionType(
+        originalCarrierType,
+        expectedType,
+        castedContext
+      ) &&
+      !isBroadObjectPassThroughType(originalCarrierType, castedContext)
+    ) {
+      return undefined;
+    }
+
+    return [identifierExpression(identifierName), castedContext] as [
+      CSharpExpressionAst,
+      EmitterContext,
+    ];
+  })();
+  if (broadPassThroughSourceIdentifier) {
+    return broadPassThroughSourceIdentifier;
+  }
   const directStorageType =
     expectedType &&
     (isBroadCarrierPreservingTarget(expectedType, castedContext) ||
       willCarryAsRuntimeUnion(expectedType, castedContext) ||
-      (splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ?? false))
+      (splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ??
+        false))
       ? resolveDirectStorageExpressionType(
           adaptationSourceExpr,
           castedAst,
@@ -838,6 +1015,88 @@ export const adaptEmittedExpressionAst = (opts: {
     narrowKey && castedContext.narrowedBindings
       ? castedContext.narrowedBindings.get(narrowKey)
       : undefined;
+  const recoveredNarrowedCarrier = (() => {
+    if (!expectedType || directCarrierNarrowed?.kind !== "expr") {
+      return undefined;
+    }
+    const narrowedType = directCarrierNarrowed.type;
+    if (
+      !narrowedType ||
+      !matchesExpectedEmissionType(narrowedType, expectedType, castedContext) ||
+      matchesExpectedEmissionType(expectedType, narrowedType, castedContext)
+    ) {
+      return undefined;
+    }
+    if (!matchesDirectCarrierAst(castedAst, directCarrierNarrowed.exprAst)) {
+      return undefined;
+    }
+    const carrierAst =
+      directCarrierNarrowed.carrierExprAst ??
+      directCarrierNarrowed.storageExprAst;
+    const carrierSourceType =
+      directCarrierNarrowed.carrierType ??
+      directCarrierNarrowed.sourceType ??
+      directCarrierNarrowed.storageType;
+    if (!carrierAst || !carrierSourceType) {
+      return undefined;
+    }
+    return resolveCarrierPreservingSourceType(
+      carrierSourceType,
+      expectedType,
+      castedContext
+    )
+      ? ([carrierAst, castedContext] as [CSharpExpressionAst, EmitterContext])
+      : undefined;
+  })();
+  if (recoveredNarrowedCarrier) {
+    return recoveredNarrowedCarrier;
+  }
+  const recoveredBroadPassThroughCarrier = (() => {
+    if (!expectedType || directCarrierNarrowed?.kind !== "expr") {
+      return undefined;
+    }
+    if (
+      !isBroadCarrierPreservingTarget(expectedType, castedContext) ||
+      !matchesDirectCarrierAst(castedAst, directCarrierNarrowed.exprAst)
+    ) {
+      return undefined;
+    }
+    if (adaptationSourceExpr.kind !== "identifier") {
+      return undefined;
+    }
+
+    const originalCarrierType =
+      directCarrierNarrowed.carrierType ??
+      directCarrierNarrowed.sourceType ??
+      castedContext.localValueTypes?.get(adaptationSourceExpr.name);
+    if (
+      !originalCarrierType ||
+      willCarryAsRuntimeUnion(originalCarrierType, castedContext)
+    ) {
+      return undefined;
+    }
+    if (
+      !matchesExpectedEmissionType(
+        originalCarrierType,
+        expectedType,
+        castedContext
+      ) &&
+      !isBroadObjectPassThroughType(originalCarrierType, castedContext)
+    ) {
+      return undefined;
+    }
+
+    return [
+      identifierExpression(
+        castedContext.localNameMap?.get(adaptationSourceExpr.name) ??
+          escapeCSharpIdentifier(adaptationSourceExpr.name)
+      ),
+      castedContext,
+    ] as [CSharpExpressionAst, EmitterContext];
+  })();
+  if (recoveredBroadPassThroughCarrier) {
+    return recoveredBroadPassThroughCarrier;
+  }
   const narrowedCarrierSourceType = (() => {
     if (!expectedType) {
       return undefined;
@@ -858,24 +1117,21 @@ export const adaptEmittedExpressionAst = (opts: {
       return undefined;
     }
     const carrierSourceType =
-      directCarrierNarrowed.sourceType ?? directStorageType;
-    return carrierSourceType ? stripNullish(carrierSourceType) : undefined;
+      directCarrierNarrowed.carrierType ??
+      directCarrierNarrowed.sourceType ??
+      directStorageType;
+    return carrierSourceType
+      ? resolveCarrierPreservingSourceType(
+          carrierSourceType,
+          expectedType,
+          castedContext
+        )
+      : undefined;
   })();
-  if (
-    narrowedCarrierSourceType &&
-    expectedType &&
-    matchesExpectedEmissionType(
-      narrowedCarrierSourceType,
-      expectedType,
-      castedContext
-    )
-  ) {
+  if (narrowedCarrierSourceType) {
     return [castedAst, castedContext];
   }
-  if (
-    directStorageType &&
-    expectedType
-  ) {
+  if (directStorageType && expectedType) {
     const [sameStorageSurface, storageSurfaceContext] =
       matchesEmittedStorageSurface(
         directStorageType,
@@ -898,7 +1154,14 @@ export const adaptEmittedExpressionAst = (opts: {
   const actualType =
     preservedTypeForAdaptation ??
     (expr.kind === "typeAssertion" ? expr.targetType : undefined) ??
-    directStorageExpressionType ??
+    (expr.kind === "call" || expr.kind === "new"
+      ? expr.sourceBackedReturnType
+      : undefined) ??
+    preferNarrowedEffectiveActualType(
+      directStorageExpressionType,
+      effectiveExpressionType,
+      castedContext
+    ) ??
     tryResolveRuntimeUnionMemberType(
       effectiveExpressionType,
       castedAst,

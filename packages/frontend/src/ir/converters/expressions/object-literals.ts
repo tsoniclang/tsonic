@@ -489,10 +489,7 @@ export const convertObjectLiteral = (
     : properties;
   const finalBehaviorMembers = finalObjectLiteralThisType
     ? behaviorMembers.map((member) =>
-        rebindObjectLiteralThisInClassMember(
-          member,
-          finalObjectLiteralThisType
-        )
+        rebindObjectLiteralThisInClassMember(member, finalObjectLiteralThisType)
       )
     : behaviorMembers;
 

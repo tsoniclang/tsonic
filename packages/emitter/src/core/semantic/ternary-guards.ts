@@ -210,7 +210,7 @@ const tryResolveTernaryDiscriminantEqualityGuard = (
   const narrowedMembers = resolveNarrowedUnionMembers(
     originalName,
     unionSourceType,
-    context,
+    context
   );
   if (!narrowedMembers) return undefined;
 

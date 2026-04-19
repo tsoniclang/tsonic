@@ -19,7 +19,10 @@ export const emitClassMember = (
   switch (member.kind) {
     case "propertyDeclaration":
       return (() => {
-        const [propertyMember, nextContext] = emitPropertyMember(member, context);
+        const [propertyMember, nextContext] = emitPropertyMember(
+          member,
+          context
+        );
         return [[propertyMember], nextContext];
       })();
 

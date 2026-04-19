@@ -18,6 +18,7 @@ import { emitTypeAst } from "../../types/emitter.js";
 import { createContext } from "../../emitter-types/context.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
 import type { TypeAliasIndex } from "../../emitter-types/core.js";
+import type { LocalTypeInfo } from "../../types.js";
 import { substituteTypeArgs } from "./type-resolution.js";
 import { createRuntimeUnionRegistry } from "./runtime-union-registry.js";
 
@@ -160,9 +161,11 @@ describe("runtime-unions", () => {
       emitTypeAst
     );
 
-    const closedUnion = substituteTypeArgs(openUnion, ["TElement"], [
-      { kind: "primitiveType", name: "string" },
-    ]);
+    const closedUnion = substituteTypeArgs(
+      openUnion,
+      ["TElement"],
+      [{ kind: "primitiveType", name: "string" }]
+    );
     const [closedLayout] = buildRuntimeUnionLayout(
       closedUnion,
       createContext({
@@ -397,6 +400,222 @@ describe("runtime-unions", () => {
     expect(layout?.runtimeUnionArity).to.equal(3);
     expect(layout?.members).to.have.length(3);
     expect(layout?.memberTypeAsts).to.have.length(3);
+  });
+
+  it("aligns expr-narrowed candidate slots to preserved carrier order even when semantic keys match", () => {
+    const anyArrayValue: IrType = {
+      kind: "referenceType",
+      name: "AnyArrayValue",
+      resolvedClrType: "Test.AnyArrayValue",
+    };
+    const pageArrayValue: IrType = {
+      kind: "referenceType",
+      name: "PageArrayValue",
+      resolvedClrType: "Test.PageArrayValue",
+    };
+    const stringValue: IrType = {
+      kind: "referenceType",
+      name: "StringValue",
+      resolvedClrType: "Test.StringValue",
+    };
+
+    const sourceCarrier = stampRuntimeUnionAliasCarrier(
+      {
+        kind: "unionType",
+        types: [anyArrayValue, pageArrayValue, stringValue],
+      },
+      {
+        aliasName: "Value",
+        fullyQualifiedName: "Test.Value",
+        namespaceName: "Test",
+        typeParameters: [],
+      }
+    );
+
+    const narrowedType: IrType = {
+      kind: "unionType",
+      types: [pageArrayValue, stringValue, anyArrayValue],
+    };
+
+    const context = createContext({ rootNamespace: "Test" });
+    const narrowedMembers = resolveNarrowedUnionMembers("value", narrowedType, {
+      ...context,
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "expr" as const,
+            exprAst: identifierExpression("value"),
+            type: narrowedType,
+            sourceType: sourceCarrier,
+          },
+        ],
+      ]),
+    });
+
+    expect(
+      narrowedMembers?.members.map((member) => {
+        if (member.kind === "referenceType") return member.name;
+        return member.kind;
+      })
+    ).to.deep.equal(["AnyArrayValue", "PageArrayValue", "StringValue"]);
+    expect(narrowedMembers?.candidateMemberNs).to.deep.equal([1, 2, 3]);
+    expect(narrowedMembers?.runtimeUnionArity).to.equal(3);
+  });
+
+  it("prefers source-owned carrier identity over incidental local semantic ordering", () => {
+    const stringValue: IrType = {
+      kind: "referenceType",
+      name: "StringValue",
+      resolvedClrType: "Test.StringValue",
+      structuralMembers: [
+        property("value", { kind: "primitiveType", name: "string" }),
+      ],
+    };
+    const pageArrayValue: IrType = {
+      kind: "referenceType",
+      name: "PageArrayValue",
+      resolvedClrType: "Test.PageArrayValue",
+      structuralMembers: [
+        property("value", {
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+        }),
+      ],
+    };
+    const anyArrayValue: IrType = {
+      kind: "referenceType",
+      name: "AnyArrayValue",
+      resolvedClrType: "Test.AnyArrayValue",
+      structuralMembers: [
+        property("value", {
+          kind: "referenceType",
+          name: "List",
+          resolvedClrType: "System.Collections.Generic.List",
+          typeArguments: [{ kind: "primitiveType", name: "string" }],
+        }),
+      ],
+    };
+
+    const sourceCarrier = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([stringValue, pageArrayValue, anyArrayValue]),
+      {
+        aliasName: "Value",
+        fullyQualifiedName: "Test.Value",
+        namespaceName: "Test",
+        typeParameters: [],
+      }
+    );
+    const effectiveType: IrType = {
+      kind: "unionType",
+      types: [pageArrayValue, stringValue, anyArrayValue],
+    };
+
+    const context = {
+      ...createContext({ rootNamespace: "Test" }),
+      localSemanticTypes: new Map<string, IrType>([["value", effectiveType]]),
+      localValueTypes: new Map<string, IrType>([["value", sourceCarrier]]),
+    };
+
+    const narrowedMembers = resolveNarrowedUnionMembers(
+      "value",
+      effectiveType,
+      context
+    );
+
+    expect(
+      narrowedMembers?.members.map((member) => {
+        if (member.kind === "referenceType") return member.name;
+        return member.kind;
+      })
+    ).to.deep.equal(["AnyArrayValue", "PageArrayValue", "StringValue"]);
+    expect(narrowedMembers?.candidateMemberNs).to.deep.equal([1, 2, 3]);
+    expect(narrowedMembers?.runtimeUnionArity).to.equal(3);
+  });
+
+  it("preserves source-owned carrier order when the carrier is referenced through a type alias", () => {
+    const stringValue: IrType = {
+      kind: "referenceType",
+      name: "StringValue",
+      resolvedClrType: "Test.StringValue",
+      structuralMembers: [
+        property("value", { kind: "primitiveType", name: "string" }),
+      ],
+    };
+    const pageArrayValue: IrType = {
+      kind: "referenceType",
+      name: "PageArrayValue",
+      resolvedClrType: "Test.PageArrayValue",
+      structuralMembers: [
+        property("value", {
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+        }),
+      ],
+    };
+    const anyArrayValue: IrType = {
+      kind: "referenceType",
+      name: "AnyArrayValue",
+      resolvedClrType: "Test.AnyArrayValue",
+      structuralMembers: [
+        property("value", {
+          kind: "referenceType",
+          name: "List",
+          resolvedClrType: "System.Collections.Generic.List",
+          typeArguments: [{ kind: "primitiveType", name: "string" }],
+        }),
+      ],
+    };
+
+    const sourceCarrier = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([stringValue, pageArrayValue, anyArrayValue]),
+      {
+        aliasName: "Value",
+        fullyQualifiedName: "Test.Value",
+        namespaceName: "Test",
+        typeParameters: [],
+      }
+    );
+    const carrierReference: IrType = {
+      kind: "referenceType",
+      name: "Value",
+      resolvedClrType: "Test.Value",
+    };
+    const effectiveType: IrType = {
+      kind: "unionType",
+      types: [pageArrayValue, stringValue, anyArrayValue],
+    };
+
+    const context = {
+      ...createContext({ rootNamespace: "Test" }),
+      localTypes: new Map<string, LocalTypeInfo>([
+        [
+          "Value",
+          {
+            kind: "typeAlias" as const,
+            typeParameters: [],
+            type: sourceCarrier,
+          },
+        ],
+      ]),
+      localSemanticTypes: new Map<string, IrType>([["value", effectiveType]]),
+      localValueTypes: new Map<string, IrType>([["value", carrierReference]]),
+    };
+
+    const narrowedMembers = resolveNarrowedUnionMembers(
+      "value",
+      effectiveType,
+      context
+    );
+
+    expect(
+      narrowedMembers?.members.map((member) => {
+        if (member.kind === "referenceType") return member.name;
+        return member.kind;
+      })
+    ).to.deep.equal(["AnyArrayValue", "PageArrayValue", "StringValue"]);
+    expect(narrowedMembers?.candidateMemberNs).to.deep.equal([1, 2, 3]);
+    expect(narrowedMembers?.runtimeUnionArity).to.equal(3);
   });
 
   it("keeps generic template unions on the same carrier family after substitution", () => {
@@ -644,6 +863,158 @@ describe("runtime-unions", () => {
       "primitiveType",
       "referenceType",
     ]);
+  });
+
+  it("records semantic recursive element types on erased recursive array members", () => {
+    const middlewareLikeRef: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareLike",
+    };
+
+    const middlewareLike = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareLike.types.push(
+      {
+        kind: "functionType",
+        parameters: [],
+        returnType: { kind: "voidType" },
+      },
+      {
+        kind: "referenceType",
+        name: "Router",
+        resolvedClrType: "Test.Router",
+      },
+      {
+        kind: "arrayType",
+        elementType: middlewareLikeRef,
+        origin: "explicit",
+      }
+    );
+
+    const context = {
+      ...createContext({ rootNamespace: "Test" }),
+      localTypes: new Map<string, LocalTypeInfo>([
+        [
+          "MiddlewareLike",
+          {
+            kind: "typeAlias" as const,
+            typeParameters: [],
+            type: middlewareLike,
+          },
+        ],
+      ]),
+    };
+    const frame = buildRuntimeUnionFrame(middlewareLikeRef, context);
+    expect(frame).to.not.equal(undefined);
+    if (!frame) {
+      return;
+    }
+
+    const recursiveArray = frame.members.find(
+      (member) => member?.kind === "arrayType"
+    );
+    expect(recursiveArray).to.not.equal(undefined);
+    if (!recursiveArray || recursiveArray.kind !== "arrayType") {
+      return;
+    }
+
+    expect(recursiveArray.elementType).to.deep.equal({
+      kind: "referenceType",
+      name: "object",
+      resolvedClrType: "System.Object",
+    });
+    expect(recursiveArray.storageErasedElementType).to.deep.equal(
+      middlewareLikeRef
+    );
+  });
+
+  it("keeps broader recursive alias owners when erased array slots dedupe", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+    const middlewareParamRef: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareParam",
+    };
+    const middlewareLikeRef: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareLike",
+    };
+    const middlewareParamUnion: IrType = {
+      kind: "unionType",
+      types: [
+        handlerType,
+        {
+          kind: "arrayType",
+          elementType: middlewareParamRef,
+          origin: "explicit",
+        },
+      ],
+    };
+    const middlewareLikeUnion: IrType = {
+      kind: "unionType",
+      types: [
+        middlewareParamRef,
+        routerType,
+        {
+          kind: "arrayType",
+          elementType: middlewareLikeRef,
+          origin: "explicit",
+        },
+      ],
+    };
+
+    const context = {
+      ...createContext({ rootNamespace: "Test" }),
+      localTypes: new Map<string, LocalTypeInfo>([
+        [
+          "MiddlewareParam",
+          {
+            kind: "typeAlias" as const,
+            typeParameters: [],
+            type: middlewareParamUnion,
+          },
+        ],
+        [
+          "MiddlewareLike",
+          {
+            kind: "typeAlias" as const,
+            typeParameters: [],
+            type: middlewareLikeUnion,
+          },
+        ],
+      ]),
+    };
+
+    const frame = buildRuntimeUnionFrame(middlewareLikeRef, context);
+    expect(frame).to.not.equal(undefined);
+    if (!frame) {
+      return;
+    }
+
+    const recursiveArray = frame.members.find(
+      (member) => member?.kind === "arrayType"
+    );
+    expect(recursiveArray).to.not.equal(undefined);
+    if (!recursiveArray || recursiveArray.kind !== "arrayType") {
+      return;
+    }
+
+    expect(recursiveArray.storageErasedElementType).to.deep.equal(
+      middlewareLikeRef
+    );
   });
 
   describe("cross-module alias stability", () => {

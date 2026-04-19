@@ -122,9 +122,9 @@ export const serializeType = (type: IrType, state?: SerializeState): string => {
         .map((m) => {
           const normalizedMember = normalizeStructuralPropertySignature(m);
           return `prop:${normalizedMember.isReadonly ? "ro:" : ""}${normalizedMember.name}${normalizedMember.isOptional ? "?" : ""}:${serializeType(
-              normalizedMember.type,
-              currentState
-            )}`;
+            normalizedMember.type,
+            currentState
+          )}`;
         });
 
       // Serialize method signatures

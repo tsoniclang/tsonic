@@ -7,11 +7,9 @@ function resolveOne(value: boolean): Promise<boolean> {
 }
 
 function resolveTwo(value: boolean): Promise<boolean> {
-  return new Promise<boolean>(
-    (resolve: (result: boolean) => void, _reject) => {
-      resolve(value);
-    }
-  );
+  return new Promise<boolean>((resolve: (result: boolean) => void, _reject) => {
+    resolve(value);
+  });
 }
 
 export async function main(): Promise<void> {

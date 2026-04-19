@@ -27,7 +27,8 @@ const buildFunctionFromSource = (source: string, functionName: string) => {
 
     const fn = result.value.body.find(
       (statement): statement is IrFunctionDeclaration =>
-        statement.kind === "functionDeclaration" && statement.name === functionName
+        statement.kind === "functionDeclaration" &&
+        statement.name === functionName
     );
     return { fixture, fn };
   } catch (error) {
@@ -52,7 +53,7 @@ describe("IR Builder", function () {
           "}",
           "",
           "export function run(): string {",
-          '  const parsed = new Parser().Parse(\"hello\");',
+          '  const parsed = new Parser().Parse("hello");',
           "  return parsed;",
           "}",
         ].join("\n"),
@@ -69,7 +70,8 @@ describe("IR Builder", function () {
 
         const parsedDecl = decl.declarations[0];
         expect(parsedDecl?.initializer?.kind).to.equal("call");
-        if (!parsedDecl?.initializer || parsedDecl.initializer.kind !== "call") return;
+        if (!parsedDecl?.initializer || parsedDecl.initializer.kind !== "call")
+          return;
 
         const call = parsedDecl.initializer;
         expect(call.inferredType).to.deep.equal({
@@ -96,7 +98,7 @@ describe("IR Builder", function () {
           "}",
           "",
           "export function run(): string {",
-          '  const parsed = Parser.Parse(\"hello\");',
+          '  const parsed = Parser.Parse("hello");',
           "  return parsed;",
           "}",
         ].join("\n"),
@@ -113,7 +115,8 @@ describe("IR Builder", function () {
 
         const parsedDecl = decl.declarations[0];
         expect(parsedDecl?.initializer?.kind).to.equal("call");
-        if (!parsedDecl?.initializer || parsedDecl.initializer.kind !== "call") return;
+        if (!parsedDecl?.initializer || parsedDecl.initializer.kind !== "call")
+          return;
 
         const call = parsedDecl.initializer;
         expect(call.inferredType).to.deep.equal({

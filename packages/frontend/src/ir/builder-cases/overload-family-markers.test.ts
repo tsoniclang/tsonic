@@ -107,7 +107,9 @@ describe("IR Builder", function () {
       try {
         expect(result?.ok).to.equal(false);
         expect(
-          result?.diagnostics.some((diagnostic) => diagnostic.code === "TSN2004")
+          result?.diagnostics.some(
+            (diagnostic) => diagnostic.code === "TSN2004"
+          )
         ).to.equal(true);
       } finally {
         fixture.cleanup();
@@ -183,7 +185,7 @@ describe("IR Builder", function () {
           "  static Parse(text: string): string;",
           "  static Parse(value: number): string;",
           "  static Parse(_value: any): any {",
-          '    throw new Error(\"stub\");',
+          '    throw new Error("stub");',
           "  }",
           "",
           "  static parse_string(text: string): string {",
@@ -223,7 +225,10 @@ describe("IR Builder", function () {
           "parse_string",
           "parse_number",
         ]);
-        expect(methods.map((member) => member.isStatic)).to.deep.equal([true, true]);
+        expect(methods.map((member) => member.isStatic)).to.deep.equal([
+          true,
+          true,
+        ]);
         expect(
           methods.map((member) => member.overloadFamily?.publicName)
         ).to.deep.equal(["Parse", "Parse"]);
@@ -251,7 +256,9 @@ describe("IR Builder", function () {
       try {
         expect(result?.ok).to.equal(false);
         expect(
-          result?.diagnostics.some((diagnostic) => diagnostic.code === "TSN2004")
+          result?.diagnostics.some(
+            (diagnostic) => diagnostic.code === "TSN2004"
+          )
         ).to.equal(true);
       } finally {
         fixture.cleanup();
@@ -275,7 +282,9 @@ describe("IR Builder", function () {
       try {
         expect(result?.ok).to.equal(false);
         expect(
-          result?.diagnostics.some((diagnostic) => diagnostic.code === "TSN2004")
+          result?.diagnostics.some(
+            (diagnostic) => diagnostic.code === "TSN2004"
+          )
         ).to.equal(true);
       } finally {
         fixture.cleanup();
@@ -302,7 +311,8 @@ describe("IR Builder", function () {
 
         const reader = module.body.find(
           (statement): statement is IrInterfaceDeclaration =>
-            statement.kind === "interfaceDeclaration" && statement.name === "Reader"
+            statement.kind === "interfaceDeclaration" &&
+            statement.name === "Reader"
         );
         expect(reader).to.not.equal(undefined);
         if (!reader) return;

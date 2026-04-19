@@ -176,9 +176,7 @@ describe("Expression Emission", () => {
       }),
     });
 
-    expect(result).to.include(
-      "global::js.Globals.String(flag)"
-    );
+    expect(result).to.include("global::js.Globals.String(flag)");
     expect(result).not.to.include('$"flag={flag}"');
   });
 
@@ -232,9 +230,7 @@ describe("Expression Emission", () => {
       }),
     });
 
-    expect(result).to.include(
-      "global::js.Globals.String(flag)"
-    );
+    expect(result).to.include("global::js.Globals.String(flag)");
     expect(result).not.to.include('$"flag={flag}"');
   });
 
@@ -353,9 +349,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include(
-      "global::js.Timers.clearInterval(1)"
-    );
+    expect(result).to.include("global::js.Timers.clearInterval(1)");
   });
 
   it("should preserve char-typed string indexing while string contexts use safe JS-style access", () => {

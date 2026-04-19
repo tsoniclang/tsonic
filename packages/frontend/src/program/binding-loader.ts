@@ -98,9 +98,7 @@ type SyntheticClassMemberScope = "instance" | "static";
 const getSourcePackageNamespace = (metadata: SourcePackageMetadata): string =>
   metadata.namespace;
 
-const readSourceFile = (
-  sourceFilePath: string
-): ts.SourceFile | undefined => {
+const readSourceFile = (sourceFilePath: string): ts.SourceFile | undefined => {
   if (!fs.existsSync(sourceFilePath)) {
     return undefined;
   }
@@ -148,10 +146,7 @@ const collectTopLevelSymbols = (
   const symbols = new Map<string, TopLevelSymbol>();
 
   for (const statement of sourceFile.statements) {
-    if (
-      ts.isClassDeclaration(statement) &&
-      statement.name?.text
-    ) {
+    if (ts.isClassDeclaration(statement) && statement.name?.text) {
       symbols.set(statement.name.text, {
         name: statement.name.text,
         kind: "class",
@@ -160,10 +155,7 @@ const collectTopLevelSymbols = (
       continue;
     }
 
-    if (
-      ts.isEnumDeclaration(statement) &&
-      statement.name.text
-    ) {
+    if (ts.isEnumDeclaration(statement) && statement.name.text) {
       symbols.set(statement.name.text, {
         name: statement.name.text,
         kind: "enum",
@@ -172,10 +164,7 @@ const collectTopLevelSymbols = (
       continue;
     }
 
-    if (
-      ts.isFunctionDeclaration(statement) &&
-      statement.name?.text
-    ) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text) {
       symbols.set(statement.name.text, {
         name: statement.name.text,
         kind: "function",
@@ -184,10 +173,7 @@ const collectTopLevelSymbols = (
       continue;
     }
 
-    if (
-      ts.isInterfaceDeclaration(statement) &&
-      statement.name.text
-    ) {
+    if (ts.isInterfaceDeclaration(statement) && statement.name.text) {
       symbols.set(statement.name.text, {
         name: statement.name.text,
         kind: "interface",
@@ -250,7 +236,11 @@ const collectExportedTopLevelSymbols = (
       statement.name?.text &&
       isExportedTopLevelStatement(statement)
     ) {
-      pushSymbol(statement.name.text, statement.name.text, topLevel.get(statement.name.text));
+      pushSymbol(
+        statement.name.text,
+        statement.name.text,
+        topLevel.get(statement.name.text)
+      );
       continue;
     }
 
@@ -259,7 +249,11 @@ const collectExportedTopLevelSymbols = (
       statement.name.text &&
       isExportedTopLevelStatement(statement)
     ) {
-      pushSymbol(statement.name.text, statement.name.text, topLevel.get(statement.name.text));
+      pushSymbol(
+        statement.name.text,
+        statement.name.text,
+        topLevel.get(statement.name.text)
+      );
       continue;
     }
 
@@ -268,7 +262,11 @@ const collectExportedTopLevelSymbols = (
       statement.name?.text &&
       isExportedTopLevelStatement(statement)
     ) {
-      pushSymbol(statement.name.text, statement.name.text, topLevel.get(statement.name.text));
+      pushSymbol(
+        statement.name.text,
+        statement.name.text,
+        topLevel.get(statement.name.text)
+      );
       continue;
     }
 
@@ -277,11 +275,18 @@ const collectExportedTopLevelSymbols = (
       statement.name.text &&
       isExportedTopLevelStatement(statement)
     ) {
-      pushSymbol(statement.name.text, statement.name.text, topLevel.get(statement.name.text));
+      pushSymbol(
+        statement.name.text,
+        statement.name.text,
+        topLevel.get(statement.name.text)
+      );
       continue;
     }
 
-    if (ts.isVariableStatement(statement) && isExportedTopLevelStatement(statement)) {
+    if (
+      ts.isVariableStatement(statement) &&
+      isExportedTopLevelStatement(statement)
+    ) {
       for (const declaration of statement.declarationList.declarations) {
         if (!ts.isIdentifier(declaration.name)) {
           continue;
@@ -446,9 +451,10 @@ const collectSyntheticClassMembers = (
   const matchesScope = (member: ts.ClassElement): boolean => {
     const isStatic =
       ts.canHaveModifiers(member) &&
-      ts.getModifiers(member)?.some(
-        (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
-      ) === true;
+      ts
+        .getModifiers(member)
+        ?.some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword) ===
+        true;
     return scope === "static" ? isStatic : !isStatic;
   };
 
@@ -458,11 +464,13 @@ const collectSyntheticClassMembers = (
     }
 
     return !(
-      ts.getModifiers(member)?.some(
-        (modifier) =>
-          modifier.kind === ts.SyntaxKind.PrivateKeyword ||
-          modifier.kind === ts.SyntaxKind.ProtectedKeyword
-      ) ?? false
+      ts
+        .getModifiers(member)
+        ?.some(
+          (modifier) =>
+            modifier.kind === ts.SyntaxKind.PrivateKeyword ||
+            modifier.kind === ts.SyntaxKind.ProtectedKeyword
+        ) ?? false
     );
   };
 
@@ -470,13 +478,11 @@ const collectSyntheticClassMembers = (
     if (!matchesScope(member) || !isPubliclyAccessible(member)) {
       continue;
     }
+    const memberName = readClassMemberName(member);
 
-    if (
-      ts.isMethodDeclaration(member) &&
-      readClassMemberName(member)
-    ) {
+    if (ts.isMethodDeclaration(member) && memberName) {
       members.push({
-        alias: readClassMemberName(member)!,
+        alias: memberName,
         kind: "method",
         parameterCount: member.parameters.length,
       });
@@ -487,10 +493,10 @@ const collectSyntheticClassMembers = (
       (ts.isPropertyDeclaration(member) ||
         ts.isGetAccessorDeclaration(member) ||
         ts.isSetAccessorDeclaration(member)) &&
-      readClassMemberName(member)
+      memberName
     ) {
       members.push({
-        alias: readClassMemberName(member)!,
+        alias: memberName,
         kind: "property",
       });
     }
@@ -505,24 +511,19 @@ const collectSyntheticInterfaceMembers = (
   const members: SyntheticSourceMember[] = [];
 
   for (const member of declaration.members) {
-    if (
-      ts.isMethodSignature(member) &&
-      readClassMemberName(member)
-    ) {
+    const memberName = readClassMemberName(member);
+    if (ts.isMethodSignature(member) && memberName) {
       members.push({
-        alias: readClassMemberName(member)!,
+        alias: memberName,
         kind: "method",
         parameterCount: member.parameters.length,
       });
       continue;
     }
 
-    if (
-      ts.isPropertySignature(member) &&
-      readClassMemberName(member)
-    ) {
+    if (ts.isPropertySignature(member) && memberName) {
       members.push({
-        alias: readClassMemberName(member)!,
+        alias: memberName,
         kind: "property",
       });
     }
@@ -757,7 +758,10 @@ const resolveAmbientInterfaceSourceOwners = (
       }
 
       const sourceFile = readSourceFile(sourceFilePath);
-      if (!sourceFile || !hasExportedTypeLikeSymbol(sourceFile, target.exportName)) {
+      if (
+        !sourceFile ||
+        !hasExportedTypeLikeSymbol(sourceFile, target.exportName)
+      ) {
         continue;
       }
 
@@ -992,8 +996,10 @@ const createSyntheticAmbientInterfaceBindings = (
 
       const declaredMembers = collectSyntheticInterfaceMembers(statement);
 
-      const ownerTargets =
-        resolveAmbientInterfaceExplicitOwners(metadata, statement.name.text);
+      const ownerTargets = resolveAmbientInterfaceExplicitOwners(
+        metadata,
+        statement.name.text
+      );
       const explicitOrHeritageOwners =
         ownerTargets.length > 0
           ? ownerTargets
@@ -1004,16 +1010,17 @@ const createSyntheticAmbientInterfaceBindings = (
           : resolveAmbientInterfaceValueOwners(filePath, statement.name.text);
 
       const alias = statement.name.text;
-      const existing =
-        bindings.get(alias) ?? {
-          name: `${sourceNamespace}.${alias}`,
-          alias,
-          kind: "interface" as const,
-          members: [],
-        };
+      const existing = bindings.get(alias) ?? {
+        name: `${sourceNamespace}.${alias}`,
+        alias,
+        kind: "interface" as const,
+        members: [],
+      };
       const existingMembers = [...existing.members];
       const seenMembers = new Set(
-        existingMembers.map((member) => `${member.alias}::${member.binding.type}`)
+        existingMembers.map(
+          (member) => `${member.alias}::${member.binding.type}`
+        )
       );
 
       if (resolvedOwnerTargets.length === 0) {
@@ -1155,22 +1162,26 @@ const createSyntheticWrapperType = (
     name: ownerType,
     alias: typeAlias,
     kind: "class",
-    members: members.map((member): MemberBinding => ({
-      kind: member.kind,
-      name: member.alias,
-      alias: member.alias,
-      parameterCount: member.parameterCount,
-      binding: {
-        assembly: getSourcePackageNamespace(metadata),
-        type: ownerType,
-        member: member.alias,
-      },
-      sourceOrigin: {
-        filePath: sourceFilePath,
-        exportName: exportedSymbol?.kind === "class" ? typeAlias : member.alias,
-        memberName: exportedSymbol?.kind === "class" ? member.alias : undefined,
-      },
-    })),
+    members: members.map(
+      (member): MemberBinding => ({
+        kind: member.kind,
+        name: member.alias,
+        alias: member.alias,
+        parameterCount: member.parameterCount,
+        binding: {
+          assembly: getSourcePackageNamespace(metadata),
+          type: ownerType,
+          member: member.alias,
+        },
+        sourceOrigin: {
+          filePath: sourceFilePath,
+          exportName:
+            exportedSymbol?.kind === "class" ? typeAlias : member.alias,
+          memberName:
+            exportedSymbol?.kind === "class" ? member.alias : undefined,
+        },
+      })
+    ),
   };
 };
 
@@ -1272,7 +1283,10 @@ const resolveSourceImportSpecifier = (
 ): string | undefined => {
   const normalizedFilePath = path.resolve(sourceFilePath);
   const candidates = Object.entries(metadata.exports)
-    .filter(([, target]) => path.resolve(metadata.packageRoot, target) === normalizedFilePath)
+    .filter(
+      ([, target]) =>
+        path.resolve(metadata.packageRoot, target) === normalizedFilePath
+    )
     .map(([exportKey]) => exportKey)
     .sort((left, right) => {
       if (left === ".") return 1;
@@ -1298,13 +1312,17 @@ const resolveSourceImportSpecifier = (
 const resolveGlobalOwnerByExportName = (
   metadata: SourcePackageMetadata,
   exportName: string
-): { readonly ownerType: string; readonly sourceImport: string } | undefined => {
+):
+  | { readonly ownerType: string; readonly sourceImport: string }
+  | undefined => {
   const candidatePaths = [...metadata.exportPaths].sort((left, right) => {
     const leftBase = path.basename(left, path.extname(left)).toLowerCase();
     const rightBase = path.basename(right, path.extname(right)).toLowerCase();
     const target = exportName.toLowerCase();
-    const leftRank = leftBase === target ? 0 : leftBase.includes(target) ? 1 : 2;
-    const rightRank = rightBase === target ? 0 : rightBase.includes(target) ? 1 : 2;
+    const leftRank =
+      leftBase === target ? 0 : leftBase.includes(target) ? 1 : 2;
+    const rightRank =
+      rightBase === target ? 0 : rightBase.includes(target) ? 1 : 2;
     if (leftRank !== rightRank) {
       return leftRank - rightRank;
     }
@@ -1312,7 +1330,11 @@ const resolveGlobalOwnerByExportName = (
   });
 
   for (const sourceFilePath of candidatePaths) {
-    const ownerType = resolveExportOwnerType(sourceFilePath, exportName, metadata);
+    const ownerType = resolveExportOwnerType(
+      sourceFilePath,
+      exportName,
+      metadata
+    );
     const sourceImport = resolveSourceImportSpecifier(metadata, sourceFilePath);
     if (!ownerType || !sourceImport) {
       continue;
@@ -1374,10 +1396,7 @@ const extractImportTypeTargetFromTypeNode = (
     }
 
     const namedBindings = statement.importClause.namedBindings;
-    if (
-      namedBindings &&
-      ts.isNamedImports(namedBindings)
-    ) {
+    if (namedBindings && ts.isNamedImports(namedBindings)) {
       for (const element of namedBindings.elements) {
         if (element.name.text !== rootIdentifier.text) {
           continue;
@@ -1494,7 +1513,8 @@ const collectSyntheticSourceGlobals = (
   for (const { filePath, sourceFile } of ambientSources) {
     for (const globalStatement of getAmbientGlobalStatements(sourceFile)) {
       if (ts.isVariableStatement(globalStatement)) {
-        for (const declaration of globalStatement.declarationList.declarations) {
+        for (const declaration of globalStatement.declarationList
+          .declarations) {
           if (!ts.isIdentifier(declaration.name)) {
             continue;
           }
@@ -1547,7 +1567,9 @@ const collectSyntheticSourceGlobals = (
             ownerType = firstOwner?.ownerType;
             staticType = lastOwner?.ownerType;
 
-            const uniqueSourceImports = [...new Set(resolvedOwners.map((entry) => entry.sourceImport))];
+            const uniqueSourceImports = [
+              ...new Set(resolvedOwners.map((entry) => entry.sourceImport)),
+            ];
             if (uniqueSourceImports.length === 1) {
               sourceImport = uniqueSourceImports[0];
             } else if (metadata.exports["./index.js"]) {

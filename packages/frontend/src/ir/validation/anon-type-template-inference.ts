@@ -375,13 +375,13 @@ export const getOrCreateObjectTypeReference = (
         existingReference.typeArguments.length > 0
           ? existingReference.typeArguments
           : orderedTypeParams.length > 0
-          ? orderedTypeParams.map(
-              (tp): IrType => ({
-                kind: "typeParameterType",
-                name: tp,
-              })
-            )
-          : undefined,
+            ? orderedTypeParams.map(
+                (tp): IrType => ({
+                  kind: "typeParameterType",
+                  name: tp,
+                })
+              )
+            : undefined,
       structuralMembers: objectType.members,
     };
   }

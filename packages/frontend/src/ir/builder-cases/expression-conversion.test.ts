@@ -69,6 +69,67 @@ describe("IR Builder", function () {
       }
     });
 
+    it("contextually types awaited async return object literals against awaited return shapes", () => {
+      const source = `
+        type HandlerControl = {
+          ended: boolean;
+          control?: string | null;
+          error?: object;
+        };
+
+        async function invokeHandlers(): Promise<HandlerControl> {
+          return { ended: false, control: "route", error: undefined };
+        }
+
+        async function run(): Promise<void> {
+          const control = await invokeHandlers();
+          if (control.error !== undefined) {
+            return;
+          }
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) {
+        return;
+      }
+
+      const runFn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(runFn).to.not.equal(undefined);
+      if (!runFn) {
+        return;
+      }
+
+      const controlDecl = runFn.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations[0]?.name.kind === "identifierPattern" &&
+          stmt.declarations[0]?.name.name === "control"
+      );
+      expect(controlDecl).to.not.equal(undefined);
+      if (!controlDecl) {
+        return;
+      }
+
+      const initializer = controlDecl.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("await");
+      expect(initializer?.inferredType?.kind).to.equal("objectType");
+      expect(
+        initializer?.inferredType?.kind === "objectType"
+          ? initializer.inferredType.members.map((member) => member.name)
+          : []
+      ).to.deep.equal(["ended", "control", "error"]);
+    });
+
     it("should lower import.meta.url to a string literal", () => {
       const source = `
         const url = import.meta.url;
@@ -151,7 +212,8 @@ describe("IR Builder", function () {
 
       const iteratorClass = result.value.body.find(
         (stmt) =>
-          stmt.kind === "classDeclaration" && stmt.name === "IntervalAsyncIterator"
+          stmt.kind === "classDeclaration" &&
+          stmt.name === "IntervalAsyncIterator"
       );
       expect(iteratorClass?.kind).to.equal("classDeclaration");
       if (!iteratorClass || iteratorClass.kind !== "classDeclaration") {
@@ -159,7 +221,8 @@ describe("IR Builder", function () {
       }
 
       const closeMethod = iteratorClass.members.find(
-        (member) => member.kind === "methodDeclaration" && member.name === "close"
+        (member) =>
+          member.kind === "methodDeclaration" && member.name === "close"
       );
       expect(closeMethod?.kind).to.equal("methodDeclaration");
       if (
@@ -229,6 +292,177 @@ describe("IR Builder", function () {
       );
     });
 
+    it("infers generic constructor type arguments through outer generic callback and promise contexts", () => {
+      const source = `
+        export class IntervalIterationResult<T> {
+          public constructor(
+            public readonly done: boolean,
+            public readonly value: T | undefined
+          ) {}
+        }
+
+        export class IntervalAsyncIterator<T> {
+          public enqueue(value?: T): void {
+            const waiter: (result: IntervalIterationResult<T>) => void = () => {};
+            waiter(new IntervalIterationResult(false, value));
+          }
+
+          public next(value?: T): Promise<IntervalIterationResult<T>> {
+            return Promise.resolve(new IntervalIterationResult(false, value));
+          }
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) {
+        expect.fail(
+          `Expected build success, got diagnostic: ${result.error.message}`
+        );
+        return;
+      }
+
+      const iteratorClass = result.value.body.find(
+        (stmt) =>
+          stmt.kind === "classDeclaration" &&
+          stmt.name === "IntervalAsyncIterator"
+      );
+      expect(iteratorClass?.kind).to.equal("classDeclaration");
+      if (!iteratorClass || iteratorClass.kind !== "classDeclaration") {
+        return;
+      }
+
+      const nextMethod = iteratorClass.members.find(
+        (member) =>
+          member.kind === "methodDeclaration" && member.name === "next"
+      );
+      expect(nextMethod?.kind).to.equal("methodDeclaration");
+      if (
+        !nextMethod ||
+        nextMethod.kind !== "methodDeclaration" ||
+        !nextMethod.body
+      ) {
+        return;
+      }
+
+      const nextReturn = nextMethod.body.statements.find(
+        (stmt) => stmt.kind === "returnStatement"
+      );
+      expect(nextReturn?.kind).to.equal("returnStatement");
+      if (
+        !nextReturn ||
+        nextReturn.kind !== "returnStatement" ||
+        !nextReturn.expression ||
+        nextReturn.expression.kind !== "call"
+      ) {
+        return;
+      }
+
+      const promiseResolveArg = nextReturn.expression.arguments[0];
+      expect(promiseResolveArg?.kind).to.equal("new");
+      if (!promiseResolveArg || promiseResolveArg.kind !== "new") {
+        return;
+      }
+
+      const inferredType = promiseResolveArg.inferredType;
+      expect(inferredType).to.deep.include({
+        kind: "referenceType",
+        name: "IntervalIterationResult",
+        typeArguments: [{ kind: "typeParameterType", name: "T" }],
+      });
+      if (!inferredType || inferredType.kind !== "referenceType") {
+        return;
+      }
+      expect(inferredType.resolvedClrType).to.equal(
+        "TestApp.IntervalIterationResult"
+      );
+      expect(inferredType.typeId).to.deep.equal({
+        stableId: "TestApp:TestApp.IntervalIterationResult",
+        clrName: "TestApp.IntervalIterationResult",
+        assemblyName: "TestApp",
+        tsName: "IntervalIterationResult",
+      });
+      expect(promiseResolveArg.typeArguments).to.deep.equal([
+        { kind: "typeParameterType", name: "T" },
+      ]);
+    });
+
+    it("infers generic constructor type arguments through imported generic queue members", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": `
+            import { Queue } from "@tsonic/dotnet/System.Collections.Generic.js";
+
+            export class IntervalIterationResult<T> {
+              public constructor(
+                public readonly done: boolean,
+                public readonly value: T | undefined
+              ) {}
+            }
+
+            export class IntervalAsyncIterator<T> {
+              private readonly waiters: Queue<
+                (result: IntervalIterationResult<T>) => void
+              > = new Queue<(result: IntervalIterationResult<T>) => void>();
+
+              public enqueue(value?: T): void {
+                if (this.waiters.Count > 0) {
+                  const waiter = this.waiters.Dequeue();
+                  waiter(new IntervalIterationResult(false, value));
+                }
+              }
+            }
+          `,
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic.d.ts": `
+            export declare class Queue<T> {
+              Count: number;
+              constructor();
+              Dequeue(): T;
+              Enqueue(value: T): void;
+            }
+          `,
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) {
+          expect.fail(
+            `Expected build success, got diagnostic: ${result.error.message}`
+          );
+          return;
+        }
+
+        const iteratorClass = result.value.body.find(
+          (stmt) =>
+            stmt.kind === "classDeclaration" &&
+            stmt.name === "IntervalAsyncIterator"
+        );
+        expect(iteratorClass?.kind).to.equal("classDeclaration");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves unknown array element types through conditional spread arrays", () => {
       const source = `
         function inspect(value: unknown): string {
@@ -269,7 +503,6 @@ describe("IR Builder", function () {
           kind: "arrayType",
           elementType: { kind: "unknownType" },
         });
-
       }
     });
 
@@ -285,7 +518,7 @@ describe("IR Builder", function () {
             "): string {",
             "  const values =",
             "    message === undefined ? [...optionalParams] : [message, ...optionalParams];",
-            '  return values.map((value) => inspect(value)).join(\" \");',
+            '  return values.map((value) => inspect(value)).join(" ");',
             "}",
           ].join("\n"),
         },

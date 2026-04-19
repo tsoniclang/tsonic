@@ -11,7 +11,6 @@ import {
   IrCallExpression,
   IrClassDeclaration,
   IrAttribute,
-  IrInterfaceDeclaration,
   IrVariableDeclaration,
 } from "../../types.js";
 import {
@@ -168,7 +167,10 @@ export const collectModuleAttributes = (
   const classCtorAttributes = new Map<number, IrAttribute[]>();
   const classMethodAttributes = new Map<number, Map<string, IrAttribute[]>>();
   const classPropAttributes = new Map<number, Map<string, IrAttribute[]>>();
-  const interfaceMethodAttributes = new Map<number, Map<string, IrAttribute[]>>();
+  const interfaceMethodAttributes = new Map<
+    number,
+    Map<string, IrAttribute[]>
+  >();
   const interfacePropAttributes = new Map<number, Map<string, IrAttribute[]>>();
   const functionAttributes = new Map<number, IrAttribute[]>();
 
@@ -391,7 +393,18 @@ export const collectModuleAttributes = (
         continue;
       }
 
-      const interfaceStmt = module.body[interfaceIndex!] as IrInterfaceDeclaration;
+      const resolvedInterfaceIndex = interfaceIndex;
+      if (resolvedInterfaceIndex === undefined) {
+        continue;
+      }
+      const interfaceStmtCandidate = module.body[resolvedInterfaceIndex];
+      if (
+        !interfaceStmtCandidate ||
+        interfaceStmtCandidate.kind !== "interfaceDeclaration"
+      ) {
+        continue;
+      }
+      const interfaceStmt = interfaceStmtCandidate;
       const matchingMembers = interfaceStmt.members.filter(
         (m) => m.kind === "methodSignature" && m.name === memberName
       );
@@ -418,11 +431,11 @@ export const collectModuleAttributes = (
         continue;
       }
       const perInterface =
-        interfaceMethodAttributes.get(interfaceIndex!) ?? new Map();
+        interfaceMethodAttributes.get(resolvedInterfaceIndex) ?? new Map();
       const attrs = perInterface.get(memberName) ?? [];
       attrs.push(attr);
       perInterface.set(memberName, attrs);
-      interfaceMethodAttributes.set(interfaceIndex!, perInterface);
+      interfaceMethodAttributes.set(resolvedInterfaceIndex, perInterface);
       continue;
     }
 
@@ -510,7 +523,8 @@ export const collectModuleAttributes = (
 
           if (marker.attributeTarget === "field") {
             const isAccessorProperty =
-              member.getterBody !== undefined || member.setterBody !== undefined;
+              member.getterBody !== undefined ||
+              member.setterBody !== undefined;
             if (isAccessorProperty) {
               diagnostics.push(
                 createDiagnostic(
@@ -533,7 +547,18 @@ export const collectModuleAttributes = (
         continue;
       }
 
-      const interfaceStmt = module.body[interfaceIndex!] as IrInterfaceDeclaration;
+      const resolvedInterfaceIndex = interfaceIndex;
+      if (resolvedInterfaceIndex === undefined) {
+        continue;
+      }
+      const interfaceStmtCandidate = module.body[resolvedInterfaceIndex];
+      if (
+        !interfaceStmtCandidate ||
+        interfaceStmtCandidate.kind !== "interfaceDeclaration"
+      ) {
+        continue;
+      }
+      const interfaceStmt = interfaceStmtCandidate;
       const matchingMembers = interfaceStmt.members.filter(
         (m) => m.kind === "propertySignature" && m.name === memberName
       );
@@ -602,11 +627,11 @@ export const collectModuleAttributes = (
       }
 
       const perInterface =
-        interfacePropAttributes.get(interfaceIndex!) ?? new Map();
+        interfacePropAttributes.get(resolvedInterfaceIndex) ?? new Map();
       const attrs = perInterface.get(memberName) ?? [];
       attrs.push(attr);
       perInterface.set(memberName, attrs);
-      interfacePropAttributes.set(interfaceIndex!, perInterface);
+      interfacePropAttributes.set(resolvedInterfaceIndex, perInterface);
     }
   }
 

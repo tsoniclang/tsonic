@@ -158,7 +158,7 @@ describe("Integration: CLR iterable overloads", () => {
           "  public set(index: number, value: number): void;",
           "  public set(source: TypedArrayInput<TElement>, offset?: number): void;",
           "  public set(_sourceOrIndex: any, _offsetOrValue: any = 0): any {",
-          '    throw new Error(\"stub\");',
+          '    throw new Error("stub");',
           "  }",
           "  public set_index(index: number, value: number): void {",
           "    void index;",
@@ -195,7 +195,9 @@ describe("Integration: CLR iterable overloads", () => {
 
     expect(csharp).to.include("result.set(");
     expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
-    expect(csharp).to.not.include("result.set(buffer, length - buffer.length);");
+    expect(csharp).to.not.include(
+      "result.set(buffer, length - buffer.length);"
+    );
     expect(csharp).to.not.include("result.set(global::Tsonic.Internal.Union");
   });
 
@@ -306,6 +308,60 @@ describe("Integration: CLR iterable overloads", () => {
           'import { Assert } from "xunit-types/Xunit.js";',
           "",
           "export function run(received: JsValue): void {",
+          "  Assert.Equal(42, received);",
+          "}",
+        ].join("\n"),
+      },
+      "src/index.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("Assert.Equal((object)(double)42, received);");
+    expect(csharp).to.not.include("Assert.Equal(42, received);");
+  });
+
+  it("boxes numeric literals for optional broad-object equality assertions over real xunit overloads", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "package.json": JSON.stringify(
+          { name: "emitter-test-project", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/@tsonic/core/package.json": JSON.stringify(
+          { name: "@tsonic/core", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/@tsonic/core/types.js": "export {};",
+        "node_modules/@tsonic/core/types.d.ts":
+          "export type JsValue = object | string | number | boolean | bigint | symbol | null;",
+        "node_modules/xunit-types/package.json": JSON.stringify(
+          { name: "xunit-types", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/xunit-types/Xunit.js":
+          'export { Assert } from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit.d.ts":
+          'export { Assert } from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit/internal/index.js":
+          "export const Assert = undefined;",
+        "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+          'import type { double } from "@tsonic/core/types.js";',
+          "",
+          "export declare class Assert {",
+          "  static Equal(expected: double, actual: double): void;",
+          "  static Equal(expected: string, actual: string): void;",
+          "  static Equal<T>(expected: T, actual: T): void;",
+          "}",
+        ].join("\n"),
+        "src/index.ts": [
+          'import { Assert } from "xunit-types/Xunit.js";',
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
+          "export function run(): void {",
+          "  let received: JsValue | undefined = undefined;",
           "  Assert.Equal(42, received);",
           "}",
         ].join("\n"),
@@ -434,5 +490,132 @@ describe("Integration: CLR iterable overloads", () => {
 
     expect(csharp).to.include("Assert.Equal((object)(double)42, received);");
     expect(csharp).to.not.include("Assert.Equal(42, received);");
+  });
+
+  it("keeps broad NotNull overloads when sibling source overloads still mention Nullable<T>", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "package.json": JSON.stringify(
+          { name: "emitter-test-project", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "src/index.ts": [
+          'import { Assert } from "xunit-types/Xunit.js";',
+          "",
+          "class Holder {",
+          "  value?: string;",
+          "}",
+          "",
+          "export function run(holder: Holder): void {",
+          "  Assert.NotNull(holder.value);",
+          "}",
+        ].join("\n"),
+        "node_modules/xunit-types/package.json": JSON.stringify(
+          { name: "xunit-types", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/xunit-types/Xunit.js":
+          'export { Assert as Assert } from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit.d.ts":
+          'export { Assert as Assert } from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit/internal/index.js":
+          "export const Assert = undefined;",
+        "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+          'import type { Nullable_1 } from "@tsonic/dotnet/System/internal/index.js";',
+          "",
+          "export interface Assert$instance {}",
+          "",
+          "export declare const Assert: (abstract new() => Assert$instance) & {",
+          "  NotNull<T extends unknown>(value: Nullable_1<T>): T;",
+          "  NotNull(object: unknown): void;",
+          "};",
+        ].join("\n"),
+        "node_modules/@tsonic/dotnet/package.json": JSON.stringify(
+          { name: "@tsonic/dotnet", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/@tsonic/dotnet/System/internal/index.js": "export {};",
+        "node_modules/@tsonic/dotnet/System/internal/index.d.ts": [
+          "export interface Nullable_1$instance<T> {",
+          "  readonly __tsonic_type_System_Nullable_1: never;",
+          "  readonly HasValue: boolean;",
+          "  readonly Value: T;",
+          "}",
+          "export type Nullable_1<T> = Nullable_1$instance<T>;",
+        ].join("\n"),
+      },
+      "src/index.ts"
+    );
+
+    expect(csharp).to.include("Assert.NotNull(holder.value);");
+    expect(csharp).to.not.include("Nullable<T>");
+    expect(csharp).to.not.include("System.Nullable<T>");
+  });
+
+  it("materializes runtime-union arguments for broad NotNull overloads", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "package.json": JSON.stringify(
+          { name: "emitter-test-project", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "src/index.ts": [
+          'import { Assert } from "xunit-types/Xunit.js";',
+          "",
+          "class BufferLike {}",
+          "",
+          "declare function read(): string | BufferLike;",
+          "",
+          "export function run(): void {",
+          "  const result = read();",
+          "  Assert.NotNull(result);",
+          "}",
+        ].join("\n"),
+        "node_modules/xunit-types/package.json": JSON.stringify(
+          { name: "xunit-types", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/xunit-types/Xunit.js":
+          'export { Assert as Assert } from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit.d.ts":
+          'export { Assert as Assert } from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit/internal/index.js":
+          "export const Assert = undefined;",
+        "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+          'import type { Nullable_1 } from "@tsonic/dotnet/System/internal/index.js";',
+          "",
+          "export interface Assert$instance {}",
+          "",
+          "export declare const Assert: (abstract new() => Assert$instance) & {",
+          "  NotNull<T extends unknown>(value: Nullable_1<T>): T;",
+          "  NotNull(object: unknown): void;",
+          "};",
+        ].join("\n"),
+        "node_modules/@tsonic/dotnet/package.json": JSON.stringify(
+          { name: "@tsonic/dotnet", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/@tsonic/dotnet/System/internal/index.js": "export {};",
+        "node_modules/@tsonic/dotnet/System/internal/index.d.ts": [
+          "export interface Nullable_1$instance<T> {",
+          "  readonly __tsonic_type_System_Nullable_1: never;",
+          "  readonly HasValue: boolean;",
+          "  readonly Value: T;",
+          "}",
+          "export type Nullable_1<T> = Nullable_1$instance<T>;",
+        ].join("\n"),
+      },
+      "src/index.ts"
+    );
+
+    expect(csharp).to.include(
+      "Assert.NotNull(result.Match<object>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2));"
+    );
   });
 });

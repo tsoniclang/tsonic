@@ -88,9 +88,9 @@ describe("IR Builder", function () {
         if (firstElement.expression.inferredType?.kind !== "referenceType") {
           return;
         }
-        expect(stableIrTypeKey(firstElement.expression.inferredType)).to.include(
-          "MiddlewareLike"
-        );
+        expect(
+          stableIrTypeKey(firstElement.expression.inferredType)
+        ).to.include("MiddlewareLike");
 
         const narrowedType = firstElement.targetType;
         expect(narrowedType?.kind).to.equal("referenceType");
@@ -213,7 +213,100 @@ describe("IR Builder", function () {
         expect(selectedInit.inferredType?.kind).to.equal("referenceType");
         if (selectedInit.inferredType?.kind !== "referenceType") return;
 
-        expect(stableIrTypeKey(selectedInit.inferredType)).to.include("TreeNode");
+        expect(stableIrTypeKey(selectedInit.inferredType)).to.include(
+          "TreeNode"
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("collapses constructor-backed nullish fallbacks to the canonical nominal type", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class Page {}",
+            "",
+            "class Holder {",
+            "  page: Page | undefined = undefined;",
+            "}",
+            "",
+            "export function pick(holder: Holder): Page {",
+            "  const fallback = new Page();",
+            "  const selected = holder.page ?? fallback;",
+            "  return selected;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const pickFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "pick"
+        );
+        expect(pickFn).to.not.equal(undefined);
+        if (!pickFn) return;
+
+        const fallbackDecl = pickFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "fallback"
+            )
+        );
+        expect(fallbackDecl).to.not.equal(undefined);
+        if (!fallbackDecl) return;
+
+        const fallbackInit = fallbackDecl.declarations[0]?.initializer;
+        expect(fallbackInit?.kind).to.equal("new");
+        expect(fallbackInit?.inferredType?.kind).to.equal("referenceType");
+        if (
+          !fallbackInit ||
+          fallbackInit.kind !== "new" ||
+          fallbackInit.inferredType?.kind !== "referenceType"
+        ) {
+          return;
+        }
+
+        expect(fallbackInit.inferredType.typeId?.tsName).to.equal("Page");
+
+        const selectedDecl = pickFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "selected"
+            )
+        );
+        expect(selectedDecl).to.not.equal(undefined);
+        if (!selectedDecl) return;
+
+        const selectedInit = selectedDecl.declarations[0]?.initializer;
+        expect(selectedInit?.kind).to.equal("logical");
+        if (!selectedInit || selectedInit.kind !== "logical") return;
+
+        expect(selectedInit.operator).to.equal("??");
+        expect(selectedInit.inferredType?.kind).to.equal("referenceType");
+        if (selectedInit.inferredType?.kind !== "referenceType") return;
+
+        expect(selectedInit.inferredType.typeId?.stableId).to.equal(
+          fallbackInit.inferredType.typeId?.stableId
+        );
       } finally {
         fixture.cleanup();
       }
@@ -316,15 +409,20 @@ describe("IR Builder", function () {
 
         expect(termsInit.operator).to.equal("??");
         expect(termsInit.inferredType?.kind).to.equal("unionType");
-        if (!termsInit.inferredType || termsInit.inferredType.kind !== "unionType") {
+        if (
+          !termsInit.inferredType ||
+          termsInit.inferredType.kind !== "unionType"
+        ) {
           return;
         }
 
         const mapMember = termsInit.inferredType.types.find(
           (
             type
-          ): type is Extract<(typeof termsInit.inferredType.types)[number], { kind: "referenceType" }> =>
-            type.kind === "referenceType" && type.name === "Map"
+          ): type is Extract<
+            (typeof termsInit.inferredType.types)[number],
+            { kind: "referenceType" }
+          > => type.kind === "referenceType" && type.name === "Map"
         );
         expect(mapMember).to.not.equal(undefined);
       } finally {

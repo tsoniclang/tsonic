@@ -8,6 +8,7 @@
  */
 
 import type { IrType, IrReferenceType } from "../types/index.js";
+import { normalizedUnionType } from "../types/type-ops.js";
 import { unwrapAsyncWrapperType } from "../types/type-ops.js";
 import { stableIrTypeKey } from "../types/type-ops.js";
 import { unknownType } from "./types.js";
@@ -58,15 +59,89 @@ export const inferMethodTypeArgsFromArguments = (
       type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
       type.resolvedClrType === "global::Tsonic.Runtime.JsValue");
 
+  const splitDeterministicOptionalInferenceType = (
+    type: IrType
+  ):
+    | {
+        readonly nonNullishMember: IrType;
+        readonly nullishMembers: readonly IrType[];
+      }
+    | undefined => {
+    if (type.kind !== "unionType") {
+      return undefined;
+    }
+
+    const nonNullishMembers = type.types.filter(
+      (candidate): candidate is IrType =>
+        candidate !== undefined && !isNullishPrimitive(candidate)
+    );
+    const nullishMembers = type.types.filter(
+      (candidate): candidate is IrType =>
+        candidate !== undefined && isNullishPrimitive(candidate)
+    );
+
+    if (
+      nonNullishMembers.length !== 1 ||
+      nullishMembers.length === 0 ||
+      nonNullishMembers.length + nullishMembers.length !== type.types.length
+    ) {
+      return undefined;
+    }
+
+    const onlyNonNullishMember = nonNullishMembers[0];
+    if (!onlyNonNullishMember) {
+      return undefined;
+    }
+
+    return {
+      nonNullishMember: onlyNonNullishMember,
+      nullishMembers,
+    };
+  };
+
   const tryMergeInferenceTypes = (
     existing: IrType,
     next: IrType
   ): IrType | undefined => {
-    const existingIsBroadObject = isBroadObjectInferenceType(existing);
-    const nextIsBroadObject = isBroadObjectInferenceType(next);
+    const existingOptional = splitDeterministicOptionalInferenceType(existing);
+    const nextOptional = splitDeterministicOptionalInferenceType(next);
+    const existingBase = existingOptional?.nonNullishMember ?? existing;
+    const nextBase = nextOptional?.nonNullishMember ?? next;
+    const existingIsBroadObject = isBroadObjectInferenceType(existingBase);
+    const nextIsBroadObject = isBroadObjectInferenceType(nextBase);
 
     if (existingIsBroadObject || nextIsBroadObject) {
-      return { kind: "referenceType", name: "object" };
+      const mergedNonNullish: IrType = {
+        kind: "referenceType",
+        name: "object",
+      };
+      const nullishMembers = [
+        ...(existingOptional?.nullishMembers ?? []),
+        ...(nextOptional?.nullishMembers ?? []),
+      ];
+      return nullishMembers.length > 0
+        ? normalizedUnionType([mergedNonNullish, ...nullishMembers])
+        : mergedNonNullish;
+    }
+
+    if (
+      nextOptional &&
+      isAssignableTo(state, existing, nextOptional.nonNullishMember)
+    ) {
+      return normalizedUnionType([
+        nextOptional.nonNullishMember,
+        ...nextOptional.nullishMembers,
+      ]);
+    }
+
+    if (
+      existingOptional &&
+      isAssignableTo(state, next, existingOptional.nonNullishMember)
+    ) {
+      return normalizedUnionType([
+        existingOptional.nonNullishMember,
+        ...existingOptional.nullishMembers,
+      ]);
     }
 
     return undefined;
@@ -120,7 +195,10 @@ export const inferMethodTypeArgsFromArguments = (
         inner?.kind === "typeParameterType" &&
         methodTypeParamNames.has(inner.name)
       ) {
-        if (typeParameterName !== undefined && typeParameterName !== inner.name) {
+        if (
+          typeParameterName !== undefined &&
+          typeParameterName !== inner.name
+        ) {
           return undefined;
         }
         typeParameterName = inner.name;
@@ -159,7 +237,10 @@ export const inferMethodTypeArgsFromArguments = (
       const inner = getAsyncWrapperInnerType(candidate);
       if (inner) {
         sawAsyncWrapper = true;
-        if (syncMember && !areDeterministicallyEquivalentInferenceTypes(syncMember, inner)) {
+        if (
+          syncMember &&
+          !areDeterministicallyEquivalentInferenceTypes(syncMember, inner)
+        ) {
           return undefined;
         }
         syncMember = syncMember ?? inner;
@@ -219,11 +300,7 @@ export const inferMethodTypeArgsFromArguments = (
             const match = matches[0];
             if (
               !match ||
-              !tryUnify(
-                parameterMember.type,
-                match.type,
-                currentSubstitution
-              )
+              !tryUnify(parameterMember.type, match.type, currentSubstitution)
             ) {
               return false;
             }
@@ -240,7 +317,8 @@ export const inferMethodTypeArgsFromArguments = (
               > =>
                 candidate.kind === "methodSignature" &&
                 candidate.name === parameterMember.name &&
-                candidate.parameters.length === parameterMember.parameters.length
+                candidate.parameters.length ===
+                  parameterMember.parameters.length
             );
             if (matches.length !== 1) {
               return true;

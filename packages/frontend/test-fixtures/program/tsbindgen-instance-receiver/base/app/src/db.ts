@@ -2,7 +2,7 @@ import type { int } from "@tsonic/core/types.js";
 import type {
   DbContext,
   DbSet_1,
-  EntityEntry_1
+  EntityEntry_1,
 } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
 
 export interface PostEntity {

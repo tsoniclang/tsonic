@@ -129,7 +129,9 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("((global::System.Array)left).GetValue(index)");
-      expect(csharp).to.include("((global::System.Array)right).GetValue(index)");
+      expect(csharp).to.include(
+        "((global::System.Array)right).GetValue(index)"
+      );
       expect(csharp).to.not.include("((object?[])left)[index]");
       expect(csharp).to.not.include("((object?[])right)[index]");
     });
@@ -173,7 +175,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("((global::System.Array)left).Length");
       expect(csharp).to.include("((global::System.Array)right).Length");
       expect(csharp).to.include("((global::System.Array)left).GetValue(index)");
-      expect(csharp).to.include("((global::System.Array)right).GetValue(index)");
+      expect(csharp).to.include(
+        "((global::System.Array)right).GetValue(index)"
+      );
       expect(csharp).to.not.include("(object?[])left");
       expect(csharp).to.not.include("(object?[])right");
     });
@@ -213,15 +217,15 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(
-        source,
-        "/test/assert-module.ts",
-        { surface: "@tsonic/js" }
-      );
+      const csharp = compileToCSharp(source, "/test/assert-module.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include("((global::System.Array)left).Length");
       expect(csharp).to.include("((global::System.Array)right).Length");
       expect(csharp).to.include("((global::System.Array)left).GetValue(index)");
-      expect(csharp).to.include("((global::System.Array)right).GetValue(index)");
+      expect(csharp).to.include(
+        "((global::System.Array)right).GetValue(index)"
+      );
       expect(csharp).to.not.include("(object?[])left");
       expect(csharp).to.not.include("(object?[])right");
     });
@@ -410,7 +414,9 @@ describe("End-to-End Integration", () => {
       });
 
       expect(csharp).to.include("foreach (var headerName in headers)");
-      expect(csharp).to.include("global::js.String.toLowerCase(((string)headerName))");
+      expect(csharp).to.include(
+        "global::js.String.toLowerCase(((string)headerName))"
+      );
     });
 
     it("keeps source-declared js.Array length accesses nominal", () => {
@@ -479,12 +485,14 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source, "/test/test.ts", {
         surface: "@tsonic/js",
       });
-      expect(csharp).to.include("global::System.IO.Directory.GetFileSystemEntries(path)");
+      expect(csharp).to.include(
+        "global::System.IO.Directory.GetFileSystemEntries(path)"
+      );
       expect(csharp).to.include(
         '.map((string entry) => global::System.IO.Path.GetFileName(entry) ?? "").toArray()'
       );
       expect(csharp).to.include(
-        '.filter((string entry) => entry.Length > 0).toArray()'
+        ".filter((string entry) => entry.Length > 0).toArray()"
       );
       expect(csharp).to.match(
         /map\(\((?:Entry|Entry__Alias) param\) => \(param\.name, param\.value\)\)\.toArray\(\)/
@@ -676,9 +684,11 @@ describe("End-to-End Integration", () => {
         "new global::js.Array<global::Tsonic.Internal.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
       );
       expect(csharp).to.not.include("isMiddlewareHandler(handler.Match");
+      expect(csharp).to.include("if (handler.Is3())");
       expect(csharp).to.include(
-        "if (!isMiddlewareHandler(global::Test.MiddlewareLike.From2((handler.As2()))))"
+        "Router handler__is_1 = (Router)handler.As3();"
       );
+      expect(csharp).to.include("if (!isMiddlewareHandler(handler))");
       expect(csharp).to.include(
         'throw new global::System.Exception("middleware handlers must be functions");'
       );

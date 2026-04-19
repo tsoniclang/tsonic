@@ -52,7 +52,8 @@ describe("Overload Collection Pass", () => {
 
     const result = runOverloadCollectionPass([module]);
     expect(result.ok).to.equal(false);
-    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "TSN4005"))
-      .to.equal(true);
+    expect(
+      result.diagnostics.some((diagnostic) => diagnostic.code === "TSN4005")
+    ).to.equal(true);
   });
 });

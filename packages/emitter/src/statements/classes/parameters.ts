@@ -13,7 +13,10 @@ import { emitParameterType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPatternAst } from "../../patterns.js";
 import { emitParameterAttributes } from "../../core/format/attributes.js";
-import { allocateLocalName, registerLocalName } from "../../core/format/local-names.js";
+import {
+  allocateLocalName,
+  registerLocalName,
+} from "../../core/format/local-names.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { stripNullableTypeAst } from "../../core/format/backend-ast/utils.js";
 import type {
@@ -56,7 +59,10 @@ export type ParameterEmissionResult = {
   /** Wrapper arities needed when omitted suffixes cannot be expressed in C# signatures */
   readonly wrapperPrefixLengths: readonly number[];
   /** Synthesized default arguments for suppressed parameters */
-  readonly suppressedDefaultArguments: readonly (CSharpExpressionAst | undefined)[];
+  readonly suppressedDefaultArguments: readonly (
+    | CSharpExpressionAst
+    | undefined
+  )[];
   /** Updated context */
   readonly context: EmitterContext;
 };

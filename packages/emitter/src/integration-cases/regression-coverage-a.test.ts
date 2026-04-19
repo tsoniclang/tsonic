@@ -219,9 +219,9 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.include("takeDeclared((int?)query.limit);");
-      expect(csharp).to.include("takeLocal((int?)query.limit);");
-      expect(csharp).to.include("takeTyped((int?)query.limit);");
+      expect(csharp).to.include("takeDeclared(query.limit);");
+      expect(csharp).to.include("takeLocal(query.limit);");
+      expect(csharp).to.include("takeTyped(query.limit);");
       expect(csharp).not.to.include("takeDeclared(query.limit.Value)");
       expect(csharp).not.to.include("takeLocal(query.limit.Value)");
       expect(csharp).not.to.include("takeTyped(query.limit.Value)");
@@ -463,7 +463,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.not.include(".Value");
       expect(csharp).to.include(
-        'return ((global::System.Object)(lengthOrEncoding)) == null || ((global::System.Object)(lengthOrEncoding)) != null && lengthOrEncoding.Is2() ? 0 : (lengthOrEncoding.As1());'
+        "return ((global::System.Object)(lengthOrEncoding)) == null || ((global::System.Object)(lengthOrEncoding)) != null && lengthOrEncoding.Is2() ? 0 : (lengthOrEncoding.As1());"
       );
     });
 
@@ -492,7 +492,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("readDelay(default(int?))");
     });
 
-  it("preserves explicit undefined semantics for authored default parameters", () => {
+    it("preserves explicit undefined semantics for authored default parameters", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
 
@@ -527,7 +527,9 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("public int? read(int? position = default)");
-      expect(csharp).to.include("int? __defaulted_position = position ?? null;");
+      expect(csharp).to.include(
+        "int? __defaulted_position = position ?? null;"
+      );
       expect(csharp).to.include("return __defaulted_position;");
     });
 
@@ -547,7 +549,7 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.include('public PatternBox(string? flags = default)');
+      expect(csharp).to.include("public PatternBox(string? flags = default)");
       expect(csharp).to.include('string __defaulted_flags = flags ?? "";');
       expect(csharp).to.include("this.flags = __defaulted_flags;");
     });
@@ -564,7 +566,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.not.include('value ?? ""');
       expect(csharp).to.include(
-        "((global::System.Func<T, global::Tsonic.Internal.Union<string, T>>)((T __tsonic_nullish_value) => (object)__tsonic_nullish_value == null ? global::Tsonic.Internal.Union<string, T>.From1(\"\") : global::Tsonic.Internal.Union<string, T>.From2(__tsonic_nullish_value)))(value)"
+        '((global::System.Func<T, global::Tsonic.Internal.Union<string, T>>)((T __tsonic_nullish_value) => (object)__tsonic_nullish_value == null ? global::Tsonic.Internal.Union<string, T>.From1("") : global::Tsonic.Internal.Union<string, T>.From2(__tsonic_nullish_value)))(value)'
       );
     });
 

@@ -10,7 +10,11 @@
 import type { IrType, IrFunctionType } from "../types/index.js";
 import * as ts from "typescript";
 import type { TypeSystemState } from "./type-system-state.js";
-import { typesEqual, containsTypeParameter } from "./type-system-relations.js";
+import {
+  typesEqual,
+  containsTypeParameter,
+  isAssignableTo,
+} from "./type-system-relations.js";
 import {
   convertTypeNode,
   delegateToFunctionType,
@@ -68,38 +72,49 @@ export const inferLambdaType = (
       : undefined;
   const expectedReturnType = expectedFnType?.returnType;
 
+  const bodyInferredReturnType =
+    explicitReturnType !== undefined
+      ? undefined
+      : (() => {
+          if (ts.isBlock(unwrapped.body)) {
+            const returns: ts.Expression[] = [];
+            const visit = (n: ts.Node): void => {
+              if (ts.isFunctionLike(n) && n !== unwrapped) return;
+              if (ts.isReturnStatement(n) && n.expression) {
+                returns.push(n.expression);
+              }
+              n.forEachChild(visit);
+            };
+            unwrapped.body.forEachChild(visit);
+
+            if (returns.length === 0) return { kind: "voidType" as const };
+
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            const first = inferExpressionType(state, returns[0]!, env);
+            if (!first) return undefined;
+            for (let i = 1; i < returns.length; i++) {
+              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+              const t = inferExpressionType(state, returns[i]!, env);
+              if (!t || !typesEqual(t, first)) return undefined;
+            }
+            return first;
+          }
+
+          return inferExpressionType(state, unwrapped.body, env);
+        })();
+
   const inferredReturnType =
     explicitReturnType ??
+    (bodyInferredReturnType &&
+    expectedReturnType &&
+    !containsTypeParameter(expectedReturnType) &&
+    isAssignableTo(state, bodyInferredReturnType, expectedReturnType)
+      ? bodyInferredReturnType
+      : undefined) ??
     (expectedReturnType && !containsTypeParameter(expectedReturnType)
       ? expectedReturnType
       : undefined) ??
-    (() => {
-      if (ts.isBlock(unwrapped.body)) {
-        const returns: ts.Expression[] = [];
-        const visit = (n: ts.Node): void => {
-          if (ts.isFunctionLike(n) && n !== unwrapped) return;
-          if (ts.isReturnStatement(n) && n.expression) {
-            returns.push(n.expression);
-          }
-          n.forEachChild(visit);
-        };
-        unwrapped.body.forEachChild(visit);
-
-        if (returns.length === 0) return { kind: "voidType" as const };
-
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        const first = inferExpressionType(state, returns[0]!, env);
-        if (!first) return undefined;
-        for (let i = 1; i < returns.length; i++) {
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          const t = inferExpressionType(state, returns[i]!, env);
-          if (!t || !typesEqual(t, first)) return undefined;
-        }
-        return first;
-      }
-
-      return inferExpressionType(state, unwrapped.body, env);
-    })();
+    bodyInferredReturnType;
 
   if (!inferredReturnType) return undefined;
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import * as ts from "typescript";
 import { buildIrModule } from "../../builder.js";
 import { createProgramContext } from "../../program-context.js";

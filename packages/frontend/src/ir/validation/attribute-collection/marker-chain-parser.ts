@@ -127,8 +127,8 @@ export const tryDetectAttributeMarker = (
       selector = "root";
       rootCallExpr = selectorRoot;
     } else {
-    const selectorMember = selectorCall.callee as IrMemberExpression;
-    const prop = getMemberName(selectorMember);
+      const selectorMember = selectorCall.callee as IrMemberExpression;
+      const prop = getMemberName(selectorMember);
       if (prop !== "method" && prop !== "prop") {
         selector = "root";
         rootCallExpr = selectorRoot;

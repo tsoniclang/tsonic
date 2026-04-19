@@ -48,10 +48,7 @@ const resolveFrontendPackageRoot = (): string => {
 const frontendPackageRoot = resolveFrontendPackageRoot();
 const repoRoot = path.resolve(frontendPackageRoot, "../..");
 const fixtureSourceRoot = path.join(frontendPackageRoot, "test-fixtures");
-const materializedFixtureRoot = path.join(
-  tmpdir(),
-  "frontend-test-fixtures"
-);
+const materializedFixtureRoot = path.join(tmpdir(), "frontend-test-fixtures");
 
 const loadFixtureMeta = (fixtureRoot: string): FixtureMeta => {
   const metaPath = path.join(fixtureRoot, "fixture.meta.json");

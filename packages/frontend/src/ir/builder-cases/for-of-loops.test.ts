@@ -435,7 +435,8 @@ describe("IR Builder", function () {
         if (!boxDecl || boxDecl.kind !== "classDeclaration") return;
 
         const firstMethod = boxDecl.members.find(
-          (member) => member.kind === "methodDeclaration" && member.name === "first"
+          (member) =>
+            member.kind === "methodDeclaration" && member.name === "first"
         );
         expect(firstMethod).to.not.equal(undefined);
         if (!firstMethod || firstMethod.kind !== "methodDeclaration") return;

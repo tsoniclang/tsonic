@@ -175,42 +175,15 @@ const makeClrValueArrayType = (
 });
 
 const typedArrayArgumentTypes = new Map<string, IrType>([
-  [
-    "Uint8Array",
-    makeClrValueArrayType("byte", "System.Byte", "Byte"),
-  ],
-  [
-    "Uint8ClampedArray",
-    makeClrValueArrayType("byte", "System.Byte", "Byte"),
-  ],
-  [
-    "Int8Array",
-    makeClrValueArrayType("sbyte", "System.SByte", "SByte"),
-  ],
-  [
-    "Int16Array",
-    makeClrValueArrayType("short", "System.Int16", "Int16"),
-  ],
-  [
-    "Uint16Array",
-    makeClrValueArrayType("ushort", "System.UInt16", "UInt16"),
-  ],
-  [
-    "Int32Array",
-    makeClrValueArrayType("int", "System.Int32", "Int32"),
-  ],
-  [
-    "Uint32Array",
-    makeClrValueArrayType("uint", "System.UInt32", "UInt32"),
-  ],
-  [
-    "Float32Array",
-    makeClrValueArrayType("float", "System.Single", "Single"),
-  ],
-  [
-    "Float64Array",
-    makeClrValueArrayType("double", "System.Double", "Double"),
-  ],
+  ["Uint8Array", makeClrValueArrayType("byte", "System.Byte", "Byte")],
+  ["Uint8ClampedArray", makeClrValueArrayType("byte", "System.Byte", "Byte")],
+  ["Int8Array", makeClrValueArrayType("sbyte", "System.SByte", "SByte")],
+  ["Int16Array", makeClrValueArrayType("short", "System.Int16", "Int16")],
+  ["Uint16Array", makeClrValueArrayType("ushort", "System.UInt16", "UInt16")],
+  ["Int32Array", makeClrValueArrayType("int", "System.Int32", "Int32")],
+  ["Uint32Array", makeClrValueArrayType("uint", "System.UInt32", "UInt32")],
+  ["Float32Array", makeClrValueArrayType("float", "System.Single", "Single")],
+  ["Float64Array", makeClrValueArrayType("double", "System.Double", "Double")],
 ]);
 
 const typedArrayNumericLengthClrNames = new Set([
@@ -218,7 +191,9 @@ const typedArrayNumericLengthClrNames = new Set([
   "ArrayBuffer",
 ]);
 
-const getTypedArrayLeafName = (type: IrType | undefined): string | undefined => {
+const getTypedArrayLeafName = (
+  type: IrType | undefined
+): string | undefined => {
   if (!type || type.kind !== "referenceType") {
     return undefined;
   }
@@ -350,7 +325,10 @@ export const isUint8ArrayConstructorWithArrayLiteral = (
   }
 
   const key = getConstructorKey(expr);
-  return key !== undefined && typedArrayArgumentTypes.has(key.split(".").pop() ?? key);
+  return (
+    key !== undefined &&
+    typedArrayArgumentTypes.has(key.split(".").pop() ?? key)
+  );
 };
 
 export const emitUint8ArrayArrayLiteralConstructor = (

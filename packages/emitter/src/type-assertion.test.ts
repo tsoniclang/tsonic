@@ -422,7 +422,9 @@ describe("Type Assertion Emission", () => {
       context
     );
 
-    const emitted = normalizeRuntimeUnionCarrierNames(printExpression(assignmentAst));
+    const emitted = normalizeRuntimeUnionCarrierNames(
+      printExpression(assignmentAst)
+    );
 
     expect(emitted).to.not.include(
       "(global::Tsonic.Internal.Union<global::System.Action, double>"

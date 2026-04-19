@@ -186,7 +186,10 @@ export const resolveInstanceofTargetType = (
       identifier.text,
       "global"
     );
-    if (!simpleBinding || !simpleBindingContributesTypeIdentity(simpleBinding)) {
+    if (
+      !simpleBinding ||
+      !simpleBindingContributesTypeIdentity(simpleBinding)
+    ) {
       return undefined;
     }
 
@@ -213,7 +216,9 @@ export const resolveInstanceofTargetType = (
     }
 
     if (ts.isConstructorTypeNode(node)) {
-      return ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type));
+      return ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(node.type)
+      );
     }
 
     if (ts.isTypeLiteralNode(node)) {
@@ -234,7 +239,9 @@ export const resolveInstanceofTargetType = (
         candidates.set(stableIrTypeKey(preferred), preferred);
       }
 
-      return candidates.size === 1 ? Array.from(candidates.values())[0] : undefined;
+      return candidates.size === 1
+        ? Array.from(candidates.values())[0]
+        : undefined;
     }
 
     if (ts.isIntersectionTypeNode(node)) {
@@ -247,7 +254,9 @@ export const resolveInstanceofTargetType = (
         candidates.set(stableIrTypeKey(target), target);
       }
 
-      return candidates.size === 1 ? Array.from(candidates.values())[0] : undefined;
+      return candidates.size === 1
+        ? Array.from(candidates.values())[0]
+        : undefined;
     }
 
     return undefined;
@@ -349,7 +358,9 @@ export const resolveInstanceofTargetType = (
         candidates.set(stableIrTypeKey(selected), selected);
       }
 
-      return candidates.size === 1 ? Array.from(candidates.values())[0] : undefined;
+      return candidates.size === 1
+        ? Array.from(candidates.values())[0]
+        : undefined;
     }
 
     return undefined;

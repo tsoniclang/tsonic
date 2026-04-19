@@ -70,7 +70,9 @@ const hasExplicitStructuralReference = (type: IrType | undefined): boolean => {
   return false;
 };
 
-const hasInlineOrGeneratedStructuralCarrier = (type: IrType | undefined): boolean => {
+const hasInlineOrGeneratedStructuralCarrier = (
+  type: IrType | undefined
+): boolean => {
   if (!type) return false;
 
   if (type.kind === "objectType") {
@@ -90,7 +92,9 @@ const hasInlineOrGeneratedStructuralCarrier = (type: IrType | undefined): boolea
   }
 
   if (type.kind === "intersectionType" || type.kind === "unionType") {
-    return type.types.some((member) => hasInlineOrGeneratedStructuralCarrier(member));
+    return type.types.some((member) =>
+      hasInlineOrGeneratedStructuralCarrier(member)
+    );
   }
 
   return false;
@@ -110,7 +114,9 @@ const getDirectStructuralMemberType = (
     return undefined;
   }
 
-  const matchingMembers = members.filter((member) => member.name === propertyName);
+  const matchingMembers = members.filter(
+    (member) => member.name === propertyName
+  );
   if (matchingMembers.length === 0) {
     return undefined;
   }
@@ -118,8 +124,10 @@ const getDirectStructuralMemberType = (
   const methodMembers = matchingMembers.filter(
     (
       member
-    ): member is Extract<(typeof matchingMembers)[number], { kind: "methodSignature" }> =>
-      member.kind === "methodSignature"
+    ): member is Extract<
+      (typeof matchingMembers)[number],
+      { kind: "methodSignature" }
+    > => member.kind === "methodSignature"
   );
   if (methodMembers.length > 0) {
     const callableTypes = methodMembers.map((member) => ({
@@ -140,8 +148,10 @@ const getDirectStructuralMemberType = (
   const propertyMember = matchingMembers.find(
     (
       member
-    ): member is Extract<(typeof matchingMembers)[number], { kind: "propertySignature" }> =>
-      member.kind === "propertySignature"
+    ): member is Extract<
+      (typeof matchingMembers)[number],
+      { kind: "propertySignature" }
+    > => member.kind === "propertySignature"
   );
   return propertyMember?.type;
 };
@@ -165,7 +175,9 @@ const hasStrongerNumericIntent = (
       return false;
     }
 
-    const candidateReturnNumeric = getNumericKindFromIrType(candidate.returnType);
+    const candidateReturnNumeric = getNumericKindFromIrType(
+      candidate.returnType
+    );
     const currentReturnNumeric = getNumericKindFromIrType(current.returnType);
     if (
       candidateReturnNumeric &&
@@ -232,9 +244,7 @@ export const hasDeclaredMemberByName = (
 
   if (receiverIrType.kind === "referenceType") {
     const indexer = ctx.typeSystem.getIndexerInfo(receiverIrType);
-    return (
-      indexer !== undefined && isDictionaryKeyTypeName(indexer.keyClrType)
-    );
+    return indexer !== undefined && isDictionaryKeyTypeName(indexer.keyClrType);
   }
 
   return false;
@@ -760,7 +770,8 @@ export const deriveElementType = (
       ts.isNumericLiteral(accessExpression) &&
       Number.isInteger(Number(accessExpression.text))
     ) {
-      const elementType = objectType.elementTypes[Number(accessExpression.text)];
+      const elementType =
+        objectType.elementTypes[Number(accessExpression.text)];
       if (elementType) {
         return elementType;
       }

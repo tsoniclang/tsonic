@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
@@ -63,12 +64,12 @@ const findCall = (
   return undefined;
 };
 
-const hasIdentifierCallee = (
-  call: IrCallExpression,
-  name: string
-): boolean => {
+const hasIdentifierCallee = (call: IrCallExpression, name: string): boolean => {
   let current = call.callee;
-  while (current.kind === "typeAssertion" || current.kind === "numericNarrowing") {
+  while (
+    current.kind === "typeAssertion" ||
+    current.kind === "numericNarrowing"
+  ) {
     current = current.expression;
   }
 
@@ -186,5 +187,65 @@ describe("IR Builder – invocation flow assertions", function () {
       kind: "primitiveType",
       name: "string",
     });
+  });
+
+  it("captures predicate-narrowed alias members in branch-local call metadata", () => {
+    const source = `
+      type PathSpec = string | RegExp | readonly PathSpec[];
+      type RequestHandler = (request: string) => void;
+
+      declare function isPathSpec(
+        value: PathSpec | RequestHandler
+      ): value is PathSpec;
+      declare function addMiddlewareLayer(path: PathSpec): void;
+
+      export function run(first: PathSpec | RequestHandler): void {
+        if (isPathSpec(first)) {
+          addMiddlewareLayer(first);
+        }
+      }
+    `;
+
+    const { testProgram, ctx, options } = createTestProgram(source);
+    const sourceFile = testProgram.sourceFiles[0];
+    if (!sourceFile) {
+      throw new Error("Failed to create source file");
+    }
+
+    const result = buildIrModule(sourceFile, testProgram, options, ctx);
+    expect(result.ok).to.equal(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const finalModule = buildFinalModule(result.value, ctx);
+    const call = findCall(finalModule, (candidate) =>
+      hasIdentifierCallee(candidate, "addMiddlewareLayer")
+    );
+
+    expect(call).to.not.equal(undefined);
+    if (!call) {
+      return;
+    }
+
+    expect(call.parameterTypes?.[0]?.kind).to.equal("referenceType");
+    if (call.parameterTypes?.[0]?.kind !== "referenceType") {
+      return;
+    }
+    expect(call.parameterTypes[0].name).to.equal("PathSpec");
+    expect(call.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
+
+    const firstArgument = call.arguments[0];
+    expect(firstArgument?.kind).to.equal("typeAssertion");
+    if (!firstArgument || firstArgument.kind !== "typeAssertion") {
+      return;
+    }
+
+    expect(firstArgument.inferredType?.kind).to.equal("referenceType");
+    if (firstArgument.inferredType?.kind !== "referenceType") {
+      return;
+    }
+    expect(firstArgument.inferredType.name).to.equal("PathSpec");
+    expect(firstArgument.expression.kind).to.equal("identifier");
   });
 });

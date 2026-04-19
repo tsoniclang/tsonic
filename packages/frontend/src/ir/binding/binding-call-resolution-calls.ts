@@ -195,7 +195,10 @@ export const resolveCallSignature = (
     declaration: ts.Declaration,
     seenSymbols: Set<ts.Symbol>
   ): "sync" | "async" | undefined => {
-    if (ts.isInterfaceDeclaration(declaration) || ts.isClassDeclaration(declaration)) {
+    if (
+      ts.isInterfaceDeclaration(declaration) ||
+      ts.isClassDeclaration(declaration)
+    ) {
       const memberMode = getIteratorMemberMode(declaration.members);
       if (memberMode) {
         return memberMode;
@@ -225,7 +228,9 @@ export const resolveCallSignature = (
       return undefined;
     }
 
-    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+    const node = ts.isParenthesizedTypeNode(typeNode)
+      ? typeNode.type
+      : typeNode;
 
     if (ts.isArrayTypeNode(node) || ts.isTupleTypeNode(node)) {
       return "sync";
@@ -244,7 +249,9 @@ export const resolveCallSignature = (
       return undefined;
     }
 
-    const namedMode = getKnownIterableModeFromName(getEntityNameLeaf(node.typeName));
+    const namedMode = getKnownIterableModeFromName(
+      getEntityNameLeaf(node.typeName)
+    );
     if (namedMode) {
       return namedMode;
     }
@@ -280,7 +287,9 @@ export const resolveCallSignature = (
     typeNode: ts.TypeNode | undefined
   ): string | undefined => {
     if (!typeNode) return undefined;
-    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+    const node = ts.isParenthesizedTypeNode(typeNode)
+      ? typeNode.type
+      : typeNode;
     if (!ts.isTypeReferenceNode(node)) return undefined;
 
     const alias = getEntityNameLeaf(node.typeName);
@@ -293,13 +302,17 @@ export const resolveCallSignature = (
 
   const isStringTypeNode = (typeNode: ts.TypeNode | undefined): boolean => {
     if (!typeNode) return false;
-    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+    const node = ts.isParenthesizedTypeNode(typeNode)
+      ? typeNode.type
+      : typeNode;
     return node.kind === ts.SyntaxKind.StringKeyword;
   };
 
   const isNumberTypeNode = (typeNode: ts.TypeNode | undefined): boolean => {
     if (!typeNode) return false;
-    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+    const node = ts.isParenthesizedTypeNode(typeNode)
+      ? typeNode.type
+      : typeNode;
     return node.kind === ts.SyntaxKind.NumberKeyword;
   };
 
@@ -409,10 +422,13 @@ export const resolveCallSignature = (
       return checkerStringEvidence;
     }
 
-    if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
+    if (
+      ts.isPropertyAccessExpression(expr) ||
+      ts.isElementAccessExpression(expr)
+    ) {
       const lookupNode = ts.isPropertyAccessExpression(expr)
         ? expr.name
-        : expr.argumentExpression ?? expr.expression;
+        : (expr.argumentExpression ?? expr.expression);
       const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
       if (!symbol) return undefined;
       const resolvedSymbol =
@@ -502,10 +518,13 @@ export const resolveCallSignature = (
       return undefined;
     }
 
-    if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
+    if (
+      ts.isPropertyAccessExpression(expr) ||
+      ts.isElementAccessExpression(expr)
+    ) {
       const lookupNode = ts.isPropertyAccessExpression(expr)
         ? expr.name
-        : expr.argumentExpression ?? expr.expression;
+        : (expr.argumentExpression ?? expr.expression);
       const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
       if (!symbol) {
         return undefined;
@@ -570,10 +589,13 @@ export const resolveCallSignature = (
       return aliases.size === 1 ? Array.from(aliases)[0] : undefined;
     }
 
-    if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
+    if (
+      ts.isPropertyAccessExpression(expr) ||
+      ts.isElementAccessExpression(expr)
+    ) {
       const lookupNode = ts.isPropertyAccessExpression(expr)
         ? expr.name
-        : expr.argumentExpression ?? expr.expression;
+        : (expr.argumentExpression ?? expr.expression);
       const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
       if (!symbol) return undefined;
       const resolvedSymbol =
@@ -651,10 +673,13 @@ export const resolveCallSignature = (
       }
     }
 
-    if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
+    if (
+      ts.isPropertyAccessExpression(expr) ||
+      ts.isElementAccessExpression(expr)
+    ) {
       const lookupNode = ts.isPropertyAccessExpression(expr)
         ? expr.name
-        : expr.argumentExpression ?? expr.expression;
+        : (expr.argumentExpression ?? expr.expression);
       const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
       if (!symbol) return false;
       const resolvedSymbol =
@@ -682,7 +707,9 @@ export const resolveCallSignature = (
       }
     }
 
-    return ctx.checker.typeToString(ctx.checker.getTypeAtLocation(expr)) === "number";
+    return (
+      ctx.checker.typeToString(ctx.checker.getTypeAtLocation(expr)) === "number"
+    );
   };
 
   const getStaticPropertyNameLocal = (
@@ -883,7 +910,9 @@ export const resolveCallSignature = (
     const param = direct ?? params[params.length - 1];
     if (!param) return undefined;
     if (!direct && !param.isRest) return undefined;
-    return getExplicitClrPrimitiveAlias(param.typeNode as ts.TypeNode | undefined);
+    return getExplicitClrPrimitiveAlias(
+      param.typeNode as ts.TypeNode | undefined
+    );
   };
 
   const preservesBroadNumberForArgIndex = (
@@ -949,7 +978,9 @@ export const resolveCallSignature = (
     typeNode: ts.TypeNode | undefined
   ): string | undefined => {
     if (!typeNode) return undefined;
-    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+    const node = ts.isParenthesizedTypeNode(typeNode)
+      ? typeNode.type
+      : typeNode;
 
     switch (node.kind) {
       case ts.SyntaxKind.StringKeyword:
@@ -1123,13 +1154,19 @@ export const resolveCallSignature = (
   for (const argIndex of wantsStringAt) {
     const matching = remaining.filter((candidate) => {
       const entry = ctx.signatureMap.get(candidate.id);
-      return entry !== undefined && paramClassForArgIndex(entry, argIndex) === "string";
+      return (
+        entry !== undefined &&
+        paramClassForArgIndex(entry, argIndex) === "string"
+      );
     });
     if (matching.length > 0) {
       remaining = matching;
     }
     if (remaining.length === 1) {
-      return remaining[0]!;
+      const [resolved] = remaining;
+      if (resolved) {
+        return resolved;
+      }
     }
   }
 
@@ -1145,13 +1182,18 @@ export const resolveCallSignature = (
       remaining = matching;
     }
     if (remaining.length === 1) {
-      return remaining[0]!;
+      const [resolved] = remaining;
+      if (resolved) {
+        return resolved;
+      }
     }
   }
 
   const exactArityNonRest = remaining.filter((candidate) => {
     const entry = ctx.signatureMap.get(candidate.id);
-    return entry !== undefined && isExactArityNonRestCandidate(entry, args.length);
+    return (
+      entry !== undefined && isExactArityNonRestCandidate(entry, args.length)
+    );
   });
   if (
     exactArityNonRest.length > 0 &&
@@ -1160,7 +1202,10 @@ export const resolveCallSignature = (
     remaining = exactArityNonRest;
   }
   if (remaining.length === 1) {
-    return remaining[0]!;
+    const [resolved] = remaining;
+    if (resolved) {
+      return resolved;
+    }
   }
 
   for (const argIndex of wantsBroadNumberAt) {
@@ -1170,15 +1215,17 @@ export const resolveCallSignature = (
     const matching = remaining.filter((candidate) => {
       const entry = ctx.signatureMap.get(candidate.id);
       return (
-        entry !== undefined &&
-        preservesBroadNumberForArgIndex(entry, argIndex)
+        entry !== undefined && preservesBroadNumberForArgIndex(entry, argIndex)
       );
     });
     if (matching.length > 0 && matching.length < remaining.length) {
       remaining = matching;
     }
     if (remaining.length === 1) {
-      return remaining[0]!;
+      const [resolved] = remaining;
+      if (resolved) {
+        return resolved;
+      }
     }
   }
 
@@ -1194,20 +1241,28 @@ export const resolveCallSignature = (
       remaining = matching;
     }
     if (remaining.length === 1) {
-      return remaining[0]!;
+      const [resolved] = remaining;
+      if (resolved) {
+        return resolved;
+      }
     }
   }
 
   for (const [argIndex, keys] of objectLiteralArgs) {
     const matching = remaining.filter((candidate) => {
       const entry = ctx.signatureMap.get(candidate.id);
-      return entry !== undefined && matchesObjectLiteralArg(entry, argIndex, keys);
+      return (
+        entry !== undefined && matchesObjectLiteralArg(entry, argIndex, keys)
+      );
     });
     if (matching.length > 0 && matching.length < remaining.length) {
       remaining = matching;
     }
     if (remaining.length === 1) {
-      return remaining[0]!;
+      const [resolved] = remaining;
+      if (resolved) {
+        return resolved;
+      }
     }
   }
 

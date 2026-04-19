@@ -81,9 +81,13 @@ describe("Static Safety Validation", () => {
       const program = createTestProgram(source);
       const diagnostics = validateProgram(program);
 
-      const unknownDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7402");
+      const unknownDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7402"
+      );
       expect(unknownDiag).not.to.equal(undefined);
-      expect(unknownDiag?.message).to.include("'unknown' type is not supported");
+      expect(unknownDiag?.message).to.include(
+        "'unknown' type is not supported"
+      );
     });
 
     it("should reject 'as unknown' type assertion", () => {
@@ -94,7 +98,9 @@ describe("Static Safety Validation", () => {
       const program = createTestProgram(source);
       const diagnostics = validateProgram(program);
 
-      const unknownDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7402");
+      const unknownDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7402"
+      );
       expect(unknownDiag).not.to.equal(undefined);
       expect(unknownDiag?.message).to.include("'unknown' type assertion");
     });
@@ -124,7 +130,9 @@ describe("Static Safety Validation", () => {
       const program = createTestProgram(source);
       const diagnostics = validateProgram(program);
 
-      const unknownDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7402");
+      const unknownDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7402"
+      );
       expect(unknownDiag).to.equal(undefined);
     });
   });

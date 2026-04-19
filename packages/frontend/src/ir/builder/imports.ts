@@ -318,7 +318,8 @@ export const extractImports = (
         }
 
         const owningNamespace =
-          resolveTsbindgenNamespaceForNamedImport(spec.name) ?? resolvedNamespace;
+          resolveTsbindgenNamespaceForNamedImport(spec.name) ??
+          resolvedNamespace;
         const resolvedTypeBinding = owningNamespace
           ? resolveClrTypeBindingForNamedImport(spec.name)
           : undefined;

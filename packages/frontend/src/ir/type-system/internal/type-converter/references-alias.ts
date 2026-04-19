@@ -72,9 +72,7 @@ export const handleTypeAliasDeclaration = (
     return stampRuntimeUnionAliasCarrier(type, {
       aliasName: declNode.name.text,
       fullyQualifiedName,
-      typeParameters: (declNode.typeParameters ?? []).map(
-        (tp) => tp.name.text
-      ),
+      typeParameters: (declNode.typeParameters ?? []).map((tp) => tp.name.text),
       typeArguments: (node.typeArguments ?? []).map((typeArgument) =>
         convertType(typeArgument, binding)
       ),
@@ -170,7 +168,9 @@ export const handleTypeAliasDeclaration = (
       convertType
     );
     if (directExpanded) {
-      return stampSourceAliasCarrier(normalizeExpandedAliasType(directExpanded));
+      return stampSourceAliasCarrier(
+        normalizeExpandedAliasType(directExpanded)
+      );
     }
   }
 

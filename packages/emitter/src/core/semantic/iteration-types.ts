@@ -98,10 +98,9 @@ export const deriveForOfElementType = (
     normalized.typeArguments.length > 0
   ) {
     const [firstTypeArg, secondTypeArg] = normalized.typeArguments;
-    const simpleName = (normalized.name.split(".").pop() ?? normalized.name).replace(
-      /\$instance$/,
-      ""
-    );
+    const simpleName = (
+      normalized.name.split(".").pop() ?? normalized.name
+    ).replace(/\$instance$/, "");
     const clrSimpleName = normalized.resolvedClrType
       ?.split(".")
       .pop()

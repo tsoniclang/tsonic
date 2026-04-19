@@ -17,7 +17,10 @@ const globalsPath = path.join(monorepoRoot, "node_modules/@tsonic/globals");
 const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 const jsPath = path.join(monorepoRoot, "node_modules/@tsonic/js");
 const siblingDotnetPath = path.resolve(monorepoRoot, "../dotnet/versions/10");
-const installedDotnetPath = path.join(monorepoRoot, "node_modules/@tsonic/dotnet");
+const installedDotnetPath = path.join(
+  monorepoRoot,
+  "node_modules/@tsonic/dotnet"
+);
 const dotnetPath = fs.existsSync(siblingDotnetPath)
   ? siblingDotnetPath
   : installedDotnetPath;
@@ -31,7 +34,11 @@ const installPackageLink = (
     return;
   }
 
-  const packageRoot = path.join(projectRoot, "node_modules", ...packageName.split("/"));
+  const packageRoot = path.join(
+    projectRoot,
+    "node_modules",
+    ...packageName.split("/")
+  );
   if (fs.existsSync(packageRoot)) {
     return;
   }

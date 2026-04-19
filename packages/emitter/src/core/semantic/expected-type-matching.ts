@@ -54,7 +54,10 @@ export const matchesSemanticExpectedType = (
 
   if (
     isAssignable(actualComparableType, expectedComparableType) ||
-    isAssignable(resolvedActualComparableType, resolvedExpectedComparableType) ||
+    isAssignable(
+      resolvedActualComparableType,
+      resolvedExpectedComparableType
+    ) ||
     runtimeUnionMemberCanAcceptValue(
       expectedComparableType,
       actualComparableType,

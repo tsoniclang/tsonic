@@ -207,7 +207,9 @@ describe("build command (native source-package libraries)", function () {
   });
 
   it("allows repeated source-package library builds without losing bin artifacts", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-source-package-repeat-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-source-package-repeat-")
+    );
 
     try {
       mkdirSync(join(dir, "packages", "lib", "src"), { recursive: true });
@@ -379,7 +381,9 @@ describe("build command (native source-package libraries)", function () {
       const second = buildCommand(config);
       expect(second.ok).to.equal(true);
       expect(
-        existsSync(join(dir, "packages", "lib", "dist", "net10.0", "Acme.Lib.dll"))
+        existsSync(
+          join(dir, "packages", "lib", "dist", "net10.0", "Acme.Lib.dll")
+        )
       ).to.equal(true);
       expect(
         existsSync(

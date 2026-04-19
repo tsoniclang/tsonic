@@ -18,8 +18,12 @@ class Overloads {
   }
 }
 
-O<Overloads>().method(x => x.foo_string).family(x => x.Foo);
-O<Overloads>().method(x => x.foo_boolean).family(x => x.Foo);
+O<Overloads>()
+  .method((x) => x.foo_string)
+  .family((x) => x.Foo);
+O<Overloads>()
+  .method((x) => x.foo_boolean)
+  .family((x) => x.Foo);
 
 const o = new Overloads();
 Console.WriteLine(o.Foo(asinterface<DotnetString>("hi")));

@@ -10,8 +10,8 @@ import {
   IrBinaryOperator,
   IrAssignmentOperator,
   IrType,
-  stableIrTypeKey,
 } from "../../types.js";
+import { normalizedUnionType } from "../../types/type-ops.js";
 import {
   deriveIdentifierType,
   getSourceSpan,
@@ -99,23 +99,7 @@ const stripNullishFromUnion = (type: IrType): IrType | undefined => {
 };
 
 const makeUnionType = (types: readonly IrType[]): IrType => {
-  const flattened: IrType[] = [];
-  for (const t of types) {
-    if (t.kind === "unionType") flattened.push(...t.types);
-    else flattened.push(t);
-  }
-
-  const seen = new Set<string>();
-  const unique: IrType[] = [];
-  for (const t of flattened) {
-    const key = stableIrTypeKey(t);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(t);
-  }
-
-  if (unique.length === 1 && unique[0]) return unique[0];
-  return { kind: "unionType", types: unique };
+  return normalizedUnionType(types);
 };
 
 const withoutExactAssignmentTargetReadNarrowing = (

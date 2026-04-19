@@ -51,15 +51,17 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         'var root = global::js.JSON.parse("{\\"title\\":\\"hello\\",\\"count\\":2}");'
       );
-      expect(csharp).to.include("var entries = global::js.Object.entries(root);");
+      expect(csharp).to.include(
+        "var entries = global::js.Object.entries(root);"
+      );
       expect(csharp).to.include(
         'if (global::Tsonic.Runtime.Operators.@typeof(value) == "number")'
       );
       expect(csharp).to.include(
-        'global::js.ConsoleModule.log(key, global::js.Number.toString((double)value));'
+        "global::js.ConsoleModule.log(key, global::js.Number.toString((double)value));"
       );
       expect(csharp).to.include(
-        'global::js.ConsoleModule.log(key, global::js.String.toUpperCase((string)value));'
+        "global::js.ConsoleModule.log(key, global::js.String.toUpperCase((string)value));"
       );
     });
 
@@ -83,12 +85,12 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('var chars = global::js.Array.from("abcd");');
       expect(csharp).to.include("var more = global::js.Array.of(6, 7, 8);");
       expect(csharp).to.include(
-        "var joined = global::Tsonic.Internal.ArrayInterop.WrapArray(filtered).join(\",\");"
+        'var joined = global::Tsonic.Internal.ArrayInterop.WrapArray(filtered).join(",");'
       );
       expect(csharp).to.include(
         "var joinedDefault = global::Tsonic.Internal.ArrayInterop.WrapArray(filtered).join();"
       );
-      expect(csharp).to.include("global::js.Globals.parseInt(\"123\")");
+      expect(csharp).to.include('global::js.Globals.parseInt("123")');
     });
 
     it("does not leak instanceof conjunction narrowing into dgram send fallthrough byte conversion", () => {
@@ -211,9 +213,13 @@ describe("End-to-End Integration", () => {
     });
 
     it("mirrors import-meta-object", () => {
-      const csharp = compileToCSharp(readFixtureSource("import-meta-object"), "/test/test.ts", {
-        surface: "@tsonic/js",
-      });
+      const csharp = compileToCSharp(
+        readFixtureSource("import-meta-object"),
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
 
       expect(csharp).to.include('url = "file:///test/test.ts"');
       expect(csharp).to.include('filename = "/test/test.ts"');
@@ -297,7 +303,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("preserves narrowed overload carriers for recursive fs-style writeSync calls", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte, int } from "@tsonic/core/types.js";
 
@@ -361,7 +368,10 @@ describe("End-to-End Integration", () => {
 
         O<FS>().method(x => x.writeSync_buffer).family(x => x.writeSync);
         O<FS>().method(x => x.writeSync_text).family(x => x.writeSync);
-      `, "/test/test.ts", { surface: "@tsonic/js" });
+      `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
 
       expect(
         csharp.match(
@@ -374,7 +384,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("materializes narrowed runtime-union casts with the cast carrier arity", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         class Buffer {}
 
         declare function isNumberArray(value: number[]): boolean;
@@ -393,13 +404,16 @@ describe("End-to-End Integration", () => {
 
           fromUint8Array(value);
         }
-      `, "/test/test.ts", { surface: "@tsonic/js" });
+      `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
 
       expect(csharp).to.include(
         ".Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
       );
       expect(csharp).to.not.include(
-        ".Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot cast runtime union ref#0:global::Test.Buffer:: to arr#0:prim:number:tuple::rest:none\"), __tsonic_union_member_3 =>"
+        '.Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union ref#0:global::Test.Buffer:: to arr#0:prim:number:tuple::rest:none"), __tsonic_union_member_3 =>'
       );
     });
 
@@ -465,9 +479,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include(
-        "fromUint8Array((value.As2()));"
-      );
+      expect(csharp).to.include("fromUint8Array((value.As2()));");
       expect(csharp).not.to.include(
         ").Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
       );
@@ -550,7 +562,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("keeps inherited typed-array overload calls on the exact iterable overload surface", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte, int } from "@tsonic/core/types.js";
         import { overloads as O } from "@tsonic/core/lang.js";
@@ -606,7 +619,10 @@ describe("End-to-End Integration", () => {
           }
           return result;
         }
-      `, "/test/test.ts", { surface: "@tsonic/js" });
+      `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
 
       expect(csharp).to.include("result.set(");
       expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
@@ -617,7 +633,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "global::Tsonic.Internal.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
       );
-      expect(csharp).not.to.include("global::Tsonic.Internal.Union<int, double>.From1(offset)");
+      expect(csharp).not.to.include(
+        "global::Tsonic.Internal.Union<int, double>.From1(offset)"
+      );
       expect(csharp).not.to.include(
         "buffer.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
       );
@@ -665,7 +683,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("does not re-adapt typed-array iterable arguments after contextual emission", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte, int } from "@tsonic/core/types.js";
 
@@ -716,7 +735,10 @@ describe("End-to-End Integration", () => {
             return new Buffer(copy);
           }
         }
-      `, "/test/test.ts", { surface: "@tsonic/js" });
+      `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
 
       expect(csharp).to.include(
         "copy.set(global::System.Linq.Enumerable.Select<byte, double>(buffer._data.__tsonic_symbol_iterator(), __item => __item));"
@@ -730,7 +752,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("keeps selected member overload surfaces exact instead of the implementation union", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         import { overloads as O } from "@tsonic/core/lang.js";
         import type { int } from "@tsonic/core/types.js";
 
@@ -760,11 +783,12 @@ describe("End-to-End Integration", () => {
         ): void {
           target.set(values, offset);
         }
-      `, "/test/test.ts", { surface: "@tsonic/js" });
-
-      expect(csharp).to.include(
-        "target.set(values, offset);"
+      `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
       );
+
+      expect(csharp).to.include("target.set(values, offset);");
       expect(csharp).to.not.include(
         "target.set(global::Tsonic.Internal.Union<double[], global::System.Collections.Generic.IEnumerable<double>, int>.From2(values), global::Tsonic.Internal.Union<int, double>.From1(offset));"
       );
@@ -794,7 +818,7 @@ describe("End-to-End Integration", () => {
         "var parsed = global::System.Text.Json.JsonSerializer.Deserialize<Payload__Alias>(json, global::Test.TsonicJson.Options);"
       );
       expect(csharp).to.include(
-        'var roundtrip = global::System.Text.Json.JsonSerializer.Serialize(parsed, global::Test.TsonicJson.Options);'
+        "var roundtrip = global::System.Text.Json.JsonSerializer.Serialize(parsed, global::Test.TsonicJson.Options);"
       );
       expect(csharp).to.include(
         'var parsedNumber = global::System.Text.Json.JsonSerializer.Deserialize<double>("123", global::Test.TsonicJson.Options);'
@@ -805,11 +829,14 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "global::System.Text.Json.JsonSerializer.Serialize(inline, global::Test.TsonicJson.Options)"
       );
-      expect(csharp).to.include("global::Test.TsonicJsonRuntime.Stringify(new global::System.Collections.Generic.Dictionary<string, object?>");
+      expect(csharp).to.include(
+        "global::Test.TsonicJsonRuntime.Stringify(new global::System.Collections.Generic.Dictionary<string, object?>"
+      );
     });
 
     it("infers explicit JsValue through generic createWrapped calls used by flat", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         import type { int, JsValue } from "@tsonic/core/types.js";
 
         export class Array<T = JsValue> {
@@ -826,17 +853,21 @@ describe("End-to-End Integration", () => {
             return this.createWrapped(flattened);
           }
         }
-      `, "/test/test.ts", { surface: "@tsonic/js" });
+      `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
 
       const localArraySection = csharp.slice(
         csharp.lastIndexOf("public class Array<T>")
       );
       expect(localArraySection).to.include("public Array<object?> flat");
-      expect(localArraySection).to.include("return this.createWrapped(flattened);");
+      expect(localArraySection).to.include(
+        "return this.createWrapped(flattened);"
+      );
       expect(localArraySection).not.to.include(
         "return this.createWrapped((TResult[])"
       );
     });
-
   });
 });

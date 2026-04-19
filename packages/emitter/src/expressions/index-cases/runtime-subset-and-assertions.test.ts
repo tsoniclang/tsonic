@@ -359,10 +359,7 @@ describe("Expression Emission", () => {
 
     const broadType: IrType = {
       kind: "unionType",
-      types: [
-        bytesType,
-        { kind: "primitiveType", name: "string" },
-      ],
+      types: [bytesType, { kind: "primitiveType", name: "string" }],
     };
 
     const [result] = emitExpressionAst(
@@ -430,10 +427,7 @@ describe("Expression Emission", () => {
 
     const broadType: IrType = {
       kind: "unionType",
-      types: [
-        { kind: "primitiveType", name: "string" },
-        bytesType,
-      ],
+      types: [{ kind: "primitiveType", name: "string" }, bytesType],
     };
 
     const [result] = emitExpressionAst(

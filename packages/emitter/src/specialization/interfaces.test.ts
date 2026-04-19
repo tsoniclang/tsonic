@@ -206,7 +206,9 @@ describe("Interfaces (spec/16 §2)", () => {
     const result = emitModule(module);
 
     expect(result).to.include("public class CreateTenantInput");
-    expect(result).to.include("public class CreateTenantAdminInput : CreateTenantInput");
+    expect(result).to.include(
+      "public class CreateTenantAdminInput : CreateTenantInput"
+    );
     expect(result).to.match(
       /\[global::System\.Diagnostics\.CodeAnalysis\.SetsRequiredMembersAttribute\]\s*public\s+CreateTenantAdminInput\s*\(\s*\)/
     );

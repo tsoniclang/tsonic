@@ -308,6 +308,7 @@ export type NarrowedBinding =
       readonly exprAst: CSharpExpressionAst;
       readonly storageExprAst?: CSharpExpressionAst;
       readonly carrierExprAst?: CSharpExpressionAst;
+      readonly carrierType?: IrType;
       readonly storageType?: IrType;
       readonly type?: IrType;
       readonly sourceType?: IrType;

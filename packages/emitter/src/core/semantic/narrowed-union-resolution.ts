@@ -13,10 +13,11 @@
  */
 
 import type { IrType } from "@tsonic/frontend";
-import { stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import { resolveNamedRuntimeCarrierType } from "./direct-storage-ir-types.js";
 import { expandRuntimeUnionMembers } from "./runtime-union-expansion.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
@@ -53,14 +54,15 @@ export const resolveNarrowedUnionMembers = (
   context: EmitterContext
 ): NarrowedUnionMembers | undefined => {
   const narrowed = context.narrowedBindings?.get(originalName);
+  const carrierSourceType = resolveNamedRuntimeCarrierType(
+    originalName,
+    context
+  );
   const alignEffectiveMembersToCarrier = (
     effectiveType: IrType,
     carrierSourceType: IrType | undefined
   ): NarrowedUnionMembers | undefined => {
-    if (
-      !carrierSourceType ||
-      stableIrTypeKey(carrierSourceType) === stableIrTypeKey(effectiveType)
-    ) {
+    if (!carrierSourceType) {
       return undefined;
     }
 
@@ -76,36 +78,38 @@ export const resolveNarrowedUnionMembers = (
       return undefined;
     }
 
-    const candidateMemberNs = effectiveMembers.flatMap((member) => {
+    const alignedMembers = sourceMembers.flatMap((member, index) => {
       const exactMatches = findExactRuntimeUnionMemberIndices(
-        sourceMembers,
+        effectiveMembers,
         member,
         context
       );
       if (exactMatches.length > 0) {
-        const index = exactMatches[0];
-        return index === undefined ? [] : [index + 1];
+        return [{ member, memberN: index + 1 }];
       }
 
       const semanticMatches = findRuntimeUnionMemberIndices(
-        sourceMembers,
+        effectiveMembers,
         member,
         context
       );
-      const index = semanticMatches[0];
-      return index === undefined ? [] : [index + 1];
+      return semanticMatches.length > 0 ? [{ member, memberN: index + 1 }] : [];
     });
 
-    if (candidateMemberNs.length !== effectiveMembers.length) {
+    if (alignedMembers.length !== effectiveMembers.length) {
       return undefined;
     }
 
     return {
-      members: effectiveMembers,
-      candidateMemberNs,
+      members: alignedMembers.map(({ member }) => member),
+      candidateMemberNs: alignedMembers.map(({ memberN }) => memberN),
       runtimeUnionArity: sourceMembers.length,
     };
   };
+
+  if (!willCarryAsRuntimeUnion(carrierSourceType ?? unionSourceType, context)) {
+    return undefined;
+  }
 
   // Fast path: pre-cached runtimeSubset with source member data
   if (
@@ -138,13 +142,10 @@ export const resolveNarrowedUnionMembers = (
     };
   }
 
-  const carrierAligned =
-    alignEffectiveMembersToCarrier(
-      narrowed?.type ?? unionSourceType,
-      narrowed?.sourceType ??
-        context.localValueTypes?.get(originalName) ??
-        unionSourceType
-    );
+  const carrierAligned = alignEffectiveMembersToCarrier(
+    narrowed?.type ?? unionSourceType,
+    carrierSourceType ?? narrowed?.sourceType ?? unionSourceType
+  );
   if (carrierAligned) {
     return carrierAligned;
   }
@@ -152,8 +153,11 @@ export const resolveNarrowedUnionMembers = (
   // Resolve the effective source type, accounting for narrowing state
   const runtimeSourceType =
     narrowed?.kind === "runtimeSubset"
-      ? (narrowed.sourceType ?? unionSourceType)
-      : (narrowed?.type ?? narrowed?.sourceType ?? unionSourceType);
+      ? (narrowed.sourceType ?? carrierSourceType ?? unionSourceType)
+      : (narrowed?.type ??
+        narrowed?.sourceType ??
+        carrierSourceType ??
+        unionSourceType);
 
   // Semantic member resolution — no frame object construction
   const members = getCanonicalRuntimeUnionMembers(runtimeSourceType, context);

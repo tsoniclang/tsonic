@@ -23,17 +23,15 @@ import {
 } from "../core/format/backend-ast/utils.js";
 import type { EmitterContext } from "../types.js";
 import { hasNullishBranch } from "./exact-comparison.js";
-import {
-  StructuralAdaptFn,
-  UpcastFn,
-  buildDelegateType,
-} from "./structural-adaptation-types.js";
+import { StructuralAdaptFn, UpcastFn } from "./structural-adaptation-types.js";
+import { buildInvokedLambdaExpressionAst } from "./invoked-lambda.js";
 import { collectStructuralProperties } from "./structural-property-model.js";
 import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
 import {
   canPreferAnonymousStructuralTarget,
   isSameNominalType,
 } from "./structural-type-shapes.js";
+import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 
 const buildStructuralSourceAccess = (
   sourceExpression: CSharpExpressionAst,
@@ -76,6 +74,9 @@ export const tryAdaptStructuralObjectExpressionAst = (
     resolvedExpectedType.kind === "referenceType" &&
     resolvedExpectedType.name === "object"
   ) {
+    if (willCarryAsRuntimeUnion(sourceType, context)) {
+      return undefined;
+    }
     return [emittedAst, context];
   }
 
@@ -95,7 +96,8 @@ export const tryAdaptStructuralObjectExpressionAst = (
       : undefined;
   const targetStructuralType =
     canonicalStructuralTarget ??
-    anonymousStructuralTarget ?? resolvedExpectedType;
+    anonymousStructuralTarget ??
+    resolvedExpectedType;
   const targetEmissionType =
     canonicalStructuralTarget ??
     anonymousStructuralTarget ??
@@ -295,32 +297,18 @@ export const tryAdaptStructuralObjectExpressionAst = (
     expression: initializer,
   });
 
-  const lambdaAst: CSharpExpressionAst = {
-    kind: "lambdaExpression",
-    isAsync: false,
-    parameters: [],
-    body: {
-      kind: "blockStatement",
-      statements,
-    },
-  };
-
   return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "parenthesizedExpression",
-        expression: {
-          kind: "castExpression",
-          type: buildDelegateType([], safeTargetTypeAst),
-          expression: {
-            kind: "parenthesizedExpression",
-            expression: lambdaAst,
-          },
-        },
+    buildInvokedLambdaExpressionAst({
+      parameters: [],
+      parameterTypes: [],
+      body: {
+        kind: "blockStatement",
+        statements,
       },
       arguments: [],
-    },
+      returnType: safeTargetTypeAst,
+      context: currentContext,
+    }),
     currentContext,
   ];
 };

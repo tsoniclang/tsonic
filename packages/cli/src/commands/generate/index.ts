@@ -104,7 +104,9 @@ const resolveReexportTargetModule = (
   }
 
   const logicalBaseDir = posix.dirname(currentModule.filePath);
-  const normalizedSpecifier = posix.normalize(posix.join(logicalBaseDir, fromModule));
+  const normalizedSpecifier = posix.normalize(
+    posix.join(logicalBaseDir, fromModule)
+  );
   const logicalCandidates = new Set<string>([normalizedSpecifier]);
 
   if (normalizedSpecifier.endsWith(".js")) {
@@ -370,9 +372,8 @@ export const generateCommand = (
     const absoluteSourceRoot = isAbsolute(sourceRoot)
       ? sourceRoot
       : resolve(projectRoot, sourceRoot);
-    const localPackageReferencesResult = resolveLocalPackageBuildReferences(
-      config
-    );
+    const localPackageReferencesResult =
+      resolveLocalPackageBuildReferences(config);
     if (!localPackageReferencesResult.ok) {
       return localPackageReferencesResult;
     }
@@ -387,7 +388,9 @@ export const generateCommand = (
     const transitiveDllLocalPackageReferences =
       transitiveDllLocalPackageReferencesResult.value;
     const dllLibraries = [
-      ...config.libraries.filter((pathLike) => pathLike.toLowerCase().endsWith(".dll")),
+      ...config.libraries.filter((pathLike) =>
+        pathLike.toLowerCase().endsWith(".dll")
+      ),
       ...transitiveDllLocalPackageReferences.map((entry) => entry.dllPath),
     ];
     const missingDlls = dllLibraries.filter((pathLike) => {
@@ -496,8 +499,7 @@ export const generateCommand = (
       const foundEntryModule =
         prunedEmittedModules.find(
           (module: IrModule) => module.filePath === entryRelative
-        ) ??
-        entryModule;
+        ) ?? entryModule;
       if (foundEntryModule) {
         const hasTopLevelCode =
           hasTopLevelExecutableStatements(foundEntryModule);
@@ -548,16 +550,12 @@ export const generateCommand = (
         ? []
         : [
             ...findRuntimeDlls(outputDir),
-            ...collectProjectLibraries(
-              workspaceRoot,
-              outputDir,
-              [
-                ...config.libraries,
-                ...transitiveDllLocalPackageReferences.map(
-                  (entry) => entry.dllPath
-                ),
-              ]
-            ),
+            ...collectProjectLibraries(workspaceRoot, outputDir, [
+              ...config.libraries,
+              ...transitiveDllLocalPackageReferences.map(
+                (entry) => entry.dllPath
+              ),
+            ]),
           ];
       const effectivePackageReferences =
         dedupePackageReferencesAgainstAssemblyReferences(

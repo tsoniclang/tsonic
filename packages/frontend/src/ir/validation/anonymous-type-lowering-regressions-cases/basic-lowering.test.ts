@@ -97,6 +97,76 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
     ).to.equal(true);
   });
 
+  it("emits anonymous carriers referenced only through awaited inferred metadata", () => {
+    const module = createTestModule(`
+      type HandlerControl = {
+        ended: boolean;
+        control?: string | null;
+        error?: object;
+      };
+
+      async function invokeHandlers(): Promise<HandlerControl> {
+        return { ended: false, control: "route", error: undefined };
+      }
+
+      export async function run(): Promise<boolean> {
+        const control = await invokeHandlers();
+        return control.ended;
+      }
+    `);
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const soundness = validateIrSoundness(lowered.modules);
+
+    expect(soundness.diagnostics.some((d) => d.code === "TSN7421")).to.equal(
+      false
+    );
+
+    const mainModule = lowered.modules.find(
+      (entry) => entry.filePath !== "__tsonic/__tsonic_anonymous_types.g.ts"
+    );
+    const runDeclaration = mainModule?.body.find(
+      (
+        stmt
+      ): stmt is Extract<
+        IrModule["body"][number],
+        { kind: "functionDeclaration" }
+      > => stmt.kind === "functionDeclaration" && stmt.name === "run"
+    );
+    const controlDeclaration = runDeclaration?.body.statements.find(
+      (
+        stmt
+      ): stmt is Extract<
+        IrModule["body"][number],
+        { kind: "variableDeclaration" }
+      > =>
+        stmt.kind === "variableDeclaration" &&
+        stmt.declarations[0]?.name.kind === "identifierPattern" &&
+        stmt.declarations[0]?.name.name === "control"
+    );
+    const controlInitializer = controlDeclaration?.declarations[0]?.initializer;
+    const inferredType = controlInitializer?.inferredType;
+    const anonModule = lowered.modules.find(
+      (entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+    );
+
+    expect(controlInitializer?.kind).to.equal("await");
+    expect(inferredType?.kind).to.equal("referenceType");
+    expect(
+      inferredType && inferredType.kind === "referenceType"
+        ? inferredType.name
+        : undefined
+    ).to.match(/^__Anon_/);
+    expect(
+      anonModule?.body.some(
+        (statement) =>
+          statement.kind === "classDeclaration" &&
+          inferredType?.kind === "referenceType" &&
+          statement.name === inferredType.name
+      )
+    ).to.equal(true);
+  });
+
   it("lowers inline call parameter shapes to compiler-owned structural carriers", () => {
     const optionsShape: Extract<IrType, { kind: "objectType" }> = {
       kind: "objectType" as const,
@@ -271,7 +341,10 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
                     {
                       kind: "identifier",
                       name: "options",
-                      inferredType: { kind: "referenceType", name: "MkdirOptions" },
+                      inferredType: {
+                        kind: "referenceType",
+                        name: "MkdirOptions",
+                      },
                     },
                   ],
                   isOptional: false,
@@ -308,7 +381,9 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
     const ensure = lowered.modules
       .flatMap((currentModule) => currentModule.body)
       .find(
-        (stmt): stmt is Extract<
+        (
+          stmt
+        ): stmt is Extract<
           (typeof lowered.modules)[number]["body"][number],
           { kind: "functionDeclaration" }
         > => stmt.kind === "functionDeclaration" && stmt.name === "ensure"

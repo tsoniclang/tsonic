@@ -231,64 +231,64 @@ export const lowerExpression = (
             ...expr,
             callee: loweredCallee,
             arguments: loweredArguments,
-          dynamicImportNamespace: expr.dynamicImportNamespace
-            ? (lowerExpression(expr.dynamicImportNamespace, ctx) as Extract<
-                typeof expr.dynamicImportNamespace,
-                { kind: "object" }
-              >)
-            : undefined,
-          typeArguments: expr.typeArguments?.map((typeArgument) =>
-            lowerType(typeArgument, ctx)
-          ),
-          resolutionExpectedReturnType: expr.resolutionExpectedReturnType
-            ? lowerType(expr.resolutionExpectedReturnType, ctx)
-            : undefined,
-          parameterTypes: expr.parameterTypes?.map((parameterType) =>
-            parameterType ? lowerType(parameterType, ctx) : undefined
-          ),
-          sourceBackedParameterTypes: expr.sourceBackedParameterTypes?.map(
-            (parameterType) =>
-              parameterType ? lowerType(parameterType, ctx) : undefined
-          ),
-          surfaceParameterTypes: expr.surfaceParameterTypes?.map(
-            (parameterType) =>
-              parameterType ? lowerType(parameterType, ctx) : undefined
-          ),
-          sourceBackedSurfaceParameterTypes:
-            expr.sourceBackedSurfaceParameterTypes?.map((parameterType) =>
+            dynamicImportNamespace: expr.dynamicImportNamespace
+              ? (lowerExpression(expr.dynamicImportNamespace, ctx) as Extract<
+                  typeof expr.dynamicImportNamespace,
+                  { kind: "object" }
+                >)
+              : undefined,
+            typeArguments: expr.typeArguments?.map((typeArgument) =>
+              lowerType(typeArgument, ctx)
+            ),
+            resolutionExpectedReturnType: expr.resolutionExpectedReturnType
+              ? lowerType(expr.resolutionExpectedReturnType, ctx)
+              : undefined,
+            parameterTypes: expr.parameterTypes?.map((parameterType) =>
               parameterType ? lowerType(parameterType, ctx) : undefined
             ),
-          sourceBackedRestParameter: expr.sourceBackedRestParameter
-            ? {
-                ...expr.sourceBackedRestParameter,
-                arrayType: expr.sourceBackedRestParameter.arrayType
-                  ? lowerType(expr.sourceBackedRestParameter.arrayType, ctx)
-                  : undefined,
-                elementType: expr.sourceBackedRestParameter.elementType
-                  ? lowerType(expr.sourceBackedRestParameter.elementType, ctx)
-                  : undefined,
-              }
-            : undefined,
-          sourceBackedReturnType: expr.sourceBackedReturnType
-            ? lowerType(expr.sourceBackedReturnType, ctx)
-            : undefined,
-          surfaceRestParameter: expr.surfaceRestParameter
-            ? {
-                ...expr.surfaceRestParameter,
-                arrayType: expr.surfaceRestParameter.arrayType
-                  ? lowerType(expr.surfaceRestParameter.arrayType, ctx)
-                  : undefined,
-                elementType: expr.surfaceRestParameter.elementType
-                  ? lowerType(expr.surfaceRestParameter.elementType, ctx)
-                  : undefined,
-              }
-            : undefined,
-          narrowing: expr.narrowing
-            ? {
-                ...expr.narrowing,
-                targetType: lowerType(expr.narrowing.targetType, ctx),
-              }
-            : undefined,
+            sourceBackedParameterTypes: expr.sourceBackedParameterTypes?.map(
+              (parameterType) =>
+                parameterType ? lowerType(parameterType, ctx) : undefined
+            ),
+            surfaceParameterTypes: expr.surfaceParameterTypes?.map(
+              (parameterType) =>
+                parameterType ? lowerType(parameterType, ctx) : undefined
+            ),
+            sourceBackedSurfaceParameterTypes:
+              expr.sourceBackedSurfaceParameterTypes?.map((parameterType) =>
+                parameterType ? lowerType(parameterType, ctx) : undefined
+              ),
+            sourceBackedRestParameter: expr.sourceBackedRestParameter
+              ? {
+                  ...expr.sourceBackedRestParameter,
+                  arrayType: expr.sourceBackedRestParameter.arrayType
+                    ? lowerType(expr.sourceBackedRestParameter.arrayType, ctx)
+                    : undefined,
+                  elementType: expr.sourceBackedRestParameter.elementType
+                    ? lowerType(expr.sourceBackedRestParameter.elementType, ctx)
+                    : undefined,
+                }
+              : undefined,
+            sourceBackedReturnType: expr.sourceBackedReturnType
+              ? lowerType(expr.sourceBackedReturnType, ctx)
+              : undefined,
+            surfaceRestParameter: expr.surfaceRestParameter
+              ? {
+                  ...expr.surfaceRestParameter,
+                  arrayType: expr.surfaceRestParameter.arrayType
+                    ? lowerType(expr.surfaceRestParameter.arrayType, ctx)
+                    : undefined,
+                  elementType: expr.surfaceRestParameter.elementType
+                    ? lowerType(expr.surfaceRestParameter.elementType, ctx)
+                    : undefined,
+                }
+              : undefined,
+            narrowing: expr.narrowing
+              ? {
+                  ...expr.narrowing,
+                  targetType: lowerType(expr.narrowing.targetType, ctx),
+                }
+              : undefined,
           };
         })();
 

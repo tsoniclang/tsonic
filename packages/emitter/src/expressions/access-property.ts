@@ -45,6 +45,8 @@ import {
   tryEmitConcreteReceiverLengthAccess,
 } from "./access-length.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
+import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 
 /**
  * Emit a non-computed property member access expression as CSharpExpressionAst.
@@ -79,13 +81,14 @@ export const emitPropertyAccess = (
             receiverSourceContext
           )
         : undefined;
-    const transparentReceiver = unwrapTransparentExpression(expr.object.expression);
+    const transparentReceiver = unwrapTransparentExpression(
+      expr.object.expression
+    );
     const transparentReceiverType =
       resolveEffectiveExpressionType(
         transparentReceiver,
         receiverSourceContext
-      ) ??
-      transparentReceiver.inferredType;
+      ) ?? transparentReceiver.inferredType;
     const transparentMemberResolutionType =
       expr.isOptional && transparentReceiverType
         ? stripNullish(transparentReceiverType)
@@ -138,6 +141,29 @@ export const emitPropertyAccess = (
         expression: receiverAst,
       };
       receiverContext = emittedReceiverContext;
+    }
+  }
+
+  const memberResolutionType =
+    expr.isOptional && objectType ? stripNullish(objectType) : objectType;
+  if (
+    memberResolutionType &&
+    resolveTypeMemberKind(memberResolutionType, prop, context) !== undefined
+  ) {
+    const receiverStorageType = resolveDirectStorageIrType(
+      expr.object,
+      receiverSourceContext
+    );
+    if (receiverStorageType) {
+      const [materializedReceiverAst, materializedReceiverContext] =
+        materializeDirectNarrowingAst(
+          receiverAst,
+          receiverStorageType,
+          memberResolutionType,
+          receiverContext
+        );
+      receiverAst = materializedReceiverAst;
+      receiverContext = materializedReceiverContext;
     }
   }
 
@@ -257,7 +283,8 @@ export const emitPropertyAccess = (
           receiverAst,
           keyAst,
           expr.isOptional,
-          resultTypeAst
+          resultTypeAst,
+          typeContext
         ),
         typeContext,
       ];

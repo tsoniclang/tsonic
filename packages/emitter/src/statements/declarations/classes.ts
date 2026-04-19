@@ -218,7 +218,8 @@ export const emitClassDeclaration = (
       reservedTypeParamNames
     );
   currentContext = typeParamContext;
-  const declaringTypeParameterNames = stmt.typeParameters?.map((tp) => tp.name) ?? [];
+  const declaringTypeParameterNames =
+    stmt.typeParameters?.map((tp) => tp.name) ?? [];
   const declaringTypeParameterNameMap = new Map<string, string>();
   for (const name of declaringTypeParameterNames) {
     declaringTypeParameterNameMap.set(
@@ -242,7 +243,8 @@ export const emitClassDeclaration = (
   const implementedInterfaces: CSharpTypeAst[] = [];
   const explicitInterfaceRefs = stmt.implements.filter(
     (impl): impl is Extract<IrType, { kind: "referenceType" }> =>
-      impl.kind === "referenceType" && isInterfaceReference(impl, currentContext)
+      impl.kind === "referenceType" &&
+      isInterfaceReference(impl, currentContext)
   );
   const compatibleInterfaces = resolveCompatibleImplementedInterfaces(
     stmt.name,

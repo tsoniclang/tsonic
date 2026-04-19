@@ -455,6 +455,105 @@ describe("Expression Emission", () => {
     expect(result).to.include("acceptString(default(string))");
   });
 
+  it("keeps alias-backed optional function-value arguments on the concrete nullable slot", () => {
+    const nextControlType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "primitiveType" as const, name: "string" as const },
+        { kind: "primitiveType" as const, name: "null" as const },
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+    const nextControlReference = {
+      kind: "referenceType" as const,
+      name: "NextControl",
+    };
+    const nextParameterType = {
+      kind: "unionType" as const,
+      types: [
+        nextControlReference,
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "typeAliasDeclaration",
+          name: "NextControl",
+          typeParameters: [],
+          type: nextControlType,
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "handler",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "next" },
+              type: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "value" },
+                    type: nextParameterType,
+                    isOptional: true,
+                    isRest: false,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "voidType" },
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "next" },
+                  arguments: [{ kind: "identifier", name: "undefined" }],
+                  isOptional: false,
+                  parameterTypes: [nextParameterType],
+                  surfaceParameterTypes: [nextParameterType],
+                  inferredType: { kind: "voidType" },
+                  sourceSpan: {
+                    file: "/src/test.ts",
+                    line: 2,
+                    column: 1,
+                    length: 19,
+                  },
+                },
+              },
+            ],
+          },
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("next(default(string?))");
+    expect(result).not.to.include("next(default(object))");
+  });
+
   it("should strip optional exact-numeric nullish wrappers for concrete arguments", () => {
     const module: IrModule = {
       kind: "module",
@@ -687,7 +786,9 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include("acceptLevel(options.maxFileCount)");
-    expect(result).not.to.include("acceptLevel((double)(object)options.maxFileCount)");
+    expect(result).not.to.include(
+      "acceptLevel((double)(object)options.maxFileCount)"
+    );
   });
 
   it("should emit char literals for single-character string assertions to char", () => {

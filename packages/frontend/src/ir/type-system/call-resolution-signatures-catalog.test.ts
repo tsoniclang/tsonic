@@ -6,7 +6,8 @@ import type { TypeId } from "./internal/universe/catalog-types.js";
 describe("call resolution signatures catalog", () => {
   it("falls back to direct receiver type arguments when the declaring nominal type already matches", () => {
     const dbSetId: TypeId = {
-      stableId: "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbSet`1",
+      stableId:
+        "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbSet`1",
       clrName: "Microsoft.EntityFrameworkCore.DbSet`1",
       assemblyName: "Microsoft.EntityFrameworkCore",
       tsName: "DbSet_1",
@@ -23,7 +24,8 @@ describe("call resolution signatures catalog", () => {
         resolveNominal: () => undefined,
       },
       unifiedCatalog: {
-        resolveTsName: (name: string) => (name === "DbSet_1" ? dbSetId : undefined),
+        resolveTsName: (name: string) =>
+          name === "DbSet_1" ? dbSetId : undefined,
         resolveClrName: () => undefined,
         getByTypeId: () => ({ origin: "assembly" }),
         getTypeParameters: () => [{ name: "TEntity" }],
@@ -69,9 +71,7 @@ describe("call resolution signatures catalog", () => {
       },
       typeRegistry: {
         getFQName: (name: string) =>
-          name === "DbSet_1" || name === "DbSet_1$instance"
-            ? name
-            : undefined,
+          name === "DbSet_1" || name === "DbSet_1$instance" ? name : undefined,
         getFQNames: (name: string) =>
           name === "DbSet_1" || name === "DbSet_1$instance" ? [name] : [],
         resolveNominal: () => undefined,

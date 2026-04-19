@@ -304,11 +304,11 @@ describe("Binding System", () => {
       fs.writeFileSync(
         path.join(jsRoot, "globals.ts"),
         [
-          'declare global {',
+          "declare global {",
           '  const console: typeof import("./src/console.js").console;',
           '  const String: typeof import("./src/Globals.js").String;',
           '  const Number: typeof import("./src/Globals.js").Number;',
-          '}',
+          "}",
           "export {};",
           "",
         ].join("\n")
@@ -433,7 +433,9 @@ describe("Binding System", () => {
     });
 
     it("maps ambient primitive wrapper instance members to static helper exports", () => {
-      const fixture = materializeLoadBindingsFixture("primitive-wrapper-helper");
+      const fixture = materializeLoadBindingsFixture(
+        "primitive-wrapper-helper"
+      );
 
       try {
         const registry = loadBindings([fixture.root]);
@@ -460,20 +462,22 @@ describe("Binding System", () => {
         const instanceType = registry.getType("Date");
         const staticType = registry.getType("Date$static");
 
-        expect(instanceType?.members.map((member) => member.alias)).to.deep.equal([
-          "getTime",
-        ]);
+        expect(
+          instanceType?.members.map((member) => member.alias)
+        ).to.deep.equal(["getTime"]);
         expect(
           instanceType?.members.some(
             (member) => member.isExtensionMethod === true
           )
         ).to.equal(false);
 
-        expect(staticType?.members.map((member) => member.alias)).to.deep.equal([
-          "now",
-        ]);
+        expect(staticType?.members.map((member) => member.alias)).to.deep.equal(
+          ["now"]
+        );
         expect(
-          staticType?.members.some((member) => member.isExtensionMethod === true)
+          staticType?.members.some(
+            (member) => member.isExtensionMethod === true
+          )
         ).to.equal(false);
       } finally {
         fixture.cleanup();
@@ -481,7 +485,9 @@ describe("Binding System", () => {
     });
 
     it("derives ambient interface members from matching global value type queries", () => {
-      const fixture = materializeLoadBindingsFixture("ambient-interface-members");
+      const fixture = materializeLoadBindingsFixture(
+        "ambient-interface-members"
+      );
 
       try {
         const registry = loadBindings([fixture.root]);
@@ -600,7 +606,9 @@ describe("Binding System", () => {
           expect(
             registry.getMemberOverloads("Array", "push")?.[0]?.binding.type
           ).to.equal("fixture.js.Array");
-          expect(registry.getType("String")?.name).to.equal("fixture.js.String");
+          expect(registry.getType("String")?.name).to.equal(
+            "fixture.js.String"
+          );
           expect(registry.getType("fixture.js.String")?.alias).to.equal(
             "String"
           );
@@ -615,9 +623,12 @@ describe("Binding System", () => {
             "Boolean"
           );
           expect(
-            registry.getMemberOverloads("Boolean", "toString")?.[0]?.binding.type
+            registry.getMemberOverloads("Boolean", "toString")?.[0]?.binding
+              .type
           ).to.equal("fixture.js.Boolean");
-          expect(registry.getType("System.Array")?.name).to.equal("System.Array");
+          expect(registry.getType("System.Array")?.name).to.equal(
+            "System.Array"
+          );
           expect(registry.getType("System.Array")?.alias).to.equal(
             "System.Array"
           );

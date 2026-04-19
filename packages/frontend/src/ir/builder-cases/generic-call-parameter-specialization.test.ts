@@ -1,7 +1,13 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
-import type { IrCallExpression, IrFunctionDeclaration, IrModule, IrType } from "../types.js";
+import type {
+  IrCallExpression,
+  IrFunctionDeclaration,
+  IrModule,
+  IrType,
+} from "../types.js";
 import {
   runAnonymousTypeLoweringPass,
   runCallResolutionRefreshPass,

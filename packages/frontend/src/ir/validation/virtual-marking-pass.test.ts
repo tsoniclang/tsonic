@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import type {
@@ -22,10 +23,7 @@ const nullableStringType: IrType = {
   types: [stringType, nullType],
 };
 
-const typeParameter = (
-  name: string,
-  constraint?: IrType
-): IrTypeParameter => ({
+const typeParameter = (name: string, constraint?: IrType): IrTypeParameter => ({
   kind: "typeParameter",
   name,
   constraint,
@@ -379,7 +377,12 @@ describe("virtual-marking-pass", () => {
                 parameter("fn", {
                   kind: "functionType",
                   typeParameters: [],
-                  parameters: [parameter("value", { kind: "typeParameterType", name: "T" })],
+                  parameters: [
+                    parameter("value", {
+                      kind: "typeParameterType",
+                      name: "T",
+                    }),
+                  ],
                   returnType: { kind: "typeParameterType", name: "U" },
                 }),
               ],
@@ -407,7 +410,12 @@ describe("virtual-marking-pass", () => {
                 parameter("fn", {
                   kind: "functionType",
                   typeParameters: [],
-                  parameters: [parameter("value", { kind: "typeParameterType", name: "T" })],
+                  parameters: [
+                    parameter("value", {
+                      kind: "typeParameterType",
+                      name: "T",
+                    }),
+                  ],
                   returnType: { kind: "typeParameterType", name: "U" },
                 }),
               ],

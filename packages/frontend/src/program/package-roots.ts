@@ -164,16 +164,16 @@ const tryResolveInstalledPackage = (
     installedPackageRootCache.set(cacheKey, resolvedRoot);
     return resolvedRoot;
   } catch {
-  try {
-    const entryPath = req.resolve(packageName);
-    if (!path.isAbsolute(entryPath)) {
-      return undefined;
-    }
-    const resolvedRoot = findNearestPackageRoot(entryPath);
-    if (resolvedRoot) {
-      installedPackageRootCache.set(cacheKey, resolvedRoot);
-      return resolvedRoot;
-    }
+    try {
+      const entryPath = req.resolve(packageName);
+      if (!path.isAbsolute(entryPath)) {
+        return undefined;
+      }
+      const resolvedRoot = findNearestPackageRoot(entryPath);
+      if (resolvedRoot) {
+        installedPackageRootCache.set(cacheKey, resolvedRoot);
+        return resolvedRoot;
+      }
     } catch {
       // ignore and fall through
     }

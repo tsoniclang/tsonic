@@ -20,13 +20,11 @@ import { allocateLocalName } from "../core/format/local-names.js";
 import type { EmitterContext } from "../types.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { hasNullishBranch } from "./exact-comparison.js";
-import {
-  StructuralAdaptFn,
-  UpcastFn,
-  buildDelegateType,
-} from "./structural-adaptation-types.js";
+import { StructuralAdaptFn, UpcastFn } from "./structural-adaptation-types.js";
+import { buildInvokedLambdaExpressionAst } from "./invoked-lambda.js";
 import {
   getArrayElementType,
+  getSemanticArrayElementType,
   getDictionaryValueType,
   getDirectIterableElementType,
   getIterableSourceShape,
@@ -53,8 +51,10 @@ const normalizeStructuralCarrierEmissionType = (
     }
 
     const normalized = normalizeStructuralEmissionType(current, context);
-    const anonymousTarget =
-      resolveAnonymousStructuralReferenceType(normalized, context);
+    const anonymousTarget = resolveAnonymousStructuralReferenceType(
+      normalized,
+      context
+    );
     if (anonymousTarget) {
       cache.set(current, anonymousTarget);
       return anonymousTarget;
@@ -64,9 +64,8 @@ const normalizeStructuralCarrierEmissionType = (
       switch (normalized.kind) {
         case "arrayType": {
           const elementType = normalize(normalized.elementType);
-          const tuplePrefixElementTypes = normalized.tuplePrefixElementTypes?.map(
-            normalize
-          );
+          const tuplePrefixElementTypes =
+            normalized.tuplePrefixElementTypes?.map(normalize);
           const tupleRestElementType = normalized.tupleRestElementType
             ? normalize(normalized.tupleRestElementType)
             : undefined;
@@ -83,9 +82,7 @@ const normalizeStructuralCarrierEmissionType = (
             : {
                 ...normalized,
                 elementType,
-                ...(tuplePrefixElementTypes
-                  ? { tuplePrefixElementTypes }
-                  : {}),
+                ...(tuplePrefixElementTypes ? { tuplePrefixElementTypes } : {}),
                 ...(tupleRestElementType ? { tupleRestElementType } : {}),
               };
         }
@@ -112,7 +109,9 @@ const normalizeStructuralCarrierEmissionType = (
         case "unionType":
         case "intersectionType": {
           const types = normalized.types.map(normalize);
-          return types.every((member, index) => member === normalized.types[index])
+          return types.every(
+            (member, index) => member === normalized.types[index]
+          )
             ? normalized
             : {
                 ...normalized,
@@ -144,7 +143,8 @@ const normalizeStructuralCarrierEmissionType = (
           const typeArgumentsChanged =
             !!typeArguments &&
             typeArguments.some(
-              (argument, index) => argument !== normalized.typeArguments?.[index]
+              (argument, index) =>
+                argument !== normalized.typeArguments?.[index]
             );
           return !typeArgumentsChanged
             ? normalized
@@ -242,7 +242,10 @@ const isDirectlyReusableExpression = (
 
 const isArrayEmptyInvocation = (
   expression: CSharpExpressionAst
-): expression is Extract<CSharpExpressionAst, { kind: "invocationExpression" }> =>
+): expression is Extract<
+  CSharpExpressionAst,
+  { kind: "invocationExpression" }
+> =>
   expression.kind === "invocationExpression" &&
   extractCalleeNameFromAst(expression.expression) ===
     "global::System.Array.Empty";
@@ -252,7 +255,11 @@ const isIteratorAccessExpression = (
   context: EmitterContext
 ): boolean => {
   const methodName = emitCSharpName("[symbol:iterator]", "methods", context);
-  const propertyName = emitCSharpName("[symbol:iterator]", "properties", context);
+  const propertyName = emitCSharpName(
+    "[symbol:iterator]",
+    "properties",
+    context
+  );
 
   if (expression.kind === "memberAccessExpression") {
     return (
@@ -273,7 +280,8 @@ const isSimpleElementCast = (
   expression: CSharpExpressionAst | undefined,
   itemIdentifier: CSharpExpressionAst
 ): expression is Extract<CSharpExpressionAst, { kind: "castExpression" }> =>
-  expression?.kind === "castExpression" && expression.expression === itemIdentifier;
+  expression?.kind === "castExpression" &&
+  expression.expression === itemIdentifier;
 
 const buildIterableSourceAst = (
   emittedAst: CSharpExpressionAst,
@@ -291,7 +299,10 @@ const buildIterableSourceAst = (
     return undefined;
   }
 
-  if (shape.accessKind === "direct" || isIteratorAccessExpression(emittedAst, context)) {
+  if (
+    shape.accessKind === "direct" ||
+    isIteratorAccessExpression(emittedAst, context)
+  ) {
     return {
       sourceAst: emittedAst,
       elementType: shape.elementType,
@@ -382,6 +393,10 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   const targetElementType = getArrayElementType(expectedType, context);
   const sourceElementType = getArrayElementType(sourceType, context);
   if (targetElementType && sourceElementType) {
+    const semanticSourceElementType =
+      getSemanticArrayElementType(sourceType, context) ?? sourceElementType;
+    const semanticTargetElementType =
+      getSemanticArrayElementType(expectedType, context) ?? targetElementType;
     const emissionSourceElementType = normalizeStructuralCarrierEmissionType(
       sourceElementType,
       context
@@ -416,9 +431,9 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     };
     const structuralElementAdaptation = adaptStructuralExpressionAst(
       itemIdentifier,
-      sourceElementType,
+      semanticSourceElementType,
       currentContext,
-      targetElementType,
+      semanticTargetElementType,
       upcastFn
     );
     const upcastElementAdaptation =
@@ -426,9 +441,9 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       (upcastFn
         ? upcastFn(
             itemIdentifier,
-            sourceElementType,
+            semanticSourceElementType,
             currentContext,
-            targetElementType,
+            semanticTargetElementType,
             new Set<string>()
           )
         : undefined);
@@ -486,8 +501,10 @@ export const tryAdaptStructuralCollectionExpressionAst = (
               expression: itemIdentifier,
             }
           : itemIdentifier);
-      const preferDirectBroadElement =
-        isBroadObjectSlotType(targetElementType, currentContext);
+      const preferDirectBroadElement = isBroadObjectSlotType(
+        targetElementType,
+        currentContext
+      );
       if (
         emittedAst.kind === "arrayCreationExpression" &&
         emittedAst.initializer &&
@@ -499,9 +516,9 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         for (const elementAst of emittedAst.initializer) {
           const inlineStructuralAdaptation = adaptStructuralExpressionAst(
             elementAst,
-            sourceElementType,
+            semanticSourceElementType,
             inlineContext,
-            targetElementType,
+            semanticTargetElementType,
             upcastFn
           );
           const inlineUpcastAdaptation =
@@ -509,15 +526,14 @@ export const tryAdaptStructuralCollectionExpressionAst = (
             (upcastFn
               ? upcastFn(
                   elementAst,
-                  sourceElementType,
+                  semanticSourceElementType,
                   inlineContext,
-                  targetElementType,
+                  semanticTargetElementType,
                   new Set<string>()
                 )
               : undefined);
           const inlineAdaptedAst =
-            inlineStructuralAdaptation?.[0] ??
-            inlineUpcastAdaptation?.[0];
+            inlineStructuralAdaptation?.[0] ?? inlineUpcastAdaptation?.[0];
           inlineContext =
             inlineStructuralAdaptation?.[1] ??
             inlineUpcastAdaptation?.[1] ??
@@ -550,17 +566,17 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         expression: {
           ...identifierExpression("global::System.Linq.Enumerable.Select"),
         },
-            typeArguments: [sourceElementTypeAst, targetElementTypeAst],
-            arguments: [
-              emittedAst,
-              {
-                kind: "lambdaExpression",
-                isAsync: false,
-                parameters: [{ name: item.emittedName }],
-                body: effectiveElementAst,
-              },
-            ],
-          };
+        typeArguments: [sourceElementTypeAst, targetElementTypeAst],
+        arguments: [
+          emittedAst,
+          {
+            kind: "lambdaExpression",
+            isAsync: false,
+            parameters: [{ name: item.emittedName }],
+            body: effectiveElementAst,
+          },
+        ],
+      };
       const toArrayAst: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
@@ -569,8 +585,11 @@ export const tryAdaptStructuralCollectionExpressionAst = (
         typeArguments: [targetElementTypeAst],
         arguments: [selectAst],
       };
+      if (!expectedType) {
+        return [toArrayAst, currentContext];
+      }
       const [targetArrayTypeAst, targetArrayTypeContext] = emitTypeAst(
-        normalizeStructuralCarrierEmissionType(expectedType!, currentContext),
+        normalizeStructuralCarrierEmissionType(expectedType, currentContext),
         currentContext
       );
       currentContext = targetArrayTypeContext;
@@ -607,16 +626,22 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     targetElementType === undefined
       ? getDirectIterableElementType(expectedType, context)
       : undefined;
-  const sourceIterable = buildIterableSourceAst(emittedAst, sourceType, context);
+  const sourceIterable = buildIterableSourceAst(
+    emittedAst,
+    sourceType,
+    context
+  );
   if (targetIterableElementType && sourceIterable) {
-    const emissionSourceIterableElementType = normalizeStructuralCarrierEmissionType(
-      sourceIterable.elementType,
-      sourceIterable.context
-    );
-    const emissionTargetIterableElementType = normalizeStructuralCarrierEmissionType(
-      targetIterableElementType,
-      sourceIterable.context
-    );
+    const emissionSourceIterableElementType =
+      normalizeStructuralCarrierEmissionType(
+        sourceIterable.elementType,
+        sourceIterable.context
+      );
+    const emissionTargetIterableElementType =
+      normalizeStructuralCarrierEmissionType(
+        targetIterableElementType,
+        sourceIterable.context
+      );
     const item = allocateLocalName("__item", sourceIterable.context);
     let currentContext = item.context;
     const itemIdentifier: CSharpExpressionAst = {
@@ -931,29 +956,17 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   ];
 
   return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "parenthesizedExpression",
-        expression: {
-          kind: "castExpression",
-          type: buildDelegateType([], dictTypeAst),
-          expression: {
-            kind: "parenthesizedExpression",
-            expression: {
-              kind: "lambdaExpression",
-              isAsync: false,
-              parameters: [],
-              body: {
-                kind: "blockStatement",
-                statements,
-              },
-            },
-          },
-        },
+    buildInvokedLambdaExpressionAst({
+      parameters: [],
+      parameterTypes: [],
+      body: {
+        kind: "blockStatement",
+        statements,
       },
       arguments: [],
-    },
+      returnType: dictTypeAst,
+      context: currentContext,
+    }),
     currentContext,
   ];
 };

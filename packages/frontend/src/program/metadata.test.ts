@@ -63,9 +63,7 @@ describe("Program Metadata", () => {
       expect(metadata.getTypeMetadata("Ignored.ShouldNotLoad")).to.equal(
         undefined
       );
-      expect(metadata.getTypeMetadata("System.String")).to.not.equal(
-        undefined
-      );
+      expect(metadata.getTypeMetadata("System.String")).to.not.equal(undefined);
     } finally {
       fixture.cleanup();
     }

@@ -22,20 +22,17 @@ import {
   emitDiagnostic,
   stripTsonicExtensionWrappers,
   poisonedCall,
+  resolveTypeIdByName,
 } from "./type-system-state.js";
-import { unknownType } from "./types.js";
 import {
   expandParameterTypesForArguments,
   buildResolvedRestParameter,
   containsMethodTypeParameter,
   collectExpectedReturnCandidates,
+  delegateToFunctionType,
 } from "./call-resolution-utilities.js";
-import {
-  getRawSignature,
-} from "./call-resolution-signatures.js";
-import {
-  refineResolvedParameterTypesForArguments,
-} from "./call-resolution-inference.js";
+import { getRawSignature } from "./call-resolution-signatures.js";
+import { refineResolvedParameterTypesForArguments } from "./call-resolution-inference.js";
 import { applyReceiverSubstitution } from "./call-resolution-receiver-substitution.js";
 import { resolveMethodTypeSubstitution } from "./call-resolution-method-substitution.js";
 import { isAssignableTo, typesEqual } from "./type-system-relations.js";
@@ -52,10 +49,7 @@ const matchesConstructorExpectedReturnShape = (
     return true;
   }
 
-  if (
-    actual.kind === "referenceType" &&
-    expected.kind === "referenceType"
-  ) {
+  if (actual.kind === "referenceType" && expected.kind === "referenceType") {
     if (
       actual.typeId &&
       expected.typeId &&
@@ -85,6 +79,121 @@ const matchesConstructorExpectedReturnShape = (
   }
 
   return false;
+};
+
+type DeferredLambdaInferenceAnalysis = {
+  readonly deferredOnly: ReadonlySet<string>;
+  readonly blocked: ReadonlySet<string>;
+};
+
+const analyzeDeferredLambdaInferencePositions = (
+  state: TypeSystemState,
+  type: IrType,
+  unresolved: ReadonlySet<string>
+): DeferredLambdaInferenceAnalysis => {
+  const deferredOnly = new Set<string>();
+  const blocked = new Set<string>();
+
+  const visit = (
+    current: IrType,
+    position: "normal" | "deferredReturn"
+  ): void => {
+    if (current.kind === "typeParameterType") {
+      if (!unresolved.has(current.name)) {
+        return;
+      }
+
+      if (position === "deferredReturn") {
+        deferredOnly.add(current.name);
+      } else {
+        blocked.add(current.name);
+      }
+      return;
+    }
+
+    const delegateShape =
+      current.kind === "referenceType"
+        ? delegateToFunctionType(state, current)
+        : undefined;
+    if (delegateShape) {
+      visit(delegateShape, position);
+      return;
+    }
+
+    switch (current.kind) {
+      case "referenceType":
+        for (const typeArgument of current.typeArguments ?? []) {
+          if (typeArgument) {
+            visit(typeArgument, position);
+          }
+        }
+        return;
+
+      case "arrayType":
+        visit(current.elementType, position);
+        return;
+
+      case "tupleType":
+        for (const elementType of current.elementTypes) {
+          if (elementType) {
+            visit(elementType, position);
+          }
+        }
+        return;
+
+      case "functionType":
+        for (const parameter of current.parameters) {
+          if (parameter.type) {
+            visit(parameter.type, "normal");
+          }
+        }
+        visit(current.returnType, "deferredReturn");
+        return;
+
+      case "unionType":
+      case "intersectionType":
+        for (const member of current.types) {
+          if (member) {
+            visit(member, position);
+          }
+        }
+        return;
+
+      case "objectType":
+        for (const member of current.members) {
+          if (member.kind === "propertySignature") {
+            visit(member.type, position);
+            continue;
+          }
+
+          if (member.kind === "methodSignature") {
+            for (const parameter of member.parameters) {
+              if (parameter.type) {
+                visit(parameter.type, "normal");
+              }
+            }
+            if (member.returnType) {
+              visit(member.returnType, "deferredReturn");
+            }
+          }
+        }
+        return;
+
+      default:
+        return;
+    }
+  };
+
+  visit(type, "normal");
+
+  for (const name of blocked) {
+    deferredOnly.delete(name);
+  }
+
+  return {
+    deferredOnly,
+    blocked,
+  };
 };
 
 export const resolveCall = (
@@ -131,6 +240,22 @@ export const resolveCall = (
   let workingThisParam = rawSig.thisParameterType;
   let workingReturn = rawSig.returnType;
   let workingPredicate = rawSig.typePredicate;
+
+  if (
+    rawSig.constructsDeclaringType &&
+    query.declaringClrType &&
+    workingReturn.kind === "referenceType"
+  ) {
+    const arity = workingReturn.typeArguments?.length;
+    const typeId =
+      resolveTypeIdByName(state, query.declaringClrType, arity) ??
+      resolveTypeIdByName(state, query.declaringClrType);
+    workingReturn = {
+      ...workingReturn,
+      ...(typeId ? { typeId, resolvedClrType: typeId.clrName } : {}),
+      ...(!typeId ? { resolvedClrType: query.declaringClrType } : {}),
+    };
+  }
 
   ({ workingParams, workingThisParam, workingReturn, workingPredicate } =
     applyReceiverSubstitution(
@@ -201,6 +326,44 @@ export const resolveCall = (
         .map((tp) => tp.name)
         .filter((name) => !callSubst.has(name))
     );
+    const hasUnresolvedReturnSurface = containsMethodTypeParameter(
+      workingReturn,
+      unresolved
+    );
+    const deferredLambdaInferableNames = new Set<string>();
+    const hasUnresolvedParameterSurface = workingParams.some(
+      (parameterType) => {
+        if (!parameterType) {
+          return false;
+        }
+
+        const analysis = analyzeDeferredLambdaInferencePositions(
+          state,
+          parameterType,
+          unresolved
+        );
+
+        for (const name of analysis.deferredOnly) {
+          deferredLambdaInferableNames.add(name);
+        }
+
+        return analysis.blocked.size > 0;
+      }
+    );
+    const hasUnresolvedThisSurface =
+      !!workingThisParam &&
+      containsMethodTypeParameter(workingThisParam, unresolved);
+    const hasUnresolvedPredicateSurface =
+      !!workingPredicate &&
+      containsMethodTypeParameter(workingPredicate.targetType, unresolved);
+    const hasUnresolvedReturnSurfaceOutsideDeferredLambdaInference =
+      hasUnresolvedReturnSurface &&
+      [...unresolved].some((name) => {
+        if (!deferredLambdaInferableNames.has(name)) {
+          return containsMethodTypeParameter(workingReturn, new Set([name]));
+        }
+        return false;
+      });
     const preservesExpectedConstructorReturn =
       rawSig.declaringMemberName === "constructor" &&
       query.expectedReturnType !== undefined &&
@@ -210,18 +373,25 @@ export const resolveCall = (
           (isAssignableTo(state, workingReturn, candidate) &&
             isAssignableTo(state, candidate, workingReturn))
       );
+    const preservesExpectedConstructorSurface =
+      preservesExpectedConstructorReturn &&
+      rawSig.declaringMemberName === "constructor";
     if (
       unresolved.size > 0 &&
-      containsMethodTypeParameter(workingReturn, unresolved) &&
-      !preservesExpectedConstructorReturn
+      (hasUnresolvedThisSurface ||
+        hasUnresolvedPredicateSurface ||
+        (!preservesExpectedConstructorSurface &&
+          hasUnresolvedParameterSurface) ||
+        (!preservesExpectedConstructorSurface &&
+          hasUnresolvedReturnSurfaceOutsideDeferredLambdaInference))
     ) {
       emitDiagnostic(
         state,
         "TSN5202",
-        "Return type contains unresolved type parameters - explicit type arguments required",
+        "Signature contains unresolved type parameters - explicit type arguments required",
         site
       );
-      workingReturn = unknownType;
+      return poisonedCall(argumentCount, state.diagnostics.slice());
     }
   }
 

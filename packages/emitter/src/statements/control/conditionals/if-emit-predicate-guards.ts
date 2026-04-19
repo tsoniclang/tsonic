@@ -256,10 +256,13 @@ export const tryEmitInGuard = (
     }
 
     // Can't narrow ELSE safely, emit without narrowing.
-    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
-      ...basePostConditionContext,
-      narrowedBindings: ctxWithId.narrowedBindings,
-    });
+    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(
+      stmt.elseStatement,
+      {
+        ...basePostConditionContext,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      }
+    );
     elseStmt = wrapInBlock(elseStmts);
     finalContext = {
       ...elseCtx,

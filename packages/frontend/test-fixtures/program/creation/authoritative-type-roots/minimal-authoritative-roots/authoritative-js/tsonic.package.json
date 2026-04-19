@@ -1,9 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "tsonic-source-package",
-  "surfaces": [
-    "@fixture/js"
-  ],
+  "surfaces": ["@fixture/js"],
   "source": {
     "namespace": "fixture.js",
     "exports": {

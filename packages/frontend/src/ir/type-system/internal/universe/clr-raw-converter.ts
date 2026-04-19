@@ -230,15 +230,17 @@ export const parseMethodSignature = (
 
   const referencedTypeParameterNames: string[] = [];
   parameters.forEach((parameter) =>
-    collectReferencedTypeParameterNames(parameter.type, referencedTypeParameterNames)
+    collectReferencedTypeParameterNames(
+      parameter.type,
+      referencedTypeParameterNames
+    )
   );
   collectReferencedTypeParameterNames(returnType, referencedTypeParameterNames);
   const typeParameters =
     method.arity > 0
       ? Array.from({ length: method.arity }, (_, i) => ({
           name:
-            referencedTypeParameterNames[i] ??
-            (i === 0 ? "T" : `T${i + 1}`),
+            referencedTypeParameterNames[i] ?? (i === 0 ? "T" : `T${i + 1}`),
         }))
       : [];
 

@@ -112,7 +112,10 @@ export class ClrBindingsResolver {
     }
 
     // Extract namespace from bindings.json (tsbindgen format)
-    const resolvedNamespace = extractNamespace(bindingsPath, this.namespaceCache);
+    const resolvedNamespace = extractNamespace(
+      bindingsPath,
+      this.namespaceCache
+    );
     if (!resolvedNamespace) {
       return { isClr: false };
     }

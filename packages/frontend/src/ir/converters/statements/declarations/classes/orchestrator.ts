@@ -15,9 +15,7 @@ import {
   convertConstructor,
   extractParameterProperties,
 } from "./constructors.js";
-import {
-  getClassMemberName,
-} from "./member-names.js";
+import { getClassMemberName } from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 import { resolveHeritageReferenceType } from "../../../heritage-reference-type.js";
 

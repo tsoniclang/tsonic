@@ -495,16 +495,8 @@ describe("Binding Resolution in IR", () => {
       };
 
       expectBoundIdentifier("Uint8Array", "js.Uint8Array");
-      expectBoundIdentifier(
-        "parseInt",
-        "js.Globals",
-        "Globals.parseInt"
-      );
-      expectBoundIdentifier(
-        "String",
-        "js.String",
-        "Globals.String"
-      );
+      expectBoundIdentifier("parseInt", "js.Globals", "Globals.parseInt");
+      expectBoundIdentifier("String", "js.String", "Globals.String");
       expectBoundIdentifier("Error", "js.Error");
       expectBoundIdentifier("RangeError", "js.RangeError");
     });
@@ -717,16 +709,8 @@ describe("Binding Resolution in IR", () => {
       };
 
       expectBoundIdentifier("Uint8Array", "js.Uint8Array");
-      expectBoundIdentifier(
-        "parseInt",
-        "js.Globals",
-        "Globals.parseInt"
-      );
-      expectBoundIdentifier(
-        "String",
-        "js.String",
-        "Globals.String"
-      );
+      expectBoundIdentifier("parseInt", "js.Globals", "Globals.parseInt");
+      expectBoundIdentifier("String", "js.String", "Globals.String");
       expectBoundIdentifier("Error", "js.Error");
       expectBoundIdentifier("RangeError", "js.RangeError");
     });

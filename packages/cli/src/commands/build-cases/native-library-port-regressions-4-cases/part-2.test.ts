@@ -254,7 +254,9 @@ describe("build command (native library port regressions)", function () {
         join(projectRoot, "generated", "index.cs"),
         "utf-8"
       );
-      expect(generatedModule).to.include('global::js.String.trim("  airplane  ")');
+      expect(generatedModule).to.include(
+        'global::js.String.trim("  airplane  ")'
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

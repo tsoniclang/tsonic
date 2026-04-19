@@ -392,7 +392,8 @@ export const convertArrayLiteral = (
   // Convert all elements, passing expected element type for contextual typing
   const elements = node.elements.map((elem, index) => {
     const expectedElementType =
-      contextualTupleType?.elementTypes[index] ?? contextualArrayType?.elementType;
+      contextualTupleType?.elementTypes[index] ??
+      contextualArrayType?.elementType;
 
     if (ts.isOmittedExpression(elem)) {
       return undefined; // Hole in sparse array
@@ -422,22 +423,22 @@ export const convertArrayLiteral = (
     ? contextualTupleType
     : contextualArrayType
       ? contextualArrayType
-    : (() => {
-        // No expected type - derive from element types
-        const elementType = computeArrayElementType(elements, undefined);
-        if (elementType) {
-          return { kind: "arrayType" as const, elementType };
-        }
-        // Default to number[] (double[]) for ergonomics
-        // This matches Alice's guidance: untyped arrays default to double[]
-        return {
-          kind: "arrayType" as const,
-          elementType: {
-            kind: "primitiveType" as const,
-            name: "number" as const,
-          },
-        };
-      })();
+      : (() => {
+          // No expected type - derive from element types
+          const elementType = computeArrayElementType(elements, undefined);
+          if (elementType) {
+            return { kind: "arrayType" as const, elementType };
+          }
+          // Default to number[] (double[]) for ergonomics
+          // This matches Alice's guidance: untyped arrays default to double[]
+          return {
+            kind: "arrayType" as const,
+            elementType: {
+              kind: "primitiveType" as const,
+              name: "number" as const,
+            },
+          };
+        })();
 
   return {
     kind: "array",

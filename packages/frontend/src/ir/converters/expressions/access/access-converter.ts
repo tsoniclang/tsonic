@@ -243,7 +243,11 @@ export const convertMemberExpression = (
       isWellKnownSymbolPropertyName(deterministicPropertyName);
     const hasDeterministicMember =
       deterministicPropertyName !== undefined &&
-      hasDeclaredMemberByName(object.inferredType, deterministicPropertyName, ctx);
+      hasDeclaredMemberByName(
+        object.inferredType,
+        deterministicPropertyName,
+        ctx
+      );
 
     if (
       deterministicPropertyName !== undefined &&
@@ -329,11 +333,7 @@ export const convertMemberExpression = (
       property: convertExpression(node.argumentExpression, ctx, undefined),
       isComputed: true,
       isOptional,
-      inferredType: deriveElementType(
-        objectType,
-        ctx,
-        node.argumentExpression
-      ),
+      inferredType: deriveElementType(objectType, ctx, node.argumentExpression),
       sourceSpan,
       accessKind,
       accessProtocol,

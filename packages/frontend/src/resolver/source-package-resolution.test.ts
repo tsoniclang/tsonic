@@ -47,7 +47,9 @@ describe("Source Package Resolution", () => {
     try {
       const sourceRoot = fixture.path("app/src");
       const packageRoot = fixture.path("app/node_modules/@acme/math");
-      const packageEntry = fixture.path("app/node_modules/@acme/math/src/index.ts");
+      const packageEntry = fixture.path(
+        "app/node_modules/@acme/math/src/index.ts"
+      );
 
       expect(getLocalResolutionBoundary(packageEntry, sourceRoot)).to.equal(
         packageRoot

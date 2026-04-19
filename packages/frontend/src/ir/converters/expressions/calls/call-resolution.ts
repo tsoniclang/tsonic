@@ -153,7 +153,7 @@ const isDeterministicallyNumericCompatible = (
   return isNumericType(parameterType) && isNumericType(argumentType);
 };
 
-const scoreTypeCompatibility = (
+const _scoreTypeCompatibility = (
   parameterType: IrType,
   argumentType: IrType,
   ctx: ProgramContext
@@ -197,14 +197,14 @@ const scoreTypeCompatibility = (
       const parameter = parameterFn.parameters[index];
       const argument = argumentFn.parameters[index];
       if (!parameter?.type || !argument?.type) continue;
-      score += scoreTypeCompatibility(parameter.type, argument.type, ctx);
+      score += _scoreTypeCompatibility(parameter.type, argument.type, ctx);
     }
 
     if (
       argumentFn.returnType.kind !== "unknownType" &&
       argumentFn.returnType.kind !== "anyType"
     ) {
-      score += scoreTypeCompatibility(
+      score += _scoreTypeCompatibility(
         parameterFn.returnType,
         argumentFn.returnType,
         ctx
@@ -360,27 +360,43 @@ export const getDeclaredReturnType = (
 
   // Handle new expressions specially - they construct the type from the expression
   if (ts.isNewExpression(node)) {
-    // For new expressions with explicit type arguments
-    if (node.typeArguments && node.typeArguments.length > 0) {
-      const typeName = buildQualifiedName(node.expression);
-      if (typeName) {
-        // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-        const typeSystem = ctx.typeSystem;
-        return {
-          kind: "referenceType",
-          name: typeName,
-          typeArguments: node.typeArguments.map((ta) =>
-            typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
-          ),
-        };
+    const typeSystem = ctx.typeSystem;
+    const sigId = ctx.binding.resolveConstructorSignature(node);
+    if (!sigId) {
+      if (DEBUG && methodName) {
+        console.log(
+          "[getDeclaredReturnType]",
+          methodName,
+          "No constructor signature resolved"
+        );
       }
+      return undefined;
     }
-    // For constructors without type arguments, use the class name
-    const typeName = buildQualifiedName(node.expression);
-    if (typeName) {
-      return { kind: "referenceType", name: typeName };
+
+    const argumentCount = node.arguments?.length ?? 0;
+    const explicitTypeArgs = node.typeArguments
+      ? node.typeArguments.map((ta) =>
+          typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
+        )
+      : undefined;
+    const resolved = typeSystem.resolveCall({
+      sigId,
+      argumentCount,
+      explicitTypeArgs,
+    });
+
+    if (DEBUG && methodName) {
+      console.log(
+        "[getDeclaredReturnType]",
+        methodName,
+        "TypeSystem returned:",
+        resolved.returnType
+      );
     }
-    return undefined;
+
+    return resolved.returnType.kind === "unknownType"
+      ? undefined
+      : resolved.returnType;
   }
 
   // For call expressions, use TypeSystem.resolveCall() EXCLUSIVELY

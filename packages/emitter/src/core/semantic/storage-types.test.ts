@@ -63,6 +63,7 @@ describe("storage-types", () => {
               name: "object",
               resolvedClrType: "System.Object",
             },
+            storageErasedElementType: middlewareLike,
             origin: "explicit",
           },
           handlerType,
@@ -117,26 +118,27 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "unionType",
       types: [
-            {
-              kind: "arrayType",
-              elementType: {
-                kind: "unionType",
-                types: [
-                  {
-                    kind: "arrayType",
-                    elementType: {
-                      kind: "referenceType",
-                      name: "object",
-                      resolvedClrType: "System.Object",
-                    },
-                    origin: "explicit",
-                  },
-                  handlerType,
-                  routerType,
-                ],
+        {
+          kind: "arrayType",
+          elementType: {
+            kind: "unionType",
+            types: [
+              {
+                kind: "arrayType",
+                elementType: {
+                  kind: "referenceType",
+                  name: "object",
+                  resolvedClrType: "System.Object",
+                },
+                storageErasedElementType: middlewareLike,
+                origin: "explicit",
               },
-              origin: "explicit",
-            },
+              handlerType,
+              routerType,
+            ],
+          },
+          origin: "explicit",
+        },
         { kind: "primitiveType", name: "undefined" },
       ],
     });

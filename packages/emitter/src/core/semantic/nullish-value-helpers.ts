@@ -443,7 +443,10 @@ export const resolveTypeAlias = (
     return type;
   }
 
-  if (options.preserveObjectTypeAliases && aliasEntry.type.kind === "objectType") {
+  if (
+    options.preserveObjectTypeAliases &&
+    aliasEntry.type.kind === "objectType"
+  ) {
     return type;
   }
 

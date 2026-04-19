@@ -339,7 +339,9 @@ export const createProgram = (
     containingFile: string
   ): (ts.ResolvedModule | undefined)[] => {
     return moduleNames.map((moduleName) => {
-      const resolveSourcePackageAliasModule = (): ts.ResolvedModuleFull | undefined => {
+      const resolveSourcePackageAliasModule = ():
+        | ts.ResolvedModuleFull
+        | undefined => {
         const candidateRoots = new Set<string>([
           ...authoritativeTsonicPackageRoots.values(),
         ]);
@@ -587,24 +589,19 @@ export const createProgram = (
     return !normalizedFilePath.includes("/node_modules/");
   };
   const seenSourceFilePaths = new Set<string>();
-  const sourceFiles = program
-    .getSourceFiles()
-    .filter((sf) => {
-      if (
-        sf.isDeclarationFile ||
-        !isProgramOwnedSourceFile(sf.fileName)
-      ) {
-        return false;
-      }
+  const sourceFiles = program.getSourceFiles().filter((sf) => {
+    if (sf.isDeclarationFile || !isProgramOwnedSourceFile(sf.fileName)) {
+      return false;
+    }
 
-      const canonicalFileName = canonicalizeFilePath(sf.fileName);
-      if (seenSourceFilePaths.has(canonicalFileName)) {
-        return false;
-      }
+    const canonicalFileName = canonicalizeFilePath(sf.fileName);
+    if (seenSourceFilePaths.has(canonicalFileName)) {
+      return false;
+    }
 
-      seenSourceFilePaths.add(canonicalFileName);
-      return true;
-    });
+    seenSourceFilePaths.add(canonicalFileName);
+    return true;
+  });
 
   // Declaration files for TypeRegistry:
   // include all declarations in the program. ProgramContext later filters out

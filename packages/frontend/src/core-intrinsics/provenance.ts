@@ -101,7 +101,11 @@ export const isCoreDeclarationFile = (
   module: CoreModule
 ): boolean => {
   const expectedBase = module === "types" ? "types.d.ts" : "lang.d.ts";
-  return isDeclarationFileFromPackage(fileName, CORE_PACKAGE_NAME, expectedBase);
+  return isDeclarationFileFromPackage(
+    fileName,
+    CORE_PACKAGE_NAME,
+    expectedBase
+  );
 };
 
 export const isGlobalsDeclarationFile = (fileName: string): boolean => {

@@ -18,10 +18,7 @@ export const isImportMetaMetaProperty = (
   node.keywordToken === ts.SyntaxKind.ImportKeyword &&
   node.name.text === "meta";
 
-const getImportMetaFilePath = (
-  node: ts.Node,
-  ctx: ProgramContext
-): string => {
+const getImportMetaFilePath = (node: ts.Node, ctx: ProgramContext): string => {
   const absoluteFilePath = resolve(node.getSourceFile().fileName).replace(
     /\\/g,
     "/"

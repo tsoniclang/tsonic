@@ -95,9 +95,7 @@ const buildClassTypeSubstitution = (
 };
 
 const buildCanonicalMethodTypeSubstitution = (
-  typeParameters:
-    | readonly { readonly name: string }[]
-    | undefined
+  typeParameters: readonly { readonly name: string }[] | undefined
 ): ReadonlyMap<string, IrType> | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
@@ -117,9 +115,7 @@ const buildCanonicalMethodTypeSubstitution = (
 
 const canonicalizeMethodType = (
   type: IrType | undefined,
-  methodTypeParameters:
-    | readonly { readonly name: string }[]
-    | undefined,
+  methodTypeParameters: readonly { readonly name: string }[] | undefined,
   classSubstitution?: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
   if (!type) {
@@ -169,7 +165,10 @@ const buildSelfTypeSubstitution = (
   return substitution;
 };
 
-const typesEqual = (left: IrType | undefined, right: IrType | undefined): boolean => {
+const typesEqual = (
+  left: IrType | undefined,
+  right: IrType | undefined
+): boolean => {
   if (!left || !right) {
     return left === right;
   }
@@ -189,12 +188,20 @@ const isLocalReferenceSubtype = (
     return true;
   }
 
-  if (derivedType.kind !== "referenceType" || baseType.kind !== "referenceType") {
+  if (
+    derivedType.kind !== "referenceType" ||
+    baseType.kind !== "referenceType"
+  ) {
     return false;
   }
 
-  const derivedClass = classRegistry.get(normalizeBaseClassName(derivedType.name));
-  if (!derivedClass?.superClass || derivedClass.superClass.kind !== "referenceType") {
+  const derivedClass = classRegistry.get(
+    normalizeBaseClassName(derivedType.name)
+  );
+  if (
+    !derivedClass?.superClass ||
+    derivedClass.superClass.kind !== "referenceType"
+  ) {
     return false;
   }
 
@@ -210,12 +217,8 @@ const isLocalReferenceSubtype = (
 const parametersExactlyMatch = (
   baseParameter: IrParameter,
   derivedParameter: IrParameter,
-  baseMethodTypeParameters:
-    | readonly { readonly name: string }[]
-    | undefined,
-  derivedMethodTypeParameters:
-    | readonly { readonly name: string }[]
-    | undefined,
+  baseMethodTypeParameters: readonly { readonly name: string }[] | undefined,
+  derivedMethodTypeParameters: readonly { readonly name: string }[] | undefined,
   classSubstitution?: ReadonlyMap<string, IrType>
 ): boolean =>
   baseParameter.isOptional === derivedParameter.isOptional &&
@@ -227,10 +230,7 @@ const parametersExactlyMatch = (
       baseMethodTypeParameters,
       classSubstitution
     ),
-    canonicalizeMethodType(
-      derivedParameter.type,
-      derivedMethodTypeParameters
-    )
+    canonicalizeMethodType(derivedParameter.type, derivedMethodTypeParameters)
   );
 
 const methodsExactlyMatch = (
@@ -239,13 +239,17 @@ const methodsExactlyMatch = (
   classRegistry: ReadonlyMap<string, IrClassDeclaration>,
   classSubstitution?: ReadonlyMap<string, IrType>
 ): boolean => {
-  if (getIrMemberPublicName(baseMethod) !== getIrMemberPublicName(derivedMethod)) {
+  if (
+    getIrMemberPublicName(baseMethod) !== getIrMemberPublicName(derivedMethod)
+  ) {
     return false;
   }
 
   const baseTypeParameters = baseMethod.typeParameters;
   const derivedTypeParameters = derivedMethod.typeParameters;
-  if ((baseTypeParameters?.length ?? 0) !== (derivedTypeParameters?.length ?? 0)) {
+  if (
+    (baseTypeParameters?.length ?? 0) !== (derivedTypeParameters?.length ?? 0)
+  ) {
     return false;
   }
 
@@ -512,25 +516,27 @@ const transformStatement = (
   const methodVirtuals = virtualMethodIndices.get(stmt.name);
   const propertyVirtuals = virtualPropertyIndices.get(stmt.name);
 
-  const transformedMembers = stmt.members.map((member, index): IrClassMember => {
-    if (member.kind === "methodDeclaration") {
-      return applyMethodUpdate(
-        member,
-        plan?.methodUpdates.get(index),
-        methodVirtuals?.has(index) ?? false
-      );
-    }
+  const transformedMembers = stmt.members.map(
+    (member, index): IrClassMember => {
+      if (member.kind === "methodDeclaration") {
+        return applyMethodUpdate(
+          member,
+          plan?.methodUpdates.get(index),
+          methodVirtuals?.has(index) ?? false
+        );
+      }
 
-    if (member.kind === "propertyDeclaration") {
-      return applyPropertyUpdate(
-        member,
-        plan?.propertyUpdates.get(index),
-        propertyVirtuals?.has(index) ?? false
-      );
-    }
+      if (member.kind === "propertyDeclaration") {
+        return applyPropertyUpdate(
+          member,
+          plan?.propertyUpdates.get(index),
+          propertyVirtuals?.has(index) ?? false
+        );
+      }
 
-    return member;
-  });
+      return member;
+    }
+  );
 
   return {
     ...stmt,

@@ -56,7 +56,9 @@ export const resolveArrayLiteralContextType = (
 
   const uniqueArrayLikeMembers = Array.from(
     new Map(
-      arrayLikeMembers.map((member) => [stableIrTypeKey(member), member] as const)
+      arrayLikeMembers.map(
+        (member) => [stableIrTypeKey(member), member] as const
+      )
     ).values()
   );
 

@@ -103,8 +103,9 @@ const getReferenceTypeNames = (
   };
 };
 
-const normalizeIterableTypeName = (name: string | undefined): string | undefined =>
-  name?.replace(/\$instance$/, "");
+const normalizeIterableTypeName = (
+  name: string | undefined
+): string | undefined => name?.replace(/\$instance$/, "");
 
 const tryGetKnownReferenceIterableShape = (
   state: TypeSystemState,
@@ -253,7 +254,9 @@ export const getIterableShape = (
   }
 
   if (normalized.kind === "tupleType") {
-    const elementType = deriveTupleIterationElementType(normalized.elementTypes);
+    const elementType = deriveTupleIterationElementType(
+      normalized.elementTypes
+    );
     return elementType
       ? {
           mode: "sync",

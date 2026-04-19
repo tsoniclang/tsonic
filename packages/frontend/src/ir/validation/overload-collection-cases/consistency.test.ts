@@ -148,7 +148,9 @@ describe("Overload Family Consistency Pass", () => {
     ]);
     expect(consistency.ok).to.equal(false);
     expect(
-      consistency.diagnostics.some((diagnostic) => diagnostic.code === "TSN4005")
+      consistency.diagnostics.some(
+        (diagnostic) => diagnostic.code === "TSN4005"
+      )
     ).to.equal(true);
   });
 });

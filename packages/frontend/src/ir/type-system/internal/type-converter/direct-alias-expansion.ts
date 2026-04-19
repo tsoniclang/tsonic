@@ -5,7 +5,10 @@ import type {
   IrType,
 } from "../../../types.js";
 import type { Binding } from "../../../binding/index.js";
-import { resolveTypeAlias, unwrapParens } from "./conditional-utility-types-core.js";
+import {
+  resolveTypeAlias,
+  unwrapParens,
+} from "./conditional-utility-types-core.js";
 
 const entityNameToText = (entityName: ts.EntityName): string =>
   ts.isIdentifier(entityName)
@@ -71,7 +74,9 @@ const substituteTypeNode = (
     return ts.factory.updateUnionTypeNode(
       current,
       ts.factory.createNodeArray(
-        current.types.map((typePart) => substituteTypeNode(typePart, substitution))
+        current.types.map((typePart) =>
+          substituteTypeNode(typePart, substitution)
+        )
       )
     );
   }
@@ -80,7 +85,9 @@ const substituteTypeNode = (
     return ts.factory.updateIntersectionTypeNode(
       current,
       ts.factory.createNodeArray(
-        current.types.map((typePart) => substituteTypeNode(typePart, substitution))
+        current.types.map((typePart) =>
+          substituteTypeNode(typePart, substitution)
+        )
       )
     );
   }

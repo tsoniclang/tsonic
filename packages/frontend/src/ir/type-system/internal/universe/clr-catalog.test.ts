@@ -7,7 +7,9 @@ import { materializeFrontendFixture } from "../../../../testing/filesystem-fixtu
 
 describe("loadClrCatalog", () => {
   it("loads only explicitly participating CLR packages", () => {
-    const fixture = materializeFrontendFixture("ir/clr-catalog/explicit-packages");
+    const fixture = materializeFrontendFixture(
+      "ir/clr-catalog/explicit-packages"
+    );
 
     try {
       const nodeModulesRoot = fixture.path("node_modules");
@@ -61,9 +63,7 @@ describe("loadClrCatalog", () => {
 
       const catalog = loadClrCatalog(nodeModulesRoot, [jsRoot]);
       expect(catalog.entries.size).to.equal(1);
-      expect(
-        catalog.entries.has("js:js.console")
-      ).to.equal(true);
+      expect(catalog.entries.has("js:js.console")).to.equal(true);
     } finally {
       fixture.cleanup();
     }
@@ -85,9 +85,9 @@ describe("loadClrCatalog", () => {
         return;
       }
 
-      expect(catalog.entries.get(typeId.stableId)?.typeParameters).to.deep.equal(
-        [{ name: "TEntity" }]
-      );
+      expect(
+        catalog.entries.get(typeId.stableId)?.typeParameters
+      ).to.deep.equal([{ name: "TEntity" }]);
     } finally {
       fixture.cleanup();
     }
@@ -192,7 +192,9 @@ describe("loadClrCatalog", () => {
   });
 
   it("canonicalizes symlinked CLR metadata paths before reading them", () => {
-    const fixture = materializeFrontendFixture("ir/clr-catalog/symlinked-metadata");
+    const fixture = materializeFrontendFixture(
+      "ir/clr-catalog/symlinked-metadata"
+    );
 
     try {
       const nodeModulesRoot = fixture.path("node_modules");

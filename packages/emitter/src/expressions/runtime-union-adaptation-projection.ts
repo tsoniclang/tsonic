@@ -15,13 +15,16 @@ import {
 } from "../core/semantic/runtime-union-projection.js";
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import {
+  isBroadObjectPassThroughType,
+  isBroadObjectSlotType,
+  normalizeBroadObjectSinkType,
+} from "../core/semantic/js-value-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { maybeAdaptRuntimeUnionExpressionAst } from "./runtime-union-adaptation-upcast.js";
 import { tryResolveRuntimeUnionCastSourceIndices } from "../core/semantic/runtime-reification-helpers.js";
-import {
-  getRuntimeUnionAliasReferenceKey,
-  runtimeUnionAliasReferencesMatch,
-} from "../core/semantic/runtime-union-alias-identity.js";
+import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
+import { maybeBoxJsNumberAsObjectAst } from "./post-emission-adaptation.js";
 
 export const maybeWidenRuntimeUnionExpressionAst = (
   ast: CSharpExpressionAst,
@@ -141,7 +144,12 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
   visited: ReadonlySet<string>,
   selectedSourceMemberNs?: ReadonlySet<number>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const normalizedExpected = resolveComparableType(expectedType, context);
+  const projectionExpectedType =
+    normalizeBroadObjectSinkType(expectedType, context) ?? expectedType;
+  const normalizedExpected = resolveComparableType(
+    projectionExpectedType,
+    context
+  );
   if (normalizedExpected.kind === "unionType") {
     return undefined;
   }
@@ -168,7 +176,7 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
   const candidateMemberNs = restrictedIndices?.map((index) => index + 1);
 
   const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
-    expectedType,
+    projectionExpectedType,
     actualLayoutContext
   );
 
@@ -190,7 +198,7 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
 
     let body: CSharpExpressionAst = buildInvalidRuntimeUnionCastExpression(
       actualMember,
-      expectedType
+      projectionExpectedType
     );
 
     if (
@@ -209,23 +217,56 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     if (
       runtimeUnionAliasReferencesMatch(
         actualMember,
-        expectedType,
+        projectionExpectedType,
         currentContext
       )
     ) {
       body = parameterExpr;
       sawMatch = true;
-    } else if (getRuntimeUnionAliasReferenceKey(actualMember, currentContext)) {
-      body = buildInvalidRuntimeUnionCastExpression(actualMember, expectedType);
-    } else if (areIrTypesEquivalent(actualMember, expectedType, currentContext)) {
+    } else if (
+      areIrTypesEquivalent(actualMember, projectionExpectedType, currentContext)
+    ) {
       body = parameterExpr;
       sawMatch = true;
+    } else if (
+      isBroadObjectSlotType(projectionExpectedType, currentContext) &&
+      isBroadObjectPassThroughType(actualMember, currentContext)
+    ) {
+      body = parameterExpr;
+      sawMatch = true;
+    } else if (isBroadObjectSlotType(projectionExpectedType, currentContext)) {
+      const [boxedNumericAst, boxedNumericContext] =
+        maybeBoxJsNumberAsObjectAst(
+          parameterExpr,
+          undefined,
+          actualMember,
+          currentContext,
+          projectionExpectedType
+        );
+      if (boxedNumericAst !== parameterExpr) {
+        body = boxedNumericAst;
+        currentContext = boxedNumericContext;
+        sawMatch = true;
+      } else {
+        const nested = maybeAdaptRuntimeUnionExpressionAst(
+          parameterExpr,
+          actualMember,
+          currentContext,
+          projectionExpectedType,
+          visited
+        );
+        if (nested) {
+          body = nested[0];
+          currentContext = nested[1];
+          sawMatch = true;
+        }
+      }
     } else {
       const nested = maybeAdaptRuntimeUnionExpressionAst(
         parameterExpr,
         actualMember,
         currentContext,
-        expectedType,
+        projectionExpectedType,
         visited
       );
       if (nested) {

@@ -26,6 +26,37 @@ import {
 } from "./invocation-finalization.js";
 import { buildSourceBackedConstructorParameterTypes } from "./source-backed-constructor-metadata.js";
 
+const attachConstructorCalleeIdentity = (
+  resolvedReturnType: IrType | undefined,
+  calleeType: IrType | undefined
+): IrType | undefined => {
+  if (
+    !resolvedReturnType ||
+    resolvedReturnType.kind !== "referenceType" ||
+    resolvedReturnType.typeId ||
+    resolvedReturnType.resolvedClrType
+  ) {
+    return resolvedReturnType;
+  }
+
+  if (
+    !calleeType ||
+    calleeType.kind !== "referenceType" ||
+    (!calleeType.typeId && !calleeType.resolvedClrType)
+  ) {
+    return resolvedReturnType;
+  }
+
+  return {
+    ...resolvedReturnType,
+    name: calleeType.name,
+    ...(calleeType.typeId ? { typeId: calleeType.typeId } : {}),
+    ...(calleeType.resolvedClrType
+      ? { resolvedClrType: calleeType.resolvedClrType }
+      : {}),
+  };
+};
+
 // DELETED: getConstructedType - Phase 15 uses resolveCall.returnType instead
 
 /**
@@ -202,11 +233,17 @@ export const convertNewExpression = (
     ? typeSystem.resolveCall({
         sigId,
         argumentCount,
+        declaringClrType:
+          callee.kind === "identifier" ? callee.resolvedClrType : undefined,
         explicitTypeArgs,
         argTypes,
         expectedReturnType: expectedType,
       })
     : lambdaContextResolved;
+  const finalReturnType = attachConstructorCalleeIdentity(
+    finalResolved?.returnType,
+    callee.inferredType
+  );
 
   // Phase 15: inferredType MUST be finalResolved.returnType
   // If sigId is missing, use unknownType (do not fabricate a nominal type)
@@ -240,12 +277,12 @@ export const convertNewExpression = (
       sourceBackedConstructorParameterTypes?.parameterTypes,
     sourceBackedSurfaceParameterTypes:
       sourceBackedConstructorParameterTypes?.surfaceParameterTypes,
-    sourceBackedReturnType: finalResolved?.returnType,
+    sourceBackedReturnType: finalReturnType,
     ambientBoundGlobalSurfaceParameterTypes: undefined,
     authoritativeDirectParameterTypes: undefined,
     resolvedParameterTypes: finalResolved?.parameterTypes,
     resolvedSurfaceParameterTypes: finalResolved?.surfaceParameterTypes,
-    resolvedReturnType: finalResolved?.returnType,
+    resolvedReturnType: finalReturnType,
     fallbackParameterTypes: initialParameterTypes,
     fallbackSurfaceParameterTypes: initialParameterTypes,
     exactParameterCandidates: [],
@@ -255,9 +292,9 @@ export const convertNewExpression = (
   });
   const inferredType: IrType =
     finalizedInvocationMetadata.sourceBackedReturnType ??
-    finalResolved?.returnType ?? {
-      kind: "unknownType",
-    };
+      finalReturnType ?? {
+        kind: "unknownType",
+      };
   const parameterTypes =
     finalizedInvocationMetadata.parameterTypes ?? initialParameterTypes;
   const surfaceParameterTypes =
@@ -308,8 +345,7 @@ export const convertNewExpression = (
       finalizedInvocationMetadata.sourceBackedSurfaceParameterTypes,
     sourceBackedRestParameter:
       sourceBackedConstructorParameterTypes?.restParameter,
-    sourceBackedReturnType:
-      finalizedInvocationMetadata.sourceBackedReturnType,
+    sourceBackedReturnType: finalizedInvocationMetadata.sourceBackedReturnType,
     typeArguments: typeArgumentsForIr,
     requiresSpecialization,
     surfaceRestParameter:

@@ -6,39 +6,15 @@ import { IrType, isAwaitableIrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
-import {
-  nullableType,
-} from "../core/format/backend-ast/builders.js";
-import {
-  getIdentifierTypeName,
-  stableTypeKeyFromAst,
-} from "../core/format/backend-ast/utils.js";
+import { nullableType } from "../core/format/backend-ast/builders.js";
+import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
 import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolution.js";
 import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
 } from "../core/semantic/runtime-unions.js";
-import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
+import { shouldUseBroadObjectForUnionStorage } from "../core/semantic/storage-types.js";
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
-
-const stripNullableAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
-  typeAst.kind === "nullableType"
-    ? stripNullableAst(typeAst.underlyingType)
-    : typeAst;
-
-const isObjectLikeTypeAst = (typeAst: CSharpTypeAst): boolean => {
-  const concrete = stripNullableAst(typeAst);
-  if (concrete.kind === "predefinedType") {
-    return concrete.keyword === "object";
-  }
-
-  const name = getIdentifierTypeName(concrete);
-  return (
-    name === "object" ||
-    name === "System.Object" ||
-    name === "global::System.Object"
-  );
-};
 
 const dedupeTypeAsts = (
   types: readonly CSharpTypeAst[]
@@ -118,16 +94,14 @@ export const emitUnionType = (
   const hasAwaitableMember = nonNullTypes.some((member) =>
     isAwaitableIrType(member)
   );
-  const hasSemanticBroadMember = nonNullTypes.some(
-    (member) =>
-      member.kind === "anyType" ||
-      member.kind === "unknownType" ||
-      isBroadObjectSlotType(member, currentContext)
+  const usesBroadObjectStorage = shouldUseBroadObjectForUnionStorage(
+    type,
+    currentContext
   );
 
   if (
     dedupedNonNullTypeAsts.length > 1 &&
-    (hasSemanticBroadMember || dedupedNonNullTypeAsts.some(isObjectLikeTypeAst)) &&
+    usesBroadObjectStorage &&
     !hasAwaitableMember
   ) {
     const objectAst: CSharpTypeAst = {
@@ -167,11 +141,7 @@ export const emitUnionType = (
   );
   const dedupedTypeAsts = runtimeLayout?.memberTypeAsts;
 
-  if (
-    dedupedTypeAsts &&
-    (hasSemanticBroadMember || dedupedTypeAsts.some(isObjectLikeTypeAst)) &&
-    !hasAwaitableMember
-  ) {
+  if (dedupedTypeAsts && usesBroadObjectStorage && !hasAwaitableMember) {
     const objectAst: CSharpTypeAst = {
       kind: "predefinedType",
       keyword: "object",
@@ -182,10 +152,7 @@ export const emitUnionType = (
     ];
   }
 
-  if (
-    dedupedTypeAsts &&
-    dedupedTypeAsts.length >= 2
-  ) {
+  if (dedupedTypeAsts && dedupedTypeAsts.length >= 2) {
     const unionAst = buildRuntimeUnionTypeAst(runtimeLayout);
     return [
       hasNullish ? nullableType(unionAst) : unionAst,

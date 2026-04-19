@@ -36,6 +36,43 @@ import type {
   HeritageInfo,
 } from "../type-registry.js";
 
+const sameTypeId = (
+  left: TypeId | undefined,
+  right: TypeId | undefined
+): boolean => (left?.stableId ?? undefined) === (right?.stableId ?? undefined);
+
+const enrichCacheKey = (
+  ownerIdentity: string,
+  containingFQName: string
+): string => `${ownerIdentity}::${containingFQName}`;
+
+type EnrichTypeCache = WeakMap<IrType, Map<string, IrType>>;
+
+const getCachedEnrichedType = (
+  cache: EnrichTypeCache,
+  type: IrType,
+  ownerIdentity: string,
+  containingFQName: string
+): IrType | undefined =>
+  cache.get(type)?.get(enrichCacheKey(ownerIdentity, containingFQName));
+
+const setCachedEnrichedType = (
+  cache: EnrichTypeCache,
+  type: IrType,
+  ownerIdentity: string,
+  containingFQName: string,
+  enriched: IrType
+): IrType => {
+  const key = enrichCacheKey(ownerIdentity, containingFQName);
+  const scoped = cache.get(type);
+  if (scoped) {
+    scoped.set(key, enriched);
+  } else {
+    cache.set(type, new Map([[key, enriched]]));
+  }
+  return enriched;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SOURCE TYPE → NOMINAL ENTRY CONVERSION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -141,13 +178,14 @@ const convertMemberInfo = (
 const convertHeritageInfo = (
   heritageInfo: HeritageInfo,
   ownerIdentity: string,
-  resolveSourceOwnerIdentity: (
-    fullyQualifiedName: string
-  ) => string | undefined
+  resolveSourceOwnerIdentity: (fullyQualifiedName: string) => string | undefined
 ): HeritageEdge => {
   const targetName = heritageInfo.typeName;
 
-  if (heritageInfo.baseType.kind === "referenceType" && heritageInfo.baseType.typeId) {
+  if (
+    heritageInfo.baseType.kind === "referenceType" &&
+    heritageInfo.baseType.typeId
+  ) {
     return {
       kind: heritageInfo.kind,
       targetStableId: heritageInfo.baseType.typeId.stableId,
@@ -187,9 +225,7 @@ const convertHeritageInfo = (
  */
 const convertRegistryEntry = (
   entry: TypeRegistryEntry,
-  resolveSourceOwnerIdentity: (
-    fullyQualifiedName: string
-  ) => string | undefined
+  resolveSourceOwnerIdentity: (fullyQualifiedName: string) => string | undefined
 ): NominalEntry => {
   const stableId = makeSourceStableId(
     entry.ownerIdentity,
@@ -268,7 +304,10 @@ const getSourceTypeIdByFQName = (
   }
 
   return entries.get(
-    makeSourceStableId(sourceEntry.ownerIdentity, sourceEntry.fullyQualifiedName)
+    makeSourceStableId(
+      sourceEntry.ownerIdentity,
+      sourceEntry.fullyQualifiedName
+    )
   )?.typeId;
 };
 
@@ -353,65 +392,129 @@ const resolveSourceReferenceTypeId = (
 const enrichSourceTypeParameters = (
   typeParameters: readonly TypeParameterEntry[],
   enrichType: (type: IrType | undefined) => IrType | undefined
-): readonly TypeParameterEntry[] =>
-  typeParameters.map((typeParameter) => ({
-    ...typeParameter,
-    ...(typeParameter.constraint
-      ? { constraint: enrichType(typeParameter.constraint) }
-      : {}),
-    ...(typeParameter.defaultType
-      ? { defaultType: enrichType(typeParameter.defaultType) }
-      : {}),
-  }));
+): readonly TypeParameterEntry[] => {
+  let changed = false;
+  const next = typeParameters.map((typeParameter) => {
+    const constraint = typeParameter.constraint
+      ? enrichType(typeParameter.constraint)
+      : undefined;
+    const defaultType = typeParameter.defaultType
+      ? enrichType(typeParameter.defaultType)
+      : undefined;
+    const nextTypeParameter =
+      constraint !== typeParameter.constraint ||
+      defaultType !== typeParameter.defaultType
+        ? {
+            ...typeParameter,
+            ...(constraint ? { constraint } : {}),
+            ...(defaultType ? { defaultType } : {}),
+          }
+        : typeParameter;
+    if (nextTypeParameter !== typeParameter) {
+      changed = true;
+    }
+    return nextTypeParameter;
+  });
+  return changed ? next : typeParameters;
+};
 
 const enrichSourceParameters = (
   parameters: readonly IrParameter[],
   enrichType: (type: IrType | undefined) => IrType | undefined
-): readonly IrParameter[] =>
-  parameters.map((parameter) => ({
-    ...parameter,
-    ...(parameter.type ? { type: enrichType(parameter.type) } : {}),
-  }));
+): readonly IrParameter[] => {
+  let changed = false;
+  const next = parameters.map((parameter) => {
+    const type = parameter.type ? enrichType(parameter.type) : undefined;
+    const nextParameter =
+      type && type !== parameter.type
+        ? {
+            ...parameter,
+            type,
+          }
+        : parameter;
+    if (nextParameter !== parameter) {
+      changed = true;
+    }
+    return nextParameter;
+  });
+  return changed ? next : parameters;
+};
 
 const enrichSourceInterfaceMembers = (
   members: readonly IrInterfaceMember[],
   enrichType: (type: IrType | undefined) => IrType | undefined
-): readonly IrInterfaceMember[] =>
-  members.map((member) =>
-    member.kind === "propertySignature"
-      ? {
-          ...member,
-          type: enrichType(member.type) ?? member.type,
-        }
-      : {
-          ...member,
-          parameters: enrichSourceParameters(member.parameters, enrichType),
-          ...(member.returnType
-            ? { returnType: enrichType(member.returnType) ?? member.returnType }
-            : {}),
-          ...(member.typeParameters
-            ? {
-                typeParameters: member.typeParameters.map((typeParameter) => ({
-                  ...typeParameter,
-                  ...(typeParameter.constraint
-                    ? {
-                        constraint:
-                          enrichType(typeParameter.constraint) ??
-                          typeParameter.constraint,
-                      }
-                    : {}),
-                  ...(typeParameter.default
-                    ? {
-                        default:
-                          enrichType(typeParameter.default) ??
-                          typeParameter.default,
-                      }
-                    : {}),
-                })),
+): readonly IrInterfaceMember[] => {
+  let changed = false;
+  const next = members.map((member) => {
+    if (member.kind === "propertySignature") {
+      const type = enrichType(member.type) ?? member.type;
+      const nextMember =
+        type !== member.type
+          ? {
+              ...member,
+              type,
+            }
+          : member;
+      if (nextMember !== member) {
+        changed = true;
+      }
+      return nextMember;
+    }
+
+    const parameters = enrichSourceParameters(member.parameters, enrichType);
+    const returnType = member.returnType
+      ? (enrichType(member.returnType) ?? member.returnType)
+      : undefined;
+    const typeParameters = member.typeParameters
+      ? (() => {
+          let typeParametersChanged = false;
+          const nextTypeParameters = member.typeParameters.map(
+            (typeParameter) => {
+              const constraint = typeParameter.constraint
+                ? (enrichType(typeParameter.constraint) ??
+                  typeParameter.constraint)
+                : undefined;
+              const defaultType = typeParameter.default
+                ? (enrichType(typeParameter.default) ?? typeParameter.default)
+                : undefined;
+              const nextTypeParameter =
+                constraint !== typeParameter.constraint ||
+                defaultType !== typeParameter.default
+                  ? {
+                      ...typeParameter,
+                      ...(constraint ? { constraint } : {}),
+                      ...(defaultType ? { default: defaultType } : {}),
+                    }
+                  : typeParameter;
+              if (nextTypeParameter !== typeParameter) {
+                typeParametersChanged = true;
               }
-            : {}),
-        }
-  );
+              return nextTypeParameter;
+            }
+          );
+          return typeParametersChanged
+            ? nextTypeParameters
+            : member.typeParameters;
+        })()
+      : undefined;
+    const nextMember =
+      parameters !== member.parameters ||
+      returnType !== member.returnType ||
+      typeParameters !== member.typeParameters
+        ? {
+            ...member,
+            parameters,
+            ...(returnType ? { returnType } : {}),
+            ...(typeParameters ? { typeParameters } : {}),
+          }
+        : member;
+    if (nextMember !== member) {
+      changed = true;
+    }
+    return nextMember;
+  });
+  return changed ? next : members;
+};
 
 const enrichSourceIrType = (
   type: IrType | undefined,
@@ -420,10 +523,21 @@ const enrichSourceIrType = (
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
   clrNameToTypeId: ReadonlyMap<string, TypeId>,
   ownerIdentity: string,
-  containingFQName: string
+  containingFQName: string,
+  cache: EnrichTypeCache
 ): IrType | undefined => {
   if (!type) {
     return undefined;
+  }
+
+  const cached = getCachedEnrichedType(
+    cache,
+    type,
+    ownerIdentity,
+    containingFQName
+  );
+  if (cached) {
+    return cached;
   }
 
   const enrichNestedType = (nested: IrType | undefined): IrType | undefined =>
@@ -434,7 +548,8 @@ const enrichSourceIrType = (
       tsNameToTypeId,
       clrNameToTypeId,
       ownerIdentity,
-      containingFQName
+      containingFQName,
+      cache
     );
 
   switch (type.kind) {
@@ -448,92 +563,216 @@ const enrichSourceIrType = (
         ownerIdentity,
         containingFQName
       );
-
-      return {
-        ...type,
-        ...(typeId ? { typeId } : {}),
-        ...(type.typeArguments
+      const typeArguments = type.typeArguments
+        ? (() => {
+            let changed = false;
+            const next = type.typeArguments.map((typeArgument) => {
+              const enrichedTypeArgument =
+                enrichNestedType(typeArgument) ?? typeArgument;
+              if (enrichedTypeArgument !== typeArgument) {
+                changed = true;
+              }
+              return enrichedTypeArgument;
+            });
+            return changed ? next : type.typeArguments;
+          })()
+        : undefined;
+      const structuralMembers = type.structuralMembers
+        ? enrichSourceInterfaceMembers(type.structuralMembers, enrichNestedType)
+        : undefined;
+      const enriched =
+        !sameTypeId(type.typeId, typeId) ||
+        typeArguments !== type.typeArguments ||
+        structuralMembers !== type.structuralMembers
           ? {
-              typeArguments: type.typeArguments.map(
-                (typeArgument) => enrichNestedType(typeArgument) ?? typeArgument
-              ),
+              ...type,
+              ...(typeId ? { typeId } : {}),
+              ...(typeArguments ? { typeArguments } : {}),
+              ...(structuralMembers ? { structuralMembers } : {}),
             }
-          : {}),
-        ...(type.structuralMembers
-          ? {
-              structuralMembers: enrichSourceInterfaceMembers(
-                type.structuralMembers,
-                enrichNestedType
-              ),
-            }
-          : {}),
-      };
+          : type;
+      return setCachedEnrichedType(
+        cache,
+        type,
+        ownerIdentity,
+        containingFQName,
+        enriched
+      );
     }
 
-    case "arrayType":
-      return {
-        ...type,
-        elementType: enrichNestedType(type.elementType) ?? type.elementType,
-      };
-
-    case "tupleType":
-      return {
-        ...type,
-        elementTypes: type.elementTypes.map(
-          (elementType) => enrichNestedType(elementType) ?? elementType
-        ),
-      };
-
-    case "functionType":
-      return {
-        ...type,
-        ...(type.typeParameters
+    case "arrayType": {
+      const elementType =
+        enrichNestedType(type.elementType) ?? type.elementType;
+      const enriched =
+        elementType !== type.elementType
           ? {
-              typeParameters: type.typeParameters.map((typeParameter) => ({
-                ...typeParameter,
-                ...(typeParameter.constraint
-                  ? {
-                      constraint:
-                        enrichNestedType(typeParameter.constraint) ??
-                        typeParameter.constraint,
-                    }
-                  : {}),
-                ...(typeParameter.default
-                  ? {
-                      default:
-                        enrichNestedType(typeParameter.default) ??
-                        typeParameter.default,
-                    }
-                  : {}),
-              })),
+              ...type,
+              elementType,
             }
-          : {}),
-        parameters: enrichSourceParameters(type.parameters, enrichNestedType),
-        returnType: enrichNestedType(type.returnType) ?? type.returnType,
-      };
+          : type;
+      return setCachedEnrichedType(
+        cache,
+        type,
+        ownerIdentity,
+        containingFQName,
+        enriched
+      );
+    }
 
-    case "objectType":
-      return {
-        ...type,
-        members: enrichSourceInterfaceMembers(type.members, enrichNestedType),
-      };
+    case "tupleType": {
+      let changed = false;
+      const elementTypes = type.elementTypes.map((elementType) => {
+        const enrichedElementType =
+          enrichNestedType(elementType) ?? elementType;
+        if (enrichedElementType !== elementType) {
+          changed = true;
+        }
+        return enrichedElementType;
+      });
+      const enriched = changed
+        ? {
+            ...type,
+            elementTypes,
+          }
+        : type;
+      return setCachedEnrichedType(
+        cache,
+        type,
+        ownerIdentity,
+        containingFQName,
+        enriched
+      );
+    }
 
-    case "dictionaryType":
-      return {
-        ...type,
-        keyType: enrichNestedType(type.keyType) ?? type.keyType,
-        valueType: enrichNestedType(type.valueType) ?? type.valueType,
-      };
+    case "functionType": {
+      const typeParameters = type.typeParameters
+        ? (() => {
+            let changed = false;
+            const next = type.typeParameters.map((typeParameter) => {
+              const constraint = typeParameter.constraint
+                ? (enrichNestedType(typeParameter.constraint) ??
+                  typeParameter.constraint)
+                : undefined;
+              const defaultType = typeParameter.default
+                ? (enrichNestedType(typeParameter.default) ??
+                  typeParameter.default)
+                : undefined;
+              const nextTypeParameter =
+                constraint !== typeParameter.constraint ||
+                defaultType !== typeParameter.default
+                  ? {
+                      ...typeParameter,
+                      ...(constraint ? { constraint } : {}),
+                      ...(defaultType ? { default: defaultType } : {}),
+                    }
+                  : typeParameter;
+              if (nextTypeParameter !== typeParameter) {
+                changed = true;
+              }
+              return nextTypeParameter;
+            });
+            return changed ? next : type.typeParameters;
+          })()
+        : undefined;
+      const parameters = enrichSourceParameters(
+        type.parameters,
+        enrichNestedType
+      );
+      const returnType = enrichNestedType(type.returnType) ?? type.returnType;
+      const enriched =
+        typeParameters !== type.typeParameters ||
+        parameters !== type.parameters ||
+        returnType !== type.returnType
+          ? {
+              ...type,
+              ...(typeParameters ? { typeParameters } : {}),
+              parameters,
+              returnType,
+            }
+          : type;
+      return setCachedEnrichedType(
+        cache,
+        type,
+        ownerIdentity,
+        containingFQName,
+        enriched
+      );
+    }
+
+    case "objectType": {
+      const members = enrichSourceInterfaceMembers(
+        type.members,
+        enrichNestedType
+      );
+      const enriched =
+        members !== type.members
+          ? {
+              ...type,
+              members,
+            }
+          : type;
+      return setCachedEnrichedType(
+        cache,
+        type,
+        ownerIdentity,
+        containingFQName,
+        enriched
+      );
+    }
+
+    case "dictionaryType": {
+      const keyType = enrichNestedType(type.keyType) ?? type.keyType;
+      const valueType = enrichNestedType(type.valueType) ?? type.valueType;
+      const enriched =
+        keyType !== type.keyType || valueType !== type.valueType
+          ? {
+              ...type,
+              keyType,
+              valueType,
+            }
+          : type;
+      return setCachedEnrichedType(
+        cache,
+        type,
+        ownerIdentity,
+        containingFQName,
+        enriched
+      );
+    }
 
     case "unionType":
-    case "intersectionType":
-      return {
-        ...type,
-        types: type.types.map((member) => enrichNestedType(member) ?? member),
-      };
+    case "intersectionType": {
+      let changed = false;
+      const types = type.types.map((member) => {
+        const enrichedMember = enrichNestedType(member) ?? member;
+        if (enrichedMember !== member) {
+          changed = true;
+        }
+        return enrichedMember;
+      });
+      const enriched = changed
+        ? {
+            ...type,
+            types,
+          }
+        : type;
+      return setCachedEnrichedType(
+        cache,
+        type,
+        ownerIdentity,
+        containingFQName,
+        enriched
+      );
+    }
 
     default:
-      return type;
+      return setCachedEnrichedType(
+        cache,
+        type,
+        ownerIdentity,
+        containingFQName,
+        type
+      );
   }
 };
 
@@ -542,7 +781,8 @@ const enrichSourceNominalEntry = (
   sourceRegistry: TypeRegistry,
   entries: ReadonlyMap<string, NominalEntry>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
-  clrNameToTypeId: ReadonlyMap<string, TypeId>
+  clrNameToTypeId: ReadonlyMap<string, TypeId>,
+  cache: EnrichTypeCache
 ): NominalEntry => {
   if (entry.origin !== "source") {
     return entry;
@@ -556,44 +796,114 @@ const enrichSourceNominalEntry = (
       tsNameToTypeId,
       clrNameToTypeId,
       entry.typeId.assemblyName,
-      entry.typeId.clrName
+      entry.typeId.clrName,
+      cache
     );
 
+  let membersChanged = false;
   const members = new Map<string, MemberEntry>();
   for (const [name, member] of entry.members) {
-    members.set(name, {
-      ...member,
-      ...(member.type ? { type: enrichType(member.type) } : {}),
-      ...(member.signatures
+    const type = member.type ? enrichType(member.type) : undefined;
+    const signatures = member.signatures
+      ? (() => {
+          let changed = false;
+          const next = member.signatures.map((signature) => {
+            const parameters = signature.parameters.map((parameter) => {
+              const parameterType =
+                enrichType(parameter.type) ?? parameter.type;
+              return parameterType !== parameter.type
+                ? {
+                    ...parameter,
+                    type: parameterType,
+                  }
+                : parameter;
+            });
+            const parametersChanged = parameters.some(
+              (parameter, index) => parameter !== signature.parameters[index]
+            );
+            const returnType =
+              enrichType(signature.returnType) ?? signature.returnType;
+            const typeParameters = enrichSourceTypeParameters(
+              signature.typeParameters,
+              enrichType
+            );
+            const nextSignature =
+              parametersChanged ||
+              returnType !== signature.returnType ||
+              typeParameters !== signature.typeParameters
+                ? {
+                    ...signature,
+                    parameters,
+                    returnType,
+                    typeParameters,
+                  }
+                : signature;
+            if (nextSignature !== signature) {
+              changed = true;
+            }
+            return nextSignature;
+          });
+          return changed ? next : member.signatures;
+        })()
+      : undefined;
+    const nextMember =
+      type !== member.type || signatures !== member.signatures
         ? {
-            signatures: member.signatures.map((signature) => ({
-              ...signature,
-              parameters: signature.parameters.map((parameter) => ({
-                ...parameter,
-                type: enrichType(parameter.type) ?? parameter.type,
-              })),
-              returnType: enrichType(signature.returnType) ?? signature.returnType,
-              typeParameters: enrichSourceTypeParameters(
-                signature.typeParameters,
-                enrichType
-              ),
-            })),
+            ...member,
+            ...(type ? { type } : {}),
+            ...(signatures ? { signatures } : {}),
           }
-        : {}),
+        : member;
+    if (nextMember !== member) {
+      membersChanged = true;
+    }
+    members.set(name, nextMember);
+  }
+
+  const aliasedType = entry.aliasedType
+    ? enrichType(entry.aliasedType)
+    : undefined;
+  const typeParameters = enrichSourceTypeParameters(
+    entry.typeParameters,
+    enrichType
+  );
+  let heritageChanged = false;
+  const heritage = entry.heritage.map((edge) => {
+    let typeArgumentsChanged = false;
+    const typeArguments = edge.typeArguments.map((typeArgument) => {
+      const enrichedTypeArgument = enrichType(typeArgument) ?? typeArgument;
+      if (enrichedTypeArgument !== typeArgument) {
+        typeArgumentsChanged = true;
+      }
+      return enrichedTypeArgument;
     });
+    const nextEdge = typeArgumentsChanged
+      ? {
+          ...edge,
+          typeArguments,
+        }
+      : edge;
+    if (nextEdge !== edge) {
+      heritageChanged = true;
+    }
+    return nextEdge;
+  });
+
+  if (
+    aliasedType === entry.aliasedType &&
+    typeParameters === entry.typeParameters &&
+    !heritageChanged &&
+    !membersChanged
+  ) {
+    return entry;
   }
 
   return {
     ...entry,
-    ...(entry.aliasedType ? { aliasedType: enrichType(entry.aliasedType) } : {}),
-    typeParameters: enrichSourceTypeParameters(entry.typeParameters, enrichType),
-    heritage: entry.heritage.map((edge) => ({
-      ...edge,
-      typeArguments: edge.typeArguments.map(
-        (typeArgument) => enrichType(typeArgument) ?? typeArgument
-      ),
-    })),
-    members,
+    ...(aliasedType ? { aliasedType } : {}),
+    typeParameters,
+    heritage: heritageChanged ? heritage : entry.heritage,
+    members: membersChanged ? members : entry.members,
   };
 };
 
@@ -624,6 +934,7 @@ export const buildUnifiedUniverse = (
   );
   const sourceTsNamePriority = new Map<string, number>();
   const sourceClrNamePriority = new Map<string, number>();
+  const enrichTypeCache: EnrichTypeCache = new WeakMap();
 
   // Add source types if registry is provided
   if (sourceRegistry) {
@@ -632,7 +943,8 @@ export const buildUnifiedUniverse = (
     ): string | undefined =>
       sourceRegistry.resolveNominal(fullyQualifiedName)?.ownerIdentity;
 
-    for (const fqName of sourceRegistry.getAllTypeNames()) {
+    const sourceTypeNames = sourceRegistry.getAllTypeNames();
+    for (const fqName of sourceTypeNames) {
       const entry = sourceRegistry.resolveNominal(fqName);
       if (!entry) continue;
 
@@ -652,8 +964,9 @@ export const buildUnifiedUniverse = (
       if (!preserveAssemblyIdentity) {
         const sourcePriority = entry.isDeclarationFile ? 0 : 1;
 
-        const existingTsPriority =
-          sourceTsNamePriority.get(nominalEntry.typeId.tsName);
+        const existingTsPriority = sourceTsNamePriority.get(
+          nominalEntry.typeId.tsName
+        );
         if (
           existingTsPriority === undefined ||
           sourcePriority >= existingTsPriority
@@ -662,8 +975,9 @@ export const buildUnifiedUniverse = (
           sourceTsNamePriority.set(nominalEntry.typeId.tsName, sourcePriority);
         }
 
-        const existingClrPriority =
-          sourceClrNamePriority.get(nominalEntry.typeId.clrName);
+        const existingClrPriority = sourceClrNamePriority.get(
+          nominalEntry.typeId.clrName
+        );
         if (
           existingClrPriority === undefined ||
           sourcePriority >= existingClrPriority
@@ -676,7 +990,6 @@ export const buildUnifiedUniverse = (
         }
       }
     }
-
     for (const [stableId, entry] of entries) {
       if (entry.origin !== "source") {
         continue;
@@ -689,7 +1002,8 @@ export const buildUnifiedUniverse = (
           sourceRegistry,
           entries,
           tsNameToTypeId,
-          clrNameToTypeId
+          clrNameToTypeId,
+          enrichTypeCache
         )
       );
     }

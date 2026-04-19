@@ -151,7 +151,10 @@ export const emitCSharpFiles = (
   }
 
   if (runtimeUnionRegistry.definitions.size > 0) {
-    results.set("__tsonic_unions.g.cs", generateRuntimeUnionFile(runtimeUnionRegistry));
+    results.set(
+      "__tsonic_unions.g.cs",
+      generateRuntimeUnionFile(runtimeUnionRegistry)
+    );
   }
 
   // Generate __tsonic_module_containers.g.cs if any module emitted a static container.

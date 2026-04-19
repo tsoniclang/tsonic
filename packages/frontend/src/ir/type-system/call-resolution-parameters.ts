@@ -11,14 +11,10 @@
  * DAG position: depends on type-system-state
  */
 
-import type { IrType, IrReferenceType } from "../types/index.js";
-import {
-  substituteIrType as irSubstitute,
-  TypeSubstitutionMap as IrSubstitutionMap,
-} from "../types/ir-substitution.js";
+import type { IrType } from "../types/index.js";
 import { stableIrTypeKey, unwrapAsyncWrapperType } from "../types/type-ops.js";
 import type { TypeSystemState } from "./type-system-state.js";
-import { resolveTypeIdByName } from "./type-system-state.js";
+import { expandReferenceAlias } from "./type-alias-expansion.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Parameter expansion helpers — Rest/optional parameter type expansion
@@ -70,8 +66,7 @@ const getExpandedRestArgumentType = (
 
   if (
     restType.kind === "referenceType" &&
-    (restType.name === "Array" ||
-      restType.name === "ReadonlyArray")
+    (restType.name === "Array" || restType.name === "ReadonlyArray")
   ) {
     const onlyTypeArgument = restType.typeArguments?.[0];
     if (onlyTypeArgument) {
@@ -149,8 +144,7 @@ export const buildResolvedRestParameter = (
     arrayType.kind === "arrayType"
       ? arrayType.elementType
       : arrayType.kind === "referenceType" &&
-          (arrayType.name === "Array" ||
-            arrayType.name === "ReadonlyArray") &&
+          (arrayType.name === "Array" || arrayType.name === "ReadonlyArray") &&
           arrayType.typeArguments?.length === 1
         ? arrayType.typeArguments[0]
         : undefined;
@@ -239,38 +233,4 @@ const collectExpandedTypeCandidates = (
   }
 
   return out;
-};
-
-const expandReferenceAlias = (
-  state: TypeSystemState,
-  type: IrReferenceType
-): IrType | undefined => {
-  const typeId =
-    type.typeId ??
-    resolveTypeIdByName(
-      state,
-      type.resolvedClrType ?? type.name,
-      type.typeArguments?.length ?? 0
-    );
-  if (!typeId) return undefined;
-
-  const entry = state.unifiedCatalog.getByTypeId(typeId);
-  if (!entry?.aliasedType) return undefined;
-
-  const aliasSubst = new Map<string, IrType>();
-  const aliasTypeParams = entry.typeParameters;
-  const aliasTypeArgs = type.typeArguments ?? [];
-  for (
-    let i = 0;
-    i < Math.min(aliasTypeParams.length, aliasTypeArgs.length);
-    i++
-  ) {
-    const tp = aliasTypeParams[i];
-    const ta = aliasTypeArgs[i];
-    if (tp && ta) aliasSubst.set(tp.name, ta);
-  }
-
-  return aliasSubst.size > 0
-    ? irSubstitute(entry.aliasedType, aliasSubst as IrSubstitutionMap)
-    : entry.aliasedType;
 };

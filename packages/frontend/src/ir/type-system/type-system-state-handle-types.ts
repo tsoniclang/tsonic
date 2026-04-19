@@ -18,6 +18,7 @@ export type RawSignatureInfo = {
   }[];
   readonly thisParameterType?: IrType;
   readonly returnType: IrType;
+  readonly constructsDeclaringType: boolean;
   readonly hasDeclaredReturnType: boolean;
   readonly parameterModes: readonly ParameterMode[];
   readonly typeParameters: readonly TypeParameterInfo[];

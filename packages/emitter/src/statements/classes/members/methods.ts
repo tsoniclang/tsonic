@@ -145,8 +145,9 @@ export const emitMethodMember = (
     ? buildGeneratorHelperTypeArguments(
         [
           ...(context.declaringTypeParameterNames ?? []),
-          ...(member.typeParameters?.map((typeParameter) => typeParameter.name) ??
-            []),
+          ...(member.typeParameters?.map(
+            (typeParameter) => typeParameter.name
+          ) ?? []),
         ],
         currentContext
       )
@@ -170,39 +171,39 @@ export const emitMethodMember = (
       }
       returnTypeAst = generatorReturnTypeAst;
     } else {
-    if (!generatorHelperBaseName) {
-      throw new Error(
-        "ICE: Generator method helper base name was not resolved."
-      );
-    }
-    const exchangeType = identifierType(
-      `${generatorHelperBaseName}_exchange`,
-      generatorHelperTypeArguments.length > 0
-        ? generatorHelperTypeArguments
-        : undefined
-    );
-    const wrapperType = identifierType(
-      `${generatorHelperBaseName}_Generator`,
-      generatorHelperTypeArguments.length > 0
-        ? generatorHelperTypeArguments
-        : undefined
-    );
-    if (isBidirectional) {
-      returnTypeAst = wrapperType;
-    } else {
-      if (member.isAsync) {
-        modifiers.push("async");
-        returnTypeAst = identifierType(
-          "global::System.Collections.Generic.IAsyncEnumerable",
-          [exchangeType]
-        );
-      } else {
-        returnTypeAst = identifierType(
-          "global::System.Collections.Generic.IEnumerable",
-          [exchangeType]
+      if (!generatorHelperBaseName) {
+        throw new Error(
+          "ICE: Generator method helper base name was not resolved."
         );
       }
-    }
+      const exchangeType = identifierType(
+        `${generatorHelperBaseName}_exchange`,
+        generatorHelperTypeArguments.length > 0
+          ? generatorHelperTypeArguments
+          : undefined
+      );
+      const wrapperType = identifierType(
+        `${generatorHelperBaseName}_Generator`,
+        generatorHelperTypeArguments.length > 0
+          ? generatorHelperTypeArguments
+          : undefined
+      );
+      if (isBidirectional) {
+        returnTypeAst = wrapperType;
+      } else {
+        if (member.isAsync) {
+          modifiers.push("async");
+          returnTypeAst = identifierType(
+            "global::System.Collections.Generic.IAsyncEnumerable",
+            [exchangeType]
+          );
+        } else {
+          returnTypeAst = identifierType(
+            "global::System.Collections.Generic.IEnumerable",
+            [exchangeType]
+          );
+        }
+      }
     }
   } else if (member.returnType) {
     const [rAst, newContext] = emitTypeAst(member.returnType, currentContext);
@@ -523,10 +524,11 @@ export const emitMethodMember = (
       ? typeParamAsts.map((typeParameter) => identifierType(typeParameter.name))
       : undefined;
   const wrapperModifiers = modifiers.filter(
-    (modifier) => modifier !== "async" && modifier !== "virtual" && modifier !== "override"
+    (modifier) =>
+      modifier !== "async" && modifier !== "virtual" && modifier !== "override"
   );
-  const wrapperMembers: CSharpMemberAst[] = paramsResult.wrapperPrefixLengths.map(
-    (prefixLength) => {
+  const wrapperMembers: CSharpMemberAst[] =
+    paramsResult.wrapperPrefixLengths.map((prefixLength) => {
       const invocation: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
@@ -551,10 +553,12 @@ export const emitMethodMember = (
         name,
         typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
-        parameters: paramsResult.parameters.slice(0, prefixLength).map((param) => ({
-          ...param,
-          defaultValue: undefined,
-        })),
+        parameters: paramsResult.parameters
+          .slice(0, prefixLength)
+          .map((param) => ({
+            ...param,
+            defaultValue: undefined,
+          })),
         body: {
           kind: "blockStatement",
           statements: isVoidReturnType(returnTypeAst)
@@ -562,8 +566,7 @@ export const emitMethodMember = (
             : [{ kind: "returnStatement", expression: invocation }],
         },
       };
-    }
-  );
+    });
 
   const methodAst: CSharpMemberAst = {
     kind: "methodDeclaration",

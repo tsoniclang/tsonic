@@ -6,9 +6,7 @@ describe("call-site-analysis-unification", () => {
   it("substitutes bare reference placeholders that carry call-site type parameters", () => {
     const result = substituteTypeParameters(
       { kind: "referenceType", name: "TEntity" },
-      new Map([
-        ["TEntity", { kind: "referenceType", name: "PostEntity" }],
-      ])
+      new Map([["TEntity", { kind: "referenceType", name: "PostEntity" }]])
     );
 
     expect(result).to.deep.equal({
@@ -22,9 +20,7 @@ describe("call-site-analysis-unification", () => {
 
     const result = substituteTypeParameters(
       original,
-      new Map([
-        ["TEntity", { kind: "referenceType", name: "PostEntity" }],
-      ])
+      new Map([["TEntity", { kind: "referenceType", name: "PostEntity" }]])
     );
 
     expect(result).to.deep.equal(original);

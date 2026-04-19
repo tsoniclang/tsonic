@@ -17,9 +17,7 @@ Example:
   "dotnetVersion": "net10.0",
   "surface": "@tsonic/js",
   "dotnet": {
-    "typeRoots": [
-      "node_modules/@tsonic/nodejs"
-    ],
+    "typeRoots": ["node_modules/@tsonic/nodejs"],
     "frameworkReferences": [
       {
         "id": "Microsoft.AspNetCore.App",

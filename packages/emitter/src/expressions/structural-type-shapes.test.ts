@@ -65,6 +65,8 @@ describe("structural-type-shapes", () => {
       expectedType: enumerableType,
     });
 
-    expect(printExpression(adaptedAst)).to.equal("bytes.__tsonic_symbol_iterator()");
+    expect(printExpression(adaptedAst)).to.equal(
+      "bytes.__tsonic_symbol_iterator()"
+    );
   });
 });
