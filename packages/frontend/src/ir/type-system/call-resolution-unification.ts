@@ -10,7 +10,11 @@
 import type { IrType, IrReferenceType } from "../types/index.js";
 import { normalizedUnionType } from "../types/type-ops.js";
 import { unwrapAsyncWrapperType } from "../types/type-ops.js";
-import { stableIrTypeKey } from "../types/type-ops.js";
+import {
+  referenceTypeIdentity,
+  referenceTypeHasClrIdentity,
+  stableIrTypeKeyIfDeterministic,
+} from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type { TypeParameterInfo } from "./types.js";
 import type { TypeSystemState } from "./type-system-state.js";
@@ -21,6 +25,13 @@ import {
   mapEntriesEqual,
   delegateToFunctionType,
 } from "./call-resolution-utilities.js";
+
+const BROAD_OBJECT_INFERENCE_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+  "Tsonic.Runtime.JsValue",
+  "global::Tsonic.Runtime.JsValue",
+]);
 
 // ─────────────────────────────────────────────────────────────────────────
 // inferMethodTypeArgsFromArguments — Generic method type argument inference
@@ -42,6 +53,19 @@ export const inferMethodTypeArgsFromArguments = (
   const methodTypeParamNames = new Set(methodTypeParams.map((p) => p.name));
   const substitution = new Map<string, IrType>();
   const activeStructuralPairs = new Set<string>();
+  const structuralPairObjectIds = new WeakMap<object, number>();
+  let nextStructuralPairObjectId = 0;
+
+  const structuralPairObjectKey = (type: IrReferenceType): string => {
+    const existing = structuralPairObjectIds.get(type);
+    if (existing !== undefined) {
+      return `opaque:${existing}`;
+    }
+    const next = nextStructuralPairObjectId;
+    nextStructuralPairObjectId += 1;
+    structuralPairObjectIds.set(type, next);
+    return `opaque:${next}`;
+  };
 
   const areDeterministicallyEquivalentInferenceTypes = (
     left: IrType,
@@ -50,14 +74,24 @@ export const inferMethodTypeArgsFromArguments = (
     typesEqual(left, right) ||
     (isAssignableTo(state, left, right) && isAssignableTo(state, right, left));
 
-  const isBroadObjectInferenceType = (type: IrType): boolean =>
-    type.kind === "referenceType" &&
-    (type.name === "object" ||
-      type.name === "JsValue" ||
-      type.resolvedClrType === "System.Object" ||
-      type.resolvedClrType === "global::System.Object" ||
-      type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-      type.resolvedClrType === "global::Tsonic.Runtime.JsValue");
+  const isBroadObjectInferenceType = (type: IrType): boolean => {
+    if (type.kind === "unionType") {
+      return type.types
+        .filter((candidate) => candidate !== undefined)
+        .some(
+          (candidate) =>
+            !isNullishPrimitive(candidate) &&
+            isBroadObjectInferenceType(candidate)
+        );
+    }
+
+    return (
+      type.kind === "referenceType" &&
+      (type.name === "object" ||
+        type.name === "JsValue" ||
+        referenceTypeHasClrIdentity(type, BROAD_OBJECT_INFERENCE_CLR_NAMES))
+    );
+  };
 
   const splitDeterministicOptionalInferenceType = (
     type: IrType
@@ -99,6 +133,18 @@ export const inferMethodTypeArgsFromArguments = (
     };
   };
 
+  const collectExplicitUndefinedInferenceMembers = (
+    type: IrType
+  ): readonly IrType[] =>
+    type.kind === "unionType"
+      ? type.types.filter(
+          (candidate): candidate is IrType =>
+            candidate !== undefined &&
+            candidate.kind === "primitiveType" &&
+            candidate.name === "undefined"
+        )
+      : [];
+
   const tryMergeInferenceTypes = (
     existing: IrType,
     next: IrType
@@ -118,6 +164,8 @@ export const inferMethodTypeArgsFromArguments = (
       const nullishMembers = [
         ...(existingOptional?.nullishMembers ?? []),
         ...(nextOptional?.nullishMembers ?? []),
+        ...collectExplicitUndefinedInferenceMembers(existing),
+        ...collectExplicitUndefinedInferenceMembers(next),
       ];
       return nullishMembers.length > 0
         ? normalizedUnionType([mergedNonNullish, ...nullishMembers])
@@ -274,7 +322,14 @@ export const inferMethodTypeArgsFromArguments = (
         return true;
       }
 
-      const pairKey = `${stableIrTypeKey(parameterRef)}=>${stableIrTypeKey(argumentRef)}`;
+      const parameterKey = stableIrTypeKeyIfDeterministic(parameterRef);
+      const argumentKey = stableIrTypeKeyIfDeterministic(argumentRef);
+      const pairKey =
+        parameterKey && argumentKey
+          ? `${parameterKey}=>${argumentKey}`
+          : `${structuralPairObjectKey(parameterRef)}=>${structuralPairObjectKey(
+              argumentRef
+            )}`;
       if (activeStructuralPairs.has(pairKey)) {
         return true;
       }
@@ -735,12 +790,12 @@ export const inferMethodTypeArgsFromArguments = (
       case "referenceType": {
         const argRef = argumentType as IrReferenceType;
 
-        const sameNominal = (() => {
-          if (parameterType.typeId && argRef.typeId) {
-            return parameterType.typeId.stableId === argRef.typeId.stableId;
-          }
-          return parameterType.name === argRef.name;
-        })();
+        const parameterIdentity = referenceTypeIdentity(parameterType);
+        const argumentIdentity = referenceTypeIdentity(argRef);
+        const sameNominal =
+          parameterIdentity !== undefined &&
+          argumentIdentity !== undefined &&
+          parameterIdentity === argumentIdentity;
 
         // Direct generic unification when the nominals match
         if (sameNominal) {

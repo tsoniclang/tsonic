@@ -75,6 +75,7 @@ export type InstanceofGuardInfo = {
   readonly targetType?: IrType;
   readonly memberN?: number;
   readonly memberNeedsPatternCheck?: boolean;
+  readonly receiverMayBeNullish?: boolean;
   readonly runtimeUnionArity?: number;
   readonly candidateMemberNs?: readonly number[];
   readonly candidateMembers?: readonly IrType[];
@@ -151,6 +152,7 @@ export type DiscriminantEqualityGuardInfo = {
 export type PropertyTruthinessGuardInfo = {
   readonly originalName: string;
   readonly propertyName: string;
+  readonly wantTruthy: boolean;
   readonly memberN: number;
   readonly unionArity: number;
   readonly runtimeUnionArity: number;

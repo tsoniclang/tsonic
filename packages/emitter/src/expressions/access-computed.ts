@@ -213,14 +213,16 @@ export const emitComputedAccess = (
               true
             ) ?? resolvedStorageObjectType.valueType)
           : undefined;
-      const fallbackType =
-        storageValueType ??
-        expectedType ??
-        expr.inferredType ??
-        (resolvedObjectType?.kind === "dictionaryType"
+      const acceptedReceiverValueType =
+        resolvedObjectType?.kind === "dictionaryType"
           ? (getAcceptedSurfaceType(resolvedObjectType.valueType, true) ??
             resolvedObjectType.valueType)
-          : undefined);
+          : undefined;
+      const fallbackType =
+        expectedType ??
+        storageValueType ??
+        expr.inferredType ??
+        acceptedReceiverValueType;
       const [resultTypeAst, typeContext] = fallbackType
         ? emitTypeAst(fallbackType, finalContext)
         : [identifierType("object"), finalContext];

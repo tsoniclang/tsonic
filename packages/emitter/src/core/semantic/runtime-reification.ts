@@ -1,6 +1,7 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import {
+  booleanLiteral,
   identifierExpression,
   nullLiteral,
 } from "../format/backend-ast/builders.js";
@@ -65,6 +66,41 @@ export type RuntimeReificationPlan = {
 export type RuntimeMaterializationSourceFrame = {
   readonly members: readonly IrType[];
   readonly candidateMemberNs?: readonly number[];
+};
+
+const isBroadObjectRuntimeMemberType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context, {
+    preserveObjectTypeAliases: true,
+  });
+  return (
+    (resolved.kind === "referenceType" && resolved.name === "object") ||
+    isBroadObjectSlotType(resolved, context)
+  );
+};
+
+const tryBuildBroadObjectCatchAllReificationPlan = (
+  valueAst: CSharpExpressionAst,
+  expectedType: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): RuntimeReificationPlan | undefined => {
+  if (!isBroadObjectRuntimeMemberType(expectedType, context)) {
+    return undefined;
+  }
+
+  const [expectedTypeAst, nextContext] = emitTypeAst(expectedType, context);
+  return {
+    condition: booleanLiteral(true),
+    value: {
+      kind: "castExpression",
+      type: stripNullableTypeAst(expectedTypeAst),
+      expression: valueAst,
+    },
+    context: nextContext,
+  };
 };
 
 const tryBuildArrayElementMaterializationAst = (
@@ -290,6 +326,7 @@ export const tryBuildRuntimeMaterializationAst = (
       const targetUnionTypeAst = buildRuntimeUnionTypeAst(targetLayout);
       const lambdaArgs: CSharpExpressionAst[] = [];
       let sawReachableMatch = false;
+      let currentContext = targetLayoutContext;
 
       for (let index = 0; index < sourceLayout.members.length; index += 1) {
         const actualMember = sourceLayout.members[index];
@@ -319,7 +356,7 @@ export const tryBuildRuntimeMaterializationAst = (
           runtimeUnionAliasReferencesMatch(
             actualMember,
             targetType,
-            targetLayoutContext
+            currentContext
           )
         ) {
           body = parameterExpr;
@@ -328,27 +365,44 @@ export const tryBuildRuntimeMaterializationAst = (
           const targetMemberIndex = findRuntimeUnionMemberIndex(
             targetLayout.members,
             actualMember,
-            targetLayoutContext
+            currentContext
           );
+          const targetMember =
+            targetMemberIndex !== undefined
+              ? targetLayout.members[targetMemberIndex]
+              : undefined;
           const targetMemberTypeAst =
             targetMemberIndex !== undefined
               ? targetLayout.memberTypeAsts[targetMemberIndex]
               : undefined;
-          if (targetMemberIndex === undefined || !targetMemberTypeAst) {
+          if (
+            targetMemberIndex === undefined ||
+            !targetMember ||
+            !targetMemberTypeAst
+          ) {
             body = buildInvalidRuntimeUnionMaterializationExpression(
               actualMember,
               targetType
             );
           } else {
+            const nestedMaterialization = tryBuildRuntimeMaterializationAst(
+              parameterExpr,
+              actualMember,
+              targetMember,
+              currentContext,
+              emitTypeAst
+            );
             body = buildRuntimeUnionFactoryCallAst(
               targetUnionTypeAst,
               targetMemberIndex + 1,
-              maybeCastMaterializedValueAst(
-                parameterExpr,
-                actualMemberTypeAst,
-                targetMemberTypeAst
-              )
+              nestedMaterialization?.[0] ??
+                maybeCastMaterializedValueAst(
+                  parameterExpr,
+                  actualMemberTypeAst,
+                  targetMemberTypeAst
+                )
             );
+            currentContext = nestedMaterialization?.[1] ?? currentContext;
             sawReachableMatch = true;
           }
         }
@@ -366,7 +420,7 @@ export const tryBuildRuntimeMaterializationAst = (
             buildRuntimeUnionMatchAst(valueAst, lambdaArgs, [
               targetUnionTypeAst,
             ]),
-            targetLayoutContext,
+            currentContext,
           ]
         : undefined;
     }
@@ -379,18 +433,30 @@ export const tryBuildRuntimeMaterializationAst = (
       candidateMemberNs: effectiveSourceFrame?.candidateMemberNs,
       selectedSourceMemberNs,
       buildMappedMemberValue: ({
+        actualMember,
         actualMemberTypeAst,
         parameterExpr,
+        targetMember,
         targetMemberTypeAst,
         context: nextContext,
-      }) => [
-        maybeCastMaterializedValueAst(
+      }) => {
+        const nestedMaterialization = tryBuildRuntimeMaterializationAst(
           parameterExpr,
-          actualMemberTypeAst,
-          targetMemberTypeAst
-        ),
-        nextContext,
-      ],
+          actualMember,
+          targetMember,
+          nextContext,
+          emitTypeAst
+        );
+        return [
+          nestedMaterialization?.[0] ??
+            maybeCastMaterializedValueAst(
+              parameterExpr,
+              actualMemberTypeAst,
+              targetMemberTypeAst
+            ),
+          nestedMaterialization?.[1] ?? nextContext,
+        ];
+      },
       buildExcludedMemberBody: ({ actualMember }) =>
         buildInvalidRuntimeUnionMaterializationExpression(
           actualMember,
@@ -709,18 +775,27 @@ export const tryBuildRuntimeReificationPlan = (
       : [];
 
     let currentContext = unionTypeContext;
+    let catchAllCase: RuntimeReificationPlan | undefined;
     for (let index = 0; index < members.length; index += 1) {
       const member = members[index];
       if (!member) continue;
-      const memberPlan = tryBuildRuntimeReificationPlan(
+      const objectCatchAllPlan = tryBuildBroadObjectCatchAllReificationPlan(
         valueAst,
         member,
         currentContext,
         emitTypeAst
       );
+      const memberPlan =
+        objectCatchAllPlan ??
+        tryBuildRuntimeReificationPlan(
+          valueAst,
+          member,
+          currentContext,
+          emitTypeAst
+        );
       if (!memberPlan) continue;
       currentContext = memberPlan.context;
-      cases.push({
+      const casePlan = {
         condition: memberPlan.condition,
         value: buildRuntimeUnionFactoryCallAst(
           concreteUnionTypeAst,
@@ -728,36 +803,45 @@ export const tryBuildRuntimeReificationPlan = (
           memberPlan.value
         ),
         context: currentContext,
-      });
+      };
+      if (objectCatchAllPlan) {
+        catchAllCase = casePlan;
+      } else {
+        cases.push(casePlan);
+      }
     }
 
-    if (cases.length === 0) {
+    if (cases.length === 0 && !catchAllCase) {
       return undefined;
     }
 
-    const firstCase = cases[0];
-    const lastCase = cases[cases.length - 1];
+    const firstCase = cases[0] ?? catchAllCase;
+    const lastCase = catchAllCase ?? cases[cases.length - 1];
     if (!firstCase || !lastCase) {
       return undefined;
     }
 
-    let conditionAst = firstCase.condition;
-    let valueExpression = buildInvalidReificationExpression(
-      "Unreachable runtime union reification path"
-    );
+    let conditionAst = catchAllCase ? booleanLiteral(true) : firstCase.condition;
+    let valueExpression =
+      catchAllCase?.value ??
+      buildInvalidReificationExpression(
+        "Unreachable runtime union reification path"
+      );
     let finalContext = lastCase.context;
 
-    for (let index = 1; index < cases.length; index += 1) {
-      const currentCase = cases[index];
-      if (!currentCase) {
-        continue;
+    if (!catchAllCase) {
+      for (let index = 1; index < cases.length; index += 1) {
+        const currentCase = cases[index];
+        if (!currentCase) {
+          continue;
+        }
+        conditionAst = {
+          kind: "binaryExpression",
+          operatorToken: "||",
+          left: conditionAst,
+          right: currentCase.condition,
+        };
       }
-      conditionAst = {
-        kind: "binaryExpression",
-        operatorToken: "||",
-        left: conditionAst,
-        right: currentCase.condition,
-      };
     }
 
     for (let index = cases.length - 1; index >= 0; index -= 1) {

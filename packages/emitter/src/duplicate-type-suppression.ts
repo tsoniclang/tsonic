@@ -6,8 +6,13 @@
  * so that only one copy of each structurally-identical type is emitted.
  */
 
-import { Diagnostic, stableIrTypeKey, IrModule } from "@tsonic/frontend";
-import type { IrStatement } from "@tsonic/frontend";
+import { stableIrTypeKeyIfDeterministic } from "@tsonic/frontend";
+import type {
+  Diagnostic,
+  IrModule,
+  IrStatement,
+  IrType,
+} from "@tsonic/frontend";
 
 type EmittedTypeDeclaration = Extract<
   IrStatement,
@@ -92,56 +97,97 @@ const stableCircularStringify = (value: unknown): string => {
   return JSON.stringify(normalize(value));
 };
 
-const semanticSignature = (stmt: EmittedTypeDeclaration): string => {
+const sortTypesByDeterministicKey = (
+  types: readonly IrType[]
+): readonly IrType[] | undefined => {
+  const keyed = types.map((type, index) => {
+    const key = stableIrTypeKeyIfDeterministic(type);
+    return key ? { type, index, key } : undefined;
+  });
+  if (keyed.some((entry) => entry === undefined)) {
+    return undefined;
+  }
+
+  keyed.sort((left, right) => {
+    if (!left || !right) return 0;
+    const byKey = left.key.localeCompare(right.key);
+    return byKey !== 0 ? byKey : left.index - right.index;
+  });
+
+  return keyed
+    .map((entry) => entry?.type)
+    .filter((type): type is IrType => !!type);
+};
+
+type SemanticSignature = {
+  readonly text: string;
+  readonly deterministic: boolean;
+};
+
+const semanticSignature = (
+  stmt: EmittedTypeDeclaration
+): SemanticSignature => {
   if (stmt.kind === "interfaceDeclaration") {
-    return stableCircularStringify({
-      ...stmt,
-      members: [...stmt.members].sort((a, b) => a.name.localeCompare(b.name)),
-      extends: [...stmt.extends].sort((a, b) =>
-        stableIrTypeKey(a).localeCompare(stableIrTypeKey(b))
-      ),
-    });
+    const sortedExtends = sortTypesByDeterministicKey(stmt.extends);
+    return {
+      deterministic: sortedExtends !== undefined,
+      text: stableCircularStringify({
+        ...stmt,
+        members: [...stmt.members].sort((a, b) =>
+          a.name.localeCompare(b.name)
+        ),
+        extends: sortedExtends ?? stmt.extends,
+      }),
+    };
   }
 
   if (stmt.kind === "classDeclaration") {
     // Class member order is semantically significant: field initializers run in
     // declaration order. Only sort `implements` (order-independent) — preserve
     // member order to avoid false equivalence when initializer order differs.
-    return stableCircularStringify({
-      ...stmt,
-      implements: [...stmt.implements].sort((a, b) =>
-        stableIrTypeKey(a).localeCompare(stableIrTypeKey(b))
-      ),
-    });
+    const sortedImplements = sortTypesByDeterministicKey(stmt.implements);
+    return {
+      deterministic: sortedImplements !== undefined,
+      text: stableCircularStringify({
+        ...stmt,
+        implements: sortedImplements ?? stmt.implements,
+      }),
+    };
   }
 
   // Type aliases: sort objectType members if applicable
   if (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType") {
-    return stableCircularStringify({
-      ...stmt,
-      type: {
-        ...stmt.type,
-        members: [...stmt.type.members].sort((a, b) =>
-          a.name.localeCompare(b.name)
-        ),
-      },
-    });
+    return {
+      deterministic: true,
+      text: stableCircularStringify({
+        ...stmt,
+        type: {
+          ...stmt.type,
+          members: [...stmt.type.members].sort((a, b) =>
+            a.name.localeCompare(b.name)
+          ),
+        },
+      }),
+    };
   }
 
   // Enums: do NOT sort — member order is semantically significant
   // (implicit values depend on order)
-  return stableCircularStringify(stmt);
+  return { deterministic: true, text: stableCircularStringify(stmt) };
 };
 
 const canonicalStructuralGroupKey = (
   stmt: CanonicalizableStructuralDeclaration
-): string => {
+): string | undefined => {
   if (stmt.kind === "interfaceDeclaration") {
+    const sortedExtends = sortTypesByDeterministicKey(stmt.extends);
+    if (!sortedExtends) {
+      return undefined;
+    }
+
     return `iface::${stmt.name}::${stableCircularStringify({
       typeParameters: stmt.typeParameters ?? [],
-      extends: [...stmt.extends].sort((a, b) =>
-        stableIrTypeKey(a).localeCompare(stableIrTypeKey(b))
-      ),
+      extends: sortedExtends,
       members: [...stmt.members].sort((a, b) => a.name.localeCompare(b.name)),
     })}`;
   }
@@ -186,7 +232,7 @@ export const planDuplicateTypeSuppression = (
       readonly filePath: string;
       readonly namespace: string;
       readonly stmt: EmittedTypeDeclaration;
-      readonly signature: string;
+      readonly signature: SemanticSignature;
     }>
   >();
   const structuralGroups = new Map<
@@ -214,6 +260,9 @@ export const planDuplicateTypeSuppression = (
 
       if (isCanonicalizableStructuralDeclaration(stmt)) {
         const structuralKey = canonicalStructuralGroupKey(stmt);
+        if (!structuralKey) {
+          continue;
+        }
         const structuralEntries = structuralGroups.get(structuralKey) ?? [];
         structuralEntries.push({
           filePath: module.filePath,
@@ -241,7 +290,20 @@ export const planDuplicateTypeSuppression = (
     for (let i = 1; i < ordered.length; i += 1) {
       const entry = ordered[i];
       if (!entry) continue;
-      if (entry.signature === firstSig) {
+      if (!firstSig.deterministic || !entry.signature.deterministic) {
+        errors.push({
+          code: "TSN3003",
+          severity: "error",
+          message:
+            `Cross-module type declaration collision for '${key}'. ` +
+            `The declarations contain type references without deterministic identity, ` +
+            `so their shapes cannot be compared safely: ${first.filePath}, ${entry.filePath}.`,
+          hint: "Attach canonical TypeId/CLR identity to the referenced types or make the declarations unambiguous before duplicate suppression runs.",
+        });
+        continue;
+      }
+
+      if (entry.signature.text === firstSig.text) {
         suppressed.add(suppressionKey(entry.filePath, entry.stmt));
         continue;
       }

@@ -34,6 +34,12 @@ import {
 } from "./access-resolution.js";
 import { buildNativeArrayInteropWrapAst } from "./array-interop.js";
 import { hasSourceDeclaredMember } from "./access-resolution-types.js";
+import { referenceTypeHasClrIdentity } from "../core/semantic/clr-type-identity.js";
+
+const SYSTEM_STRING_CLR_NAMES = new Set([
+  "System.String",
+  "global::System.String",
+]);
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst
@@ -65,8 +71,7 @@ export const isStringReceiverType = (
     (resolved.kind === "referenceType" &&
       (resolved.name === "string" ||
         resolved.name === "String" ||
-        resolved.resolvedClrType === "System.String" ||
-        resolved.resolvedClrType === "global::System.String"))
+        referenceTypeHasClrIdentity(resolved, SYSTEM_STRING_CLR_NAMES)))
   );
 };
 

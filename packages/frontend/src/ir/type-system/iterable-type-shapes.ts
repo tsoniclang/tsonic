@@ -3,13 +3,33 @@ import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
-import { stableIrTypeKey } from "../types/type-ops.js";
+import { stableIrTypeKeyIfDeterministic } from "../types/type-ops.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { normalizeToNominal } from "./type-system-state.js";
 
 export type IterableShape = {
   readonly mode: "sync" | "async";
   readonly elementType: IrType;
+};
+
+const iterableVisitObjectIds = new WeakMap<object, number>();
+let nextIterableVisitObjectId = 0;
+
+const iterableVisitKey = (type: IrType): string => {
+  const stableKey = stableIrTypeKeyIfDeterministic(type);
+  if (stableKey) {
+    return stableKey;
+  }
+
+  const existing = iterableVisitObjectIds.get(type);
+  if (existing !== undefined) {
+    return `opaque:${existing}`;
+  }
+
+  const next = nextIterableVisitObjectId;
+  nextIterableVisitObjectId += 1;
+  iterableVisitObjectIds.set(type, next);
+  return `opaque:${next}`;
 };
 
 const SYNC_ITERABLE_TS_NAMES = new Set([
@@ -239,7 +259,7 @@ export const getIterableShape = (
     return undefined;
   }
 
-  const visitKey = stableIrTypeKey(normalized);
+  const visitKey = iterableVisitKey(normalized);
   if (visited.has(visitKey)) {
     return undefined;
   }

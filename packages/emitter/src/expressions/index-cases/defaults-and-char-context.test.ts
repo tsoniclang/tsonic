@@ -717,6 +717,7 @@ describe("Expression Emission", () => {
     const optionsType = {
       kind: "referenceType" as const,
       name: "Options",
+      resolvedClrType: "MyApp.Options",
       structuralMembers: [
         {
           kind: "propertySignature" as const,
@@ -789,6 +790,160 @@ describe("Expression Emission", () => {
     expect(result).not.to.include(
       "acceptLevel((double)(object)options.maxFileCount)"
     );
+  });
+
+  it("preserves optional numeric property reads inside null-guarded ternary locals", () => {
+    const optionalNumberType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "primitiveType" as const, name: "number" as const },
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+
+    const optionsType = {
+      kind: "referenceType" as const,
+      name: "Options",
+      resolvedClrType: "MyApp.Options",
+      structuralMembers: [
+        {
+          kind: "propertySignature" as const,
+          name: "level",
+          type: optionalNumberType,
+          isOptional: true,
+          isReadonly: true,
+        },
+      ],
+    };
+
+    const optionalOptionsType = {
+      kind: "unionType" as const,
+      types: [
+        optionsType,
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "acceptLevel",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "level" },
+              type: { kind: "primitiveType", name: "number" },
+              isOptional: true,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "main",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "variableDeclaration",
+                declarationKind: "const",
+                isExported: false,
+                declarations: [
+                  {
+                    kind: "variableDeclarator",
+                    name: { kind: "identifierPattern", name: "level" },
+                    initializer: {
+                      kind: "conditional",
+                      condition: {
+                        kind: "binary",
+                        operator: "!==",
+                        left: {
+                          kind: "identifier",
+                          name: "options",
+                          inferredType: optionalOptionsType,
+                        },
+                        right: {
+                          kind: "identifier",
+                          name: "undefined",
+                          inferredType: {
+                            kind: "primitiveType",
+                            name: "undefined",
+                          },
+                        },
+                        inferredType: { kind: "primitiveType", name: "boolean" },
+                      },
+                      whenTrue: {
+                        kind: "memberAccess",
+                        object: {
+                          kind: "identifier",
+                          name: "options",
+                          inferredType: optionalOptionsType,
+                        },
+                        property: "level",
+                        isComputed: false,
+                        isOptional: false,
+                        inferredType: optionalNumberType,
+                      },
+                      whenFalse: {
+                        kind: "identifier",
+                        name: "undefined",
+                        inferredType: { kind: "primitiveType", name: "undefined" },
+                      },
+                      inferredType: optionalNumberType,
+                    },
+                  },
+                ],
+              },
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "acceptLevel" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "level",
+                      inferredType: optionalNumberType,
+                    },
+                  ],
+                  parameterTypes: [{ kind: "primitiveType", name: "number" }],
+                  surfaceParameterTypes: [optionalNumberType],
+                  isOptional: false,
+                  inferredType: { kind: "voidType" },
+                },
+              },
+            ],
+          },
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "double? level = options != null ? options.level : default(double?);"
+    );
+    expect(result).to.include("acceptLevel(level)");
+    expect(result).not.to.include(".Value.Value");
+    expect(result).not.to.include("options.level.Value");
   });
 
   it("should emit char literals for single-character string assertions to char", () => {

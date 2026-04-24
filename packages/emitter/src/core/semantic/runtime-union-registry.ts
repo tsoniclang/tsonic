@@ -148,6 +148,186 @@ const normalizeRuntimeUnionCarrierName = (name: string): string => {
   return normalized;
 };
 
+const normalizeCarrierDefinitionMemberKey = (
+  type: CSharpTypeAst,
+  carrierNamespaceName: string | undefined
+): string => {
+  const typeArguments = (
+    args: readonly CSharpTypeAst[] | undefined
+  ): string =>
+    args && args.length > 0
+      ? `<${args
+          .map((arg) =>
+            normalizeCarrierDefinitionMemberKey(arg, carrierNamespaceName)
+          )
+          .join(",")}>`
+      : "";
+
+  switch (type.kind) {
+    case "predefinedType":
+      return `predefined:${type.keyword}`;
+    case "identifierType":
+      return `identifier:${type.name}${typeArguments(type.typeArguments)}`;
+    case "qualifiedIdentifierType": {
+      const namespaceSegments = carrierNamespaceName
+        ?.replace(/^global::/, "")
+        .split(".")
+        .filter((segment) => segment.length > 0);
+      const segments = type.name.segments;
+      const isCarrierLocalType =
+        type.name.aliasQualifier === "global" &&
+        namespaceSegments !== undefined &&
+        segments.length === namespaceSegments.length + 1 &&
+        namespaceSegments.every(
+          (segment, index) => segment === segments[index]
+        );
+      if (isCarrierLocalType) {
+        return `identifier:${segments[segments.length - 1]}${typeArguments(
+          type.typeArguments
+        )}`;
+      }
+
+      const qualifiedName = `${
+        type.name.aliasQualifier ? `${type.name.aliasQualifier}::` : ""
+      }${segments.join(".")}`;
+      return `qualifiedIdentifier:${qualifiedName}${typeArguments(
+        type.typeArguments
+      )}`;
+    }
+    case "nullableType":
+      return `nullable:${normalizeCarrierDefinitionMemberKey(
+        type.underlyingType,
+        carrierNamespaceName
+      )}`;
+    case "arrayType":
+      return `array:${type.rank}:${normalizeCarrierDefinitionMemberKey(
+        type.elementType,
+        carrierNamespaceName
+      )}`;
+    case "pointerType":
+      return `pointer:${normalizeCarrierDefinitionMemberKey(
+        type.elementType,
+        carrierNamespaceName
+      )}`;
+    case "tupleType":
+      return `tuple:${type.elements
+        .map((element) =>
+          element.name
+            ? `${normalizeCarrierDefinitionMemberKey(
+                element.type,
+                carrierNamespaceName
+              )}:${element.name}`
+            : normalizeCarrierDefinitionMemberKey(
+                element.type,
+                carrierNamespaceName
+              )
+        )
+        .join("|")}`;
+    case "varType":
+      return "var";
+    default: {
+      const exhaustive: never = type;
+      throw new Error(
+        `ICE: Unhandled CSharpTypeAst kind '${(exhaustive as CSharpTypeAst).kind}' in normalizeCarrierDefinitionMemberKey`
+      );
+    }
+  }
+};
+
+const carrierDefinitionMembersMatch = (
+  left: readonly CSharpTypeAst[],
+  right: readonly CSharpTypeAst[],
+  carrierNamespaceName: string | undefined
+): boolean =>
+  left.length === right.length &&
+  left.every(
+    (memberTypeAst, index) =>
+      normalizeCarrierDefinitionMemberKey(
+        memberTypeAst,
+        carrierNamespaceName
+      ) ===
+      normalizeCarrierDefinitionMemberKey(
+        right[index] ?? memberTypeAst,
+        carrierNamespaceName
+      )
+  );
+
+const isRecursiveCarrierSelfArrayKey = (
+  key: string,
+  carrierName: string | undefined
+): boolean => {
+  if (!carrierName) {
+    return false;
+  }
+
+  const escapedCarrierName = escapeCSharpIdentifier(carrierName);
+  const selfPrefix = `array:1:identifier:${escapedCarrierName}`;
+  const nullableSelfPrefix = `array:1:nullable:identifier:${escapedCarrierName}`;
+  return (
+    key === selfPrefix ||
+    key.startsWith(`${selfPrefix}<`) ||
+    key === nullableSelfPrefix ||
+    key.startsWith(`${nullableSelfPrefix}<`)
+  );
+};
+
+const isStorageErasedObjectArrayKey = (key: string): boolean =>
+  key === "array:1:predefined:object" ||
+  key === "array:1:nullable:predefined:object";
+
+const reconcileCarrierDefinitionMembers = (
+  existingMembers: readonly CSharpTypeAst[],
+  nextMembers: readonly CSharpTypeAst[],
+  carrierNamespaceName: string | undefined,
+  carrierName: string | undefined
+): readonly CSharpTypeAst[] | undefined => {
+  if (existingMembers.length !== nextMembers.length) {
+    return undefined;
+  }
+
+  const reconciled: CSharpTypeAst[] = [];
+  for (let index = 0; index < existingMembers.length; index += 1) {
+    const existingMember = existingMembers[index];
+    const nextMember = nextMembers[index];
+    if (!existingMember || !nextMember) {
+      return undefined;
+    }
+
+    const existingKey = normalizeCarrierDefinitionMemberKey(
+      existingMember,
+      carrierNamespaceName
+    );
+    const nextKey = normalizeCarrierDefinitionMemberKey(
+      nextMember,
+      carrierNamespaceName
+    );
+    if (existingKey === nextKey) {
+      reconciled.push(existingMember);
+      continue;
+    }
+
+    if (
+      isStorageErasedObjectArrayKey(existingKey) &&
+      isRecursiveCarrierSelfArrayKey(nextKey, carrierName)
+    ) {
+      reconciled.push(nextMember);
+      continue;
+    }
+
+    if (
+      isRecursiveCarrierSelfArrayKey(existingKey, carrierName) &&
+      isStorageErasedObjectArrayKey(nextKey)
+    ) {
+      reconciled.push(existingMember);
+      continue;
+    }
+
+    return undefined;
+  }
+
+  return reconciled;
+};
+
 export const getRuntimeUnionCarrierDefinitionByName = (
   name: string,
   registry: RuntimeUnionRegistry | undefined
@@ -225,27 +405,35 @@ export const getOrRegisterRuntimeUnionCarrier = (
     );
     const nextDefinitionMemberTypeAsts =
       metadata.definitionMemberTypeAsts ?? existing.memberTypeAsts;
+    const reconciledDefinitionMemberTypeAsts =
+      reconcileCarrierDefinitionMembers(
+        existing.memberTypeAsts,
+        nextDefinitionMemberTypeAsts,
+        nextNamespaceName,
+        nextName
+      );
+    const definitionMembersMatch = reconciledDefinitionMemberTypeAsts !== undefined;
+    const existingDefinitionMembersAreDefault =
+      carrierDefinitionMembersMatch(
+        existing.memberTypeAsts,
+        defaultDefinitionMemberTypeAsts,
+        nextNamespaceName
+      );
     if (
       metadata.definitionMemberTypeAsts &&
       existing.memberTypeAsts.length ===
         metadata.definitionMemberTypeAsts.length &&
-      existing.memberTypeAsts.some(
-        (memberTypeAst, index) =>
-          stableTypeKeyFromAst(memberTypeAst) !==
-          stableTypeKeyFromAst(
-            metadata.definitionMemberTypeAsts?.[index] ?? memberTypeAst
-          )
-      ) &&
-      existing.memberTypeAsts.some(
-        (memberTypeAst, index) =>
-          stableTypeKeyFromAst(memberTypeAst) !==
-          stableTypeKeyFromAst(
-            defaultDefinitionMemberTypeAsts[index] ?? memberTypeAst
-          )
-      )
+      !definitionMembersMatch &&
+      !existingDefinitionMembersAreDefault
     ) {
+      const existingKeys = existing.memberTypeAsts
+        .map((memberTypeAst) => stableTypeKeyFromAst(memberTypeAst))
+        .join(", ");
+      const nextKeys = metadata.definitionMemberTypeAsts
+        .map((memberTypeAst) => stableTypeKeyFromAst(memberTypeAst))
+        .join(", ");
       throw new Error(
-        `ICE: Conflicting runtime union carrier definition members for family '${metadata.familyKey}'.`
+        `ICE: Conflicting runtime union carrier definition members for family '${metadata.familyKey}': '${existingKeys}' vs '${nextKeys}'.`
       );
     }
 
@@ -254,18 +442,22 @@ export const getOrRegisterRuntimeUnionCarrier = (
       metadata.accessModifier === "public"
         ? "public"
         : "internal";
+    const effectiveNextDefinitionMemberTypeAsts = definitionMembersMatch
+      ? (reconciledDefinitionMemberTypeAsts ?? existing.memberTypeAsts)
+      : nextDefinitionMemberTypeAsts;
 
     if (
       existing.name === nextName &&
       existing.namespaceName === nextNamespaceName &&
       existing.typeParameters.join(",") === nextTypeParameters.join(",") &&
       existing.accessModifier === nextAccessModifier &&
-      existing.memberTypeAsts.length === nextDefinitionMemberTypeAsts.length &&
+      existing.memberTypeAsts.length ===
+        effectiveNextDefinitionMemberTypeAsts.length &&
       existing.memberTypeAsts.every(
         (memberTypeAst, index) =>
           stableTypeKeyFromAst(memberTypeAst) ===
           stableTypeKeyFromAst(
-            nextDefinitionMemberTypeAsts[index] ?? memberTypeAst
+            effectiveNextDefinitionMemberTypeAsts[index] ?? memberTypeAst
           )
       )
     ) {
@@ -281,7 +473,7 @@ export const getOrRegisterRuntimeUnionCarrier = (
       namespaceName: nextNamespaceName,
       fullName: `${nextNamespaceName}.${nextName}`,
       typeParameters: nextTypeParameters,
-      memberTypeAsts: [...nextDefinitionMemberTypeAsts],
+      memberTypeAsts: [...effectiveNextDefinitionMemberTypeAsts],
       accessModifier: nextAccessModifier,
     };
     registry.definitions.set(key, upgraded);

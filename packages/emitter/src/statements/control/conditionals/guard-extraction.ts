@@ -32,6 +32,7 @@ import {
   buildRuntimeUnionSubsetBinding,
   resolveRuntimeSubsetSourceInfo,
 } from "../../../core/semantic/narrowing-builders.js";
+import { isJsValueReferenceType } from "../../../core/semantic/js-value-types.js";
 
 export const isArrayLikeNarrowingCandidate = (
   type: IrType,
@@ -51,10 +52,7 @@ export const isArrayLikeNarrowingCandidate = (
 };
 
 const isBroadJsValueType = (type: IrType): boolean =>
-  type.kind === "referenceType" &&
-  (type.name === "JsValue" ||
-    type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-    type.resolvedClrType === "global::Tsonic.Runtime.JsValue");
+  isJsValueReferenceType(type);
 
 const JS_VALUE_ARRAY_TYPE: IrType = {
   kind: "arrayType",

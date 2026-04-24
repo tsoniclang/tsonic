@@ -97,7 +97,13 @@ export const unifyTypeTemplate = (
       );
     case "referenceType": {
       const rhs = actual as typeof template;
-      if (referenceTypeIdentity(template) !== referenceTypeIdentity(rhs))
+      const templateIdentity = referenceTypeIdentity(template);
+      const rhsIdentity = referenceTypeIdentity(rhs);
+      if (
+        templateIdentity === undefined ||
+        rhsIdentity === undefined ||
+        templateIdentity !== rhsIdentity
+      )
         return false;
       const templateArgs = template.typeArguments ?? [];
       const actualArgs = rhs.typeArguments ?? [];

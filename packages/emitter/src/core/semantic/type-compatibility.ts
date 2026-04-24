@@ -11,7 +11,12 @@
  * These are distinct primitive types in the IR, not decorated versions of each other.
  */
 
-import { stableIrTypeKey, type IrType } from "@tsonic/frontend";
+import { type IrType } from "@tsonic/frontend";
+import {
+  getReferenceDeterministicIdentityKey,
+  referenceTypeHasClrIdentity,
+  typesShareDirectClrIdentity,
+} from "./clr-type-identity.js";
 
 /**
  * Integer type names that map to C# integer types
@@ -44,6 +49,39 @@ const INTEGER_TYPE_NAMES = new Set([
   "System.UInt16",
 ]);
 
+const JS_NUMBER_CLR_TYPE_NAMES = new Set([
+  "double",
+  "Double",
+  "System.Double",
+  "global::System.Double",
+]);
+
+const SYSTEM_OBJECT_CLR_TYPE_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+]);
+
+const isJsNumberLikeType = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+
+  if (type.kind === "primitiveType") {
+    return type.name === "number";
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  return (
+    JS_NUMBER_CLR_TYPE_NAMES.has(type.name) ||
+    referenceTypeHasClrIdentity(type, JS_NUMBER_CLR_TYPE_NAMES)
+  );
+};
+
+const getContextFreeReferenceIdentityKey = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): string | undefined => getReferenceDeterministicIdentityKey(type);
+
 /**
  * Check if an IR type represents an integer type
  *
@@ -59,7 +97,10 @@ export const isIntegerType = (type: IrType | undefined): boolean => {
 
   // Reference type with integer name (e.g., "Int32" from .NET interop)
   if (type.kind === "referenceType") {
-    return INTEGER_TYPE_NAMES.has(type.name);
+    return (
+      INTEGER_TYPE_NAMES.has(type.name) ||
+      referenceTypeHasClrIdentity(type, INTEGER_TYPE_NAMES)
+    );
   }
 
   return false;
@@ -104,10 +145,29 @@ export const isAssignable = (
   if (
     toType.kind === "referenceType" &&
     (toType.name === "object" ||
-      toType.resolvedClrType === "System.Object" ||
-      toType.resolvedClrType === "global::System.Object") &&
+      referenceTypeHasClrIdentity(toType, SYSTEM_OBJECT_CLR_TYPE_NAMES)) &&
     fromIsObjectLike
   ) {
+    return true;
+  }
+
+  if (typesShareDirectClrIdentity(fromType, toType)) {
+    return true;
+  }
+
+  // int → number (widening is allowed)
+  if (isIntegerType(fromType) && toType.kind === "primitiveType") {
+    if (toType.name === "number") {
+      return true;
+    }
+  }
+
+  // CLR integral carriers can flow into JS-number emission surfaces (double).
+  if (isIntegerType(fromType) && isJsNumberLikeType(toType)) {
+    return true;
+  }
+
+  if (isJsNumberLikeType(fromType) && isJsNumberLikeType(toType)) {
     return true;
   }
 
@@ -118,31 +178,24 @@ export const isAssignable = (
     }
 
     if (fromType.kind === "referenceType" && toType.kind === "referenceType") {
-      const sameDeclaredName = fromType.name === toType.name;
-      const sameResolvedClrType =
-        !!fromType.resolvedClrType &&
-        fromType.resolvedClrType === toType.resolvedClrType;
+      const fromIdentity = getContextFreeReferenceIdentityKey(fromType);
+      const toIdentity = getContextFreeReferenceIdentityKey(toType);
+      const sameBaseType =
+        fromIdentity !== undefined &&
+        toIdentity !== undefined &&
+        fromIdentity === toIdentity;
 
-      if (sameDeclaredName || sameResolvedClrType) {
+      if (sameBaseType) {
         const fromTypeArguments = fromType.typeArguments ?? [];
         const toTypeArguments = toType.typeArguments ?? [];
         if (fromTypeArguments.length !== toTypeArguments.length) {
           return false;
         }
 
-        return fromTypeArguments.every(
-          (fromTypeArgument, index) =>
-            stableIrTypeKey(fromTypeArgument) ===
-            stableIrTypeKey(toTypeArguments[index] ?? fromTypeArgument)
+        return fromTypeArguments.every((fromTypeArgument, index) =>
+          isAssignable(fromTypeArgument, toTypeArguments[index])
         );
       }
-    }
-  }
-
-  // int → number (widening is allowed)
-  if (isIntegerType(fromType) && toType.kind === "primitiveType") {
-    if (toType.name === "number") {
-      return true;
     }
   }
 

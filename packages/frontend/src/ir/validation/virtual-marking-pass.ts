@@ -23,7 +23,7 @@ import {
   IrPropertyDeclaration,
   IrStatement,
   IrType,
-  stableIrTypeKey,
+  irTypesEqual,
   substituteIrType,
 } from "../types.js";
 import { stripNullishForInference } from "../type-system/type-system-state-helpers.js";
@@ -167,12 +167,45 @@ const buildSelfTypeSubstitution = (
 
 const typesEqual = (
   left: IrType | undefined,
-  right: IrType | undefined
+  right: IrType | undefined,
+  classRegistry?: ReadonlyMap<string, IrClassDeclaration>
 ): boolean => {
   if (!left || !right) {
     return left === right;
   }
-  return stableIrTypeKey(left) === stableIrTypeKey(right);
+  if (irTypesEqual(left, right)) {
+    return true;
+  }
+
+  if (
+    !classRegistry ||
+    left.kind !== "referenceType" ||
+    right.kind !== "referenceType"
+  ) {
+    return false;
+  }
+
+  const leftClassName = normalizeBaseClassName(left.name);
+  const rightClassName = normalizeBaseClassName(right.name);
+  const leftClass = classRegistry.get(leftClassName);
+  const rightClass = classRegistry.get(rightClassName);
+  if (!leftClass || !rightClass || leftClass !== rightClass) {
+    return false;
+  }
+
+  const leftArgs = left.typeArguments ?? [];
+  const rightArgs = right.typeArguments ?? [];
+  if (leftArgs.length !== rightArgs.length) {
+    return false;
+  }
+
+  for (let index = 0; index < leftArgs.length; index += 1) {
+    if (!typesEqual(leftArgs[index], rightArgs[index], classRegistry)) {
+      return false;
+    }
+  }
+
+  return true;
 };
 
 const isLocalReferenceSubtype = (
@@ -184,7 +217,7 @@ const isLocalReferenceSubtype = (
     return false;
   }
 
-  if (typesEqual(derivedType, baseType)) {
+  if (typesEqual(derivedType, baseType, classRegistry)) {
     return true;
   }
 
@@ -219,6 +252,7 @@ const parametersExactlyMatch = (
   derivedParameter: IrParameter,
   baseMethodTypeParameters: readonly { readonly name: string }[] | undefined,
   derivedMethodTypeParameters: readonly { readonly name: string }[] | undefined,
+  classRegistry: ReadonlyMap<string, IrClassDeclaration>,
   classSubstitution?: ReadonlyMap<string, IrType>
 ): boolean =>
   baseParameter.isOptional === derivedParameter.isOptional &&
@@ -230,7 +264,8 @@ const parametersExactlyMatch = (
       baseMethodTypeParameters,
       classSubstitution
     ),
-    canonicalizeMethodType(derivedParameter.type, derivedMethodTypeParameters)
+    canonicalizeMethodType(derivedParameter.type, derivedMethodTypeParameters),
+    classRegistry
   );
 
 const methodsExactlyMatch = (
@@ -269,6 +304,7 @@ const methodsExactlyMatch = (
         derivedParameter,
         baseTypeParameters,
         derivedTypeParameters,
+        classRegistry,
         classSubstitution
       )
     ) {
@@ -287,7 +323,7 @@ const methodsExactlyMatch = (
   );
 
   return (
-    typesEqual(canonicalBaseReturn, canonicalDerivedReturn) ||
+    typesEqual(canonicalBaseReturn, canonicalDerivedReturn, classRegistry) ||
     isLocalReferenceSubtype(
       canonicalDerivedReturn,
       canonicalBaseReturn,
@@ -318,7 +354,7 @@ const propertiesExactlyMatch = (
     : derivedProperty.type;
 
   return (
-    typesEqual(canonicalBaseType, canonicalDerivedType) ||
+    typesEqual(canonicalBaseType, canonicalDerivedType, classRegistry) ||
     isLocalReferenceSubtype(
       canonicalDerivedType,
       canonicalBaseType,

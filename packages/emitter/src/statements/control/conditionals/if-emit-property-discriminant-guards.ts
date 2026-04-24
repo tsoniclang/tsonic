@@ -3,8 +3,11 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
+import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { makeNarrowedLocalName } from "../../../core/semantic/narrowing-keys.js";
+import { buildRuntimeUnionMatchAst } from "../../../core/semantic/runtime-union-projection.js";
+import { emitCSharpName } from "../../../naming-policy.js";
 import {
   buildAnyIsNCondition,
   buildProjectedExprBinding,
@@ -30,6 +33,40 @@ import {
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
 type GuardResult = [readonly CSharpStatementAst[], EmitterContext] | undefined;
 
+const buildRuntimeUnionPropertyTruthinessCondition = (
+  receiver: string,
+  propertyName: string,
+  wantTruthy: boolean,
+  unionArity: number,
+  context: EmitterContext
+): CSharpExpressionAst => {
+  const emittedPropertyName = emitCSharpName(propertyName, "properties", context);
+  const matchAst = buildRuntimeUnionMatchAst(
+    toReceiverAst(receiver),
+    Array.from({ length: unionArity }, (_, index) => {
+      const parameterName = `__tsonic_union_member_${index + 1}`;
+      return {
+        kind: "lambdaExpression" as const,
+        isAsync: false,
+        parameters: [{ name: parameterName }],
+        body: {
+          kind: "memberAccessExpression" as const,
+          expression: {
+            kind: "identifierExpression" as const,
+            identifier: parameterName,
+          },
+          memberName: emittedPropertyName,
+        },
+      };
+    }),
+    [{ kind: "predefinedType", keyword: "bool" }]
+  );
+
+  return wantTruthy
+    ? matchAst
+    : { kind: "prefixUnaryExpression", operatorToken: "!", operand: matchAst };
+};
+
 /** Try to emit a property-truthiness guard for `if (result.success) { ... }`. */
 export const tryEmitPropertyTruthinessGuard = (
   stmt: IfStatement,
@@ -43,6 +80,8 @@ export const tryEmitPropertyTruthinessGuard = (
 
   const {
     originalName,
+    propertyName,
+    wantTruthy,
     memberN,
     unionArity,
     runtimeUnionArity,
@@ -54,7 +93,21 @@ export const tryEmitPropertyTruthinessGuard = (
     narrowedMap,
   } = propertyTruthinessGuard;
 
-  const condAst = buildIsNCondition(escapedOrig, memberN, false);
+  if (
+    runtimeUnionArity !== unionArity ||
+    candidateMemberNs.length !== unionArity ||
+    !candidateMemberNs.every((candidateMemberN, index) => candidateMemberN === index + 1)
+  ) {
+    return undefined;
+  }
+
+  const condAst = buildRuntimeUnionPropertyTruthinessCondition(
+    escapedOrig,
+    propertyName,
+    wantTruthy,
+    unionArity,
+    context
+  );
   const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
 
   const thenCtx: EmitterContext = {

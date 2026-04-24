@@ -5,6 +5,14 @@
 import { IrType } from "@tsonic/frontend";
 import { serializeType } from "./helpers.js";
 
+const sanitizeSpecializedTypeNamePart = (serialized: string): string => {
+  const sanitized = serialized
+    .replace(/[^A-Za-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return sanitized.length > 0 ? sanitized : "Type";
+};
+
 /**
  * Generate specialized function name
  */
@@ -14,7 +22,7 @@ export const generateSpecializedFunctionName = (
 ): string => {
   const typeNames = typeArgs.map((t) => {
     const serialized = serializeType(t);
-    return serialized.replace(/[<>?,\s]/g, "_").replace(/\./g, "_");
+    return sanitizeSpecializedTypeNamePart(serialized);
   });
   return `${baseName}__${typeNames.join("__")}`;
 };
@@ -28,7 +36,7 @@ export const generateSpecializedClassName = (
 ): string => {
   const typeNames = typeArgs.map((t) => {
     const serialized = serializeType(t);
-    return serialized.replace(/[<>?,\s]/g, "_").replace(/\./g, "_");
+    return sanitizeSpecializedTypeNamePart(serialized);
   });
   return `${baseName}__${typeNames.join("__")}`;
 };

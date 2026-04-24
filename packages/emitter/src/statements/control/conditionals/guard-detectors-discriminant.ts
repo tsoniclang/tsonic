@@ -17,9 +17,7 @@ import {
   getGuardPropertyType,
   extractTransparentMemberAccessTarget,
   resolveGuardRuntimeUnionFrame,
-  stripGlobalPrefix,
   buildRenameNarrowedMap,
-  isDefinitelyTruthyLiteral,
   isDefinitelyFalsyType,
   isDefinitelyTruthyType,
 } from "./guard-types.js";
@@ -194,8 +192,6 @@ export const tryResolvePropertyTruthinessGuard = (
         readonly receiver: Extract<IrExpression, { kind: "identifier" }>;
         readonly propertyName: string;
         readonly wantTruthy: boolean;
-        readonly bindingType: string | undefined;
-        readonly bindingValueTruthiness: boolean | undefined;
       }
     | undefined => {
     if (expr.kind === "unary" && expr.operator === "!") {
@@ -210,28 +206,13 @@ export const tryResolvePropertyTruthinessGuard = (
       receiver: target.receiver,
       propertyName: target.access.property,
       wantTruthy: true,
-      bindingType: target.access.memberBinding?.type,
-      bindingValueTruthiness:
-        target.access.inferredType?.kind === "literalType"
-          ? isDefinitelyTruthyLiteral(target.access.inferredType.value)
-          : target.access.inferredType?.kind === "primitiveType" &&
-              (target.access.inferredType.name === "undefined" ||
-                target.access.inferredType.name === "null")
-            ? false
-            : undefined,
     };
   };
 
   const match = extract(condition);
   if (!match) return undefined;
 
-  const {
-    receiver,
-    propertyName,
-    wantTruthy,
-    bindingType,
-    bindingValueTruthiness,
-  } = match;
+  const { receiver, propertyName, wantTruthy } = match;
   const originalName = receiver.name;
 
   const unionSourceType = receiver.inferredType;
@@ -252,47 +233,22 @@ export const tryResolvePropertyTruthinessGuard = (
   const matchingIndices: number[] = [];
   const matchingMemberNs: number[] = [];
 
-  if (bindingType && bindingValueTruthiness !== undefined) {
-    const bindingTypeName = stripGlobalPrefix(bindingType);
-    const boundMemberIndex = members.findIndex((member) => {
-      if (member?.kind !== "referenceType") return false;
-      const candidateClr = member.resolvedClrType
-        ? stripGlobalPrefix(member.resolvedClrType)
-        : undefined;
-      return (
-        candidateClr === bindingTypeName || member.name === bindingTypeName
-      );
-    });
+  for (let i = 0; i < members.length; i++) {
+    const member = members[i];
+    if (!member) return undefined;
 
-    if (boundMemberIndex >= 0) {
-      if (wantTruthy === bindingValueTruthiness) {
-        matchingIndices.push(boundMemberIndex);
-        matchingMemberNs.push(
-          candidateMemberNs[boundMemberIndex] ?? boundMemberIndex + 1
-        );
-      } else if (unionArity === 2) {
-        const otherIndex = boundMemberIndex === 0 ? 1 : 0;
-        matchingIndices.push(otherIndex);
-        matchingMemberNs.push(candidateMemberNs[otherIndex] ?? otherIndex + 1);
-      }
+    const propType = getGuardPropertyType(member, propertyName, context);
+    if (!propType) return undefined;
+
+    const isTruthy = isDefinitelyTruthyType(propType, context);
+    const isFalsy = isDefinitelyFalsyType(propType, context);
+    if (isTruthy === isFalsy) {
+      return undefined;
     }
-  }
 
-  if (matchingMemberNs.length === 0) {
-    for (let i = 0; i < members.length; i++) {
-      const member = members[i];
-      if (!member) continue;
-
-      const propType = getGuardPropertyType(member, propertyName, context);
-      if (!propType) continue;
-
-      const matches = wantTruthy
-        ? isDefinitelyTruthyType(propType, context)
-        : isDefinitelyFalsyType(propType, context);
-      if (matches) {
-        matchingIndices.push(i);
-        matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
-      }
+    if (isTruthy === wantTruthy) {
+      matchingIndices.push(i);
+      matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
     }
   }
 
@@ -321,6 +277,7 @@ export const tryResolvePropertyTruthinessGuard = (
   return {
     originalName,
     propertyName,
+    wantTruthy,
     memberN,
     unionArity,
     runtimeUnionArity,

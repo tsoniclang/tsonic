@@ -177,12 +177,15 @@ export {
 
 export {
   type IrSpreadTupleShape,
+  getClrIdentityKey,
   referenceTypeIdentity,
+  referenceTypeHasClrIdentity,
   isAwaitableIrType,
   getAwaitedIrType,
   getSpreadTupleShape,
   unwrapAsyncWrapperType,
   stableIrTypeKey,
+  stableIrTypeKeyIfDeterministic,
   runtimeUnionCarrierFamilyKey,
   runtimeUnionAliasCarrierFamilyKey,
   hasRuntimeUnionCarrierShape,

@@ -1,4 +1,4 @@
-import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, NarrowedBinding } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
@@ -6,6 +6,7 @@ import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
 import {
   matchesExpectedEmissionType,
+  matchesSemanticExpectedType,
   requiresValueTypeMaterialization,
 } from "../core/semantic/expected-type-matching.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
@@ -25,12 +26,45 @@ import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adap
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
-import { isBroadObjectPassThroughType } from "../core/semantic/js-value-types.js";
+import {
+  isBroadObjectPassThroughType,
+  isJsValueReferenceType,
+} from "../core/semantic/js-value-types.js";
+import { referenceTypeHasClrIdentity } from "../core/semantic/clr-type-identity.js";
 import {
   getArrayElementType,
   getDictionaryValueType,
   isSameNominalType,
 } from "./structural-type-shapes.js";
+import { describeIrTypeForDiagnostics } from "../core/semantic/deterministic-type-keys.js";
+
+const SYSTEM_OBJECT_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+]);
+
+const buildStorageSurfaceDiagnosticContext = (
+  actualType: IrType,
+  expectedType: IrType,
+  strippedActual: IrType,
+  strippedExpected: IrType,
+  context: EmitterContext
+): string =>
+  `[storage-surface originalActual=${describeIrTypeForDiagnostics(
+    actualType,
+    context
+  )} originalExpected=${describeIrTypeForDiagnostics(
+    expectedType,
+    context
+  )} actual=${describeIrTypeForDiagnostics(
+    strippedActual,
+    context
+  )} expected=${describeIrTypeForDiagnostics(strippedExpected, context)}]`;
+
+const isSystemObjectReferenceType = (type: IrType): boolean =>
+  type.kind === "referenceType" &&
+  (type.name === "object" ||
+    referenceTypeHasClrIdentity(type, SYSTEM_OBJECT_CLR_NAMES));
 
 const getStorageIdentifierAst = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
@@ -112,10 +146,7 @@ export const isBroadStorageTarget = (
 
   if (
     expectedType.kind === "referenceType" &&
-    (expectedType.name === "JsValue" ||
-      expectedType.typeId?.tsName === "JsValue" ||
-      expectedType.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-      expectedType.resolvedClrType === "global::Tsonic.Runtime.JsValue")
+    isJsValueReferenceType(expectedType)
   ) {
     return true;
   }
@@ -129,25 +160,16 @@ export const isBroadStorageTarget = (
       resolved.types.some(
         (member) =>
           member.kind === "objectType" ||
-          (member.kind === "referenceType" &&
-            (member.name === "object" ||
-              member.resolvedClrType === "System.Object" ||
-              member.resolvedClrType === "global::System.Object"))
+          isSystemObjectReferenceType(member)
       ) &&
       resolved.types.every(
         (member) =>
           member.kind === "objectType" ||
           member.kind === "primitiveType" ||
           member.kind === "literalType" ||
-          (member.kind === "referenceType" &&
-            (member.name === "object" ||
-              member.resolvedClrType === "System.Object" ||
-              member.resolvedClrType === "global::System.Object"))
+          isSystemObjectReferenceType(member)
       )) ||
-    (resolved.kind === "referenceType" &&
-      (resolved.name === "object" ||
-        resolved.resolvedClrType === "System.Object" ||
-        resolved.resolvedClrType === "global::System.Object"))
+    isSystemObjectReferenceType(resolved)
   );
 };
 
@@ -384,14 +406,20 @@ export const tryEmitReifiedStorageIdentifier = (
   }
 
   const effectiveType = resolveEffectiveExpressionType(expr, context);
+  const expressionType = expr.inferredType;
+  const expressionMatchesExpected = matchesSemanticExpectedType(
+    expressionType,
+    expectedType,
+    context
+  );
   return adaptStorageErasedValueAst({
     valueAst: identifierExpression(remappedLocal),
-    semanticType: effectiveType,
+    semanticType: expressionMatchesExpected ? expressionType : effectiveType,
     storageType,
     expectedType,
     context,
     emitTypeAst,
-    allowCastFallback: false,
+    allowCastFallback: expressionMatchesExpected,
   });
 };
 
@@ -747,7 +775,13 @@ export const matchesEmittedStorageSurface = (
   } catch (err) {
     if (err instanceof Error) {
       throw new Error(
-        `${err.message} [storage-surface originalActual=${stableIrTypeKey(actualType)} originalExpected=${stableIrTypeKey(expectedType)} actual=${stableIrTypeKey(strippedActual)} expected=${stableIrTypeKey(strippedExpected)}]`
+        `${err.message} ${buildStorageSurfaceDiagnosticContext(
+          actualType,
+          expectedType,
+          strippedActual,
+          strippedExpected,
+          context
+        )}`
       );
     }
     throw err;
@@ -767,7 +801,13 @@ export const matchesEmittedStorageSurface = (
   } catch (err) {
     if (err instanceof Error) {
       throw new Error(
-        `${err.message} [storage-surface originalActual=${stableIrTypeKey(actualType)} originalExpected=${stableIrTypeKey(expectedType)} actual=${stableIrTypeKey(strippedActual)} expected=${stableIrTypeKey(strippedExpected)}]`
+        `${err.message} ${buildStorageSurfaceDiagnosticContext(
+          actualType,
+          expectedType,
+          strippedActual,
+          strippedExpected,
+          actualTypeContext
+        )}`
       );
     }
     throw err;

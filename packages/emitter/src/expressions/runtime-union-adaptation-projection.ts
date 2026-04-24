@@ -21,6 +21,22 @@ import {
   normalizeBroadObjectSinkType,
 } from "../core/semantic/js-value-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+
+const isRuntimeUnionMemberProjectionAst = (
+  valueAst: CSharpExpressionAst
+): boolean => {
+  let target = valueAst;
+  while (target.kind === "parenthesizedExpression") {
+    target = target.expression;
+  }
+
+  return (
+    target.kind === "invocationExpression" &&
+    target.arguments.length === 0 &&
+    target.expression.kind === "memberAccessExpression" &&
+    /^As\d+$/.test(target.expression.memberName)
+  );
+};
 import { maybeAdaptRuntimeUnionExpressionAst } from "./runtime-union-adaptation-upcast.js";
 import { tryResolveRuntimeUnionCastSourceIndices } from "../core/semantic/runtime-reification-helpers.js";
 import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
@@ -293,7 +309,12 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: ast,
+        expression: isRuntimeUnionMemberProjectionAst(ast)
+          ? {
+              kind: "parenthesizedExpression",
+              expression: ast,
+            }
+          : ast,
         memberName: "Match",
       },
       typeArguments: [expectedTypeAst],

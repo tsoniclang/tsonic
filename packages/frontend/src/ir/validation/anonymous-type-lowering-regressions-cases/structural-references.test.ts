@@ -763,4 +763,50 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
       computeShapeSignature(explicitUndefinedShape)
     );
   });
+
+  it("does not encode incidental object sharing in structural carrier shape signatures", () => {
+    const sharedElement: IrType = { kind: "referenceType", name: "int" };
+    const sharedShape: IrType = {
+      kind: "objectType",
+      members: [
+        {
+          kind: "propertySignature",
+          name: "x",
+          type: sharedElement,
+          isOptional: false,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature",
+          name: "y",
+          type: sharedElement,
+          isOptional: false,
+          isReadonly: false,
+        },
+      ],
+    };
+    const distinctShape: IrType = {
+      kind: "objectType",
+      members: [
+        {
+          kind: "propertySignature",
+          name: "x",
+          type: { kind: "referenceType", name: "int" },
+          isOptional: false,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature",
+          name: "y",
+          type: { kind: "referenceType", name: "int" },
+          isOptional: false,
+          isReadonly: false,
+        },
+      ],
+    };
+
+    expect(computeShapeSignature(sharedShape)).to.equal(
+      computeShapeSignature(distinctShape)
+    );
+  });
 });

@@ -17,7 +17,8 @@ import {
 } from "../types/ir-substitution.js";
 import {
   irTypesEqual as compareIrTypes,
-  stableIrTypeKey,
+  referenceTypeHasClrIdentity,
+  stableIrTypeKeyIfDeterministic,
 } from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type {
@@ -49,6 +50,13 @@ const CLR_NUMERIC_PRIMITIVE_NAMES = new Set([
 ]);
 
 const CLR_PRIMITIVE_ALIAS_NAMES = new Set(["int", "char"]);
+
+const BROAD_OBJECT_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+  "Tsonic.Runtime.JsValue",
+  "global::Tsonic.Runtime.JsValue",
+]);
 
 const getClrPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
   if (type.kind === "primitiveType") {
@@ -162,10 +170,7 @@ const isBroadObjectTargetType = (type: IrType): boolean => {
   }
 
   return (
-    type.resolvedClrType === "System.Object" ||
-    type.resolvedClrType === "global::System.Object" ||
-    type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-    type.resolvedClrType === "global::Tsonic.Runtime.JsValue"
+    referenceTypeHasClrIdentity(type, BROAD_OBJECT_CLR_NAMES)
   );
 };
 
@@ -346,10 +351,15 @@ const resolveAliasExpansion = (
     return undefined;
   }
 
+  const typeArgumentKeys = (type.typeArguments ?? []).map((arg) =>
+    stableIrTypeKeyIfDeterministic(arg)
+  );
+  if (typeArgumentKeys.some((key) => key === undefined)) {
+    return undefined;
+  }
+
   return {
-    key: `${typeId.stableId}<${(type.typeArguments ?? [])
-      .map((arg) => stableIrTypeKey(arg))
-      .join(",")}>`,
+    key: `${typeId.stableId}<${typeArgumentKeys.join(",")}>`,
     expanded,
   };
 };

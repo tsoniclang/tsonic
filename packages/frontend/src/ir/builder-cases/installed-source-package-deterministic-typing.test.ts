@@ -208,7 +208,6 @@ describe("IR Builder", function () {
           },
           ctx
         );
-
         expect(moduleResult.ok).to.equal(true);
         if (!moduleResult.ok) return;
 

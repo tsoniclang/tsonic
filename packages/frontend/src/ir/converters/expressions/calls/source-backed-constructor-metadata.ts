@@ -13,6 +13,7 @@ import {
 } from "../../../type-system/type-system-call-resolution.js";
 import { addUndefinedToType } from "../../../type-system/type-system-state-helpers.js";
 import { resolveImport } from "../../../../resolver/import-resolution.js";
+import { getClrIdentityKey } from "../../../types/type-ops.js";
 
 export type SourceBackedConstructorParameterTypes = {
   readonly parameterTypes: readonly (IrType | undefined)[];
@@ -60,6 +61,9 @@ const getSourceFileForPath = (
     ts.ScriptKind.TS
   );
 };
+
+const clrBindingTypesMatch = (left: string, right: string): boolean =>
+  getClrIdentityKey(left) === getClrIdentityKey(right);
 
 const resolveReferencedClassDeclaration = (
   expression: ts.Expression,
@@ -267,7 +271,7 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
   if (
     !binding ||
     binding.assembly !== callee.resolvedAssembly ||
-    binding.type !== callee.resolvedClrType ||
+    !clrBindingTypesMatch(binding.type, callee.resolvedClrType) ||
     !binding.sourceImport
   ) {
     return undefined;

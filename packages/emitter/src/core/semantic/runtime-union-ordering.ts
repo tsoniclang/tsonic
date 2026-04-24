@@ -1,7 +1,8 @@
-import { IrInterfaceMember, IrType, stableIrTypeKey } from "@tsonic/frontend";
+import type { IrInterfaceMember, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveLocalTypeInfo, resolveTypeAlias } from "./type-resolution.js";
 import { UNKNOWN_TYPE } from "./runtime-union-shared.js";
+import { tryContextualTypeIdentityKey } from "./deterministic-type-keys.js";
 
 const toRuntimeOrderingComparableType = (type: IrType): IrType => {
   if (type.kind === "literalType") {
@@ -28,19 +29,59 @@ const toRuntimeOrderingComparableType = (type: IrType): IrType => {
   return type;
 };
 
-const toRuntimeOrderingTypeKey = (type: IrType): string =>
-  stableIrTypeKey(toRuntimeOrderingComparableType(type));
+const toRuntimeOrderingTypeKey = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined =>
+  tryContextualTypeIdentityKey(toRuntimeOrderingComparableType(type), context);
 
-const buildRuntimeOrderingMemberKey = (member: IrInterfaceMember): string => {
+const buildRuntimeOrderingMemberKey = (
+  member: IrInterfaceMember,
+  context: EmitterContext
+): string | undefined => {
   if (member.kind === "propertySignature") {
-    return `prop:${member.name}:${member.isOptional ? "opt" : "req"}:${member.isReadonly ? "ro" : "rw"}:${toRuntimeOrderingTypeKey(member.type)}`;
+    const typeKey = toRuntimeOrderingTypeKey(member.type, context);
+    return typeKey
+      ? `prop:${member.name}:${member.isOptional ? "opt" : "req"}:${
+          member.isReadonly ? "ro" : "rw"
+        }:${typeKey}`
+      : undefined;
   }
 
-  const parameters = member.parameters.map(
-    (parameter: (typeof member.parameters)[number]) =>
-      toRuntimeOrderingTypeKey(parameter.type ?? UNKNOWN_TYPE)
+  const parameters: string[] = [];
+  for (const parameter of member.parameters) {
+    const parameterKey = toRuntimeOrderingTypeKey(
+      parameter.type ?? UNKNOWN_TYPE,
+      context
+    );
+    if (!parameterKey) {
+      return undefined;
+    }
+    parameters.push(parameterKey);
+  }
+  const returnKey = toRuntimeOrderingTypeKey(
+    member.returnType ?? UNKNOWN_TYPE,
+    context
   );
-  return `method:${member.name}:${parameters.join(",")}:${member.parameters.length}:${toRuntimeOrderingTypeKey(member.returnType ?? UNKNOWN_TYPE)}`;
+  return returnKey
+    ? `method:${member.name}:${parameters.join(",")}:${member.parameters.length}:${returnKey}`
+    : undefined;
+};
+
+const buildRuntimeOrderingMemberSignature = (
+  members: readonly IrInterfaceMember[],
+  context: EmitterContext
+): string | undefined => {
+  const keys: string[] = [];
+  for (const member of members) {
+    const key = buildRuntimeOrderingMemberKey(member, context);
+    if (!key) {
+      return undefined;
+    }
+    keys.push(key);
+  }
+
+  return keys.sort().join("|");
 };
 
 const buildRuntimeOrderingStructuralKey = (
@@ -50,10 +91,7 @@ const buildRuntimeOrderingStructuralKey = (
   const resolved = resolveTypeAlias(type, context);
 
   if (resolved.kind === "objectType") {
-    return resolved.members
-      .map((member) => buildRuntimeOrderingMemberKey(member))
-      .sort()
-      .join("|");
+    return buildRuntimeOrderingMemberSignature(resolved.members, context);
   }
 
   if (resolved.kind !== "referenceType") {
@@ -61,10 +99,10 @@ const buildRuntimeOrderingStructuralKey = (
   }
 
   if (resolved.structuralMembers && resolved.structuralMembers.length > 0) {
-    return resolved.structuralMembers
-      .map((member) => buildRuntimeOrderingMemberKey(member))
-      .sort()
-      .join("|");
+    return buildRuntimeOrderingMemberSignature(
+      resolved.structuralMembers,
+      context
+    );
   }
 
   const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
@@ -73,53 +111,49 @@ const buildRuntimeOrderingStructuralKey = (
   }
 
   if (localInfo.kind === "typeAlias" && localInfo.type.kind === "objectType") {
-    return localInfo.type.members
-      .map((member) => buildRuntimeOrderingMemberKey(member))
-      .sort()
-      .join("|");
+    return buildRuntimeOrderingMemberSignature(localInfo.type.members, context);
   }
 
   if (localInfo.kind !== "class" && localInfo.kind !== "interface") {
     return undefined;
   }
 
-  const members = localInfo.members
-    .flatMap<Extract<IrType, { kind: "objectType" }>["members"][number]>(
-      (member) => {
-        if (member.kind === "propertyDeclaration" && member.type) {
-          return [
-            {
-              kind: "propertySignature" as const,
-              name: member.name,
-              type: member.type,
-              isOptional: false,
-              isReadonly: member.isReadonly ?? false,
-            },
-          ];
-        }
-        if (member.kind === "propertySignature") {
-          return [member];
-        }
-        if (member.kind === "methodDeclaration") {
-          return [
-            {
-              kind: "methodSignature" as const,
-              name: member.name,
-              parameters: member.parameters,
-              returnType: member.returnType ?? UNKNOWN_TYPE,
-            },
-          ];
-        }
-        if (member.kind === "methodSignature") {
-          return [member];
-        }
-        return [];
-      }
-    )
-    .map((member) => buildRuntimeOrderingMemberKey(member))
-    .sort();
+  const members = localInfo.members.flatMap<
+    Extract<IrType, { kind: "objectType" }>["members"][number]
+  >((member) => {
+    if (member.kind === "propertyDeclaration" && member.type) {
+      return [
+        {
+          kind: "propertySignature" as const,
+          name: member.name,
+          type: member.type,
+          isOptional: false,
+          isReadonly: member.isReadonly ?? false,
+        },
+      ];
+    }
+    if (member.kind === "propertySignature") {
+      return [member];
+    }
+    if (member.kind === "methodDeclaration") {
+      return [
+        {
+          kind: "methodSignature" as const,
+          name: member.name,
+          parameters: member.parameters,
+          returnType: member.returnType ?? UNKNOWN_TYPE,
+        },
+      ];
+    }
+    if (member.kind === "methodSignature") {
+      return [member];
+    }
+    return [];
+  });
 
-  return members.length > 0 ? members.join("|") : undefined;
+  return members.length > 0
+    ? buildRuntimeOrderingMemberSignature(members, context)
+    : undefined;
 };
 
 export const getRuntimeUnionMemberSortKey = (
@@ -127,4 +161,5 @@ export const getRuntimeUnionMemberSortKey = (
   context: EmitterContext
 ): string =>
   buildRuntimeOrderingStructuralKey(type, context) ??
-  toRuntimeOrderingTypeKey(resolveTypeAlias(type, context));
+  toRuntimeOrderingTypeKey(resolveTypeAlias(type, context), context) ??
+  "opaque";

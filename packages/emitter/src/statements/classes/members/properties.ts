@@ -19,6 +19,7 @@ import type {
 } from "../../../core/format/backend-ast/types.js";
 import { isMutablePropertySlot } from "../../../core/semantic/mutable-storage.js";
 import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
+import { normalizeValueSlotType } from "../../../core/semantic/value-slot-types.js";
 
 /**
  * Emit a property declaration as a CSharpMemberAst
@@ -87,7 +88,10 @@ export const emitPropertyMember = (
       : member.type;
   if (emittedMemberType) {
     try {
-      const [tAst, newContext] = emitTypeAst(emittedMemberType, currentContext);
+      const [tAst, newContext] = emitTypeAst(
+        normalizeValueSlotType(emittedMemberType),
+        currentContext
+      );
       typeAst = tAst;
       currentContext = newContext;
     } catch (error) {

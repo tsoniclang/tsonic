@@ -21,8 +21,8 @@ describe("runtime-union-member-mapping", () => {
       identifierType("global::js.RegExp"),
     ]);
 
-    expect(indexByAstKey.get("predefined:string")).to.equal(0);
-    expect(indexByAstKey.get("qualifiedIdentifier:global::js.RegExp")).to.equal(
+    expect(indexByAstKey.get("clr:System.String/0")).to.equal(0);
+    expect(indexByAstKey.get("named:js.RegExp/0<>")).to.equal(
       1
     );
   });

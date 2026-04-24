@@ -1,4 +1,4 @@
-import type { IrExpression, IrType } from "@tsonic/frontend";
+import { getAwaitedIrType, type IrExpression, type IrType } from "@tsonic/frontend";
 import type { EmitterContext, NarrowedBinding } from "../../types.js";
 import { resolveIdentifierValueSurfaceType } from "./direct-value-surfaces.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
@@ -13,6 +13,7 @@ import { normalizeRuntimeStorageType } from "./storage-types.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
 import { unwrapTransparentExpression } from "./transparent-expressions.js";
 import { resolveTypeMemberKind } from "./member-surfaces.js";
+import { resolveStructuralViewMethodSurface } from "./structural-view-types.js";
 
 const withOptionalUndefined = (type: IrType): IrType =>
   type.kind === "unionType" &&
@@ -24,6 +25,76 @@ const withOptionalUndefined = (type: IrType): IrType =>
         kind: "unionType",
         types: [type, { kind: "primitiveType", name: "undefined" }],
       };
+
+const hasExplicitRuntimeCarrierIdentity = (
+  candidate: IrType | undefined,
+  context: EmitterContext
+): candidate is IrType => {
+  if (!candidate) {
+    return false;
+  }
+
+  if (
+    candidate.kind === "referenceType" &&
+    getRuntimeUnionReferenceMembers(candidate) !== undefined
+  ) {
+    return true;
+  }
+
+  const resolved = resolveTypeAlias(candidate, context);
+  return (
+    resolved.kind === "unionType" &&
+    resolved.runtimeCarrierFamilyKey !== undefined
+  );
+};
+
+const pickPreferredCarrierCandidate = (
+  context: EmitterContext,
+  ...candidates: (IrType | undefined)[]
+): IrType | undefined =>
+  candidates.find((candidate) =>
+    hasExplicitRuntimeCarrierIdentity(candidate, context)
+  ) ??
+  candidates.find(
+    (candidate): candidate is IrType => candidate !== undefined
+  );
+
+const getExpressionSourceBackedReturnType = (
+  expr: IrExpression
+): IrType | undefined =>
+  expr.kind === "call" || expr.kind === "new"
+    ? expr.sourceBackedReturnType
+    : undefined;
+
+const getAwaitedCarrierCandidate = (
+  type: IrType | undefined
+): IrType | undefined => (type ? (getAwaitedIrType(type) ?? type) : undefined);
+
+const resolveDirectReturnType = (
+  expr: IrExpression,
+  context: EmitterContext
+): IrType | undefined =>
+  pickPreferredCarrierCandidate(
+    context,
+    expr.kind === "call"
+      ? resolveStructuralViewMethodSurface(expr.callee, context)?.returnType
+      : undefined,
+    getExpressionSourceBackedReturnType(expr),
+    resolveEffectiveExpressionType(expr, context),
+    expr.inferredType
+  );
+
+const resolveAwaitedDirectReturnType = (
+  expr: Extract<IrExpression, { kind: "await" }>,
+  context: EmitterContext
+): IrType | undefined =>
+  pickPreferredCarrierCandidate(
+    context,
+    getAwaitedCarrierCandidate(resolveRuntimeCarrierIrType(expr.expression, context)),
+    getAwaitedCarrierCandidate(getExpressionSourceBackedReturnType(expr.expression)),
+    resolveEffectiveExpressionType(expr, context),
+    expr.inferredType
+  );
 
 const resolveMemberAccessStorageType = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
@@ -133,42 +204,9 @@ const resolveNarrowedCarrierType = (
   storageFallbackType: IrType | undefined,
   context: EmitterContext
 ): IrType | undefined => {
-  const pickPreferredCarrierCandidate = (
-    ...candidates: (IrType | undefined)[]
-  ): IrType | undefined => {
-    const hasExplicitRuntimeCarrierIdentity = (
-      candidate: IrType | undefined
-    ): candidate is IrType => {
-      if (!candidate) {
-        return false;
-      }
-
-      if (
-        candidate.kind === "referenceType" &&
-        getRuntimeUnionReferenceMembers(candidate) !== undefined
-      ) {
-        return true;
-      }
-
-      const resolved = resolveTypeAlias(candidate, context);
-      return (
-        resolved.kind === "unionType" &&
-        resolved.runtimeCarrierFamilyKey !== undefined
-      );
-    };
-
-    return (
-      candidates.find((candidate) =>
-        hasExplicitRuntimeCarrierIdentity(candidate)
-      ) ??
-      candidates.find(
-        (candidate): candidate is IrType => candidate !== undefined
-      )
-    );
-  };
-
   if (!narrowed) {
     return pickPreferredCarrierCandidate(
+      context,
       storageFallbackType,
       semanticFallbackType
     );
@@ -178,6 +216,7 @@ const resolveNarrowedCarrierType = (
     case "expr":
       return narrowed.carrierExprAst
         ? pickPreferredCarrierCandidate(
+            context,
             narrowed.carrierType,
             narrowed.sourceType,
             semanticFallbackType,
@@ -186,6 +225,7 @@ const resolveNarrowedCarrierType = (
             storageFallbackType
           )
         : pickPreferredCarrierCandidate(
+            context,
             narrowed.sourceType,
             semanticFallbackType,
             narrowed.type,
@@ -194,6 +234,7 @@ const resolveNarrowedCarrierType = (
           );
     case "runtimeSubset":
       return pickPreferredCarrierCandidate(
+        context,
         narrowed.sourceType,
         semanticFallbackType,
         narrowed.type,
@@ -201,6 +242,7 @@ const resolveNarrowedCarrierType = (
       );
     case "rename":
       return pickPreferredCarrierCandidate(
+        context,
         narrowed.sourceType,
         semanticFallbackType,
         narrowed.type,
@@ -250,12 +292,29 @@ export const resolveDirectStorageIrType = (
   expr: IrExpression,
   context: EmitterContext
 ): IrType | undefined => {
-  if (expr.kind === "identifier") {
-    return resolveIdentifierCarrierStorageType(expr, context);
+  const transparentExpr = unwrapTransparentExpression(expr);
+  if (transparentExpr !== expr) {
+    return (
+      resolveDirectStorageIrType(transparentExpr, context) ??
+      resolveEffectiveExpressionType(expr, context) ??
+      expr.inferredType
+    );
   }
 
-  if (expr.kind === "memberAccess") {
-    return resolveMemberAccessStorageType(expr, context);
+  if (transparentExpr.kind === "identifier") {
+    return resolveIdentifierCarrierStorageType(transparentExpr, context);
+  }
+
+  if (transparentExpr.kind === "memberAccess") {
+    return resolveMemberAccessStorageType(transparentExpr, context);
+  }
+
+  if (transparentExpr.kind === "await") {
+    return resolveAwaitedDirectReturnType(transparentExpr, context);
+  }
+
+  if (transparentExpr.kind === "call" || transparentExpr.kind === "new") {
+    return resolveDirectReturnType(transparentExpr, context);
   }
 
   return undefined;
@@ -288,12 +347,29 @@ export const resolveRuntimeCarrierIrType = (
   expr: IrExpression,
   context: EmitterContext
 ): IrType | undefined => {
-  if (expr.kind === "identifier") {
-    return resolveIdentifierRuntimeCarrierType(expr, context);
+  const transparentExpr = unwrapTransparentExpression(expr);
+  if (transparentExpr !== expr) {
+    return (
+      resolveRuntimeCarrierIrType(transparentExpr, context) ??
+      resolveEffectiveExpressionType(expr, context) ??
+      expr.inferredType
+    );
   }
 
-  if (expr.kind === "memberAccess") {
-    return resolveMemberAccessRuntimeCarrierType(expr, context);
+  if (transparentExpr.kind === "identifier") {
+    return resolveIdentifierRuntimeCarrierType(transparentExpr, context);
+  }
+
+  if (transparentExpr.kind === "memberAccess") {
+    return resolveMemberAccessRuntimeCarrierType(transparentExpr, context);
+  }
+
+  if (transparentExpr.kind === "await") {
+    return resolveAwaitedDirectReturnType(transparentExpr, context);
+  }
+
+  if (transparentExpr.kind === "call" || transparentExpr.kind === "new") {
+    return resolveDirectReturnType(transparentExpr, context);
   }
 
   return undefined;

@@ -7,6 +7,17 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "./type-resolution.js";
+import { referenceTypeHasClrIdentity } from "./clr-type-identity.js";
+
+const SYSTEM_ARRAY_CLR_NAMES = new Set([
+  "System.Array",
+  "global::System.Array",
+]);
+
+const SYSTEM_OBJECT_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+]);
 
 export const SYSTEM_ARRAY_STORAGE_TYPE: IrType = {
   kind: "referenceType",
@@ -25,8 +36,7 @@ export const isSystemArrayStorageType = (
   const resolved = resolveTypeAlias(stripNullish(type), context);
   return (
     resolved.kind === "referenceType" &&
-    (resolved.resolvedClrType === "System.Array" ||
-      resolved.resolvedClrType === "global::System.Array" ||
+    (referenceTypeHasClrIdentity(resolved, SYSTEM_ARRAY_CLR_NAMES) ||
       resolved.name === "Array" ||
       resolved.name === "System.Array" ||
       resolved.name === "global::System.Array")
@@ -63,7 +73,7 @@ export const isBroadArrayStorageTarget = (
 
   return (
     resolvedElementStorage.kind === "referenceType" &&
-    resolvedElementStorage.resolvedClrType === "System.Object"
+    referenceTypeHasClrIdentity(resolvedElementStorage, SYSTEM_OBJECT_CLR_NAMES)
   );
 };
 
@@ -79,8 +89,7 @@ export const isBroadValueCarrierType = (
     type.kind === "referenceType" &&
     (type.name === "JsValue" ||
       type.typeId?.tsName === "JsValue" ||
-      type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-      type.resolvedClrType === "global::Tsonic.Runtime.JsValue")
+      isBroadObjectSlotType(type, context))
   ) {
     return true;
   }
@@ -129,7 +138,9 @@ export const resolveBroadArrayAssertionStorageType = (
   context: EmitterContext,
   sourceSemanticType?: IrType
 ): IrType | undefined => {
-  const targetStoresBroadArray = isBroadArrayStorageTarget(targetType, context);
+  const targetStoresBroadArray =
+    isBroadArrayStorageTarget(targetType, context) ||
+    isBroadArrayReceiverAssertionTarget(targetType, context);
   const normalizedSourceSemanticStorage = sourceSemanticType
     ? normalizeRuntimeStorageType(sourceSemanticType, context)
     : undefined;

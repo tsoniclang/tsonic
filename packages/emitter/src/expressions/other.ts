@@ -14,6 +14,10 @@ import type {
   CSharpInterpolatedStringPart,
 } from "../core/format/backend-ast/types.js";
 import { emitNormalizedAwaitTaskAst } from "./await-normalization.js";
+import {
+  getAsyncWrapperResultType,
+  getExpressionAsyncWrapperType,
+} from "../core/semantic/async-wrapper-types.js";
 import { buildExactGlobalBindingReference } from "./exact-global-bindings.js";
 
 const typeMayBeNullish = (type: IrType | undefined): boolean => {
@@ -155,10 +159,15 @@ export const emitAwait = (
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
   const [exprAst, newContext] = emitExpressionAst(expr.expression, context);
-  const resultType = expr.inferredType ?? expr.expression.inferredType;
+  const awaitableType =
+    getExpressionAsyncWrapperType(expr.expression) ?? expr.expression.inferredType;
+  const resultType =
+    expr.inferredType ??
+    getAsyncWrapperResultType(expr.expression) ??
+    expr.expression.inferredType;
   const [taskAst, taskContext] = emitNormalizedAwaitTaskAst(
     exprAst,
-    expr.expression.inferredType,
+    awaitableType,
     resultType,
     newContext
   );

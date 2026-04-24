@@ -17,6 +17,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
 
 /**
  * Ref/out/in parameter handling:
@@ -225,6 +226,18 @@ const boxedJsNumberJsonType: IrType = {
   resolvedClrType: "System.Double",
 };
 
+const JS_NUMBERISH_CLR_NAMES = new Set([
+  "System.Int32",
+  "global::System.Int32",
+  "System.Double",
+  "global::System.Double",
+]);
+
+const SYSTEM_OBJECT_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+]);
+
 const isJsNumberishType = (
   type: IrType | undefined,
   context: EmitterContext
@@ -238,10 +251,7 @@ const isJsNumberishType = (
     (resolved.kind === "referenceType" &&
       (resolved.name === "int" ||
         resolved.name === "double" ||
-        resolved.resolvedClrType === "System.Int32" ||
-        resolved.resolvedClrType === "global::System.Int32" ||
-        resolved.resolvedClrType === "System.Double" ||
-        resolved.resolvedClrType === "global::System.Double"))
+        referenceTypeHasClrIdentity(resolved, JS_NUMBERISH_CLR_NAMES)))
   );
 };
 
@@ -258,8 +268,7 @@ const expectsBoxedObjectJsonType = (
   return (
     resolved.kind === "referenceType" &&
     (resolved.name === "object" ||
-      resolved.resolvedClrType === "System.Object" ||
-      resolved.resolvedClrType === "global::System.Object")
+      referenceTypeHasClrIdentity(resolved, SYSTEM_OBJECT_CLR_NAMES))
   );
 };
 

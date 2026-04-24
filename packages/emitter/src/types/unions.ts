@@ -99,11 +99,7 @@ export const emitUnionType = (
     currentContext
   );
 
-  if (
-    dedupedNonNullTypeAsts.length > 1 &&
-    usesBroadObjectStorage &&
-    !hasAwaitableMember
-  ) {
+  if (usesBroadObjectStorage && !hasAwaitableMember) {
     const objectAst: CSharpTypeAst = {
       kind: "predefinedType",
       keyword: "object",

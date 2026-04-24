@@ -23,7 +23,10 @@ import type {
   IrInterfaceMember,
   IrTypeParameter,
 } from "../types/index.js";
-import { stampRuntimeUnionAliasCarrier } from "../types/index.js";
+import {
+  normalizedUnionType,
+  stampRuntimeUnionAliasCarrier,
+} from "../types/index.js";
 import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
@@ -372,6 +375,12 @@ const attachTypeIdsImpl = (
       attached.types = type.types.map((t) =>
         attachTypeIdsImpl(state, t, cache)
       );
+      if (type.kind === "unionType") {
+        const normalized = normalizedUnionType(attached.types);
+        if (normalized.kind === "unionType") {
+          attached.types = normalized.types;
+        }
+      }
       return attached;
     }
 

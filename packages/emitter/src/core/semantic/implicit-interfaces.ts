@@ -1,6 +1,5 @@
 import {
   getIrMemberPublicName,
-  stableIrTypeKey,
   substituteIrType,
   type IrClassMember,
   type IrInterfaceMember,
@@ -9,6 +8,8 @@ import {
 import type { EmitterContext, LocalTypeInfo } from "../../types.js";
 import { resolveLocalTypeInfo } from "./type-resolution.js";
 import { substituteTypeArgs } from "./type-substitution.js";
+import { getClrIdentityKey } from "./clr-type-identity.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
 
 type InterfaceCandidate = {
   readonly namespace: string;
@@ -68,7 +69,12 @@ const buildCanonicalInterfaceRef = (
   name,
   resolvedClrType:
     sourceRef?.typeId?.clrName ??
-    (sourceRef?.resolvedClrType && sourceRef.resolvedClrType !== sourceRef.name
+    (sourceRef?.resolvedClrType &&
+    getClrIdentityKey(
+      sourceRef.resolvedClrType,
+      sourceRef.typeArguments?.length ?? 0
+    ) !==
+      getClrIdentityKey(sourceRef.name, sourceRef.typeArguments?.length ?? 0)
       ? sourceRef.resolvedClrType
       : undefined) ??
     `${namespace}.${name}`,
@@ -145,10 +151,11 @@ const isPublicInstanceClassMember = (member: IrClassMember): boolean => {
 
 const typeKeyEquals = (
   source: IrType | undefined,
-  target: IrType | undefined
+  target: IrType | undefined,
+  context: EmitterContext
 ): boolean => {
   if (!source || !target) return source === target;
-  return stableIrTypeKey(source) === stableIrTypeKey(target);
+  return areIrTypesEquivalent(source, target, context);
 };
 
 const buildCanonicalMethodTypeSubstitution = (
@@ -188,14 +195,15 @@ const getPublicInstanceClassMembers = (
 const findCompatibleProperty = (
   members: readonly IrClassMember[],
   target: Extract<IrInterfaceMember, { kind: "propertySignature" }>,
-  usedIndices: Set<number>
+  usedIndices: Set<number>,
+  context: EmitterContext
 ): Extract<IrClassMember, { kind: "propertyDeclaration" }> | undefined => {
   for (let index = 0; index < members.length; index += 1) {
     if (usedIndices.has(index)) continue;
     const member = members[index];
     if (member?.kind !== "propertyDeclaration") continue;
     if (member.name !== target.name) continue;
-    if (!typeKeyEquals(member.type, target.type)) continue;
+    if (!typeKeyEquals(member.type, target.type, context)) continue;
     usedIndices.add(index);
     return member;
   }
@@ -205,7 +213,8 @@ const findCompatibleProperty = (
 const findCompatibleMethod = (
   members: readonly IrClassMember[],
   target: Extract<IrInterfaceMember, { kind: "methodSignature" }>,
-  usedIndices: Set<number>
+  usedIndices: Set<number>,
+  context: EmitterContext
 ): Extract<IrClassMember, { kind: "methodDeclaration" }> | undefined => {
   const targetName = getIrMemberPublicName(target);
   const targetTypeParameters = target.typeParameters;
@@ -255,7 +264,8 @@ const findCompatibleMethod = (
       if (
         !typeKeyEquals(
           canonicalizeMethodType(sourceParam.type, memberTypeParameters),
-          canonicalizeMethodType(targetParam.type, targetTypeParameters)
+          canonicalizeMethodType(targetParam.type, targetTypeParameters),
+          context
         )
       ) {
         parametersMatch = false;
@@ -273,7 +283,8 @@ const findCompatibleMethod = (
           member.returnType ?? VOID_TYPE,
           memberTypeParameters
         ),
-        targetReturnType
+        targetReturnType,
+        context
       )
     ) {
       continue;
@@ -288,7 +299,8 @@ const findCompatibleMethod = (
 
 const collectCompatibleMembers = (
   classInfo: Extract<LocalTypeInfo, { kind: "class" }>,
-  interfaceInfo: Extract<LocalTypeInfo, { kind: "interface" }>
+  interfaceInfo: Extract<LocalTypeInfo, { kind: "interface" }>,
+  context: EmitterContext
 ):
   | {
       readonly propertyMatches: readonly CompatibleInterfacePropertyMatch[];
@@ -306,7 +318,8 @@ const collectCompatibleMembers = (
       const classMember = findCompatibleProperty(
         classMembers,
         member,
-        usedPropertyIndices
+        usedPropertyIndices,
+        context
       );
       if (!classMember) return undefined;
       propertyMatches.push({ interfaceMember: member, classMember });
@@ -316,7 +329,8 @@ const collectCompatibleMembers = (
     const classMember = findCompatibleMethod(
       classMembers,
       member,
-      usedMethodIndices
+      usedMethodIndices,
+      context
     );
     if (!classMember) return undefined;
     methodMatches.push({ interfaceMember: member, classMember });
@@ -371,7 +385,11 @@ const resolveExplicitInterfaceMatches = (
       resolved.info,
       impl
     );
-    const matches = collectCompatibleMembers(classInfo, compatibilityInfo);
+    const matches = collectCompatibleMembers(
+      classInfo,
+      compatibilityInfo,
+      context
+    );
     if (!matches) continue;
 
     results.push({
@@ -411,7 +429,7 @@ export const resolveCompatibleImplementedInterfaces = (
     const key = `${candidate.namespace}::${candidate.name}`;
     if (resolved.has(key)) continue;
 
-    const matches = collectCompatibleMembers(localInfo, candidate.info);
+    const matches = collectCompatibleMembers(localInfo, candidate.info, context);
     if (!matches) continue;
 
     resolved.set(key, {

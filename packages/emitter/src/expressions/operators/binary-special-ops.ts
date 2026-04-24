@@ -5,7 +5,7 @@
  * These handlers are called early in emitBinary before the generic binary path.
  */
 
-import { IrExpression, stableIrTypeKey } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -23,6 +23,10 @@ import {
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import { isBroadValueCarrierType } from "../../core/semantic/broad-array-storage.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
+import {
+  buildRuntimeUnionLayout,
+  getCanonicalRuntimeUnionMembers,
+} from "../../core/semantic/runtime-unions.js";
 import { unwrapTransparentNarrowingTarget } from "../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
 import { currentNarrowedType } from "../../core/semantic/narrowing-builders.js";
@@ -40,6 +44,7 @@ import {
 } from "../../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+import { describeIrTypeForDiagnostics } from "../../core/semantic/deterministic-type-keys.js";
 
 const buildRuntimeUnionMemberOrChain = (
   receiver: CSharpExpressionAst,
@@ -86,7 +91,10 @@ const formatIrTypeForDiagnostic = (
     return "<missing-type>";
   }
 
-  return stableIrTypeKey(resolveTypeAlias(stripNullish(type), context));
+  return describeIrTypeForDiagnostics(
+    resolveTypeAlias(stripNullish(type), context),
+    context
+  );
 };
 
 const buildRuntimeUnionMemberCheck = (opts: {
@@ -137,6 +145,84 @@ const buildRuntimeUnionMemberCheck = (opts: {
     context,
   ];
 };
+
+const tryExtractRuntimeUnionMemberProjection = (
+  ast: CSharpExpressionAst
+):
+  | {
+      readonly receiver: CSharpExpressionAst;
+      readonly memberN: number;
+    }
+  | undefined => {
+  let current = ast;
+  while (
+    current.kind === "parenthesizedExpression" ||
+    current.kind === "castExpression" ||
+    current.kind === "asExpression"
+  ) {
+    current = current.expression;
+  }
+
+  if (
+    current.kind !== "invocationExpression" ||
+    current.arguments.length !== 0 ||
+    current.expression.kind !== "memberAccessExpression"
+  ) {
+    return undefined;
+  }
+
+  const memberMatch = /^As([1-9][0-9]*)$/.exec(
+    current.expression.memberName
+  );
+  if (!memberMatch) {
+    return undefined;
+  }
+
+  const memberN = Number(memberMatch[1]);
+  return Number.isInteger(memberN)
+    ? {
+        receiver: current.expression.expression,
+        memberN,
+      }
+    : undefined;
+};
+
+const runtimeUnionMemberMatchesInstanceofTarget = (
+  member: IrExpression["inferredType"],
+  targetType: IrExpression["inferredType"],
+  context: EmitterContext
+): boolean =>
+  !!member &&
+  !!targetType &&
+  (findExactRuntimeUnionMemberIndices([member], targetType, context).length >
+    0 ||
+    findRuntimeUnionMemberIndices([member], targetType, context).length > 0 ||
+    findRuntimeUnionInstanceofMemberIndices([member], targetType, context)
+      .length > 0);
+
+const getRuntimeUnionCarrierMembers = (
+  candidate: IrType | undefined,
+  context: EmitterContext
+): readonly IrType[] | undefined => {
+  if (!candidate) {
+    return undefined;
+  }
+
+  return (
+    getCanonicalRuntimeUnionMembers(candidate, context) ??
+    buildRuntimeUnionLayout(candidate, context, emitTypeAst)[0]?.members
+  );
+};
+
+const selectRuntimeUnionCarrierType = (
+  context: EmitterContext,
+  ...candidates: (IrType | undefined)[]
+): IrType | undefined =>
+  candidates.find(
+    (candidate): candidate is IrType =>
+      candidate !== undefined &&
+      getRuntimeUnionCarrierMembers(candidate, context) !== undefined
+  );
 
 const tryExtractTypeofComparison = (
   expr: Extract<IrExpression, { kind: "binary" }>
@@ -524,8 +610,27 @@ export const emitInstanceof = (
           leftAst,
           leftContext
         );
+  const identifierStorageType =
+    target?.kind === "identifier"
+      ? leftContext.localValueTypes?.get(target.name)
+      : undefined;
+  const identifierSemanticType =
+    target?.kind === "identifier"
+      ? leftContext.localSemanticTypes?.get(target.name)
+      : undefined;
+  const runtimeCarrierType =
+    selectRuntimeUnionCarrierType(
+      leftContext,
+      identifierStorageType,
+      identifierSemanticType,
+      directStorageType,
+      resolveRuntimeCarrierIrType(target ?? expr.left, leftContext),
+      leftOperandType
+    ) ??
+    directStorageType ??
+    resolveRuntimeCarrierIrType(target ?? expr.left, leftContext);
   const runtimeCarrierAst =
-    (directStorageType
+    (runtimeCarrierType
       ? resolveRuntimeCarrierExpressionAst(target ?? expr.left, leftContext)
       : undefined) ?? leftAst;
   const alignedCarrierMembers =
@@ -533,7 +638,7 @@ export const emitInstanceof = (
       ? resolveAlignedRuntimeUnionMembers(
           bindingKey,
           effectiveLeftType,
-          directStorageType,
+          runtimeCarrierType,
           leftContext
         )
       : undefined;
@@ -576,6 +681,59 @@ export const emitInstanceof = (
       return buildRuntimeUnionMemberCheck({
         receiver: runtimeCarrierAst,
         memberNs: matchingMemberNs,
+        negate: false,
+        context: leftContext,
+      });
+    }
+  }
+
+  if (normalizedTargetType && runtimeCarrierType) {
+    const hasActiveNarrowing =
+      bindingKey !== undefined && leftContext.narrowedBindings?.has(bindingKey);
+    if (!hasActiveNarrowing) {
+      const runtimeMembers = getRuntimeUnionCarrierMembers(
+        runtimeCarrierType,
+        leftContext
+      );
+      const matchingMemberNs =
+        runtimeMembers?.flatMap((member, index) =>
+          runtimeUnionMemberMatchesInstanceofTarget(
+            member,
+            normalizedTargetType,
+            leftContext
+          )
+            ? [index + 1]
+            : []
+        ) ?? [];
+      if (matchingMemberNs.length > 0) {
+        return buildRuntimeUnionMemberCheck({
+          receiver: runtimeCarrierAst,
+          memberNs: matchingMemberNs,
+          negate: false,
+          context: leftContext,
+        });
+      }
+    }
+
+    const projection = tryExtractRuntimeUnionMemberProjection(leftAst);
+    const runtimeMembers = getRuntimeUnionCarrierMembers(
+      runtimeCarrierType,
+      leftContext
+    );
+    const projectedMember = projection
+      ? runtimeMembers?.[projection.memberN - 1]
+      : undefined;
+    if (
+      projection &&
+      runtimeUnionMemberMatchesInstanceofTarget(
+        projectedMember,
+        normalizedTargetType,
+        leftContext
+      )
+    ) {
+      return buildRuntimeUnionMemberCheck({
+        receiver: projection.receiver,
+        memberNs: [projection.memberN],
         negate: false,
         context: leftContext,
       });

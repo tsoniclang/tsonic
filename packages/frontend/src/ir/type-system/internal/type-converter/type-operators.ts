@@ -10,8 +10,9 @@ import type {
   IrInterfaceMember,
 } from "../../../types.js";
 import {
+  irTypesEqual,
   normalizedUnionType,
-  stableIrTypeKey,
+  stableIrTypeKeyIfDeterministic,
 } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
 
@@ -21,9 +22,11 @@ export const dedupeUnionMembers = (
   const seen = new Set<string>();
   const result: IrType[] = [];
   for (const type of types) {
-    const key = stableIrTypeKey(type);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const key = stableIrTypeKeyIfDeterministic(type);
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
     result.push(type);
   }
   return result;
@@ -55,7 +58,7 @@ export const memberValueType = (member: IrInterfaceMember): IrType =>
       } as IrFunctionType);
 
 export const typesSyntacticallyEqual = (left: IrType, right: IrType): boolean =>
-  stableIrTypeKey(left) === stableIrTypeKey(right);
+  irTypesEqual(left, right);
 
 export const resolveKeyofFromType = (type: IrType): IrType => {
   if (type.kind === "unionType") {

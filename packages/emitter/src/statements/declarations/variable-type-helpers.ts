@@ -11,7 +11,6 @@ import {
   IrType,
   NumericKind,
   NUMERIC_KIND_TO_CSHARP,
-  stableIrTypeKey,
 } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
@@ -26,6 +25,7 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveIdentifierValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
+import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
@@ -126,9 +126,10 @@ export const shouldTreatStructuralAssertionAsErased = (
     return true;
   }
 
-  return (
-    stableIrTypeKey(stripNullish(decl.type)) ===
-    stableIrTypeKey(stripNullish(targetType))
+  return areIrTypesEquivalent(
+    stripNullish(decl.type),
+    stripNullish(targetType),
+    context
   );
 };
 
@@ -202,10 +203,16 @@ export const shouldForceDeclaredInitializerCast = (
   }
 
   return (
-    stableIrTypeKey(stripNullish(originalType)) !==
-      stableIrTypeKey(stripNullish(declaredType)) &&
-    stableIrTypeKey(stripNullish(effectiveType)) ===
-      stableIrTypeKey(stripNullish(declaredType))
+    !areIrTypesEquivalent(
+      stripNullish(originalType),
+      stripNullish(declaredType),
+      context
+    ) &&
+    areIrTypesEquivalent(
+      stripNullish(effectiveType),
+      stripNullish(declaredType),
+      context
+    )
   );
 };
 

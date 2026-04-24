@@ -1,4 +1,4 @@
-import { IrType, isAwaitableIrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType, isAwaitableIrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import {
@@ -6,13 +6,34 @@ import {
   splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
-import { isBroadObjectSlotType } from "./js-value-types.js";
+import { isBroadObjectSlotType } from "./broad-object-types.js";
+import { referenceTypeHasClrIdentity } from "./clr-type-identity.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
+
+const SYSTEM_OBJECT_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+]);
 
 const OBJECT_STORAGE_TYPE: IrType = {
   kind: "referenceType",
   name: "object",
   resolvedClrType: "System.Object",
 };
+
+const typesEquivalent = (
+  left: IrType,
+  right: IrType,
+  context: EmitterContext
+): boolean => areIrTypesEquivalent(left, right, context);
+
+const containsEquivalentType = (
+  types: readonly IrType[],
+  type: IrType,
+  context: EmitterContext
+): boolean =>
+  types.some((candidate) => typesEquivalent(candidate, type, context));
 
 export const isObjectStorageType = (
   type: IrType | undefined,
@@ -26,8 +47,7 @@ export const isObjectStorageType = (
   return (
     resolved.kind === "referenceType" &&
     (resolved.name === "object" ||
-      resolved.resolvedClrType === "System.Object" ||
-      resolved.resolvedClrType === "global::System.Object")
+      referenceTypeHasClrIdentity(resolved, SYSTEM_OBJECT_CLR_NAMES))
   );
 };
 
@@ -38,6 +58,10 @@ export function shouldUseBroadObjectForUnionStorage(
 ): boolean {
   const split = splitRuntimeNullishUnionMembers(type);
   const nonNullishMembers = split?.nonNullishMembers ?? type.types;
+  if (nonNullishMembers.length === 1) {
+    return isBroadObjectSlotType(nonNullishMembers[0], context);
+  }
+
   if (nonNullishMembers.length < 2) {
     return false;
   }
@@ -61,12 +85,7 @@ export function shouldUseBroadObjectForUnionStorage(
   for (const member of runtimeMembers) {
     const normalizedMember =
       normalizeRuntimeStorageType(member, context, activeArrayKeys) ?? member;
-    if (
-      normalizedMembers.some(
-        (candidate) =>
-          stableIrTypeKey(candidate) === stableIrTypeKey(normalizedMember)
-      )
-    ) {
+    if (containsEquivalentType(normalizedMembers, normalizedMember, context)) {
       continue;
     }
     normalizedMembers.push(normalizedMember);
@@ -139,8 +158,11 @@ const normalizeOutOfScopeTypeParameters = (
       );
       return normalizedTypeArguments.every(
         (typeArgument, index) =>
-          stableIrTypeKey(typeArgument) ===
-          stableIrTypeKey(type.typeArguments?.[index] ?? typeArgument)
+          typesEquivalent(
+            typeArgument,
+            type.typeArguments?.[index] ?? typeArgument,
+            context
+          )
       )
         ? type
         : {
@@ -166,8 +188,7 @@ const normalizeOutOfScopeTypeParameters = (
         context,
         visited
       );
-      return stableIrTypeKey(normalizedElementType) ===
-        stableIrTypeKey(resolved.elementType)
+      return typesEquivalent(normalizedElementType, resolved.elementType, context)
         ? resolved
         : {
             ...resolved,
@@ -186,10 +207,8 @@ const normalizeOutOfScopeTypeParameters = (
         context,
         visited
       );
-      return stableIrTypeKey(normalizedKeyType) ===
-        stableIrTypeKey(resolved.keyType) &&
-        stableIrTypeKey(normalizedValueType) ===
-          stableIrTypeKey(resolved.valueType)
+      return typesEquivalent(normalizedKeyType, resolved.keyType, context) &&
+        typesEquivalent(normalizedValueType, resolved.valueType, context)
         ? resolved
         : {
             ...resolved,
@@ -204,8 +223,11 @@ const normalizeOutOfScopeTypeParameters = (
       );
       return normalizedElementTypes.every(
         (elementType, index) =>
-          stableIrTypeKey(elementType) ===
-          stableIrTypeKey(resolved.elementTypes[index] ?? elementType)
+          typesEquivalent(
+            elementType,
+            resolved.elementTypes[index] ?? elementType,
+            context
+          )
       )
         ? resolved
         : {
@@ -224,8 +246,11 @@ const normalizeOutOfScopeTypeParameters = (
       );
       return normalizedTypeArguments.every(
         (typeArg, index) =>
-          stableIrTypeKey(typeArg) ===
-          stableIrTypeKey(resolved.typeArguments?.[index] ?? typeArg)
+          typesEquivalent(
+            typeArg,
+            resolved.typeArguments?.[index] ?? typeArg,
+            context
+          )
       )
         ? resolved
         : {
@@ -240,8 +265,7 @@ const normalizeOutOfScopeTypeParameters = (
       );
       return normalizedMembers.every(
         (member, index) =>
-          stableIrTypeKey(member) ===
-          stableIrTypeKey(resolved.types[index] ?? member)
+          typesEquivalent(member, resolved.types[index] ?? member, context)
       )
         ? resolved
         : {
@@ -261,8 +285,7 @@ const normalizeOutOfScopeTypeParameters = (
           context,
           visited
         );
-        return stableIrTypeKey(normalizedParameterType) ===
-          stableIrTypeKey(parameter.type)
+        return typesEquivalent(normalizedParameterType, parameter.type, context)
           ? parameter
           : {
               ...parameter,
@@ -276,13 +299,13 @@ const normalizeOutOfScopeTypeParameters = (
       );
       return normalizedParameters.every(
         (parameter, index) =>
-          stableIrTypeKey(parameter.type ?? { kind: "voidType" }) ===
-          stableIrTypeKey(
-            resolved.parameters[index]?.type ?? { kind: "voidType" }
+          typesEquivalent(
+            parameter.type ?? { kind: "voidType" },
+            resolved.parameters[index]?.type ?? { kind: "voidType" },
+            context
           )
       ) &&
-        stableIrTypeKey(normalizedReturnType) ===
-          stableIrTypeKey(resolved.returnType)
+        typesEquivalent(normalizedReturnType, resolved.returnType, context)
         ? resolved
         : {
             ...resolved,
@@ -297,8 +320,7 @@ const normalizeOutOfScopeTypeParameters = (
       );
       return normalizedMembers.every(
         (member, index) =>
-          stableIrTypeKey(member) ===
-          stableIrTypeKey(resolved.types[index] ?? member)
+          typesEquivalent(member, resolved.types[index] ?? member, context)
       )
         ? resolved
         : {
@@ -338,8 +360,11 @@ export const normalizeRuntimeStorageType = (
       );
       return normalizedTypeArguments.every(
         (typeArgument, index) =>
-          stableIrTypeKey(typeArgument) ===
-          stableIrTypeKey(type.typeArguments?.[index] ?? typeArgument)
+          typesEquivalent(
+            typeArgument,
+            type.typeArguments?.[index] ?? typeArgument,
+            context
+          )
       )
         ? type
         : {
@@ -374,7 +399,7 @@ export const normalizeRuntimeStorageType = (
   }
 
   if (resolved.kind === "arrayType") {
-    const arrayKey = stableIrTypeKey(resolved);
+    const arrayKey = getContextualTypeVisitKey(resolved, context);
     if (activeArrayKeys.has(arrayKey)) {
       return resolved;
     }
@@ -385,8 +410,7 @@ export const normalizeRuntimeStorageType = (
       normalizeRuntimeStorageType(resolved.elementType, context, nextActive) ??
       resolved.elementType;
 
-    return stableIrTypeKey(normalizedElementType) ===
-      stableIrTypeKey(resolved.elementType)
+    return typesEquivalent(normalizedElementType, resolved.elementType, context)
       ? resolved
       : {
           ...resolved,
@@ -429,9 +453,10 @@ export const normalizeRuntimeStorageType = (
           normalizeRuntimeStorageType(member, context, activeArrayKeys) ??
           member;
         if (
-          normalizedCanonicalMembers.some(
-            (candidate) =>
-              stableIrTypeKey(candidate) === stableIrTypeKey(normalizedMember)
+          containsEquivalentType(
+            normalizedCanonicalMembers,
+            normalizedMember,
+            context
           )
         ) {
           continue;
@@ -466,9 +491,10 @@ export const normalizeRuntimeStorageType = (
 
       for (const member of normalizedNonNullishMembers) {
         if (
-          dedupedNormalizedNonNullishMembers.some(
-            (candidate) =>
-              stableIrTypeKey(candidate) === stableIrTypeKey(member)
+          containsEquivalentType(
+            dedupedNormalizedNonNullishMembers,
+            member,
+            context
           )
         ) {
           continue;
@@ -524,10 +550,7 @@ export const normalizeRuntimeStorageType = (
       normalizeRuntimeStorageType(nonNullishMember, context, activeArrayKeys) ??
       nonNullishMember;
 
-    if (
-      stableIrTypeKey(normalizedNonNullishMember) ===
-      stableIrTypeKey(nonNullishMember)
-    ) {
+    if (typesEquivalent(normalizedNonNullishMember, nonNullishMember, context)) {
       return resolved;
     }
 

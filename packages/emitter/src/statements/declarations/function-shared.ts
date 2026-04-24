@@ -73,23 +73,29 @@ export const getAsyncBodyReturnType = (
 
 export const seedLocalNameMapFromParameters = (
   params: readonly IrParameter[],
-  context: EmitterContext
+  context: EmitterContext,
+  acceptsExplicitUndefinedOverrides?: readonly boolean[]
 ): EmitterContext => {
   const map = new Map(context.localNameMap ?? []);
   let currentContext = context;
   const used = new Set<string>();
-  for (const p of params) {
-    if (p.pattern.kind === "identifierPattern") {
-      const emitted = escapeCSharpIdentifier(p.pattern.name);
-      map.set(p.pattern.name, emitted);
-      used.add(emitted);
-      currentContext = registerParameterTypes(
-        p.pattern.name,
-        p.type,
-        (p.isOptional || p.initializer !== undefined) && !p.isRest,
-        currentContext
-      );
+  for (let index = 0; index < params.length; index += 1) {
+    const p = params[index];
+    if (!p || p.pattern.kind !== "identifierPattern") {
+      continue;
     }
+    const emitted = escapeCSharpIdentifier(p.pattern.name);
+    map.set(p.pattern.name, emitted);
+    used.add(emitted);
+    const acceptsExplicitUndefined =
+      acceptsExplicitUndefinedOverrides?.[index] ??
+      ((p.isOptional || p.initializer !== undefined) && !p.isRest);
+    currentContext = registerParameterTypes(
+      p.pattern.name,
+      p.type,
+      acceptsExplicitUndefined,
+      currentContext
+    );
   }
   return {
     ...currentContext,

@@ -37,7 +37,7 @@ describe("Expression Emission", () => {
                 condition: { kind: "literal", value: false },
                 whenTrue: { kind: "literal", value: "m" },
                 whenFalse: { kind: "literal", value: "n" },
-                inferredType: { kind: "primitiveType", name: "char" },
+                inferredType: { kind: "primitiveType", name: "string" },
               },
             },
           ],

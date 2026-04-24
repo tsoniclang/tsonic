@@ -1,8 +1,4 @@
-import {
-  IrPropertyDeclaration,
-  IrType,
-  stableIrTypeKey,
-} from "@tsonic/frontend";
+import { IrPropertyDeclaration, IrType } from "@tsonic/frontend";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -10,10 +6,11 @@ import {
 import type { EmitterContext } from "../types.js";
 import type { LocalTypeInfo } from "../emitter-types/core.js";
 import { parseBindingPropertyType } from "./structural-property-model.js";
+import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 
-const stableOptionalPropertyTypeKey = (type: IrType): string => {
+const optionalPropertyComparableType = (type: IrType): IrType => {
   if (type.kind !== "unionType") {
-    return stableIrTypeKey(type);
+    return type;
   }
 
   const nonUndefinedMembers = type.types.filter(
@@ -21,22 +18,20 @@ const stableOptionalPropertyTypeKey = (type: IrType): string => {
       !(member.kind === "primitiveType" && member.name === "undefined")
   );
   if (nonUndefinedMembers.length === 0) {
-    return stableIrTypeKey(type);
+    return type;
   }
   const firstNonUndefinedMember = nonUndefinedMembers[0];
   if (!firstNonUndefinedMember) {
-    return stableIrTypeKey(type);
+    return type;
   }
-  return stableIrTypeKey(
-    nonUndefinedMembers.length === type.types.length
-      ? type
-      : nonUndefinedMembers.length === 1
-        ? firstNonUndefinedMember
-        : {
-            ...type,
-            types: nonUndefinedMembers,
-          }
-  );
+  return nonUndefinedMembers.length === type.types.length
+    ? type
+    : nonUndefinedMembers.length === 1
+      ? firstNonUndefinedMember
+      : {
+          ...type,
+          types: nonUndefinedMembers,
+        };
 };
 
 export const resolveAnonymousStructuralReferenceType = (
@@ -74,7 +69,7 @@ export const resolveAnonymousStructuralReferenceType = (
     .map((member) => ({
       name: member.name,
       isOptional: member.isOptional,
-      typeKey: stableOptionalPropertyTypeKey(member.type),
+      type: optionalPropertyComparableType(member.type),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 
@@ -100,17 +95,20 @@ export const resolveAnonymousStructuralReferenceType = (
         .map((member) => ({
           name: member.name,
           isOptional: !member.isRequired,
-          typeKey: stableOptionalPropertyTypeKey(member.type),
+          type: optionalPropertyComparableType(member.type),
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
       if (
         candidateProps.length === targetProps.length &&
-        candidateProps.every(
-          (prop, index) =>
-            prop.name === targetProps[index]?.name &&
-            prop.isOptional === targetProps[index]?.isOptional &&
-            prop.typeKey === targetProps[index]?.typeKey
-        )
+        candidateProps.every((prop, index) => {
+          const targetProp = targetProps[index];
+          return (
+            !!targetProp &&
+            prop.name === targetProp.name &&
+            prop.isOptional === targetProp.isOptional &&
+            areIrTypesEquivalent(prop.type, targetProp.type, context)
+          );
+        })
       ) {
         const resolvedClrType = `${namespace}.${typeName}`;
         matches.push({
@@ -158,7 +156,7 @@ export const resolveAnonymousStructuralReferenceType = (
         .map((member) => ({
           name: member.alias,
           isOptional: member.semanticOptional === true,
-          typeKey: stableOptionalPropertyTypeKey(
+          type: optionalPropertyComparableType(
             member.semanticType ?? parseBindingPropertyType(member.signature)
           ),
         }))
@@ -166,12 +164,15 @@ export const resolveAnonymousStructuralReferenceType = (
 
       if (
         candidateProps.length !== targetProps.length ||
-        !candidateProps.every(
-          (prop, index) =>
-            prop.name === targetProps[index]?.name &&
-            prop.isOptional === targetProps[index]?.isOptional &&
-            prop.typeKey === targetProps[index]?.typeKey
-        )
+        !candidateProps.every((prop, index) => {
+          const targetProp = targetProps[index];
+          return (
+            !!targetProp &&
+            prop.name === targetProp.name &&
+            prop.isOptional === targetProp.isOptional &&
+            areIrTypesEquivalent(prop.type, targetProp.type, context)
+          );
+        })
       ) {
         continue;
       }

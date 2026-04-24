@@ -46,7 +46,9 @@ import {
   emitSizeOf,
 } from "./expressions/type-assertion-emitters.js";
 import { adaptEmittedExpressionAst } from "./expressions/expected-type-adaptation.js";
+import { simplifyRedundantObjectBridgeCastsAst } from "./expressions/post-emission-adaptation.js";
 import { unwrapTransparentExpression } from "./core/semantic/transparent-expressions.js";
+import { resolveEffectiveExpressionType } from "./core/semantic/narrowed-expression-types.js";
 
 /**
  * Emit a C# expression AST from an IR expression.
@@ -166,12 +168,28 @@ export const emitExpressionAst = (
     }
   })();
 
-  return adaptEmittedExpressionAst({
+  const [adaptedAst, adaptedContext] = adaptEmittedExpressionAst({
     expr: normalizedExpr,
     valueAst: ast,
     context: newContext,
     expectedType,
   });
+
+  const effectiveActualType =
+    normalizedExpr.kind === "typeAssertion"
+      ? normalizedExpr.targetType
+      : (resolveEffectiveExpressionType(normalizedExpr, adaptedContext) ??
+        normalizedExpr.inferredType);
+
+  return [
+    simplifyRedundantObjectBridgeCastsAst(
+      adaptedAst,
+      effectiveActualType,
+      adaptedContext,
+      expectedType
+    ),
+    adaptedContext,
+  ];
 };
 
 // Re-export commonly used functions from barrel

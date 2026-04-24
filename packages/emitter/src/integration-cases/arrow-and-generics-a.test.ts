@@ -481,6 +481,26 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("keeps static arrow defaulted value-type parameters aligned with their emitted storage", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function takeInt(value: int): int;
+
+        export const exact = (position: int = 0 as int): int => takeInt(position);
+        export const numeric = (minimumLength: number = 0): int => takeInt(minimumLength);
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include("private static int exact__Impl(int position = 0)");
+      expect(csharp).to.include("return takeInt(position);");
+      expect(csharp).to.include("private static int numeric__Impl(double minimumLength = 0)");
+      expect(csharp).to.include("return takeInt((int)minimumLength);");
+    });
+
     it("omits non-constant defaults from static arrow signatures and synthesizes omitted call arguments", () => {
       const source = `
         export const formatLabel = (

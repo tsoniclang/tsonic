@@ -30,6 +30,36 @@ import { getOrCreateObjectTypeReference } from "./anon-type-declaration-synthesi
 // Safe because all exports are const arrow functions (no top-level execution).
 import { lowerExpression } from "./anon-type-ir-rewriting.js";
 
+const canonicalClrNameFromReference = (
+  type: IrReferenceType | undefined
+): string | undefined => type?.resolvedClrType ?? type?.typeId?.clrName;
+
+const enrichReferenceIdentityMetadata = (
+  reference: IrReferenceType,
+  source: IrReferenceType,
+  localDeclaredReference: IrReferenceType | undefined
+): IrReferenceType => {
+  const resolvedClrType =
+    reference.resolvedClrType ??
+    canonicalClrNameFromReference(source) ??
+    canonicalClrNameFromReference(localDeclaredReference);
+  const typeId =
+    reference.typeId ?? source.typeId ?? localDeclaredReference?.typeId;
+
+  if (
+    reference.resolvedClrType === resolvedClrType &&
+    reference.typeId === typeId
+  ) {
+    return reference;
+  }
+
+  return {
+    ...reference,
+    ...(resolvedClrType !== undefined ? { resolvedClrType } : {}),
+    ...(typeId !== undefined ? { typeId } : {}),
+  };
+};
+
 /**
  * Context for tracking state during lowering
  */
@@ -185,8 +215,19 @@ export const lowerType = (
         const cachedByStableKey =
           ctx.loweredReferenceByStableKey.get(stableKey);
         if (cachedByStableKey) {
-          ctx.loweredTypeByIdentity.set(type, cachedByStableKey);
-          return cachedByStableKey;
+          const enrichedCachedReference = enrichReferenceIdentityMetadata(
+            cachedByStableKey,
+            type,
+            localDeclaredReference
+          );
+          ctx.loweredTypeByIdentity.set(type, enrichedCachedReference);
+          if (enrichedCachedReference !== cachedByStableKey) {
+            ctx.loweredReferenceByStableKey.set(
+              stableKey,
+              enrichedCachedReference
+            );
+          }
+          return enrichedCachedReference;
         }
       }
 
@@ -203,21 +244,24 @@ export const lowerType = (
 
       const loweredReference: IrReferenceType = {
         ...type,
-        resolvedClrType:
-          type.resolvedClrType ?? localDeclaredReference?.resolvedClrType,
         typeArguments: hasTypeArgs
           ? typeArgs.map((ta) => lowerType(ta, ctx))
           : undefined,
       };
+      const enrichedLoweredReference = enrichReferenceIdentityMetadata(
+        loweredReference,
+        type,
+        localDeclaredReference
+      );
 
-      ctx.loweredTypeByIdentity.set(type, loweredReference);
+      ctx.loweredTypeByIdentity.set(type, enrichedLoweredReference);
       if (stableKey) {
-        ctx.loweredReferenceByStableKey.set(stableKey, loweredReference);
+        ctx.loweredReferenceByStableKey.set(stableKey, enrichedLoweredReference);
       }
 
       if (hasStructuralMembers) {
         (
-          loweredReference as IrReferenceType & {
+          enrichedLoweredReference as IrReferenceType & {
             structuralMembers?: readonly IrInterfaceMember[];
           }
         ).structuralMembers = structuralMembers.map((m) =>
@@ -225,7 +269,7 @@ export const lowerType = (
         );
       }
 
-      return loweredReference;
+      return enrichedLoweredReference;
     }
 
     // These types don't contain nested types

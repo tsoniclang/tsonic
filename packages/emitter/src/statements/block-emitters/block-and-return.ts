@@ -1,4 +1,4 @@
-import { IrStatement } from "@tsonic/frontend";
+import type { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitStatementAst } from "../../statement-emitter.js";
@@ -11,8 +11,50 @@ import type {
 } from "../../core/format/backend-ast/types.js";
 import {
   expressionProducesAsyncWrapper,
+  getAsyncWrapperResultType,
   isAsyncWrapperType,
-} from "./async-wrappers.js";
+} from "../../core/semantic/async-wrapper-types.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import {
+  isExpectedJsNumberIrType,
+  isNumericSourceIrType,
+} from "../../expressions/post-emission-adaptation.js";
+import { stripNullish } from "../../core/semantic/type-resolution.js";
+
+const getBareTypeParameterName = (
+  type: IrType | undefined,
+  context: EmitterContext
+): string | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const stripped = stripNullish(type);
+  if (stripped.kind === "typeParameterType") {
+    return stripped.name;
+  }
+
+  if (
+    stripped.kind === "referenceType" &&
+    (context.typeParameters?.has(stripped.name) ?? false) &&
+    (!stripped.typeArguments || stripped.typeArguments.length === 0)
+  ) {
+    return stripped.name;
+  }
+
+  return undefined;
+};
+
+const isNumericTypeParameterSource = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  const typeParameterName = getBareTypeParameterName(type, context);
+  return typeParameterName
+    ? (context.typeParamConstraints?.get(typeParameterName) ??
+        "unconstrained") === "numeric"
+    : false;
+};
 
 export const emitBlockStatementAst = (
   stmt: Extract<IrStatement, { kind: "blockStatement" }>,
@@ -106,12 +148,6 @@ export const emitReturnStatementAst = (
       ];
     }
 
-    const [exprAst, newContext] = emitExpressionAst(
-      stmt.expression,
-      context,
-      context.returnType
-    );
-
     const shouldAutoAwait =
       context.isAsync &&
       context.returnType !== undefined &&
@@ -119,13 +155,37 @@ export const emitReturnStatementAst = (
       expressionProducesAsyncWrapper(stmt.expression) &&
       stmt.expression.kind !== "await";
 
+    const returnExpression: IrExpression = shouldAutoAwait
+      ? {
+          kind: "await",
+          expression: stmt.expression,
+          inferredType:
+            getAsyncWrapperResultType(stmt.expression) ?? context.returnType,
+          sourceSpan: stmt.expression.sourceSpan,
+        }
+      : stmt.expression;
+    const returnExpressionType =
+      resolveEffectiveExpressionType(returnExpression, context) ??
+      returnExpression.inferredType;
+    const returnExpectedType =
+      context.returnType &&
+      isExpectedJsNumberIrType(context.returnType, context) &&
+      isNumericSourceIrType(returnExpressionType, context) &&
+      !isNumericTypeParameterSource(returnExpressionType, context)
+        ? undefined
+        : context.returnType;
+
+    const [exprAst, newContext] = emitExpressionAst(
+      returnExpression,
+      context,
+      returnExpectedType
+    );
+
     return [
       [
         {
           kind: "returnStatement",
-          expression: shouldAutoAwait
-            ? { kind: "awaitExpression", expression: exprAst }
-            : exprAst,
+          expression: exprAst,
         },
       ],
       newContext,

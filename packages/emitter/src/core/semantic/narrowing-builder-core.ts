@@ -10,7 +10,6 @@ import {
   IrExpression,
   IrType,
   normalizedUnionType,
-  stableIrTypeKey,
 } from "@tsonic/frontend";
 import type { EmitterContext, NarrowedBinding } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
@@ -31,6 +30,8 @@ import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
 } from "./runtime-reification.js";
+import { isJsValueReferenceType } from "./js-value-types.js";
+import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
 
 export type BranchTruthiness = "truthy" | "falsy";
 
@@ -261,11 +262,41 @@ export const buildConditionalNullishGuardAst = (
 export const tryStripConditionalNullishGuardAst = (
   exprAst: CSharpExpressionAst
 ): CSharpExpressionAst | undefined => {
-  if (exprAst.kind !== "conditionalExpression") {
+  const unwrapParenthesizedAst = (
+    ast: CSharpExpressionAst
+  ): CSharpExpressionAst => {
+    let current = ast;
+    while (current.kind === "parenthesizedExpression") {
+      current = current.expression;
+    }
+    return current;
+  };
+
+  const unwrapObjectCastAst = (
+    ast: CSharpExpressionAst
+  ): CSharpExpressionAst => {
+    const current = unwrapParenthesizedAst(ast);
+    if (
+      current.kind === "castExpression" &&
+      current.type.kind === "predefinedType" &&
+      current.type.keyword === "object"
+    ) {
+      return unwrapParenthesizedAst(current.expression);
+    }
+
+    return current;
+  };
+
+  let current = exprAst;
+  while (current.kind === "parenthesizedExpression") {
+    current = current.expression;
+  }
+
+  if (current.kind !== "conditionalExpression") {
     return undefined;
   }
 
-  const condition = exprAst.condition;
+  const condition = current.condition;
   if (
     condition.kind !== "binaryExpression" ||
     condition.operatorToken !== "=="
@@ -273,23 +304,32 @@ export const tryStripConditionalNullishGuardAst = (
     return undefined;
   }
 
-  if (
-    condition.left.kind !== "castExpression" ||
-    condition.left.type.kind !== "predefinedType" ||
-    condition.left.type.keyword !== "object"
-  ) {
-    return undefined;
-  }
+  const checkedExpression = unwrapObjectCastAst(condition.left);
 
   if (condition.right.kind !== "nullLiteralExpression") {
     return undefined;
   }
 
-  if (exprAst.whenTrue.kind !== "defaultExpression") {
+  if (current.whenTrue.kind !== "defaultExpression") {
     return undefined;
   }
 
-  return exprAst.whenFalse;
+  const returnedExpression = unwrapParenthesizedAst(current.whenFalse);
+  if (
+    JSON.stringify(unwrapParenthesizedAst(checkedExpression)) !==
+    JSON.stringify(returnedExpression)
+  ) {
+    const originalCheckedExpression = unwrapParenthesizedAst(condition.left);
+    if (
+      originalCheckedExpression.kind !== "castExpression" ||
+      originalCheckedExpression.type.kind !== "predefinedType" ||
+      originalCheckedExpression.type.keyword !== "object"
+    ) {
+      return undefined;
+    }
+  }
+
+  return current.whenFalse;
 };
 
 export const isArrayLikeNarrowingCandidate = (
@@ -322,7 +362,7 @@ const hasArrayLikeNarrowingCandidate = (
     return false;
   }
 
-  const key = stableIrTypeKey(resolved);
+  const key = getContextualTypeVisitKey(resolved, context);
   if (seen.has(key)) {
     return false;
   }
@@ -334,10 +374,7 @@ const hasArrayLikeNarrowingCandidate = (
 };
 
 const isBroadJsValueType = (type: IrType): boolean =>
-  type.kind === "referenceType" &&
-  (type.name === "JsValue" ||
-    type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-    type.resolvedClrType === "global::Tsonic.Runtime.JsValue");
+  isJsValueReferenceType(type);
 
 const JS_VALUE_ARRAY_TYPE: IrType = {
   kind: "arrayType",
@@ -358,7 +395,7 @@ export const narrowTypeByArrayShape = (
 
   const resolved = resolveTypeAlias(stripNullish(currentType), context);
   if (resolved.kind === "unionType") {
-    const key = stableIrTypeKey(resolved);
+    const key = getContextualTypeVisitKey(resolved, context);
     if (seen.has(key)) {
       return undefined;
     }

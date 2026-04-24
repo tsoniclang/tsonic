@@ -1,9 +1,4 @@
-import {
-  runtimeUnionCarrierFamilyKey,
-  stableIrTypeKey,
-  type IrExpression,
-  type IrType,
-} from "@tsonic/frontend";
+import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import {
   getPropertyType,
@@ -15,6 +10,8 @@ import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
 import { isAssignable } from "./type-compatibility.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { tryContextualTypeIdentityKey } from "./deterministic-type-keys.js";
 
 const withOptionalUndefined = (type: IrType): IrType => {
   if (
@@ -88,9 +85,29 @@ const runtimeCarrierFamilyForType = (
   context: EmitterContext
 ): string | undefined => {
   const resolved = resolveTypeAlias(stripNullish(type), context);
-  return resolved.kind === "unionType"
-    ? runtimeUnionCarrierFamilyKey(resolved)
-    : undefined;
+  if (resolved.kind !== "unionType") {
+    return undefined;
+  }
+
+  if (resolved.runtimeCarrierFamilyKey) {
+    return resolved.runtimeCarrierFamilyKey;
+  }
+
+  const canonicalMembers =
+    getCanonicalRuntimeUnionMembers(resolved, context) ?? resolved.types;
+  const memberKeys = canonicalMembers.map((member) =>
+    tryContextualTypeIdentityKey(member, context)
+  );
+  if (memberKeys.some((key) => key === undefined)) {
+    return undefined;
+  }
+
+  const orderedKeys = resolved.preserveRuntimeLayout
+    ? memberKeys
+    : [...memberKeys].sort();
+  return `runtime-union:${resolved.preserveRuntimeLayout ? "preserve" : "canonical"}:${orderedKeys.join(
+    "|"
+  )}`;
 };
 
 const projectionCarrierTypesMatch = (
@@ -105,8 +122,11 @@ const projectionCarrierTypesMatch = (
   }
 
   return (
-    stableIrTypeKey(stripNullish(baseType)) ===
-    stableIrTypeKey(stripNullish(receiverType))
+    areIrTypesEquivalent(
+      stripNullish(baseType),
+      stripNullish(receiverType),
+      context
+    )
   );
 };
 
@@ -247,6 +267,26 @@ export const tryResolveRuntimeUnionMemberType = (
   return undefined;
 };
 
+export const resolveRuntimeSubsetMemberNs = (
+  expr: IrExpression,
+  context: EmitterContext
+): ReadonlySet<number> | undefined => {
+  const narrowKey =
+    expr.kind === "identifier"
+      ? expr.name
+      : expr.kind === "memberAccess"
+        ? getMemberAccessNarrowKey(expr)
+        : undefined;
+  if (!narrowKey) {
+    return undefined;
+  }
+
+  const narrowed = context.narrowedBindings?.get(narrowKey);
+  return narrowed?.kind === "runtimeSubset"
+    ? new Set(narrowed.runtimeMemberNs)
+    : undefined;
+};
+
 export const resolveEffectiveExpressionType = (
   expr: IrExpression,
   context: EmitterContext
@@ -280,7 +320,7 @@ export const resolveEffectiveExpressionType = (
       return nonNullishLeft;
     }
 
-    if (stableIrTypeKey(nonNullishLeft) === stableIrTypeKey(rightType)) {
+    if (areIrTypesEquivalent(nonNullishLeft, rightType, context)) {
       return nonNullishLeft;
     }
 

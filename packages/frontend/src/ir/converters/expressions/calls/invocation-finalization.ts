@@ -1,15 +1,44 @@
 import type { ProgramContext } from "../../../program-context.js";
 import type { IrExpression, IrType } from "../../../types.js";
-import { stableIrTypeKey } from "../../../types/type-ops.js";
+import {
+  referenceTypeHasClrIdentity,
+  stableIrTypeKeyIfDeterministic,
+} from "../../../types/type-ops.js";
 import {
   expandParameterTypesForArguments,
   substitutePolymorphicThis,
 } from "../../../type-system/type-system-call-resolution.js";
+import { choosePreferredEquivalentInferenceType } from "../../../type-system/inference-type-preference.js";
 import {
   deriveSubstitutionsFromExpectedReturn,
   substituteTypeParameters,
   unifyTypeTemplate,
 } from "./call-site-analysis.js";
+
+const BROAD_EXACTNESS_LOSER_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+  "Tsonic.Runtime.JsValue",
+  "global::Tsonic.Runtime.JsValue",
+]);
+
+const invocationFinalizationOpaqueTypeIds = new WeakMap<object, number>();
+let nextInvocationFinalizationOpaqueTypeId = 0;
+
+const invocationFinalizationVisitKey = (type: IrType): string => {
+  const stableKey = stableIrTypeKeyIfDeterministic(type);
+  if (stableKey) {
+    return stableKey;
+  }
+  const existing = invocationFinalizationOpaqueTypeIds.get(type);
+  if (existing !== undefined) {
+    return `opaque:${existing}`;
+  }
+  const next = nextInvocationFinalizationOpaqueTypeId;
+  nextInvocationFinalizationOpaqueTypeId += 1;
+  invocationFinalizationOpaqueTypeIds.set(type, next);
+  return `opaque:${next}`;
+};
 
 export const containsTypeParameter = (
   type: IrType | undefined,
@@ -19,7 +48,7 @@ export const containsTypeParameter = (
     return false;
   }
 
-  const typeKey = stableIrTypeKey(type);
+  const typeKey = invocationFinalizationVisitKey(type);
   if (seen.has(typeKey)) {
     return false;
   }
@@ -209,7 +238,7 @@ const isTransparentFlowAssertion = (
     expression.expression.kind === "memberAccess") &&
   sameSourceSpan(expression, expression.expression);
 
-const invocationTypesEquivalent = (
+export const invocationTypesEquivalent = (
   left: IrType | undefined,
   right: IrType | undefined,
   ctx: ProgramContext
@@ -291,7 +320,7 @@ const containsCompilerGeneratedStructuralCarrier = (
     return false;
   }
 
-  const typeKey = stableIrTypeKey(type);
+  const typeKey = invocationFinalizationVisitKey(type);
   if (seen.has(typeKey)) {
     return false;
   }
@@ -349,7 +378,7 @@ const hasStableNamedTypeIdentity = (
     return false;
   }
 
-  const typeKey = stableIrTypeKey(type);
+  const typeKey = invocationFinalizationVisitKey(type);
   if (seen.has(typeKey)) {
     return false;
   }
@@ -437,10 +466,7 @@ export const shouldPreferExactMemberType = (
       return (
         type.name === "JsValue" ||
         type.name === "object" ||
-        type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-        type.resolvedClrType === "global::Tsonic.Runtime.JsValue" ||
-        type.resolvedClrType === "System.Object" ||
-        type.resolvedClrType === "global::System.Object"
+        referenceTypeHasClrIdentity(type, BROAD_EXACTNESS_LOSER_CLR_NAMES)
       );
     }
 
@@ -634,7 +660,7 @@ export const expandAuthoritativeSourceBackedSurfaceType = (
     return undefined;
   }
 
-  const typeKey = stableIrTypeKey(type);
+  const typeKey = invocationFinalizationVisitKey(type);
   if (seen.has(typeKey)) {
     return type;
   }
@@ -644,13 +670,10 @@ export const expandAuthoritativeSourceBackedSurfaceType = (
   nextSeen.add(typeKey);
   const dedupeTypes = (types: readonly IrType[]): readonly IrType[] => {
     const deduped: IrType[] = [];
-    const memberKeys = new Set<string>();
     for (const candidate of types) {
-      const candidateKey = stableIrTypeKey(candidate);
-      if (memberKeys.has(candidateKey)) {
+      if (deduped.some((existing) => ctx.typeSystem.typesEqual(existing, candidate))) {
         continue;
       }
-      memberKeys.add(candidateKey);
       deduped.push(candidate);
     }
     return deduped;
@@ -671,7 +694,7 @@ export const expandAuthoritativeSourceBackedSurfaceType = (
         .collectExpectedReturnCandidates(type)
         .find(
           (candidate) =>
-            stableIrTypeKey(candidate) !== typeKey &&
+            !ctx.typeSystem.typesEqual(candidate, type) &&
             (candidate.kind === "unionType" ||
               candidate.kind === "intersectionType")
         );
@@ -897,7 +920,13 @@ const mergeTypeSubstitutions = (
       target.set(name, type);
       continue;
     }
-    if (ctx.typeSystem.typesEqual(existing, type)) {
+    const merged = choosePreferredEquivalentInferenceType(
+      ctx.typeSystem,
+      existing,
+      type
+    );
+    if (merged) {
+      target.set(name, merged);
       continue;
     }
     return;
@@ -1248,8 +1277,7 @@ export const finalizeInvocationMetadata = ({
     if (
       !expandedSurfaceType ||
       !originalSurfaceType ||
-      stableIrTypeKey(expandedSurfaceType) ===
-        stableIrTypeKey(originalSurfaceType)
+      ctx.typeSystem.typesEqual(expandedSurfaceType, originalSurfaceType)
     ) {
       return parameterType;
     }

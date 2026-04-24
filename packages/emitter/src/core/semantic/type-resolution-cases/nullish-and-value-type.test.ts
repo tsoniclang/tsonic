@@ -111,7 +111,7 @@ describe("type-resolution", () => {
           },
         ],
         runtimeCarrierFamilyKey:
-          "runtime-union:canonical:prim:string|ref#0:clr:js.RegExp::",
+          "runtime-union:canonical:prim:string|ref:clr:js.RegExp::",
       };
 
       expect(stripNullish(type)).to.equal(type);
@@ -130,14 +130,14 @@ describe("type-resolution", () => {
           { kind: "primitiveType", name: "undefined" },
         ],
         runtimeCarrierFamilyKey:
-          "runtime-union:canonical:prim:string|ref#0:clr:js.RegExp::",
+          "runtime-union:canonical:prim:string|ref:clr:js.RegExp::",
       };
 
       const result = stripNullish(type);
       expect(result.kind).to.equal("unionType");
       expect(
         result.kind === "unionType" ? result.runtimeCarrierFamilyKey : undefined
-      ).to.equal("runtime-union:canonical:prim:string|ref#0:clr:js.RegExp::");
+      ).to.equal("runtime-union:canonical:prim:string|ref:clr:js.RegExp::");
     });
   });
 

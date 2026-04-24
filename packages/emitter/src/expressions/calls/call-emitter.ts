@@ -33,6 +33,7 @@ import {
   identifierType,
 } from "../../core/format/backend-ast/builders.js";
 import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
+import { resolveStructuralViewMethodSurface } from "../../core/semantic/structural-view-types.js";
 // Import from split modules
 import { emitDynamicImportCall } from "./call-dynamic-import.js";
 import { emitJsonSerializerCall, emitGlobalJsonCall } from "./call-json.js";
@@ -87,6 +88,12 @@ const buildCallTargetExpectedType = (
     returnType: expr.inferredType,
   };
 };
+
+const resolveStructuralViewCallParameterTypes = (
+  callee: IrExpression,
+  context: EmitterContext
+): readonly (IrType | undefined)[] | undefined =>
+  resolveStructuralViewMethodSurface(callee, context)?.parameterTypes;
 
 const extractTransparentIdentifier = (
   expr: IrExpression
@@ -570,10 +577,15 @@ export const emitCall = (
     }
   }
 
+  const structuralViewParameterTypes = resolveStructuralViewCallParameterTypes(
+    normalizedExpr.callee,
+    currentContext
+  );
   const [argAsts, argContext] = emitCallArguments(
     normalizedExpr.arguments,
     normalizedExpr,
-    currentContext
+    currentContext,
+    structuralViewParameterTypes
   );
   currentContext = argContext;
 

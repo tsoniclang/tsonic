@@ -17,6 +17,7 @@ import {
   containsVoidTypeAst,
   getTaskResultType,
 } from "./call-promise-task-types.js";
+import { isAssignable } from "../../core/semantic/index.js";
 import {
   callbackParameterCount,
   callbackReturnsAsyncWrapper,
@@ -66,11 +67,13 @@ const containsUnscopedPromiseChainTypeParameter = (
 
 const prefersFrontendPromiseChainResultType = (
   type: IrType | undefined,
+  fallbackType: IrType | undefined,
   context: EmitterContext
 ): type is IrType =>
   !!type &&
   !containsPromiseChainArtifact(type) &&
-  !containsUnscopedPromiseChainTypeParameter(type, context);
+  !containsUnscopedPromiseChainTypeParameter(type, context) &&
+  (fallbackType === undefined || isAssignable(type, fallbackType));
 
 const buildPromiseChainCallbackExpectedType = (
   callbackExpr: IrExpression,
@@ -253,6 +256,7 @@ export const emitPromiseThenCatchFinally = (
     normalizePromiseChainResultIrType(expr.inferredType);
   const preferredPromiseChainResultIr = prefersFrontendPromiseChainResultType(
     normalizedFrontendPromiseChainResultIr,
+    normalizedPromiseChainResultIr,
     currentContext
   )
     ? normalizedFrontendPromiseChainResultIr

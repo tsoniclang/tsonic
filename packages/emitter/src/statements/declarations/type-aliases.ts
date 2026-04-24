@@ -9,6 +9,7 @@ import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { normalizeValueSlotType } from "../../core/semantic/value-slot-types.js";
 import type {
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
@@ -114,7 +115,7 @@ const emitStructuralTypeAlias = (
       // Property type
       const [baseTypeAst, typeContext] = (() => {
         if (member.type) {
-          return emitTypeAst(member.type, currentContext);
+          return emitTypeAst(normalizeValueSlotType(member.type), currentContext);
         }
         const objType: CSharpTypeAst = identifierType("object");
         return [objType, currentContext] as const;

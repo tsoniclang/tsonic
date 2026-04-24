@@ -1,6 +1,6 @@
 import type { IrType, IrPrimitiveType } from "../types/index.js";
 import type { DiagnosticCode } from "../../types/diagnostic.js";
-import { stableIrTypeKey } from "../types/type-ops.js";
+import { stableIrTypeKeyIfDeterministic } from "../types/type-ops.js";
 import type { TypeId } from "./internal/universe/types.js";
 import type { TypeSystemState } from "./type-system-state-model.js";
 import type { Site } from "./type-system-state-types.js";
@@ -43,13 +43,27 @@ export const emitDiagnostic = (
 /**
  * Create a cache key for member type lookup.
  */
+const cacheKeyOpaqueTypeIds = new WeakMap<object, number>();
+let nextCacheKeyOpaqueTypeId = 0;
+
+const cacheTypeArgKey = (type: IrType): string => {
+  const stableKey = stableIrTypeKeyIfDeterministic(type);
+  if (stableKey) return stableKey;
+  const existing = cacheKeyOpaqueTypeIds.get(type);
+  if (existing !== undefined) return `opaque:${existing}`;
+  const next = nextCacheKeyOpaqueTypeId;
+  nextCacheKeyOpaqueTypeId += 1;
+  cacheKeyOpaqueTypeIds.set(type, next);
+  return `opaque:${next}`;
+};
+
 export const makeMemberCacheKey = (
   fqName: string,
   memberName: string,
   typeArgs?: readonly IrType[]
 ): string => {
   if (typeArgs && typeArgs.length > 0) {
-    return `${fqName}:${memberName}:${typeArgs.map(stableIrTypeKey).join(",")}`;
+    return `${fqName}:${memberName}:${typeArgs.map(cacheTypeArgKey).join(",")}`;
   }
   return `${fqName}:${memberName}`;
 };
@@ -62,7 +76,7 @@ export const makeNominalLookupKey = (
   typeArgs: readonly IrType[],
   memberName: string
 ): string => {
-  return `${fqName}:${typeArgs.map(stableIrTypeKey).join(",")}:${memberName}`;
+  return `${fqName}:${typeArgs.map(cacheTypeArgKey).join(",")}:${memberName}`;
 };
 
 // Helper to check if type is null/undefined primitive

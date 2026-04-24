@@ -18,10 +18,11 @@
  * stable regardless of whether moduleMap / typeAliasIndex are populated.
  */
 
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { stripNullish } from "./type-resolution.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-unions.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
 
 /**
  * Discover the semantic union members of a type.
@@ -37,46 +38,50 @@ import { getRuntimeUnionReferenceMembers } from "./runtime-unions.js";
  */
 export const getSemanticUnionMembers = (
   type: IrType,
-  _context: EmitterContext
+  context: EmitterContext
 ): readonly IrType[] | undefined => {
   const stripped = stripNullish(type);
   const members = flattenSemanticUnionMembers(stripped);
   if (members.length < 2) return undefined;
 
-  // Dedup by stable key (same as runtime path)
-  const deduped = new Map<string, IrType>();
+  const deduped: IrType[] = [];
   for (const member of members) {
-    deduped.set(stableIrTypeKey(member), member);
+    if (
+      deduped.some((candidate) =>
+        areIrTypesEquivalent(candidate, member, context)
+      )
+    ) {
+      continue;
+    }
+    deduped.push(member);
   }
 
-  const result = Array.from(deduped.values());
-  return result.length >= 2 ? result : undefined;
+  return deduped.length >= 2 ? deduped : undefined;
 };
 
 /**
  * Find the index of a semantic union member that matches a target type.
  *
- * Uses identity matching (stableIrTypeKey) to find which authored member
- * corresponds to the predicate target. This works because both the union
- * members and the predicate target come from the same frontend IR, so
- * aliases that should match will have the same referenceType key.
+ * Uses context-aware type equivalence to find which authored member
+ * corresponds to the predicate target. This avoids raw-name comparison and
+ * requires deterministic nominal/CLR/structural identity before matching
+ * reference types.
  *
  * Returns the 0-based index, or undefined if no match or multiple matches.
  */
 export const findSemanticUnionMemberIndex = (
   members: readonly IrType[],
   target: IrType,
-  _context: EmitterContext
+  context: EmitterContext
 ): number | undefined => {
-  const targetKey = stableIrTypeKey(stripNullish(target));
+  const strippedTarget = stripNullish(target);
   const matches: number[] = [];
 
   for (let i = 0; i < members.length; i += 1) {
     const member = members[i];
     if (!member) continue;
 
-    // Direct key match
-    if (stableIrTypeKey(member) === targetKey) {
+    if (areIrTypesEquivalent(member, strippedTarget, context)) {
       matches.push(i);
       continue;
     }
@@ -84,13 +89,10 @@ export const findSemanticUnionMemberIndex = (
     // If the target is a union and any of its non-nullish members match
     // this member, count it (handles `value is PathSpec` where PathSpec
     // might appear as a direct member)
-    const strippedTarget = stripNullish(target);
     if (strippedTarget.kind === "unionType") {
       const targetMembers = flattenSemanticUnionMembers(strippedTarget);
       if (
-        targetMembers.some(
-          (t) => stableIrTypeKey(t) === stableIrTypeKey(member)
-        )
+        targetMembers.some((t) => areIrTypesEquivalent(t, member, context))
       ) {
         matches.push(i);
         continue;
@@ -100,7 +102,11 @@ export const findSemanticUnionMemberIndex = (
     // If the member is a union and the target matches one of its members
     if (member.kind === "unionType") {
       const memberMembers = flattenSemanticUnionMembers(member);
-      if (memberMembers.some((m) => stableIrTypeKey(m) === targetKey)) {
+      if (
+        memberMembers.some((m) =>
+          areIrTypesEquivalent(m, strippedTarget, context)
+        )
+      ) {
         matches.push(i);
         continue;
       }

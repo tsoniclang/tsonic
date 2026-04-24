@@ -801,6 +801,72 @@ describe("IR Builder", function () {
       }
     });
 
+    it("threads expected return generic context into local structural alias call inference", () => {
+      const source = `
+        type Ok<T> = { success: true; data: T };
+        type Err<E> = { success: false; error: E };
+        type Result<T, E> = Ok<T> | Err<E>;
+
+        function ok<T>(data: T): Ok<T> {
+          return { success: true, data };
+        }
+
+        type Payload = {
+          foundAnchor: boolean;
+          foundNewest: boolean;
+          foundOldest: boolean;
+        };
+
+        export function run(anchor: string): Result<Payload, string> {
+          const foundAnchor = anchor !== "newest" && anchor !== "oldest";
+          const foundNewest = anchor === "newest";
+          const foundOldest = anchor === "oldest";
+          return ok({ foundAnchor, foundNewest, foundOldest });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const retStmt = run.body.statements.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+          stmt.kind === "returnStatement"
+      );
+      expect(retStmt?.expression?.kind).to.equal("call");
+      if (!retStmt?.expression || retStmt.expression.kind !== "call") return;
+
+      expect(retStmt.expression.inferredType?.kind).to.equal("referenceType");
+      if (retStmt.expression.inferredType?.kind === "referenceType") {
+        expect(retStmt.expression.inferredType.name).to.equal("Ok");
+        expect(
+          retStmt.expression.inferredType.typeArguments?.[0]
+        ).to.deep.include({
+          kind: "referenceType",
+          name: "Payload",
+        });
+      }
+
+      const arg0 = retStmt.expression.arguments[0];
+      expect(arg0?.kind).to.equal("object");
+      if (!arg0 || arg0.kind !== "object") return;
+      expect(arg0.inferredType?.kind).to.equal("referenceType");
+      if (arg0.inferredType?.kind === "referenceType") {
+        expect(arg0.inferredType.name).to.equal("Payload");
+      }
+    });
+
     it("threads expected return generic context through async Promise wrappers", () => {
       const source = `
         type Ok<T> = { success: true; data: T };

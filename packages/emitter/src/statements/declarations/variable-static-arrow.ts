@@ -327,6 +327,7 @@ export const emitStaticArrowFieldMembers = (
 
   // __Impl method: private static ReturnType implName(params) { ... }
   const methodParams: CSharpParameterAst[] = [];
+  const bodyParameterAcceptsExplicitUndefined: boolean[] = [];
   let paramCtx = currentContext;
   for (let i = 0; i < arrowFunc.parameters.length; i++) {
     const param = arrowFunc.parameters[i];
@@ -344,6 +345,8 @@ export const emitStaticArrowFieldMembers = (
     const emittedParamType: CSharpTypeAst = param.isOptional
       ? { kind: "nullableType", underlyingType: mTypeAst }
       : mTypeAst;
+    bodyParameterAcceptsExplicitUndefined[i] =
+      emittedParamType.kind === "nullableType";
     methodParams.push({
       name: paramName,
       type: emittedParamType,
@@ -378,7 +381,8 @@ export const emitStaticArrowFieldMembers = (
 
   const bodyBaseContext = seedLocalNameMapFromParameters(
     arrowFunc.parameters,
-    withAsync(withStatic(indent(paramCtx), false), arrowFunc.isAsync)
+    withAsync(withStatic(indent(paramCtx), false), arrowFunc.isAsync),
+    bodyParameterAcceptsExplicitUndefined
   );
 
   const bodyReturnType = getAsyncBodyReturnType(

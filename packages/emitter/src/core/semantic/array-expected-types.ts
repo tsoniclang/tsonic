@@ -7,7 +7,69 @@ import {
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "./type-resolution.js";
-import { stableIrTypeKey } from "@tsonic/frontend";
+import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+
+const collectArrayLiteralContextCandidates = (
+  type: IrType,
+  context: EmitterContext,
+  visited: Set<string> = new Set<string>()
+): readonly IrType[] => {
+  const stripped = stripNullish(type);
+  const visitKey = getContextualTypeVisitKey(stripped, context);
+  if (visited.has(visitKey)) {
+    return [];
+  }
+  visited.add(visitKey);
+
+  if (getArrayLikeElementType(stripped, context) !== undefined) {
+    return [stripped];
+  }
+
+  const resolved = resolveTypeAlias(stripped, context);
+  if (resolved.kind === "tupleType") {
+    return [stripped];
+  }
+
+  if (resolved.kind !== "unionType") {
+    return [];
+  }
+
+  return resolved.types.flatMap((member) =>
+    collectArrayLiteralContextCandidates(member, context, visited)
+  );
+};
+
+const getUniqueArrayLiteralContextCandidates = (
+  expectedType: IrType,
+  context: EmitterContext
+): readonly IrType[] => {
+  const strippedExpected = stripNullish(expectedType);
+  const resolvedExpected = resolveTypeAlias(strippedExpected, context);
+  if (resolvedExpected.kind !== "unionType") {
+    return collectArrayLiteralContextCandidates(strippedExpected, context);
+  }
+
+  const runtimeArrayLikeMembers =
+    getCanonicalRuntimeUnionMembers(strippedExpected, context)?.flatMap(
+      (member) => collectArrayLiteralContextCandidates(member, context)
+    ) ?? [];
+  const sourceArrayLikeMembers = resolvedExpected.types.flatMap((member) =>
+    collectArrayLiteralContextCandidates(member, context)
+  );
+  const arrayLikeMembers =
+    runtimeArrayLikeMembers.length > 0
+      ? runtimeArrayLikeMembers
+      : sourceArrayLikeMembers;
+
+  return Array.from(
+    new Map(
+      arrayLikeMembers.map(
+        (member) => [getContextualTypeVisitKey(member, context), member] as const
+      )
+    ).values()
+  );
+};
 
 export const resolveArrayLiteralContextType = (
   expectedType: IrType | undefined,
@@ -21,45 +83,9 @@ export const resolveArrayLiteralContextType = (
     return strippedExpected;
   }
 
-  const collectArrayLiteralContextCandidates = (
-    type: IrType,
-    visited: Set<string> = new Set<string>()
-  ): readonly IrType[] => {
-    const stripped = stripNullish(type);
-    const visitKey = stableIrTypeKey(stripped);
-    if (visited.has(visitKey)) {
-      return [];
-    }
-    visited.add(visitKey);
-
-    if (getArrayLikeElementType(stripped, context) !== undefined) {
-      return [stripped];
-    }
-
-    const resolved = resolveTypeAlias(stripped, context);
-    if (resolved.kind === "tupleType") {
-      return [stripped];
-    }
-
-    if (resolved.kind !== "unionType") {
-      return [];
-    }
-
-    return resolved.types.flatMap((member) =>
-      collectArrayLiteralContextCandidates(member, visited)
-    );
-  };
-
-  const arrayLikeMembers = resolvedExpected.types.flatMap((member) =>
-    collectArrayLiteralContextCandidates(member)
-  );
-
-  const uniqueArrayLikeMembers = Array.from(
-    new Map(
-      arrayLikeMembers.map(
-        (member) => [stableIrTypeKey(member), member] as const
-      )
-    ).values()
+  const uniqueArrayLikeMembers = getUniqueArrayLiteralContextCandidates(
+    strippedExpected,
+    context
   );
 
   if (uniqueArrayLikeMembers.length === 1) {
@@ -76,6 +102,26 @@ export const resolveArrayLiteralContextType = (
   }
 
   return strippedExpected;
+};
+
+export const resolveEmptyArrayLiteralContextType = (
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!expectedType) {
+    return undefined;
+  }
+
+  const arrayLikeMembers = getUniqueArrayLiteralContextCandidates(
+    expectedType,
+    context
+  );
+  const concreteArrayMembers = arrayLikeMembers.filter(
+    (member): member is Extract<IrType, { kind: "arrayType" }> =>
+      resolveTypeAlias(stripNullish(member), context).kind === "arrayType"
+  );
+
+  return concreteArrayMembers[0] ?? arrayLikeMembers[0];
 };
 
 export const normalizeRecursiveArrayExpectedType = (

@@ -230,23 +230,84 @@ export const clrTypeNameToTypeAst = (clrName: string): CSharpTypeAst => {
       };
 };
 
+const PREDEFINED_CLR_TYPE_KEYS: ReadonlyMap<string, string> = new Map([
+  ["bool", "System.Boolean/0"],
+  ["byte", "System.Byte/0"],
+  ["sbyte", "System.SByte/0"],
+  ["short", "System.Int16/0"],
+  ["ushort", "System.UInt16/0"],
+  ["int", "System.Int32/0"],
+  ["uint", "System.UInt32/0"],
+  ["long", "System.Int64/0"],
+  ["ulong", "System.UInt64/0"],
+  ["nint", "System.IntPtr/0"],
+  ["nuint", "System.UIntPtr/0"],
+  ["float", "System.Single/0"],
+  ["double", "System.Double/0"],
+  ["decimal", "System.Decimal/0"],
+  ["char", "System.Char/0"],
+  ["string", "System.String/0"],
+  ["object", "System.Object/0"],
+  ["void", "System.Void/0"],
+]);
+
+const SYSTEM_CLR_TYPE_ALIASES: ReadonlyMap<string, string> = new Map([
+  ["System.Boolean", "System.Boolean/0"],
+  ["System.Byte", "System.Byte/0"],
+  ["System.SByte", "System.SByte/0"],
+  ["System.Int16", "System.Int16/0"],
+  ["System.UInt16", "System.UInt16/0"],
+  ["System.Int32", "System.Int32/0"],
+  ["System.UInt32", "System.UInt32/0"],
+  ["System.Int64", "System.Int64/0"],
+  ["System.UInt64", "System.UInt64/0"],
+  ["System.IntPtr", "System.IntPtr/0"],
+  ["System.UIntPtr", "System.UIntPtr/0"],
+  ["System.Single", "System.Single/0"],
+  ["System.Double", "System.Double/0"],
+  ["System.Decimal", "System.Decimal/0"],
+  ["System.Char", "System.Char/0"],
+  ["System.String", "System.String/0"],
+  ["System.Object", "System.Object/0"],
+  ["System.Void", "System.Void/0"],
+]);
+
+const canonicalNamedTypeKey = (
+  name: string,
+  typeArguments: readonly CSharpTypeAst[] | undefined
+): string => {
+  const body = name.startsWith("global::")
+    ? name.slice("global::".length)
+    : name;
+  const arityMatch = /^(.*)`([0-9]+)$/.exec(body);
+  const baseName = arityMatch?.[1] ?? body;
+  const metadataArity =
+    arityMatch?.[2] !== undefined ? Number(arityMatch[2]) : undefined;
+  const argumentKeys = (typeArguments ?? []).map(stableTypeKeyFromAst);
+  const arity = metadataArity ?? argumentKeys.length;
+
+  if (argumentKeys.length === 0) {
+    const systemAlias = SYSTEM_CLR_TYPE_ALIASES.get(baseName);
+    if (systemAlias) {
+      return `clr:${systemAlias}`;
+    }
+  }
+
+  return `named:${baseName}/${arity}<${argumentKeys.join(",")}>`;
+};
+
 export const stableTypeKeyFromAst = (type: CSharpTypeAst): string => {
   switch (type.kind) {
     case "predefinedType":
-      return `predefined:${type.keyword}`;
+      return `clr:${PREDEFINED_CLR_TYPE_KEYS.get(type.keyword) ?? type.keyword}`;
     case "identifierType": {
-      const args =
-        type.typeArguments && type.typeArguments.length > 0
-          ? `<${type.typeArguments.map(stableTypeKeyFromAst).join(",")}>`
-          : "";
-      return `identifier:${type.name}${args}`;
+      return canonicalNamedTypeKey(type.name, type.typeArguments);
     }
     case "qualifiedIdentifierType": {
-      const args =
-        type.typeArguments && type.typeArguments.length > 0
-          ? `<${type.typeArguments.map(stableTypeKeyFromAst).join(",")}>`
-          : "";
-      return `qualifiedIdentifier:${qualifiedNameToString(type.name)}${args}`;
+      return canonicalNamedTypeKey(
+        qualifiedNameToString(type.name),
+        type.typeArguments
+      );
     }
     case "nullableType":
       return `nullable:${stableTypeKeyFromAst(

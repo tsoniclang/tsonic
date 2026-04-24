@@ -35,6 +35,83 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("materializes source-package structural local arguments to callee parameter types", () => {
+      const packageExports = {
+        ".": "./src/index.ts",
+        "./index.js": "./src/index.ts",
+        "./Jotster.Presence.js": "./src/index.ts",
+      };
+      const csharp = compileProjectToCSharp(
+        {
+          "src/handler.ts": `
+            import { updatePresenceDomain } from "@fixture/presence/Jotster.Presence.js";
+
+            export function run(status: string, client?: string): string {
+              const input = {
+                status,
+                client,
+                pingOnly: false,
+                slimPresence: undefined,
+                historyLimitDays: undefined,
+                lastUpdateId: undefined,
+              };
+
+              return updatePresenceDomain(input);
+            }
+          `,
+          "node_modules/@fixture/presence/package.json": JSON.stringify(
+            {
+              name: "@fixture/presence",
+              version: "1.0.0",
+              type: "module",
+              exports: packageExports,
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/presence/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "Fixture.Presence",
+                exports: packageExports,
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/presence/src/index.ts": `
+            export { updatePresenceDomain } from "./domain/update-presence-domain.ts";
+          `,
+          "node_modules/@fixture/presence/src/domain/update-presence-domain.ts": `
+            interface UpdatePresenceParams {
+              status: string;
+              client?: string;
+              pingOnly?: boolean;
+              slimPresence?: boolean;
+              historyLimitDays?: number;
+              lastUpdateId?: number;
+            }
+
+            export function updatePresenceDomain(params: UpdatePresenceParams): string {
+              return params.client ?? params.status;
+            }
+          `,
+        },
+        "src/handler.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.match(
+        /updatePresenceDomain\(new global::Fixture\.Presence\.domain\.UpdatePresenceParams\s*\{\s*status = input\.status,\s*client = input\.client,\s*pingOnly = input\.pingOnly,\s*slimPresence = input\.slimPresence,\s*historyLimitDays = input\.historyLimitDays,\s*lastUpdateId = input\.lastUpdateId\s*\}\)/
+      );
+      expect(csharp).not.to.include(
+        "(global::Fixture.Presence.domain.UpdatePresenceParams)(object)input"
+      );
+    });
+
     it("uses runtime equality for JsValue-vs-boolean strict comparisons", () => {
       const source = `
         export function hasSubdomain(body: Record<string, JsValue>): boolean {
@@ -218,6 +295,34 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("materializes local structural alias arguments through generic result helpers", () => {
+      const csharp = compileToCSharp(`
+        type Ok<T> = { success: true; data: T };
+        type Err<E> = { success: false; error: E };
+        type Result<T, E> = Ok<T> | Err<E>;
+
+        declare function ok<T>(data: T): Ok<T>;
+
+        type Payload = {
+          foundAnchor: boolean;
+          foundNewest: boolean;
+          foundOldest: boolean;
+        };
+
+        export function run(anchor: string): Result<Payload, string> {
+          const foundAnchor = anchor !== "newest" && anchor !== "oldest";
+          const foundNewest = anchor === "newest";
+          const foundOldest = anchor === "oldest";
+          return ok({ foundAnchor, foundNewest, foundOldest });
+        }
+      `);
+
+      expect(csharp).to.include(
+        "Result<Payload__Alias, string>.From2(ok(new Payload__Alias"
+      );
+      expect(csharp).not.to.include("From2(ok(new global::Test.__Anon_");
+    });
+
     it("preserves instanceof catch narrowing across conditional fallbacks", () => {
       const csharp = compileToCSharp(
         `
@@ -251,6 +356,37 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).not.to.include(
         'error is global::js.Error ? (object?)(global::js.Error)error : new global::js.Error("sendFile failed")'
+      );
+      expect(csharp).to.include('return resolved.message;');
+      expect(csharp).not.to.include('((object?)resolved).message');
+    });
+
+    it("materializes proof-narrowed conditional identifiers before nullable object slots", () => {
+      const csharp = compileToCSharp(
+        `
+          type Result = { error: Error | undefined };
+
+          export function run(error: object): Result {
+            const result: Result = { error: undefined };
+            result.error =
+              error instanceof Error ? error : new Error("sendFile failed");
+            return result;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        'result.error = error is global::js.Error ? (global::js.Error)error : new global::js.Error("sendFile failed");'
+      );
+      expect(csharp).not.to.include(
+        'result.error = error is global::js.Error ? error : new global::js.Error("sendFile failed");'
+      );
+      expect(csharp).not.to.include(
+        'result.error = error is global::js.Error ? (object?)(global::js.Error)error : new global::js.Error("sendFile failed");'
       );
     });
 
@@ -858,6 +994,77 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         'new global::js.RangeError { name = "Alice" }'
       );
+    });
+
+    it("lowers anonymous object type arguments retained in constructor source metadata", () => {
+      const csharp = compileToCSharp(`
+        import type { long } from "@tsonic/core/types.js";
+        import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+
+        export function run(userId: long, email: string): long {
+          const targetUsers = new List<{ id: long; email: string }>();
+          targetUsers.Add({ id: userId, email });
+          const target = targetUsers[0];
+          return target.id;
+        }
+      `);
+
+      expect(csharp).to.match(
+        /new global::System\.Collections\.Generic\.List<global::Test\.__Anon_[A-Za-z0-9_]+>\(\)/
+      );
+      expect(csharp).to.match(
+        /targetUsers\.Add\(new global::Test\.__Anon_[A-Za-z0-9_]+ \{ id = userId, email = email \}\);/
+      );
+      expect(csharp).not.to.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+    });
+
+    it("resolves emitted structural alias storage names during CLR member materialization", () => {
+      const csharp = compileToCSharp(`
+        import type { JsValue } from "@tsonic/core/types.js";
+        import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+
+        type NarrowFilter = {
+          op: string;
+          value: JsValue | undefined;
+          negated?: boolean;
+        };
+
+        declare function getObjectField(value: JsValue, key: string): JsValue | undefined;
+
+        export function parse(entries: JsValue[]): NarrowFilter[] | undefined {
+          const filters = new List<NarrowFilter>();
+          for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i]!;
+            if (Array.isArray(entry)) {
+              const tuple = entry as JsValue[];
+              const filter: NarrowFilter = {
+                op: tuple[0] as string,
+                value: tuple[1],
+              };
+              filters.Add(filter);
+              continue;
+            }
+
+            const filter: NarrowFilter = {
+              op: "operator",
+              value: getObjectField(entry, "operand"),
+              negated: getObjectField(entry, "negated") === true,
+            };
+            filters.Add(filter);
+          }
+          return filters.ToArray();
+        }
+      `);
+
+      expect(csharp).to.include("class NarrowFilter__Alias");
+      expect(csharp).to.include(
+        "new global::System.Collections.Generic.List<NarrowFilter__Alias>()"
+      );
+      expect(csharp).to.include("filters.Add(filter);");
+      expect(csharp).to.include("return filters.ToArray();");
+      expect(csharp).not.to.include("ICE: Unresolved reference type");
     });
 
     it("reuses structural alias carrier members in typeof checks over boolean unions", () => {
@@ -1713,6 +1920,367 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("?? 0");
     });
 
+    it("keeps local safe-read numerics aligned with their emitted storage", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          class Settings {
+            Count: int = 0;
+          }
+
+          export function run(
+            updates: Record<string, int>,
+            keys: string[],
+          ): Settings {
+            const settings = new Settings();
+            for (let i = 0; i < keys.length; i++) {
+              const value = updates[keys[i]];
+              settings.Count = value;
+            }
+            return settings;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "ContainsKey(__tsonic_key) ? __tsonic_dict[__tsonic_key] : default"
+      );
+      expect(csharp).to.include("var value = ((global::System.Func<int>)(() =>");
+      expect(csharp).not.to.include("settings.Count = value.Value;");
+    });
+
+    it("reuses exact union-returning safe dictionary reads without rematerializing them", () => {
+      const csharp = compileToCSharp(
+        `
+          function normalizeHeaderValue(
+            value: string | readonly string[] | undefined,
+          ): string | undefined {
+            if (value === undefined) {
+              return undefined;
+            }
+            if (typeof value === "string") {
+              return value;
+            }
+            return value.join(", ");
+          }
+
+          export function run(
+            requestHeaders: Record<string, string | readonly string[] | undefined>,
+          ): Record<string, string> {
+            const headers: Record<string, string> = {};
+            for (const key in requestHeaders) {
+              const headerValue = normalizeHeaderValue(requestHeaders[key]);
+              if (headerValue !== undefined) {
+                headers[key] = headerValue;
+              }
+            }
+            return headers;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "var headerValue = normalizeHeaderValue(((global::System.Func<global::Tsonic.Internal.Union<string[], string>?>)(() =>"
+      );
+      expect(csharp).not.to.include(
+        "var headerValue = normalizeHeaderValue(((global::System.Object)(((global::System.Object)"
+      );
+    });
+
+    it("prefers contextual union surfaces for local safe dictionary reads", () => {
+      const csharp = compileToCSharp(
+        `
+          import { asinterface } from "@tsonic/core/lang.js";
+          import type { JsValue } from "@tsonic/core/types.js";
+
+          interface RequestWithHeadersLookup {
+            headers: Record<string, string | readonly string[] | undefined>;
+          }
+
+          function normalizeHeaderValue(
+            value: string | readonly string[] | undefined,
+          ): string | undefined {
+            if (value === undefined) {
+              return undefined;
+            }
+            if (typeof value === "string") {
+              return value;
+            }
+            return value.join(", ");
+          }
+
+          export function run(request: JsValue): Record<string, string> {
+            const headers: Record<string, string> = {};
+            const requestHeaders = asinterface<RequestWithHeadersLookup>(request).headers;
+            for (const key in requestHeaders) {
+              const headerValue = normalizeHeaderValue(requestHeaders[key]);
+              if (headerValue !== undefined) {
+                headers[key] = headerValue;
+              }
+            }
+            return headers;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "var headerValue = normalizeHeaderValue(((global::System.Func<global::Tsonic.Internal.Union<string[], string>?>)(() =>"
+      );
+      expect(csharp).not.to.include(
+        "((global::System.Func<string?>)(() =>"
+      );
+      expect(csharp).not.to.include(
+        "var headerValue = normalizeHeaderValue(((global::System.Object)(((global::System.Object)"
+      );
+    });
+
+    it("keeps source-package adapted dictionary locals on union safe-read surfaces", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "package.json": JSON.stringify(
+            { name: "emitter-test-project", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "src/index.ts": [
+            "import { asinterface } from \"@tsonic/core/lang.js\";",
+            "import type { IncomingMessage } from \"@fixture/http/index.js\";",
+            "",
+            "interface RequestWithHeadersLookup {",
+            "  headers: Record<string, string | readonly string[] | undefined>;",
+            "}",
+            "",
+            "function normalizeHeaderValue(",
+            "  value: string | readonly string[] | undefined,",
+            "): string | undefined {",
+            "  if (value === undefined) {",
+            "    return undefined;",
+            "  }",
+            "  if (typeof value === \"string\") {",
+            "    return value;",
+            "  }",
+            "  return value.join(\", \");",
+            "}",
+            "",
+            "export function run(request: IncomingMessage): Record<string, string> {",
+            "  const headers: Record<string, string> = {};",
+            "  const requestHeaders = asinterface<RequestWithHeadersLookup>(request).headers;",
+            "  for (const key in requestHeaders) {",
+            "    const headerValue = normalizeHeaderValue(requestHeaders[key]);",
+            "    if (headerValue !== undefined) {",
+            "      headers[key] = headerValue;",
+            "    }",
+            "  }",
+            "  return headers;",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/http/package.json": JSON.stringify(
+            {
+              name: "@fixture/http",
+              version: "1.0.0",
+              type: "module",
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/http/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "Fixture.Http",
+                exports: {
+                  ".": "./src/index.ts",
+                  "./index.js": "./src/index.ts",
+                },
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/http/src/index.ts": [
+            "export class IncomingMessage {",
+            "  headers: Record<string, string> = {};",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "var requestHeaders = global::System.Linq.Enumerable.ToDictionary(request.headers, kvp => kvp.Key, kvp => global::Tsonic.Internal.Union"
+      );
+      expect(csharp).to.include(
+        "var headerValue = normalizeHeaderValue(((global::System.Func<global::Tsonic.Internal.Union"
+      );
+      expect(csharp).not.to.include("((global::System.Func<string?>)(() =>");
+    });
+
+    it("wraps int-valued returns into JS-number union members", () => {
+      const csharp = compileToCSharp(
+        [
+          "import type { int } from \"@tsonic/core/types.js\";",
+          "",
+          "class ParsedRangeResult {}",
+          "",
+          "export function run(",
+          "  shouldReturnCode: boolean,",
+          "  code: int,",
+          "): ParsedRangeResult | number {",
+          "  if (shouldReturnCode) {",
+          "    return code;",
+          "  }",
+          "",
+          "  return new ParsedRangeResult();",
+          "}",
+        ].join("\n"),
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "public static global::Tsonic.Internal.Union<double, global::Test.ParsedRangeResult> run"
+      );
+      expect(csharp).to.include(
+        "return global::Tsonic.Internal.Union<double, global::Test.ParsedRangeResult>.From1((double)code);"
+      );
+      expect(csharp).not.to.include("return code;");
+    });
+
+    it("wraps int literals into JS-number union members", () => {
+      const csharp = compileToCSharp(
+        [
+          "class ParsedRangeResult {}",
+          "",
+          "export function run(",
+          "  shouldReturnCode: boolean,",
+          "): ParsedRangeResult | number {",
+          "  if (shouldReturnCode) {",
+          "    return -2;",
+          "  }",
+          "",
+          "  return new ParsedRangeResult();",
+          "}",
+        ].join("\n"),
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "public static global::Tsonic.Internal.Union<double, global::Test.ParsedRangeResult> run"
+      );
+      expect(csharp).to.include(
+        "return global::Tsonic.Internal.Union<double, global::Test.ParsedRangeResult>.From1(-2);"
+      );
+      expect(csharp).not.to.include("return -2;");
+    });
+
+    it("keeps value-type union arms from matching structural object arms", () => {
+      const csharp = compileToCSharp(
+        [
+          "class ParsedByteRange {",
+          "  start: number;",
+          "  end: number;",
+          "",
+          "  constructor(start: number, end: number) {",
+          "    this.start = start;",
+          "    this.end = end;",
+          "  }",
+          "}",
+          "",
+          "class ParsedRangeResult {",
+          "  type: string;",
+          "  ranges: ParsedByteRange[];",
+          "",
+          "  constructor(type: string, ranges: ParsedByteRange[]) {",
+          "    this.type = type;",
+          "    this.ranges = ranges;",
+          "  }",
+          "}",
+          "",
+          "export function range(",
+          "  header: string | undefined,",
+          "  size: number,",
+          "): ParsedRangeResult | number {",
+          "  if (!header) {",
+          "    return -2;",
+          "  }",
+          "",
+          "  if (size <= 0) {",
+          "    return -1;",
+          "  }",
+          "",
+          "  return new ParsedRangeResult(\"bytes\", []);",
+          "}",
+        ].join("\n"),
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "public static global::Tsonic.Internal.Union<double, global::Test.ParsedRangeResult> range"
+      );
+      expect(csharp).to.include(
+        "return global::Tsonic.Internal.Union<double, global::Test.ParsedRangeResult>.From1(-2);"
+      );
+      expect(csharp).to.include(
+        "return global::Tsonic.Internal.Union<double, global::Test.ParsedRangeResult>.From1(-1);"
+      );
+      const rangeMethodStart = csharp.indexOf(
+        "public static global::Tsonic.Internal.Union<double, global::Test.ParsedRangeResult> range"
+      );
+      const rangeMethodEnd = csharp.indexOf("\n        }\n", rangeMethodStart);
+      const rangeMethod = csharp.slice(rangeMethodStart, rangeMethodEnd);
+
+      expect(rangeMethod).not.to.include("return -2;");
+      expect(rangeMethod).not.to.include("return -1;");
+    });
+
+    it("passes CLR ref-like generic locals without object bridge casts", () => {
+      const csharp = compileToCSharp(
+        [
+          'import type { int } from "@tsonic/core/types.js";',
+          'import { Span } from "@tsonic/dotnet/System.js";',
+          "",
+          "function processInChunks(span: Span<int>, chunkSize: int): void {",
+          "  const chunk = span.Slice(0, chunkSize);",
+          "}",
+          "",
+          "export function run(numbers: int[], dest: int[]): void {",
+          "  const span = new Span<int>(numbers);",
+          "  processInChunks(span, 3);",
+          "  const destSpan = new Span<int>(dest);",
+          "  span.CopyTo(destSpan);",
+          "}",
+        ].join("\n"),
+        "/test/App.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("processInChunks(span, 3);");
+      expect(csharp).to.include("span.CopyTo(destSpan);");
+      expect(csharp).not.to.include("(object)span");
+      expect(csharp).not.to.include("(object)destSpan");
+    });
     it("keeps JsValue spread-array conditionals on object arrays instead of numeric unions", () => {
       const csharp = compileToCSharp(`
         declare function inspect(value: JsValue): string;
@@ -1861,6 +2429,51 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(".Match<object[]>(");
     });
 
+    it("wraps recursive middleware rest arrays through nested alias-owned union arms", () => {
+      const csharp = compileToCSharp(
+        `
+          type NextControl = "route" | "router" | string | null | undefined;
+          type NextFunction = (value?: NextControl) => void | Promise<void>;
+          interface Request { path: string; }
+          interface Response { send(text: string): void; }
+          interface RequestHandler {
+            (req: Request, res: Response, next: NextFunction): void | Promise<void>;
+          }
+          type MiddlewareParam = RequestHandler | readonly MiddlewareParam[];
+          type MiddlewareLike = MiddlewareParam | Router | readonly MiddlewareLike[];
+
+          class Router {
+            use(...handlers: readonly MiddlewareLike[]): this {
+              return this;
+            }
+          }
+
+          class Application extends Router {
+            mount(path: string, ...handlers: readonly MiddlewareLike[]): this {
+              const state = { path, handlers, owner: this };
+              this.use(handlers);
+              return state.owner;
+            }
+          }
+
+          export function main(): Application {
+            const app = new Application();
+            const handler: RequestHandler = async (_req, _res, next) => {
+              await next("route");
+            };
+            return app.mount("/", [handler]);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        'return app.mount("/", global::Test.MiddlewareLike.From1(new global::Test.MiddlewareLike[] { global::Test.MiddlewareLike.From2(global::Test.MiddlewareParam.From2(handler)) }));'
+      );
+      expect(csharp).not.to.include("global::Test.MiddlewareLike.From3(handler)");
+    });
+
     it("packs rest arrays for local function values inferred from call results", () => {
       const csharp = compileToCSharp(`
         type DebugLogFunction = (message: string, ...args: JsValue[]) => void;
@@ -1979,7 +2592,13 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("isErrorHandler(");
       expect(csharp).to.include(
-        ".As2())).Match<global::System.Func<Request__Alias, Response__Alias, global::System.Func<string?, global::System.Threading.Tasks.Task?>, global::Tsonic.Internal.Union<global::System.Threading.Tasks.Task<object?>, object?>>>("
+        "MiddlewareHandler From1(global::System.Func<object?, Request__Alias, Response__Alias"
+      );
+      expect(csharp).to.include(
+        "MiddlewareHandler From2(global::System.Func<Request__Alias, Response__Alias"
+      );
+      expect(csharp).to.include(
+        ".As2())(request, response, next).Match("
       );
       expect(csharp).to.include(
         ".As1())(error, request, response, next).Match("
@@ -2353,11 +2972,99 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("new global::Test.Uint8Array(");
       expect(csharp).to.include(
-        ".From2(global::js.TypedArrayInput<byte[], global::System.Collections.Generic.IEnumerable<double>>.From1(parameters.Modulus))"
+        ".From2(global::js.TypedArrayInput<byte>.From1(parameters.Modulus))"
       );
       expect(csharp).not.to.include(
         "new global::Test.Uint8Array((global::js.TypedArrayConstructorInput"
       );
+    });
+
+    it("rewraps imported source-package typed-array constructor arguments through nested alias arms", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/index.ts": `
+            import type { byte } from "@tsonic/core/types.js";
+            import { Uint8Array } from "@tsonic/js/index.js";
+
+            class Parameters {
+              public Modulus: byte[] | null = null;
+            }
+
+            export function run(parameters: Parameters): Uint8Array {
+              if (parameters.Modulus === null || parameters.Modulus === undefined) {
+                throw new Error("missing");
+              }
+
+              return new Uint8Array(parameters.Modulus);
+            }
+          `,
+        },
+        "src/index.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include("new global::js.Uint8Array(");
+      expect(csharp).to.include(
+        ".From2(global::js.TypedArrayInput<byte>.From1(parameters.Modulus))"
+      );
+      expect(csharp).not.to.include(
+        "new global::js.Uint8Array((global::js.TypedArrayConstructorInput"
+      );
+    });
+
+    it("materializes source-owned alias carriers before passing them to inline union base constructors", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/typed-array-core.ts": `
+            import type { int } from "@tsonic/core/types.js";
+
+            export type TypedArrayInput<TElement extends number> =
+              | readonly TElement[]
+              | Iterable<number>;
+
+            export type TypedArrayConstructorInput<TElement extends number> =
+              | int
+              | TypedArrayInput<TElement>;
+
+            export class TypedArrayBase<TElement extends number> {
+              protected constructor(lengthOrValues: int | TypedArrayInput<TElement>) {
+                void lengthOrValues;
+              }
+            }
+
+            export class Uint8Array extends TypedArrayBase<number> {
+              public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+                super(lengthOrValues);
+              }
+            }
+          `,
+          "src/index.ts": `
+            import { Uint8Array } from "./typed-array-core.js";
+
+            export function run(length: number): Uint8Array {
+              return new Uint8Array(length);
+            }
+          `,
+        },
+        "src/index.ts",
+        {
+          surface: "@tsonic/js",
+        },
+        {
+          sourceRootRelativePath: "src",
+          rootNamespace: "Test",
+        }
+      );
+
+      expect(csharp).to.include(
+        ": base(lengthOrValues.Match<global::Tsonic.Internal.Union"
+      );
+      expect(csharp).to.include(".From1(__tsonic_union_member_1)");
+      expect(csharp).to.include(".From2(__tsonic_union_member_2)");
+      expect(csharp).not.to.include("lengthOrValues.Match<object>");
+      expect(csharp).not.to.include("Unreachable runtime union reification path");
     });
 
     it("lowers Uint8Array.set array literals through byte arrays", () => {
@@ -2437,6 +3144,75 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("projects typeof-excluded call arguments onto the surviving runtime-union subset", () => {
+      const csharp = normalizeRuntimeUnionCarrierNames(
+        compileProjectToCSharp(
+          {
+            "src/index.ts": `
+              import { Uint8Array } from "@fixture/js/index.js";
+
+              export class Buffer {
+                static fromString(_value: string, _encoding?: string): Buffer {
+                  return new Buffer();
+                }
+
+                static fromNonString(_value: number[] | Buffer | Uint8Array): Buffer {
+                  return new Buffer();
+                }
+
+                static from(
+                  value: string | number[] | Buffer | Uint8Array,
+                  encodingOrOffset?: string | number,
+                ): Buffer {
+                  if (typeof value === "string") {
+                    return Buffer.fromString(
+                      value,
+                      typeof encodingOrOffset === "string" ? encodingOrOffset : "utf8",
+                    );
+                  }
+
+                  return Buffer.fromNonString(value);
+                }
+              }
+            `,
+            "node_modules/@fixture/js/package.json": JSON.stringify(
+              { name: "@fixture/js", version: "1.0.0", type: "module" },
+              null,
+              2
+            ),
+            "node_modules/@fixture/js/tsonic.package.json": JSON.stringify(
+              {
+                schemaVersion: 1,
+                kind: "tsonic-source-package",
+                surfaces: ["@tsonic/js"],
+                source: {
+                  namespace: "fixturejs",
+                  exports: {
+                    "./index.js": "./src/index.ts",
+                  },
+                },
+              },
+              null,
+              2
+            ),
+            "node_modules/@fixture/js/src/index.ts": `
+              export class Uint8Array {}
+            `,
+          },
+          "src/index.ts",
+          { surface: "@tsonic/js" }
+        )
+      );
+
+      expect(csharp).to.include(
+        "return Buffer.fromNonString((global::Tsonic.Internal.Union<double[], global::Test.Buffer, global::fixturejs.Uint8Array>)value.Match<global::Tsonic.Internal.Union<double[], global::Test.Buffer, global::fixturejs.Uint8Array>>("
+      );
+      expect(csharp).not.to.include("return Buffer.fromNonString(value);");
+      expect(csharp).not.to.include(
+        "return Buffer.fromNonString(global::Tsonic.Internal.Union<double[], global::Test.Buffer, global::fixturejs.Uint8Array, string>"
+      );
+    });
+
     it("preserves narrowed runtime-union members in typed byte array literals", () => {
       const csharp = compileToCSharp(
         `
@@ -2466,6 +3242,91 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("preserves explicit numeric assertion targets in arithmetic operands", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int, long } from "@tsonic/core/types.js";
+
+          export function run(x: int): long {
+            return (x as long) * 2000000000;
+          }
+        `
+      );
+
+      expect(csharp).to.include("(long)x * 2000000000");
+      expect(csharp).not.to.include("(int)(long)x");
+    });
+
+    it("does not unbox nullable numeric arguments with the same CLR carrier", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { long } from "@tsonic/core/types.js";
+
+          interface Box {
+            value?: long;
+          }
+
+          export function take(value: long | undefined | null): long {
+            return value ?? (0 as long);
+          }
+
+          export function run(box: Box): long {
+            return take(box.value);
+          }
+        `
+      );
+
+      expect(csharp).to.include("take(box.value)");
+      expect(csharp).not.to.include("take((long)box.value)");
+    });
+
+    it("converts concrete integral storage to JS number without object boxing", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { long } from "@tsonic/core/types.js";
+
+          export function take(value: number): number {
+            return value;
+          }
+
+          export function run(userId: long): number {
+            return take(userId);
+          }
+        `
+      );
+
+      expect(csharp).to.include("return take((double)userId);");
+      expect(csharp).not.to.include("(double)(object)userId");
+    });
+
+    it("emits shadowed instanceof receivers from actual local storage", () => {
+      const csharp = compileToCSharp(
+        `
+          class BoolValue {
+            public value: boolean;
+
+            constructor(value: boolean) {
+              this.value = value;
+            }
+          }
+
+          export function run(): void {
+            const shadow = 42;
+            {
+              const shadow = new BoolValue(false);
+              if (shadow instanceof BoolValue) {
+                void shadow.value;
+              }
+            }
+            void shadow;
+          }
+        `
+      );
+
+      expect(csharp).to.match(/if \(shadow__1 is BoolValue shadow__is_\d+\)/);
+      expect(csharp).not.to.include("(int)(object)shadow__1 is BoolValue");
+    });
+
     it("casts numeric Uint8Array length constructors to int", () => {
       const csharp = compileToCSharp(
         `
@@ -2482,6 +3343,52 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1((int)(end - start)))"
       );
+      expect(csharp).not.to.include(
+        "new global::js.Uint8Array((int)global::js.TypedArrayConstructorInput"
+      );
+    });
+
+    it("does not recast materialized typed-array constructor length unions", () => {
+      const csharp = compileToCSharp(
+        `
+          export function run(): Uint8Array {
+            return new Uint8Array(8);
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1(8));"
+      );
+      expect(csharp).not.to.include(
+        "new global::js.Uint8Array((int)global::js.TypedArrayConstructorInput"
+      );
+    });
+
+    it("keeps asserted int Uint8Array length constructors on the numeric arm", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          export function run(): Uint8Array {
+            return new Uint8Array(0 as int);
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1(0));"
+      );
+      expect(csharp).not.to.include("From2((global::js.TypedArrayInput<TElement>)");
+      expect(csharp).not.to.include("TypedArrayInput<byte>)0");
     });
 
     it("keeps conditional Uint8Array length constructors on the numeric arm", () => {
@@ -2498,8 +3405,9 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "return new global::js.Uint8Array(totalLength == 0 ? global::js.TypedArrayConstructorInput<byte>.From1(1) : global::js.TypedArrayConstructorInput<byte>.From1((int)totalLength));"
+        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1((int)("
       );
+      expect(csharp).to.include("totalLength == 0 ? 1 :");
       expect(csharp).not.to.include(
         "return new global::js.Uint8Array(totalLength == 0 ? global::js.TypedArrayConstructorInput<byte>.From2("
       );
@@ -2728,6 +3636,26 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("this._value = (int)(v + offset);");
+    });
+
+    it("keeps context-narrowed numeric conditionals on the contextual branch type", () => {
+      const csharp = compileToCSharp(
+        `
+          export function build(): number[] {
+            const table: number[] = new Array<number>(1);
+            const polynomial = 0xedb88320;
+            let crc = 0;
+            crc = (crc & 1) === 1 ? (crc >>> 1) ^ polynomial : crc >>> 1;
+            table[0] = crc;
+            return table;
+          }
+        `
+      );
+
+      expect(csharp).to.include("crc = ((int)crc & (int)1) == 1");
+      expect(csharp).not.to.include(
+        ": (global::System.Double)((int)crc >>> (int)1)"
+      );
     });
 
     it("materializes inline object-type elements through generic List<T>.Add", () => {
@@ -2964,13 +3892,13 @@ describe("End-to-End Integration", () => {
         "if (((global::System.Object)(optionsOrListener)) != null)"
       );
       expect(csharp).to.include(
-        "return new TLSServer(global::Tsonic.Internal.Union<global::System.Action<TLSSocket>, TlsOptions__Alias>.From2((optionsOrListener.As2())), secureConnectionListener ?? null);"
+        "return new TLSServer(optionsOrListener, secureConnectionListener ?? null);"
       );
       expect(csharp).not.to.include(
         "return new TLSServer((TlsOptions__Alias)(optionsOrListener.As2()), secureConnectionListener ?? null);"
       );
       expect(csharp).not.to.include(
-        "return new TLSServer(optionsOrListener, secureConnectionListener ?? null);"
+        "global::Tsonic.Internal.Union<global::System.Action<TLSSocket>, TlsOptions__Alias>.From2"
       );
     });
 
@@ -3052,7 +3980,10 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("var locals =");
       expect(csharp).to.match(
-        /:\s*\(global::Test\.__Anon_[A-Za-z0-9_]+\)\(localsOrCallback\.As2\(\)\);/
+        /var __struct = \(localsOrCallback\.As2\(\)\);/
+      );
+      expect(csharp).to.match(
+        /return new global::Test\.__Anon_[A-Za-z0-9_]+ \{ name = __struct\.name \};/
       );
       expect(csharp).not.to.include("localsOrCallback == null ? default");
       expect(csharp).not.to.match(
@@ -3142,7 +4073,13 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("encodeOutputBytes(publicKey, encoding).Match");
+      expect(csharp).to.include("encodeOutputBytes(publicKey, encoding).Match<string>");
+      expect(csharp).to.include(
+        'throw new global::System.InvalidCastException('
+      );
+      expect(csharp).not.to.include(
+        "encodeOutputBytes(publicKey, encoding).Match<string>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2)"
+      );
       expect(csharp).not.to.include(
         "global::Tsonic.Internal.Union<string, global::Uint8Array>.From1(encodeOutputBytes(publicKey, encoding))"
       );
@@ -3308,6 +4245,38 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/\.From1\(__item\)/);
     });
 
+    it("erases imported alias chains that end in callable interface aliases", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/types.ts": `
+            export type NextFunction = () => void;
+            export interface RequestHandler {
+              (req: string, next: NextFunction): string;
+            }
+            export type RouteHandler = RequestHandler;
+          `,
+          "src/route.ts": `
+            import type { RouteHandler } from "./types.js";
+
+            export class Route {
+              get(...handlers: RouteHandler[]): this {
+                return this;
+              }
+            }
+          `,
+        },
+        "src/route.ts",
+        {},
+        { sourceRootRelativePath: "src", rootNamespace: "Test" }
+      );
+
+      expect(csharp).to.include(
+        "params global::System.Func<string, global::System.Action, string>[] handlers"
+      );
+      expect(csharp).not.to.include("RequestHandler[]");
+      expect(csharp).not.to.include("RouteHandler[]");
+    });
+
     it("treats fixed lambda parameters against rest callbacks as positional values", () => {
       const csharp = compileToCSharp(`
         type EventListener = (...args: JsValue[]) => void;
@@ -3423,5 +4392,769 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('server.listen("/tmp/socket"');
       expect(csharp).to.include('request.on("data"');
     });
+    it("prefers inferred conditional array surfaces over broad JsValue sinks", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { JsValue } from "@tsonic/core/types.js";
+
+          declare function readIds(json: string): string[];
+
+          export function run(json: string, useJson: boolean): Record<string, JsValue> {
+            const obj: Record<string, JsValue> = {};
+            obj["channel_ids"] = useJson ? readIds(json) : [];
+            return obj;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        'obj["channel_ids"] = useJson ? readIds(json) : global::System.Array.Empty<string>();'
+      );
+    });
+
+    it("keeps nullable conditional array call surfaces direct over broad JsValue sinks", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { JsValue } from "@tsonic/core/types.js";
+
+          declare function maybeIds(json: string): string[] | undefined;
+
+          export function run(json: string, useJson: boolean): Record<string, JsValue> {
+            const obj: Record<string, JsValue> = {};
+            obj["channel_ids"] = useJson ? maybeIds(json) : [];
+            return obj;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        'obj["channel_ids"] = useJson ? maybeIds(json) : global::System.Array.Empty<string>();'
+      );
+      expect(csharp).to.not.include(".Match<object?");
+    });
+
+    it("keeps conditional reference-array surfaces direct when one branch is nullish", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { JsValue } from "@tsonic/core/types.js";
+          import { JsonSerializer } from "@tsonic/dotnet/System.Text.Json.js";
+
+          export function run(json: string, useJson: boolean): Record<string, JsValue> {
+            const obj: Record<string, JsValue> = {};
+            obj["channel_ids"] =
+              useJson ? JsonSerializer.Deserialize<string[]>(json) : [];
+            return obj;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        'obj["channel_ids"] = useJson ? global::System.Text.Json.JsonSerializer.Deserialize<string[]>(json) : global::System.Array.Empty<string>();'
+      );
+      expect(csharp).not.to.include('.Match<object?>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2)');
+    });
+
+    it("preserves source-backed awaited result aliases for inferred locals", () => {
+      const csharp = compileToCSharp(`
+        type Result<T, E> =
+          | { success: true; payload: T }
+          | { success: false; error: E };
+
+        declare function ok<T, E>(value: T): Result<T, E>;
+        declare function err<T, E>(error: E): Result<T, E>;
+        declare function deleteExport(): Promise<Result<boolean, string>>;
+
+        export async function run(): Promise<Result<boolean, string>> {
+          const result = await deleteExport();
+          if (!result.success) {
+            return err<boolean, string>(result.error);
+          }
+          return ok<boolean, string>(true);
+        }
+      `);
+
+      expect(csharp).to.include(
+        "var result = await deleteExport();"
+      );
+      expect(csharp).to.include(
+        "if (!result.Match<bool>(__tsonic_union_member_1 => __tsonic_union_member_1.success, __tsonic_union_member_2 => __tsonic_union_member_2.success))"
+      );
+      expect(csharp).to.not.include(
+        "(await deleteExport()).Match<global::Test.Result<bool, string>>"
+      );
+      expect(csharp).to.not.include("(global::Test.Ok__Alias<bool>)");
+      expect(csharp).to.not.include("(global::Test.Err__Alias<string>)");
+      expect(csharp).to.not.include("__Anon_");
+    });
+
+    it("returns awaited result aliases directly from inferred locals", () => {
+      const csharp = compileToCSharp(`
+        type Result<T, E> =
+          | { success: true; payload: T }
+          | { success: false; error: E };
+
+        declare function isUserInGroup(): Promise<Result<boolean, string>>;
+
+        export async function run(): Promise<Result<boolean, string>> {
+          const membershipResult = await isUserInGroup();
+          return membershipResult;
+        }
+      `);
+      expect(csharp).to.include("return membershipResult;");
+      expect(csharp).to.not.include(
+        "return membershipResult.Match<global::Tsonic.Internal."
+      );
+      expect(csharp).to.not.include(
+        "Cannot materialize runtime union referenceType to unionType"
+      );
+    });
+
+    it("returns awaited imported result aliases directly from inferred locals", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/result.ts": `
+            export type Result<T, E> =
+              | { success: true; payload: T }
+              | { success: false; error: E };
+
+            export async function isUserInGroup(): Promise<Result<boolean, string>> {
+              return { success: true, payload: true };
+            }
+          `,
+          "src/test.ts": `
+            import type { Result } from "./result.ts";
+            import { isUserInGroup } from "./result.ts";
+
+            export async function run(): Promise<Result<boolean, string>> {
+              const membershipResult = await isUserInGroup();
+              return membershipResult;
+            }
+          `,
+        },
+        "src/test.ts"
+      );
+      expect(csharp).to.include("return membershipResult;");
+      expect(csharp).to.not.include(
+        "return membershipResult.Match<global::Tsonic.Internal."
+      );
+      expect(csharp).to.not.include(
+        "Cannot materialize runtime union referenceType to unionType"
+      );
+    });
+
+    it("wraps narrowed source-owned union members when returning to the carrier alias", () => {
+      const csharp = compileToCSharp(`
+        type Ok<T> = { success: true; data: T };
+        type Err<E> = { success: false; error: E };
+        type Result<T, E> = Err<E> | Ok<T>;
+
+        declare function checkPermission(): Promise<Result<boolean, string>>;
+
+        export async function run(): Promise<Result<boolean, string>> {
+          const result = await checkPermission();
+
+          if (!result.success) {
+            return result;
+          }
+
+          return { success: true, data: true };
+        }
+      `);
+
+      expect(csharp).to.match(
+        /return global::Test\.Result<bool, string>\.From1\(result__1_\d+\);/
+      );
+      expect(csharp).to.not.match(/return result__1_\d+;/);
+    });
+
+    it("does not lower truthiness property guards to union tags without literal proof", () => {
+      const csharp = compileToCSharp(`
+        type Ok = {
+          success: boolean;
+          value: string;
+        };
+        type Err = {
+          success: false;
+          error: string;
+        };
+
+        export function run(result: Ok | Err): string {
+          if (!result.success) {
+            return "not-success";
+          }
+          return "success";
+        }
+      `);
+
+      expect(csharp).not.to.include("if (!result.Is1())");
+      expect(csharp).not.to.include("if (result.Is2())");
+      expect(csharp).to.include("result.Match");
+    });
+
+
+    it("returns awaited imported source-package result aliases directly from inferred locals", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/repo.ts": `
+            import type { Result } from "@fixture/core/Jotster.Core.js";
+            import { ok } from "@fixture/core/Jotster.Core.js";
+
+            export async function isUserInGroup(): Promise<Result<boolean, string>> {
+              return ok(true);
+            }
+          `,
+          "src/test.ts": `
+            import type { Result } from "@fixture/core/Jotster.Core.js";
+            import { isUserInGroup } from "./repo.ts";
+
+            export async function run(): Promise<Result<boolean, string>> {
+              const membershipResult = await isUserInGroup();
+              return membershipResult;
+            }
+          `,
+          "node_modules/@fixture/core/package.json": JSON.stringify(
+            {
+              name: "@fixture/core",
+              version: "1.0.0",
+              type: "module",
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+                "./Jotster.Core.js": "./src/index.ts",
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/core/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "Fixture.Core",
+                exports: {
+                  ".": "./src/index.ts",
+                  "./index.js": "./src/index.ts",
+                  "./Jotster.Core.js": "./src/index.ts",
+                },
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/core/src/index.ts": `
+            export { ok, err } from "./types/result.ts";
+            export type { Result, Ok, Err } from "./types/result.ts";
+          `,
+          "node_modules/@fixture/core/src/types/result.ts": `
+            export type Ok<T> = { success: true; payload: T };
+            export type Err<E> = { success: false; error: E };
+            export type Result<T, E> = Err<E> | Ok<T>;
+            export const ok = <T>(value: T): Ok<T> => ({ success: true, payload: value });
+            export const err = <E>(error: E): Err<E> => ({ success: false, error });
+          `,
+        },
+        "src/test.ts",
+        { surface: "@tsonic/js" }
+      );
+      expect(csharp).to.include("return membershipResult;");
+      expect(csharp).to.not.include(
+        "return membershipResult.Match<global::Tsonic.Internal."
+      );
+      expect(csharp).to.not.include(
+        "Cannot materialize runtime union referenceType to unionType"
+      );
+    });
+
+    it("auto-awaits async source-package result returns before union adaptation", () => {
+      const packageExports = {
+        ".": "./src/index.ts",
+        "./index.js": "./src/index.ts",
+        "./Jotster.Core.js": "./src/index.ts",
+      };
+      const csharp = compileProjectToCSharp(
+        {
+          "src/domain.ts": `
+            import type { Result } from "@fixture/core/Jotster.Core.js";
+            import { ok } from "@fixture/core/Jotster.Core.js";
+
+            export async function setVisibility(): Promise<Result<void, string>> {
+              return ok(undefined);
+            }
+          `,
+          "src/test.ts": `
+            import type { Result } from "@fixture/core/Jotster.Core.js";
+            import { setVisibility } from "./domain.ts";
+
+            export async function run(): Promise<Result<void, string>> {
+              return setVisibility();
+            }
+          `,
+          "node_modules/@fixture/core/package.json": JSON.stringify(
+            {
+              name: "@fixture/core",
+              version: "1.0.0",
+              type: "module",
+              exports: packageExports,
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/core/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "Fixture.Core",
+                exports: packageExports,
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/core/src/index.ts": `
+            export { ok, err } from "./types/result.ts";
+            export type { Result, Ok, Err } from "./types/result.ts";
+          `,
+          "node_modules/@fixture/core/src/types/result.ts": `
+            export type Ok<T> = { success: true; payload: T };
+            export type Err<E> = { success: false; error: E };
+            export type Result<T, E> = Err<E> | Ok<T>;
+            export const ok = <T>(value: T): Ok<T> => ({ success: true, payload: value });
+            export const err = <E>(error: E): Err<E> => ({ success: false, error });
+          `,
+        },
+        "src/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.match(/return await .*setVisibility\(\);/);
+      expect(csharp).not.to.match(/From[12]\([^;]*setVisibility\(\)/);
+    });
+
+    it("wraps source-package generic result helpers through the matching nominal arm", () => {
+      const packageExports = {
+        ".": "./src/index.ts",
+        "./index.js": "./src/index.ts",
+        "./Jotster.Core.js": "./src/index.ts",
+      };
+      const csharp = compileProjectToCSharp(
+        {
+          "src/test.ts": `
+            import type { Result } from "@fixture/core/Jotster.Core.js";
+            import { err, ok } from "@fixture/core/Jotster.Core.js";
+
+            type Payload = { email?: string };
+            type VerificationError = "segments" | "header";
+
+            export const verify = (token: string): Result<Payload, VerificationError> => {
+              if (token.length === 0) {
+                return err("segments");
+              }
+              return ok({ email: token });
+            };
+          `,
+          "node_modules/@fixture/core/package.json": JSON.stringify(
+            {
+              name: "@fixture/core",
+              version: "1.0.0",
+              type: "module",
+              exports: packageExports,
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/core/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "Fixture.Core",
+                exports: packageExports,
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/core/src/index.ts": `
+            export { ok, err } from "./types/result.ts";
+            export type { Result, Ok, Err } from "./types/result.ts";
+          `,
+          "node_modules/@fixture/core/src/types/result.ts": `
+            export type Ok<T> = { success: true; data: T };
+            export type Err<E> = { success: false; error: E };
+            export type Result<T, E> = Err<E> | Ok<T>;
+            export const ok = <T>(data: T): Ok<T> => ({ success: true, data });
+            export const err = <E>(error: E): Err<E> => ({ success: false, error });
+          `,
+        },
+        "src/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        'return global::Fixture.Core.types.Result<global::Test.Payload__Alias, string>.From1(global::Fixture.Core.types.result.err("segments"));'
+      );
+      expect(csharp).to.include(
+        "return global::Fixture.Core.types.Result<global::Test.Payload__Alias, string>.From2(global::Fixture.Core.types.result.ok(new Payload__Alias { email = token }));"
+      );
+      expect(csharp).not.to.include(
+        "From2((global::Fixture.Core.types.Ok__Alias<Payload__Alias>)global::Fixture.Core.types.result.err"
+      );
+    });
+
+    it("keeps awaited source-backed non-Promise result aliases aligned with runtime slots", () => {
+      const packageExports = {
+        ".": "./src/index.ts",
+        "./index.js": "./src/index.ts",
+        "./Jotster.Core.js": "./src/index.ts",
+      };
+      const csharp = compileProjectToCSharp(
+        {
+          "src/render.ts": `
+            import type { Result } from "@fixture/core/Jotster.Core.js";
+            import { ok } from "@fixture/core/Jotster.Core.js";
+
+            export function render(): Result<{ rendered: string }, string> {
+              return ok({ rendered: "ok" });
+            }
+          `,
+          "src/test.ts": `
+            import { render } from "./render.ts";
+
+            export async function run(): Promise<string> {
+              const result = await render();
+              if (!result.success) {
+                return result.error;
+              }
+              return result.data.rendered;
+            }
+          `,
+          "node_modules/@fixture/core/package.json": JSON.stringify(
+            {
+              name: "@fixture/core",
+              version: "1.0.0",
+              type: "module",
+              exports: packageExports,
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/core/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "Fixture.Core",
+                exports: packageExports,
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/core/src/index.ts": `
+            export { ok, err } from "./types/result.ts";
+            export type { Result, Ok, Err } from "./types/result.ts";
+          `,
+          "node_modules/@fixture/core/src/types/result.ts": `
+            export type Ok<T> = { success: true; data: T };
+            export type Err<E> = { success: false; error: E };
+            export type Result<T, E> = Ok<T> | Err<E>;
+            export const ok = <T>(data: T): Ok<T> => ({ success: true, data });
+            export const err = <E>(error: E): Err<E> => ({ success: false, error });
+          `,
+        },
+        "src/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "public static Result<T, E> From1(Err__Alias<E> value)"
+      );
+      expect(csharp).to.include(
+        "var result = await global::System.Threading.Tasks.Task.FromResult(render());"
+      );
+      expect(csharp).to.include(
+        "if (!result.Match<bool>(__tsonic_union_member_1 => __tsonic_union_member_1.success, __tsonic_union_member_2 => __tsonic_union_member_2.success))"
+      );
+      expect(csharp).to.match(/return result__1_\d+\.error;/);
+      expect(csharp).not.to.include("if (result.Is2())");
+      expect(csharp).not.to.include("return (result.As1()).data.rendered;");
+    });
+
+    it("keeps source-package same-name structural return types in their inferred namespace", () => {
+      const packageExports = {
+        ".": "./src/index.ts",
+        "./Jotster.Channels.js": "./src/index.ts",
+      };
+      const csharp = compileProjectToCSharp(
+        {
+          "src/handler.ts": `
+            import { getDomainItems } from "@fixture/channels/Jotster.Channels.js";
+
+            export async function run(): Promise<number> {
+              const items = await getDomainItems();
+              return items.length;
+            }
+          `,
+          "node_modules/@fixture/channels/package.json": JSON.stringify(
+            {
+              name: "@fixture/channels",
+              version: "1.0.0",
+              type: "module",
+              exports: packageExports,
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/channels/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "Fixture.Channels",
+                exports: packageExports,
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/channels/src/index.ts": `
+            export { getDomainItems } from "./domain/get.ts";
+          `,
+          "node_modules/@fixture/channels/src/repo/get.ts": `
+            import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+
+            interface Item {
+              id: number;
+            }
+
+            export async function getItems(): Promise<Item[]> {
+              const result = new List<Item>();
+              result.Add({ id: 1 });
+              return result.ToArray();
+            }
+          `,
+          "node_modules/@fixture/channels/src/domain/get.ts": `
+            import { getItems } from "../repo/get.ts";
+
+            interface Item {
+              id: number;
+            }
+
+            export async function getDomainItems(): Promise<Item[]> {
+              const items = await getItems();
+              return items;
+            }
+          `,
+        },
+        "src/handler.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "var items = await global::Fixture.Channels.domain.get.getDomainItems();"
+      );
+      expect(csharp).to.include(
+        "global::System.Threading.Tasks.Task<global::Fixture.Channels.domain.Item[]>"
+      );
+      expect(csharp).not.to.include("Fixture.Channels.repo.Item");
+      expect(csharp).not.to.include(
+        "Select<global::Fixture.Channels.domain.Item, global::Fixture.Channels.repo.Item>"
+      );
+    });
+
+    it("materializes optional numeric operands before arithmetic calls", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          declare function getLength(value: string): int;
+          declare function clamp(value: int, min: int, max: int): int;
+
+          export function sliceLike(
+            value: string,
+            start: int = 0 as int,
+            end?: int
+          ): string {
+            const lengthValue = getLength(value);
+            const actualEnd: int =
+              end === undefined
+                ? lengthValue
+                : end < 0
+                  ? clamp(lengthValue + end, 0 as int, lengthValue)
+                  : clamp(end, 0 as int, lengthValue);
+            return String(actualEnd + start);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "clamp(lengthValue + (int)end.Value, 0, lengthValue)"
+      );
+      expect(csharp).to.include("clamp((int)end.Value, 0, lengthValue)");
+      expect(csharp).not.to.include("clamp(lengthValue + end, 0, lengthValue)");
+    });
+
+    it("wraps nested runtime-union carriers without projecting members", () => {
+      const csharp = compileToCSharp(
+        `
+          import { Uint8Array } from "@tsonic/js/Uint8Array.js";
+          import { readFileSync } from "@tsonic/nodejs/fs.js";
+
+          export function run(filePath: string): Uint8Array {
+            return new Uint8Array(readFileSync(filePath));
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From2(global::js.TypedArrayInput<byte>.From2("
+      );
+      expect(csharp).to.include(
+        "global::System.Linq.Enumerable.Select<byte, double>(global::nodejs.FsModule.readFileSync(filePath).__tsonic_symbol_iterator(), __item => (double)__item)"
+      );
+      expect(csharp).not.to.include(
+        ".Match<global::js.TypedArrayConstructorInput<byte>>"
+      );
+      expect(csharp).not.to.include(
+        "(global::js.TypedArrayInput<byte>)__tsonic_union_member_2"
+      );
+    });
+
+    it("does not nullable-unwrap already projected optional runtime-union members", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          declare function getBufferLength(buffer: object): int;
+
+          export const resolveWriteLength = (
+            buffer: object,
+            offset: int,
+            lengthOrEncoding?: int | string
+          ): int =>
+            lengthOrEncoding === undefined ||
+            typeof lengthOrEncoding === "string"
+              ? ((getBufferLength(buffer) - offset) as int)
+              : lengthOrEncoding;
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("(lengthOrEncoding.As1())");
+      expect(csharp).not.to.include("(lengthOrEncoding.As1())).Value");
+      expect(csharp).not.to.include("(lengthOrEncoding.As1()).Value");
+    });
+
+    it("probes optional runtime-union members before instanceof projection", () => {
+      const csharp = compileToCSharp(
+        `
+          import { Uint8Array } from "@tsonic/js/Uint8Array.js";
+          import type { int } from "@tsonic/core/types.js";
+
+          export function choose(value?: number | Uint8Array | string): int {
+            if (value instanceof Uint8Array) {
+              return value.length as int;
+            }
+            return -1;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("value)) != null && value.Is1()");
+      expect(csharp).not.to.include("(value.As1()) is global::js.Uint8Array");
+    });
+
+    it("maps bare void value-slot members to object storage", () => {
+      const csharp = compileToCSharp(`
+        type Ok<T> = { success: true; data: T };
+
+        export function run(): Ok<void> {
+          return { success: true, data: undefined };
+        }
+      `);
+
+      expect(csharp).to.include("public required object data { get; set; }");
+      expect(csharp).to.include("data = default(object)");
+      expect(csharp).not.to.include("required void data");
+      expect(csharp).not.to.include("default(void)");
+    });
+
+    it("wraps empty array callback arguments through a concrete union array arm", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          interface RecordWithTtl {
+            address: string;
+            ttl: int;
+          }
+
+          type ResolveCallback = (
+            error: Error | null,
+            records: string[] | RecordWithTtl[]
+          ) => void;
+
+          export function run(callback: ResolveCallback): void {
+            callback(new Error("ECANCELLED"), []);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.match(
+        /From[12]\(global::System\.Array\.Empty<(?:string|global::Test\.RecordWithTtl)>\(\)\)/
+      );
+      expect(csharp).not.to.include(
+        'callback(new global::js.Error("ECANCELLED"), global::System.Array.Empty<double>())'
+      );
+      expect(csharp).not.to.include("callback(new global::js.Error(\"ECANCELLED\"), global::System.Array.Empty");
+    });
+
+    it("keeps integral conditional branches in assignment storage", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          export function run(flag: boolean, value: int, polynomial: int): int {
+            let crc = value;
+            crc = flag ? (crc >>> 1) ^ polynomial : crc >>> 1;
+            return crc;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "public static int run(bool flag, int value, int polynomial)"
+      );
+      expect(csharp).to.include(": (int)crc >>> (int)1");
+      expect(csharp).not.to.include(
+        ": (global::System.Double)((int)crc >>> (int)1)"
+      );
+      expect(csharp).not.to.include("crc = (int)(flag ?");
+    });
+
   });
 });

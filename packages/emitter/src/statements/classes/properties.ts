@@ -8,6 +8,7 @@ import { emitTypeAst } from "../../type-emitter.js";
 import { emitParameters } from "./parameters.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
+import { normalizeValueSlotType } from "../../core/semantic/value-slot-types.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpMemberAst,
@@ -42,7 +43,7 @@ export const emitInterfaceMemberAsProperty = (
             const typeAst: CSharpTypeAst = identifierType(typeName);
             return [typeAst, currentContext] as const;
           }
-          return emitTypeAst(member.type, currentContext);
+          return emitTypeAst(normalizeValueSlotType(member.type), currentContext);
         }
         const typeAst: CSharpTypeAst = identifierType("object");
         return [typeAst, currentContext] as const;

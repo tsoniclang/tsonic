@@ -202,6 +202,7 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "Uint8Array",
+      resolvedClrType: "js.Uint8Array",
     });
   });
 });

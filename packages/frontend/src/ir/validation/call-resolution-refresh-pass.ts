@@ -1,5 +1,9 @@
 import type { ProgramContext } from "../program-context.js";
-import { IrExpression, IrModule, IrStatement } from "../types.js";
+import { IrExpression, IrModule, IrStatement, IrType } from "../types.js";
+import {
+  getAwaitedIrType,
+  referenceTypeIdentity,
+} from "../types/type-ops.js";
 import {
   collectResolutionArguments,
   resolveCallableCandidate,
@@ -68,6 +72,124 @@ const preserveConcreteRefreshExpectedType = (
     sourceBackedReturnType.kind !== "anyType"
     ? sourceBackedReturnType
     : explicitExpected;
+};
+
+const getDeterministicReferenceIdentity = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): string | undefined => {
+  const identity = referenceTypeIdentity(type);
+  return identity !== undefined &&
+    (identity.startsWith("id:") || identity.startsWith("clr:"))
+    ? identity
+    : undefined;
+};
+
+const hasDeterministicIdentityConflict = (
+  left: IrType | undefined,
+  right: IrType | undefined
+): boolean => {
+  if (!left || !right || left.kind !== right.kind) {
+    return false;
+  }
+
+  switch (left.kind) {
+    case "referenceType": {
+      if (right.kind !== "referenceType") {
+        return false;
+      }
+      const leftIdentity = getDeterministicReferenceIdentity(left);
+      const rightIdentity = getDeterministicReferenceIdentity(right);
+      if (leftIdentity && rightIdentity && leftIdentity !== rightIdentity) {
+        return true;
+      }
+      const leftArgs = left.typeArguments ?? [];
+      const rightArgs = right.typeArguments ?? [];
+      if (leftArgs.length !== rightArgs.length) {
+        return false;
+      }
+      return leftArgs.some((typeArgument, index) =>
+        hasDeterministicIdentityConflict(typeArgument, rightArgs[index])
+      );
+    }
+    case "arrayType":
+      return (
+        right.kind === "arrayType" &&
+        hasDeterministicIdentityConflict(left.elementType, right.elementType)
+      );
+    case "dictionaryType":
+      return (
+        right.kind === "dictionaryType" &&
+        (hasDeterministicIdentityConflict(left.keyType, right.keyType) ||
+          hasDeterministicIdentityConflict(left.valueType, right.valueType))
+      );
+    case "tupleType":
+      return (
+        right.kind === "tupleType" &&
+        left.elementTypes.length === right.elementTypes.length &&
+        left.elementTypes.some((typeElement, index) =>
+          hasDeterministicIdentityConflict(typeElement, right.elementTypes[index])
+        )
+      );
+    case "functionType":
+      return (
+        right.kind === "functionType" &&
+        left.parameters.length === right.parameters.length &&
+        (hasDeterministicIdentityConflict(left.returnType, right.returnType) ||
+          left.parameters.some((parameter, index) =>
+            hasDeterministicIdentityConflict(
+              parameter.type,
+              right.parameters[index]?.type
+            )
+          ))
+      );
+    default:
+      return false;
+  }
+};
+
+const cohereSourceBackedReturnType = (
+  inferredType: IrExpression["inferredType"],
+  sourceBackedReturnType: IrExpression["inferredType"] | undefined,
+  ctx: ProgramContext
+): IrExpression["inferredType"] | undefined => {
+  if (
+    inferredType &&
+    sourceBackedReturnType &&
+    !ctx.typeSystem.typesEqual(inferredType, sourceBackedReturnType) &&
+    hasDeterministicIdentityConflict(inferredType, sourceBackedReturnType)
+  ) {
+    return inferredType;
+  }
+
+  return sourceBackedReturnType;
+};
+
+const cohereAwaitedSourceBackedReturnType = (
+  awaitedInferredType: IrExpression["inferredType"],
+  sourceBackedReturnType: IrExpression["inferredType"] | undefined,
+  ctx: ProgramContext
+): IrExpression["inferredType"] | undefined => {
+  if (!awaitedInferredType || !sourceBackedReturnType) {
+    return sourceBackedReturnType;
+  }
+
+  const sourceAwaitedType =
+    getAwaitedIrType(sourceBackedReturnType) ?? sourceBackedReturnType;
+  if (
+    ctx.typeSystem.typesEqual(awaitedInferredType, sourceAwaitedType) ||
+    !hasDeterministicIdentityConflict(awaitedInferredType, sourceAwaitedType)
+  ) {
+    return sourceBackedReturnType;
+  }
+
+  return getAwaitedIrType(sourceBackedReturnType) &&
+    sourceBackedReturnType.kind === "referenceType" &&
+    (sourceBackedReturnType.typeArguments?.length ?? 0) === 1
+    ? {
+        ...sourceBackedReturnType,
+        typeArguments: [awaitedInferredType],
+      }
+    : awaitedInferredType;
 };
 
 const refreshSpreadArgument = (
@@ -274,6 +396,11 @@ const refreshExpression = (
         : (expr.sourceBackedRestParameter ??
           resolved?.surfaceRestParameter ??
           expr.surfaceRestParameter);
+      const coherentSourceBackedReturnType = cohereSourceBackedReturnType(
+        expr.inferredType,
+        finalizedInvocationMetadata.sourceBackedReturnType,
+        ctx
+      );
 
       return {
         ...expr,
@@ -282,8 +409,7 @@ const refreshExpression = (
         dynamicImportNamespace,
         inferredType: preserveResolvedReturnType(
           expr.inferredType,
-          finalizedInvocationMetadata.sourceBackedReturnType ??
-            resolved?.returnType,
+          coherentSourceBackedReturnType ?? resolved?.returnType,
           resolved?.hasDeclaredReturnType
         ),
         parameterTypes: finalizedInvocationMetadata.parameterTypes,
@@ -295,8 +421,7 @@ const refreshExpression = (
           finalizedInvocationMetadata.sourceBackedParameterTypes,
         sourceBackedSurfaceParameterTypes:
           finalizedInvocationMetadata.sourceBackedSurfaceParameterTypes,
-        sourceBackedReturnType:
-          finalizedInvocationMetadata.sourceBackedReturnType,
+        sourceBackedReturnType: coherentSourceBackedReturnType,
       };
     }
 
@@ -372,13 +497,19 @@ const refreshExpression = (
         exactReturnCandidates: [],
         preserveDirectSurfaceIdentity: false,
       });
+      const coherentSourceBackedReturnType = cohereSourceBackedReturnType(
+        expr.inferredType,
+        finalizedInvocationMetadata.sourceBackedReturnType ??
+          expr.sourceBackedReturnType,
+        ctx
+      );
 
       return {
         ...expr,
         callee,
         arguments: arguments_,
         inferredType:
-          finalizedInvocationMetadata.sourceBackedReturnType ??
+          coherentSourceBackedReturnType ??
           resolved.returnType ??
           expr.inferredType,
         parameterTypes:
@@ -393,9 +524,7 @@ const refreshExpression = (
           finalizedInvocationMetadata.sourceBackedSurfaceParameterTypes ??
           expr.sourceBackedSurfaceParameterTypes,
         sourceBackedRestParameter: expr.sourceBackedRestParameter,
-        sourceBackedReturnType:
-          finalizedInvocationMetadata.sourceBackedReturnType ??
-          expr.sourceBackedReturnType,
+        sourceBackedReturnType: coherentSourceBackedReturnType,
         surfaceRestParameter:
           expr.sourceBackedRestParameter ??
           resolved.surfaceRestParameter ??
@@ -441,7 +570,32 @@ const refreshExpression = (
         right: refreshExpression(expr.right, ctx),
       };
 
-    case "await":
+    case "await": {
+      const expression = refreshExpression(expr.expression, ctx);
+      if (!("sourceBackedReturnType" in expression)) {
+        return {
+          ...expr,
+          expression,
+        };
+      }
+
+      const coherentSourceBackedReturnType =
+        cohereAwaitedSourceBackedReturnType(
+          expr.inferredType,
+          expression.sourceBackedReturnType,
+          ctx
+        );
+      return {
+        ...expr,
+        expression: {
+          ...expression,
+          inferredType:
+            coherentSourceBackedReturnType ?? expression.inferredType,
+          sourceBackedReturnType: coherentSourceBackedReturnType,
+        } as typeof expression,
+      };
+    }
+
     case "unary":
     case "update":
     case "typeAssertion":

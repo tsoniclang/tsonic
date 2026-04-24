@@ -3,7 +3,7 @@ import type { EmitterContext } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
-import { resolveTypeAlias } from "./type-resolution.js";
+import { getPropertyType, resolveTypeAlias } from "./type-resolution.js";
 
 const resolveDirectIdentifierName = (
   emittedIdentifier: string,
@@ -28,6 +28,48 @@ const resolveDirectIdentifierName = (
   return Array.from(context.localNameMap ?? []).find(
     ([, emitted]) => emitted === emittedIdentifier
   )?.[0];
+};
+
+const resolveDirectIdentifierBinding = (
+  emittedIdentifier: string,
+  context: EmitterContext
+):
+  | {
+      readonly sourceName: string;
+      readonly isNarrowedRenameIdentifier: boolean;
+    }
+  | undefined => {
+  if (
+    context.localValueTypes?.has(emittedIdentifier) ||
+    context.localSemanticTypes?.has(emittedIdentifier) ||
+    context.narrowedBindings?.has(emittedIdentifier)
+  ) {
+    return {
+      sourceName: emittedIdentifier,
+      isNarrowedRenameIdentifier: false,
+    };
+  }
+
+  const narrowedRename = Array.from(context.narrowedBindings ?? []).find(
+    ([, binding]) =>
+      binding.kind === "rename" && binding.name === emittedIdentifier
+  )?.[0];
+  if (narrowedRename) {
+    return {
+      sourceName: narrowedRename,
+      isNarrowedRenameIdentifier: true,
+    };
+  }
+
+  const sourceName = Array.from(context.localNameMap ?? []).find(
+    ([, emitted]) => emitted === emittedIdentifier
+  )?.[0];
+  return sourceName
+    ? {
+        sourceName,
+        isNarrowedRenameIdentifier: false,
+      }
+    : undefined;
 };
 
 const unwrapTransparentValueAst = (
@@ -110,6 +152,59 @@ const tryResolveRuntimeUnionAsMemberType = (
   return runtimeMembers?.[memberIndex];
 };
 
+const withOptionalUndefined = (type: IrType): IrType => {
+  if (
+    type.kind === "unionType" &&
+    type.types.some(
+      (member) =>
+        member.kind === "primitiveType" && member.name === "undefined"
+    )
+  ) {
+    return type;
+  }
+
+  return type.kind === "unionType"
+    ? {
+        ...type,
+        types: [...type.types, { kind: "primitiveType", name: "undefined" }],
+      }
+    : {
+        kind: "unionType",
+        types: [type, { kind: "primitiveType", name: "undefined" }],
+      };
+};
+
+const tryResolveDirectMemberAccessSurfaceType = (
+  valueAst: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  const directAst = unwrapTransparentValueAst(valueAst);
+  if (
+    directAst.kind !== "memberAccessExpression" &&
+    directAst.kind !== "conditionalMemberAccessExpression"
+  ) {
+    return undefined;
+  }
+
+  const receiverType = preferRuntimeCarrierCandidate(
+    context,
+    resolveDirectRuntimeCarrierType(directAst.expression, context),
+    resolveDirectValueSurfaceType(directAst.expression, context)
+  );
+  if (!receiverType) {
+    return undefined;
+  }
+
+  const memberType = getPropertyType(receiverType, directAst.memberName, context);
+  if (!memberType) {
+    return undefined;
+  }
+
+  return directAst.kind === "conditionalMemberAccessExpression"
+    ? withOptionalUndefined(memberType)
+    : memberType;
+};
+
 const resolveNamedRuntimeCarrierType = (
   name: string,
   context: EmitterContext
@@ -171,7 +266,10 @@ export const resolveDirectValueSurfaceType = (
 ): IrType | undefined => {
   const directAst = unwrapTransparentValueAst(valueAst);
   if (directAst.kind !== "identifierExpression") {
-    return tryResolveRuntimeUnionAsMemberType(directAst, context);
+    return (
+      tryResolveRuntimeUnionAsMemberType(directAst, context) ??
+      tryResolveDirectMemberAccessSurfaceType(directAst, context)
+    );
   }
 
   const originalName = resolveDirectIdentifierName(
@@ -209,13 +307,22 @@ export const resolveDirectRuntimeCarrierType = (
       : undefined;
   }
 
-  const originalName = resolveDirectIdentifierName(
+  const identifierBinding = resolveDirectIdentifierBinding(
     directAst.identifier,
     context
   );
-  return originalName
-    ? resolveNamedRuntimeCarrierType(originalName, context)
-    : undefined;
+  if (!identifierBinding) {
+    return undefined;
+  }
+
+  if (identifierBinding.isNarrowedRenameIdentifier) {
+    const narrowed = context.narrowedBindings?.get(identifierBinding.sourceName);
+    return hasExplicitRuntimeCarrierIdentity(narrowed?.type, context)
+      ? narrowed?.type
+      : undefined;
+  }
+
+  return resolveNamedRuntimeCarrierType(identifierBinding.sourceName, context);
 };
 
 export const resolveIdentifierValueSurfaceType = (

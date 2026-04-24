@@ -5,8 +5,8 @@ import {
   IrExpression,
   IrStatement,
   IrType,
+  irTypesEqual,
   normalizedUnionType,
-  stableIrTypeKey,
 } from "@tsonic/frontend";
 import { isAsyncWrapperType } from "./call-analysis.js";
 
@@ -131,9 +131,7 @@ export const getCallbackDelegateReturnType = (
 
     const deduped = concreteReturnTypes.filter(
       (type, index, all) =>
-        all.findIndex(
-          (candidate) => stableIrTypeKey(candidate) === stableIrTypeKey(type)
-        ) === index
+        all.findIndex((candidate) => irTypesEqual(candidate, type)) === index
     );
 
     if (deduped.length === 1) {
@@ -191,15 +189,14 @@ export const normalizePromiseChainResultIrType = (
 
   if (type.kind === "unionType") {
     const normalizedTypes: IrType[] = [];
-    const seen = new Set<string>();
 
     for (const member of type.types) {
       if (!member) continue;
       const normalized = normalizePromiseChainResultIrType(member);
       if (!normalized) continue;
-      const key = stableIrTypeKey(normalized);
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (normalizedTypes.some((candidate) => irTypesEqual(candidate, normalized))) {
+        continue;
+      }
       normalizedTypes.push(normalized);
     }
 
@@ -215,7 +212,6 @@ export const mergePromiseChainResultIrTypes = (
   ...types: readonly (IrType | undefined)[]
 ): IrType | undefined => {
   const merged: IrType[] = [];
-  const seen = new Set<string>();
 
   for (const type of types) {
     const normalized = normalizePromiseChainResultIrType(type);
@@ -224,17 +220,17 @@ export const mergePromiseChainResultIrTypes = (
     if (normalized.kind === "unionType") {
       for (const member of normalized.types) {
         if (!member) continue;
-        const key = stableIrTypeKey(member);
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (merged.some((candidate) => irTypesEqual(candidate, member))) {
+          continue;
+        }
         merged.push(member);
       }
       continue;
     }
 
-    const key = stableIrTypeKey(normalized);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (merged.some((candidate) => irTypesEqual(candidate, normalized))) {
+      continue;
+    }
     merged.push(normalized);
   }
 

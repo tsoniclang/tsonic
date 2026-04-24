@@ -62,6 +62,7 @@ export const tryEmitInstanceofGuard = (
     candidateMemberNs,
     candidateMembers,
     receiverAst,
+    receiverMayBeNullish,
   } = instanceofGuard;
 
   const condAst =
@@ -72,7 +73,12 @@ export const tryEmitInstanceofGuard = (
             rhsTypeAst,
             escapedNarrow
           )
-        : buildIsNCondition(receiverAst, memberN, false)
+        : buildIsNCondition(
+            receiverAst,
+            memberN,
+            false,
+            receiverMayBeNullish === true
+          )
       : buildIsPatternCondition(receiverAst, rhsTypeAst, escapedNarrow);
 
   let thenStatementAst: CSharpStatementAst;
@@ -255,6 +261,7 @@ export const tryEmitNegatedInstanceofGuard = (
     memberN,
     memberNeedsPatternCheck,
     receiverAst,
+    receiverMayBeNullish,
   } = guard;
 
   const condAst =
@@ -265,7 +272,12 @@ export const tryEmitNegatedInstanceofGuard = (
             rhsTypeAst,
             escapedNarrow
           )
-        : buildIsNCondition(receiverAst, memberN, false)
+        : buildIsNCondition(
+            receiverAst,
+            memberN,
+            false,
+            receiverMayBeNullish === true
+          )
       : buildIsPatternCondition(receiverAst, rhsTypeAst, escapedNarrow);
 
   let thenStatementAst: CSharpStatementAst;

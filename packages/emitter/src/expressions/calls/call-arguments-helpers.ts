@@ -22,11 +22,13 @@ import {
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import { unwrapTransparentExpression } from "../../core/semantic/transparent-expressions.js";
+import { allocateLocalName } from "../../core/format/local-names.js";
 
 const isExplicitNullishArgument = (arg: IrExpression): boolean =>
   (arg.kind === "literal" && (arg.value === undefined || arg.value === null)) ||
@@ -267,6 +269,81 @@ export const wrapIntCast = (
       }
     : expr;
 
+const tryEmitRestSpreadSegmentAst = (
+  spreadArg: Extract<IrExpression, { kind: "spread" }>,
+  restElementType: IrType,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const actualSpreadType =
+    resolveEffectiveExpressionType(spreadArg.expression, context) ??
+    spreadArg.expression.inferredType;
+  const sourceArrayType = actualSpreadType
+    ? resolveArrayLikeReceiverType(actualSpreadType, context)
+    : undefined;
+  if (!sourceArrayType) {
+    return undefined;
+  }
+
+  const [spreadAst, spreadContext] = emitExpressionAst(
+    spreadArg.expression,
+    context
+  );
+  const sourceElementType = normalizeStructuralEmissionType(
+    sourceArrayType.elementType,
+    spreadContext
+  );
+  const targetElementType = normalizeStructuralEmissionType(
+    restElementType,
+    spreadContext
+  );
+  const [sourceElementTypeAst, sourceTypeContext] = emitTypeAst(
+    sourceElementType,
+    spreadContext
+  );
+  const [targetElementTypeAst, targetTypeContext] = emitTypeAst(
+    targetElementType,
+    sourceTypeContext
+  );
+  const item = allocateLocalName("__rest_item", targetTypeContext);
+  const itemAst = identifierExpression(item.emittedName);
+  const canUseImplicitElementConversion = matchesExpectedEmissionType(
+    sourceElementType,
+    targetElementType,
+    item.context
+  );
+  const elementBody: CSharpExpressionAst = canUseImplicitElementConversion
+    ? itemAst
+    : {
+        kind: "castExpression",
+        type: targetElementTypeAst,
+        expression: itemAst,
+      };
+  const selectAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: identifierExpression("global::System.Linq.Enumerable.Select"),
+    typeArguments: [sourceElementTypeAst, targetElementTypeAst],
+    arguments: [
+      spreadAst,
+      {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: item.emittedName }],
+        body: elementBody,
+      },
+    ],
+  };
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+      typeArguments: [targetElementTypeAst],
+      arguments: [selectAst],
+    },
+    item.context,
+  ];
+};
+
 export const emitFlattenedRestArguments = (
   restArgs: readonly IrExpression[],
   restArrayType: IrType,
@@ -330,11 +407,9 @@ export const emitFlattenedRestArguments = (
 
     if (arg.kind === "spread") {
       flushInlineElements();
-      const [spreadAst, spreadContext] = emitExpressionAst(
-        arg.expression,
-        currentContext,
-        restArrayType
-      );
+      const [spreadAst, spreadContext] =
+        tryEmitRestSpreadSegmentAst(arg, restElementType, currentContext) ??
+        emitExpressionAst(arg.expression, currentContext, restArrayType);
       segments.push(spreadAst);
       currentContext = spreadContext;
       continue;

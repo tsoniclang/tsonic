@@ -114,13 +114,16 @@ export const registerForOfElementSymbolTypes = (
 export const registerVariableSymbolTypes = (
   originalName: string,
   decl: VariableDeclaratorLike,
-  context: EmitterContext
+  context: EmitterContext,
+  storageTypeOverride?: IrType,
+  semanticTypeOverride?: IrType
 ): EmitterContext =>
   registerLocalSymbolTypes(
     originalName,
-    decl.type ??
+    semanticTypeOverride ??
+      decl.type ??
       resolveSemanticVariableInitializerType(decl.initializer, context),
-    resolveLocalStorageType(decl, context),
+    storageTypeOverride ?? resolveLocalStorageType(decl, context),
     context
   );
 

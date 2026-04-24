@@ -14,6 +14,10 @@ import { getIdentifierTypeName } from "../format/backend-ast/utils.js";
 import { resolveLocalTypeInfo } from "./property-lookup-resolution.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 import { substituteTypeArgs } from "./type-substitution.js";
+import {
+  canUseLocalTypeLookupCandidate,
+  getLocalTypeLookupCandidates,
+} from "./local-type-lookup.js";
 
 // ---------------------------------------------------------------------------
 // stripNullish
@@ -292,12 +296,18 @@ export const resolveTypeAlias = (
   const stripGlobalPrefix = (name: string): string =>
     name.startsWith("global::") ? name.slice("global::".length) : name;
 
-  const lookupName = type.name.includes(".")
-    ? (type.name.split(".").pop() ?? type.name)
-    : type.name;
+  const lookupCandidates = getLocalTypeLookupCandidates(type.name);
 
-  const localTypeInfo =
-    context.localTypes?.get(type.name) ?? context.localTypes?.get(lookupName);
+  const localTypeInfo = (() => {
+    for (const candidate of lookupCandidates) {
+      const hit = context.localTypes?.get(candidate.name);
+      if (hit && canUseLocalTypeLookupCandidate(hit, candidate)) {
+        return hit;
+      }
+    }
+
+    return undefined;
+  })();
   if (localTypeInfo?.kind === "typeAlias") {
     if (
       options.preserveObjectTypeAliases &&
@@ -321,7 +331,9 @@ export const resolveTypeAlias = (
 
   const importedAliasBinding =
     context.importBindings?.get(type.name) ??
-    context.importBindings?.get(lookupName);
+    lookupCandidates
+      .map((candidate) => context.importBindings?.get(candidate.name))
+      .find((binding) => binding !== undefined);
   if (
     importedAliasBinding?.kind === "type" &&
     importedAliasBinding.aliasType !== undefined
@@ -357,17 +369,23 @@ export const resolveTypeAlias = (
       readonly typeParameters: readonly string[];
     }[] = [];
 
-    for (const moduleInfo of moduleMap.values()) {
-      const aliasInfo = moduleInfo.localTypes?.get(lookupName);
-      if (!aliasInfo || aliasInfo.kind !== "typeAlias") {
-        continue;
-      }
+    for (const candidate of lookupCandidates) {
+      for (const moduleInfo of moduleMap.values()) {
+        const aliasInfo = moduleInfo.localTypes?.get(candidate.name);
+        if (
+          !aliasInfo ||
+          aliasInfo.kind !== "typeAlias" ||
+          !canUseLocalTypeLookupCandidate(aliasInfo, candidate)
+        ) {
+          continue;
+        }
 
-      crossModuleAliasMatches.push({
-        namespace: moduleInfo.namespace,
-        type: aliasInfo.type,
-        typeParameters: aliasInfo.typeParameters,
-      });
+        crossModuleAliasMatches.push({
+          namespace: moduleInfo.namespace,
+          type: aliasInfo.type,
+          typeParameters: aliasInfo.typeParameters,
+        });
+      }
     }
 
     const resolveCrossModuleAlias = (

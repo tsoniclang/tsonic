@@ -42,19 +42,41 @@ const substituteType = (
     }
 
     case "referenceType": {
-      // Recurse into type arguments
-      if (type.typeArguments) {
-        const clone: Mutable<IrReferenceType> = {
-          ...type,
-          typeArguments: [],
-        };
-        visited.set(type, clone);
-        clone.typeArguments = type.typeArguments.map((arg) =>
-          substituteType(arg, mapping, visited)
-        );
-        return clone;
+      if (!type.typeArguments && !type.structuralMembers) {
+        return type;
       }
-      return type;
+
+      const clone: Mutable<IrReferenceType> = { ...type };
+      visited.set(type, clone);
+      const substitutedTypeArguments = type.typeArguments?.map((arg) =>
+        substituteType(arg, mapping, visited)
+      );
+      const substitutedStructuralMembers = type.structuralMembers?.map((m) => {
+        if (m.kind === "propertySignature") {
+          return { ...m, type: substituteType(m.type, mapping, visited) };
+        }
+        if (m.kind === "methodSignature") {
+          return {
+            ...m,
+            returnType: m.returnType
+              ? substituteType(m.returnType, mapping, visited)
+              : undefined,
+            parameters: m.parameters.map((p) =>
+              p.type
+                ? { ...p, type: substituteType(p.type, mapping, visited) }
+                : p
+            ),
+          };
+        }
+        return m;
+      });
+      if (substitutedTypeArguments) {
+        clone.typeArguments = substitutedTypeArguments;
+      }
+      if (substitutedStructuralMembers) {
+        clone.structuralMembers = substitutedStructuralMembers;
+      }
+      return clone;
     }
 
     case "arrayType": {
@@ -85,7 +107,17 @@ const substituteType = (
         types: [],
       };
       visited.set(type, clone);
+      const substitutedRuntimeCarrierTypeArguments =
+        type.runtimeCarrierTypeArguments?.map((arg) =>
+          substituteType(arg, mapping, visited)
+        ) ??
+        type.runtimeCarrierTypeParameters?.map((name) =>
+          substituteType({ kind: "typeParameterType", name }, mapping, visited)
+        );
       clone.types = type.types.map((t) => substituteType(t, mapping, visited));
+      if (substitutedRuntimeCarrierTypeArguments) {
+        clone.runtimeCarrierTypeArguments = substitutedRuntimeCarrierTypeArguments;
+      }
       return clone;
     }
 

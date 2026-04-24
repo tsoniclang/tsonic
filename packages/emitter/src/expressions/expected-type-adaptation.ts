@@ -1,8 +1,4 @@
-import {
-  stableIrTypeKey,
-  type IrExpression,
-  type IrType,
-} from "@tsonic/frontend";
+import { type IrExpression, type IrType } from "@tsonic/frontend";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
@@ -18,6 +14,8 @@ import {
   maybeConvertCharToStringAst,
   maybeBoxJsNumberAsObjectAst,
   maybeUnwrapNullableValueTypeAst,
+  isNumericFactoryCreateCheckedAst,
+  simplifyRedundantObjectBridgeCastsAst,
 } from "./post-emission-adaptation.js";
 import {
   isExactArrayCreationToType,
@@ -32,11 +30,15 @@ import {
 import {
   resolveDirectStorageExpressionType,
   resolveDirectStorageIrType,
+  resolveExactStorageSurfaceExpressionType,
   resolveIdentifierRuntimeCarrierType,
   resolveRuntimeCarrierExpressionAst,
   resolveRuntimeCarrierIrType,
 } from "./direct-storage-types.js";
-import { resolveDirectValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
+import {
+  resolveDirectRuntimeCarrierType,
+  resolveDirectValueSurfaceType,
+} from "../core/semantic/direct-value-surfaces.js";
 import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
 import { matchesEmittedStorageSurface } from "./identifier-storage.js";
 import { resolveRuntimeMaterializationTargetType } from "../core/semantic/runtime-materialization-targets.js";
@@ -51,9 +53,13 @@ import {
   isBroadObjectSlotType,
 } from "../core/semantic/js-value-types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
-import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
+import {
+  getRuntimeUnionAliasReferenceKey,
+  runtimeUnionAliasReferencesMatch,
+} from "../core/semantic/runtime-union-alias-identity.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
+  isDefinitelyValueType,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
@@ -62,6 +68,53 @@ import { emitTypeAst } from "../type-emitter.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { referenceTypeHasClrIdentity } from "../core/semantic/clr-type-identity.js";
+import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import { tryStripConditionalNullishGuardAst } from "../core/semantic/narrowing-builders.js";
+import { resolveStructuralViewMethodSurface } from "../core/semantic/structural-view-types.js";
+
+const JS_NUMERIC_ADAPTATION_CLR_NAMES = new Set([
+  "System.Int32",
+  "global::System.Int32",
+  "System.Double",
+  "global::System.Double",
+]);
+
+const isNumericTypeParameterType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    resolved.kind === "typeParameterType" &&
+    (context.typeParamConstraints?.get(resolved.name) ?? "unconstrained") ===
+      "numeric"
+  );
+};
+
+const isJsNumberStorageTarget = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" && resolved.name === "number") ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "double" ||
+        referenceTypeHasClrIdentity(resolved, [
+          "System.Double",
+          "global::System.Double",
+        ])))
+  );
+};
 
 const isBroadCarrierPreservingTarget = (
   type: IrType | undefined,
@@ -171,21 +224,22 @@ export const resolveCarrierPreservingSourceType = (
   if (sourceHasRuntimeNullish && !targetHasRuntimeNullish) {
     return undefined;
   }
+  if (
+    isNumericTypeParameterType(strippedSourceType, context) &&
+    isJsNumberStorageTarget(strippedCarrierTargetType, context)
+  ) {
+    return undefined;
+  }
   return matchesExpectedEmissionType(
     strippedSourceType,
     strippedCarrierTargetType,
     context
   ) &&
-    (matchesRuntimeUnionCarrierSurface(
+    matchesRuntimeUnionCarrierSurface(
       strippedSourceType,
       strippedCarrierTargetType,
       context
-    ) ||
-      hasMatchingRuntimeCarrierFamily(
-        strippedSourceType,
-        strippedCarrierTargetType,
-        context
-      ))
+    )
     ? sourceHasRuntimeNullish && targetHasRuntimeNullish
       ? sourceType
       : strippedSourceType
@@ -222,11 +276,6 @@ const resolveRawRuntimeUnionProjectionSourceType = (
 
   if (
     matchesRuntimeUnionCarrierSurface(
-      strippedSourceType,
-      strippedCarrierTargetType,
-      context
-    ) ||
-    hasMatchingRuntimeCarrierFamily(
       strippedSourceType,
       strippedCarrierTargetType,
       context
@@ -299,6 +348,49 @@ const unwrapTransparentAst = (
     current = current.expression;
   }
   return current;
+};
+
+const isCurrentInstanceSelfTarget = (
+  expr: IrExpression,
+  ast: CSharpExpressionAst,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (expr.kind !== "this" || !expectedType || !context.declaringTypeName) {
+    return false;
+  }
+
+  const unwrappedAst = unwrapTransparentAst(ast);
+  if (
+    unwrappedAst.kind !== "identifierExpression" ||
+    unwrappedAst.identifier !==
+      (context.objectLiteralThisIdentifier ?? "this")
+  ) {
+    return false;
+  }
+
+  const declaringType: IrType = {
+    kind: "referenceType",
+    name: context.declaringTypeName,
+    ...(context.declaringTypeParameterNames &&
+    context.declaringTypeParameterNames.length > 0
+      ? {
+          typeArguments: context.declaringTypeParameterNames.map(
+            (name): IrType => ({ kind: "typeParameterType", name })
+          ),
+        }
+      : {}),
+  };
+
+  const targetType = stripNullish(expectedType);
+  const candidateThisTypes = [
+    expr.inferredType,
+    declaringType,
+  ].filter((candidate): candidate is IrType => candidate !== undefined);
+
+  return candidateThisTypes.some((candidate) =>
+    areIrTypesEquivalent(candidate, targetType, context)
+  );
 };
 
 export const resolveCarrierPreservingRawExpectedType = (opts: {
@@ -448,8 +540,7 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
 
   if (
     selectedExpectedType &&
-    stableIrTypeKey(selectedExpectedType) !==
-      stableIrTypeKey(carrierTargetType) &&
+    !areIrTypesEquivalent(selectedExpectedType, carrierTargetType, context) &&
     (() => {
       const [carrierLayout, layoutContext] = buildRuntimeUnionLayout(
         carrierTargetType,
@@ -486,6 +577,10 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
     })()
   ) {
     return selectedExpectedType;
+  }
+
+  if (carrierTargetType && willCarryAsRuntimeUnion(carrierTargetType, context)) {
+    return undefined;
   }
 
   return contextualExpectedType;
@@ -581,14 +676,16 @@ const isJsNumericAdaptationSource = (
       return typeof resolved.value === "number";
     case "primitiveType":
       return resolved.name === "number" || resolved.name === "int";
+    case "typeParameterType":
+      return (
+        (context.typeParamConstraints?.get(resolved.name) ??
+          "unconstrained") === "numeric"
+      );
     case "referenceType":
       return (
         resolved.name === "double" ||
         resolved.name === "int" ||
-        resolved.resolvedClrType === "System.Double" ||
-        resolved.resolvedClrType === "global::System.Double" ||
-        resolved.resolvedClrType === "System.Int32" ||
-        resolved.resolvedClrType === "global::System.Int32"
+        referenceTypeHasClrIdentity(resolved, JS_NUMERIC_ADAPTATION_CLR_NAMES)
       );
     case "unionType":
       return resolved.types.every((member) => {
@@ -614,6 +711,100 @@ const requiresJsNumberBoxingAdaptation = (
   context.options.surface === "@tsonic/js" &&
   isBroadObjectSlotType(expectedType, context) &&
   isJsNumericAdaptationSource(actualType, context);
+
+const isNumericLiteralAst = (ast: CSharpExpressionAst): boolean => {
+  if (ast.kind === "numericLiteralExpression") {
+    return true;
+  }
+
+  return (
+    ast.kind === "prefixUnaryExpression" &&
+    (ast.operatorToken === "-" || ast.operatorToken === "+") &&
+    isNumericLiteralAst(ast.operand)
+  );
+};
+
+const isJsNumberExpectedType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" && resolved.name === "number") ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "double" ||
+        referenceTypeHasClrIdentity(resolved, ["System.Double"])))
+  );
+};
+
+const maybeCastNumericToExpectedJsNumberAst = (
+  ast: CSharpExpressionAst,
+  actualType: IrType | undefined,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] => {
+  if (
+    !expectedType ||
+    !isJsNumberExpectedType(expectedType, context) ||
+    !isJsNumericAdaptationSource(actualType, context) ||
+    isNumericLiteralAst(ast) ||
+    isNumericFactoryCreateCheckedAst(ast, expectedType, context) ||
+    (actualType &&
+      areIrTypesEquivalent(
+        stripNullish(actualType),
+        stripNullish(expectedType),
+        context
+      ))
+  ) {
+    return [ast, context];
+  }
+
+  const resolvedActual = actualType
+    ? resolveTypeAlias(stripNullish(actualType), context)
+    : undefined;
+  if (
+    resolvedActual?.kind === "typeParameterType" &&
+    (context.typeParamConstraints?.get(resolvedActual.name) ??
+      "unconstrained") === "numeric"
+  ) {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: identifierExpression("global::System.Double"),
+          memberName: "CreateChecked",
+        },
+        arguments: [ast],
+      },
+      context,
+    ];
+  }
+
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    context
+  );
+  if (
+    ast.kind === "castExpression" &&
+    sameTypeAstSurface(ast.type, expectedTypeAst)
+  ) {
+    return [ast, expectedTypeContext];
+  }
+
+  return [
+    {
+      kind: "castExpression",
+      type: expectedTypeAst,
+      expression: ast,
+    },
+    expectedTypeContext,
+  ];
+};
 
 const matchesDirectCarrierAst = (
   left: CSharpExpressionAst,
@@ -651,9 +842,78 @@ const matchesDirectCarrierAst = (
   }
 };
 
+const getSingleRuntimeNullishBaseType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type || type.kind !== "unionType") {
+    return undefined;
+  }
+
+  const nonNullish = type.types.filter(
+    (member) =>
+      !(
+        member.kind === "primitiveType" &&
+        (member.name === "null" || member.name === "undefined")
+      )
+  );
+  return nonNullish.length === 1 ? (nonNullish[0] ?? undefined) : undefined;
+};
+
+const hasRuntimeNullishType = (type: IrType | undefined): boolean =>
+  (type ? splitRuntimeNullishUnionMembers(type)?.hasRuntimeNullish : false) ??
+  false;
+
+const stripDeadRuntimeNullishFallbackAst = (
+  ast: CSharpExpressionAst
+): CSharpExpressionAst => {
+  const stripped = tryStripConditionalNullishGuardAst(ast);
+  if (stripped) {
+    return stripped;
+  }
+
+  if (ast.kind === "parenthesizedExpression") {
+    const expression = stripDeadRuntimeNullishFallbackAst(ast.expression);
+    return expression === ast.expression ? ast : { ...ast, expression };
+  }
+
+  if (ast.kind === "castExpression") {
+    const strippedExpression = tryStripConditionalNullishGuardAst(
+      ast.expression
+    );
+    if (strippedExpression) {
+      return strippedExpression;
+    }
+
+    const expression = stripDeadRuntimeNullishFallbackAst(ast.expression);
+    return expression === ast.expression ? ast : { ...ast, expression };
+  }
+
+  return ast;
+};
+
+const hasExplicitRuntimeUnionCarrierIdentity = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (getRuntimeUnionAliasReferenceKey(type, context) !== undefined) {
+    return true;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    resolved.kind === "unionType" &&
+    resolved.runtimeCarrierFamilyKey !== undefined
+  );
+};
+
 const preferNarrowedEffectiveActualType = (
   directStorageType: IrType | undefined,
   effectiveExpressionType: IrType | undefined,
+  expectedType: IrType | undefined,
   context: EmitterContext
 ): IrType | undefined => {
   if (!directStorageType) {
@@ -664,12 +924,110 @@ const preferNarrowedEffectiveActualType = (
     return directStorageType;
   }
 
+  const directPreservesExpectedCarrier =
+    expectedType !== undefined &&
+    resolveCarrierPreservingSourceType(
+      directStorageType,
+      expectedType,
+      context
+    ) !== undefined;
+  const effectivePreservesExpectedCarrier =
+    expectedType !== undefined &&
+    resolveCarrierPreservingSourceType(
+      effectiveExpressionType,
+      expectedType,
+      context
+    ) !== undefined;
+  if (directPreservesExpectedCarrier && !effectivePreservesExpectedCarrier) {
+    return directStorageType;
+  }
+
   if (isBroadObjectSlotType(directStorageType, context)) {
     return directStorageType;
   }
 
-  return stableIrTypeKey(effectiveExpressionType) !==
-    stableIrTypeKey(directStorageType) &&
+  const directNullableBase = getSingleRuntimeNullishBaseType(directStorageType);
+  if (
+    directNullableBase &&
+    areIrTypesEquivalent(directNullableBase, effectiveExpressionType, context) &&
+    isDefinitelyValueType(resolveTypeAlias(directNullableBase, context))
+  ) {
+    const expectedRetainsRuntimeNullish =
+      expectedType
+        ? (splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ??
+          false)
+        : true;
+    if (
+      !expectedRetainsRuntimeNullish &&
+      expectedType &&
+      matchesExpectedEmissionType(effectiveExpressionType, expectedType, context)
+    ) {
+      return effectiveExpressionType;
+    }
+    return directStorageType;
+  }
+
+  const effectiveHasExplicitCarrierIdentity =
+    hasExplicitRuntimeUnionCarrierIdentity(effectiveExpressionType, context);
+  const directHasExplicitCarrierIdentity =
+    hasExplicitRuntimeUnionCarrierIdentity(directStorageType, context);
+  const effectiveAliasReferenceKey = getRuntimeUnionAliasReferenceKey(
+    effectiveExpressionType,
+    context
+  );
+  const directAliasReferenceKey = getRuntimeUnionAliasReferenceKey(
+    directStorageType,
+    context
+  );
+  const directMatchesEffectiveCarrierSurface =
+    matchesExpectedEmissionType(
+      directStorageType,
+      effectiveExpressionType,
+      context
+    ) ||
+    matchesRuntimeUnionCarrierSurface(
+      directStorageType,
+      effectiveExpressionType,
+      context
+    ) ||
+    hasMatchingRuntimeCarrierFamily(
+      directStorageType,
+      effectiveExpressionType,
+      context
+    );
+
+  if (
+    directAliasReferenceKey &&
+    effectiveHasExplicitCarrierIdentity &&
+    directMatchesEffectiveCarrierSurface &&
+    directAliasReferenceKey !== effectiveAliasReferenceKey
+  ) {
+    return directStorageType;
+  }
+
+  if (
+    effectiveHasExplicitCarrierIdentity &&
+    directMatchesEffectiveCarrierSurface &&
+    (!directHasExplicitCarrierIdentity ||
+      runtimeUnionAliasReferencesMatch(
+        directStorageType,
+        effectiveExpressionType,
+        context
+      ) ||
+      hasMatchingRuntimeCarrierFamily(
+        directStorageType,
+        effectiveExpressionType,
+        context
+      ))
+  ) {
+    return effectiveExpressionType;
+  }
+
+  return !areIrTypesEquivalent(
+    effectiveExpressionType,
+    directStorageType,
+    context
+  ) &&
     matchesExpectedEmissionType(
       effectiveExpressionType,
       directStorageType,
@@ -816,11 +1174,36 @@ export const adaptValueToExpectedTypeAst = (opts: {
     return [valueAst, context];
   }
 
+  const directValueSurfaceType = resolveDirectValueSurfaceType(
+    valueAst,
+    context
+  );
+  const directRuntimeCarrierType = resolveDirectRuntimeCarrierType(
+    valueAst,
+    context
+  );
+  if (
+    directRuntimeCarrierType &&
+    resolveCarrierPreservingSourceType(
+      directRuntimeCarrierType,
+      expectedType,
+      context
+    ) &&
+    (!directValueSurfaceType ||
+      resolveCarrierPreservingSourceType(
+        directValueSurfaceType,
+        expectedType,
+        context
+      ))
+  ) {
+    return [valueAst, context];
+  }
+
   if (
     isBroadCarrierPreservingTarget(expectedType, context) &&
     isBroadObjectPassThroughType(actualType, context)
   ) {
-    return [valueAst, context];
+    return [stripDeadRuntimeNullishFallbackAst(valueAst), context];
   }
 
   if (
@@ -833,10 +1216,6 @@ export const adaptValueToExpectedTypeAst = (opts: {
     return [valueAst, context];
   }
 
-  const directValueSurfaceType = resolveDirectValueSurfaceType(
-    valueAst,
-    context
-  );
   if (
     directValueSurfaceType &&
     resolveCarrierPreservingSourceType(
@@ -902,14 +1281,35 @@ export const adaptEmittedExpressionAst = (opts: {
     context,
     expectedType
   );
+  const effectiveTypeForDeadNullishFallback =
+    resolveEffectiveExpressionType(expr, castedContext) ?? expr.inferredType;
+  const normalizedCastedAst =
+    effectiveTypeForDeadNullishFallback &&
+    !hasRuntimeNullishType(effectiveTypeForDeadNullishFallback)
+      ? stripDeadRuntimeNullishFallbackAst(castedAst)
+      : castedAst;
+
+  if (
+    isCurrentInstanceSelfTarget(
+      expr,
+      normalizedCastedAst,
+      expectedType,
+      castedContext
+    )
+  ) {
+    return [normalizedCastedAst, castedContext];
+  }
 
   const exactExpectedSurface = expectedType
     ? tryEmitExactComparisonTargetAst(expectedType, castedContext)
     : undefined;
   const matchesExactExpectedSurface =
     !!exactExpectedSurface &&
-    (isExactExpressionToType(castedAst, exactExpectedSurface[0]) ||
-      isExactArrayCreationToType(castedAst, exactExpectedSurface[0]));
+    (isExactExpressionToType(normalizedCastedAst, exactExpectedSurface[0]) ||
+      isExactArrayCreationToType(
+        normalizedCastedAst,
+        exactExpectedSurface[0]
+      ));
   const exactAssertedSurface =
     expr.kind === "typeAssertion"
       ? tryEmitExactComparisonTargetAst(
@@ -921,15 +1321,29 @@ export const adaptEmittedExpressionAst = (opts: {
         )
       : undefined;
   if (matchesExactExpectedSurface && expr.kind !== "typeAssertion") {
-    return [castedAst, exactExpectedSurface[1]];
+    const exactSurfaceAst =
+      expectedType &&
+      effectiveTypeForDeadNullishFallback &&
+      isBroadCarrierPreservingTarget(expectedType, castedContext) &&
+      !requiresJsNumberBoxingAdaptation(
+        effectiveTypeForDeadNullishFallback,
+        expectedType,
+        castedContext
+      )
+        ? stripDeadRuntimeNullishFallbackAst(normalizedCastedAst)
+        : normalizedCastedAst;
+    return [exactSurfaceAst, exactExpectedSurface[1]];
   }
   const preservesExpectedSurface =
     expr.kind === "typeAssertion" && matchesExactExpectedSurface;
   const preservesAssertedSurface =
     expr.kind === "typeAssertion" &&
     !!exactAssertedSurface &&
-    (isExactExpressionToType(castedAst, exactAssertedSurface[0]) ||
-      isExactArrayCreationToType(castedAst, exactAssertedSurface[0]));
+    (isExactExpressionToType(normalizedCastedAst, exactAssertedSurface[0]) ||
+      isExactArrayCreationToType(
+        normalizedCastedAst,
+        exactAssertedSurface[0]
+      ));
   const preservedTypeForAdaptation =
     expr.kind === "typeAssertion"
       ? preservesAssertedSurface
@@ -940,7 +1354,7 @@ export const adaptEmittedExpressionAst = (opts: {
       : undefined;
   const adaptationSourceExpr =
     expr.kind === "typeAssertion" &&
-    castedAst.kind !== "castExpression" &&
+    normalizedCastedAst.kind !== "castExpression" &&
     !preservedTypeForAdaptation
       ? expr.expression
       : expr;
@@ -953,7 +1367,7 @@ export const adaptEmittedExpressionAst = (opts: {
       return undefined;
     }
 
-    const unwrappedCastedAst = unwrapTransparentAst(castedAst);
+    const unwrappedCastedAst = unwrapTransparentAst(normalizedCastedAst);
     const identifierName =
       castedContext.localNameMap?.get(adaptationSourceExpr.name) ??
       escapeCSharpIdentifier(adaptationSourceExpr.name);
@@ -1001,7 +1415,7 @@ export const adaptEmittedExpressionAst = (opts: {
         false))
       ? resolveDirectStorageExpressionType(
           adaptationSourceExpr,
-          castedAst,
+          normalizedCastedAst,
           castedContext
         )
       : undefined;
@@ -1027,7 +1441,12 @@ export const adaptEmittedExpressionAst = (opts: {
     ) {
       return undefined;
     }
-    if (!matchesDirectCarrierAst(castedAst, directCarrierNarrowed.exprAst)) {
+    if (
+      !matchesDirectCarrierAst(
+        normalizedCastedAst,
+        directCarrierNarrowed.exprAst
+      )
+    ) {
       return undefined;
     }
     const carrierAst =
@@ -1057,7 +1476,10 @@ export const adaptEmittedExpressionAst = (opts: {
     }
     if (
       !isBroadCarrierPreservingTarget(expectedType, castedContext) ||
-      !matchesDirectCarrierAst(castedAst, directCarrierNarrowed.exprAst)
+      !matchesDirectCarrierAst(
+        normalizedCastedAst,
+        directCarrierNarrowed.exprAst
+      )
     ) {
       return undefined;
     }
@@ -1106,7 +1528,10 @@ export const adaptEmittedExpressionAst = (opts: {
     }
     if (
       !directCarrierNarrowed.carrierExprAst ||
-      !matchesDirectCarrierAst(castedAst, directCarrierNarrowed.carrierExprAst)
+      !matchesDirectCarrierAst(
+        normalizedCastedAst,
+        directCarrierNarrowed.carrierExprAst
+      )
     ) {
       return undefined;
     }
@@ -1129,50 +1554,126 @@ export const adaptEmittedExpressionAst = (opts: {
       : undefined;
   })();
   if (narrowedCarrierSourceType) {
-    return [castedAst, castedContext];
+    return [normalizedCastedAst, castedContext];
   }
-  if (directStorageType && expectedType) {
-    const [sameStorageSurface, storageSurfaceContext] =
-      matchesEmittedStorageSurface(
-        directStorageType,
-        expectedType,
-        castedContext
-      );
-    if (sameStorageSurface) {
-      return [castedAst, storageSurfaceContext];
-    }
+  const directRuntimeCarrierType = expectedType
+    ? resolveDirectRuntimeCarrierType(normalizedCastedAst, castedContext)
+    : undefined;
+  if (
+    expectedType &&
+    directRuntimeCarrierType &&
+    resolveCarrierPreservingSourceType(
+      directRuntimeCarrierType,
+      expectedType,
+      castedContext
+    )
+  ) {
+    return [normalizedCastedAst, castedContext];
   }
   const directStorageExpressionType = resolveDirectStorageExpressionType(
     adaptationSourceExpr,
-    castedAst,
+    normalizedCastedAst,
     castedContext
   );
+  const exactStorageSurfaceType = expectedType
+    ? resolveExactStorageSurfaceExpressionType(normalizedCastedAst)
+    : undefined;
+  if (expectedType && exactStorageSurfaceType) {
+    const [sameStorageSurface, storageSurfaceContext] =
+      matchesEmittedStorageSurface(
+        exactStorageSurfaceType,
+        expectedType,
+        castedContext
+    );
+    if (sameStorageSurface) {
+      return [normalizedCastedAst, storageSurfaceContext];
+    }
+  }
+  if (
+    expectedType &&
+    directStorageExpressionType &&
+    resolveCarrierPreservingSourceType(
+      directStorageExpressionType,
+      expectedType,
+      castedContext
+    )
+  ) {
+    return [normalizedCastedAst, castedContext];
+  }
+  if (
+    expectedType &&
+    directStorageExpressionType &&
+    isBroadCarrierPreservingTarget(expectedType, castedContext) &&
+    isBroadObjectPassThroughType(
+      directStorageExpressionType,
+      castedContext
+    ) &&
+    !requiresJsNumberBoxingAdaptation(
+      directStorageExpressionType,
+      expectedType,
+      castedContext
+    ) &&
+    !requiresValueTypeMaterialization(
+      directStorageExpressionType,
+      expectedType,
+      castedContext
+    ) &&
+    !willCarryAsRuntimeUnion(directStorageExpressionType, castedContext)
+  ) {
+    return [
+      stripDeadRuntimeNullishFallbackAst(normalizedCastedAst),
+      castedContext,
+    ];
+  }
   const effectiveExpressionType = resolveEffectiveExpressionType(
     adaptationSourceExpr,
     castedContext
   );
+  const structuralViewReturnType =
+    expr.kind === "call"
+      ? resolveStructuralViewMethodSurface(expr.callee, castedContext)
+          ?.returnType
+      : undefined;
   const actualType =
     preservedTypeForAdaptation ??
     (expr.kind === "typeAssertion" ? expr.targetType : undefined) ??
+    structuralViewReturnType ??
     (expr.kind === "call" || expr.kind === "new"
       ? expr.sourceBackedReturnType
       : undefined) ??
     preferNarrowedEffectiveActualType(
       directStorageExpressionType,
       effectiveExpressionType,
+      expectedType,
       castedContext
     ) ??
     tryResolveRuntimeUnionMemberType(
       effectiveExpressionType,
-      castedAst,
+      normalizedCastedAst,
       castedContext
     ) ??
-    effectiveExpressionType;
+    effectiveExpressionType ??
+    adaptationSourceExpr.inferredType;
+
+  if (
+    expectedType &&
+    actualType &&
+    isBroadCarrierPreservingTarget(expectedType, castedContext) &&
+    isBroadObjectPassThroughType(actualType, castedContext) &&
+    !requiresJsNumberBoxingAdaptation(actualType, expectedType, castedContext) &&
+    !requiresValueTypeMaterialization(actualType, expectedType, castedContext) &&
+    !willCarryAsRuntimeUnion(stripNullish(actualType), castedContext)
+  ) {
+    return [
+      stripDeadRuntimeNullishFallbackAst(normalizedCastedAst),
+      castedContext,
+    ];
+  }
 
   const [dictionaryAdjustedAst, dictionaryAdjustedContext] =
     maybeAdaptDictionaryUnionValueAst(
       expr,
-      castedAst,
+      normalizedCastedAst,
       castedContext,
       expectedType
     );
@@ -1205,19 +1706,45 @@ export const adaptEmittedExpressionAst = (opts: {
       selectedSourceMemberNs: exactRuntimeUnionSelection.selectedSourceMemberNs,
     }) ?? [dictionaryAdjustedAst, dictionaryAdjustedContext];
 
+  const broadNullishStrippedAst =
+    expectedType &&
+    actualType &&
+    isBroadCarrierPreservingTarget(expectedType, expectedAdjustedContext) &&
+    !requiresJsNumberBoxingAdaptation(
+      actualType,
+      expectedType,
+      expectedAdjustedContext
+    ) &&
+    !requiresValueTypeMaterialization(
+      actualType,
+      expectedType,
+      expectedAdjustedContext
+    ) &&
+    !willCarryAsRuntimeUnion(stripNullish(actualType), expectedAdjustedContext)
+      ? stripDeadRuntimeNullishFallbackAst(expectedAdjustedAst)
+      : expectedAdjustedAst;
+
   const [integralAdjustedAst, integralAdjustedContext] =
     maybeCastNumericToExpectedIntegralAst(
-      expectedAdjustedAst,
+      broadNullishStrippedAst,
       actualType,
       expectedAdjustedContext,
       expectedType
     );
 
+  const [numericAdjustedAst, numericAdjustedContext] =
+    maybeCastNumericToExpectedJsNumberAst(
+      integralAdjustedAst,
+      actualType,
+      integralAdjustedContext,
+      expectedType
+    );
+
   const [boxedNumericAst, boxedNumericContext] = maybeBoxJsNumberAsObjectAst(
-    integralAdjustedAst,
+    numericAdjustedAst,
     expr,
     actualType,
-    integralAdjustedContext,
+    numericAdjustedContext,
     expectedType
   );
 
@@ -1229,10 +1756,19 @@ export const adaptEmittedExpressionAst = (opts: {
       expectedType
     );
 
-  return maybeUnwrapNullableValueTypeAst(
+  const [unwrappedAst, unwrappedContext] = maybeUnwrapNullableValueTypeAst(
     expr,
     stringAdjustedAst,
     stringAdjustedContext,
     expectedType
   );
+  return [
+    simplifyRedundantObjectBridgeCastsAst(
+      unwrappedAst,
+      actualType,
+      unwrappedContext,
+      expectedType
+    ),
+    unwrappedContext,
+  ];
 };

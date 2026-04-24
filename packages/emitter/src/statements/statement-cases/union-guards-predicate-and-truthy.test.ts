@@ -636,9 +636,14 @@ describe("Statement Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("if (result.Is2())");
+    expect(result).to.include("if (!result.Match<bool>(");
+    expect(result).to.include(
+      "__tsonic_union_member_1 => __tsonic_union_member_1.success"
+    );
+    expect(result).to.include(
+      "__tsonic_union_member_2 => __tsonic_union_member_2.success"
+    );
     expect(result).to.include("return result__2_1.error;");
     expect(result).to.include("return (result.As1()).data;");
-    expect(result).to.not.include("result.Match");
   });
 });

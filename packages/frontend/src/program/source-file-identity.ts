@@ -182,6 +182,33 @@ export const resolveContainingSourcePackageNamespace = (
   );
 };
 
+export const resolveContainingSourcePackageStableFilePath = (
+  filePath: string
+): string | undefined => {
+  const normalizedFilePath = normalizeAbsolutePath(filePath);
+  const packageRoot = findContainingSourcePackageRoot(normalizedFilePath);
+  if (!packageRoot) {
+    return undefined;
+  }
+
+  const packageName = readPackageName(path.join(packageRoot, "package.json"));
+  if (!packageName) {
+    return undefined;
+  }
+
+  const relativeFromPackageRoot = normalizeRelativePath(
+    path.relative(packageRoot, normalizedFilePath)
+  );
+
+  return normalizeRelativePath(
+    path.join(
+      "node_modules",
+      ...packageName.split("/"),
+      relativeFromPackageRoot
+    )
+  );
+};
+
 export const resolveSourceFileNamespace = (
   filePath: string,
   sourceRoot: string,
