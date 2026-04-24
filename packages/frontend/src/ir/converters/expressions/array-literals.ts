@@ -8,7 +8,10 @@ import {
   containsTypeParameter,
   typesEqual,
 } from "../../types/ir-substitution.js";
-import { stableIrTypeKey } from "../../types/type-ops.js";
+import {
+  referenceTypeIdentity,
+  stableIrTypeKeyIfDeterministic,
+} from "../../types/type-ops.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { NumericKind } from "../../types/numeric-kind.js";
@@ -244,9 +247,18 @@ export const normalizeExpectedArrayType = (
     if (
       left.kind === "referenceType" &&
       right.kind === "referenceType" &&
-      left.name === right.name &&
       (left.typeArguments?.length ?? 0) === (right.typeArguments?.length ?? 0)
     ) {
+      const leftIdentity = referenceTypeIdentity(left);
+      const rightIdentity = referenceTypeIdentity(right);
+      if (
+        leftIdentity === undefined ||
+        rightIdentity === undefined ||
+        leftIdentity !== rightIdentity
+      ) {
+        return false;
+      }
+
       const leftArgs = left.typeArguments ?? [];
       const rightArgs = right.typeArguments ?? [];
       return leftArgs.every((arg, index) => {
@@ -319,7 +331,9 @@ export const normalizeExpectedArrayType = (
     )) {
     const normalized = normalizeCandidate(member);
     if (!normalized || containsTypeParameter(normalized)) continue;
-    candidateMap.set(stableIrTypeKey(normalized), normalized);
+    const key = stableIrTypeKeyIfDeterministic(normalized);
+    if (!key) continue;
+    candidateMap.set(key, normalized);
   }
 
   const candidates = [...candidateMap.values()];

@@ -3,7 +3,7 @@
  * Handles applyInstanceofRefinement and applyPredicateCallRefinement.
  */
 
-import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -12,6 +12,7 @@ import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "./runtime-unions.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { normalizeInstanceofTargetType } from "./instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "./transparent-expressions.js";
 import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
@@ -158,9 +159,7 @@ export const applyInstanceofRefinement = (
       if (!complementType) {
         return undefined;
       }
-      if (
-        stableIrTypeKey(complementType) === stableIrTypeKey(guard.currentType)
-      ) {
+      if (areIrTypesEquivalent(complementType, guard.currentType, context)) {
         return context;
       }
       return applyDirectTypeNarrowing(

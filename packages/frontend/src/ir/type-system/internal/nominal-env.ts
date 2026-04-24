@@ -11,12 +11,30 @@ import {
   substituteIrType as substituteSharedIrType,
   type IrType,
 } from "../../types/index.js";
-import { stableIrTypeKey } from "../../types/type-ops.js";
+import { stableIrTypeKeyIfDeterministic } from "../../types/type-ops.js";
 import type {
   UnifiedTypeCatalog,
   TypeId,
   HeritageEdge,
 } from "./universe/types.js";
+
+const nominalEnvOpaqueTypeIds = new WeakMap<object, number>();
+let nextNominalEnvOpaqueTypeId = 0;
+
+const nominalEnvTypeArgKey = (type: IrType): string => {
+  const stableKey = stableIrTypeKeyIfDeterministic(type);
+  if (stableKey) {
+    return stableKey;
+  }
+  const existing = nominalEnvOpaqueTypeIds.get(type);
+  if (existing !== undefined) {
+    return `opaque:${existing}`;
+  }
+  const next = nextNominalEnvOpaqueTypeId;
+  nextNominalEnvOpaqueTypeId += 1;
+  nominalEnvOpaqueTypeIds.set(type, next);
+  return `opaque:${next}`;
+};
 
 /**
  * Map from type parameter name to concrete IR type
@@ -101,7 +119,7 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
    */
   const serializeTypeArgs = (typeArgs: readonly IrType[]): string => {
     if (typeArgs.length === 0) return "";
-    return typeArgs.map((a) => stableIrTypeKey(a)).join(",");
+    return typeArgs.map((a) => nominalEnvTypeArgKey(a)).join(",");
   };
 
   /**
@@ -198,7 +216,7 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
       return typeParams
         .map((tp) => {
           const arg = subst.get(tp.name);
-          return arg ? stableIrTypeKey(arg) : "null";
+          return arg ? nominalEnvTypeArgKey(arg) : "null";
         })
         .join(",");
     };

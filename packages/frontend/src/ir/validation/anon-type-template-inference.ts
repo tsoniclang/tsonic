@@ -6,6 +6,7 @@
  */
 
 import type { IrType, IrObjectType, IrReferenceType } from "../types.js";
+import { referenceTypeIdentity } from "../types/type-ops.js";
 
 import {
   collectTypeParameterNames,
@@ -56,7 +57,13 @@ export const inferTemplateTypeArguments = (
       if (concrete.kind !== "referenceType") {
         return false;
       }
-      if (template.name !== concrete.name) {
+      const templateIdentity = referenceTypeIdentity(template);
+      const concreteIdentity = referenceTypeIdentity(concrete);
+      if (
+        templateIdentity === undefined ||
+        concreteIdentity === undefined ||
+        templateIdentity !== concreteIdentity
+      ) {
         return false;
       }
       const templateArgs = template.typeArguments ?? [];

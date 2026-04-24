@@ -4,7 +4,7 @@
  * All types are emitted with global:: prefix for unambiguous resolution.
  */
 
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";
@@ -47,6 +47,7 @@ import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
 } from "../core/semantic/runtime-unions.js";
+import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 
 /**
  * Check if a type name indicates an unsupported support type.
@@ -114,7 +115,7 @@ export const emitReferenceType = (
   const resolvedAlias = resolveTypeAlias(type, context, {
     preserveObjectTypeAliases: true,
   });
-  if (stableIrTypeKey(resolvedAlias) !== stableIrTypeKey(type)) {
+  if (resolvedAlias !== type) {
     if (
       resolvedAlias.kind === "unionType" &&
       resolvedAlias.runtimeCarrierFamilyKey
@@ -168,7 +169,7 @@ export const emitReferenceType = (
   if (
     structuralReference &&
     structuralReference.kind === "referenceType" &&
-    stableIrTypeKey(structuralReference) !== stableIrTypeKey(type)
+    !areIrTypesEquivalent(structuralReference, type, context)
   ) {
     return emitReferenceType(structuralReference, context);
   }

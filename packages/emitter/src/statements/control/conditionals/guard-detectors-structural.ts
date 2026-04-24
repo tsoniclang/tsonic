@@ -3,14 +3,17 @@
  * Handles tryResolveInGuard, tryResolvePredicateGuard, and tryResolveInstanceofGuard.
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
-import { hasDeterministicPropertyMembership } from "../../../core/semantic/type-resolution.js";
+import {
+  hasDeterministicPropertyMembership,
+  splitRuntimeNullishUnionMembers,
+} from "../../../core/semantic/type-resolution.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
@@ -300,7 +303,7 @@ export const tryResolveInstanceofGuard = (
       }
     }
 
-    return emitIdentifier(target, context, currentType);
+    return emitIdentifier(target, context);
   })();
   const escapedOrig =
     target.kind === "identifier"
@@ -345,6 +348,12 @@ export const tryResolveInstanceofGuard = (
       : undefined) ??
     context.narrowedBindings?.get(originalName)?.sourceType ??
     unionSourceType;
+  const receiverMayBeNullish = [currentType, carrierSourceType, unionSourceType]
+    .filter((candidate): candidate is IrType => candidate !== undefined)
+    .some(
+      (candidate) =>
+        splitRuntimeNullishUnionMembers(candidate)?.hasRuntimeNullish === true
+    );
   const narrowedMap = new Map(ctxAfterRhs.narrowedBindings ?? []);
   narrowedMap.set(originalName, {
     kind: "rename",
@@ -407,6 +416,7 @@ export const tryResolveInstanceofGuard = (
     targetType: inferredRhsType ?? undefined,
     memberN,
     memberNeedsPatternCheck,
+    receiverMayBeNullish,
     runtimeUnionArity: runtimeUnionFrame?.runtimeUnionArity,
     candidateMemberNs: runtimeUnionFrame?.candidateMemberNs,
     candidateMembers: runtimeUnionFrame?.members,

@@ -8,7 +8,7 @@ import {
   IrParameter,
   IrType,
   getIrMemberPublicName,
-  stableIrTypeKey,
+  irTypesEqual,
   substituteIrType,
 } from "../types.js";
 
@@ -112,7 +112,7 @@ const typesEqual = (
   if (!left || !right) {
     return left === right;
   }
-  return stableIrTypeKey(left) === stableIrTypeKey(right);
+  return irTypesEqual(left, right);
 };
 
 const parametersExactlyMatch = (

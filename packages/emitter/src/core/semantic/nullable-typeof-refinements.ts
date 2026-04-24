@@ -6,7 +6,6 @@
 
 import { IrExpression, type IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import { stableIrTypeKey } from "@tsonic/frontend";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
 import {
@@ -16,6 +15,7 @@ import {
   stripNullish,
   isDefinitelyValueType,
   resolveTypeAlias,
+  splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
 import { unwrapTransparentNarrowingTarget } from "./transparent-expressions.js";
 import {
@@ -44,6 +44,17 @@ import {
   resolveRuntimeArrayMemberStorageType,
   SYSTEM_ARRAY_STORAGE_TYPE,
 } from "./broad-array-storage.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { isBroadObjectSlotType } from "./js-value-types.js";
+
+const BROAD_OBJECT_ARRAY_TYPE: IrType = {
+  kind: "arrayType",
+  elementType: {
+    kind: "referenceType",
+    name: "object",
+    resolvedClrType: "global::System.Object",
+  },
+};
 
 const resolveRefinementCurrentType = (
   bindingKey: string,
@@ -56,6 +67,43 @@ const resolveRefinementCurrentType = (
       targetExpr.inferredType,
     context
   );
+
+const resolveNullishRefinementCurrentType = (
+  bindingKey: string,
+  targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
+  context: EmitterContext
+): IrType | undefined => {
+  const semanticType = resolveRefinementCurrentType(
+    bindingKey,
+    targetExpr,
+    context
+  );
+  if (targetExpr.kind !== "identifier") {
+    return semanticType;
+  }
+
+  const storageType = context.localValueTypes?.get(targetExpr.name);
+  const storageSplit = storageType
+    ? splitRuntimeNullishUnionMembers(storageType)
+    : undefined;
+  if (!storageType || !storageSplit?.hasRuntimeNullish) {
+    return semanticType;
+  }
+
+  const semanticSplit = semanticType
+    ? splitRuntimeNullishUnionMembers(semanticType)
+    : undefined;
+  if (semanticSplit?.hasRuntimeNullish) {
+    return semanticType;
+  }
+
+  const storageBase = stripNullish(storageType);
+  const semanticBase = semanticType ? stripNullish(semanticType) : undefined;
+  return !semanticBase ||
+    areIrTypesEquivalent(storageBase, semanticBase, context)
+    ? storageType
+    : semanticType;
+};
 
 const supportsDeterministicTruthyNullishRefinement = (
   type: IrType,
@@ -110,13 +158,17 @@ export const applyTruthinessNullishRefinement = (
     return undefined;
   }
 
-  const currentType = resolveRefinementCurrentType(bindingKey, target, context);
+  const currentType = resolveNullishRefinementCurrentType(
+    bindingKey,
+    target,
+    context
+  );
   if (!currentType) {
     return undefined;
   }
 
   const strippedType = stripNullish(currentType);
-  if (stableIrTypeKey(strippedType) === stableIrTypeKey(currentType)) {
+  if (areIrTypesEquivalent(strippedType, currentType, context)) {
     return undefined;
   }
 
@@ -219,10 +271,10 @@ export const applySimpleNullableRefinement = (
         : getMemberAccessNarrowKey(operand);
     if (!key) return undefined;
 
-    const idType = resolveRefinementCurrentType(key, operand, context);
+    const idType = resolveNullishRefinementCurrentType(key, operand, context);
     if (!idType) return undefined;
     const stripped = stripNullish(idType);
-    if (stableIrTypeKey(stripped) === stableIrTypeKey(idType)) {
+    if (areIrTypesEquivalent(stripped, idType, context)) {
       return undefined;
     }
 
@@ -246,7 +298,7 @@ export const applySimpleNullableRefinement = (
     return undefined;
   }
 
-  const currentType = resolveRefinementCurrentType(
+  const currentType = resolveNullishRefinementCurrentType(
     nullableGuard.key,
     nullableGuard.targetExpr,
     context
@@ -256,7 +308,28 @@ export const applySimpleNullableRefinement = (
   }
 
   const strippedType = stripNullish(currentType);
-  if (stableIrTypeKey(strippedType) === stableIrTypeKey(currentType)) {
+  if (areIrTypesEquivalent(strippedType, currentType, context)) {
+    const existingBinding = context.narrowedBindings?.get(nullableGuard.key);
+    if (existingBinding?.kind === "expr") {
+      const strippedExprAst = tryStripConditionalNullishGuardAst(
+        existingBinding.exprAst
+      );
+      if (strippedExprAst) {
+        return applyBinding(
+          nullableGuard.key,
+          buildExprBinding(
+            strippedExprAst,
+            existingBinding.type ?? strippedType,
+            existingBinding.sourceType ?? currentType,
+            strippedExprAst,
+            existingBinding.type ?? strippedType,
+            existingBinding.carrierExprAst,
+            existingBinding.carrierType
+          ),
+          context
+        );
+      }
+    }
     return undefined;
   }
 
@@ -568,7 +641,7 @@ export const applyArrayIsArrayRefinement = (
       ? condition.narrowing.targetType
       : undefined;
 
-  const narrowedType =
+  const explicitNarrowedType =
     narrowTypeByArrayShape(currentType, wantArray, context) ??
     narrowTypeByArrayShape(
       direct.targetExpr.inferredType,
@@ -582,6 +655,26 @@ export const applyArrayIsArrayRefinement = (
           predicateTargetType,
           context
         ));
+  const canUseBroadArrayFallback = (() => {
+    if (!wantArray) {
+      return false;
+    }
+
+    const candidate = currentType ?? direct.targetExpr.inferredType;
+    if (!candidate) {
+      return true;
+    }
+
+    const resolved = resolveTypeAlias(stripNullish(candidate), context);
+    return (
+      resolved.kind === "anyType" ||
+      resolved.kind === "unknownType" ||
+      isBroadObjectSlotType(resolved, context)
+    );
+  })();
+  const narrowedType =
+    explicitNarrowedType ??
+    (canUseBroadArrayFallback ? BROAD_OBJECT_ARRAY_TYPE : undefined);
   if (!narrowedType) {
     return undefined;
   }

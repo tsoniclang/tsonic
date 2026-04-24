@@ -63,6 +63,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "global::js.ConsoleModule.log(key, global::js.String.toUpperCase((string)value));"
       );
+      expect(csharp).not.to.include(
+        "global::js.ConsoleModule.log(key, global::js.String.toUpperCase((string)(object)value));"
+      );
     });
 
     it("mirrors js-surface-runtime-builtins", () => {
@@ -157,7 +160,7 @@ describe("End-to-End Integration", () => {
         'return global::Tsonic.Internal.ArrayInterop.WrapArray(parts).join(",");'
       );
       expect(csharp).to.include(
-        "global::js.ConsoleModule.log(takeParts(parts), firstMatch, firstAll, global::js.Number.toString(selected.Length));"
+        "global::js.ConsoleModule.log(takeParts(parts), firstMatch, firstAll, global::js.Number.toString((double)selected.Length));"
       );
     });
 
@@ -207,7 +210,7 @@ describe("End-to-End Integration", () => {
         'var resolved = maybeDate ?? statSync("tsonic.workspace.json").mtime;'
       );
       expect(csharp).to.include(
-        "global::js.Number.toString(resolved.toISOString().Length)"
+        "global::js.Number.toString((double)resolved.toISOString().Length)"
       );
       expect(csharp).to.not.include("(object)resolved");
     });
@@ -413,7 +416,7 @@ describe("End-to-End Integration", () => {
         ".Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
       );
       expect(csharp).to.not.include(
-        '.Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union ref#0:global::Test.Buffer:: to arr#0:prim:number:tuple::rest:none"), __tsonic_union_member_3 =>'
+        '.Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union ref:global::Test.Buffer:: to arr:prim:number:tuple::rest:none"), __tsonic_union_member_3 =>'
       );
     });
 
@@ -627,7 +630,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("result.set(");
       expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
       expect(csharp).to.include(
-        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => __item), offset);"
+        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => (double)__item), offset);"
       );
       expect(csharp).not.to.include("result.set(buffer, offset);");
       expect(csharp).not.to.include(
@@ -637,7 +640,7 @@ describe("End-to-End Integration", () => {
         "global::Tsonic.Internal.Union<int, double>.From1(offset)"
       );
       expect(csharp).not.to.include(
-        "buffer.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
+        "buffer.__tsonic_symbol_iterator(), __item => (double)__item).__tsonic_symbol_iterator()"
       );
     });
 
@@ -667,7 +670,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => __item), (int)offset);"
+        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => (double)__item), offset);"
       );
       expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
       expect(csharp).not.to.include("result.set(buffer, offset);");
@@ -678,7 +681,7 @@ describe("End-to-End Integration", () => {
         "global::Tsonic.Internal.Union<int, double>.From1(offset)"
       );
       expect(csharp).not.to.include(
-        "buffer.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
+        "buffer.__tsonic_symbol_iterator(), __item => (double)__item).__tsonic_symbol_iterator()"
       );
     });
 
@@ -741,13 +744,13 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "copy.set(global::System.Linq.Enumerable.Select<byte, double>(buffer._data.__tsonic_symbol_iterator(), __item => __item));"
+        "copy.set(global::System.Linq.Enumerable.Select<byte, double>(buffer._data.__tsonic_symbol_iterator(), __item => (double)__item));"
       );
       expect(csharp).not.to.include(
         "global::Tsonic.Internal.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
       );
       expect(csharp).not.to.include(
-        "buffer._data.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
+        "buffer._data.__tsonic_symbol_iterator(), __item => (double)__item).__tsonic_symbol_iterator()"
       );
     });
 

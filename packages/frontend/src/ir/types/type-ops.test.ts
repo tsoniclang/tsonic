@@ -206,6 +206,60 @@ const createRecursiveGenericBox = (): IrType => {
   return boxType;
 };
 
+
+const createFreshNamedRecursiveBox = (valueType: IrType): IrType => {
+  const createBox = (): Extract<IrType, { kind: "referenceType" }> => {
+    const box = {
+      kind: "referenceType",
+      name: "RecursiveBox",
+      typeArguments: [valueType],
+    } as unknown as Extract<IrType, { kind: "referenceType" }> & {
+      structuralMembers: readonly unknown[];
+    };
+
+    Object.defineProperty(box, "structuralMembers", {
+      configurable: true,
+      enumerable: true,
+      get: () => [
+        {
+          kind: "propertySignature",
+          name: "value",
+          isReadonly: false,
+          isOptional: false,
+          type: valueType,
+        },
+        {
+          kind: "propertySignature",
+          name: "next",
+          isReadonly: false,
+          isOptional: false,
+          type: createBox(),
+        },
+        {
+          kind: "methodSignature",
+          name: "equals",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "other" },
+              type: createBox(),
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: booleanType,
+        },
+      ],
+    });
+
+    return box;
+  };
+
+  return createBox();
+};
+
 describe("type-ops", () => {
   it("treats union member order as equal", () => {
     const left: IrType = {
@@ -219,6 +273,85 @@ describe("type-ops", () => {
 
     expect(irTypesEqual(left, right)).to.equal(true);
     expect(stableIrTypeKey(left)).to.equal(stableIrTypeKey(right));
+  });
+
+  it("canonicalizes CLR reference identities in stable keys", () => {
+    const emittedSurface: IrType = {
+      kind: "referenceType",
+      name: "Span",
+      resolvedClrType: "global::System.Span<int>",
+      typeArguments: [{ kind: "primitiveType", name: "int" }],
+    };
+    const metadataSurface: IrType = {
+      kind: "referenceType",
+      name: "Span_1",
+      resolvedClrType: "System.Span`1",
+      typeArguments: [{ kind: "primitiveType", name: "int" }],
+    };
+
+    expect(stableIrTypeKey(emittedSurface)).to.equal(
+      stableIrTypeKey(metadataSurface)
+    );
+  });
+
+  it("uses TypeId stable IDs before CLR display names", () => {
+    const left: IrType = {
+      kind: "referenceType",
+      name: "Widget",
+      typeId: {
+        stableId: "package-a:Acme.Widget",
+        clrName: "Acme.Widget",
+        assemblyName: "PackageA",
+        tsName: "Widget",
+      },
+    };
+    const right: IrType = {
+      kind: "referenceType",
+      name: "Widget",
+      typeId: {
+        stableId: "package-b:Acme.Widget",
+        clrName: "Acme.Widget",
+        assemblyName: "PackageB",
+        tsName: "Widget",
+      },
+    };
+
+    expect(stableIrTypeKey(left)).not.to.equal(stableIrTypeKey(right));
+    expect(irTypesEqual(left, right)).to.equal(false);
+  });
+
+  it("does not compare identity-less references by simple name", () => {
+    const left: IrType = {
+      kind: "referenceType",
+      name: "Widget",
+    };
+    const right: IrType = {
+      kind: "referenceType",
+      name: "Widget",
+    };
+
+    expect(() => stableIrTypeKey(left)).to.throw(
+      "Cannot build stable type key for identity-less reference type 'Widget'"
+    );
+    expect(irTypesEqual(left, right)).to.equal(false);
+  });
+
+  it("preserves identity-less union references instead of deduping by simple name", () => {
+    const left: IrType = {
+      kind: "referenceType",
+      name: "Widget",
+    };
+    const right: IrType = {
+      kind: "referenceType",
+      name: "Widget",
+    };
+
+    const normalized = normalizedUnionType([left, right]);
+    expect(normalized.kind).to.equal("unionType");
+    if (normalized.kind !== "unionType") return;
+    expect(normalized.types).to.have.length(2);
+    expect(normalized.types[0]).to.equal(left);
+    expect(normalized.types[1]).to.equal(right);
   });
 
   it("normalizes and deduplicates nested unions", () => {
@@ -457,6 +590,44 @@ describe("type-ops", () => {
 
     expect(() => stableIrTypeKey(recursive)).not.to.throw();
     expect(stableIrTypeKey(recursive)).to.contain("cycle:");
+  });
+
+  it("does not encode incidental object sharing in stable type keys", () => {
+    const sharedElement: IrType = { kind: "referenceType", name: "int" };
+    const sharedTuple: IrType = {
+      kind: "tupleType",
+      elementTypes: [sharedElement, sharedElement],
+    };
+    const distinctTuple: IrType = {
+      kind: "tupleType",
+      elementTypes: [
+        { kind: "referenceType", name: "int" },
+        { kind: "referenceType", name: "int" },
+      ],
+    };
+
+    expect(stableIrTypeKey(sharedTuple)).to.equal(
+      stableIrTypeKey(distinctTuple)
+    );
+    expect(irTypesEqual(sharedTuple, distinctTuple)).to.equal(true);
+  });
+
+  it("builds stable keys for freshly materialized named recursive references", () => {
+    const left = createFreshNamedRecursiveBox(stringType);
+    const right = createFreshNamedRecursiveBox(stringType);
+
+    expect(() => stableIrTypeKey(left)).not.to.throw();
+    expect(stableIrTypeKey(left)).to.contain("cycle:");
+    expect(stableIrTypeKey(left)).to.equal(stableIrTypeKey(right));
+    expect(irTypesEqual(left, right)).to.equal(true);
+  });
+
+  it("distinguishes freshly materialized named recursive references by type arguments", () => {
+    const left = createFreshNamedRecursiveBox(stringType);
+    const right = createFreshNamedRecursiveBox(numberType);
+
+    expect(stableIrTypeKey(left)).not.to.equal(stableIrTypeKey(right));
+    expect(irTypesEqual(left, right)).to.equal(false);
   });
 
   it("treats structurally equivalent recursive graphs as equal", () => {

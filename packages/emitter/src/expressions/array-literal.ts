@@ -2,7 +2,7 @@
  * Array and tuple literal expression emitters.
  */
 
-import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { emitExpressionAst } from "../expression-emitter.js";
@@ -16,13 +16,20 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
-import { resolveArrayLiteralContextType } from "../core/semantic/array-expected-types.js";
+import {
+  resolveArrayLiteralContextType,
+  resolveEmptyArrayLiteralContextType,
+} from "../core/semantic/array-expected-types.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
-import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
+import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import {
+  adaptValueToExpectedTypeAst,
+  resolveDirectStorageCompatibleExpressionType,
+} from "./expected-type-adaptation.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { maybeCastNumericToExpectedIntegralAst } from "./post-emission-adaptation.js";
 
@@ -103,13 +110,9 @@ const shouldCoerceArrayLiteralElementToExpectedType = (
     }
   }
 
-  const actual = stableIrTypeKey(
-    resolveTypeAlias(stripNullish(effectiveElementType), context)
-  );
-  const expected = stableIrTypeKey(
-    resolveTypeAlias(stripNullish(expectedElementType), context)
-  );
-  return actual !== expected;
+  const actual = resolveTypeAlias(stripNullish(effectiveElementType), context);
+  const expected = resolveTypeAlias(stripNullish(expectedElementType), context);
+  return !areIrTypesEquivalent(actual, expected, context);
 };
 
 const emitArrayElementAst = (
@@ -151,8 +154,18 @@ const emitArrayElementAst = (
     const effectiveElementType =
       resolveEffectiveExpressionType(transparentElement, context) ??
       transparentElement.inferredType;
+    const directStorageElementType =
+      resolveDirectStorageCompatibleExpressionType({
+        expr: transparentElement,
+        valueAst: rawElemAst,
+        context: rawContext,
+      });
     const actualElementType =
-      effectiveElementType ?? transparentElement.inferredType;
+      adaptationExpectedElementType &&
+      willCarryAsRuntimeUnion(adaptationExpectedElementType, rawContext) &&
+      directStorageElementType
+        ? directStorageElementType
+        : (effectiveElementType ?? transparentElement.inferredType);
 
     const [adaptedElementAst, adaptedElementContext] =
       adaptValueToExpectedTypeAst({
@@ -181,10 +194,11 @@ export const emitArray = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  const effectiveExpectedType = resolveArrayLiteralContextType(
-    expectedType,
-    context
-  );
+  const effectiveExpectedType =
+    expr.elements.length === 0
+      ? (resolveEmptyArrayLiteralContextType(expectedType, context) ??
+        resolveArrayLiteralContextType(expectedType, context))
+      : resolveArrayLiteralContextType(expectedType, context);
   // Resolve type alias to check for tuple types
   const resolvedExpectedType = effectiveExpectedType
     ? resolveTypeAlias(effectiveExpectedType, context)

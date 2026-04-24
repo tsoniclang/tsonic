@@ -7,7 +7,8 @@
 
 import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
-import { stableIrTypeKey, type IrType } from "../types.js";
+import { stableIrTypeKeyIfDeterministic, type IrType } from "../types.js";
+import { referenceTypeIdentity } from "../types/type-ops.js";
 import type { BindingInternal } from "../binding/binding-types.js";
 import { simpleBindingContributesTypeIdentity } from "../../program/binding-registry.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../tsbindgen/names.js";
@@ -24,6 +25,29 @@ import {
   filterTypeByResolvedCandidates,
   type TypeNarrowing,
 } from "./narrowing-resolvers-typeof.js";
+
+const narrowingOpaqueTypeIds = new WeakMap<object, number>();
+let nextNarrowingOpaqueTypeId = 0;
+
+const narrowingVisitKey = (type: IrType): string => {
+  const stableKey = stableIrTypeKeyIfDeterministic(type);
+  if (stableKey) return stableKey;
+  if (type.kind === "referenceType") {
+    const identity = referenceTypeIdentity(type);
+    if (identity) {
+      return `ref:${identity}`;
+    }
+    if (!type.structuralMembers) {
+      return `unresolved-ref:${type.name}/${type.typeArguments?.length ?? 0}`;
+    }
+  }
+  const existing = narrowingOpaqueTypeIds.get(type);
+  if (existing !== undefined) return `opaque:${existing}`;
+  const next = nextNarrowingOpaqueTypeId;
+  nextNarrowingOpaqueTypeId += 1;
+  narrowingOpaqueTypeIds.set(type, next);
+  return `opaque:${next}`;
+};
 
 export type EqualityLiteralTarget =
   | {
@@ -193,9 +217,11 @@ export const resolveInstanceofTargetType = (
       return undefined;
     }
 
+    const identityClrType = simpleBinding.staticType ?? simpleBinding.type;
     return {
       kind: "referenceType",
-      name: tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
+      name: tsbindgenClrTypeNameToTsTypeName(identityClrType),
+      resolvedClrType: identityClrType,
     };
   };
 
@@ -236,7 +262,10 @@ export const resolveInstanceofTargetType = (
         }
 
         const preferred = selectPreferredTargetType(target) ?? target;
-        candidates.set(stableIrTypeKey(preferred), preferred);
+        const key = stableIrTypeKeyIfDeterministic(preferred);
+        if (key) {
+          candidates.set(key, preferred);
+        }
       }
 
       return candidates.size === 1
@@ -251,7 +280,10 @@ export const resolveInstanceofTargetType = (
         if (!target) {
           continue;
         }
-        candidates.set(stableIrTypeKey(target), target);
+        const key = stableIrTypeKeyIfDeterministic(target);
+        if (key) {
+          candidates.set(key, target);
+        }
       }
 
       return candidates.size === 1
@@ -300,7 +332,7 @@ export const resolveInstanceofTargetType = (
     type: IrType,
     seen: Set<string>
   ): IrType | undefined => {
-    const typeKey = stableIrTypeKey(type);
+    const typeKey = narrowingVisitKey(type);
     if (seen.has(typeKey)) {
       return undefined;
     }
@@ -355,7 +387,10 @@ export const resolveInstanceofTargetType = (
         if (!selected) {
           continue;
         }
-        candidates.set(stableIrTypeKey(selected), selected);
+        const key = stableIrTypeKeyIfDeterministic(selected);
+        if (key) {
+          candidates.set(key, selected);
+        }
       }
 
       return candidates.size === 1

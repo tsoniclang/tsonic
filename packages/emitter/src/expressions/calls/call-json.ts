@@ -21,6 +21,19 @@ import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.j
 import { emitTypeArgumentsAst } from "../identifiers.js";
 import { buildExactGlobalBindingReference } from "../exact-global-bindings.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
+
+const JSON_BROAD_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+  "Tsonic.Runtime.JsValue",
+  "global::Tsonic.Runtime.JsValue",
+]);
+
+const JS_VALUE_CLR_NAMES = new Set([
+  "Tsonic.Runtime.JsValue",
+  "global::Tsonic.Runtime.JsValue",
+]);
 
 const isConcreteGlobalJsonParseTarget = (
   type: IrType | undefined
@@ -40,8 +53,7 @@ const isConcreteGlobalJsonParseTarget = (
   if (
     type.kind === "referenceType" &&
     (type.name === "JsValue" ||
-      type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-      type.resolvedClrType === "global::Tsonic.Runtime.JsValue")
+      referenceTypeHasClrIdentity(type, JS_VALUE_CLR_NAMES))
   ) {
     return false;
   }
@@ -71,9 +83,7 @@ const isConcreteGlobalJsonStringifySource = (
     type.kind === "referenceType" &&
     (type.name === "object" ||
       type.name === "JsValue" ||
-      type.resolvedClrType === "System.Object" ||
-      type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
-      type.resolvedClrType === "global::Tsonic.Runtime.JsValue")
+      referenceTypeHasClrIdentity(type, JSON_BROAD_CLR_NAMES))
   ) {
     return false;
   }

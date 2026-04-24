@@ -1,4 +1,4 @@
-import type { IrExpression, IrType } from "@tsonic/frontend";
+import { type IrExpression, type IrType } from "@tsonic/frontend";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
@@ -8,11 +8,16 @@ import type { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
-import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
-import { sameTypeAstSurface } from "../core/format/backend-ast/utils.js";
+import {
+  extractCalleeNameFromAst,
+  sameTypeAstSurface,
+} from "../core/format/backend-ast/utils.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
-import { stripNullish } from "../core/semantic/type-resolution.js";
+import {
+  splitRuntimeNullishUnionMembers,
+  stripNullish,
+} from "../core/semantic/type-resolution.js";
 import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
@@ -147,6 +152,34 @@ const tryConvertExactSurfaceTypeAstToIrType = (
           return { kind: "voidType" };
         case "object":
           return { kind: "referenceType", name: "object" };
+        case "byte":
+          return { kind: "referenceType", name: "byte", resolvedClrType: "global::System.Byte" };
+        case "sbyte":
+          return { kind: "referenceType", name: "sbyte", resolvedClrType: "global::System.SByte" };
+        case "short":
+          return { kind: "referenceType", name: "short", resolvedClrType: "global::System.Int16" };
+        case "ushort":
+          return { kind: "referenceType", name: "ushort", resolvedClrType: "global::System.UInt16" };
+        case "int":
+          return { kind: "primitiveType", name: "int" };
+        case "uint":
+          return { kind: "referenceType", name: "uint", resolvedClrType: "global::System.UInt32" };
+        case "long":
+          return { kind: "referenceType", name: "long", resolvedClrType: "global::System.Int64" };
+        case "ulong":
+          return { kind: "referenceType", name: "ulong", resolvedClrType: "global::System.UInt64" };
+        case "nint":
+          return { kind: "referenceType", name: "nint", resolvedClrType: "global::System.IntPtr" };
+        case "nuint":
+          return { kind: "referenceType", name: "nuint", resolvedClrType: "global::System.UIntPtr" };
+        case "float":
+          return { kind: "referenceType", name: "float", resolvedClrType: "global::System.Single" };
+        case "double":
+          return { kind: "primitiveType", name: "number" };
+        case "decimal":
+          return { kind: "referenceType", name: "decimal", resolvedClrType: "global::System.Decimal" };
+        case "char":
+          return { kind: "primitiveType", name: "char" };
         default:
           return { kind: "referenceType", name: typeAst.keyword };
       }
@@ -218,7 +251,81 @@ const tryConvertExactSurfaceTypeAstToIrType = (
   }
 };
 
-const tryResolveExactStorageSurfaceType = (
+const isPlainDirectStorageSurfaceAst = (
+  ast: CSharpExpressionAst
+): boolean => {
+  let target = ast;
+  while (
+    target.kind === "parenthesizedExpression" ||
+    target.kind === "castExpression" ||
+    target.kind === "asExpression"
+  ) {
+    target = target.expression;
+  }
+
+  return (
+    target.kind === "identifierExpression" ||
+    target.kind === "memberAccessExpression" ||
+    target.kind === "conditionalMemberAccessExpression" ||
+    target.kind === "elementAccessExpression" ||
+    target.kind === "conditionalElementAccessExpression"
+  );
+};
+
+const getSingleNullishBranchStorageType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const split = splitRuntimeNullishUnionMembers(type);
+  if (!split?.hasRuntimeNullish || split.nonNullishMembers.length !== 1) {
+    return undefined;
+  }
+
+  return split.nonNullishMembers[0];
+};
+
+const resolveConditionalBranchStorageType = (
+  expr: IrExpression,
+  ast: CSharpExpressionAst,
+  context: EmitterContext,
+  counterpartType: IrType | undefined
+): IrType | undefined => {
+  const directType = resolveDirectStorageExpressionType(expr, ast, context);
+  if (directType) {
+    return directType;
+  }
+
+  if (!counterpartType) {
+    return undefined;
+  }
+
+  const sourceBackedReturnType =
+    "sourceBackedReturnType" in expr ? expr.sourceBackedReturnType : undefined;
+  const nullishBranchStorageType =
+    getSingleNullishBranchStorageType(sourceBackedReturnType) ??
+    getSingleNullishBranchStorageType(expr.inferredType);
+  if (!nullishBranchStorageType) {
+    return undefined;
+  }
+
+  return matchesExpectedEmissionType(
+    nullishBranchStorageType,
+    counterpartType,
+    context
+  ) &&
+    matchesExpectedEmissionType(
+      counterpartType,
+      nullishBranchStorageType,
+      context
+    )
+    ? nullishBranchStorageType
+    : undefined;
+};
+
+export const resolveExactStorageSurfaceExpressionType = (
   ast: CSharpExpressionAst
 ): IrType | undefined => {
   let target = ast;
@@ -273,15 +380,87 @@ export const resolveDirectStorageExpressionType = (
   ast: CSharpExpressionAst,
   context: EmitterContext
 ): IrType | undefined => {
+  const directAst = (() => {
+    let target = ast;
+    while (target.kind === "parenthesizedExpression") {
+      target = target.expression;
+    }
+    return target;
+  })();
+
   const projectedType = tryResolveProjectedExpressionType(ast);
   if (projectedType) {
     return projectedType;
   }
 
-  const exactSurfaceType = tryResolveExactStorageSurfaceType(ast);
+  const exactSurfaceType = resolveExactStorageSurfaceExpressionType(ast);
   if (exactSurfaceType) {
     return exactSurfaceType;
   }
+
+  const directReturnedExpressionType = (() => {
+    const isRuntimeProjectionMatchAst =
+      directAst.kind === "invocationExpression" &&
+      (extractCalleeNameFromAst(directAst.expression)?.endsWith(".Match") ??
+        false);
+    if (isRuntimeProjectionMatchAst) {
+      return undefined;
+    }
+
+    if (
+      (expr.kind === "call" && directAst.kind === "invocationExpression") ||
+      (expr.kind === "new" && directAst.kind === "objectCreationExpression") ||
+      (expr.kind === "await" && directAst.kind === "awaitExpression")
+    ) {
+      return resolveDirectStorageIrType(expr, context);
+    }
+
+    return undefined;
+  })();
+  if (directReturnedExpressionType) {
+    return directReturnedExpressionType;
+  }
+
+  if (
+    expr.kind === "conditional" &&
+    directAst.kind === "conditionalExpression"
+  ) {
+    const directWhenTrueType = resolveDirectStorageExpressionType(
+      expr.whenTrue,
+      directAst.whenTrue,
+      context
+    );
+    const directWhenFalseType = resolveDirectStorageExpressionType(
+      expr.whenFalse,
+      directAst.whenFalse,
+      context
+    );
+    const whenTrueType =
+      directWhenTrueType ??
+      resolveConditionalBranchStorageType(
+        expr.whenTrue,
+        directAst.whenTrue,
+        context,
+        directWhenFalseType
+      );
+    const whenFalseType =
+      directWhenFalseType ??
+      resolveConditionalBranchStorageType(
+        expr.whenFalse,
+        directAst.whenFalse,
+        context,
+        directWhenTrueType
+      );
+    if (
+      whenTrueType &&
+      whenFalseType &&
+      matchesExpectedEmissionType(whenTrueType, whenFalseType, context) &&
+      matchesExpectedEmissionType(whenFalseType, whenTrueType, context)
+    ) {
+      return whenTrueType;
+    }
+  }
+
 
   const narrowKey =
     expr.kind === "identifier"
@@ -313,6 +492,9 @@ export const resolveDirectStorageExpressionType = (
     }
 
     if (matchesStoredExpressionAst(ast, narrowed.exprAst)) {
+      const directStorageSurfaceType = isPlainDirectStorageSurfaceAst(ast)
+        ? resolveDirectStorageIrType(expr, context)
+        : undefined;
       return (
         tryResolveRuntimeUnionMemberType(
           narrowed.sourceType ??
@@ -322,8 +504,9 @@ export const resolveDirectStorageExpressionType = (
           ast,
           context
         ) ??
-        narrowed.type ??
+        directStorageSurfaceType ??
         narrowed.storageType ??
+        narrowed.type ??
         narrowed.sourceType
       );
     }

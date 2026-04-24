@@ -1,10 +1,11 @@
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../format/backend-ast/types.js";
 import {
+  getIdentifierTypeName,
   sameConcreteTypeAstSurface,
   stripNullableTypeAst,
 } from "../format/backend-ast/utils.js";
@@ -24,6 +25,7 @@ import {
 } from "./runtime-unions.js";
 import { buildRuntimeUnionFactoryCallAst } from "./runtime-union-projection.js";
 import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
+import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
 import {
   isDefinitelyValueType,
   resolveLocalTypeInfo,
@@ -34,13 +36,148 @@ import {
 import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 import { resolveRuntimeMaterializationTargetType } from "./runtime-materialization-targets.js";
 import { resolveTypeMemberKind } from "./member-surfaces.js";
+import { resolveAnonymousStructuralReferenceType } from "../../expressions/structural-anonymous-targets.js";
+import { canPreferAnonymousStructuralTarget } from "../../expressions/structural-type-shapes.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
+
+const resolveAnonymousStructuralMaterializationTarget = (
+  type: IrType,
+  context: EmitterContext
+): IrType | undefined => {
+  const stripped = stripNullish(type);
+  if (!canPreferAnonymousStructuralTarget(stripped)) {
+    return undefined;
+  }
+
+  const anonymousTarget = resolveAnonymousStructuralReferenceType(
+    stripped,
+    context
+  );
+  if (!anonymousTarget) {
+    return undefined;
+  }
+
+  return (splitRuntimeNullishUnionMembers(type)?.hasRuntimeNullish ?? false)
+    ? {
+        kind: "unionType",
+        types: [anonymousTarget, { kind: "primitiveType", name: "undefined" }],
+      }
+    : anonymousTarget;
+};
+
+const normalizeEmittableMaterializationType = (
+  type: IrType,
+  context: EmitterContext,
+  seen = new Set<IrType>()
+): IrType => {
+  if (seen.has(type)) {
+    return type;
+  }
+
+  const anonymousTarget = resolveAnonymousStructuralMaterializationTarget(
+    type,
+    context
+  );
+  if (anonymousTarget) {
+    return anonymousTarget;
+  }
+
+  seen.add(type);
+
+  switch (type.kind) {
+    case "referenceType": {
+      const typeArguments = type.typeArguments?.map((typeArgument) =>
+        normalizeEmittableMaterializationType(typeArgument, context, seen)
+      );
+      const hasChanged =
+        !!typeArguments &&
+        typeArguments.some(
+          (typeArgument, index) => typeArgument !== type.typeArguments?.[index]
+        );
+      return hasChanged
+        ? {
+            ...type,
+            typeArguments,
+          }
+        : type;
+    }
+    case "arrayType": {
+      const elementType = normalizeEmittableMaterializationType(
+        type.elementType,
+        context,
+        seen
+      );
+      const tuplePrefixElementTypes = type.tuplePrefixElementTypes?.map(
+        (tuplePrefixElementType) =>
+          normalizeEmittableMaterializationType(
+            tuplePrefixElementType,
+            context,
+            seen
+          )
+      );
+      const tupleRestElementType = type.tupleRestElementType
+        ? normalizeEmittableMaterializationType(
+            type.tupleRestElementType,
+            context,
+            seen
+          )
+        : undefined;
+      const hasChanged =
+        elementType !== type.elementType ||
+        (!!tuplePrefixElementTypes &&
+          tuplePrefixElementTypes.some(
+            (tuplePrefixElementType, index) =>
+              tuplePrefixElementType !== type.tuplePrefixElementTypes?.[index]
+          )) ||
+        tupleRestElementType !== type.tupleRestElementType;
+      return hasChanged
+        ? {
+            ...type,
+            elementType,
+            ...(tuplePrefixElementTypes ? { tuplePrefixElementTypes } : {}),
+            ...(tupleRestElementType ? { tupleRestElementType } : {}),
+          }
+        : type;
+    }
+    case "tupleType": {
+      const elementTypes = type.elementTypes.map((elementType) =>
+        normalizeEmittableMaterializationType(elementType, context, seen)
+      );
+      return elementTypes.some(
+        (elementType, index) => elementType !== type.elementTypes[index]
+      )
+        ? { ...type, elementTypes }
+        : type;
+    }
+    case "unionType":
+    case "intersectionType": {
+      const types = type.types.map((memberType) =>
+        normalizeEmittableMaterializationType(memberType, context, seen)
+      );
+      return types.some((memberType, index) => memberType !== type.types[index])
+        ? { ...type, types }
+        : type;
+    }
+    default:
+      return type;
+  }
+};
+
+const resolveEmittableMaterializationType = (
+  type: IrType,
+  context: EmitterContext
+): IrType =>
+  normalizeEmittableMaterializationType(
+    resolveRuntimeMaterializationTargetType(type, context),
+    context
+  );
 
 const resolveMaterializationBroadnessType = (
   type: IrType,
   context: EmitterContext
 ): IrType =>
   resolveTypeAlias(
-    stripNullish(resolveRuntimeMaterializationTargetType(type, context)),
+    stripNullish(resolveEmittableMaterializationType(type, context)),
     context,
     { preserveObjectTypeAliases: true }
   );
@@ -79,16 +216,47 @@ const preferEmittableMaterializationTarget = (
   sourceType: IrType,
   narrowedType: IrType,
   context: EmitterContext
-): IrType =>
-  isUnemittableStructuralReferenceTarget(narrowedType, context) &&
-  sourceAlreadyExposesStructuralTarget(sourceType, narrowedType, context)
+): IrType => {
+  const emittableNarrowedType =
+    resolveAnonymousStructuralMaterializationTarget(narrowedType, context) ??
+    narrowedType;
+
+  return isUnemittableStructuralReferenceTarget(
+    emittableNarrowedType,
+    context
+  ) &&
+    sourceAlreadyExposesStructuralTarget(
+      sourceType,
+      emittableNarrowedType,
+      context
+    )
     ? sourceType
-    : narrowedType;
+    : emittableNarrowedType;
+};
 
 const isExactExpressionToType = (
   ast: CSharpExpressionAst,
   typeAst: CSharpTypeAst
 ): boolean => {
+  const isRuntimeUnionMemberProjectionAst = (
+    candidate: CSharpExpressionAst
+  ): boolean => {
+    let current = candidate;
+    while (
+      current.kind === "parenthesizedExpression" ||
+      current.kind === "castExpression"
+    ) {
+      current = current.expression;
+    }
+
+    return (
+      current.kind === "invocationExpression" &&
+      current.arguments.length === 0 &&
+      current.expression.kind === "memberAccessExpression" &&
+      /^As[1-9][0-9]*$/.test(current.expression.memberName)
+    );
+  };
+
   const concreteTarget =
     typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
@@ -110,8 +278,10 @@ const isExactExpressionToType = (
         isExactExpressionToType(ast.whenTrue, concreteTarget) &&
         isExactExpressionToType(ast.whenFalse, concreteTarget)
       );
+    case "invocationExpression":
+      return isRuntimeUnionMemberProjectionAst(ast);
     default:
-      return false;
+      return isRuntimeUnionMemberProjectionAst(ast);
   }
 };
 
@@ -121,6 +291,30 @@ const isAlreadyMaterializedNullableValueRead = (
   (ast.kind === "memberAccessExpression" ||
     ast.kind === "conditionalMemberAccessExpression") &&
   ast.memberName === "Value";
+
+const isObjectTypeAst = (typeAst: CSharpTypeAst): boolean => {
+  const concreteTypeAst = stripNullableTypeAst(typeAst);
+  if (concreteTypeAst.kind === "predefinedType") {
+    return concreteTypeAst.keyword === "object";
+  }
+
+  const identifierName = getIdentifierTypeName(concreteTypeAst);
+  return (
+    identifierName === "System.Object" ||
+    identifierName === "global::System.Object"
+  );
+};
+
+const stripObjectBoxForConcreteMaterializationAst = (
+  ast: CSharpExpressionAst,
+  targetType: IrType
+): CSharpExpressionAst => {
+  const shouldStripObjectBox =
+    ast.kind === "castExpression" &&
+    isObjectTypeAst(ast.type) &&
+    isDefinitelyValueType(targetType);
+  return shouldStripObjectBox ? ast.expression : ast;
+};
 
 const canDeterministicallyMaterializeSourceType = (
   sourceType: IrType,
@@ -132,9 +326,10 @@ const canDeterministicallyMaterializeSourceType = (
     unwrapParameterModifierType(sourceType) ?? sourceType;
   const comparableTargetType =
     unwrapParameterModifierType(targetType) ?? targetType;
-  const pairKey = `${stableIrTypeKey(comparableSourceType)}=>${stableIrTypeKey(
-    comparableTargetType
-  )}`;
+  const pairKey = `${getContextualTypeVisitKey(
+    comparableSourceType,
+    context
+  )}=>${getContextualTypeVisitKey(comparableTargetType, context)}`;
   if (seen.has(pairKey)) {
     return false;
   }
@@ -237,11 +432,11 @@ export const materializeDirectNarrowingAst = (
     comparableNarrowedType,
     context
   );
-  const materializationSourceType = resolveRuntimeMaterializationTargetType(
+  const materializationSourceType = resolveEmittableMaterializationType(
     comparableSourceType,
     context
   );
-  const materializationNarrowedType = resolveRuntimeMaterializationTargetType(
+  const materializationNarrowedType = resolveEmittableMaterializationType(
     comparableEmissionTargetType,
     context
   );
@@ -320,7 +515,10 @@ export const materializeDirectNarrowingAst = (
           {
             kind: "castExpression",
             type: targetTypeAst,
-            expression: sourceAst,
+            expression: stripObjectBoxForConcreteMaterializationAst(
+              sourceAst,
+              resolvedTarget
+            ),
           },
           nextContext,
         ];
@@ -458,8 +656,11 @@ export const materializeDirectNarrowingAst = (
     const [baseMember] = splitSource.nonNullishMembers;
     if (
       baseMember &&
-      stableIrTypeKey(resolveTypeAlias(stripNullish(baseMember), context)) ===
-        stableIrTypeKey(resolvedTarget)
+      areIrTypesEquivalent(
+        resolveTypeAlias(stripNullish(baseMember), context),
+        resolvedTarget,
+        context
+      )
     ) {
       if (isAlreadyMaterializedNullableValueRead(sourceAst)) {
         return [sourceAst, nextContext];
@@ -480,7 +681,10 @@ export const materializeDirectNarrowingAst = (
     {
       kind: "castExpression",
       type: targetTypeAst,
-      expression: sourceAst,
+      expression: stripObjectBoxForConcreteMaterializationAst(
+        sourceAst,
+        resolvedTarget
+      ),
     },
     nextContext,
   ];

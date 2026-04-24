@@ -2,7 +2,6 @@ import {
   IrClassMember,
   IrInterfaceMember,
   IrType,
-  stableIrTypeKey,
 } from "@tsonic/frontend";
 import {
   resolveTypeAlias,
@@ -18,6 +17,18 @@ import {
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import { deriveForOfElementType } from "../core/semantic/iteration-types.js";
+import {
+  getContextualTypeVisitKey,
+  tryContextualTypeIdentityKey,
+} from "../core/semantic/deterministic-type-keys.js";
+import {
+  typesHaveDeterministicIdentityConflict,
+} from "../core/semantic/clr-type-identity.js";
+import {
+  getReferenceNominalIdentityKey,
+  referenceTypesHaveNominalIdentity,
+  referenceTypesShareNominalIdentity,
+} from "../core/semantic/reference-type-identity.js";
 
 const ITERATOR_MEMBER_NAME = "[symbol:iterator]";
 
@@ -201,10 +212,13 @@ const resolveIteratorMemberFromBindingRegistry = (
           kind: "iteratorMethod",
           returnType: overload.semanticSignature.returnType,
         };
-        candidateMatches.set(
-          `${resolution.kind}:${stableIrTypeKey(resolution.returnType)}`,
-          resolution
+        const returnTypeKey = tryContextualTypeIdentityKey(
+          resolution.returnType,
+          context
         );
+        if (returnTypeKey) {
+          candidateMatches.set(`${resolution.kind}:${returnTypeKey}`, resolution);
+        }
         continue;
       }
 
@@ -213,10 +227,13 @@ const resolveIteratorMemberFromBindingRegistry = (
           kind: "iteratorProperty",
           returnType: overload.semanticType,
         };
-        candidateMatches.set(
-          `${resolution.kind}:${stableIrTypeKey(resolution.returnType)}`,
-          resolution
+        const returnTypeKey = tryContextualTypeIdentityKey(
+          resolution.returnType,
+          context
         );
+        if (returnTypeKey) {
+          candidateMatches.set(`${resolution.kind}:${returnTypeKey}`, resolution);
+        }
       }
     }
 
@@ -248,7 +265,7 @@ const resolveIteratorMemberFromReference = (
     return undefined;
   }
 
-  const visitKey = stableIrTypeKey(resolvedRef);
+  const visitKey = getContextualTypeVisitKey(resolvedRef, context);
   if (visited.has(visitKey)) {
     return undefined;
   }
@@ -377,32 +394,7 @@ export const canPreferAnonymousStructuralTarget = (type: IrType): boolean => {
 const getNominalReferenceIdentity = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
-): string => {
-  const explicitIdentity =
-    type.resolvedClrType ??
-    type.typeId?.clrName ??
-    (type.name.includes(".") ? type.name : undefined) ??
-    (type.typeId?.tsName?.includes(".") ? type.typeId.tsName : undefined);
-  if (explicitIdentity) {
-    return explicitIdentity;
-  }
-
-  const resolvedLocal = resolveLocalTypeInfo(type, context);
-  if (resolvedLocal) {
-    const localName = type.name.split(".").pop() ?? type.name;
-    const emittedLocalName =
-      resolvedLocal.info.kind === "typeAlias" &&
-      resolvedLocal.info.type.kind === "objectType"
-        ? `${localName}__Alias`
-        : localName;
-    const canonicalTarget = context.options.canonicalLocalTypeTargets?.get(
-      `${resolvedLocal.namespace}::${localName}`
-    );
-    return canonicalTarget ?? `${resolvedLocal.namespace}.${emittedLocalName}`;
-  }
-
-  return type.name;
-};
+): string | undefined => getReferenceNominalIdentityKey(type, context);
 
 export const isSameNominalType = (
   sourceType: IrType | undefined,
@@ -418,9 +410,12 @@ export const isSameNominalType = (
     sourceBase.kind === "referenceType" &&
     targetBase.kind === "referenceType"
   ) {
+    const sourceIdentity = getNominalReferenceIdentity(sourceBase, context);
+    const targetIdentity = getNominalReferenceIdentity(targetBase, context);
     if (
-      getNominalReferenceIdentity(sourceBase, context) ===
-      getNominalReferenceIdentity(targetBase, context)
+      sourceIdentity !== undefined &&
+      targetIdentity !== undefined &&
+      sourceIdentity === targetIdentity
     ) {
       return true;
     }
@@ -435,11 +430,21 @@ export const isSameNominalType = (
     return false;
   }
 
-  return (
-    sourceResolved.name === targetResolved.name ||
-    (sourceResolved.resolvedClrType !== undefined &&
-      sourceResolved.resolvedClrType === targetResolved.resolvedClrType)
-  );
+  if (
+    typesHaveDeterministicIdentityConflict(sourceResolved, targetResolved)
+  ) {
+    return false;
+  }
+
+  if (referenceTypesHaveNominalIdentity(sourceResolved, targetResolved, context)) {
+    return referenceTypesShareNominalIdentity(
+      sourceResolved,
+      targetResolved,
+      context
+    );
+  }
+
+  return false;
 };
 
 export const getArrayElementType = (

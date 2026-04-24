@@ -15,6 +15,7 @@ import {
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
+import { normalizeValueSlotType } from "../../core/semantic/value-slot-types.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
@@ -137,7 +138,7 @@ export const emitInterfaceDeclaration = (
     if (member.kind === "propertySignature") {
       const [baseTypeAst, typeContext] = (() => {
         if (member.type) {
-          return emitTypeAst(member.type, currentContext);
+          return emitTypeAst(normalizeValueSlotType(member.type), currentContext);
         }
         const objType: CSharpTypeAst = identifierType("object");
         return [objType, currentContext] as const;

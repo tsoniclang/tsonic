@@ -1,5 +1,6 @@
 import type { IrInterfaceMember, IrParameter } from "./helpers.js";
 import type { IrType } from "./ir-types.js";
+import { isKnownBuiltinReferenceType } from "../validation/known-builtin-reference-types.js";
 
 export type IrSpreadTupleShape = {
   readonly prefixElementTypes: readonly IrType[];
@@ -9,6 +10,7 @@ export type IrSpreadTupleShape = {
 type StableTypeKeyState = {
   readonly seen: Map<object, number>;
   readonly keys: Map<object, string>;
+  readonly semanticCycles: Map<string, string>;
   readonly parent?: StableTypeKeyState;
   nextId: number;
 };
@@ -16,6 +18,7 @@ type StableTypeKeyState = {
 const createStableTypeKeyState = (): StableTypeKeyState => ({
   seen: new Map<object, number>(),
   keys: new Map<object, string>(),
+  semanticCycles: new Map<string, string>(),
   nextId: 0,
 });
 
@@ -24,6 +27,7 @@ const cloneStableTypeKeyState = (
 ): StableTypeKeyState => ({
   seen: new Map<object, number>(),
   keys: state.keys,
+  semanticCycles: state.semanticCycles,
   parent: state,
   nextId: state.nextId,
 });
@@ -172,6 +176,70 @@ const isRuntimeNullishMember = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
   (type.name === "null" || type.name === "undefined");
 
+const INTRINSIC_REFERENCE_IDENTITIES: ReadonlyMap<string, string> = new Map([
+  ["object", "intrinsic:object"],
+  ["Array", "intrinsic:ts:Array"],
+  ["ReadonlyArray", "intrinsic:ts:ReadonlyArray"],
+  ["ArrayLike", "intrinsic:ts:ArrayLike"],
+  ["Promise", "intrinsic:ts:Promise"],
+  ["PromiseLike", "intrinsic:ts:PromiseLike"],
+  ["Iterable", "intrinsic:ts:Iterable"],
+  ["Iterator", "intrinsic:ts:Iterator"],
+  ["IterableIterator", "intrinsic:ts:IterableIterator"],
+  ["Generator", "intrinsic:ts:Generator"],
+  ["AsyncIterable", "intrinsic:ts:AsyncIterable"],
+  ["AsyncIterator", "intrinsic:ts:AsyncIterator"],
+  ["AsyncIterableIterator", "intrinsic:ts:AsyncIterableIterator"],
+  ["AsyncGenerator", "intrinsic:ts:AsyncGenerator"],
+  ["ArrayBuffer", "intrinsic:js:ArrayBuffer"],
+  ["SharedArrayBuffer", "intrinsic:js:SharedArrayBuffer"],
+  ["DataView", "intrinsic:js:DataView"],
+  ["Int8Array", "intrinsic:js:Int8Array"],
+  ["Uint8Array", "intrinsic:js:Uint8Array"],
+  ["Uint8ClampedArray", "intrinsic:js:Uint8ClampedArray"],
+  ["Int16Array", "intrinsic:js:Int16Array"],
+  ["Uint16Array", "intrinsic:js:Uint16Array"],
+  ["Int32Array", "intrinsic:js:Int32Array"],
+  ["Uint32Array", "intrinsic:js:Uint32Array"],
+  ["Float32Array", "intrinsic:js:Float32Array"],
+  ["Float64Array", "intrinsic:js:Float64Array"],
+  ["BigInt64Array", "intrinsic:js:BigInt64Array"],
+  ["BigUint64Array", "intrinsic:js:BigUint64Array"],
+]);
+
+const CORE_REFERENCE_CLR_IDENTITIES: ReadonlyMap<string, string> = new Map([
+  ["bool", "System.Boolean"],
+  ["Boolean", "System.Boolean"],
+  ["byte", "System.Byte"],
+  ["Byte", "System.Byte"],
+  ["sbyte", "System.SByte"],
+  ["SByte", "System.SByte"],
+  ["short", "System.Int16"],
+  ["Int16", "System.Int16"],
+  ["ushort", "System.UInt16"],
+  ["UInt16", "System.UInt16"],
+  ["int", "System.Int32"],
+  ["Int32", "System.Int32"],
+  ["uint", "System.UInt32"],
+  ["UInt32", "System.UInt32"],
+  ["long", "System.Int64"],
+  ["Int64", "System.Int64"],
+  ["ulong", "System.UInt64"],
+  ["UInt64", "System.UInt64"],
+  ["nint", "System.IntPtr"],
+  ["IntPtr", "System.IntPtr"],
+  ["nuint", "System.UIntPtr"],
+  ["UIntPtr", "System.UIntPtr"],
+  ["float", "System.Single"],
+  ["Single", "System.Single"],
+  ["double", "System.Double"],
+  ["Double", "System.Double"],
+  ["decimal", "System.Decimal"],
+  ["Decimal", "System.Decimal"],
+  ["char", "System.Char"],
+  ["Char", "System.Char"],
+]);
+
 const collectCanonicalRuntimeUnionFamilyMembers = (
   type: Extract<IrType, { kind: "unionType" }>
 ): readonly IrType[] => {
@@ -201,24 +269,331 @@ const collectCanonicalRuntimeUnionFamilyMembers = (
   }
 
   const deduped = new Map<string, IrType>();
+  const opaqueMembers: IrType[] = [];
   for (const member of flattened) {
-    deduped.set(stableIrTypeKey(member), member);
+    const key = stableIrTypeKeyIfDeterministic(member);
+    if (key) {
+      deduped.set(key, member);
+    } else {
+      opaqueMembers.push(member);
+    }
   }
 
-  return normalizeTypeList(
-    Array.from(deduped.values()),
-    createStableTypeKeyState()
-  );
+  return [
+    ...normalizeTypeList(Array.from(deduped.values()), createStableTypeKeyState()),
+    ...opaqueMembers,
+  ];
 };
 
 export const referenceTypeIdentity = (
   type: Extract<IrType, { kind: "referenceType" }>
-): string =>
-  type.typeId?.stableId
-    ? `id:${type.typeId.stableId}`
+): string | undefined => {
+  if (type.typeId?.stableId) {
+    return `id:${type.typeId.stableId}`;
+  }
+
+  const clrName = type.typeId?.clrName ?? type.resolvedClrType;
+  if (clrName) {
+    return `clr:${getClrIdentityKey(clrName, type.typeArguments?.length ?? 0)}`;
+  }
+
+  const coreClrIdentity = CORE_REFERENCE_CLR_IDENTITIES.get(type.name);
+  if (coreClrIdentity && (type.typeArguments?.length ?? 0) === 0) {
+    return `clr:${getClrIdentityKey(coreClrIdentity)}`;
+  }
+
+  const intrinsicIdentity = INTRINSIC_REFERENCE_IDENTITIES.get(type.name);
+  if (intrinsicIdentity) {
+    return `${intrinsicIdentity}/${type.typeArguments?.length ?? 0}`;
+  }
+
+  if (isKnownBuiltinReferenceType(type.name)) {
+    return `builtin:${type.name}/${type.typeArguments?.length ?? 0}`;
+  }
+
+  return undefined;
+};
+
+export const stripGlobalClrAlias = (name: string): string =>
+  name.startsWith("global::") ? name.slice("global::".length) : name;
+
+const parseSurfaceGenericIdentity = (
+  rawName: string
+): { readonly name: string; readonly arity: number } | undefined => {
+  const openIndex = rawName.indexOf("<");
+  if (openIndex < 0 || !rawName.endsWith(">")) {
+    return undefined;
+  }
+
+  const argumentList = rawName.slice(openIndex + 1, -1);
+  const arity = countTopLevelGenericArguments(argumentList);
+  return arity === undefined
+    ? undefined
+    : { name: rawName.slice(0, openIndex), arity };
+};
+
+const countTopLevelGenericArguments = (
+  argumentList: string
+): number | undefined => {
+  let depth = 0;
+  let count = 1;
+  let hasContent = false;
+
+  for (const char of argumentList) {
+    if (char === "<") {
+      depth += 1;
+      hasContent = true;
+      continue;
+    }
+
+    if (char === ">") {
+      depth -= 1;
+      if (depth < 0) {
+        return undefined;
+      }
+      continue;
+    }
+
+    if (char === "," && depth === 0) {
+      count += 1;
+      continue;
+    }
+
+    if (!/\s/.test(char)) {
+      hasContent = true;
+    }
+  }
+
+  return depth === 0 && hasContent ? count : undefined;
+};
+
+const parseClrIdentity = (
+  rawName: string
+): { readonly name: string; readonly arity: number | undefined } => {
+  const normalizedName = stripGlobalClrAlias(rawName.trim());
+  const surfaceGeneric = parseSurfaceGenericIdentity(normalizedName);
+  const identityName = surfaceGeneric?.name ?? normalizedName;
+  const genericMatch = /^(.*)`([0-9]+)$/.exec(identityName);
+  if (!genericMatch) {
+    return { name: identityName, arity: surfaceGeneric?.arity };
+  }
+
+  return {
+    name: genericMatch[1] ?? identityName,
+    arity: Number(genericMatch[2]),
+  };
+};
+
+export const getClrIdentityKey = (
+  rawName: string,
+  typeArgumentArity = 0
+): string => {
+  const parsed = parseClrIdentity(rawName);
+  const arity = parsed.arity ?? typeArgumentArity;
+  return `${parsed.name}/${arity}`;
+};
+
+export const referenceTypeHasClrIdentity = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  rawNames: Iterable<string>
+): boolean => {
+  const typeKey = type.typeId?.clrName
+    ? getClrIdentityKey(type.typeId.clrName, type.typeArguments?.length ?? 0)
     : type.resolvedClrType
-      ? `clr:${type.resolvedClrType}`
-      : `name:${type.name}`;
+      ? getClrIdentityKey(type.resolvedClrType, type.typeArguments?.length ?? 0)
+      : undefined;
+  if (!typeKey) {
+    return false;
+  }
+
+  for (const rawName of rawNames) {
+    if (typeKey === getClrIdentityKey(rawName, type.typeArguments?.length ?? 0)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const coarseParameterRecursionIdentity = (param: IrParameter): string => {
+  const mode = param.passing ?? "value";
+  return `p:${param.isRest ? 1 : 0}:${param.isOptional ? 1 : 0}:${mode}`;
+};
+
+const coarseInterfaceMemberRecursionIdentity = (
+  member: IrInterfaceMember
+): string => {
+  if (member.kind === "propertySignature") {
+    return `prop:${member.name}:${member.isReadonly ? 1 : 0}:${member.isOptional ? 1 : 0}`;
+  }
+
+  const typeParamCount = member.typeParameters?.length ?? 0;
+  const parameters = member.parameters
+    .map((parameter) => coarseParameterRecursionIdentity(parameter))
+    .join("|");
+  return `method:${member.name}:${typeParamCount}:${parameters}`;
+};
+
+const coarseTypeHeadIdentity = (type: IrType, depth = 0): string => {
+  const maxDepth = 6;
+
+  switch (type.kind) {
+    case "primitiveType":
+    case "literalType":
+    case "typeParameterType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return primitiveKey(type);
+
+    case "arrayType":
+      return depth >= maxDepth
+        ? "arr:*"
+        : `arr:${coarseTypeHeadIdentity(type.elementType, depth + 1)}`;
+
+    case "tupleType":
+      return `tuple:${type.elementTypes.length}`;
+
+    case "dictionaryType":
+      return depth >= maxDepth
+        ? "dict:*"
+        : `dict:${coarseTypeHeadIdentity(type.keyType, depth + 1)}=>${coarseTypeHeadIdentity(type.valueType, depth + 1)}`;
+
+    case "referenceType": {
+      const identity = referenceTypeIdentity(type);
+      if (!identity && !type.structuralMembers) {
+        throw new Error(
+          `Cannot build stable type key for identity-less reference type '${type.name}'`
+        );
+      }
+      const args =
+        depth >= maxDepth
+          ? "*"
+          : (type.typeArguments ?? [])
+        .map((arg) =>
+          arg ? coarseTypeHeadIdentity(arg, depth + 1) : "unknown"
+        )
+        .join(",");
+      const members = (type.structuralMembers ?? [])
+        .map((member) => coarseInterfaceMemberRecursionIdentity(member))
+        .sort()
+        .join("|");
+      return `ref:${identity ?? "structural"}:${args}:${members}`;
+    }
+
+    case "functionType":
+      return `fn:${type.parameters
+        .map((parameter) => coarseParameterRecursionIdentity(parameter))
+        .join("|")}`;
+
+    case "objectType":
+      return `obj:${type.members
+        .map((member) => coarseInterfaceMemberRecursionIdentity(member))
+        .sort()
+        .join("|")}`;
+
+    case "unionType":
+      return depth >= maxDepth
+        ? "union:*"
+        : `union:${type.types
+            .map((member) => coarseTypeHeadIdentity(member, depth + 1))
+            .sort()
+            .join("|")}`;
+
+    case "intersectionType":
+      return depth >= maxDepth
+        ? "inter:*"
+        : `inter:${type.types
+            .map((member) => coarseTypeHeadIdentity(member, depth + 1))
+            .sort()
+            .join("|")}`;
+  }
+};
+
+const coarseTypeRecursionIdentity = (
+  type: IrType,
+  seen: Map<IrType, number> = new Map()
+): string => {
+  const seenId = seen.get(type);
+  if (seenId !== undefined) {
+    return `cycle:${seenId}`;
+  }
+
+  switch (type.kind) {
+    case "primitiveType":
+    case "literalType":
+    case "typeParameterType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return primitiveKey(type);
+
+    case "arrayType":
+      return `arr:${coarseTypeHeadIdentity(type.elementType)}`;
+
+    case "tupleType":
+      return `tuple:${type.elementTypes.length}`;
+
+    case "dictionaryType":
+      return `dict:${coarseTypeHeadIdentity(type.keyType)}=>${coarseTypeHeadIdentity(type.valueType)}`;
+
+    case "referenceType":
+      {
+        const identity = referenceTypeIdentity(type);
+        if (!identity && !type.structuralMembers) {
+          throw new Error(
+            `Cannot build stable type key for identity-less reference type '${type.name}'`
+          );
+        }
+        return `ref:${identity ?? "structural"}:${(type.typeArguments ?? [])
+          .map((arg) => (arg ? coarseTypeHeadIdentity(arg) : "unknown"))
+          .join(",")}:${(type.structuralMembers ?? [])
+          .map((member) => coarseInterfaceMemberRecursionIdentity(member))
+          .sort()
+          .join("|")}`;
+      }
+
+    case "functionType":
+      return `fn:${type.parameters
+        .map((parameter) => coarseParameterRecursionIdentity(parameter))
+        .join("|")}`;
+
+    case "objectType":
+      return `obj:${type.members
+        .map((member) => coarseInterfaceMemberRecursionIdentity(member))
+        .sort()
+        .join("|")}`;
+
+    case "unionType":
+      return `union:${type.types
+        .map((member) => coarseTypeHeadIdentity(member))
+        .sort()
+        .join("|")}`;
+
+    case "intersectionType":
+      return `inter:${type.types
+        .map((member) => coarseTypeHeadIdentity(member))
+        .sort()
+        .join("|")}`;
+  }
+};
+
+const stableTypeRecursionIdentity = (type: IrType): string | undefined => {
+  switch (type.kind) {
+    case "primitiveType":
+    case "literalType":
+    case "typeParameterType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return undefined;
+    default:
+      return coarseTypeRecursionIdentity(type);
+  }
+};
 
 const getReferenceTypeAsyncWrapperKind = (
   type: Extract<IrType, { kind: "referenceType" }>
@@ -315,85 +690,112 @@ const stableIrTypeKeyImpl = (
 
   state.keys.set(type, `cycle:${visit.id}`);
 
+  const semanticIdentity = stableTypeRecursionIdentity(type);
+  const semanticCycleKey = semanticIdentity
+    ? state.semanticCycles.get(semanticIdentity)
+    : undefined;
+  if (semanticCycleKey !== undefined) {
+    state.keys.set(type, semanticCycleKey);
+    return semanticCycleKey;
+  }
+
+  if (semanticIdentity) {
+    state.semanticCycles.set(semanticIdentity, `cycle:${visit.id}`);
+  }
+
   let key: string;
-  switch (type.kind) {
-    case "primitiveType":
-    case "literalType":
-    case "typeParameterType":
-    case "anyType":
-    case "unknownType":
-    case "voidType":
-    case "neverType":
-      key = primitiveKey(type);
-      break;
+  try {
+    switch (type.kind) {
+      case "primitiveType":
+      case "literalType":
+      case "typeParameterType":
+      case "anyType":
+      case "unknownType":
+      case "voidType":
+      case "neverType":
+        key = primitiveKey(type);
+        break;
 
-    case "arrayType":
-      key = `arr#${visit.id}:${stableIrTypeKeyImpl(type.elementType, state)}:tuple:${(
-        type.tuplePrefixElementTypes ?? []
-      )
-        .map((elementType) => stableIrTypeKeyImpl(elementType, state))
-        .join(
-          ","
-        )}:rest:${type.tupleRestElementType ? stableIrTypeKeyImpl(type.tupleRestElementType, state) : "none"}`;
-      break;
+      case "arrayType":
+        key = `arr:${stableIrTypeKeyImpl(type.elementType, state)}:tuple:${(
+          type.tuplePrefixElementTypes ?? []
+        )
+          .map((elementType) => stableIrTypeKeyImpl(elementType, state))
+          .join(
+            ","
+          )}:rest:${type.tupleRestElementType ? stableIrTypeKeyImpl(type.tupleRestElementType, state) : "none"}`;
+        break;
 
-    case "tupleType":
-      key = `tuple#${visit.id}:${type.elementTypes
-        .map((elementType) => stableIrTypeKeyImpl(elementType, state))
-        .join(",")}`;
-      break;
+      case "tupleType":
+        key = `tuple:${type.elementTypes
+          .map((elementType) => stableIrTypeKeyImpl(elementType, state))
+          .join(",")}`;
+        break;
 
-    case "dictionaryType":
-      key = `dict#${visit.id}:${stableIrTypeKeyImpl(type.keyType, state)}=>${stableIrTypeKeyImpl(
-        type.valueType,
-        state
-      )}`;
-      break;
+      case "dictionaryType":
+        key = `dict:${stableIrTypeKeyImpl(type.keyType, state)}=>${stableIrTypeKeyImpl(
+          type.valueType,
+          state
+        )}`;
+        break;
 
-    case "referenceType": {
-      const args = (type.typeArguments ?? []).map((t) =>
-        t ? stableIrTypeKeyImpl(t, state) : "unknown"
-      );
-      const members =
-        type.structuralMembers &&
-        !type.typeId?.stableId &&
-        !type.resolvedClrType
-          ? sortByStableKey(type.structuralMembers, interfaceMemberKey, state)
-              .map((member) => interfaceMemberKey(member, state))
-              .join("|")
-          : "";
-      key = `ref#${visit.id}:${referenceTypeIdentity(type)}:${args.join(",")}:${members}`;
-      break;
+      case "referenceType": {
+        const identity = referenceTypeIdentity(type);
+        if (!identity && !type.structuralMembers) {
+          throw new Error(
+            `Cannot build stable type key for identity-less reference type '${type.name}'`
+          );
+        }
+        const args = (type.typeArguments ?? []).map((t) =>
+          t ? stableIrTypeKeyImpl(t, state) : "unknown"
+        );
+        const members =
+          type.structuralMembers &&
+          !identity
+            ? sortByStableKey(type.structuralMembers, interfaceMemberKey, state)
+                .map((member) => interfaceMemberKey(member, state))
+                .join("|")
+            : "";
+        key = `ref:${identity ?? "structural"}:${args.join(",")}:${members}`;
+        break;
+      }
+
+      case "functionType": {
+        const params = type.parameters
+          .map((parameter) => parameterKey(parameter, state))
+          .join("|");
+        const returnType = stableIrTypeKeyImpl(type.returnType, state);
+        key = `fn:${params}->${returnType}`;
+        break;
+      }
+
+      case "objectType": {
+        const members = sortByStableKey(type.members, interfaceMemberKey, state)
+          .map((member) => interfaceMemberKey(member, state))
+          .join("|");
+        key = `obj:${members}`;
+        break;
+      }
+
+      case "unionType":
+        key = `union:${normalizeTypeList(type.types, state)
+          .map((member) => stableIrTypeKeyImpl(member, state))
+          .join("|")}`;
+        break;
+
+      case "intersectionType":
+        key = `inter:${normalizeTypeList(type.types, state)
+          .map((member) => stableIrTypeKeyImpl(member, state))
+          .join("|")}`;
+        break;
     }
-
-    case "functionType": {
-      const params = type.parameters
-        .map((parameter) => parameterKey(parameter, state))
-        .join("|");
-      const returnType = stableIrTypeKeyImpl(type.returnType, state);
-      key = `fn#${visit.id}:${params}->${returnType}`;
-      break;
+  } finally {
+    if (
+      semanticIdentity &&
+      state.semanticCycles.get(semanticIdentity) === `cycle:${visit.id}`
+    ) {
+      state.semanticCycles.delete(semanticIdentity);
     }
-
-    case "objectType": {
-      const members = sortByStableKey(type.members, interfaceMemberKey, state)
-        .map((member) => interfaceMemberKey(member, state))
-        .join("|");
-      key = `obj#${visit.id}:${members}`;
-      break;
-    }
-
-    case "unionType":
-      key = `union#${visit.id}:${normalizeTypeList(type.types, state)
-        .map((member) => stableIrTypeKeyImpl(member, state))
-        .join("|")}`;
-      break;
-
-    case "intersectionType":
-      key = `inter#${visit.id}:${normalizeTypeList(type.types, state)
-        .map((member) => stableIrTypeKeyImpl(member, state))
-        .join("|")}`;
-      break;
   }
 
   state.keys.set(type, key);
@@ -402,6 +804,32 @@ const stableIrTypeKeyImpl = (
 
 export const stableIrTypeKey = (type: IrType): string =>
   stableIrTypeKeyImpl(type, createStableTypeKeyState());
+
+const isIdentityLessReferenceStableKeyError = (error: unknown): boolean =>
+  error instanceof Error &&
+  error.message.startsWith(
+    "Cannot build stable type key for identity-less reference type "
+  );
+
+const isRecursiveStableKeyOverflow = (error: unknown): boolean =>
+  error instanceof RangeError &&
+  error.message.toLowerCase().includes("call stack");
+
+export const stableIrTypeKeyIfDeterministic = (
+  type: IrType
+): string | undefined => {
+  try {
+    return stableIrTypeKey(type);
+  } catch (error) {
+    if (
+      isIdentityLessReferenceStableKeyError(error) ||
+      isRecursiveStableKeyOverflow(error)
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+};
 
 export const runtimeUnionCarrierFamilyKey = (
   type: Extract<IrType, { kind: "unionType" }>
@@ -423,8 +851,16 @@ export const runtimeUnionCarrierFamilyKey = (
     .join("|")}`;
 };
 
-export const irTypesEqual = (left: IrType, right: IrType): boolean =>
-  stableIrTypeKey(left) === stableIrTypeKey(right);
+export const irTypesEqual = (left: IrType, right: IrType): boolean => {
+  try {
+    return stableIrTypeKey(left) === stableIrTypeKey(right);
+  } catch (error) {
+    if (isIdentityLessReferenceStableKeyError(error)) {
+      return false;
+    }
+    throw error;
+  }
+};
 
 export type NormalizedUnionTypeOptions = {
   readonly preserveRuntimeLayout?: true;
@@ -478,7 +914,7 @@ const runtimeCarrierShapeKey = (type: IrType): string | undefined => {
     return `prim:${type.name}`;
   }
 
-  return stableIrTypeKey(type);
+  return stableIrTypeKeyIfDeterministic(type);
 };
 
 export const hasRuntimeUnionCarrierShape = (type: IrType): boolean => {
@@ -564,13 +1000,19 @@ export const normalizedUnionType = (
   );
 
   const deduped = new Map<string, IrType>();
+  const opaqueMembers: IrType[] = [];
   for (const t of canonicalized) {
-    deduped.set(stableIrTypeKey(t), t);
+    const key = stableIrTypeKeyIfDeterministic(t);
+    if (key) {
+      deduped.set(key, t);
+    } else {
+      opaqueMembers.push(t);
+    }
   }
-  const normalized = normalizeTypeList(
-    Array.from(deduped.values()),
-    createStableTypeKeyState()
-  );
+  const normalized = [
+    ...normalizeTypeList(Array.from(deduped.values()), createStableTypeKeyState()),
+    ...opaqueMembers,
+  ];
   if (normalized.length === 1) {
     const single = normalized[0];
     if (single) return single;

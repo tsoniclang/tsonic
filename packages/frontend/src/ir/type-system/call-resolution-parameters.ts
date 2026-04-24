@@ -12,7 +12,10 @@
  */
 
 import type { IrType } from "../types/index.js";
-import { stableIrTypeKey, unwrapAsyncWrapperType } from "../types/type-ops.js";
+import {
+  stableIrTypeKeyIfDeterministic,
+  unwrapAsyncWrapperType,
+} from "../types/type-ops.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { expandReferenceAlias } from "./type-alias-expansion.js";
 
@@ -194,10 +197,23 @@ const collectExpandedTypeCandidates = (
   const queue: IrType[] = [type];
   const out: IrType[] = [];
   const seen = new Set<string>();
+  const opaqueKeys = new WeakMap<object, number>();
+  let nextOpaqueKey = 0;
+
+  const visitKey = (candidate: IrType): string => {
+    const key = stableIrTypeKeyIfDeterministic(candidate);
+    if (key) return key;
+    const existing = opaqueKeys.get(candidate);
+    if (existing !== undefined) return `opaque:${existing}`;
+    const next = nextOpaqueKey;
+    nextOpaqueKey += 1;
+    opaqueKeys.set(candidate, next);
+    return `opaque:${next}`;
+  };
 
   const enqueue = (candidate: IrType | undefined): void => {
     if (!candidate) return;
-    const key = stableIrTypeKey(candidate);
+    const key = visitKey(candidate);
     if (seen.has(key)) return;
     seen.add(key);
     queue.push(candidate);

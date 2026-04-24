@@ -8,6 +8,7 @@
 
 import { createHash } from "crypto";
 import type { IrType, IrObjectType, IrReferenceType } from "../types.js";
+import { referenceTypeIdentity } from "../types/type-ops.js";
 import { normalizeStructuralPropertySignature } from "./anon-type-shape-collectors.js";
 
 export type SerializeState = {
@@ -30,6 +31,10 @@ export const beginSerializeNode = (
   return { id, seenBefore: false };
 };
 
+const endSerializeNode = (state: SerializeState, node: object): void => {
+  state.seen.delete(node);
+};
+
 /**
  * Serialize an IrType to a stable string for shape signature.
  *
@@ -48,54 +53,113 @@ export const serializeType = (type: IrType, state?: SerializeState): string => {
       return type.name;
     case "literalType":
       return `lit:${typeof type.value}:${String(type.value)}`;
-    case "referenceType":
-      if (type.typeArguments && type.typeArguments.length > 0) {
-        const visit = beginSerializeNode(currentState, type);
-        if (visit.seenBefore) {
-          return `refcycle:${visit.id}`;
-        }
-        return `ref:${type.name}#${visit.id}<${type.typeArguments
-          .map((arg) => serializeType(arg, currentState))
-          .join(",")}>`;
+    case "referenceType": {
+      const visit = beginSerializeNode(currentState, type);
+      if (visit.seenBefore) {
+        return `refcycle:${visit.id}`;
       }
-      return `ref:${type.name}`;
+
+      try {
+        const args =
+          type.typeArguments && type.typeArguments.length > 0
+            ? `<${type.typeArguments
+                .map((arg) => serializeType(arg, currentState))
+                .join(",")}>`
+            : "";
+        const identity = referenceTypeIdentity(type);
+        if (identity) {
+          return `ref:${identity}${args}`;
+        }
+
+        if (!type.structuralMembers) {
+          throw new Error(
+            `Cannot serialize identity-less reference type '${type.name}'`
+          );
+        }
+
+        const members = type.structuralMembers
+          .map((member) => {
+            if (member.kind === "propertySignature") {
+              const normalizedMember =
+                normalizeStructuralPropertySignature(member);
+              return `prop:${normalizedMember.isReadonly ? "ro:" : ""}${normalizedMember.name}${normalizedMember.isOptional ? "?" : ""}:${serializeType(
+                normalizedMember.type,
+                currentState
+              )}`;
+            }
+
+            const params = member.parameters
+              .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
+              .join(",");
+            const ret = member.returnType
+              ? serializeType(member.returnType, currentState)
+              : "void";
+            return `method:${member.name}(${params})=>${ret}`;
+          })
+          .sort()
+          .join(";");
+        return `refstruct${args}:{${members}}`;
+      } finally {
+        endSerializeNode(currentState, type);
+      }
+    }
     case "arrayType": {
       const visit = beginSerializeNode(currentState, type);
       if (visit.seenBefore) {
         return `arrcycle:${visit.id}`;
       }
-      return `arr#${visit.id}:${serializeType(type.elementType, currentState)}`;
+      try {
+        return `arr:${serializeType(type.elementType, currentState)}`;
+      } finally {
+        endSerializeNode(currentState, type);
+      }
     }
     case "tupleType": {
       const visit = beginSerializeNode(currentState, type);
       if (visit.seenBefore) {
         return `tupcycle:${visit.id}`;
       }
-      return `tup#${visit.id}:[${type.elementTypes
-        .map((elementType) => serializeType(elementType, currentState))
-        .join(",")}]`;
+      try {
+        return `tup:[${type.elementTypes
+          .map((elementType) => serializeType(elementType, currentState))
+          .join(",")}]`;
+      } finally {
+        endSerializeNode(currentState, type);
+      }
     }
     case "functionType": {
       const visit = beginSerializeNode(currentState, type);
       if (visit.seenBefore) {
         return `fncycle:${visit.id}`;
       }
-      const params = type.parameters
-        .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
-        .join(",");
-      return `fn#${visit.id}:(${params})=>${serializeType(
-        type.returnType,
-        currentState
-      )}`;
+      try {
+        const params = type.parameters
+          .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
+          .join(",");
+        return `fn:(${params})=>${serializeType(
+          type.returnType,
+          currentState
+        )}`;
+      } finally {
+        endSerializeNode(currentState, type);
+      }
     }
     case "unionType": {
       const visit = beginSerializeNode(currentState, type);
       if (visit.seenBefore) {
         return `unioncycle:${visit.id}`;
       }
-      return `union#${visit.id}:[${type.types
-        .map((member) => serializeType(member, currentState))
-        .join("|")}]`;
+      try {
+        const members = type.types.map((member) =>
+          serializeType(member, currentState)
+        );
+        const orderedMembers = type.preserveRuntimeLayout
+          ? members
+          : [...members].sort();
+        return `union:[${orderedMembers.join("|")}]`;
+      } finally {
+        endSerializeNode(currentState, type);
+      }
     }
     case "typeParameterType":
       return `tp:${type.name}`;
@@ -113,57 +177,70 @@ export const serializeType = (type: IrType, state?: SerializeState): string => {
         return `objcycle:${visit.id}`;
       }
 
-      // Serialize property signatures
-      const propMembers = type.members
-        .filter(
-          (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
-            m.kind === "propertySignature"
-        )
-        .map((m) => {
-          const normalizedMember = normalizeStructuralPropertySignature(m);
-          return `prop:${normalizedMember.isReadonly ? "ro:" : ""}${normalizedMember.name}${normalizedMember.isOptional ? "?" : ""}:${serializeType(
-            normalizedMember.type,
-            currentState
-          )}`;
-        });
+      try {
+        // Serialize property signatures
+        const propMembers = type.members
+          .filter(
+            (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
+              m.kind === "propertySignature"
+          )
+          .map((m) => {
+            const normalizedMember = normalizeStructuralPropertySignature(m);
+            return `prop:${normalizedMember.isReadonly ? "ro:" : ""}${normalizedMember.name}${normalizedMember.isOptional ? "?" : ""}:${serializeType(
+              normalizedMember.type,
+              currentState
+            )}`;
+          });
 
-      // Serialize method signatures
-      const methodMembers = type.members
-        .filter(
-          (m): m is Extract<typeof m, { kind: "methodSignature" }> =>
-            m.kind === "methodSignature"
-        )
-        .map((m) => {
-          const params = m.parameters
-            .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
-            .join(",");
-          const ret = m.returnType
-            ? serializeType(m.returnType, currentState)
-            : "void";
-          return `method:${m.name}(${params})=>${ret}`;
-        });
+        // Serialize method signatures
+        const methodMembers = type.members
+          .filter(
+            (m): m is Extract<typeof m, { kind: "methodSignature" }> =>
+              m.kind === "methodSignature"
+          )
+          .map((m) => {
+            const params = m.parameters
+              .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
+              .join(",");
+            const ret = m.returnType
+              ? serializeType(m.returnType, currentState)
+              : "void";
+            return `method:${m.name}(${params})=>${ret}`;
+          });
 
-      const allMembers = [...propMembers, ...methodMembers].sort().join(";");
-      return `obj#${visit.id}:{${allMembers}}`;
+        const allMembers = [...propMembers, ...methodMembers].sort().join(";");
+        return `obj:{${allMembers}}`;
+      } finally {
+        endSerializeNode(currentState, type);
+      }
     }
     case "dictionaryType": {
       const visit = beginSerializeNode(currentState, type);
       if (visit.seenBefore) {
         return `dictcycle:${visit.id}`;
       }
-      return `dict#${visit.id}:[${serializeType(
-        type.keyType,
-        currentState
-      )}]:${serializeType(type.valueType, currentState)}`;
+      try {
+        return `dict:[${serializeType(type.keyType, currentState)}]:${serializeType(
+          type.valueType,
+          currentState
+        )}`;
+      } finally {
+        endSerializeNode(currentState, type);
+      }
     }
     case "intersectionType": {
       const visit = beginSerializeNode(currentState, type);
       if (visit.seenBefore) {
         return `intersectioncycle:${visit.id}`;
       }
-      return `intersection#${visit.id}:[${type.types
-        .map((member) => serializeType(member, currentState))
-        .join("&")}]`;
+      try {
+        return `intersection:[${type.types
+          .map((member) => serializeType(member, currentState))
+          .sort()
+          .join("&")}]`;
+      } finally {
+        endSerializeNode(currentState, type);
+      }
     }
     default:
       return "unknown";

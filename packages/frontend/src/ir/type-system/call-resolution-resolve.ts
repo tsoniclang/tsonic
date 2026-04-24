@@ -36,6 +36,7 @@ import { refineResolvedParameterTypesForArguments } from "./call-resolution-infe
 import { applyReceiverSubstitution } from "./call-resolution-receiver-substitution.js";
 import { resolveMethodTypeSubstitution } from "./call-resolution-method-substitution.js";
 import { isAssignableTo, typesEqual } from "./type-system-relations.js";
+import { referenceTypeIdentity } from "../types/type-ops.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // resolveCall — Main entry point for call resolution
@@ -50,15 +51,13 @@ const matchesConstructorExpectedReturnShape = (
   }
 
   if (actual.kind === "referenceType" && expected.kind === "referenceType") {
+    const actualIdentity = referenceTypeIdentity(actual);
+    const expectedIdentity = referenceTypeIdentity(expected);
     if (
-      actual.typeId &&
-      expected.typeId &&
-      actual.typeId.stableId !== expected.typeId.stableId
+      actualIdentity === undefined ||
+      expectedIdentity === undefined ||
+      actualIdentity !== expectedIdentity
     ) {
-      return false;
-    }
-
-    if (actual.name !== expected.name) {
       return false;
     }
 

@@ -56,4 +56,90 @@ describe("generated-files", () => {
     expect(code).to.include("typeof(object).Name");
     expect(code).to.not.include("typeof(object?).Name");
   });
+
+  it("treats carrier-local qualified and unqualified definition members as the same source-owned carrier", () => {
+    const registry = createRuntimeUnionRegistry();
+    const metadata = {
+      familyKey: "runtime-union:alias:Test.MiddlewareLike",
+      name: "MiddlewareLike",
+      namespaceName: "Test",
+      typeParameters: [],
+    };
+
+    getOrRegisterRuntimeUnionCarrier(
+      [identifierType("global::Test.Router"), identifierType("string")],
+      registry,
+      {
+        ...metadata,
+        definitionMemberTypeAsts: [identifierType("Router"), identifierType("string")],
+        accessModifier: "internal",
+      }
+    );
+
+    getOrRegisterRuntimeUnionCarrier(
+      [identifierType("global::Test.Router"), identifierType("string")],
+      registry,
+      {
+        ...metadata,
+        definitionMemberTypeAsts: [
+          identifierType("global::Test.Router"),
+          identifierType("string"),
+        ],
+        accessModifier: "public",
+      }
+    );
+
+    const definition = registry.definitionsByName.get("Test.MiddlewareLike");
+    expect(definition?.accessModifier).to.equal("public");
+
+    const code = generateRuntimeUnionFile(registry);
+    expect(code).to.include("public static MiddlewareLike From1(Router value)");
+  });
+
+  it("upgrades recursive source-owned array members from storage-erased object arrays", () => {
+    const registry = createRuntimeUnionRegistry();
+    const metadata = {
+      familyKey: "runtime-union:alias:Test.PathSpec",
+      name: "PathSpec",
+      namespaceName: "Test",
+      typeParameters: [],
+      accessModifier: "public" as const,
+    };
+    const erasedArrayMember = {
+      kind: "arrayType" as const,
+      rank: 1,
+      elementType: identifierType("object"),
+    };
+    const recursiveArrayMember = {
+      kind: "arrayType" as const,
+      rank: 1,
+      elementType: identifierType("global::Test.PathSpec"),
+    };
+
+    getOrRegisterRuntimeUnionCarrier(
+      [erasedArrayMember, identifierType("string")],
+      registry,
+      {
+        ...metadata,
+        definitionMemberTypeAsts: [erasedArrayMember, identifierType("string")],
+      }
+    );
+    getOrRegisterRuntimeUnionCarrier(
+      [recursiveArrayMember, identifierType("string")],
+      registry,
+      {
+        ...metadata,
+        definitionMemberTypeAsts: [
+          recursiveArrayMember,
+          identifierType("string"),
+        ],
+      }
+    );
+
+    const code = generateRuntimeUnionFile(registry);
+    expect(code).to.include(
+      "public static PathSpec From1(global::Test.PathSpec[] value)"
+    );
+    expect(code).to.not.include("public static PathSpec From1(object[] value)");
+  });
 });

@@ -6,7 +6,7 @@
  */
 
 import type { IrType } from "@tsonic/frontend";
-import { normalizedUnionType, stableIrTypeKey } from "@tsonic/frontend";
+import { normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { isAssignable } from "./type-compatibility.js";
 import {
@@ -19,25 +19,15 @@ import {
   getAllPropertySignatures,
 } from "./property-member-lookup.js";
 import { getRuntimeUnionAliasReferenceKey } from "./runtime-union-alias-identity.js";
-
-const referenceTypesShareNominalIdentity = (
-  left: Extract<IrType, { kind: "referenceType" }>,
-  right: Extract<IrType, { kind: "referenceType" }>
-): boolean => {
-  const leftStableId = left.typeId?.stableId;
-  const rightStableId = right.typeId?.stableId;
-  if (leftStableId && rightStableId && leftStableId === rightStableId) {
-    return true;
-  }
-
-  const leftClrName = left.resolvedClrType ?? left.typeId?.clrName;
-  const rightClrName = right.resolvedClrType ?? right.typeId?.clrName;
-  if (leftClrName && rightClrName && leftClrName === rightClrName) {
-    return true;
-  }
-
-  return false;
-};
+import {
+  typesHaveDeterministicIdentityConflict,
+} from "./clr-type-identity.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { referenceTypesShareNominalIdentity } from "./reference-type-identity.js";
+import {
+  getContextualTypeVisitKey,
+  tryContextualTypeIdentityKey,
+} from "./deterministic-type-keys.js";
 
 /**
  * Select the best union member type to instantiate for an object literal.
@@ -69,6 +59,7 @@ export const selectObjectLiteralUnionMember = (
 
   type Candidate = {
     type: IrType;
+    order: number;
     kind: "dictionary" | "object";
     allProps: Set<string>;
     requiredProps: Set<string>;
@@ -86,6 +77,7 @@ export const selectObjectLiteralUnionMember = (
       ) {
         candidates.push({
           type: member,
+          order: candidates.length,
           kind: "dictionary",
           allProps: new Set<string>(),
           requiredProps: new Set<string>(),
@@ -109,6 +101,7 @@ export const selectObjectLiteralUnionMember = (
       );
       candidates.push({
         type: member,
+        order: candidates.length,
         kind: "object",
         allProps,
         requiredProps,
@@ -141,6 +134,7 @@ export const selectObjectLiteralUnionMember = (
 
       candidates.push({
         type: member,
+        order: candidates.length,
         kind: "object",
         allProps,
         requiredProps,
@@ -162,6 +156,7 @@ export const selectObjectLiteralUnionMember = (
 
       candidates.push({
         type: member,
+        order: candidates.length,
         kind: "object",
         allProps,
         requiredProps,
@@ -198,7 +193,9 @@ export const selectObjectLiteralUnionMember = (
     }
 
     if (a.kind === "dictionary" && b.kind === "dictionary") {
-      return stableIrTypeKey(a.type).localeCompare(stableIrTypeKey(b.type));
+      const aKey = tryContextualTypeIdentityKey(a.type, context);
+      const bKey = tryContextualTypeIdentityKey(b.type, context);
+      return aKey && bKey ? aKey.localeCompare(bKey) : a.order - b.order;
     }
 
     const aTotal = a.allProps.size;
@@ -215,7 +212,9 @@ export const selectObjectLiteralUnionMember = (
 
     if (aTotal !== bTotal) return aTotal - bTotal; // fewer total props is better
 
-    return stableIrTypeKey(a.type).localeCompare(stableIrTypeKey(b.type)); // stable tie-break
+    const aKey = tryContextualTypeIdentityKey(a.type, context);
+    const bKey = tryContextualTypeIdentityKey(b.type, context);
+    return aKey && bKey ? aKey.localeCompare(bKey) : a.order - b.order;
   });
 
   const best = matches[0];
@@ -253,9 +252,13 @@ export const findUnionMemberIndex = (
   ): boolean => {
     const memberAliasKey = getRuntimeUnionAliasReferenceKey(member, context);
     if (memberAliasKey) {
-      return (
-        memberAliasKey === getRuntimeUnionAliasReferenceKey(candidate, context)
+      const candidateAliasKey = getRuntimeUnionAliasReferenceKey(
+        candidate,
+        context
       );
+      if (candidateAliasKey) {
+        return memberAliasKey === candidateAliasKey;
+      }
     }
 
     const resolvedMember = resolveTypeAlias(stripNullish(member), context);
@@ -263,14 +266,13 @@ export const findUnionMemberIndex = (
       stripNullish(candidate),
       context
     );
-    if (
-      stableIrTypeKey(resolvedMember) === stableIrTypeKey(resolvedCandidate)
-    ) {
+    if (areIrTypesEquivalent(resolvedMember, resolvedCandidate, context)) {
       return true;
     }
-    const visitedKey = `${stableIrTypeKey(resolvedMember)}=>${stableIrTypeKey(
-      resolvedCandidate
-    )}`;
+    const visitedKey = `${getContextualTypeVisitKey(
+      resolvedMember,
+      context
+    )}=>${getContextualTypeVisitKey(resolvedCandidate, context)}`;
     if (visited.has(visitedKey)) {
       return true;
     }
@@ -324,6 +326,9 @@ export const findUnionMemberIndex = (
     }
 
     if (resolvedMember.kind === "primitiveType") {
+      if (isAssignable(resolvedCandidate, resolvedMember)) {
+        return true;
+      }
       if (resolvedCandidate.kind === "primitiveType") {
         return (
           resolvedMember.name === resolvedCandidate.name ||
@@ -444,25 +449,25 @@ export const findUnionMemberIndex = (
       resolvedCandidate.kind === "referenceType"
     ) {
       if (
-        referenceTypesShareNominalIdentity(resolvedMember, resolvedCandidate)
+        typesHaveDeterministicIdentityConflict(
+          resolvedMember,
+          resolvedCandidate
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        referenceTypesShareNominalIdentity(
+          resolvedMember,
+          resolvedCandidate,
+          context
+        )
       ) {
         return true;
       }
 
-      if (resolvedMember.name !== resolvedCandidate.name) {
-        return false;
-      }
-      const memberArgs = resolvedMember.typeArguments ?? [];
-      const candidateArgs = resolvedCandidate.typeArguments ?? [];
-      if (memberArgs.length !== candidateArgs.length) {
-        return memberArgs.length === 0 || candidateArgs.length === 0;
-      }
-      return memberArgs.every((memberArg, index) => {
-        const candidateArg = candidateArgs[index];
-        return candidateArg
-          ? matchesPredicateTarget(memberArg, candidateArg, nextVisited)
-          : false;
-      });
+      return false;
     }
 
     return false;

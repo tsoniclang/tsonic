@@ -153,10 +153,10 @@ describe("backend-ast utils", () => {
           underlyingType: underlying,
         },
       })
-    ).to.equal("nullable:qualifiedIdentifier:global::System.String");
+    ).to.equal("nullable:clr:System.String/0");
   });
 
-  it("compares raw and concrete emitted type surfaces consistently", () => {
+  it("compares canonical and concrete emitted type surfaces consistently", () => {
     const nullableString: CSharpTypeAst = {
       kind: "nullableType",
       underlyingType: identifierType("global::System.String"),
@@ -168,8 +168,28 @@ describe("backend-ast utils", () => {
       true
     );
     expect(stableConcreteTypeKeyFromAst(nullableString)).to.equal(
-      "qualifiedIdentifier:global::System.String"
+      "clr:System.String/0"
     );
+  });
+
+  it("canonicalizes equivalent CLR type surfaces before comparison", () => {
+    expect(
+      sameTypeAstSurface(
+        { kind: "predefinedType", keyword: "int" },
+        identifierType("global::System.Int32")
+      )
+    ).to.equal(true);
+
+    expect(
+      sameTypeAstSurface(
+        identifierType("global::System.Span", [
+          { kind: "predefinedType", keyword: "int" },
+        ]),
+        identifierType("System.Span`1", [
+          identifierType("global::System.Int32"),
+        ])
+      )
+    ).to.equal(true);
   });
 
   it("extracts identifier type names structurally for simple, qualified, and nullable nodes", () => {
@@ -272,7 +292,7 @@ describe("backend-ast utils", () => {
         elementType: identifierType("global::System.String"),
         rank: 2,
       })
-    ).to.equal("array:2:qualifiedIdentifier:global::System.String");
+    ).to.equal("array:2:clr:System.String/0");
 
     expect(
       stableTypeKeyFromAst({
@@ -282,14 +302,14 @@ describe("backend-ast utils", () => {
           { type: { kind: "predefinedType", keyword: "string" } },
         ],
       })
-    ).to.equal("tuple:predefined:int:count|predefined:string");
+    ).to.equal("tuple:clr:System.Int32/0:count|clr:System.String/0");
 
     expect(
       stableTypeKeyFromAst({
         kind: "pointerType",
         elementType: { kind: "predefinedType", keyword: "byte" },
       })
-    ).to.equal("pointer:predefined:byte");
+    ).to.equal("pointer:clr:System.Byte/0");
   });
 
   it("builds stable identifier suffixes for nested generic shapes", () => {

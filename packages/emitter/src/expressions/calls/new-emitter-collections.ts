@@ -19,6 +19,14 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
+
+const TYPED_ARRAY_NUMERIC_LENGTH_CLR_NAMES = new Set([
+  "System.Int32",
+  "global::System.Int32",
+  "System.Double",
+  "global::System.Double",
+]);
 
 export const isListConstructorWithArrayLiteral = (
   expr: Extract<IrExpression, { kind: "new" }>
@@ -394,10 +402,10 @@ export const isUint8ArrayConstructorWithNumericLength = (
     (argType?.kind === "referenceType" &&
       (argType.name === "int" ||
         argType.name === "double" ||
-        argType.resolvedClrType === "System.Int32" ||
-        argType.resolvedClrType === "global::System.Int32" ||
-        argType.resolvedClrType === "System.Double" ||
-        argType.resolvedClrType === "global::System.Double"))
+        referenceTypeHasClrIdentity(
+          argType,
+          TYPED_ARRAY_NUMERIC_LENGTH_CLR_NAMES
+        )))
   );
 };
 

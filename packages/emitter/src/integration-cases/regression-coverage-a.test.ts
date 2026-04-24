@@ -424,8 +424,9 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.match(
-        /var iterator = (?:\(object\?\))?\(\((?:global::[A-Za-z0-9_.]+)?__Anon_[A-Za-z0-9_]+\)source\)\.__tsonic_symbol_iterator;/
+        /var iterator = (?:\(object\??\))?\(\((?:global::[A-Za-z0-9_.]+)?__Anon_[A-Za-z0-9_]+\)source\)\.__tsonic_symbol_iterator;/
       );
+      expect(csharp).not.to.match(/var iterator = \(object\??\)\(object\??\)/);
     });
 
     it("keeps nullable value unwraps on the raw local instead of layering casts before .Value", () => {

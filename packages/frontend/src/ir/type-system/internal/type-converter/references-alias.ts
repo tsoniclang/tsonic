@@ -19,8 +19,13 @@ import {
   getTypeAliasBodyCache,
 } from "./references-normalize.js";
 import {
+  resolveContainingSourcePackageNamespace,
+  resolveContainingSourcePackageStableFilePath,
+} from "../../../../program/source-file-identity.js";
+import {
   isTsonicBindingsDeclarationFile,
   isSafeToEraseUserTypeAliasTarget,
+  isTsonicSourcePackageFile,
   isRecursiveUserTypeAliasDeclaration,
   shouldPreserveUserTypeAliasIdentity,
   expandTypeAliasBody,
@@ -43,6 +48,126 @@ const unwrapParenthesizedTypeNode = (node: ts.TypeNode): ts.TypeNode => {
 const isDirectUnionTypeAliasDeclaration = (
   node: ts.TypeAliasDeclaration
 ): boolean => ts.isUnionTypeNode(unwrapParenthesizedTypeNode(node.type));
+
+const sourceObjectAliasExpansionStack = new WeakSet<ts.TypeAliasDeclaration>();
+
+const safeGetSourceFile = (node: ts.Node): ts.SourceFile | undefined => {
+  try {
+    const sourceFile = (
+      node as { readonly getSourceFile?: () => ts.SourceFile | undefined }
+    ).getSourceFile?.();
+    return sourceFile?.statements ? sourceFile : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const buildSourceObjectAliasReference = (
+  node: ts.TypeReferenceNode,
+  typeName: string,
+  declNode: ts.TypeAliasDeclaration,
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+): IrType | undefined => {
+  if (typeName.includes(".")) {
+    return undefined;
+  }
+
+  const sourceDecl = declNode;
+  const sourceFile = safeGetSourceFile(sourceDecl);
+  if (
+    !sourceFile ||
+    sourceFile.isDeclarationFile ||
+    !isTsonicSourcePackageFile(sourceFile.fileName)
+  ) {
+    return undefined;
+  }
+
+  const aliasBody = unwrapParenthesizedTypeNode(sourceDecl.type);
+  if (!ts.isTypeLiteralNode(aliasBody)) {
+    return undefined;
+  }
+
+  const refTypeArgs = (node.typeArguments ?? []).map((typeArgument) =>
+    convertType(typeArgument, binding)
+  );
+  const aliasName = sourceDecl.name.text;
+  const sourcePackageNamespace = resolveContainingSourcePackageNamespace(
+    sourceFile.fileName
+  );
+  const stableSourceFilePath =
+    resolveContainingSourcePackageStableFilePath(sourceFile.fileName) ??
+    sourceFile.fileName.replace(/\\/g, "/");
+  const resolvedClrType = sourcePackageNamespace
+    ? `${sourcePackageNamespace}.${aliasName}__Alias`
+    : undefined;
+  const referenceBase: Extract<IrType, { kind: "referenceType" }> = {
+    kind: "referenceType",
+    name: aliasName,
+    ...(refTypeArgs.length > 0 ? { typeArguments: refTypeArgs } : {}),
+    resolvedClrType,
+    ...(resolvedClrType
+      ? {
+          typeId: {
+            stableId: `source-alias:${stableSourceFilePath}#${aliasName}`,
+            clrName: resolvedClrType,
+            assemblyName: sourcePackageNamespace ?? "source",
+            tsName: aliasName,
+          },
+        }
+      : {}),
+  };
+
+  if (sourceObjectAliasExpansionStack.has(sourceDecl)) {
+    return referenceBase;
+  }
+
+  sourceObjectAliasExpansionStack.add(sourceDecl);
+  const convertedBody = (() => {
+    try {
+      return convertType(aliasBody, binding);
+    } finally {
+      sourceObjectAliasExpansionStack.delete(sourceDecl);
+    }
+  })();
+  if (convertedBody.kind !== "objectType") {
+    return undefined;
+  }
+
+  const aliasTypeParams = (sourceDecl.typeParameters ?? []).map(
+    (typeParameter) => typeParameter.name.text
+  );
+  const substitutedBody =
+    aliasTypeParams.length > 0 && refTypeArgs.length > 0
+      ? (() => {
+          const substitution = new Map<string, IrType>();
+          for (
+            let index = 0;
+            index < Math.min(aliasTypeParams.length, refTypeArgs.length);
+            index++
+          ) {
+            const name = aliasTypeParams[index];
+            const argument = refTypeArgs[index];
+            if (name && argument) {
+              substitution.set(name, argument);
+            }
+          }
+
+          const substituted =
+            substitution.size > 0
+              ? substituteIrType(convertedBody, substitution)
+              : convertedBody;
+          return substituted.kind === "objectType"
+            ? substituted
+            : convertedBody;
+      })()
+      : convertedBody;
+
+  return {
+    ...referenceBase,
+    structuralMembers: substitutedBody.members,
+  };
+};
 
 /**
  * Handle type alias declarations during reference type conversion.
@@ -135,11 +260,48 @@ export const handleTypeAliasDeclaration = (
     }
   }
 
-  if (
-    shouldPreserveUserTypeAliasIdentity(declNode) &&
-    isDirectUnionTypeAliasDeclaration(declNode)
-  ) {
-    return undefined;
+  if (isDirectUnionTypeAliasDeclaration(declNode)) {
+    const preserveAliasIdentity = shouldPreserveUserTypeAliasIdentity(declNode);
+    if (preserveAliasIdentity && !declNode.getSourceFile().isDeclarationFile) {
+      return undefined;
+    }
+
+    const recursive = isRecursiveUserTypeAliasDeclaration(
+      declId.id,
+      declNode,
+      binding
+    );
+    if (!declInfo.valueDeclNode && !recursive) {
+      const expanded = expandTypeAliasBody(
+        declId.id,
+        declNode,
+        node,
+        binding,
+        convertType
+      );
+      if (expanded) {
+        return preserveAliasIdentity
+          ? stampSourceAliasCarrier(expanded)
+          : expanded;
+      }
+    }
+
+    if (preserveAliasIdentity) {
+      return undefined;
+    }
+  }
+
+  if (!declNode.getSourceFile().isDeclarationFile) {
+    const sourceObjectAlias = buildSourceObjectAliasReference(
+      node,
+      typeName,
+      declNode,
+      binding,
+      convertType
+    );
+    if (sourceObjectAlias) {
+      return sourceObjectAlias;
+    }
   }
 
   // Declaration-file type-only alias erasure

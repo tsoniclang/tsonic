@@ -6,7 +6,9 @@
  * both substitution and builder modules.
  */
 
+import type { IrInterfaceMember, IrParameter } from "./helpers.js";
 import type { IrType } from "./ir-types.js";
+import { referenceTypeIdentity } from "./type-ops.js";
 
 const compareTupleMetadataForUnify = (
   formal: Extract<IrType, { kind: "arrayType" }>,
@@ -210,7 +212,14 @@ export const unify = (
 
       case "referenceType": {
         if (a.kind !== "referenceType") return false;
-        if (f.name !== a.name) return false;
+        const formalIdentity = referenceTypeIdentity(f);
+        const actualIdentity = referenceTypeIdentity(a);
+        if (
+          formalIdentity === undefined ||
+          actualIdentity === undefined ||
+          formalIdentity !== actualIdentity
+        )
+          return false;
 
         const fArgs = f.typeArguments ?? [];
         const aArgs = a.typeArguments ?? [];
@@ -309,6 +318,105 @@ export const unify = (
 /**
  * Check if two IrTypes are structurally equal.
  */
+const parametersEqual = (left: IrParameter, right: IrParameter): boolean => {
+  if (
+    left.isOptional !== right.isOptional ||
+    left.isRest !== right.isRest ||
+    left.passing !== right.passing
+  ) {
+    return false;
+  }
+
+  if (!left.type || !right.type) {
+    return left.type === right.type;
+  }
+
+  return typesEqual(left.type, right.type);
+};
+
+const interfaceMembersEqual = (
+  left: IrInterfaceMember,
+  right: IrInterfaceMember
+): boolean => {
+  if (
+    left.kind !== right.kind ||
+    left.name !== right.name
+  ) {
+    return false;
+  }
+
+  if (left.kind === "propertySignature") {
+    return (
+      right.kind === "propertySignature" &&
+      left.isOptional === right.isOptional &&
+      left.isReadonly === right.isReadonly &&
+      typesEqual(left.type, right.type)
+    );
+  }
+
+  if (right.kind !== "methodSignature") {
+    return false;
+  }
+
+  if (
+    (left.typeParameters?.length ?? 0) !==
+      (right.typeParameters?.length ?? 0) ||
+    left.parameters.length !== right.parameters.length
+  ) {
+    return false;
+  }
+
+  for (let index = 0; index < left.parameters.length; index += 1) {
+    const leftParameter = left.parameters[index];
+    const rightParameter = right.parameters[index];
+    if (
+      !leftParameter ||
+      !rightParameter ||
+      !parametersEqual(leftParameter, rightParameter)
+    ) {
+      return false;
+    }
+  }
+
+  if (!left.returnType || !right.returnType) {
+    return left.returnType === right.returnType;
+  }
+
+  return typesEqual(left.returnType, right.returnType);
+};
+
+const structuralReferenceMembersEqual = (
+  left: readonly IrInterfaceMember[] | undefined,
+  right: readonly IrInterfaceMember[] | undefined
+): boolean => {
+  if (!left || !right || left.length !== right.length) {
+    return false;
+  }
+
+  const sortMembers = (
+    members: readonly IrInterfaceMember[]
+  ): readonly IrInterfaceMember[] =>
+    [...members].sort((a, b) =>
+      `${a.kind}:${a.name}`.localeCompare(`${b.kind}:${b.name}`)
+    );
+
+  const leftMembers = sortMembers(left);
+  const rightMembers = sortMembers(right);
+  for (let index = 0; index < leftMembers.length; index += 1) {
+    const leftMember = leftMembers[index];
+    const rightMember = rightMembers[index];
+    if (
+      !leftMember ||
+      !rightMember ||
+      !interfaceMembersEqual(leftMember, rightMember)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 export const typesEqual = (a: IrType, b: IrType): boolean => {
   if (a.kind !== b.kind) return false;
 
@@ -321,7 +429,18 @@ export const typesEqual = (a: IrType, b: IrType): boolean => {
 
     case "referenceType": {
       if (b.kind !== "referenceType") return false;
-      if (a.name !== b.name) return false;
+      const leftIdentity = referenceTypeIdentity(a);
+      const rightIdentity = referenceTypeIdentity(b);
+      if (leftIdentity === undefined || rightIdentity === undefined) {
+        return structuralReferenceMembersEqual(
+          a.structuralMembers,
+          b.structuralMembers
+        );
+      }
+      if (leftIdentity !== rightIdentity) {
+        return false;
+      }
+
       const aArgs = a.typeArguments ?? [];
       const bArgs = b.typeArguments ?? [];
       if (aArgs.length !== bArgs.length) return false;

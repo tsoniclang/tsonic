@@ -7,9 +7,11 @@
  */
 
 import type { IrType } from "@tsonic/frontend";
-import { normalizedUnionType, stableIrTypeKey } from "@tsonic/frontend";
+import { normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveTypeAlias } from "./nullish-value-helpers.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
 
 export const matchesTypeofTag = (
   type: IrType,
@@ -99,7 +101,7 @@ const collectTypeofCandidateLeaves = (
   context: EmitterContext,
   seen = new Set<string>()
 ): readonly IrType[] => {
-  const key = stableIrTypeKey(type);
+  const key = getContextualTypeVisitKey(type, context);
   if (seen.has(key)) {
     return [];
   }
@@ -125,7 +127,7 @@ const collectTypeofCandidateLeaves = (
     return [type];
   }
 
-  if (stableIrTypeKey(resolved) !== key) {
+  if (!areIrTypesEquivalent(resolved, type, context)) {
     return collectTypeofCandidateLeaves(resolved, context, nextSeen);
   }
 

@@ -466,10 +466,6 @@ const createImportBinding = (
           };
         }
 
-        if (localType.typeParameters.length > 0) {
-          return null;
-        }
-
         const [typeAst] = emitTypeAst(localType.type, {
           ...context,
           localTypes: targetLocalTypes,

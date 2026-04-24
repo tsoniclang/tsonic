@@ -4,7 +4,6 @@
 
 import {
   IrStatement,
-  stableIrTypeKey,
   type IrClassMember,
   type IrType,
 } from "@tsonic/frontend";
@@ -25,6 +24,7 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { stableTypeKeyFromAst } from "../../core/format/backend-ast/utils.js";
 import {
   buildHoistedInitializerStatement,
   isInterfaceReference,
@@ -253,10 +253,9 @@ export const emitClassDeclaration = (
   );
   const emittedInterfaceKeys = new Set<string>();
   for (const impl of explicitInterfaceRefs) {
-    const implKey = stableIrTypeKey(impl);
-    if (emittedInterfaceKeys.has(implKey)) continue;
-
     const [implTypeAst, newContext] = emitTypeAst(impl, currentContext);
+    const implKey = stableTypeKeyFromAst(implTypeAst);
+    if (emittedInterfaceKeys.has(implKey)) continue;
     currentContext = newContext;
     implementedInterfaces.push(implTypeAst);
     emittedInterfaceKeys.add(implKey);
@@ -264,11 +263,11 @@ export const emitClassDeclaration = (
   for (const match of compatibleInterfaces) {
     const impl = match.ref;
     if (impl.kind !== "referenceType") continue;
-    const implKey = stableIrTypeKey(impl);
-    if (emittedInterfaceKeys.has(implKey)) continue;
     if (!isInterfaceReference(impl, currentContext)) continue;
 
     const [implTypeAst, newContext] = emitTypeAst(impl, currentContext);
+    const implKey = stableTypeKeyFromAst(implTypeAst);
+    if (emittedInterfaceKeys.has(implKey)) continue;
     currentContext = newContext;
     implementedInterfaces.push(implTypeAst);
     emittedInterfaceKeys.add(implKey);

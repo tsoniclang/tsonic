@@ -4,7 +4,7 @@
  * avoiding redundant casts.
  */
 
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
@@ -17,6 +17,7 @@ import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import {
   extractCalleeNameFromAst,
+  getIdentifierTypeName,
   sameTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
@@ -28,6 +29,7 @@ import {
   canPreferAnonymousStructuralTarget,
   resolveAnonymousStructuralReferenceType,
 } from "./structural-adaptation.js";
+import { getContextualTypeVisitKey } from "../core/semantic/deterministic-type-keys.js";
 
 export const hasNullishBranch = (type: IrType | undefined): boolean => {
   if (!type || type.kind !== "unionType") return false;
@@ -167,7 +169,7 @@ export const tryEmitExactComparisonTargetAst = (
     if (!candidate) {
       return;
     }
-    const key = stableIrTypeKey(candidate);
+    const key = getContextualTypeVisitKey(candidate, context);
     if (seen.has(key)) {
       return;
     }
@@ -346,6 +348,45 @@ const isExactConditionalExpressionToType = (
   isExactExpressionToType(ast.whenTrue, targetType) &&
   isExactExpressionToType(ast.whenFalse, targetType);
 
+const isExactInvokedLambdaToType = (
+  ast: CSharpExpressionAst,
+  targetType: CSharpTypeAst
+): boolean => {
+  if (ast.kind !== "invocationExpression") {
+    return false;
+  }
+
+  let target = ast.expression;
+  while (target.kind === "parenthesizedExpression") {
+    target = target.expression;
+  }
+
+  if (target.kind !== "castExpression") {
+    return false;
+  }
+
+  const delegateType = stripNullableTypeAst(target.type);
+  const delegateTypeName = getIdentifierTypeName(delegateType);
+  if (
+    delegateTypeName !== "Func" &&
+    delegateTypeName !== "System.Func" &&
+    delegateTypeName !== "global::System.Func"
+  ) {
+    return false;
+  }
+
+  const delegateTypeArguments =
+    delegateType.kind === "identifierType" ||
+    delegateType.kind === "qualifiedIdentifierType"
+      ? delegateType.typeArguments
+      : undefined;
+  const returnType =
+    delegateTypeArguments && delegateTypeArguments.length > 0
+      ? delegateTypeArguments[delegateTypeArguments.length - 1]
+      : undefined;
+  return !!returnType && sameTypeAstSurface(returnType, targetType);
+};
+
 export const isExactNullableValueAccessToType = (
   ast: CSharpExpressionAst,
   actualType: IrType,
@@ -376,7 +417,7 @@ export const isExactNullableValueAccessToType = (
   );
   return (
     isDefinitelyValueType(resolvedExpected) &&
-    stableIrTypeKey(resolvedBase) === stableIrTypeKey(resolvedExpected)
+    areIrTypesEquivalent(resolvedBase, resolvedExpected, context)
   );
 };
 
@@ -388,6 +429,7 @@ export const isExactExpressionToType = (
   isExactObjectCreationToType(ast, targetType) ||
   isExactCastToType(ast, targetType) ||
   isExactAsExpressionToType(ast, targetType) ||
+  isExactInvokedLambdaToType(ast, targetType) ||
   isExactRuntimeUnionFactoryCallToType(ast, targetType) ||
   isExactDefaultExpressionToType(ast, targetType) ||
   isExactRuntimeUnionMatchToType(ast, targetType) ||

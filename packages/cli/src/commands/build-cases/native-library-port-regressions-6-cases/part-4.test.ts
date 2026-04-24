@@ -209,6 +209,12 @@ describe("build command (native library port regressions)", function () {
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.not.include("object[] result");
       expect(tree).to.not.include("handler == null");
+      expect(tree).to.match(
+        /global::App\.MiddlewareLike\.From\d+\((?:\(global::App\.Router\))?app\)/
+      );
+      expect(tree).to.not.match(
+        /new global::App\.MiddlewareLike\[\]\s*\{\s*app\s*\}/
+      );
       expect(tree).to.not.include("candidate is Application");
       expect(tree).to.include(
         "candidate.As2()) is Application candidate__is_1"

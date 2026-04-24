@@ -9,7 +9,6 @@ import {
   IrStatement,
   IrType,
   normalizedUnionType,
-  stableIrTypeKey,
 } from "@tsonic/frontend";
 import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
@@ -23,6 +22,11 @@ import type {
 import { emitStatementAst } from "../../../statement-emitter.js";
 import { materializeDirectNarrowingAst } from "../../../core/semantic/materialized-narrowing.js";
 import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
+import { areIrTypesEquivalent } from "../../../core/semantic/type-equivalence.js";
+import {
+  identifierType,
+  nullLiteral,
+} from "../../../core/format/backend-ast/builders.js";
 
 export type EmitExprAstFn = (
   e: IrExpression,
@@ -48,7 +52,8 @@ export const mergeBranchContextMeta = (
 
 const joinTypes = (
   left: IrType | undefined,
-  right: IrType | undefined
+  right: IrType | undefined,
+  context: EmitterContext
 ): IrType | undefined => {
   if (!left) {
     return right;
@@ -56,7 +61,7 @@ const joinTypes = (
   if (!right) {
     return left;
   }
-  return stableIrTypeKey(left) === stableIrTypeKey(right)
+  return areIrTypesEquivalent(left, right, context)
     ? left
     : normalizedUnionType([left, right]);
 };
@@ -126,16 +131,17 @@ const mergeJoinedBinding = (
     return [baseBinding, context];
   }
 
-  const mergedType = joinTypes(preferredType, alternateType);
+  const mergedType = joinTypes(preferredType, alternateType, context);
   const mergedSourceType = joinTypes(
     getBindingSourceType(preferredBinding) ?? getBindingSourceType(baseBinding),
-    getBindingSourceType(alternateBinding) ?? getBindingSourceType(baseBinding)
+    getBindingSourceType(alternateBinding) ?? getBindingSourceType(baseBinding),
+    context
   );
   if (!mergedType || !mergedSourceType) {
     return [baseBinding, context];
   }
 
-  if (stableIrTypeKey(mergedType) === stableIrTypeKey(mergedSourceType)) {
+  if (areIrTypesEquivalent(mergedType, mergedSourceType, context)) {
     return [undefined, context];
   }
 
@@ -157,7 +163,8 @@ const mergeJoinedBinding = (
       getBindingStorageType(preferredBinding) ??
         getBindingStorageType(baseBinding),
       getBindingStorageType(alternateBinding) ??
-        getBindingStorageType(baseBinding)
+        getBindingStorageType(baseBinding),
+      context
     ) ?? mergedSourceType;
   const [mergedExprAst, nextContext] = materializeDirectNarrowingAst(
     carrierAst,
@@ -784,29 +791,66 @@ export const buildCastLocalDecl = (
 export const buildIsNCondition = (
   receiver: string | CSharpExpressionAst,
   memberN: number,
-  negate: boolean
+  negate: boolean,
+  guardNullish = false
 ): CSharpExpressionAst => {
+  const receiverAst = toReceiverAst(receiver);
   const isCall: CSharpExpressionAst = {
     kind: "invocationExpression",
     expression: {
       kind: "memberAccessExpression",
-      expression: toReceiverAst(receiver),
+      expression: receiverAst,
       memberName: `Is${memberN}`,
     },
     arguments: [],
   };
+  if (!guardNullish) {
+    return negate
+      ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: isCall }
+      : isCall;
+  }
+
+  const guardedIsCall: CSharpExpressionAst = {
+    kind: "binaryExpression",
+    operatorToken: "&&",
+    left: {
+      kind: "binaryExpression",
+      operatorToken: "!=",
+      left: {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "castExpression",
+          type: identifierType("global::System.Object"),
+          expression: {
+            kind: "parenthesizedExpression",
+            expression: receiverAst,
+          },
+        },
+      },
+      right: nullLiteral(),
+    },
+    right: isCall,
+  };
   return negate
-    ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: isCall }
-    : isCall;
+    ? {
+        kind: "prefixUnaryExpression",
+        operatorToken: "!",
+        operand: {
+          kind: "parenthesizedExpression",
+          expression: guardedIsCall,
+        },
+      }
+    : guardedIsCall;
 };
 
 export const buildAnyIsNCondition = (
   receiver: string | CSharpExpressionAst,
   memberNs: readonly number[],
-  negate: boolean
+  negate: boolean,
+  guardNullish = false
 ): CSharpExpressionAst => {
   const conditions = memberNs.map((memberN) =>
-    buildIsNCondition(receiver, memberN, false)
+    buildIsNCondition(receiver, memberN, false, guardNullish)
   );
   const combined = conditions.reduce<CSharpExpressionAst | undefined>(
     (current, condition) =>
@@ -823,7 +867,7 @@ export const buildAnyIsNCondition = (
         : condition,
     undefined
   );
-  const base = combined ?? buildIsNCondition(receiver, 1, false);
+  const base = combined ?? buildIsNCondition(receiver, 1, false, guardNullish);
   return negate
     ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: base }
     : base;

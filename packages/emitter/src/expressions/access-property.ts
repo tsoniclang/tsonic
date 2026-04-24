@@ -65,6 +65,7 @@ export const emitPropertyAccess = (
   const prop = expr.property as string;
   let receiverAst = objectAst;
   let receiverContext = context;
+  const isErasedAsInterfaceReceiver = expr.object.kind === "asinterface";
   const resolvedObjectType = objectType
     ? resolveTypeAlias(stripNullish(objectType), context)
     : undefined;
@@ -112,6 +113,11 @@ export const emitPropertyAccess = (
     if (preservedBroadArrayReceiver) {
       receiverAst = preservedBroadArrayReceiver[0];
       receiverContext = preservedBroadArrayReceiver[1];
+    } else if (expr.object.kind === "asinterface") {
+      const [transparentReceiverAst, transparentReceiverContext] =
+        emitExpressionAst(transparentReceiver, receiverSourceContext);
+      receiverAst = transparentReceiverAst;
+      receiverContext = transparentReceiverContext;
     } else if (
       receiverAlreadyExposesMember &&
       transparentReceiverSurface &&
@@ -147,6 +153,7 @@ export const emitPropertyAccess = (
   const memberResolutionType =
     expr.isOptional && objectType ? stripNullish(objectType) : objectType;
   if (
+    !isErasedAsInterfaceReceiver &&
     memberResolutionType &&
     resolveTypeMemberKind(memberResolutionType, prop, context) !== undefined
   ) {

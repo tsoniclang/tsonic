@@ -9,6 +9,7 @@ import {
 import {
   buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
   findExactRuntimeUnionMemberIndices,
   getCanonicalRuntimeUnionMembers,
   findRuntimeUnionMemberIndices,
@@ -17,6 +18,7 @@ import { resolveNarrowedUnionMembers } from "./narrowed-union-resolution.js";
 import { emitTypeAst } from "../../types/emitter.js";
 import { createContext } from "../../emitter-types/context.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
+import { printType } from "../format/backend-ast/printer-precedence.js";
 import type { TypeAliasIndex } from "../../emitter-types/core.js";
 import type { LocalTypeInfo } from "../../types.js";
 import { substituteTypeArgs } from "./type-resolution.js";
@@ -71,7 +73,42 @@ describe("runtime-unions", () => {
     ).to.deep.equal(["RenderResult__0", "__Anon_success"]);
   });
 
-  it("builds runtime union frames without forcing local type emission", () => {
+  it("does not exact-match same-name reference members with conflicting TypeIds", () => {
+    const repoItem: IrType = {
+      kind: "referenceType",
+      name: "Item",
+      resolvedClrType: "Fixture.Channels.repo.Item",
+      typeId: {
+        stableId: "source:@fixture/channels:repo.Item",
+        tsName: "Item",
+        clrName: "Fixture.Channels.repo.Item",
+        assemblyName: "@fixture/channels",
+      },
+      structuralMembers: [property("id", { kind: "primitiveType", name: "int" })],
+    };
+    const domainItem: IrType = {
+      kind: "referenceType",
+      name: "Item",
+      resolvedClrType: "Fixture.Channels.domain.Item",
+      typeId: {
+        stableId: "source:@fixture/channels:domain.Item",
+        tsName: "Item",
+        clrName: "Fixture.Channels.domain.Item",
+        assemblyName: "@fixture/channels",
+      },
+      structuralMembers: [property("id", { kind: "primitiveType", name: "int" })],
+    };
+
+    const indices = findExactRuntimeUnionMemberIndices(
+      [repoItem],
+      domainItem,
+      createContext({ rootNamespace: "Fixture" })
+    );
+
+    expect(indices).to.deep.equal([]);
+  });
+
+  it("preserves order for opaque nominal union members without forcing local type emission", () => {
     const unionType: IrType = {
       kind: "unionType",
       types: [
@@ -88,7 +125,7 @@ describe("runtime-unions", () => {
         if (member.kind !== "referenceType") return member.kind;
         return member.name;
       })
-    ).to.deep.equal(["MyApp.ErrEvents", "MyApp.OkEvents"]);
+    ).to.deep.equal(["MyApp.OkEvents", "MyApp.ErrEvents"]);
     expect(frame?.runtimeUnionArity).to.equal(2);
   });
 
@@ -666,6 +703,21 @@ describe("runtime-unions", () => {
     expect(genericLayout?.carrierName).to.equal(specializedLayout?.carrierName);
   });
 
+  it("maps runtime-union carrier generic void arguments to object", () => {
+    const typeAst = buildRuntimeUnionTypeAst({
+      members: [],
+      memberTypeAsts: [],
+      carrierTypeArgumentAsts: [
+        { kind: "predefinedType", keyword: "void" },
+        { kind: "predefinedType", keyword: "string" },
+      ],
+      runtimeUnionArity: 2,
+      carrierFullName: "Test.Result",
+    });
+
+    expect(printType(typeAst)).to.equal("global::Test.Result<object, string>");
+  });
+
   it("preserves original runtime member slots for single-member expr narrowings", () => {
     const interfaceOptions: IrType = {
       kind: "referenceType",
@@ -716,6 +768,7 @@ describe("runtime-unions", () => {
     const interfaceOptionsMember: IrType = {
       kind: "referenceType",
       name: "InterfaceOptions",
+      resolvedClrType: "Test.InterfaceOptions",
       structuralMembers: [
         property("input", { kind: "referenceType", name: "Readable" }),
       ],
@@ -724,6 +777,7 @@ describe("runtime-unions", () => {
     const targetType: IrType = {
       kind: "referenceType",
       name: "InterfaceOptions",
+      resolvedClrType: "Test.InterfaceOptions",
     };
 
     const context = createContext({ rootNamespace: "Test" });

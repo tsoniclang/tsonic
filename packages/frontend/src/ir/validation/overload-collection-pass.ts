@@ -22,7 +22,7 @@ import {
   IrParameter,
   IrStatement,
   IrType,
-  stableIrTypeKey,
+  irTypesEqual,
   substituteIrType,
 } from "../types.js";
 import { buildPublicOverloadFamilyMember } from "../converters/statements/declarations/overload-family-builders.js";
@@ -830,10 +830,14 @@ const parametersMatchExactly = (
       ? normalizeComparableType(rightType, projectAssemblyName)
       : undefined;
 
-    if (
-      (normalizedLeftType ? stableIrTypeKey(normalizedLeftType) : undefined) !==
-      (normalizedRightType ? stableIrTypeKey(normalizedRightType) : undefined)
-    ) {
+    if (!normalizedLeftType || !normalizedRightType) {
+      if (normalizedLeftType !== normalizedRightType) {
+        return false;
+      }
+      continue;
+    }
+
+    if (!irTypesEqual(normalizedLeftType, normalizedRightType)) {
       return false;
     }
   }
@@ -874,13 +878,9 @@ const callableMatchesExactly = (
     right.returnType ?? VOID_TYPE,
     rightTypeParameters
   );
-  return (
-    stableIrTypeKey(
-      normalizeComparableType(leftReturn ?? VOID_TYPE, projectAssemblyName)
-    ) ===
-    stableIrTypeKey(
-      normalizeComparableType(rightReturn ?? VOID_TYPE, projectAssemblyName)
-    )
+  return irTypesEqual(
+    normalizeComparableType(leftReturn ?? VOID_TYPE, projectAssemblyName),
+    normalizeComparableType(rightReturn ?? VOID_TYPE, projectAssemblyName)
   );
 };
 

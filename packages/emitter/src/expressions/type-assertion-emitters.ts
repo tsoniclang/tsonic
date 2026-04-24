@@ -31,6 +31,7 @@ import {
 } from "../core/semantic/union-semantics.js";
 import {
   buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
   emitRuntimeCarrierTypeAst,
 } from "../core/semantic/runtime-unions.js";
 import { getOrRegisterRuntimeUnionCarrier } from "../core/semantic/runtime-union-registry.js";
@@ -48,19 +49,30 @@ import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   stripNullableTypeAst,
   getIdentifierTypeName,
+  sameTypeAstSurface,
 } from "../core/format/backend-ast/utils.js";
 import {
   identifierType,
   stringLiteral,
 } from "../core/format/backend-ast/builders.js";
-import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import {
+  matchesExpectedEmissionType,
+  matchesSemanticExpectedType,
+} from "../core/semantic/expected-type-matching.js";
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { matchesEmittedStorageSurface } from "./identifier-storage.js";
-import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
+import {
+  adaptValueToExpectedTypeAst,
+  resolveCarrierPreservingSourceType,
+} from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
 import { isExactArrayCreationToType } from "./exact-comparison.js";
 import { tryAdaptStructuralCollectionExpressionAst } from "./structural-collection-adaptation.js";
-import { resolveBroadArrayAssertionStorageType } from "../core/semantic/broad-array-storage.js";
+import {
+  isBroadArrayReceiverAssertionTarget,
+  isBroadArrayStorageTarget,
+  resolveBroadArrayAssertionStorageType,
+} from "../core/semantic/broad-array-storage.js";
 import {
   isBroadObjectPassThroughType,
   isBroadObjectSlotType,
@@ -519,6 +531,73 @@ export const emitTypeAssertion = (
     );
   }
 
+  const sourceAlreadyCarriesExpectedRuntimeUnion =
+    !!expectedType &&
+    !!(
+      resolveCarrierPreservingSourceType(
+        sourceStorageTypeAtEntry,
+        expectedType,
+        context
+      ) ??
+      resolveCarrierPreservingSourceType(
+        currentTransparentSourceType,
+        expectedType,
+        context
+      )
+    );
+  const assertionTargetMatchesExpectedRuntimeUnionLayout =
+    !!expectedType &&
+    (() => {
+      const [assertionLayout, assertionLayoutContext] = buildRuntimeUnionLayout(
+        runtimeAssertionTarget,
+        context,
+        emitTypeAst
+      );
+      const [expectedLayout] = buildRuntimeUnionLayout(
+        expectedType,
+        assertionLayoutContext,
+        emitTypeAst
+      );
+      return (
+        !!assertionLayout &&
+        !!expectedLayout &&
+        sameTypeAstSurface(
+          buildRuntimeUnionTypeAst(assertionLayout),
+          buildRuntimeUnionTypeAst(expectedLayout)
+        )
+      );
+    })();
+  const assertionTargetSemanticallyMatchesExpectedRuntimeUnion =
+    !!expectedType &&
+    matchesSemanticExpectedType(
+      runtimeAssertionTarget,
+      expectedType,
+      context
+    );
+  const assertionTargetCollapsesIntoExpectedRuntimeUnion =
+    !!expectedType &&
+    (!!resolveCarrierPreservingSourceType(
+      runtimeAssertionTarget,
+      expectedType,
+      context
+    ) ||
+      assertionTargetMatchesExpectedRuntimeUnionLayout ||
+      (sourceAlreadyCarriesExpectedRuntimeUnion &&
+        assertionTargetSemanticallyMatchesExpectedRuntimeUnion));
+
+  if (
+    sourceAlreadyCarriesExpectedRuntimeUnion &&
+    assertionTargetCollapsesIntoExpectedRuntimeUnion &&
+    !mustPreserveExplicitRuntimeAssertion &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      expectedType
+    );
+  }
+
   if (shouldEraseTypeAssertion(resolvedAssertionTarget)) {
     const erasedSourceExpression = transparentSourceExpression;
     const sourceExpressionType =
@@ -715,7 +794,17 @@ export const emitTypeAssertion = (
       ? sourceNarrowedBinding.type
       : undefined
   );
-  const runtimeCastTarget = preservedBroadArrayStorageType ?? runtimeTarget;
+  const preservedBroadArrayExpectedType =
+    preservedBroadArrayStorageType &&
+    expectedType &&
+    (isBroadArrayStorageTarget(expectedType, sourceLayoutContext) ||
+      isBroadArrayReceiverAssertionTarget(expectedType, sourceLayoutContext))
+      ? expectedType
+      : undefined;
+  const runtimeCastTarget =
+    preservedBroadArrayExpectedType ??
+    preservedBroadArrayStorageType ??
+    runtimeTarget;
   const [
     runtimeTargetTypeAst,
     runtimeTargetUnionLayout,
@@ -739,6 +828,24 @@ export const emitTypeAssertion = (
     sourceNarrowedBinding.storageExprAst
       ? sourceNarrowedBinding.storageExprAst
       : innerAst;
+  const expectedContextAlreadyAcceptsSource =
+    expectedType &&
+    actualExpressionType &&
+    !mustPreserveNominalCast &&
+    !mustPreserveDirectStorageCast &&
+    !preservedBroadArrayStorageType &&
+    !involvesDegenerateDuplicateUnion &&
+    (areIrTypesEquivalent(actualExpressionType, expectedType, sourceLayoutContext) ||
+      matchesExpectedEmissionType(
+        actualExpressionType,
+        expectedType,
+        sourceLayoutContext
+      )) &&
+    matchesEmittedStorageSurface(
+      actualExpressionType,
+      expectedType,
+      sourceLayoutContext
+    )[0];
 
   if (
     isExactExpressionToType(
@@ -751,6 +858,10 @@ export const emitTypeAssertion = (
     )
   ) {
     return [castSourceAst, runtimeTargetTypeContext];
+  }
+
+  if (expectedContextAlreadyAcceptsSource) {
+    return [castSourceAst, sourceLayoutContext];
   }
 
   if (mustPreserveNominalCast) {

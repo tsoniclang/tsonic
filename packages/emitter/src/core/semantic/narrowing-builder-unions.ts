@@ -8,7 +8,6 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext, NarrowedBinding } from "../../types.js";
 import type {
   CSharpExpressionAst,
@@ -48,6 +47,7 @@ import {
   resolveRuntimeSubsetSourceInfo,
   resolveRuntimeUnionFrame,
 } from "./narrowing-builder-core.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
 
 export const buildRuntimeUnionComplementBinding = (
   receiver: CSharpExpressionAst,
@@ -388,8 +388,11 @@ export const applyDirectTypeNarrowing = (
   const existingBinding = context.narrowedBindings?.get(bindingKey);
   if (
     existingBinding?.type &&
-    stableIrTypeKey(resolveTypeAlias(existingBinding.type, context)) ===
-      stableIrTypeKey(resolveTypeAlias(narrowedType, context))
+    areIrTypesEquivalent(
+      resolveTypeAlias(existingBinding.type, context),
+      resolveTypeAlias(narrowedType, context),
+      context
+    )
   ) {
     return context;
   }
@@ -453,34 +456,43 @@ export const applyDirectTypeNarrowing = (
       if (existingBinding.storageExprAst && exprCarrierFrame) {
         const existingCarrierAst =
           existingBinding.carrierExprAst ?? existingBinding.storageExprAst;
-        const existingBindingTypeKey = existingBinding.type
-          ? stableIrTypeKey(resolveTypeAlias(existingBinding.type, context))
-          : undefined;
-        const currentTypeKey = currentType
-          ? stableIrTypeKey(resolveTypeAlias(currentType, context))
-          : undefined;
-        const existingBindingSourceTypeKey = existingBinding.sourceType
-          ? stableIrTypeKey(
-              resolveTypeAlias(existingBinding.sourceType, context)
-            )
-          : undefined;
+        const existingBindingType =
+          existingBinding.type &&
+          resolveTypeAlias(existingBinding.type, context);
+        const resolvedCurrentType =
+          currentType && resolveTypeAlias(currentType, context);
+        const existingBindingSourceType =
+          existingBinding.sourceType &&
+          resolveTypeAlias(existingBinding.sourceType, context);
         const sourceCarrierStillUsesRuntimeUnion =
           !!existingBinding.sourceType &&
           willCarryAsRuntimeUnion(existingBinding.sourceType, context);
         const shouldPreferOriginalStorageCarrier =
-          existingBindingTypeKey !== undefined &&
-          currentTypeKey !== undefined &&
-          existingBindingTypeKey === currentTypeKey &&
-          existingBindingSourceTypeKey !== undefined &&
-          existingBindingSourceTypeKey !== currentTypeKey &&
+          existingBindingType !== undefined &&
+          resolvedCurrentType !== undefined &&
+          areIrTypesEquivalent(
+            existingBindingType,
+            resolvedCurrentType,
+            context
+          ) &&
+          existingBindingSourceType !== undefined &&
+          !areIrTypesEquivalent(
+            existingBindingSourceType,
+            resolvedCurrentType,
+            context
+          ) &&
           sourceCarrierStillUsesRuntimeUnion;
         if (shouldPreferOriginalStorageCarrier) {
           return [existingCarrierAst, context, exprCarrierType] as const;
         }
         if (
-          existingBindingTypeKey !== undefined &&
-          currentTypeKey !== undefined &&
-          existingBindingTypeKey === currentTypeKey
+          existingBindingType !== undefined &&
+          resolvedCurrentType !== undefined &&
+          areIrTypesEquivalent(
+            existingBindingType,
+            resolvedCurrentType,
+            context
+          )
         ) {
           return [existingBinding.exprAst, context, exprCarrierType] as const;
         }

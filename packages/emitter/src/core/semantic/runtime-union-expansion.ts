@@ -10,6 +10,7 @@ import {
   BROAD_OBJECT_TYPE,
   getRuntimeUnionReferenceMembers,
 } from "./runtime-union-shared.js";
+import { referenceTypesShareClrIdentity } from "./clr-type-identity.js";
 
 const BROAD_OBJECT_REFERENCE_TYPE = BROAD_OBJECT_TYPE as Extract<
   IrType,
@@ -19,7 +20,7 @@ const BROAD_OBJECT_REFERENCE_TYPE = BROAD_OBJECT_TYPE as Extract<
 const isBroadObjectReferenceType = (type: IrType): boolean =>
   type.kind === "referenceType" &&
   type.name === BROAD_OBJECT_REFERENCE_TYPE.name &&
-  type.resolvedClrType === BROAD_OBJECT_REFERENCE_TYPE.resolvedClrType;
+  referenceTypesShareClrIdentity(type, BROAD_OBJECT_REFERENCE_TYPE);
 
 const toRecursiveFallbackType = (type: IrType): IrType => {
   if (type.kind === "arrayType") {
@@ -35,6 +36,23 @@ const toRecursiveFallbackType = (type: IrType): IrType => {
   }
 
   return BROAD_OBJECT_TYPE;
+};
+
+const recursiveRuntimeAliasReference = (
+  type: IrType,
+  aliasTarget: IrType,
+  activeAliases: ReadonlySet<string>
+): IrType | undefined => {
+  if (
+    type.kind === "referenceType" &&
+    aliasTarget.kind === "unionType" &&
+    aliasTarget.runtimeCarrierFamilyKey &&
+    activeAliases.has(aliasTarget.runtimeCarrierFamilyKey)
+  ) {
+    return type;
+  }
+
+  return undefined;
 };
 
 export const expandRuntimeUnionMembers = (
@@ -101,7 +119,13 @@ export const expandRuntimeUnionMembers = (
         activeAliases.has(resolvedCarrierAlias.runtimeCarrierFamilyKey) ||
         activeTypes.has(resolvedCarrierAlias)
       ) {
-        return [toRecursiveFallbackType(resolvedCarrierAlias)];
+        return [
+          recursiveRuntimeAliasReference(
+            type,
+            resolvedCarrierAlias,
+            activeAliases
+          ) ?? toRecursiveFallbackType(resolvedCarrierAlias),
+        ];
       }
     }
 
@@ -145,7 +169,10 @@ export const expandRuntimeUnionMembers = (
         activeAliases.has(aliasKey) ||
         (aliasCarrierKey !== undefined && activeAliases.has(aliasCarrierKey))
       ) {
-        return [toRecursiveFallbackType(aliasTarget)];
+        return [
+          recursiveRuntimeAliasReference(type, aliasTarget, activeAliases) ??
+            toRecursiveFallbackType(aliasTarget),
+        ];
       }
 
       const nextActiveAliases = new Set(activeAliases);

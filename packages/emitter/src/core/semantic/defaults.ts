@@ -8,6 +8,7 @@ import {
   stripNullish,
 } from "./type-resolution.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
+import { normalizeValueSlotType } from "./value-slot-types.js";
 
 const addUndefinedBranch = (type: IrType): IrType => {
   const members = type.kind === "unionType" ? type.types : [type];
@@ -94,7 +95,7 @@ export const emitTypedDefaultAst = (
   }
 
   const [typeAst, nextContext] = emitTypeAst(
-    singleNonNullish ?? expectedType,
+    normalizeValueSlotType(singleNonNullish ?? expectedType),
     context
   );
   return [typeAst, nextContext];

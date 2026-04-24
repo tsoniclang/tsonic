@@ -1,6 +1,7 @@
-import { stableIrTypeKey, type IrType } from "@tsonic/frontend";
+import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveTypeAlias } from "./type-resolution.js";
+import { tryContextualTypeIdentityKey } from "./deterministic-type-keys.js";
 
 export const getRuntimeUnionAliasReferenceKey = (
   type: IrType,
@@ -23,9 +24,14 @@ export const getRuntimeUnionAliasReferenceKey = (
     type.typeArguments.length > 0
       ? type.typeArguments
       : resolved.runtimeCarrierTypeArguments;
-  return `${resolved.runtimeCarrierFamilyKey}<${(typeArguments ?? [])
-    .map(stableIrTypeKey)
-    .join(",")}>`;
+  const typeArgumentKeys = (typeArguments ?? []).map((typeArgument) =>
+    tryContextualTypeIdentityKey(typeArgument, context)
+  );
+  if (typeArgumentKeys.some((key) => key === undefined)) {
+    return undefined;
+  }
+
+  return `${resolved.runtimeCarrierFamilyKey}<${typeArgumentKeys.join(",")}>`;
 };
 
 export const runtimeUnionAliasReferencesMatch = (

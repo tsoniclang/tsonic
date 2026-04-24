@@ -39,6 +39,86 @@ import {
 import { emitStaticArrowFieldMembers } from "./variable-static-arrow.js";
 import { resolveIdentifierValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
 import { matchesEmittedStorageSurface } from "../../expressions/identifier-storage.js";
+import { resolveDirectStorageExpressionType } from "../../expressions/direct-storage-types.js";
+
+const hasUnresolvedReferenceLeaves = (
+  type: unknown,
+  context: EmitterContext
+): boolean => {
+  if (!type || typeof type !== "object") {
+    return false;
+  }
+
+  const record = type as Record<string, unknown>;
+  const kind = typeof record.kind === "string" ? record.kind : undefined;
+  switch (kind) {
+    case "referenceType": {
+      if (typeof record.resolvedClrType === "string") {
+        return false;
+      }
+
+      const typeIdClrName =
+        record.typeId &&
+        typeof record.typeId === "object" &&
+        typeof (record.typeId as { clrName?: unknown }).clrName === "string";
+      if (typeIdClrName) {
+        return false;
+      }
+
+      const rawName = typeof record.name === "string" ? record.name : undefined;
+      const lookupName = rawName?.includes(".")
+        ? (rawName.split(".").pop() ?? rawName)
+        : rawName;
+      if (
+        (rawName &&
+          (context.localTypes?.has(rawName) ||
+            context.importBindings?.has(rawName))) ||
+        (lookupName &&
+          (context.localTypes?.has(lookupName) ||
+            context.importBindings?.has(lookupName)))
+      ) {
+        return false;
+      }
+
+      return true;
+    }
+    case "arrayType":
+      return hasUnresolvedReferenceLeaves(record.elementType, context);
+    case "dictionaryType":
+      return (
+        hasUnresolvedReferenceLeaves(record.keyType, context) ||
+        hasUnresolvedReferenceLeaves(record.valueType, context)
+      );
+    case "tupleType":
+      return Array.isArray(record.elementTypes)
+        ? record.elementTypes.some((elementType) =>
+            hasUnresolvedReferenceLeaves(elementType, context)
+          )
+        : false;
+    case "unionType":
+    case "intersectionType":
+      return Array.isArray(record.types)
+        ? record.types.some((memberType) =>
+            hasUnresolvedReferenceLeaves(memberType, context)
+          )
+        : false;
+    case "functionType":
+      return (
+        (Array.isArray(record.parameters)
+          ? record.parameters.some((parameter) =>
+              hasUnresolvedReferenceLeaves(
+                parameter && typeof parameter === "object"
+                  ? (parameter as { type?: unknown }).type
+                  : undefined,
+                context
+              )
+            )
+          : false) || hasUnresolvedReferenceLeaves(record.returnType, context)
+      );
+    default:
+      return false;
+  }
+};
 
 const registerConditionAlias = (
   originalName: string,
@@ -318,6 +398,7 @@ export const emitVariableDeclarationAst = (
 
       // Emit initializer (after allocation, before registration - C# scoping)
       let initAst = undefined;
+      let emittedInitializerStorageType = undefined;
       if (decl.initializer) {
         const expectedInitializerType = shouldTreatStructuralAssertionAsErased(
           decl,
@@ -370,6 +451,30 @@ export const emitVariableDeclarationAst = (
                 expression: exprAst,
               }
             : exprAst;
+        emittedInitializerStorageType =
+          typeAst.kind === "varType"
+            ? (() => {
+                const candidateStorageType = resolveDirectStorageExpressionType(
+                  decl.initializer,
+                  initAst,
+                  currentContext
+                );
+                if (
+                  candidateStorageType &&
+                  !hasUnresolvedReferenceLeaves(candidateStorageType, currentContext)
+                ) {
+                  return candidateStorageType;
+                }
+
+                return declaredInitializerType &&
+                  !hasUnresolvedReferenceLeaves(
+                    declaredInitializerType,
+                    currentContext
+                  )
+                  ? declaredInitializerType
+                  : undefined;
+              })()
+            : undefined;
       } else if (typeAst.kind !== "varType") {
         initAst = {
           kind: "defaultExpression" as const,
@@ -386,7 +491,8 @@ export const emitVariableDeclarationAst = (
       currentContext = registerVariableSymbolTypes(
         originalName,
         decl,
-        currentContext
+        currentContext,
+        emittedInitializerStorageType
       );
       currentContext = registerConditionAlias(
         originalName,

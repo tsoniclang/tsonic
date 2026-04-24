@@ -51,8 +51,15 @@ import {
 } from "./binary-special-ops.js";
 import { emitRuntimeUnionLiteralComparison } from "./binary-runtime-union-comparison.js";
 import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
+import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
 
 const BITWISE_OPERATORS = new Set(["&", "|", "^", "<<", ">>", ">>>"]);
+const JS_BITWISE_NUMBERISH_CLR_NAMES = new Set([
+  "System.Int32",
+  "global::System.Int32",
+  "System.Double",
+  "global::System.Double",
+]);
 
 const isJsBitwiseNumberishType = (
   type: IrType | undefined,
@@ -67,10 +74,7 @@ const isJsBitwiseNumberishType = (
     (resolved.kind === "referenceType" &&
       (resolved.name === "int" ||
         resolved.name === "double" ||
-        resolved.resolvedClrType === "System.Int32" ||
-        resolved.resolvedClrType === "global::System.Int32" ||
-        resolved.resolvedClrType === "System.Double" ||
-        resolved.resolvedClrType === "global::System.Double"))
+        referenceTypeHasClrIdentity(resolved, JS_BITWISE_NUMBERISH_CLR_NAMES)))
   );
 };
 
@@ -506,6 +510,34 @@ export const emitBinary = (
   const shouldContextuallyTypeComparisonOperand = (
     operand: IrExpression
   ): boolean => getTransparentComparisonTarget(operand).kind === "literal";
+  const resolveArithmeticOperandExpectedType = (
+    operand: IrExpression,
+    operandType: IrType | undefined,
+    counterpartType: IrType | undefined
+  ): IrType | undefined => {
+    if (
+      operand.kind === "numericNarrowing" &&
+      isNumericOperandType(stripNullish(operand.inferredType)) &&
+      isNumericOperandType(counterpartType ? stripNullish(counterpartType) : undefined)
+    ) {
+      return operand.inferredType;
+    }
+
+    if (
+      operand.kind === "typeAssertion" &&
+      isNumericOperandType(stripNullish(operand.targetType)) &&
+      isNumericOperandType(counterpartType ? stripNullish(counterpartType) : undefined)
+    ) {
+      return operand.targetType;
+    }
+
+    const strippedOperandType = operandType ? stripNullish(operandType) : undefined;
+    return strippedOperandType &&
+      isNumericOperandType(strippedOperandType) &&
+      isNumericOperandType(counterpartType ? stripNullish(counterpartType) : undefined)
+      ? strippedOperandType
+      : undefined;
+  };
   // Standard emission path
   // Emit operands without contextual type propagation
   // Literals will emit using their raw lexeme (42 vs 42.0)
@@ -522,6 +554,12 @@ export const emitBinary = (
         expr.left.kind === "conditional" &&
         isNumericOperandType(rightResolvedType)
       ? rightResolvedType
+      : isArithmeticOp
+        ? resolveArithmeticOperandExpectedType(
+            expr.left,
+            leftResolvedType,
+            rightResolvedType
+          )
       : undefined;
   const [leftAst, leftContext] = emitExpressionAst(
     expr.left,
@@ -540,6 +578,12 @@ export const emitBinary = (
         expr.right.kind === "conditional" &&
         isNumericOperandType(leftResolvedType)
       ? leftResolvedType
+      : isArithmeticOp
+        ? resolveArithmeticOperandExpectedType(
+            expr.right,
+            rightResolvedType,
+            leftResolvedType
+          )
       : undefined;
   const [rightAst, rightContext] = emitExpressionAst(
     expr.right,

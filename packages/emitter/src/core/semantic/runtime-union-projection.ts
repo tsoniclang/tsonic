@@ -1,4 +1,4 @@
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import {
   identifierExpression,
@@ -18,11 +18,28 @@ import {
   buildRuntimeUnionMemberIndexByAstKey,
   findMappedRuntimeUnionMemberIndex,
 } from "./runtime-union-member-mapping.js";
+import { describeIrTypeForDiagnostics } from "./deterministic-type-keys.js";
 
 type RuntimeUnionProjectionBodyResult =
   | CSharpExpressionAst
   | readonly [CSharpExpressionAst, EmitterContext]
   | undefined;
+
+const isRuntimeUnionMemberProjectionAst = (
+  valueAst: CSharpExpressionAst
+): boolean => {
+  let target = valueAst;
+  while (target.kind === "parenthesizedExpression") {
+    target = target.expression;
+  }
+
+  return (
+    target.kind === "invocationExpression" &&
+    target.arguments.length === 0 &&
+    target.expression.kind === "memberAccessExpression" &&
+    /^As\d+$/.test(target.expression.memberName)
+  );
+};
 
 export const buildRuntimeUnionFactoryCallAst = (
   unionTypeAst: ReturnType<typeof buildRuntimeUnionTypeAst>,
@@ -49,7 +66,12 @@ export const buildRuntimeUnionMatchAst = (
   kind: "invocationExpression",
   expression: {
     kind: "memberAccessExpression",
-    expression: valueAst,
+    expression: isRuntimeUnionMemberProjectionAst(valueAst)
+      ? {
+          kind: "parenthesizedExpression",
+          expression: valueAst,
+        }
+      : valueAst,
     memberName: "Match",
   },
   ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {}),
@@ -58,7 +80,8 @@ export const buildRuntimeUnionMatchAst = (
 
 export const buildInvalidRuntimeUnionCastExpression = (
   actualType: IrType,
-  expectedType: IrType
+  expectedType: IrType,
+  context?: EmitterContext
 ): CSharpExpressionAst => ({
   kind: "throwExpression",
   expression: {
@@ -66,9 +89,12 @@ export const buildInvalidRuntimeUnionCastExpression = (
     type: identifierType("global::System.InvalidCastException"),
     arguments: [
       stringLiteral(
-        `Cannot cast runtime union ${stableIrTypeKey(
-          actualType
-        )} to ${stableIrTypeKey(expectedType)}`
+        context
+          ? `Cannot cast runtime union ${describeIrTypeForDiagnostics(
+              actualType,
+              context
+            )} to ${describeIrTypeForDiagnostics(expectedType, context)}`
+          : `Cannot cast runtime union ${actualType.kind} to ${expectedType.kind}`
       ),
     ],
   },

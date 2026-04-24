@@ -231,6 +231,26 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("await p");
     });
 
+    it("keeps discarded Promise.then chains on the normalized callback result type", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        const p: Promise<number> = load();
+        void p.then((x) => x + 1);
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<double>(async");
+      expect(csharp).to.not.include("Task.Run<global::Tsonic.Internal.Union");
+    });
+
     it("normalizes Promise.then callback PromiseLike return to inner result type", () => {
       const source = `
         declare class Promise<T> {

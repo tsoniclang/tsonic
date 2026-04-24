@@ -1,11 +1,23 @@
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import {
+  typesHaveDeterministicIdentityConflict,
+  typesShareDirectClrIdentity,
+} from "./clr-type-identity.js";
+import {
+  referenceTypesHaveNominalIdentity,
+  referenceTypesShareNominalIdentity,
+} from "./reference-type-identity.js";
 import {
   resolveLocalTypeInfo,
   resolveTypeAlias,
   stripNullish,
   unionMemberMatchesTarget,
 } from "./type-resolution.js";
+import {
+  getContextualTypeVisitKey,
+  tryContextualTypeIdentityKey,
+} from "./deterministic-type-keys.js";
 
 const referenceTypesHaveExactRuntimeIdentity = (
   left: Extract<IrType, { kind: "referenceType" }>,
@@ -22,21 +34,21 @@ const referenceTypesHaveExactRuntimeIdentity = (
     return false;
   }
 
-  const leftStableId = resolvedLeft.typeId?.stableId;
-  const rightStableId = resolvedRight.typeId?.stableId;
-  if (leftStableId && rightStableId && leftStableId === rightStableId) {
-    return true;
+  if (typesHaveDeterministicIdentityConflict(resolvedLeft, resolvedRight)) {
+    return false;
   }
 
-  const leftClrName =
-    resolvedLeft.resolvedClrType ?? resolvedLeft.typeId?.clrName;
-  const rightClrName =
-    resolvedRight.resolvedClrType ?? resolvedRight.typeId?.clrName;
-  if (leftClrName && rightClrName && leftClrName === rightClrName) {
-    return true;
+  if (
+    referenceTypesHaveNominalIdentity(resolvedLeft, resolvedRight, context)
+  ) {
+    return referenceTypesShareNominalIdentity(
+      resolvedLeft,
+      resolvedRight,
+      context
+    );
   }
 
-  return resolvedLeft.name === resolvedRight.name;
+  return false;
 };
 
 export const findRuntimeUnionMemberIndex = (
@@ -68,14 +80,19 @@ export const findExactRuntimeUnionMemberIndices = (
   context: EmitterContext
 ): readonly number[] => {
   const resolvedTarget = resolveTypeAlias(stripNullish(target), context);
-  const targetKey = stableIrTypeKey(resolvedTarget);
+  const targetKey = tryContextualTypeIdentityKey(resolvedTarget, context);
   return members.flatMap((member, index) => {
     if (!member) {
       return [];
     }
     const resolvedMember = resolveTypeAlias(stripNullish(member), context);
-    const memberKey = stableIrTypeKey(resolvedMember);
-    if (memberKey === targetKey) {
+    const memberKey = tryContextualTypeIdentityKey(resolvedMember, context);
+    if (
+      (memberKey !== undefined &&
+        targetKey !== undefined &&
+        memberKey === targetKey) ||
+      typesShareDirectClrIdentity(resolvedMember, resolvedTarget)
+    ) {
       return [index];
     }
 
@@ -105,7 +122,7 @@ const referenceTypeCanContainInstanceofTarget = (
     return true;
   }
 
-  const targetKey = stableIrTypeKey(target);
+  const targetKey = getContextualTypeVisitKey(target, context);
   if (seen.has(targetKey)) {
     return false;
   }

@@ -355,14 +355,21 @@ export const tryEmitMemberBindingAccess = (
         sourcePropertyName,
         context
       ) !== undefined;
+    const erasedAsInterfaceReceiver =
+      expr.object.kind === "asinterface" ? transparentReceiver : undefined;
+    const receiverForEmission =
+      erasedAsInterfaceReceiver ??
+      (transparentReceiverAlreadyExposesMember ? transparentReceiver : undefined);
     const [objectAst, newContext] =
-      transparentReceiverAlreadyExposesMember && transparentReceiver
-        ? emitExpressionAst(transparentReceiver, context)
+      receiverForEmission !== undefined
+        ? emitExpressionAst(receiverForEmission, context)
         : emitExpressionAst(expr.object, context);
     const receiverSourceExpr =
-      transparentReceiverAlreadyExposesMember && transparentReceiver
-        ? transparentReceiver
+      receiverForEmission !== undefined
+        ? receiverForEmission
         : expr.object;
+    const receiverMaterializationType =
+      erasedAsInterfaceReceiver !== undefined ? transparentReceiverType : receiverType;
     const receiverStorageType = resolveDirectStorageIrType(
       receiverSourceExpr,
       context
@@ -371,14 +378,14 @@ export const tryEmitMemberBindingAccess = (
       materializeDirectNarrowingAst(
         objectAst,
         receiverStorageType,
-        receiverType,
+        receiverMaterializationType,
         newContext
       );
     const receiverAst = materializedReceiverAst;
     const receiverContext = materializedReceiverContext;
     const emittedSourceMemberName = emitMemberName(
-      expr.object,
-      receiverType,
+      receiverSourceExpr,
+      receiverMaterializationType ?? receiverType,
       sourcePropertyName,
       context,
       usage

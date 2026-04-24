@@ -119,7 +119,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.include(
-        "(await global::System.Threading.Tasks.Task.FromResult(render(flag))).Match<"
+        "var result = await global::System.Threading.Tasks.Task.FromResult(render(flag));"
       );
       expect(csharp).not.to.include("await render(flag).Match");
     });

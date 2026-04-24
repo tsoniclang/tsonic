@@ -2,7 +2,7 @@
  * Logical operator expression emitter (&&, ||, ??)
  */
 
-import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -21,6 +21,7 @@ import {
   resolveDirectStorageCompatibleExpressionType,
 } from "../expected-type-adaptation.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
+import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 
 /**
  * Check if an expression AST can still produce a nullable value type.
@@ -156,7 +157,7 @@ const buildSingleEvalGenericNullishAst = (
   const nonNullLeftType = leftType ? stripNullish(leftType) : undefined;
   const synthesizedUnionTarget =
     nonNullLeftType && rightType
-      ? stableIrTypeKey(nonNullLeftType) === stableIrTypeKey(rightType)
+      ? areIrTypesEquivalent(nonNullLeftType, rightType, leftContext)
         ? nonNullLeftType
         : ({
             kind: "unionType",
@@ -441,14 +442,35 @@ export const emitLogical = (
     return genericNullish;
   }
 
-  const rightExpectedType =
+  const nullishResultType =
+    expectedType ?? expr.inferredType ?? expr.left.inferredType;
+  const nonNullishResultType = nullishResultType
+    ? stripNullish(nullishResultType)
+    : undefined;
+  const nonNullishInferredResultType =
+    expr.inferredType ?? expr.left.inferredType ?? expectedType;
+  const contextualRightExpectedType =
     operator === "??"
       ? expectedType && isBroadObjectSlotType(expectedType, leftContext)
         ? isNullishOnlyType(expr.right.inferredType)
-          ? (expectedType ?? expr.inferredType ?? expr.left.inferredType)
-          : (expr.inferredType ?? expr.left.inferredType)
-        : (expectedType ?? expr.inferredType ?? expr.left.inferredType)
+          ? nullishResultType
+          : nonNullishInferredResultType
+            ? stripNullish(nonNullishInferredResultType)
+            : undefined
+        : isNullishOnlyType(expr.right.inferredType)
+          ? nullishResultType
+          : nonNullishResultType
       : undefined;
+  const rightExpectedType =
+    contextualRightExpectedType &&
+    expr.right.inferredType &&
+    areIrTypesEquivalent(
+      stripNullish(expr.right.inferredType),
+      contextualRightExpectedType,
+      leftContext
+    )
+      ? undefined
+      : contextualRightExpectedType;
   const [rightAst, rightContext] = emitExpressionAst(
     expr.right,
     leftContext,

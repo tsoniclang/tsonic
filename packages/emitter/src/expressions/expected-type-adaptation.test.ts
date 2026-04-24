@@ -21,6 +21,7 @@ import {
   printRuntimeUnionCarrierTypeForIrType,
 } from "../runtime-union-cases/helpers.js";
 import { emitExpressionAst } from "../expression-emitter.js";
+import { emitIdentifier } from "./identifiers.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
   adaptEmittedExpressionAst,
@@ -57,7 +58,7 @@ describe("expected-type-adaptation", () => {
       kind: "unionType",
       types: [{ kind: "primitiveType", name: "string" }, regexpType],
       runtimeCarrierFamilyKey:
-        "runtime-union:canonical:prim:string|ref#0:clr:js.RegExp::",
+        "runtime-union:canonical:prim:string|ref:clr:js.RegExp::",
     };
     const context = createContext({
       rootNamespace: "Test",
@@ -388,6 +389,38 @@ describe("expected-type-adaptation", () => {
     expect(result).to.not.equal(undefined);
     expect(printExpression(result![0])).to.equal(
       "result.Match<object>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2)"
+    );
+  });
+
+  it("throws on nonmatching runtime-union member projections into concrete sinks", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const actualType: IrType = normalizedUnionType([
+      { kind: "primitiveType", name: "string" },
+      {
+        kind: "referenceType",
+        name: "Uint8Array",
+        resolvedClrType: "js.Uint8Array",
+      },
+    ]);
+
+    const result = adaptValueToExpectedTypeAst({
+      valueAst: identifierExpression("result"),
+      actualType,
+      context,
+      expectedType: { kind: "primitiveType", name: "string" },
+      allowUnionNarrowing: false,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(printExpression(result![0])).to.include(
+      'throw new global::System.InvalidCastException('
+    );
+    expect(printExpression(result![0])).to.not.equal(
+      "result.Match<string>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2)"
     );
   });
 
@@ -757,6 +790,208 @@ describe("expected-type-adaptation", () => {
     );
   });
 
+
+  it("keeps broad object conditionals on their emitted storage surface", () => {
+    const stringArrayType: IrType = {
+      kind: "arrayType",
+      elementType: { kind: "primitiveType", name: "string" },
+      origin: "explicit",
+    };
+    const numberArrayType: IrType = {
+      kind: "arrayType",
+      elementType: { kind: "primitiveType", name: "number" },
+    };
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      }),
+      localNameMap: new Map<string, string>([["parsed", "parsed"]]),
+      localValueTypes: new Map<string, IrType>([["parsed", stringArrayType]]),
+      localSemanticTypes: new Map<string, IrType>([
+        [
+          "parsed",
+          {
+            kind: "unionType",
+            types: [
+              stringArrayType,
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+        ],
+      ]),
+    };
+
+    const [adaptedAst] = adaptEmittedExpressionAst({
+      expr: {
+        kind: "conditional",
+        condition: {
+          kind: "identifier",
+          name: "useJson",
+          inferredType: { kind: "primitiveType", name: "boolean" },
+        },
+        whenTrue: {
+          kind: "identifier",
+          name: "parsed",
+          inferredType: {
+            kind: "unionType",
+            types: [
+              stringArrayType,
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+        },
+        whenFalse: {
+          kind: "array",
+          elements: [],
+          inferredType: stringArrayType,
+        },
+        inferredType: {
+          kind: "unionType",
+          types: [
+            numberArrayType,
+            stringArrayType,
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        },
+      },
+      valueAst: {
+        kind: "conditionalExpression",
+        condition: identifierExpression("useJson"),
+        whenTrue: identifierExpression("parsed"),
+        whenFalse: {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: identifierExpression("global::System.Array"),
+            memberName: "Empty",
+          },
+          typeArguments: [{ kind: "predefinedType", keyword: "string" }],
+          arguments: [],
+        },
+      },
+      context,
+      expectedType: jsValueType,
+    });
+
+    expect(printExpression(adaptedAst)).to.equal(
+      "useJson ? parsed : global::System.Array.Empty<string>()"
+    );
+  });
+
+
+  it("reuses storage-compatible identifiers when the function return type is the only context", () => {
+    const resultType: IrType = {
+      kind: "referenceType",
+      name: "Result",
+      typeArguments: [
+        { kind: "primitiveType", name: "boolean" },
+        { kind: "primitiveType", name: "string" },
+      ],
+      typeId: {
+        stableId: "@jotster/core:Jotster.Core.types.Result",
+        clrName: "Jotster.Core.types.Result",
+        assemblyName: "@jotster/core",
+        tsName: "Result",
+      },
+    };
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      }),
+      localNameMap: new Map<string, string>([
+        ["membershipResult", "membershipResult"],
+      ]),
+      localValueTypes: new Map<string, IrType>([
+        ["membershipResult", resultType],
+      ]),
+      localSemanticTypes: new Map<string, IrType>([
+        ["membershipResult", resultType],
+      ]),
+      returnType: resultType,
+    };
+
+    const [identifierAst] = emitIdentifier(
+      {
+        kind: "identifier",
+        name: "membershipResult",
+        inferredType: resultType,
+      },
+      context
+    );
+
+    expect(printExpression(identifierAst)).to.equal("membershipResult");
+  });
+
+  it("prefers semantic runtime-union aliases over storage-compatible raw carriers", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const okType: IrType = {
+      kind: "referenceType",
+      name: "Ok",
+      resolvedClrType: "Test.Ok",
+    };
+    const errType: IrType = {
+      kind: "referenceType",
+      name: "Err",
+      resolvedClrType: "Test.Err",
+    };
+    const resultCarrier = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([okType, errType]),
+      {
+        aliasName: "ResultLike",
+        fullyQualifiedName: "Test.ResultLike",
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+    const resultType: IrType = {
+      kind: "referenceType",
+      name: "ResultLike",
+      resolvedClrType: "Test.ResultLike",
+    };
+    const rawCarrierType = normalizedUnionType([okType, errType]);
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      moduleNamespace: "Test",
+      localTypes: new Map([
+        [
+          "ResultLike",
+          {
+            kind: "typeAlias" as const,
+            isExported: true,
+            typeParameters: [],
+            type: resultCarrier,
+          },
+        ],
+      ]),
+      publicLocalTypes: new Set(["ResultLike"]),
+      localNameMap: new Map<string, string>([
+        ["membershipResult", "membershipResult"],
+      ]),
+      localValueTypes: new Map<string, IrType>([
+        ["membershipResult", rawCarrierType],
+      ]),
+      localSemanticTypes: new Map<string, IrType>([
+        ["membershipResult", resultType],
+      ]),
+      returnType: resultType,
+    };
+
+    const [identifierAst] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "membershipResult",
+        inferredType: resultType,
+      },
+      context,
+      resultType
+    );
+
+    expect(printExpression(identifierAst)).to.equal("membershipResult");
+  });
+
   it("preserves top-level nullish when adapting nullable source-backed values into optional runtime unions", () => {
     const context = createContext({
       rootNamespace: "Test",
@@ -859,6 +1094,107 @@ describe("expected-type-adaptation", () => {
     );
   });
 
+  it("wraps subclass storage when contextual array semantics are already the union alias", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+    const applicationType: IrType = {
+      kind: "referenceType",
+      name: "Application",
+      resolvedClrType: "Test.Application",
+    };
+    const middlewareLikeCarrier = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        { kind: "primitiveType", name: "string" },
+        routerType,
+      ]),
+      {
+        aliasName: "MiddlewareLike",
+        fullyQualifiedName: "Test.MiddlewareLike",
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+    const middlewareLikeType: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareLike",
+      resolvedClrType: "Test.MiddlewareLike",
+    };
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      moduleNamespace: "Test",
+      localTypes: new Map([
+        [
+          "Router",
+          {
+            kind: "class" as const,
+            typeParameters: [],
+            members: [],
+            superClass: undefined,
+            implements: [],
+          },
+        ],
+        [
+          "Application",
+          {
+            kind: "class" as const,
+            typeParameters: [],
+            members: [],
+            superClass: routerType,
+            implements: [],
+          },
+        ],
+        [
+          "MiddlewareLike",
+          {
+            kind: "typeAlias" as const,
+            isExported: true,
+            typeParameters: [],
+            type: middlewareLikeCarrier,
+          },
+        ],
+      ]),
+      publicLocalTypes: new Set(["MiddlewareLike"]),
+      localNameMap: new Map([["app", "app"]]),
+      localValueTypes: new Map([["app", applicationType]]),
+      localSemanticTypes: new Map([["app", middlewareLikeType]]),
+    };
+
+    const [arrayAst] = emitExpressionAst(
+      {
+        kind: "array",
+        elements: [
+          {
+            kind: "identifier",
+            name: "app",
+            inferredType: middlewareLikeType,
+          },
+        ],
+        inferredType: {
+          kind: "arrayType",
+          elementType: middlewareLikeType,
+          origin: "explicit",
+        },
+      },
+      context,
+      {
+        kind: "arrayType",
+        elementType: middlewareLikeType,
+        origin: "explicit",
+      }
+    );
+
+    const rendered = printExpression(arrayAst);
+    expect(rendered).to.match(
+      /new global::Test\.MiddlewareLike\[\] \{ global::Test\.MiddlewareLike\.From\d+\((?:\(global::Test\.Router\))?app\) \}/
+    );
+    expect(rendered).to.not.equal("new global::Test.MiddlewareLike[] { app }");
+  });
+
   it("rewraps numeric runtime-union alias arguments through the selected integral slot", () => {
     const runtimeUnionRegistry = createRuntimeUnionRegistry();
     const typedArrayConstructorInput = stampRuntimeUnionAliasCarrier(
@@ -932,6 +1268,27 @@ describe("expected-type-adaptation", () => {
     expect(binaryResult).to.not.equal(undefined);
     expect(printExpression(binaryResult![0])).to.equal(
       "global::js.TypedArrayConstructorInput<byte>.From1((int)(end - start))"
+    );
+
+    const assertedIntResult = adaptValueToExpectedTypeAst({
+      valueAst: {
+        kind: "castExpression",
+        type: { kind: "predefinedType", keyword: "int" },
+        expression: parseNumericLiteral("0"),
+      },
+      actualType: {
+        kind: "referenceType",
+        name: "int",
+        resolvedClrType: "System.Int32",
+      },
+      context,
+      expectedType,
+      allowUnionNarrowing: false,
+    });
+
+    expect(assertedIntResult).to.not.equal(undefined);
+    expect(printExpression(assertedIntResult![0])).to.equal(
+      "global::js.TypedArrayConstructorInput<byte>.From1((int)0)"
     );
 
     const conditionalResult = adaptValueToExpectedTypeAst({
@@ -1040,7 +1397,7 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(castAst)).to.equal("flag ? 1 : 2");
   });
 
-  it("keeps explicit nullable exact-int casts for member-access slots even when numeric families match", () => {
+  it("skips nullable exact-int casts for member-access slots when the emitted surface already matches", () => {
     const context = createContext({
       rootNamespace: "Test",
       surface: "@tsonic/js",
@@ -1069,7 +1426,7 @@ describe("expected-type-adaptation", () => {
       }
     );
 
-    expect(printExpression(castAst)).to.equal("(int?)query.limit");
+    expect(printExpression(castAst)).to.equal("query.limit");
   });
 
   it("does not layer an identical nullable exact-int cast twice", () => {

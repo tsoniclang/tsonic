@@ -54,15 +54,21 @@ import { resolveImport } from "../../../../resolver.js";
 import { readSourcePackageMetadata } from "../../../../program/source-package-metadata.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import {
+  containsTypeParameter,
   deriveInvocationTypeSubstitutions,
   expandAuthoritativeSourceBackedSurfaceType,
   finalizeInvocationMetadata,
   getAuthoritativeDirectCalleeParameterTypes,
   getDirectStructuralMemberType,
+  invocationTypesEquivalent,
   normalizeFinalizedInvocationArguments,
   selectDeterministicSourceBackedParameterType,
 } from "./invocation-finalization.js";
-import { stableIrTypeKey } from "../../../types/type-ops.js";
+import {
+  getClrIdentityKey,
+  referenceTypeIdentity,
+  stableIrTypeKeyIfDeterministic,
+} from "../../../types/type-ops.js";
 
 const stripParentheses = (expr: ts.Expression): ts.Expression => {
   let current = expr;
@@ -70,6 +76,51 @@ const stripParentheses = (expr: ts.Expression): ts.Expression => {
     current = current.expression;
   }
   return current;
+};
+
+const clrBindingTypesMatch = (left: string, right: string): boolean =>
+  getClrIdentityKey(left) === getClrIdentityKey(right);
+
+const isStableNamedAggregateContextType = (
+  type: IrType | undefined
+): type is Extract<IrType, { kind: "referenceType" }> =>
+  type?.kind === "referenceType" &&
+  !type.name.startsWith("__Anon_") &&
+  !type.name.startsWith("__Rest_") &&
+  type.name !== "object" &&
+  type.name !== "JsValue";
+
+const preserveStableNamedAggregateArgumentIdentity = (
+  argument: IrExpression,
+  contextualExpectedType: IrType | undefined,
+  ctx: ProgramContext
+): IrExpression => {
+  if (
+    !isStableNamedAggregateContextType(contextualExpectedType) ||
+    !argument.inferredType ||
+    !invocationTypesEquivalent(argument.inferredType, contextualExpectedType, ctx)
+  ) {
+    return argument;
+  }
+
+  switch (argument.kind) {
+    case "object":
+      return {
+        ...argument,
+        inferredType: contextualExpectedType,
+        contextualType: contextualExpectedType,
+      };
+    case "array":
+      return {
+        ...argument,
+        inferredType: contextualExpectedType,
+      };
+    default:
+      return {
+        ...argument,
+        inferredType: contextualExpectedType,
+      };
+  }
 };
 
 const buildDeferredLambdaInferenceType = (
@@ -190,13 +241,25 @@ const collectSourceBackedReceiverTypeCandidates = (
 ): readonly Extract<IrType, { kind: "referenceType" }>[] => {
   const candidates: Extract<IrType, { kind: "referenceType" }>[] = [];
   const seen = new Set<string>();
+  const opaqueKeys = new WeakMap<object, number>();
+  let nextOpaqueKey = 0;
 
   const pushCandidate = (candidate: IrType | undefined): void => {
     if (!candidate || candidate.kind !== "referenceType") {
       return;
     }
 
-    const key = stableIrTypeKey(candidate);
+    const stableKey = stableIrTypeKeyIfDeterministic(candidate);
+    const key =
+      stableKey ??
+      (() => {
+        const existing = opaqueKeys.get(candidate);
+        if (existing !== undefined) return `opaque:${existing}`;
+        const next = nextOpaqueKey;
+        nextOpaqueKey += 1;
+        opaqueKeys.set(candidate, next);
+        return `opaque:${next}`;
+      })();
     if (seen.has(key)) {
       return;
     }
@@ -750,7 +813,7 @@ const resolveSourceBackedIdentifierGlobalTarget = (
   if (
     !binding ||
     binding.assembly !== callee.resolvedAssembly ||
-    binding.type !== callee.resolvedClrType ||
+    !clrBindingTypesMatch(binding.type, callee.resolvedClrType) ||
     !binding.sourceImport
   ) {
     return undefined;
@@ -1813,10 +1876,19 @@ const mergeContextualTypes = (
   if (
     primary.kind === "referenceType" &&
     fallback.kind === "referenceType" &&
-    primary.name === fallback.name &&
     (primary.typeArguments?.length ?? 0) ===
       (fallback.typeArguments?.length ?? 0)
   ) {
+    const primaryIdentity = referenceTypeIdentity(primary);
+    const fallbackIdentity = referenceTypeIdentity(fallback);
+    if (
+      primaryIdentity === undefined ||
+      fallbackIdentity === undefined ||
+      primaryIdentity !== fallbackIdentity
+    ) {
+      return primary;
+    }
+
     return {
       ...primary,
       ...(primary.typeArguments
@@ -3367,11 +3439,76 @@ export const convertCallExpression = (
   });
   const parameterTypes = finalInvocationMetadata.parameterTypes;
   const surfaceParameterTypes = finalInvocationMetadata.surfaceParameterTypes;
+  const recontextualizedFinalArguments = convertedArgs.map((argument, index) => {
+    const sourceArgument = node.arguments[index];
+    if (
+      !sourceArgument ||
+      ts.isSpreadElement(sourceArgument) ||
+      argument.kind === "spread"
+    ) {
+      return argument;
+    }
+
+    const unwrapped = unwrapCallSiteArgumentModifier(sourceArgument);
+    const aggregateExpression = stripParentheses(unwrapped.expression);
+    if (
+      !ts.isObjectLiteralExpression(aggregateExpression) &&
+      !ts.isArrayLiteralExpression(aggregateExpression)
+    ) {
+      return argument;
+    }
+
+    const expectedType =
+      surfaceParameterTypes?.[index] ?? parameterTypes?.[index];
+    const contextualExpectedType =
+      expectedType?.kind === "functionType"
+        ? expectedType
+        : expectedType
+          ? (typeSystem.delegateToFunctionType(expectedType) ?? expectedType)
+          : undefined;
+
+    if (
+      !contextualExpectedType ||
+      containsTypeParameter(contextualExpectedType)
+    ) {
+      return argument;
+    }
+
+    const preservedArgument = preserveStableNamedAggregateArgumentIdentity(
+      argument,
+      contextualExpectedType,
+      ctx
+    );
+    if (preservedArgument !== argument) {
+      return preservedArgument;
+    }
+
+    if (
+      argument.inferredType &&
+      invocationTypesEquivalent(argument.inferredType, contextualExpectedType, ctx)
+    ) {
+      return argument;
+    }
+
+    const convertedArgument = convertExpression(
+      unwrapped.expression,
+      ctx,
+      contextualExpectedType
+    );
+    return preserveStableNamedAggregateArgumentIdentity(
+      convertedArgument,
+      contextualExpectedType,
+      ctx
+    );
+  });
   const finalizedArguments = normalizeFinalizedInvocationArguments(
-    convertedArgs,
+    recontextualizedFinalArguments,
     parameterTypes,
     surfaceParameterTypes,
     ctx
+  );
+  const finalizedArgTypes = finalizedArguments.map((argument) =>
+    argument.kind === "spread" ? undefined : argument.inferredType
   );
   const finalSourceBackedParameterTypes =
     finalInvocationMetadata.sourceBackedParameterTypes;
@@ -3463,7 +3600,7 @@ export const convertCallExpression = (
     node.arguments.length,
     ctx,
     parameterTypes,
-    argTypes
+    finalizedArgTypes
   );
   const argumentPassing =
     argumentPassingFromBinding ??
@@ -3480,7 +3617,7 @@ export const convertCallExpression = (
 
   const narrowing: IrCallExpression["narrowing"] = (() => {
     if (ts.isCallExpression(node) && isArrayIsArrayCall(node.expression)) {
-      const currentType = argTypes[0];
+      const currentType = finalizedArgTypes[0];
       const targetType = narrowTypeByArrayShape(
         ctx.typeSystem,
         currentType,
@@ -3497,7 +3634,7 @@ export const convertCallExpression = (
 
     const pred = finalResolved?.typePredicate;
     if (pred?.kind === "param") {
-      const currentArgumentType = argTypes[pred.parameterIndex];
+      const currentArgumentType = finalizedArgTypes[pred.parameterIndex];
       if (
         currentArgumentType &&
         ctx.typeSystem.isAssignableTo(currentArgumentType, pred.targetType)

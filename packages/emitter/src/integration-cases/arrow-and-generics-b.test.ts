@@ -174,7 +174,8 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.include("Action<string> __tsonic_resolve");
-      expect(csharp).to.include("resolve(String((object)(object)args[0]));");
+      expect(csharp).to.include("resolve(String((object)args[0]));");
+      expect(csharp).not.to.include("resolve(String((object)(object)args[0]));");
       expect(csharp).not.to.include(
         "resolve(global::Tsonic.Internal.Union<global::System.Threading.Tasks.Task<string>, string>"
       );

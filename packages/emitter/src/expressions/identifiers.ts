@@ -248,6 +248,14 @@ export const emitIdentifier = (
     }
   }
 
+  const contextualReturnStorageFallback =
+    expectedType === undefined && context.returnType
+      ? tryEmitStorageCompatibleIdentifier(expr, context, context.returnType)
+      : undefined;
+  if (contextualReturnStorageFallback) {
+    return [contextualReturnStorageFallback, context];
+  }
+
   const storageFallback = tryEmitStorageCompatibleIdentifier(
     expr,
     context,

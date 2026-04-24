@@ -188,7 +188,11 @@ describe("Statement Emission", () => {
                 kind: "unionType",
                 types: [
                   { kind: "primitiveType", name: "string" },
-                  { kind: "referenceType", name: "Uint8Array" },
+                  {
+                    kind: "referenceType",
+                    name: "Uint8Array",
+                    resolvedClrType: "js.Uint8Array",
+                  },
                 ],
               },
               isOptional: false,
@@ -212,7 +216,11 @@ describe("Statement Emission", () => {
                       kind: "unionType",
                       types: [
                         { kind: "primitiveType", name: "string" },
-                        { kind: "referenceType", name: "Uint8Array" },
+                        {
+                          kind: "referenceType",
+                          name: "Uint8Array",
+                          resolvedClrType: "js.Uint8Array",
+                        },
                       ],
                     },
                   },

@@ -2,6 +2,7 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
+import { normalizePromiseChainResultIrType } from "./call-promise-ir-types.js";
 import {
   booleanLiteral,
   identifierType,
@@ -51,20 +52,22 @@ const containsVoidInGenericPosition = (type: IrType | undefined): boolean => {
 const getPromiseValueType = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): IrType | undefined => {
+  const normalizePromiseValue = (type: IrType): IrType | undefined => {
+    const normalized = normalizePromiseChainResultIrType(type);
+    return normalized && !isVoidLikeType(normalized) ? normalized : undefined;
+  };
+
   const inferred = expr.inferredType;
   if (inferred?.kind === "referenceType") {
     const candidate = inferred.typeArguments?.[0];
-    if (candidate && !isVoidLikeType(candidate)) {
-      return candidate;
-    }
-    if (candidate && isVoidLikeType(candidate)) {
-      return undefined;
+    if (candidate) {
+      return normalizePromiseValue(candidate);
     }
   }
 
   const explicit = expr.typeArguments?.[0];
-  if (explicit && !isVoidLikeType(explicit)) {
-    return explicit;
+  if (explicit) {
+    return normalizePromiseValue(explicit);
   }
 
   return undefined;
@@ -167,14 +170,6 @@ export const emitPromiseConstructor = (
   }
 
   let currentContext = context;
-  const [taskTypeAstRaw, taskTypeContext] = expr.inferredType
-    ? emitTypeAst(expr.inferredType, currentContext)
-    : [identifierType("global::System.Threading.Tasks.Task"), currentContext];
-  currentContext = taskTypeContext;
-  const taskTypeAst: CSharpTypeAst =
-    taskTypeAstRaw.kind === "identifierType" && taskTypeAstRaw.name.length === 0
-      ? identifierType("global::System.Threading.Tasks.Task")
-      : taskTypeAstRaw;
   const promiseValueType = getPromiseValueType(expr);
   let valueTypeAst: CSharpTypeAst = {
     kind: "predefinedType",
@@ -188,6 +183,19 @@ export const emitPromiseConstructor = (
     valueTypeAst = vTypeAst;
     currentContext = valueTypeContext;
   }
+  const [taskTypeAstRaw, taskTypeContext] = promiseValueType
+    ? [
+        identifierType("global::System.Threading.Tasks.Task", [valueTypeAst]),
+        currentContext,
+      ]
+    : expr.inferredType
+      ? emitTypeAst(expr.inferredType, currentContext)
+      : [identifierType("global::System.Threading.Tasks.Task"), currentContext];
+  currentContext = taskTypeContext;
+  const taskTypeAst: CSharpTypeAst =
+    taskTypeAstRaw.kind === "identifierType" && taskTypeAstRaw.name.length === 0
+      ? identifierType("global::System.Threading.Tasks.Task")
+      : taskTypeAstRaw;
 
   const resolveParam =
     executor.kind === "arrowFunction" || executor.kind === "functionExpression"

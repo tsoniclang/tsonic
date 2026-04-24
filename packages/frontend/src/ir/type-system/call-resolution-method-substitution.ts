@@ -1,11 +1,12 @@
 import type { IrType } from "../types/index.js";
 import { substituteIrType as irSubstitute } from "../types/ir-substitution.js";
-import { typesEqual } from "./type-system-relations.js";
+import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 import {
   collectExpectedReturnCandidates,
   expandParameterTypesForInference,
   mapEntriesEqual,
 } from "./call-resolution-utilities.js";
+import { choosePreferredEquivalentInferenceType } from "./inference-type-preference.js";
 import {
   emitDiagnostic,
   type CallQuery,
@@ -37,6 +38,16 @@ export const resolveMethodTypeSubstitution = (
 ): MethodTypeSubstitutionResult => {
   const methodTypeParams = rawSig.typeParameters;
   const callSubst = new Map<string, IrType>();
+  const typeRelations = {
+    typesEqual,
+    isAssignableTo: (source: IrType, target: IrType) =>
+      isAssignableTo(state, source, target),
+  } as const;
+  const mergeSubstitutionType = (
+    existing: IrType,
+    next: IrType
+  ): IrType | undefined =>
+    choosePreferredEquivalentInferenceType(typeRelations, existing, next);
 
   if (query.explicitTypeArgs) {
     for (
@@ -69,7 +80,8 @@ export const resolveMethodTypeSubstitution = (
       for (const [name, inferredType] of inferredFromReceiver) {
         const existing = callSubst.get(name);
         if (existing) {
-          if (!typesEqual(existing, inferredType)) {
+          const merged = mergeSubstitutionType(existing, inferredType);
+          if (!merged) {
             emitDiagnostic(
               state,
               "TSN5202",
@@ -78,6 +90,7 @@ export const resolveMethodTypeSubstitution = (
             );
             return { kind: "error" };
           }
+          callSubst.set(name, merged);
           continue;
         }
         callSubst.set(name, inferredType);
@@ -118,7 +131,8 @@ export const resolveMethodTypeSubstitution = (
     for (const [name, inferredType] of inferred) {
       const existing = callSubst.get(name);
       if (existing) {
-        if (!typesEqual(existing, inferredType)) {
+        const merged = mergeSubstitutionType(existing, inferredType);
+        if (!merged) {
           emitDiagnostic(
             state,
             "TSN5202",
@@ -127,6 +141,7 @@ export const resolveMethodTypeSubstitution = (
           );
           return { kind: "error" };
         }
+        callSubst.set(name, merged);
         continue;
       }
       callSubst.set(name, inferredType);
@@ -134,10 +149,6 @@ export const resolveMethodTypeSubstitution = (
   }
 
   if (query.expectedReturnType) {
-    const returnForInference =
-      callSubst.size > 0
-        ? irSubstitute(workingReturn, callSubst)
-        : workingReturn;
     const expectedCandidates = collectExpectedReturnCandidates(
       state,
       query.expectedReturnType
@@ -148,7 +159,7 @@ export const resolveMethodTypeSubstitution = (
       const inferred = inferMethodTypeArgsFromArguments(
         state,
         methodTypeParams,
-        [returnForInference],
+        [workingReturn],
         [candidate]
       );
       if (!inferred || inferred.size === 0) continue;
@@ -156,7 +167,7 @@ export const resolveMethodTypeSubstitution = (
       let conflictsWithExisting = false;
       for (const [name, inferredType] of inferred) {
         const existing = callSubst.get(name);
-        if (existing && !typesEqual(existing, inferredType)) {
+        if (existing && !mergeSubstitutionType(existing, inferredType)) {
           conflictsWithExisting = true;
           break;
         }
@@ -174,7 +185,8 @@ export const resolveMethodTypeSubstitution = (
       for (const [name, inferredType] of matched) {
         const existing = callSubst.get(name);
         if (existing) {
-          if (!typesEqual(existing, inferredType)) {
+          const merged = mergeSubstitutionType(existing, inferredType);
+          if (!merged) {
             emitDiagnostic(
               state,
               "TSN5202",
@@ -183,6 +195,7 @@ export const resolveMethodTypeSubstitution = (
             );
             return { kind: "error" };
           }
+          callSubst.set(name, merged);
           continue;
         }
         callSubst.set(name, inferredType);

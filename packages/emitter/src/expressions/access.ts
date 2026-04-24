@@ -56,6 +56,7 @@ import { emitComputedAccess } from "./access-computed.js";
 import { emitPropertyAccess } from "./access-property.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
+import { tryStripConditionalNullishGuardAst } from "../core/semantic/narrowing-builders.js";
 
 /**
  * Emit a member access expression as CSharpExpressionAst
@@ -212,10 +213,16 @@ export const emitMemberAccess = (
           expr.object,
           context
         );
+        const receiverMaterializationSourceType =
+          receiverNarrowed?.kind === "expr" && receiverNarrowed.type
+            ? receiverNarrowed.type
+            : receiverStorageType;
+        const nonNullReceiverAst =
+          tryStripConditionalNullishGuardAst(objectAst) ?? objectAst;
         const [materializedReceiverAst, materializedReceiverContext] =
           materializeDirectNarrowingAst(
-            objectAst,
-            receiverStorageType,
+            nonNullReceiverAst,
+            receiverMaterializationSourceType,
             receiverNarrowedType,
             newContext
           );
@@ -371,7 +378,10 @@ export const emitMemberAccess = (
     return bindingResult;
   }
 
-  const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+  const [rawObjectAst, newContext] = emitExpressionAst(expr.object, context);
+  const objectAst = expr.isOptional
+    ? rawObjectAst
+    : (tryStripConditionalNullishGuardAst(rawObjectAst) ?? rawObjectAst);
 
   if (usage === "value") {
     const jsSurfaceArrayLengthAccess = tryEmitJsSurfaceArrayLikeLengthAccess(

@@ -21,6 +21,10 @@ import type {
 import type { EmitterContext } from "../../types.js";
 import type { LocalTypeInfo } from "../../emitter-types/core.js";
 import { substituteTypeArgs } from "./structural-resolution.js";
+import {
+  canUseLocalTypeLookupCandidate,
+  getLocalTypeLookupCandidates,
+} from "./local-type-lookup.js";
 
 export const getPropertyType = (
   contextualType: IrType | undefined,
@@ -67,28 +71,15 @@ export const resolveLocalTypeInfoWithoutBindings = (
       readonly name: string;
     }
   | undefined => {
-  const simpleLookupName = ref.name.includes(".")
-    ? (ref.name.split(".").pop() ?? ref.name)
-    : ref.name;
-  const lookupCandidates = new Set<string>([simpleLookupName]);
-  if (simpleLookupName.endsWith("$instance")) {
-    const baseName = simpleLookupName.slice(0, -"$instance".length);
-    if (baseName.length > 0) {
-      lookupCandidates.add(baseName);
-      const unsuffixedBaseName = baseName.replace(/_\d+$/, "");
-      if (unsuffixedBaseName.length > 0) {
-        lookupCandidates.add(unsuffixedBaseName);
-      }
-    }
-  }
+  const lookupCandidates = getLocalTypeLookupCandidates(ref.name);
 
-  for (const lookupName of lookupCandidates) {
-    const localHit = context.localTypes?.get(lookupName);
-    if (localHit) {
+  for (const candidate of lookupCandidates) {
+    const localHit = context.localTypes?.get(candidate.name);
+    if (localHit && canUseLocalTypeLookupCandidate(localHit, candidate)) {
       return {
         info: localHit,
         namespace: context.moduleNamespace ?? context.options.rootNamespace,
-        name: lookupName,
+        name: candidate.name,
       };
     }
   }
@@ -101,11 +92,12 @@ export const resolveLocalTypeInfoWithoutBindings = (
     readonly info: LocalTypeInfo;
     readonly name: string;
   }[] = [];
-  for (const lookupName of lookupCandidates) {
+  for (const candidate of lookupCandidates) {
     for (const m of moduleMap.values()) {
-      const info = m.localTypes?.get(lookupName);
+      const info = m.localTypes?.get(candidate.name);
       if (!info) continue;
-      matches.push({ namespace: m.namespace, info, name: lookupName });
+      if (!canUseLocalTypeLookupCandidate(info, candidate)) continue;
+      matches.push({ namespace: m.namespace, info, name: candidate.name });
     }
   }
 

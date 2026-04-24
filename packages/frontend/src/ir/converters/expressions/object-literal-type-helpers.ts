@@ -11,7 +11,7 @@ import {
   IrParameter,
 } from "../../types.js";
 import { containsTypeParameter } from "../../types/ir-substitution.js";
-import { stableIrTypeKey } from "../../types/type-ops.js";
+import { stableIrTypeKeyIfDeterministic } from "../../types/type-ops.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
@@ -68,6 +68,7 @@ export const selectObjectLiteralContextualType = (
 
   type Candidate = {
     readonly type: IrType;
+    readonly order: number;
     readonly kind: "dictionary" | "object";
     readonly propertyCount: number;
   };
@@ -110,15 +111,18 @@ export const selectObjectLiteralContextualType = (
     .filter(
       (member): member is IrType => !!member && !isNullishPrimitive(member)
     )) {
-    const candidateKey = stableIrTypeKey(candidate);
-    if (seen.has(candidateKey)) {
-      continue;
+    const candidateKey = stableIrTypeKeyIfDeterministic(candidate);
+    if (candidateKey) {
+      if (seen.has(candidateKey)) {
+        continue;
+      }
+      seen.add(candidateKey);
     }
-    seen.add(candidateKey);
 
     if (candidate.kind === "dictionaryType") {
       candidates.push({
         type: candidate,
+        order: candidates.length,
         kind: "dictionary",
         propertyCount: Number.POSITIVE_INFINITY,
       });
@@ -136,6 +140,7 @@ export const selectObjectLiteralContextualType = (
     ) {
       candidates.push({
         type: candidate,
+        order: candidates.length,
         kind: "object",
         propertyCount: collectObjectPropertyNames(candidate).length,
       });
@@ -157,9 +162,11 @@ export const selectObjectLiteralContextualType = (
       }
     }
 
-    return stableIrTypeKey(left.type).localeCompare(
-      stableIrTypeKey(right.type)
-    );
+    const leftKey = stableIrTypeKeyIfDeterministic(left.type);
+    const rightKey = stableIrTypeKeyIfDeterministic(right.type);
+    return leftKey && rightKey
+      ? leftKey.localeCompare(rightKey)
+      : left.order - right.order;
   });
 
   return candidates[0]?.type ?? expectedType;
@@ -325,7 +332,9 @@ export const normalizeExpectedFunctionType = (
     if (!normalized || containsTypeParameter(normalized)) {
       continue;
     }
-    candidateMap.set(stableIrTypeKey(normalized), normalized);
+    const key = stableIrTypeKeyIfDeterministic(normalized);
+    if (!key) continue;
+    candidateMap.set(key, normalized);
   }
   const candidates = [...candidateMap.values()];
   return candidates.length === 1 ? candidates[0] : undefined;

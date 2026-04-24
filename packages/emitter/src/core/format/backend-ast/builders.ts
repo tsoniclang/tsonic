@@ -65,11 +65,35 @@ export const identifierExpression = (
     ? { kind: "qualifiedIdentifierExpression", name: qualifiedName(name) }
     : { kind: "identifierExpression", identifier: name };
 
+const normalizeGenericTypeArgument = (type: CSharpTypeAst): CSharpTypeAst =>
+  type.kind === "predefinedType" && type.keyword === "void"
+    ? { kind: "predefinedType", keyword: "object" }
+    : type;
+
+const normalizeGenericTypeArguments = (
+  typeArguments: readonly CSharpTypeAst[] | undefined
+): readonly CSharpTypeAst[] | undefined => {
+  if (!typeArguments || typeArguments.length === 0) {
+    return typeArguments;
+  }
+
+  let changed = false;
+  const normalized = typeArguments.map((typeArgument) => {
+    const next = normalizeGenericTypeArgument(typeArgument);
+    changed ||= next !== typeArgument;
+    return next;
+  });
+
+  return changed ? normalized : typeArguments;
+};
+
 export const identifierType = (
   name: string,
   typeArguments?: readonly CSharpTypeAst[]
-): CSharpTypeAst =>
-  typeArguments === undefined && name === "var"
+): CSharpTypeAst => {
+  const normalizedTypeArguments = normalizeGenericTypeArguments(typeArguments);
+
+  return typeArguments === undefined && name === "var"
     ? { kind: "varType" }
     : typeArguments === undefined && isCSharpPredefinedTypeKeyword(name)
       ? { kind: "predefinedType", keyword: name }
@@ -77,31 +101,33 @@ export const identifierType = (
         ? {
             kind: "qualifiedIdentifierType",
             name: qualifiedName(name),
-            ...(typeArguments && typeArguments.length > 0
-              ? { typeArguments }
+            ...(normalizedTypeArguments && normalizedTypeArguments.length > 0
+              ? { typeArguments: normalizedTypeArguments }
               : {}),
           }
         : {
             kind: "identifierType",
             name,
-            ...(typeArguments && typeArguments.length > 0
-              ? { typeArguments }
+            ...(normalizedTypeArguments && normalizedTypeArguments.length > 0
+              ? { typeArguments: normalizedTypeArguments }
               : {}),
           };
+};
 
 export const withTypeArguments = (
   type: CSharpTypeAst,
   typeArguments: readonly CSharpTypeAst[] | undefined
 ): CSharpTypeAst => {
-  if (!typeArguments || typeArguments.length === 0) {
+  const normalizedTypeArguments = normalizeGenericTypeArguments(typeArguments);
+  if (!normalizedTypeArguments || normalizedTypeArguments.length === 0) {
     return type;
   }
 
   switch (type.kind) {
     case "identifierType":
-      return { ...type, typeArguments };
+      return { ...type, typeArguments: normalizedTypeArguments };
     case "qualifiedIdentifierType":
-      return { ...type, typeArguments };
+      return { ...type, typeArguments: normalizedTypeArguments };
     default:
       throw new Error(
         `ICE: Cannot attach generic type arguments to non-identifier type '${type.kind}'.`

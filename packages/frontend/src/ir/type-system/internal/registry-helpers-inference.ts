@@ -10,11 +10,9 @@ import type {
   IrMethodSignature,
   IrInterfaceMember,
 } from "../../types/index.js";
-import { stableIrTypeKey } from "../../types/type-ops.js";
+import { irTypesEqual } from "../../types/type-ops.js";
 import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
 import type { ConvertTypeFn } from "./type-registry.js";
-
-const stableTypeKey = (type: IrType): string => stableIrTypeKey(type);
 
 export const inferExpressionTypeSyntax = (
   expr: ts.Expression,
@@ -74,9 +72,7 @@ export const inferExpressionTypeSyntax = (
     const first = elementTypes[0];
     if (
       first &&
-      elementTypes.every(
-        (candidate) => stableTypeKey(candidate) === stableTypeKey(first)
-      )
+      elementTypes.every((candidate) => irTypesEqual(candidate, first))
     ) {
       return { kind: "arrayType", elementType: first };
     }

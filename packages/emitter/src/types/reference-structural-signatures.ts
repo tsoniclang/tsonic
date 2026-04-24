@@ -1,6 +1,5 @@
 import {
   IrType,
-  stableIrTypeKey,
   type TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
@@ -8,6 +7,7 @@ import type { LocalTypeInfo } from "../emitter-types/core.js";
 import { resolveLocalTypeInfo } from "../core/semantic/type-resolution.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 import { clrTypeNameToTypeAst } from "../core/format/backend-ast/utils.js";
+import { tryContextualTypeIdentityKey } from "../core/semantic/deterministic-type-keys.js";
 
 type StructuralReferenceMember = Extract<
   NonNullable<
@@ -62,27 +62,44 @@ const toGlobalClr = (clr: string): string => {
   return trimmed.startsWith("global::") ? trimmed : `global::${trimmed}`;
 };
 
-const stableStructuralIrTypeKey = (type: IrType): string => {
+const stableStructuralIrTypeKey = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
   if (type.kind === "literalType") {
     if (typeof type.value === "string") {
-      return stableIrTypeKey({ kind: "primitiveType", name: "string" });
+      return tryContextualTypeIdentityKey(
+        { kind: "primitiveType", name: "string" },
+        context
+      );
     }
     if (typeof type.value === "number") {
-      return stableIrTypeKey({ kind: "primitiveType", name: "number" });
+      return tryContextualTypeIdentityKey(
+        { kind: "primitiveType", name: "number" },
+        context
+      );
     }
     if (typeof type.value === "boolean") {
-      return stableIrTypeKey({ kind: "primitiveType", name: "boolean" });
+      return tryContextualTypeIdentityKey(
+        { kind: "primitiveType", name: "boolean" },
+        context
+      );
     }
   }
 
   if (type.kind === "unionType") {
-    return stableIrTypeKey({
-      ...type,
-      types: type.types.map((member) => stableStructuralComparableType(member)),
-    });
+    return tryContextualTypeIdentityKey(
+      {
+        ...type,
+        types: type.types.map((member) =>
+          stableStructuralComparableType(member)
+        ),
+      },
+      context
+    );
   }
 
-  return stableIrTypeKey(type);
+  return tryContextualTypeIdentityKey(type, context);
 };
 
 const stableStructuralComparableType = (type: IrType): IrType => {
@@ -107,28 +124,72 @@ const stableStructuralComparableType = (type: IrType): IrType => {
 };
 
 const getStructuralMemberSignatureKey = (
-  member: StructuralSignatureMember
-): string => {
+  member: StructuralSignatureMember,
+  context: EmitterContext
+): string | undefined => {
   if (member.kind === "propertySignature") {
-    return `prop:${member.name}:${member.isOptional ? "opt" : "req"}:${member.isReadonly ? "ro" : "rw"}:${stableStructuralIrTypeKey(member.type)}`;
+    const typeKey = stableStructuralIrTypeKey(member.type, context);
+    return typeKey
+      ? `prop:${member.name}:${member.isOptional ? "opt" : "req"}:${
+          member.isReadonly ? "ro" : "rw"
+        }:${typeKey}`
+      : undefined;
   }
   if (member.kind === "methodSignature") {
-    const parameters = member.parameters.map((parameter) =>
-      stableStructuralIrTypeKey(parameter.type ?? { kind: "unknownType" })
+    const parameters: string[] = [];
+    for (const parameter of member.parameters) {
+      const parameterKey = stableStructuralIrTypeKey(
+        parameter.type ?? { kind: "unknownType" },
+        context
+      );
+      if (!parameterKey) {
+        return undefined;
+      }
+      parameters.push(parameterKey);
+    }
+    const returnTypeKey = stableStructuralIrTypeKey(
+      member.returnType ?? { kind: "unknownType" },
+      context
     );
-    return `method:${member.name}:${parameters.join(",")}:${member.parameters.length}:${stableStructuralIrTypeKey(member.returnType ?? { kind: "unknownType" })}`;
+    return returnTypeKey
+      ? `method:${member.name}:${parameters.join(",")}:${
+          member.parameters.length
+        }:${returnTypeKey}`
+      : undefined;
   }
   if (member.kind === "property") {
-    return `prop:${member.alias}:${member.semanticOptional === true ? "opt" : "req"}:rw:${stableStructuralIrTypeKey(member.semanticType)}`;
+    const typeKey = stableStructuralIrTypeKey(member.semanticType, context);
+    return typeKey
+      ? `prop:${member.alias}:${
+          member.semanticOptional === true ? "opt" : "req"
+        }:rw:${typeKey}`
+      : undefined;
   }
-  const parameters = member.semanticSignature.parameters.map((parameter) =>
-    stableStructuralIrTypeKey(parameter.type ?? { kind: "unknownType" })
+  const parameters: string[] = [];
+  for (const parameter of member.semanticSignature.parameters) {
+    const parameterKey = stableStructuralIrTypeKey(
+      parameter.type ?? { kind: "unknownType" },
+      context
+    );
+    if (!parameterKey) {
+      return undefined;
+    }
+    parameters.push(parameterKey);
+  }
+  const returnTypeKey = stableStructuralIrTypeKey(
+    member.semanticSignature.returnType ?? { kind: "unknownType" },
+    context
   );
-  return `method:${member.alias}:${parameters.join(",")}:${member.semanticSignature.parameters.length}:${stableStructuralIrTypeKey(member.semanticSignature.returnType ?? { kind: "unknownType" })}`;
+  return returnTypeKey
+    ? `method:${member.alias}:${parameters.join(",")}:${
+        member.semanticSignature.parameters.length
+      }:${returnTypeKey}`
+    : undefined;
 };
 
 const buildLocalTypeStructuralSignature = (
-  localInfo: LocalTypeInfo | undefined
+  localInfo: LocalTypeInfo | undefined,
+  context: EmitterContext
 ): string | undefined => {
   if (
     !localInfo ||
@@ -137,7 +198,7 @@ const buildLocalTypeStructuralSignature = (
     return undefined;
   }
 
-  const members = localInfo.members
+  const rawMembers = localInfo.members
     .flatMap<LocalStructuralPropertyMember | LocalStructuralMethodMember>(
       (member) => {
         if (member.kind === "propertyDeclaration" && member.type) {
@@ -178,40 +239,74 @@ const buildLocalTypeStructuralSignature = (
         }
         return [];
       }
-    )
-    .map((member) => {
-      if (member.kind === "property") {
-        return `prop:${member.alias}:${member.semanticOptional === true ? "opt" : "req"}:rw:${stableStructuralIrTypeKey(member.semanticType)}`;
+    );
+
+  const members: string[] = [];
+  for (const member of rawMembers) {
+    if (member.kind === "property") {
+      const typeKey = stableStructuralIrTypeKey(member.semanticType, context);
+      if (!typeKey) {
+        return undefined;
       }
-      return `method:${member.alias}:${member.parameters
-        .map((parameter) => stableStructuralIrTypeKey(parameter))
-        .join(
-          ","
-        )}:${member.parameters.length}:${stableStructuralIrTypeKey(member.returnType)}`;
-    })
-    .sort();
+      members.push(
+        `prop:${member.alias}:${
+          member.semanticOptional === true ? "opt" : "req"
+        }:rw:${typeKey}`
+      );
+      continue;
+    }
+
+    const parameterKeys: string[] = [];
+    for (const parameter of member.parameters) {
+      const parameterKey = stableStructuralIrTypeKey(parameter, context);
+      if (!parameterKey) {
+        return undefined;
+      }
+      parameterKeys.push(parameterKey);
+    }
+    const returnTypeKey = stableStructuralIrTypeKey(member.returnType, context);
+    if (!returnTypeKey) {
+      return undefined;
+    }
+    members.push(
+      `method:${member.alias}:${parameterKeys.join(",")}:${
+        member.parameters.length
+      }:${returnTypeKey}`
+    );
+  }
+  members.sort();
 
   return members.length === 0 ? undefined : members.join("|");
 };
 
 const buildReferenceStructuralSignature = (
-  type: Extract<IrType, { kind: "referenceType" }>
+  type: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
 ): string | undefined => {
-  const members = (type.structuralMembers ?? [])
+  const rawMembers = (type.structuralMembers ?? [])
     .filter(
       (member): member is StructuralReferenceMember =>
         member.kind === "propertySignature" || member.kind === "methodSignature"
-    )
-    .map(getStructuralMemberSignatureKey)
-    .sort();
+    );
+
+  const members: string[] = [];
+  for (const member of rawMembers) {
+    const memberKey = getStructuralMemberSignatureKey(member, context);
+    if (!memberKey) {
+      return undefined;
+    }
+    members.push(memberKey);
+  }
+  members.sort();
 
   return members.length === 0 ? undefined : members.join("|");
 };
 
 const buildBindingStructuralSignature = (
-  binding: FrontendTypeBinding
+  binding: FrontendTypeBinding,
+  context: EmitterContext
 ): string | undefined => {
-  const members = binding.members
+  const rawMembers = binding.members
     .flatMap<StructuralSignatureMember>((member) => {
       if (member.kind === "property" && member.semanticType) {
         return {
@@ -229,9 +324,17 @@ const buildBindingStructuralSignature = (
         };
       }
       return [];
-    })
-    .map(getStructuralMemberSignatureKey)
-    .sort();
+    });
+
+  const members: string[] = [];
+  for (const member of rawMembers) {
+    const memberKey = getStructuralMemberSignatureKey(member, context);
+    if (!memberKey) {
+      return undefined;
+    }
+    members.push(memberKey);
+  }
+  members.sort();
 
   return members.length === 0 ? undefined : members.join("|");
 };
@@ -248,9 +351,10 @@ const collectCanonicalStructuralMatches = (
   }
 
   const signature =
-    buildReferenceStructuralSignature(type) ??
+    buildReferenceStructuralSignature(type, context) ??
     buildLocalTypeStructuralSignature(
-      resolveLocalTypeInfo(type, context)?.info
+      resolveLocalTypeInfo(type, context)?.info,
+      context
     );
   if (!signature) {
     return [];
@@ -281,7 +385,7 @@ const collectCanonicalStructuralMatches = (
         continue;
       }
 
-      const localSignature = buildLocalTypeStructuralSignature(info);
+      const localSignature = buildLocalTypeStructuralSignature(info, context);
       if (!localSignature || localSignature !== signature) {
         continue;
       }
@@ -307,7 +411,7 @@ const collectCanonicalStructuralMatches = (
   }
 
   for (const binding of context.bindingsRegistry?.values() ?? []) {
-    const bindingSignature = buildBindingStructuralSignature(binding);
+    const bindingSignature = buildBindingStructuralSignature(binding, context);
     if (!bindingSignature || bindingSignature !== signature) {
       continue;
     }
@@ -368,9 +472,10 @@ export const resolveBindingBackedStructuralTypeAst = (
   }
 
   const signature =
-    buildReferenceStructuralSignature(type) ??
+    buildReferenceStructuralSignature(type, context) ??
     buildLocalTypeStructuralSignature(
-      resolveLocalTypeInfo(type, context)?.info
+      resolveLocalTypeInfo(type, context)?.info,
+      context
     );
   if (!signature) {
     return undefined;
@@ -378,7 +483,7 @@ export const resolveBindingBackedStructuralTypeAst = (
 
   const matches = new Map<string, FrontendTypeBinding>();
   for (const binding of context.bindingsRegistry?.values() ?? []) {
-    const bindingSignature = buildBindingStructuralSignature(binding);
+    const bindingSignature = buildBindingStructuralSignature(binding, context);
     if (!bindingSignature || bindingSignature !== signature) {
       continue;
     }

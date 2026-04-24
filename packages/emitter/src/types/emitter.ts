@@ -7,7 +7,7 @@
  * Callers use `printType()` from the printer when they need text.
  */
 
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitPrimitiveType } from "./primitives.js";
 import { emitReferenceType } from "./references.js";
@@ -23,6 +23,8 @@ import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { resolveTypeAlias } from "../core/semantic/type-resolution.js";
+import { getContextualTypeVisitKey } from "../core/semantic/deterministic-type-keys.js";
+import { getReferenceNominalIdentityKey } from "../core/semantic/reference-type-identity.js";
 
 const RECURSIVE_TYPE_FALLBACK_AST: CSharpTypeAst = {
   kind: "predefinedType",
@@ -95,7 +97,7 @@ const withTypeEmissionGuard = (
   context: EmitterContext,
   emit: (guardedContext: EmitterContext) => [CSharpTypeAst, EmitterContext]
 ): [CSharpTypeAst, EmitterContext] => {
-  const key = stableIrTypeKey(type);
+  const key = getTypeEmissionVisitKey(type, context);
   if (context.activeTypeEmissionKeys?.has(key)) {
     const runtimeCarrierReference = tryEmitRuntimeUnionCarrierReferenceTypeAst(
       type,
@@ -127,6 +129,25 @@ const withTypeEmissionGuard = (
       activeTypeEmissionKeys: context.activeTypeEmissionKeys,
     },
   ];
+};
+
+const getTypeEmissionVisitKey = (
+  type: IrType,
+  context: EmitterContext
+): string => {
+  if (type.kind !== "referenceType") {
+    return getContextualTypeVisitKey(type, context);
+  }
+
+  const nominalIdentity = getReferenceNominalIdentityKey(type, context);
+  if (!nominalIdentity) {
+    return getContextualTypeVisitKey(type, context);
+  }
+
+  const typeArgumentKeys = (type.typeArguments ?? []).map((typeArgument) =>
+    getContextualTypeVisitKey(typeArgument, context)
+  );
+  return `ref:${nominalIdentity}<${typeArgumentKeys.join(",")}>`;
 };
 
 const buildEmitterIceContext = (context: EmitterContext): string => {
