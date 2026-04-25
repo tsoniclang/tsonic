@@ -198,6 +198,12 @@ else
 fi
 mkdir -p "$NUGET_PACKAGES"
 
+if [ ! -x "$ROOT_DIR/node_modules/.bin/tsc" ]; then
+    echo "FAIL: Node dependencies are not installed."
+    echo "Run npm ci in the repo root before ./test/scripts/run-all.sh."
+    exit 1
+fi
+
 # ============================================================
 # Resume/Checkpoint cache (per commit + args)
 # ============================================================
