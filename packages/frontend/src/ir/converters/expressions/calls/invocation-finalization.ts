@@ -2,7 +2,7 @@ import type { ProgramContext } from "../../../program-context.js";
 import type { IrExpression, IrType } from "../../../types.js";
 import {
   referenceTypeHasClrIdentity,
-  stableIrTypeKeyIfDeterministic,
+  referenceTypeIdentity,
 } from "../../../types/type-ops.js";
 import {
   expandParameterTypesForArguments,
@@ -25,11 +25,7 @@ const BROAD_EXACTNESS_LOSER_CLR_NAMES = new Set([
 const invocationFinalizationOpaqueTypeIds = new WeakMap<object, number>();
 let nextInvocationFinalizationOpaqueTypeId = 0;
 
-const invocationFinalizationVisitKey = (type: IrType): string => {
-  const stableKey = stableIrTypeKeyIfDeterministic(type);
-  if (stableKey) {
-    return stableKey;
-  }
+const invocationFinalizationOpaqueKey = (type: object): string => {
   const existing = invocationFinalizationOpaqueTypeIds.get(type);
   if (existing !== undefined) {
     return `opaque:${existing}`;
@@ -40,69 +36,100 @@ const invocationFinalizationVisitKey = (type: IrType): string => {
   return `opaque:${next}`;
 };
 
+const invocationFinalizationVisitKey = (type: IrType): string => {
+  switch (type.kind) {
+    case "primitiveType":
+      return `prim:${type.name}`;
+    case "literalType":
+      return `lit:${JSON.stringify(type.value)}`;
+    case "typeParameterType":
+      return `tp:${type.name}`;
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return type.kind;
+    case "arrayType":
+      return `arr:${invocationFinalizationVisitKey(type.elementType)}`;
+    case "tupleType":
+      return `tuple:${type.elementTypes.map(invocationFinalizationVisitKey).join(",")}`;
+    case "dictionaryType":
+      return `dict:${invocationFinalizationVisitKey(type.keyType)}=>${invocationFinalizationVisitKey(type.valueType)}`;
+    case "referenceType": {
+      const identity = referenceTypeIdentity(type);
+      const args = (type.typeArguments ?? [])
+        .map(invocationFinalizationVisitKey)
+        .join(",");
+      return `ref:${identity ?? invocationFinalizationOpaqueKey(type)}<${args}>`;
+    }
+    case "functionType":
+    case "objectType":
+    case "unionType":
+    case "intersectionType":
+      return invocationFinalizationOpaqueKey(type);
+  }
+};
+
 export const containsTypeParameter = (
   type: IrType | undefined,
-  seen: ReadonlySet<string> = new Set<string>()
+  seen: WeakSet<object> = new WeakSet<object>()
 ): boolean => {
   if (!type) {
     return false;
   }
 
-  const typeKey = invocationFinalizationVisitKey(type);
-  if (seen.has(typeKey)) {
+  if (seen.has(type)) {
     return false;
   }
-
-  const nextSeen = new Set(seen);
-  nextSeen.add(typeKey);
+  seen.add(type);
 
   switch (type.kind) {
     case "typeParameterType":
       return true;
     case "arrayType":
-      return containsTypeParameter(type.elementType, nextSeen);
+      return containsTypeParameter(type.elementType, seen);
     case "tupleType":
       return type.elementTypes.some((elementType) =>
-        containsTypeParameter(elementType, nextSeen)
+        containsTypeParameter(elementType, seen)
       );
     case "dictionaryType":
       return (
-        containsTypeParameter(type.keyType, nextSeen) ||
-        containsTypeParameter(type.valueType, nextSeen)
+        containsTypeParameter(type.keyType, seen) ||
+        containsTypeParameter(type.valueType, seen)
       );
     case "referenceType":
       return (
         (type.typeArguments?.some((typeArgument) =>
-          containsTypeParameter(typeArgument, nextSeen)
+          containsTypeParameter(typeArgument, seen)
         ) ??
           false) ||
         (type.structuralMembers?.some((member) =>
           member.kind === "propertySignature"
-            ? containsTypeParameter(member.type, nextSeen)
+            ? containsTypeParameter(member.type, seen)
             : member.parameters.some((parameter) =>
-                containsTypeParameter(parameter.type, nextSeen)
-              ) || containsTypeParameter(member.returnType, nextSeen)
+                containsTypeParameter(parameter.type, seen)
+              ) || containsTypeParameter(member.returnType, seen)
         ) ??
           false)
       );
     case "unionType":
     case "intersectionType":
       return type.types.some((memberType) =>
-        containsTypeParameter(memberType, nextSeen)
+        containsTypeParameter(memberType, seen)
       );
     case "functionType":
       return (
         type.parameters.some((parameter) =>
-          containsTypeParameter(parameter.type, nextSeen)
-        ) || containsTypeParameter(type.returnType, nextSeen)
+          containsTypeParameter(parameter.type, seen)
+        ) || containsTypeParameter(type.returnType, seen)
       );
     case "objectType":
       return type.members.some((member) =>
         member.kind === "propertySignature"
-          ? containsTypeParameter(member.type, nextSeen)
+          ? containsTypeParameter(member.type, seen)
           : member.parameters.some((parameter) =>
-              containsTypeParameter(parameter.type, nextSeen)
-            ) || containsTypeParameter(member.returnType, nextSeen)
+              containsTypeParameter(parameter.type, seen)
+            ) || containsTypeParameter(member.returnType, seen)
       );
     default:
       return false;
@@ -671,7 +698,11 @@ export const expandAuthoritativeSourceBackedSurfaceType = (
   const dedupeTypes = (types: readonly IrType[]): readonly IrType[] => {
     const deduped: IrType[] = [];
     for (const candidate of types) {
-      if (deduped.some((existing) => ctx.typeSystem.typesEqual(existing, candidate))) {
+      if (
+        deduped.some((existing) =>
+          ctx.typeSystem.typesEqual(existing, candidate)
+        )
+      ) {
         continue;
       }
       deduped.push(candidate);

@@ -57,8 +57,13 @@ export const testCommand = (
     : config.verbose
       ? "detailed"
       : "minimal";
+  const inheritTestOutput =
+    !config.quiet && (config.verbose || config.testProgress);
   restoreArgs.push("--verbosity", verbosity);
   testArgs.push("--verbosity", verbosity);
+  if (inheritTestOutput) {
+    testArgs.push("--logger", "console;verbosity=detailed");
+  }
 
   const restoreResult = spawnSync("dotnet", restoreArgs, {
     cwd: generatedDir,
@@ -73,13 +78,16 @@ export const testCommand = (
 
   const testResult = spawnSync("dotnet", testArgs, {
     cwd: generatedDir,
-    stdio: config.verbose ? "inherit" : "pipe",
+    stdio: inheritTestOutput ? "inherit" : "pipe",
     encoding: "utf-8",
     env: buildDotnetProcessEnv(config.workspaceRoot),
   });
 
   if (testResult.status !== 0) {
-    const msg = testResult.stderr || testResult.stdout || "Unknown error";
+    const msg =
+      testResult.stderr ||
+      testResult.stdout ||
+      `dotnet test exited with code ${testResult.status ?? "unknown"}`;
     return { ok: false, error: `dotnet test failed:\n${msg}` };
   }
 

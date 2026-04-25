@@ -39,6 +39,7 @@ import { resolveTypeMemberKind } from "./member-surfaces.js";
 import { resolveAnonymousStructuralReferenceType } from "../../expressions/structural-anonymous-targets.js";
 import { canPreferAnonymousStructuralTarget } from "../../expressions/structural-type-shapes.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { isBroadObjectSlotType } from "./js-value-types.js";
 
 const resolveAnonymousStructuralMaterializationTarget = (
   type: IrType,
@@ -469,12 +470,19 @@ export const materializeDirectNarrowingAst = (
     comparableEmissionTargetType,
     context
   );
+  const sourceIsBroadObjectSlot =
+    isBroadObjectSlotType(comparableSourceType, context) ||
+    isBroadObjectSlotType(resolvedSource, context);
+  const targetIsBroadObjectSlot =
+    isBroadObjectSlotType(comparableEmissionTargetType, context) ||
+    isBroadObjectSlotType(resolvedTarget, context);
   const isBroadTarget =
     resolvedTarget.kind === "unknownType" ||
     resolvedTarget.kind === "anyType" ||
     resolvedTarget.kind === "objectType" ||
     (resolvedTarget.kind === "referenceType" &&
-      resolvedTarget.name === "object");
+      resolvedTarget.name === "object") ||
+    targetIsBroadObjectSlot;
   if (isBroadTarget) {
     return [sourceAst, context];
   }
@@ -483,7 +491,8 @@ export const materializeDirectNarrowingAst = (
       resolvedSource.kind === "anyType" ||
       resolvedSource.kind === "objectType" ||
       (resolvedSource.kind === "referenceType" &&
-        resolvedSource.name === "object")) &&
+        resolvedSource.name === "object") ||
+      sourceIsBroadObjectSlot) &&
     willCarryAsRuntimeUnion(comparableEmissionTargetType, context);
   if (shouldReifyBroadSourceToRuntimeUnion) {
     const reificationPlan = tryBuildRuntimeReificationPlan(
@@ -502,7 +511,8 @@ export const materializeDirectNarrowingAst = (
     resolvedSource.kind === "anyType" ||
     resolvedSource.kind === "objectType" ||
     (resolvedSource.kind === "referenceType" &&
-      resolvedSource.name === "object");
+      resolvedSource.name === "object") ||
+    sourceIsBroadObjectSlot;
   if (isBroadSource) {
     const [targetTypeAst, nextContext] = emitTypeAst(
       materializationNarrowedType,

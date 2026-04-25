@@ -37,6 +37,7 @@ GLOBAL OPTIONS:
   -c, --config <file>       Workspace config path (default: auto-detect tsonic.workspace.json)
   --strict                  Strict bindings generation (fail on constructor-constraint loss)
   --project <name>          Select project under packages/<name>/
+  --test-progress           For test, print one result line per executed test
 
 GENERATE/BUILD/RUN OPTIONS:
   -s, --src <dir>           Source root directory

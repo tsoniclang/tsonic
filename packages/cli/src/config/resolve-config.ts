@@ -180,6 +180,7 @@ export const resolveConfig = (
     noGenerate: cliOptions.noGenerate ?? false,
     verbose: cliOptions.verbose ?? false,
     quiet: cliOptions.quiet ?? false,
+    testProgress: cliOptions.testProgress ?? false,
     typeRoots,
     libraries: [...configLibraries, ...projectLibraries, ...cliLibraries],
     frameworkReferences: rawFrameworkReferences.map((entry) =>

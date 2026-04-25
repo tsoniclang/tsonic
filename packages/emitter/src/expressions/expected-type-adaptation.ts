@@ -40,6 +40,7 @@ import {
   resolveDirectValueSurfaceType,
 } from "../core/semantic/direct-value-surfaces.js";
 import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
+import { hasMatchingRuntimeCarrierElementType } from "./structural-collection-adaptation.js";
 import { matchesEmittedStorageSurface } from "./identifier-storage.js";
 import { resolveRuntimeMaterializationTargetType } from "../core/semantic/runtime-materialization-targets.js";
 import {
@@ -72,6 +73,10 @@ import { referenceTypeHasClrIdentity } from "../core/semantic/clr-type-identity.
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import { tryStripConditionalNullishGuardAst } from "../core/semantic/narrowing-builders.js";
 import { resolveStructuralViewMethodSurface } from "../core/semantic/structural-view-types.js";
+import {
+  getArrayElementType,
+  getDictionaryValueType,
+} from "./structural-type-shapes.js";
 
 const JS_NUMERIC_ADAPTATION_CLR_NAMES = new Set([
   "System.Int32",
@@ -202,7 +207,41 @@ const hasMatchingRuntimeCarrierFamily = (
     resolvedActual.runtimeCarrierFamilyKey !== undefined &&
     resolvedActual.runtimeCarrierFamilyKey ===
       resolvedExpected.runtimeCarrierFamilyKey
+    );
+};
+
+export const hasMismatchedCollectionElementCarrier = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): boolean => {
+  const sourceArrayElementType = getArrayElementType(sourceType, context);
+  const targetArrayElementType = getArrayElementType(targetType, context);
+  if (sourceArrayElementType && targetArrayElementType) {
+    return !hasMatchingRuntimeCarrierElementType(
+      sourceArrayElementType,
+      targetArrayElementType,
+      context
+    );
+  }
+
+  const sourceDictionaryValueType = getDictionaryValueType(
+    sourceType,
+    context
   );
+  const targetDictionaryValueType = getDictionaryValueType(
+    targetType,
+    context
+  );
+  if (sourceDictionaryValueType && targetDictionaryValueType) {
+    return !hasMatchingRuntimeCarrierElementType(
+      sourceDictionaryValueType,
+      targetDictionaryValueType,
+      context
+    );
+  }
+
+  return false;
 };
 
 export const resolveCarrierPreservingSourceType = (
@@ -227,6 +266,15 @@ export const resolveCarrierPreservingSourceType = (
   if (
     isNumericTypeParameterType(strippedSourceType, context) &&
     isJsNumberStorageTarget(strippedCarrierTargetType, context)
+  ) {
+    return undefined;
+  }
+  if (
+    hasMismatchedCollectionElementCarrier(
+      strippedSourceType,
+      strippedCarrierTargetType,
+      context
+    )
   ) {
     return undefined;
   }

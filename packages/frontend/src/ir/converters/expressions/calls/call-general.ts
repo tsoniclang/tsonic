@@ -67,7 +67,6 @@ import {
 import {
   getClrIdentityKey,
   referenceTypeIdentity,
-  stableIrTypeKeyIfDeterministic,
 } from "../../../types/type-ops.js";
 
 const stripParentheses = (expr: ts.Expression): ts.Expression => {
@@ -98,7 +97,11 @@ const preserveStableNamedAggregateArgumentIdentity = (
   if (
     !isStableNamedAggregateContextType(contextualExpectedType) ||
     !argument.inferredType ||
-    !invocationTypesEquivalent(argument.inferredType, contextualExpectedType, ctx)
+    !invocationTypesEquivalent(
+      argument.inferredType,
+      contextualExpectedType,
+      ctx
+    )
   ) {
     return argument;
   }
@@ -244,22 +247,53 @@ const collectSourceBackedReceiverTypeCandidates = (
   const opaqueKeys = new WeakMap<object, number>();
   let nextOpaqueKey = 0;
 
+  const opaqueKey = (type: object): string => {
+    const existing = opaqueKeys.get(type);
+    if (existing !== undefined) return `opaque:${existing}`;
+    const next = nextOpaqueKey;
+    nextOpaqueKey += 1;
+    opaqueKeys.set(type, next);
+    return `opaque:${next}`;
+  };
+
+  const shallowTypeKey = (type: IrType): string => {
+    switch (type.kind) {
+      case "primitiveType":
+        return `prim:${type.name}`;
+      case "literalType":
+        return `lit:${JSON.stringify(type.value)}`;
+      case "typeParameterType":
+        return `tp:${type.name}`;
+      case "anyType":
+      case "unknownType":
+      case "voidType":
+      case "neverType":
+        return type.kind;
+      case "arrayType":
+        return `arr:${shallowTypeKey(type.elementType)}`;
+      case "tupleType":
+        return `tuple:${type.elementTypes.map(shallowTypeKey).join(",")}`;
+      case "dictionaryType":
+        return `dict:${shallowTypeKey(type.keyType)}=>${shallowTypeKey(type.valueType)}`;
+      case "referenceType": {
+        const identity = referenceTypeIdentity(type);
+        const args = (type.typeArguments ?? []).map(shallowTypeKey).join(",");
+        return `ref:${identity ?? opaqueKey(type)}<${args}>`;
+      }
+      case "functionType":
+      case "objectType":
+      case "unionType":
+      case "intersectionType":
+        return opaqueKey(type);
+    }
+  };
+
   const pushCandidate = (candidate: IrType | undefined): void => {
     if (!candidate || candidate.kind !== "referenceType") {
       return;
     }
 
-    const stableKey = stableIrTypeKeyIfDeterministic(candidate);
-    const key =
-      stableKey ??
-      (() => {
-        const existing = opaqueKeys.get(candidate);
-        if (existing !== undefined) return `opaque:${existing}`;
-        const next = nextOpaqueKey;
-        nextOpaqueKey += 1;
-        opaqueKeys.set(candidate, next);
-        return `opaque:${next}`;
-      })();
+    const key = shallowTypeKey(candidate);
     if (seen.has(key)) {
       return;
     }
@@ -1753,11 +1787,17 @@ const compareSourceSurfaceScores = (
 };
 
 const containsUnknownishContextualType = (
-  type: IrType | undefined
+  type: IrType | undefined,
+  seen: WeakSet<object> = new WeakSet<object>()
 ): boolean => {
   if (!type) {
     return false;
   }
+
+  if (seen.has(type)) {
+    return false;
+  }
+  seen.add(type);
 
   switch (type.kind) {
     case "unknownType":
@@ -1765,31 +1805,31 @@ const containsUnknownishContextualType = (
     case "typeParameterType":
       return true;
     case "arrayType":
-      return containsUnknownishContextualType(type.elementType);
+      return containsUnknownishContextualType(type.elementType, seen);
     case "tupleType":
       return type.elementTypes.some((member) =>
-        containsUnknownishContextualType(member)
+        containsUnknownishContextualType(member, seen)
       );
     case "dictionaryType":
       return (
-        containsUnknownishContextualType(type.keyType) ||
-        containsUnknownishContextualType(type.valueType)
+        containsUnknownishContextualType(type.keyType, seen) ||
+        containsUnknownishContextualType(type.valueType, seen)
       );
     case "referenceType":
       return (
         (type.typeArguments?.some((member) =>
-          containsUnknownishContextualType(member)
+          containsUnknownishContextualType(member, seen)
         ) ??
           false) ||
         (type.structuralMembers?.some((member) => {
           if (member.kind === "propertySignature") {
-            return containsUnknownishContextualType(member.type);
+            return containsUnknownishContextualType(member.type, seen);
           }
 
           return (
             member.parameters.some((parameter) =>
-              containsUnknownishContextualType(parameter.type)
-            ) || containsUnknownishContextualType(member.returnType)
+              containsUnknownishContextualType(parameter.type, seen)
+            ) || containsUnknownishContextualType(member.returnType, seen)
           );
         }) ??
           false)
@@ -1797,24 +1837,24 @@ const containsUnknownishContextualType = (
     case "unionType":
     case "intersectionType":
       return type.types.some((member) =>
-        containsUnknownishContextualType(member)
+        containsUnknownishContextualType(member, seen)
       );
     case "functionType":
       return (
         type.parameters.some((parameter) =>
-          containsUnknownishContextualType(parameter.type)
-        ) || containsUnknownishContextualType(type.returnType)
+          containsUnknownishContextualType(parameter.type, seen)
+        ) || containsUnknownishContextualType(type.returnType, seen)
       );
     case "objectType":
       return type.members.some((member) => {
         if (member.kind === "propertySignature") {
-          return containsUnknownishContextualType(member.type);
+          return containsUnknownishContextualType(member.type, seen);
         }
 
         return (
           member.parameters.some((parameter) =>
-            containsUnknownishContextualType(parameter.type)
-          ) || containsUnknownishContextualType(member.returnType)
+            containsUnknownishContextualType(parameter.type, seen)
+          ) || containsUnknownishContextualType(member.returnType, seen)
         );
       });
     default:
@@ -3439,68 +3479,74 @@ export const convertCallExpression = (
   });
   const parameterTypes = finalInvocationMetadata.parameterTypes;
   const surfaceParameterTypes = finalInvocationMetadata.surfaceParameterTypes;
-  const recontextualizedFinalArguments = convertedArgs.map((argument, index) => {
-    const sourceArgument = node.arguments[index];
-    if (
-      !sourceArgument ||
-      ts.isSpreadElement(sourceArgument) ||
-      argument.kind === "spread"
-    ) {
-      return argument;
+  const recontextualizedFinalArguments = convertedArgs.map(
+    (argument, index) => {
+      const sourceArgument = node.arguments[index];
+      if (
+        !sourceArgument ||
+        ts.isSpreadElement(sourceArgument) ||
+        argument.kind === "spread"
+      ) {
+        return argument;
+      }
+
+      const unwrapped = unwrapCallSiteArgumentModifier(sourceArgument);
+      const aggregateExpression = stripParentheses(unwrapped.expression);
+      if (
+        !ts.isObjectLiteralExpression(aggregateExpression) &&
+        !ts.isArrayLiteralExpression(aggregateExpression)
+      ) {
+        return argument;
+      }
+
+      const expectedType =
+        surfaceParameterTypes?.[index] ?? parameterTypes?.[index];
+      const contextualExpectedType =
+        expectedType?.kind === "functionType"
+          ? expectedType
+          : expectedType
+            ? (typeSystem.delegateToFunctionType(expectedType) ?? expectedType)
+            : undefined;
+
+      if (
+        !contextualExpectedType ||
+        containsTypeParameter(contextualExpectedType)
+      ) {
+        return argument;
+      }
+
+      const preservedArgument = preserveStableNamedAggregateArgumentIdentity(
+        argument,
+        contextualExpectedType,
+        ctx
+      );
+      if (preservedArgument !== argument) {
+        return preservedArgument;
+      }
+
+      if (
+        argument.inferredType &&
+        invocationTypesEquivalent(
+          argument.inferredType,
+          contextualExpectedType,
+          ctx
+        )
+      ) {
+        return argument;
+      }
+
+      const convertedArgument = convertExpression(
+        unwrapped.expression,
+        ctx,
+        contextualExpectedType
+      );
+      return preserveStableNamedAggregateArgumentIdentity(
+        convertedArgument,
+        contextualExpectedType,
+        ctx
+      );
     }
-
-    const unwrapped = unwrapCallSiteArgumentModifier(sourceArgument);
-    const aggregateExpression = stripParentheses(unwrapped.expression);
-    if (
-      !ts.isObjectLiteralExpression(aggregateExpression) &&
-      !ts.isArrayLiteralExpression(aggregateExpression)
-    ) {
-      return argument;
-    }
-
-    const expectedType =
-      surfaceParameterTypes?.[index] ?? parameterTypes?.[index];
-    const contextualExpectedType =
-      expectedType?.kind === "functionType"
-        ? expectedType
-        : expectedType
-          ? (typeSystem.delegateToFunctionType(expectedType) ?? expectedType)
-          : undefined;
-
-    if (
-      !contextualExpectedType ||
-      containsTypeParameter(contextualExpectedType)
-    ) {
-      return argument;
-    }
-
-    const preservedArgument = preserveStableNamedAggregateArgumentIdentity(
-      argument,
-      contextualExpectedType,
-      ctx
-    );
-    if (preservedArgument !== argument) {
-      return preservedArgument;
-    }
-
-    if (
-      argument.inferredType &&
-      invocationTypesEquivalent(argument.inferredType, contextualExpectedType, ctx)
-    ) {
-      return argument;
-    }
-
-    const convertedArgument = convertExpression(
-      unwrapped.expression,
-      ctx,
-      contextualExpectedType
-    );
-    return preserveStableNamedAggregateArgumentIdentity(
-      convertedArgument,
-      contextualExpectedType,
-      ctx
-    );
-  });
+  );
   const finalizedArguments = normalizeFinalizedInvocationArguments(
     recontextualizedFinalArguments,
     parameterTypes,

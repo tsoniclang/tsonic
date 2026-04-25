@@ -831,6 +831,109 @@ export const stableIrTypeKeyIfDeterministic = (
   }
 };
 
+export type LocalTypeIdentityState = {
+  readonly opaqueIds: WeakMap<object, number>;
+  readonly active: WeakSet<object>;
+  nextOpaqueId: number;
+};
+
+export const createLocalTypeIdentityState = (): LocalTypeIdentityState => ({
+  opaqueIds: new WeakMap<object, number>(),
+  active: new WeakSet<object>(),
+  nextOpaqueId: 0,
+});
+
+const localOpaqueTypeKey = (
+  type: object,
+  state: LocalTypeIdentityState
+): string => {
+  const existing = state.opaqueIds.get(type);
+  if (existing !== undefined) {
+    return `opaque:${existing}`;
+  }
+
+  const next = state.nextOpaqueId;
+  state.nextOpaqueId += 1;
+  state.opaqueIds.set(type, next);
+  return `opaque:${next}`;
+};
+
+export const localTypeIdentityKey = (
+  type: IrType,
+  state: LocalTypeIdentityState
+): string => {
+  switch (type.kind) {
+    case "primitiveType":
+    case "literalType":
+    case "typeParameterType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return primitiveKey(type);
+
+    case "arrayType":
+      if (state.active.has(type)) {
+        return localOpaqueTypeKey(type, state);
+      }
+      state.active.add(type);
+      try {
+        return `arr:${localTypeIdentityKey(type.elementType, state)}`;
+      } finally {
+        state.active.delete(type);
+      }
+
+    case "tupleType":
+      if (state.active.has(type)) {
+        return localOpaqueTypeKey(type, state);
+      }
+      state.active.add(type);
+      try {
+        return `tuple:${type.elementTypes
+          .map((elementType) => localTypeIdentityKey(elementType, state))
+          .join(",")}`;
+      } finally {
+        state.active.delete(type);
+      }
+
+    case "dictionaryType":
+      if (state.active.has(type)) {
+        return localOpaqueTypeKey(type, state);
+      }
+      state.active.add(type);
+      try {
+        return `dict:${localTypeIdentityKey(type.keyType, state)}=>${localTypeIdentityKey(type.valueType, state)}`;
+      } finally {
+        state.active.delete(type);
+      }
+
+    case "referenceType": {
+      const identity = referenceTypeIdentity(type);
+      if (!identity) {
+        return localOpaqueTypeKey(type, state);
+      }
+      if (state.active.has(type)) {
+        return `ref:${identity}<${localOpaqueTypeKey(type, state)}>`;
+      }
+      state.active.add(type);
+      try {
+        const args = (type.typeArguments ?? [])
+          .map((arg) => localTypeIdentityKey(arg, state))
+          .join(",");
+        return `ref:${identity}<${args}>`;
+      } finally {
+        state.active.delete(type);
+      }
+    }
+
+    case "functionType":
+    case "objectType":
+    case "unionType":
+    case "intersectionType":
+      return localOpaqueTypeKey(type, state);
+  }
+};
+
 export const runtimeUnionCarrierFamilyKey = (
   type: Extract<IrType, { kind: "unionType" }>
 ): string => {

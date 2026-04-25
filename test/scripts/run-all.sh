@@ -248,7 +248,7 @@ run_mocha_phase() {
     started_ms="$(now_ms)"
     trace_event phase-start scope package package "$package_name" label "$label"
 
-    if TSONIC_TEST_CHECKPOINT_DIR="$CACHE_DIR" TSONIC_TEST_RESUME="$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)" npm run "$npm_script" 2>&1 | tee -a "$LOG_FILE"; then
+    if TSONIC_TEST_CHECKPOINT_DIR="$CACHE_DIR" TSONIC_TEST_PROGRESS=1 TSONIC_MOCHA_PROGRESS_REPORTER=1 TSONIC_TEST_RESUME="$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)" npm run "$npm_script" -- --reporter "$ROOT_DIR/test/mocha/progress-reporter.cjs" 2>&1 | tee -a "$LOG_FILE"; then
         eval "${prefix}_STATUS='passed'"
     else
         eval "${prefix}_STATUS='failed'"

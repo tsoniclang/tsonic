@@ -219,6 +219,7 @@ export type TsonicWorkspaceConfig = {
 export type CliOptions = {
   verbose?: boolean;
   quiet?: boolean;
+  testProgress?: boolean;
   /**
    * Strict bindings generation.
    * When enabled, `tsonic restore` / `tsonic add ...` will not relax any tsbindgen
@@ -286,6 +287,7 @@ export type ResolvedConfig = {
   readonly noGenerate: boolean;
   readonly verbose: boolean;
   readonly quiet: boolean;
+  readonly testProgress: boolean;
   readonly typeRoots: readonly string[];
   readonly libraries: readonly string[]; // External library paths for .NET interop
   readonly frameworkReferences: readonly string[];

@@ -16,9 +16,10 @@ import {
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
 import {
+  createLocalTypeIdentityState,
   irTypesEqual as compareIrTypes,
+  localTypeIdentityKey,
   referenceTypeHasClrIdentity,
-  stableIrTypeKeyIfDeterministic,
 } from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type {
@@ -57,6 +58,7 @@ const BROAD_OBJECT_CLR_NAMES = new Set([
   "Tsonic.Runtime.JsValue",
   "global::Tsonic.Runtime.JsValue",
 ]);
+const aliasExpansionTypeArgKeyState = createLocalTypeIdentityState();
 
 const getClrPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
   if (type.kind === "primitiveType") {
@@ -352,11 +354,8 @@ const resolveAliasExpansion = (
   }
 
   const typeArgumentKeys = (type.typeArguments ?? []).map((arg) =>
-    stableIrTypeKeyIfDeterministic(arg)
+    localTypeIdentityKey(arg, aliasExpansionTypeArgKeyState)
   );
-  if (typeArgumentKeys.some((key) => key === undefined)) {
-    return undefined;
-  }
 
   return {
     key: `${typeId.stableId}<${typeArgumentKeys.join(",")}>`,

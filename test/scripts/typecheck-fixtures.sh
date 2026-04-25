@@ -479,6 +479,7 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   fi
 
   append_trace_event fixture-start scope fixture phase typecheck fixture "$fixture_name"
+  echo "  $fixture_name: START (typecheck)"
 
   out_file="$tmp_dir/$fixture_name.log"
 

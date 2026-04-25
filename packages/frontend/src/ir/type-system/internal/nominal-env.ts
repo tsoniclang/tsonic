@@ -11,29 +11,20 @@ import {
   substituteIrType as substituteSharedIrType,
   type IrType,
 } from "../../types/index.js";
-import { stableIrTypeKeyIfDeterministic } from "../../types/type-ops.js";
+import {
+  createLocalTypeIdentityState,
+  localTypeIdentityKey,
+} from "../../types/type-ops.js";
 import type {
   UnifiedTypeCatalog,
   TypeId,
   HeritageEdge,
 } from "./universe/types.js";
 
-const nominalEnvOpaqueTypeIds = new WeakMap<object, number>();
-let nextNominalEnvOpaqueTypeId = 0;
+const nominalEnvTypeKeyState = createLocalTypeIdentityState();
 
 const nominalEnvTypeArgKey = (type: IrType): string => {
-  const stableKey = stableIrTypeKeyIfDeterministic(type);
-  if (stableKey) {
-    return stableKey;
-  }
-  const existing = nominalEnvOpaqueTypeIds.get(type);
-  if (existing !== undefined) {
-    return `opaque:${existing}`;
-  }
-  const next = nextNominalEnvOpaqueTypeId;
-  nextNominalEnvOpaqueTypeId += 1;
-  nominalEnvOpaqueTypeIds.set(type, next);
-  return `opaque:${next}`;
+  return localTypeIdentityKey(type, nominalEnvTypeKeyState);
 };
 
 /**
