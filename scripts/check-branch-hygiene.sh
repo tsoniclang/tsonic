@@ -1,7 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-workspace_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+scratch_roots=("workarea" ".temp" ".tests")
+
+is_scratch_root_name() {
+  local name="$1"
+  local scratch_root
+  for scratch_root in "${scratch_roots[@]}"; do
+    if [[ "$name" == "$scratch_root" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+script_workspace_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if is_scratch_root_name "$(basename "$script_workspace_root")"; then
+  script_workspace_root="$(cd "$script_workspace_root/.." && pwd)"
+fi
+
+workspace_root="${1:-$script_workspace_root}"
 stale_days="${STALE_DAYS:-7}"
 now_epoch="$(date +%s)"
 
@@ -62,7 +80,13 @@ while IFS= read -r repo; do
       refs/heads \
       | grep -v '^main|' || true
   )
-done < <(find "$workspace_root" -mindepth 1 -maxdepth 1 -type d | sort)
+done < <(
+  find "$workspace_root" -mindepth 1 -maxdepth 1 -type d \
+    ! -name 'workarea' \
+    ! -name '.temp' \
+    ! -name '.tests' \
+    | sort
+)
 
 if (( warn_count > 0 )); then
   printf '\nBranch hygiene check failed: %d warning(s) across %d repo(s).\n' "$warn_count" "$repo_count" >&2
