@@ -89,6 +89,13 @@ npm run build
 ./test/scripts/run-all.sh
 ```
 
+The full test runner stores shared NuGet packages in `.tests/nuget/packages`
+and removes per-fixture `.tsonic`, `generated`, `out`, and `dist` artifacts as
+each fixture completes. For a focused fixture debug run, set
+`TSONIC_E2E_KEEP_ARTIFACTS=1` to preserve those artifacts for inspection.
+To clean artifacts left by an interrupted run, use
+`./test/scripts/clean-fixture-artifacts.sh`.
+
 `npm run build` is a non-mutating compiler build. Use `npm run format` or
 `npm run format:check` explicitly for formatting.
 

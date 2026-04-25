@@ -170,7 +170,19 @@ describe("build command (--no-generate)", function () {
       );
       expect(existsSync(extraFile)).to.equal(true);
 
-      // 3) Build without re-running generate (must not wipe outputDirectory)
+      const staleOutFile = join(
+        dir,
+        "packages",
+        "app",
+        "out",
+        "stale-artifact.txt"
+      );
+      mkdirSync(dirname(staleOutFile), { recursive: true });
+      writeFileSync(staleOutFile, "stale\n", "utf-8");
+      expect(existsSync(staleOutFile)).to.equal(true);
+
+      // 3) Build without re-running generate (must not wipe outputDirectory,
+      // but must replace stale executable output artifacts)
       const build = spawnSync(
         "node",
         [
@@ -191,6 +203,10 @@ describe("build command (--no-generate)", function () {
         existsSync(extraFile),
         "expected Extra.cs to survive --no-generate build"
       ).to.equal(true);
+      expect(
+        existsSync(staleOutFile),
+        "expected stale files in out/ to be removed before copying publish output"
+      ).to.equal(false);
 
       const outBinary = join(dir, "packages", "app", "out", "no-generate-app");
       expect(

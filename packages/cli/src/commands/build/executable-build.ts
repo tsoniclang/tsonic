@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  rmSync,
 } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -87,9 +88,8 @@ export const buildExecutable = (
   }
 
   try {
-    if (!existsSync(outDir)) {
-      mkdirSync(outDir, { recursive: true });
-    }
+    rmSync(outDir, { recursive: true, force: true });
+    mkdirSync(outDir, { recursive: true });
 
     const publishEntries = readdirSync(publishDir, { withFileTypes: true });
     for (const entry of publishEntries) {

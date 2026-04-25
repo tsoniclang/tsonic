@@ -15,6 +15,8 @@
 # Environment variables:
 #   TEST_CONCURRENCY: Number of parallel E2E tests (default: 4)
 #   TSONIC_BIN: Optional override for the tsonic CLI path.
+#   TSONIC_E2E_NUGET_PACKAGES_DIR: Shared E2E NuGet package cache.
+#   TSONIC_E2E_KEEP_ARTIFACTS=1: Preserve per-fixture generated/.tsonic/out artifacts.
 
 set -uo pipefail
 
@@ -189,6 +191,13 @@ TRACE_FILE="$ROOT_DIR/.tests/run-all-${RUN_ID}.trace.jsonl"
 export TSONIC_TEST_RUN_ID="$RUN_ID"
 export TSONIC_TEST_TRACE_FILE="$TRACE_FILE"
 
+if [ -z "${NUGET_PACKAGES:-}" ]; then
+    export NUGET_PACKAGES="${TSONIC_E2E_NUGET_PACKAGES_DIR:-$ROOT_DIR/.tests/nuget/packages}"
+else
+    export NUGET_PACKAGES
+fi
+mkdir -p "$NUGET_PACKAGES"
+
 # ============================================================
 # Resume/Checkpoint cache (per commit + args)
 # ============================================================
@@ -294,6 +303,7 @@ echo "Run ID:  $RUN_ID" | tee -a "$LOG_FILE"
 echo "Branch:  $(git -C "$ROOT_DIR" branch --show-current 2>/dev/null || echo 'unknown')" | tee -a "$LOG_FILE"
 echo "Commit:  $(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" | tee -a "$LOG_FILE"
 echo "Trace:   $TRACE_FILE" | tee -a "$LOG_FILE"
+echo "NuGet:   $NUGET_PACKAGES" | tee -a "$LOG_FILE"
 echo "Started: $(date)" | tee -a "$LOG_FILE"
 trace_event run-start scope run quick "$QUICK_MODE" skipUnit "$SKIP_UNIT" skipCli "$SKIP_CLI" skipFixtures "$SKIP_FIXTURES" resume "$RESUME_MODE" filters "$FILTERS_CANON_JSON"
 if [ "$RESUME_MODE" = true ]; then
