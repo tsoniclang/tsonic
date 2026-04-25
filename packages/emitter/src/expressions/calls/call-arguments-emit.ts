@@ -63,6 +63,7 @@ import {
   resolveRuntimeCarrierCompatibleExpressionAst,
   resolveRuntimeCarrierCompatibleIrType,
   tryEmitCarrierPreservingExpressionAst,
+  hasMismatchedCollectionElementCarrier,
 } from "../expected-type-adaptation.js";
 import {
   isExactArrayCreationToType,
@@ -259,6 +260,16 @@ const resolveCarrierPassThroughArgumentType = (
   const effectiveExpressionType =
     resolveEffectiveExpressionType(arg, context) ?? arg.inferredType;
   if (
+    effectiveExpressionType &&
+    hasMismatchedCollectionElementCarrier(
+      effectiveExpressionType,
+      expectedType,
+      context
+    )
+  ) {
+    return undefined;
+  }
+  if (
     isBroadObjectSlotType(expectedType, context) &&
     effectiveExpressionType &&
     willCarryAsRuntimeUnion(stripNullish(effectiveExpressionType), context)
@@ -389,6 +400,22 @@ const resolveExactRawEmittedExpectedType = (opts: {
     (arg.kind !== "call" && arg.kind !== "new") ||
     !areIrTypesEquivalent(
       rawEmitExpectedType,
+      adaptationExpectedType,
+      context
+    )
+  ) {
+    return undefined;
+  }
+  const rawActualType =
+    (arg.kind === "call" || arg.kind === "new"
+      ? arg.sourceBackedReturnType
+      : undefined) ??
+    resolveEffectiveExpressionType(arg, context) ??
+    arg.inferredType;
+  if (
+    rawActualType &&
+    hasMismatchedCollectionElementCarrier(
+      rawActualType,
       adaptationExpectedType,
       context
     )
@@ -1147,6 +1174,35 @@ const selectAdaptationActualArgumentType = (opts: {
     effectiveArgumentType ??
     inferredArgumentType
   );
+};
+
+const selectCollectionMaterializationActualArgumentType = (opts: {
+  readonly arg: IrExpression;
+  readonly preferredSourceType: IrType | undefined;
+  readonly selectedActualType: IrType | undefined;
+  readonly expectedType: IrType | undefined;
+  readonly context: EmitterContext;
+}): IrType | undefined => {
+  const {
+    arg,
+    preferredSourceType,
+    selectedActualType,
+    expectedType,
+    context,
+  } = opts;
+  if (!expectedType) {
+    return selectedActualType;
+  }
+
+  const sourceBackedReturnType =
+    arg.kind === "call" || arg.kind === "new"
+      ? arg.sourceBackedReturnType
+      : undefined;
+  const sourceType = sourceBackedReturnType ?? preferredSourceType;
+  return sourceType &&
+    hasMismatchedCollectionElementCarrier(sourceType, expectedType, context)
+    ? sourceType
+    : selectedActualType;
 };
 
 const selectNumericCastArgumentType = (
@@ -2229,6 +2285,14 @@ const emitFunctionValueCallArguments = (
           selectedSourceMemberNs,
           context: rawArgCtx,
         });
+      const materializationActualArgumentType =
+        selectCollectionMaterializationActualArgumentType({
+          arg,
+          preferredSourceType: preEmitActualArgumentType,
+          selectedActualType: actualArgumentType,
+          expectedType: adaptationExpectedType,
+          context: rawArgCtx,
+        });
       const [materializedArgAst, materializedArgCtx] =
         carrierPassThroughArgument ||
         carrierPassThroughType ||
@@ -2236,7 +2300,7 @@ const emitFunctionValueCallArguments = (
           ? [rawArgAst, rawArgCtx]
           : (adaptValueToExpectedTypeAst({
               valueAst: rawArgAst,
-              actualType: actualArgumentType,
+              actualType: materializationActualArgumentType,
               context: rawArgCtx,
               expectedType: adaptationExpectedType,
               selectedSourceMemberNs,
@@ -2251,6 +2315,7 @@ const emitFunctionValueCallArguments = (
           adaptationExpectedType,
           fallbackCandidates: [
             actualArgumentType,
+            materializationActualArgumentType,
             preEmitStorageAwareArgumentType,
             effectiveArgumentType,
             preEmitActualArgumentType,
@@ -3024,6 +3089,14 @@ const emitCallArguments = (
             inferredArgumentType: arg.inferredType,
             context: emittedContext,
           });
+        const materializationActualArgumentType =
+          selectCollectionMaterializationActualArgumentType({
+            arg,
+            preferredSourceType: preEmitEffectiveArgumentType,
+            selectedActualType: actualArgumentType,
+            expectedType: adaptationExpectedType,
+            context: emittedContext,
+          });
         const [materializedArgAst, materializedContext] =
           carrierPassThroughArgument ||
           carrierPassThroughType ||
@@ -3031,7 +3104,7 @@ const emitCallArguments = (
             ? [rawArgAst, emittedContext]
             : (adaptValueToExpectedTypeAst({
                 valueAst: rawArgAst,
-                actualType: actualArgumentType,
+                actualType: materializationActualArgumentType,
                 context: emittedContext,
                 expectedType: adaptationExpectedType,
                 selectedSourceMemberNs,
@@ -3047,6 +3120,7 @@ const emitCallArguments = (
             adaptationExpectedType,
             fallbackCandidates: [
               actualArgumentType,
+              materializationActualArgumentType,
               preEmitStorageAwareArgumentType,
               effectiveArgumentType,
               preEmitEffectiveArgumentType,

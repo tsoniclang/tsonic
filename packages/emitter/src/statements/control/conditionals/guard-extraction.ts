@@ -32,7 +32,11 @@ import {
   buildRuntimeUnionSubsetBinding,
   resolveRuntimeSubsetSourceInfo,
 } from "../../../core/semantic/narrowing-builders.js";
-import { isJsValueReferenceType } from "../../../core/semantic/js-value-types.js";
+import {
+  isBroadObjectSlotType,
+  isJsValueReferenceType,
+} from "../../../core/semantic/js-value-types.js";
+import { getContextualTypeVisitKey } from "../../../core/semantic/deterministic-type-keys.js";
 
 export const isArrayLikeNarrowingCandidate = (
   type: IrType,
@@ -54,6 +58,42 @@ export const isArrayLikeNarrowingCandidate = (
 const isBroadJsValueType = (type: IrType): boolean =>
   isJsValueReferenceType(type);
 
+const canNarrowBroadRuntimeValueToArray = (
+  type: IrType,
+  context: EmitterContext,
+  seen = new Set<string>()
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  const key = getContextualTypeVisitKey(resolved, context);
+  if (seen.has(key)) {
+    return false;
+  }
+
+  if (
+    resolved.kind === "unknownType" ||
+    resolved.kind === "anyType" ||
+    resolved.kind === "objectType" ||
+    (resolved.kind === "referenceType" && resolved.name === "object") ||
+    isBroadJsValueType(resolved) ||
+    isBroadObjectSlotType(resolved, context)
+  ) {
+    return true;
+  }
+
+  if (resolved.kind !== "unionType") {
+    return false;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(key);
+  return resolved.types.some(
+    (member) =>
+      !!member &&
+      !isArrayLikeNarrowingCandidate(member, context) &&
+      canNarrowBroadRuntimeValueToArray(member, context, nextSeen)
+  );
+};
+
 const JS_VALUE_ARRAY_TYPE: IrType = {
   kind: "arrayType",
   elementType: {
@@ -72,14 +112,17 @@ export const narrowTypeByArrayShape = (
 
   const resolved = resolveTypeAlias(stripNullish(currentType), context);
   if (resolved.kind === "unionType") {
+    const hasBroadArrayFallback =
+      wantArray && canNarrowBroadRuntimeValueToArray(resolved, context);
     const kept = resolved.types.filter((member): member is IrType => {
       if (!member) return false;
       const isArrayLike = isArrayLikeNarrowingCandidate(member, context);
       return wantArray ? isArrayLike : !isArrayLike;
     });
-    if (kept.length === 0) return undefined;
-    if (kept.length === 1) return kept[0];
-    return normalizedUnionType(kept);
+    const narrowed = hasBroadArrayFallback ? [...kept, JS_VALUE_ARRAY_TYPE] : kept;
+    if (narrowed.length === 0) return undefined;
+    if (narrowed.length === 1) return narrowed[0];
+    return normalizedUnionType(narrowed);
   }
 
   const isArrayLike = isArrayLikeNarrowingCandidate(resolved, context);
@@ -89,7 +132,8 @@ export const narrowTypeByArrayShape = (
       resolved.kind === "anyType" ||
       resolved.kind === "objectType" ||
       (resolved.kind === "referenceType" && resolved.name === "object") ||
-      isBroadJsValueType(resolved)
+      isBroadJsValueType(resolved) ||
+      isBroadObjectSlotType(resolved, context)
     ) {
       return JS_VALUE_ARRAY_TYPE;
     }

@@ -17,6 +17,14 @@ append_error_file() {
     printf '%s\n' "$value" >>"$target_file"
 }
 
+progress_line() {
+    local value="$1"
+    echo -e "$value"
+    if [ -n "${TSONIC_E2E_PROGRESS_LOG:-}" ]; then
+        printf '%b\n' "$value" >>"$TSONIC_E2E_PROGRESS_LOG"
+    fi
+}
+
 run_dotnet_test() {
     local fixture_dir="$1"
     local results_dir="$2"
@@ -36,13 +44,14 @@ run_dotnet_test() {
         if [[ "$prev" == PASS* ]]; then
             local elapsed_ms
             elapsed_ms=$(( $(now_ms) - started_ms ))
-            echo -e "  $fixture_name: \033[1;33mSKIP (cached PASS, $(format_duration_ms "$elapsed_ms"))\033[0m"
+            progress_line "  $fixture_name: \033[1;33mSKIP (cached PASS, $(format_duration_ms "$elapsed_ms"))\033[0m"
             trace_event fixture-done scope fixture phase e2e-dotnet fixture "$fixture_name" status skip reason cached-pass durationMs "$elapsed_ms"
             return
         fi
     fi
 
     trace_event fixture-start scope fixture phase e2e-dotnet fixture "$fixture_name"
+    progress_line "  $fixture_name: START (e2e-dotnet)"
 
     cd "$fixture_dir"
 
@@ -76,7 +85,7 @@ run_dotnet_test() {
             result="FAIL (missing deps, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
             write_result_file "$result_file" "$result"
             trace_event fixture-done scope fixture phase e2e-dotnet fixture "$fixture_name" status fail reason missing-deps durationMs "$(( $(now_ms) - started_ms ))"
-            echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+            progress_line "  $fixture_name: \033[0;31m$result\033[0m"
             return
         done <<<"$deps"
     fi
@@ -89,7 +98,7 @@ run_dotnet_test() {
             result="FAIL (post-build error, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
             write_result_file "$result_file" "$result"
             trace_event fixture-done scope fixture phase e2e-dotnet fixture "$fixture_name" status fail reason post-build durationMs "$(( $(now_ms) - started_ms ))"
-            echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+            progress_line "  $fixture_name: \033[0;31m$result\033[0m"
             return
         }
 
@@ -123,9 +132,9 @@ run_dotnet_test() {
         trace_event fixture-done scope fixture phase e2e-dotnet fixture "$fixture_name" status fail durationMs "$(( $(now_ms) - started_ms ))"
     fi
     if [[ "$result" == PASS* ]]; then
-        echo -e "  $fixture_name: \033[0;32m$result\033[0m"
+        progress_line "  $fixture_name: \033[0;32m$result\033[0m"
     else
-        echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+        progress_line "  $fixture_name: \033[0;31m$result\033[0m"
     fi
 }
 
@@ -234,6 +243,7 @@ run_dotnet_test_batch() {
             TSONIC_BIN="$TSONIC_BIN" \
             RESUME_MODE="$RESUME_MODE" \
             E2E_NPM_INSTALL="${E2E_NPM_INSTALL:-0}" \
+            TSONIC_E2E_PROGRESS_LOG="${LOG_FILE:-}" \
             bash "$worker_script" dotnet "$fixture_dir" "$RESULTS_DIR"
         ) &
     done
@@ -281,19 +291,20 @@ run_negative_test() {
         if [[ "$prev" == PASS* ]]; then
             local elapsed_ms
             elapsed_ms=$(( $(now_ms) - started_ms ))
-            echo -e "  $fixture_name: \033[1;33mSKIP (cached PASS, $(format_duration_ms "$elapsed_ms"))\033[0m"
+            progress_line "  $fixture_name: \033[1;33mSKIP (cached PASS, $(format_duration_ms "$elapsed_ms"))\033[0m"
             trace_event fixture-done scope fixture phase e2e-negative fixture "$fixture_name" status skip reason cached-pass durationMs "$elapsed_ms"
             return
         fi
     fi
 
     trace_event fixture-start scope fixture phase e2e-negative fixture "$fixture_name"
+    progress_line "  $fixture_name: START (e2e-negative)"
 
     if [ ! -f "$fixture_dir/tsonic.workspace.json" ]; then
         result="FAIL (no config, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
         write_result_file "$result_file" "$result"
         trace_event fixture-done scope fixture phase e2e-negative fixture "$fixture_name" status fail reason missing-config durationMs "$(( $(now_ms) - started_ms ))"
-        echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+        progress_line "  $fixture_name: \033[0;31m$result\033[0m"
         return
     fi
 
@@ -316,9 +327,9 @@ run_negative_test() {
         trace_event fixture-done scope fixture phase e2e-negative fixture "$fixture_name" status fail durationMs "$(( $(now_ms) - started_ms ))"
     fi
     if [[ "$result" == PASS* ]]; then
-        echo -e "  $fixture_name: \033[0;32m$result\033[0m"
+        progress_line "  $fixture_name: \033[0;32m$result\033[0m"
     else
-        echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+        progress_line "  $fixture_name: \033[0;31m$result\033[0m"
     fi
 }
 
@@ -351,6 +362,7 @@ run_negative_test_batch() {
             TSONIC_BIN="$TSONIC_BIN" \
             RESUME_MODE="$RESUME_MODE" \
             E2E_NPM_INSTALL="${E2E_NPM_INSTALL:-0}" \
+            TSONIC_E2E_PROGRESS_LOG="${LOG_FILE:-}" \
             bash "$worker_script" negative "$fixture_dir" "$RESULTS_DIR"
         ) &
     done

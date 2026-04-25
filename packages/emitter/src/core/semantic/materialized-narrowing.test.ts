@@ -61,6 +61,48 @@ describe("materialized narrowing", () => {
     });
   });
 
+  it("casts broad object-slot unions when narrowing into nullable value sinks", () => {
+    const sourceAst = {
+      kind: "identifierExpression" as const,
+      identifier: "value",
+    };
+    const broadObjectSlotUnion: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "boolean" },
+        { kind: "primitiveType", name: "null" },
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "referenceType",
+          name: "BigInteger",
+          resolvedClrType: "System.Numerics.BigInteger",
+        },
+        { kind: "referenceType", name: "object", typeArguments: [] },
+      ],
+    };
+    const nullableNumberType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const [ast] = materializeDirectNarrowingAst(
+      sourceAst,
+      broadObjectSlotUnion,
+      nullableNumberType,
+      context
+    );
+
+    expect(ast).to.deep.equal({
+      kind: "castExpression",
+      type: { kind: "predefinedType", keyword: "double" },
+      expression: sourceAst,
+    });
+  });
+
   it("produces .Value unwrap for ref-wrapped nullable value types", () => {
     const numberType: IrType = { kind: "primitiveType", name: "number" };
     const undefinedType: IrType = {

@@ -1,7 +1,10 @@
 import { IrType, isAwaitableIrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
-import { identifierExpression } from "../core/format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  identifierType,
+} from "../core/format/backend-ast/builders.js";
 import {
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
@@ -36,6 +39,11 @@ const buildTaskFromResultExpression = (
   typeArguments: resultTypeAst ? [resultTypeAst] : undefined,
   arguments: [exprAst],
 });
+
+const buildTaskTypeAst = (resultTypeAst?: CSharpTypeAst): CSharpTypeAst =>
+  resultTypeAst
+    ? identifierType("global::System.Threading.Tasks.Task", [resultTypeAst])
+    : identifierType("global::System.Threading.Tasks.Task");
 
 const requiresExplicitTaskFromResultType = (
   exprAst: CSharpExpressionAst
@@ -100,6 +108,23 @@ const buildDefaultTaskAst = (
     ),
     nextContext,
   ];
+};
+
+const buildAwaitMatchResultTypeAst = (
+  resultType: IrType | undefined,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  const carrierType = getAwaitTaskResultCarrierType(resultType);
+  if (!carrierType) {
+    return [buildTaskTypeAst(), context];
+  }
+
+  const [resultTypeAst, , nextContext] = emitRuntimeCarrierTypeAst(
+    carrierType,
+    context,
+    emitTypeAst
+  );
+  return [buildTaskTypeAst(resultTypeAst), nextContext];
 };
 
 const buildNullableAwaitableTaskAst = (
@@ -243,9 +268,26 @@ export const emitNormalizedAwaitTaskAst = (
   }
 
   if (isDefinitelyNonAwaitableType(valueType)) {
-    const explicitResultType = requiresExplicitTaskFromResultType(valueAst)
-      ? getAwaitTaskResultCarrierType(resultType ?? valueType)
-      : undefined;
+    const shouldPromoteToResultType =
+      !!valueType &&
+      valueType.kind !== "unionType" &&
+      !!resultType &&
+      resultType.kind !== "voidType";
+    const [promotedValueAst, promotedResultTypeAst, promotedContext] =
+      shouldPromoteToResultType
+        ? buildPromotedAwaitResultValueAst(
+            valueAst,
+            valueType,
+            resultType,
+            currentContext
+          )
+        : [valueAst, undefined, currentContext];
+    currentContext = promotedContext;
+    const explicitResultType =
+      promotedResultTypeAst === undefined &&
+      requiresExplicitTaskFromResultType(promotedValueAst)
+        ? getAwaitTaskResultCarrierType(resultType ?? valueType)
+        : undefined;
     let resultTypeAst: CSharpTypeAst | undefined;
     let resultTypeContext = currentContext;
     if (explicitResultType) {
@@ -257,7 +299,10 @@ export const emitNormalizedAwaitTaskAst = (
     }
 
     return [
-      buildTaskFromResultExpression(valueAst, resultTypeAst),
+      buildTaskFromResultExpression(
+        promotedValueAst,
+        promotedResultTypeAst ?? resultTypeAst
+      ),
       resultTypeContext,
     ];
   }
@@ -314,6 +359,9 @@ export const emitNormalizedAwaitTaskAst = (
         currentContext
       );
       currentContext = fallbackContext;
+      const [matchResultTypeAst, matchResultTypeContext] =
+        buildAwaitMatchResultTypeAst(resultType, currentContext);
+      currentContext = matchResultTypeContext;
 
       return [
         {
@@ -326,6 +374,7 @@ export const emitNormalizedAwaitTaskAst = (
               expression: valueAst,
               memberName: "Match",
             },
+            typeArguments: [matchResultTypeAst],
             arguments: arms,
           },
           right: fallbackTaskAst,
@@ -386,6 +435,9 @@ export const emitNormalizedAwaitTaskAst = (
       currentContext
     );
     currentContext = fallbackContext;
+    const [matchResultTypeAst, matchResultTypeContext] =
+      buildAwaitMatchResultTypeAst(resultType, currentContext);
+    currentContext = matchResultTypeContext;
 
     return [
       {
@@ -398,6 +450,7 @@ export const emitNormalizedAwaitTaskAst = (
             expression: valueAst,
             memberName: "Match",
           },
+          typeArguments: [matchResultTypeAst],
           arguments: arms,
         },
         right: fallbackTaskAst,
@@ -451,6 +504,9 @@ export const emitNormalizedAwaitTaskAst = (
         body: normalizedArm,
       });
     }
+    const [matchResultTypeAst, matchResultTypeContext] =
+      buildAwaitMatchResultTypeAst(resultType, currentContext);
+    currentContext = matchResultTypeContext;
 
     return [
       {
@@ -460,6 +516,7 @@ export const emitNormalizedAwaitTaskAst = (
           expression: valueAst,
           memberName: "Match",
         },
+        typeArguments: [matchResultTypeAst],
         arguments: arms,
       },
       currentContext,

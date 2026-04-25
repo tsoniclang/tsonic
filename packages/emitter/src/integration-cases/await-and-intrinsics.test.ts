@@ -56,7 +56,9 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.include("await maybeLoad(flag).Match");
-      expect(csharp).to.include("Task.FromResult(__tsonic_await_value_0)");
+      expect(csharp).to.include(
+        "Task.FromResult<string>(__tsonic_await_value_0)"
+      );
     });
 
     it("normalizes alias-backed Promise-or-value unions before await", () => {
@@ -72,8 +74,12 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("await (invoke(flag)?.Match");
-      expect(csharp).to.include("Task.FromResult(__tsonic_await_value_");
+      expect(csharp).to.include(
+        "await (invoke(flag)?.Match<global::System.Threading.Tasks.Task<object?>>"
+      );
+      expect(csharp).to.include(
+        "Task.FromResult<object?>(__tsonic_await_value_"
+      );
       expect(csharp).not.to.include(
         "await global::System.Threading.Tasks.Task.FromResult(invoke(flag));"
       );

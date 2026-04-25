@@ -640,6 +640,13 @@ export const applyArrayIsArrayRefinement = (
     condition.kind === "call" && condition.narrowing?.kind === "typePredicate"
       ? condition.narrowing.targetType
       : undefined;
+  const predicateArrayTargetType =
+    wantArray && predicateTargetType
+      ? (narrowTypeByArrayShape(predicateTargetType, true, context) ??
+        (isArrayLikeNarrowingCandidate(predicateTargetType, context)
+          ? predicateTargetType
+          : undefined))
+      : undefined;
 
   const explicitNarrowedType =
     narrowTypeByArrayShape(currentType, wantArray, context) ??
@@ -649,12 +656,18 @@ export const applyArrayIsArrayRefinement = (
       context
     ) ??
     (wantArray
-      ? predicateTargetType
+      ? predicateArrayTargetType
       : narrowTypeByNotAssignableTarget(
           currentType,
           predicateTargetType,
           context
         ));
+  const explicitArrayNarrowedType =
+    wantArray &&
+    explicitNarrowedType &&
+    !isArrayLikeNarrowingCandidate(explicitNarrowedType, context)
+      ? undefined
+      : explicitNarrowedType;
   const canUseBroadArrayFallback = (() => {
     if (!wantArray) {
       return false;
@@ -673,7 +686,7 @@ export const applyArrayIsArrayRefinement = (
     );
   })();
   const narrowedType =
-    explicitNarrowedType ??
+    explicitArrayNarrowedType ??
     (canUseBroadArrayFallback ? BROAD_OBJECT_ARRAY_TYPE : undefined);
   if (!narrowedType) {
     return undefined;

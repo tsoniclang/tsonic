@@ -71,6 +71,7 @@ import { tryAdaptStructuralCollectionExpressionAst } from "./structural-collecti
 import {
   isBroadArrayReceiverAssertionTarget,
   isBroadArrayStorageTarget,
+  isSystemArrayStorageType,
   resolveBroadArrayAssertionStorageType,
 } from "../core/semantic/broad-array-storage.js";
 import {
@@ -472,6 +473,9 @@ export const emitTypeAssertion = (
         ? sourceNarrowedBinding.type
         : undefined
     );
+  const preservedSystemArrayStorageAtEntry =
+    runtimeAssertionTarget.kind === "arrayType" &&
+    isSystemArrayStorageType(sourceStorageTypeAtEntry, context);
 
   if (
     (resolvedAssertionTarget.kind === "primitiveType" &&
@@ -569,11 +573,7 @@ export const emitTypeAssertion = (
     })();
   const assertionTargetSemanticallyMatchesExpectedRuntimeUnion =
     !!expectedType &&
-    matchesSemanticExpectedType(
-      runtimeAssertionTarget,
-      expectedType,
-      context
-    );
+    matchesSemanticExpectedType(runtimeAssertionTarget, expectedType, context);
   const assertionTargetCollapsesIntoExpectedRuntimeUnion =
     !!expectedType &&
     (!!resolveCarrierPreservingSourceType(
@@ -714,6 +714,7 @@ export const emitTypeAssertion = (
       !!sourceNarrowedBinding.storageExprAst &&
       runtimeEmissionTarget.kind === "arrayType") ||
     !!preservedBroadArrayStorageAtEntry ||
+    preservedSystemArrayStorageAtEntry ||
     (!!sourceNarrowedBinding &&
       sourceNarrowedBinding.kind !== "runtimeSubset" &&
       willCarryAsRuntimeUnion(runtimeEmissionTarget, context));
@@ -823,7 +824,7 @@ export const emitTypeAssertion = (
     !runtimeTargetUnionLayout &&
     !areIrTypesEquivalent(sourceExpressionType, runtimeTarget, ctx1);
   const castSourceAst =
-    preservedBroadArrayStorageType &&
+    (preservedBroadArrayStorageType || preservedSystemArrayStorageAtEntry) &&
     sourceNarrowedBinding?.kind === "expr" &&
     sourceNarrowedBinding.storageExprAst
       ? sourceNarrowedBinding.storageExprAst
@@ -835,7 +836,11 @@ export const emitTypeAssertion = (
     !mustPreserveDirectStorageCast &&
     !preservedBroadArrayStorageType &&
     !involvesDegenerateDuplicateUnion &&
-    (areIrTypesEquivalent(actualExpressionType, expectedType, sourceLayoutContext) ||
+    (areIrTypesEquivalent(
+      actualExpressionType,
+      expectedType,
+      sourceLayoutContext
+    ) ||
       matchesExpectedEmissionType(
         actualExpressionType,
         expectedType,
@@ -865,6 +870,17 @@ export const emitTypeAssertion = (
   }
 
   if (mustPreserveNominalCast) {
+    return [
+      {
+        kind: "castExpression",
+        type: runtimeTargetTypeAst,
+        expression: castSourceAst,
+      },
+      runtimeTargetTypeContext,
+    ];
+  }
+
+  if (preservedSystemArrayStorageAtEntry) {
     return [
       {
         kind: "castExpression",

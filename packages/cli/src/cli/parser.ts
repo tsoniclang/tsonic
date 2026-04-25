@@ -101,6 +101,9 @@ export const parseArgs = (
       case "--quiet":
         options.quiet = true;
         break;
+      case "--test-progress":
+        options.testProgress = true;
+        break;
       case "-c":
       case "--config":
         options.config = args[++i] ?? "";

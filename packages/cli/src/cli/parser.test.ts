@@ -157,6 +157,11 @@ describe("CLI Parser", () => {
         expect(result.options.quiet).to.equal(true);
       });
 
+      it("should parse --test-progress option", () => {
+        const result = parseArgs(["test", "--test-progress"]);
+        expect(result.options.testProgress).to.equal(true);
+      });
+
       it("should parse --config option with value", () => {
         const result = parseArgs([
           "build",

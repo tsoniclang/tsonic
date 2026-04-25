@@ -446,6 +446,14 @@ export const emitBinary = (
 
   const leftResolvedType = resolveComparisonOperandType(expr.left, context);
   const rightResolvedType = resolveComparisonOperandType(expr.right, context);
+  const leftComparisonTarget = getTransparentComparisonTarget(expr.left);
+  const rightComparisonTarget = getTransparentComparisonTarget(expr.right);
+  const leftSemanticType =
+    resolveEffectiveExpressionType(leftComparisonTarget, context) ??
+    leftComparisonTarget.inferredType;
+  const rightSemanticType =
+    resolveEffectiveExpressionType(rightComparisonTarget, context) ??
+    rightComparisonTarget.inferredType;
   const leftResolved = leftResolvedType
     ? resolveTypeAlias(stripNullish(leftResolvedType), context)
     : undefined;
@@ -457,7 +465,9 @@ export const emitBinary = (
     (leftResolved?.kind === "unknownType" ||
       rightResolved?.kind === "unknownType" ||
       isBroadObjectSlotType(leftResolvedType, context) ||
-      isBroadObjectSlotType(rightResolvedType, context));
+      isBroadObjectSlotType(rightResolvedType, context) ||
+      isBroadObjectSlotType(leftSemanticType, context) ||
+      isBroadObjectSlotType(rightSemanticType, context));
 
   if (needsRuntimeEquality) {
     const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
@@ -518,7 +528,9 @@ export const emitBinary = (
     if (
       operand.kind === "numericNarrowing" &&
       isNumericOperandType(stripNullish(operand.inferredType)) &&
-      isNumericOperandType(counterpartType ? stripNullish(counterpartType) : undefined)
+      isNumericOperandType(
+        counterpartType ? stripNullish(counterpartType) : undefined
+      )
     ) {
       return operand.inferredType;
     }
@@ -526,15 +538,21 @@ export const emitBinary = (
     if (
       operand.kind === "typeAssertion" &&
       isNumericOperandType(stripNullish(operand.targetType)) &&
-      isNumericOperandType(counterpartType ? stripNullish(counterpartType) : undefined)
+      isNumericOperandType(
+        counterpartType ? stripNullish(counterpartType) : undefined
+      )
     ) {
       return operand.targetType;
     }
 
-    const strippedOperandType = operandType ? stripNullish(operandType) : undefined;
+    const strippedOperandType = operandType
+      ? stripNullish(operandType)
+      : undefined;
     return strippedOperandType &&
       isNumericOperandType(strippedOperandType) &&
-      isNumericOperandType(counterpartType ? stripNullish(counterpartType) : undefined)
+      isNumericOperandType(
+        counterpartType ? stripNullish(counterpartType) : undefined
+      )
       ? strippedOperandType
       : undefined;
   };
@@ -560,7 +578,7 @@ export const emitBinary = (
             leftResolvedType,
             rightResolvedType
           )
-      : undefined;
+        : undefined;
   const [leftAst, leftContext] = emitExpressionAst(
     expr.left,
     context,
@@ -584,7 +602,7 @@ export const emitBinary = (
             rightResolvedType,
             leftResolvedType
           )
-      : undefined;
+        : undefined;
   const [rightAst, rightContext] = emitExpressionAst(
     expr.right,
     leftContext,

@@ -128,6 +128,61 @@ const tryBuildArrayElementMaterializationAst = (
     return undefined;
   }
 
+  if (isBroadObjectSlotType(targetElementType, targetTypeContext)) {
+    const itemName = "__tsonic_array_item";
+    const itemExpr = identifierExpression(itemName);
+    const materializedElement = tryBuildRuntimeMaterializationAst(
+      itemExpr,
+      sourceElementType,
+      targetElementType,
+      targetTypeContext,
+      emitTypeAst
+    );
+    const materializedElementContext =
+      materializedElement?.[1] ?? targetTypeContext;
+    const selectAst: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: identifierExpression("global::System.Linq.Enumerable.Select"),
+      typeArguments: [sourceElementTypeAst, targetElementTypeAst],
+      arguments: [
+        valueAst,
+        {
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [{ name: itemName }],
+          body:
+            materializedElement?.[0] ??
+            maybeCastMaterializedValueAst(
+              itemExpr,
+              sourceElementTypeAst,
+              targetElementTypeAst
+            ),
+        },
+      ],
+    };
+    const toArrayAst: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: identifierExpression(
+        "global::System.Linq.Enumerable.ToArray"
+      ),
+      typeArguments: [targetElementTypeAst],
+      arguments: [selectAst],
+    };
+    const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+      expectedType,
+      materializedElementContext
+    );
+
+    return [
+      {
+        kind: "castExpression",
+        type: expectedTypeAst,
+        expression: toArrayAst,
+      },
+      expectedTypeContext,
+    ];
+  }
+
   const [sourceElementLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
     sourceElementType,
     targetTypeContext,
@@ -242,6 +297,20 @@ const tryBuildArrayElementMaterializationAst = (
     },
     expectedTypeContext,
   ];
+};
+
+const canMaterializeArrayToBroadObjectArray = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): boolean => {
+  const sourceElementType = getArrayLikeElementType(sourceType, context);
+  const targetElementType = getArrayLikeElementType(targetType, context);
+  return (
+    !!sourceElementType &&
+    !!targetElementType &&
+    isBroadObjectSlotType(targetElementType, context)
+  );
 };
 
 export const tryBuildRuntimeMaterializationAst = (
@@ -525,6 +594,7 @@ export const tryBuildRuntimeMaterializationAst = (
         effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1
       )) &&
     (isBroadObjectTarget ||
+      canMaterializeArrayToBroadObjectArray(member, targetType, nextContext) ||
       (() => {
         const sourceMemberTypeAst =
           sourceSurfaceMemberTypeAsts?.[index] ??
@@ -547,6 +617,7 @@ export const tryBuildRuntimeMaterializationAst = (
   }
 
   const lambdaArgs: CSharpExpressionAst[] = [];
+  let matchContext = nextContext;
   for (let index = 0; index < sourceLayout.members.length; index += 1) {
     const actualMember = sourceLayout.members[index];
     if (!actualMember) {
@@ -588,22 +659,35 @@ export const tryBuildRuntimeMaterializationAst = (
       continue;
     }
 
+    const arrayElementMaterialization = tryBuildArrayElementMaterializationAst(
+      parameterExpr,
+      actualMember,
+      targetType,
+      matchContext,
+      emitTypeAst
+    );
+    if (arrayElementMaterialization) {
+      matchContext = arrayElementMaterialization[1];
+    }
+
     lambdaArgs.push({
       kind: "lambdaExpression",
       isAsync: false,
       parameters: [{ name: parameterName }],
-      body: maybeCastMaterializedValueAst(
-        parameterExpr,
-        sourceSurfaceMemberTypeAsts?.[index] ??
-          sourceLayout.memberTypeAsts[index],
-        concreteTargetTypeAst
-      ),
+      body:
+        arrayElementMaterialization?.[0] ??
+        maybeCastMaterializedValueAst(
+          parameterExpr,
+          sourceSurfaceMemberTypeAsts?.[index] ??
+            sourceLayout.memberTypeAsts[index],
+          concreteTargetTypeAst
+        ),
     });
   }
 
   return [
     buildRuntimeUnionMatchAst(valueAst, lambdaArgs, [concreteTargetTypeAst]),
-    nextContext,
+    matchContext,
   ];
 };
 
@@ -821,7 +905,9 @@ export const tryBuildRuntimeReificationPlan = (
       return undefined;
     }
 
-    let conditionAst = catchAllCase ? booleanLiteral(true) : firstCase.condition;
+    let conditionAst = catchAllCase
+      ? booleanLiteral(true)
+      : firstCase.condition;
     let valueExpression =
       catchAllCase?.value ??
       buildInvalidReificationExpression(

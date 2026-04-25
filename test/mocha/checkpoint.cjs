@@ -1,4 +1,10 @@
-const { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } = require("node:fs");
+const {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+} = require("node:fs");
 const childProcess = require("node:child_process");
 const { basename, dirname, join, relative, resolve } = require("node:path");
 
@@ -12,6 +18,9 @@ if (!CHECKPOINT_ROOT) {
 const RESUME_MODE = process.env.TSONIC_TEST_RESUME === "1";
 const TRACE_FILE = process.env.TSONIC_TEST_TRACE_FILE;
 const RUN_ID = process.env.TSONIC_TEST_RUN_ID;
+const PROGRESS_ENABLED =
+  process.env.TSONIC_TEST_PROGRESS === "1" &&
+  process.env.TSONIC_MOCHA_PROGRESS_REPORTER !== "1";
 
 function safeSegment(input) {
   return String(input).replaceAll(/[^a-zA-Z0-9@._-]+/g, "_");
@@ -22,7 +31,8 @@ function getPackageName() {
     // Mocha runs with CWD set to the workspace package directory.
     const pkgPath = resolve(process.cwd(), "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (pkg && typeof pkg.name === "string" && pkg.name.length > 0) return pkg.name;
+    if (pkg && typeof pkg.name === "string" && pkg.name.length > 0)
+      return pkg.name;
   } catch {
     // ignore
   }
@@ -40,6 +50,33 @@ const COMMANDS_FILE = join(PKG_DIR, `commands.${process.pid}.jsonl`);
 function appendJsonl(filePath, obj) {
   mkdirSync(dirname(filePath), { recursive: true });
   appendFileSync(filePath, `${JSON.stringify(obj)}\n`, "utf8");
+}
+
+function oneLine(value) {
+  return String(value ?? "")
+    .replaceAll(/\s+/g, " ")
+    .trim();
+}
+
+function progressLine(status, fields) {
+  if (!PROGRESS_ENABLED) return;
+
+  const pieces = [
+    `[mocha:${status}]`,
+    `package=${oneLine(PKG_NAME)}`,
+    `kind=${oneLine(fields.kind)}`,
+  ];
+  if (fields.ms != null) {
+    pieces.push(`ms=${oneLine(fields.ms)}`);
+  }
+  if (fields.file) {
+    pieces.push(`file=${oneLine(fields.file)}`);
+  }
+  if (fields.title) {
+    pieces.push(`title=${oneLine(fields.title)}`);
+  }
+
+  process.stdout.write(`${pieces.join(" ")}\n`);
 }
 
 function appendTrace(event) {
@@ -112,7 +149,9 @@ function installChildProcessInstrumentation() {
     const normalized = normalizeArgsOptions(args, options);
     const command = formatCommand(file, normalized.args);
     const cwd =
-      normalized.options && typeof normalized.options.cwd === "string" ? normalized.options.cwd : process.cwd();
+      normalized.options && typeof normalized.options.cwd === "string"
+        ? normalized.options.cwd
+        : process.cwd();
     const startRecord = {
       phase: "start",
       kind: "spawnSync",
@@ -126,7 +165,11 @@ function installChildProcessInstrumentation() {
     const result = originalSpawnSync.apply(this, arguments);
     const ms = Date.now() - startedAt;
     const status =
-      result && result.error ? "error" : result && result.status === 0 ? "pass" : "fail";
+      result && result.error
+        ? "error"
+        : result && result.status === 0
+          ? "pass"
+          : "fail";
     const doneRecord = {
       phase: "done",
       kind: "spawnSync",
@@ -145,7 +188,8 @@ function installChildProcessInstrumentation() {
 
   childProcess.execSync = function patchedExecSync(command, options) {
     const startedAt = Date.now();
-    const cwd = options && typeof options.cwd === "string" ? options.cwd : process.cwd();
+    const cwd =
+      options && typeof options.cwd === "string" ? options.cwd : process.cwd();
     const startRecord = {
       phase: "start",
       kind: "execSync",
@@ -186,12 +230,18 @@ function installChildProcessInstrumentation() {
     }
   };
 
-  childProcess.execFileSync = function patchedExecFileSync(file, args, options) {
+  childProcess.execFileSync = function patchedExecFileSync(
+    file,
+    args,
+    options
+  ) {
     const startedAt = Date.now();
     const normalized = normalizeArgsOptions(args, options);
     const command = formatCommand(file, normalized.args);
     const cwd =
-      normalized.options && typeof normalized.options.cwd === "string" ? normalized.options.cwd : process.cwd();
+      normalized.options && typeof normalized.options.cwd === "string"
+        ? normalized.options.cwd
+        : process.cwd();
     const startRecord = {
       phase: "start",
       kind: "execFileSync",
@@ -234,9 +284,15 @@ function installChildProcessInstrumentation() {
 }
 
 function testId(test) {
-  const title = typeof test.fullTitle === "function" ? test.fullTitle() : String(test.title ?? "");
+  const title =
+    typeof test.fullTitle === "function"
+      ? test.fullTitle()
+      : String(test.title ?? "");
   // `test.file` is typically set; include it when available to avoid collisions.
-  const file = typeof test.file === "string" && test.file.length > 0 ? relative(process.cwd(), test.file) : "";
+  const file =
+    typeof test.file === "string" && test.file.length > 0
+      ? relative(process.cwd(), test.file)
+      : "";
   return file ? `${file}::${title}` : title;
 }
 
@@ -245,7 +301,9 @@ function readPassSet() {
   if (!RESUME_MODE) return pass;
   if (!existsSync(PKG_DIR)) return pass;
 
-  const files = readdirSync(PKG_DIR).filter((f) => f.startsWith("results.") && f.endsWith(".jsonl"));
+  const files = readdirSync(PKG_DIR).filter(
+    (f) => f.startsWith("results.") && f.endsWith(".jsonl")
+  );
   for (const f of files) {
     const p = join(PKG_DIR, f);
     let text = "";
@@ -258,7 +316,8 @@ function readPassSet() {
       if (!line) continue;
       try {
         const rec = JSON.parse(line);
-        if (rec && rec.status === "pass" && typeof rec.id === "string") pass.add(rec.id);
+        if (rec && rec.status === "pass" && typeof rec.id === "string")
+          pass.add(rec.id);
       } catch {
         // ignore malformed line
       }
@@ -276,7 +335,9 @@ function formatMs(ms) {
 }
 
 function isGoldenTest(test) {
-  return typeof test.file === "string" && /golden-shard-\d+\.test\./.test(test.file);
+  return (
+    typeof test.file === "string" && /golden-shard-\d+\.test\./.test(test.file)
+  );
 }
 
 function testKind(test) {
@@ -286,31 +347,52 @@ function testKind(test) {
 function logTiming(test, status) {
   const id = testId(test);
   const kind = testKind(test);
+  const file =
+    typeof test.file === "string" && test.file.length > 0
+      ? relative(process.cwd(), test.file)
+      : "";
+  const title =
+    typeof test.fullTitle === "function"
+      ? test.fullTitle()
+      : String(test.title ?? "");
+  const ms = Number.isFinite(test.duration)
+    ? Math.max(0, Math.trunc(test.duration))
+    : 0;
   appendTrace({
     event: "test-done",
     scope: "test",
     id,
     status,
     kind,
-    file: typeof test.file === "string" && test.file.length > 0 ? relative(process.cwd(), test.file) : "",
-    title: typeof test.fullTitle === "function" ? test.fullTitle() : String(test.title ?? ""),
-    ms: Number.isFinite(test.duration) ? Math.max(0, Math.trunc(test.duration)) : 0,
+    file,
+    title,
+    ms,
     ts: new Date().toISOString(),
   });
+  progressLine(status, { kind, file, title, ms });
 }
 
 function logStart(test) {
   const id = testId(test);
   const kind = testKind(test);
+  const file =
+    typeof test.file === "string" && test.file.length > 0
+      ? relative(process.cwd(), test.file)
+      : "";
+  const title =
+    typeof test.fullTitle === "function"
+      ? test.fullTitle()
+      : String(test.title ?? "");
   appendTrace({
     event: "test-start",
     scope: "test",
     id,
     kind,
-    file: typeof test.file === "string" && test.file.length > 0 ? relative(process.cwd(), test.file) : "",
-    title: typeof test.fullTitle === "function" ? test.fullTitle() : String(test.title ?? ""),
+    file,
+    title,
     ts: new Date().toISOString(),
   });
+  progressLine("start", { kind, file, title });
 }
 
 exports.mochaHooks = {
@@ -319,10 +401,21 @@ exports.mochaHooks = {
     if (!t) return;
 
     const id = testId(t);
-    const title = typeof t.fullTitle === "function" ? t.fullTitle() : String(t.title ?? "");
-    const file = typeof t.file === "string" && t.file.length > 0 ? relative(process.cwd(), t.file) : "";
+    const title =
+      typeof t.fullTitle === "function" ? t.fullTitle() : String(t.title ?? "");
+    const file =
+      typeof t.file === "string" && t.file.length > 0
+        ? relative(process.cwd(), t.file)
+        : "";
     const kind = testKind(t);
-    appendJsonl(SEEN_FILE, { id, title, file, kind, packageName: PKG_NAME, ts: new Date().toISOString() });
+    appendJsonl(SEEN_FILE, {
+      id,
+      title,
+      file,
+      kind,
+      packageName: PKG_NAME,
+      ts: new Date().toISOString(),
+    });
 
     if (RESUME_MODE && PASS_SET.has(id)) {
       appendJsonl(RESULTS_FILE, {
@@ -346,6 +439,7 @@ exports.mochaHooks = {
         reason: "cached-pass",
         ts: new Date().toISOString(),
       });
+      progressLine("skip", { kind, file, title });
       this.skip();
     }
 
@@ -357,8 +451,12 @@ exports.mochaHooks = {
     if (!t) return;
 
     const id = testId(t);
-    const title = typeof t.fullTitle === "function" ? t.fullTitle() : String(t.title ?? "");
-    const file = typeof t.file === "string" && t.file.length > 0 ? relative(process.cwd(), t.file) : "";
+    const title =
+      typeof t.fullTitle === "function" ? t.fullTitle() : String(t.title ?? "");
+    const file =
+      typeof t.file === "string" && t.file.length > 0
+        ? relative(process.cwd(), t.file)
+        : "";
     const kind = testKind(t);
     if (t.state === "passed") {
       appendJsonl(RESULTS_FILE, {

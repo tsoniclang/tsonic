@@ -28,10 +28,13 @@ import {
   getDictionaryValueType,
   getDirectIterableElementType,
   getIterableSourceShape,
+  canPreferAnonymousStructuralTarget,
 } from "./structural-type-shapes.js";
 import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
 import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
 import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
+import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import { collectStructuralProperties } from "./structural-property-model.js";
 import {
   isExactArrayCreationToType,
   isExactExpressionToType,
@@ -51,10 +54,9 @@ const normalizeStructuralCarrierEmissionType = (
     }
 
     const normalized = normalizeStructuralEmissionType(current, context);
-    const anonymousTarget = resolveAnonymousStructuralReferenceType(
-      normalized,
-      context
-    );
+    const anonymousTarget = canPreferAnonymousStructuralTarget(normalized)
+      ? resolveAnonymousStructuralReferenceType(normalized, context)
+      : undefined;
     if (anonymousTarget) {
       cache.set(current, anonymousTarget);
       return anonymousTarget;
@@ -335,12 +337,66 @@ const buildIterableSourceAst = (
   };
 };
 
-const hasMatchingRuntimeCarrierElementType = (
+const canReuseSourceCarrierForInlineStructuralElement = (
   sourceType: IrType,
   targetType: IrType,
   context: EmitterContext
 ): boolean => {
-  const normalizedSourceType = normalizeStructuralEmissionType(
+  if (
+    canPreferAnonymousStructuralTarget(sourceType) ||
+    !canPreferAnonymousStructuralTarget(targetType)
+  ) {
+    return false;
+  }
+
+  const resolvedTarget = normalizeStructuralEmissionType(targetType, context);
+  if (
+    resolvedTarget.kind !== "objectType" &&
+    resolvedTarget.kind !== "referenceType"
+  ) {
+    return false;
+  }
+
+  const sourceProps = collectStructuralProperties(sourceType, context);
+  const targetProps = collectStructuralProperties(targetType, context);
+  if (!sourceProps || !targetProps || sourceProps.length !== targetProps.length) {
+    return false;
+  }
+
+  const sortedSourceProps = [...sourceProps].sort((left, right) =>
+    left.name.localeCompare(right.name)
+  );
+  const sortedTargetProps = [...targetProps].sort((left, right) =>
+    left.name.localeCompare(right.name)
+  );
+
+  return sortedSourceProps.every((sourceProp, index) => {
+    const targetProp = sortedTargetProps[index];
+    return (
+      !!targetProp &&
+      sourceProp.name === targetProp.name &&
+      sourceProp.isOptional === targetProp.isOptional &&
+      areIrTypesEquivalent(sourceProp.type, targetProp.type, context)
+    );
+  });
+};
+
+export const hasMatchingRuntimeCarrierElementType = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): boolean => {
+  if (
+    canReuseSourceCarrierForInlineStructuralElement(
+      sourceType,
+      targetType,
+      context
+    )
+  ) {
+    return true;
+  }
+
+  const emissionSourceType = normalizeStructuralEmissionType(
     sourceType,
     context
   );
@@ -348,21 +404,30 @@ const hasMatchingRuntimeCarrierElementType = (
     targetType,
     context
   );
-  const emissionSourceType = normalizeStructuralCarrierEmissionType(
-    normalizedSourceType,
-    context
-  );
-  const [sourceTypeAst, , sourceContext] = emitRuntimeCarrierTypeAst(
-    emissionSourceType,
-    context,
-    emitTypeAst
-  );
-  const [targetTypeAst] = emitRuntimeCarrierTypeAst(
-    normalizedTargetType,
-    sourceContext,
-    emitTypeAst
-  );
-  return sameTypeAstSurface(sourceTypeAst, targetTypeAst);
+  try {
+    const [sourceTypeAst, , sourceContext] = emitRuntimeCarrierTypeAst(
+      emissionSourceType,
+      context,
+      emitTypeAst
+    );
+    const [targetTypeAst] = emitRuntimeCarrierTypeAst(
+      normalizedTargetType,
+      sourceContext,
+      emitTypeAst
+    );
+    return sameTypeAstSurface(sourceTypeAst, targetTypeAst);
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message.startsWith("ICE: Anonymous object type reached emitter") ||
+        err.message.startsWith("ICE: Unresolved reference type ") ||
+        err.message.startsWith("ICE: 'unknown' type reached emitter") ||
+        err.message.startsWith("ICE: 'any' type reached emitter"))
+    ) {
+      return false;
+    }
+    throw err;
+  }
 };
 
 export const tryAdaptStructuralCollectionExpressionAst = (

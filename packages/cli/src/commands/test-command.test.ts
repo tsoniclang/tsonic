@@ -139,7 +139,7 @@ if [ ! -f "$PWD/xunit.runner.json" ]; then
   echo "missing xunit.runner.json in $PWD" >&2
   exit 99
 fi
-printf '%s %s\\n' "$1" "$PWD" >> ${JSON.stringify(fakeDotnetLog)}
+printf '%s\\t%s\\n' "$PWD" "$*" >> ${JSON.stringify(fakeDotnetLog)}
 exit 0
 `,
         "utf-8"
@@ -153,6 +153,7 @@ exit 0
           "test",
           "--project",
           "app",
+          "--test-progress",
           "-c",
           join(dir, "tsonic.workspace.json"),
         ]);
@@ -164,6 +165,8 @@ exit 0
       const log = readFileSync(fakeDotnetLog, "utf-8");
       expect(log).to.include("restore");
       expect(log).to.include("test");
+      expect(log).to.include("--verbosity minimal");
+      expect(log).to.include("--logger console;verbosity=detailed");
       expect(log).to.include(
         join(dir, "packages", "app", ".tsonic", "generated-tests")
       );

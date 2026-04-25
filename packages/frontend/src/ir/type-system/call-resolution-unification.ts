@@ -13,7 +13,6 @@ import { unwrapAsyncWrapperType } from "../types/type-ops.js";
 import {
   referenceTypeIdentity,
   referenceTypeHasClrIdentity,
-  stableIrTypeKeyIfDeterministic,
 } from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type { TypeParameterInfo } from "./types.js";
@@ -322,14 +321,9 @@ export const inferMethodTypeArgsFromArguments = (
         return true;
       }
 
-      const parameterKey = stableIrTypeKeyIfDeterministic(parameterRef);
-      const argumentKey = stableIrTypeKeyIfDeterministic(argumentRef);
-      const pairKey =
-        parameterKey && argumentKey
-          ? `${parameterKey}=>${argumentKey}`
-          : `${structuralPairObjectKey(parameterRef)}=>${structuralPairObjectKey(
-              argumentRef
-            )}`;
+      const pairKey = `${structuralPairObjectKey(parameterRef)}=>${structuralPairObjectKey(
+        argumentRef
+      )}`;
       if (activeStructuralPairs.has(pairKey)) {
         return true;
       }

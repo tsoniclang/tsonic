@@ -13,7 +13,8 @@
 
 import type { IrType } from "../types/index.js";
 import {
-  stableIrTypeKeyIfDeterministic,
+  createLocalTypeIdentityState,
+  localTypeIdentityKey,
   unwrapAsyncWrapperType,
 } from "../types/type-ops.js";
 import type { TypeSystemState } from "./type-system-state.js";
@@ -197,18 +198,10 @@ const collectExpandedTypeCandidates = (
   const queue: IrType[] = [type];
   const out: IrType[] = [];
   const seen = new Set<string>();
-  const opaqueKeys = new WeakMap<object, number>();
-  let nextOpaqueKey = 0;
+  const visitKeyState = createLocalTypeIdentityState();
 
   const visitKey = (candidate: IrType): string => {
-    const key = stableIrTypeKeyIfDeterministic(candidate);
-    if (key) return key;
-    const existing = opaqueKeys.get(candidate);
-    if (existing !== undefined) return `opaque:${existing}`;
-    const next = nextOpaqueKey;
-    nextOpaqueKey += 1;
-    opaqueKeys.set(candidate, next);
-    return `opaque:${next}`;
+    return localTypeIdentityKey(candidate, visitKeyState);
   };
 
   const enqueue = (candidate: IrType | undefined): void => {
