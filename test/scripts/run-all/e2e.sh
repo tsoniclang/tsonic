@@ -25,6 +25,38 @@ progress_line() {
     fi
 }
 
+cleanup_fixture_artifacts() {
+    local fixture_dir="$1"
+
+    if [ "${TSONIC_E2E_KEEP_ARTIFACTS:-0}" = "1" ]; then
+        return 0
+    fi
+
+    local abs_fixture_dir
+    abs_fixture_dir="$(cd "$fixture_dir" 2>/dev/null && pwd -P)" || return 0
+
+    if [ "$(basename "$(dirname "$abs_fixture_dir")")" != "fixtures" ]; then
+        echo "Refusing to clean artifacts outside test/fixtures: $abs_fixture_dir" >&2
+        return 1
+    fi
+
+    rm -rf \
+        "$abs_fixture_dir/.tsonic" \
+        "$abs_fixture_dir/generated" \
+        "$abs_fixture_dir/out" \
+        "$abs_fixture_dir/dist"
+
+    if [ -d "$abs_fixture_dir/packages" ]; then
+        find "$abs_fixture_dir/packages" -mindepth 2 -maxdepth 2 \
+            \( -name generated -o -name out -o -name dist \) \
+            -type d -prune -exec rm -rf {} +
+    fi
+
+    if [ "${E2E_NPM_INSTALL:-0}" != "1" ]; then
+        rm -rf "$abs_fixture_dir/node_modules"
+    fi
+}
+
 run_dotnet_test() {
     local fixture_dir="$1"
     local results_dir="$2"
@@ -52,6 +84,15 @@ run_dotnet_test() {
 
     trace_event fixture-start scope fixture phase e2e-dotnet fixture "$fixture_name"
     progress_line "  $fixture_name: START (e2e-dotnet)"
+
+    cleanup_fixture_artifacts "$fixture_dir" || {
+        result="FAIL (artifact cleanup error, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
+        append_error_file "$error_file" "FAIL: unable to safely clean fixture artifacts before run"
+        write_result_file "$result_file" "$result"
+        trace_event fixture-done scope fixture phase e2e-dotnet fixture "$fixture_name" status fail reason cleanup durationMs "$(( $(now_ms) - started_ms ))"
+        progress_line "  $fixture_name: \033[0;31m$result\033[0m"
+        return
+    }
 
     cd "$fixture_dir"
 
@@ -84,6 +125,7 @@ run_dotnet_test() {
             append_error_file "$error_file" "FAIL: missing dependency $pkg. Set E2E_NPM_INSTALL=1 to install from npm, or clone the repo at $sibling."
             result="FAIL (missing deps, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
             write_result_file "$result_file" "$result"
+            cleanup_fixture_artifacts "$fixture_dir" || true
             trace_event fixture-done scope fixture phase e2e-dotnet fixture "$fixture_name" status fail reason missing-deps durationMs "$(( $(now_ms) - started_ms ))"
             progress_line "  $fixture_name: \033[0;31m$result\033[0m"
             return
@@ -97,6 +139,7 @@ run_dotnet_test() {
         run_postbuild_commands "$fixture_dir" "$error_file" || {
             result="FAIL (post-build error, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
             write_result_file "$result_file" "$result"
+            cleanup_fixture_artifacts "$fixture_dir" || true
             trace_event fixture-done scope fixture phase e2e-dotnet fixture "$fixture_name" status fail reason post-build durationMs "$(( $(now_ms) - started_ms ))"
             progress_line "  $fixture_name: \033[0;31m$result\033[0m"
             return
@@ -111,11 +154,18 @@ run_dotnet_test() {
                 if [ "$actual" = "$expected" ]; then
                     result="PASS ($(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
                 else
+                    append_error_file "$error_file" "FAIL: output mismatch"
+                    append_error_file "$error_file" "--- expected ---"
+                    append_error_file "$error_file" "$expected"
+                    append_error_file "$error_file" "--- actual ---"
+                    append_error_file "$error_file" "$actual"
                     result="FAIL (output mismatch, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
                 fi
-            elif "$exe_path" >/dev/null 2>&1; then
+            elif "$exe_path" >"$error_file.runtime" 2>&1; then
                 result="PASS ($(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
             else
+                append_error_file "$error_file" "FAIL: runtime error"
+                cat "$error_file.runtime" >>"$error_file" 2>/dev/null || true
                 result="FAIL (runtime error, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
             fi
         else
@@ -126,6 +176,8 @@ run_dotnet_test() {
     fi
 
     write_result_file "$result_file" "$result"
+    rm -f "$error_file.runtime" 2>/dev/null || true
+    cleanup_fixture_artifacts "$fixture_dir" || true
     if [[ "$result" == PASS* ]]; then
         trace_event fixture-done scope fixture phase e2e-dotnet fixture "$fixture_name" status pass durationMs "$(( $(now_ms) - started_ms ))"
     else
@@ -308,6 +360,14 @@ run_negative_test() {
         return
     fi
 
+    cleanup_fixture_artifacts "$fixture_dir" || {
+        result="FAIL (artifact cleanup error, $(format_duration_ms "$(( $(now_ms) - started_ms ))"))"
+        write_result_file "$result_file" "$result"
+        trace_event fixture-done scope fixture phase e2e-negative fixture "$fixture_name" status fail reason cleanup durationMs "$(( $(now_ms) - started_ms ))"
+        progress_line "  $fixture_name: \033[0;31m$result\033[0m"
+        return
+    }
+
     cd "$fixture_dir"
     if [ -f "package.json" ] && [ "${E2E_NPM_INSTALL:-0}" = "1" ]; then
         npm install --silent --no-package-lock
@@ -321,6 +381,7 @@ run_negative_test() {
     fi
 
     write_result_file "$result_file" "$result"
+    cleanup_fixture_artifacts "$fixture_dir" || true
     if [[ "$result" == PASS* ]]; then
         trace_event fixture-done scope fixture phase e2e-negative fixture "$fixture_name" status pass durationMs "$(( $(now_ms) - started_ms ))"
     else

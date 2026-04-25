@@ -5,7 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsonic build",
+    "build": "./scripts/build/all.sh --no-format",
     "build:quick": "./scripts/build/all.sh --no-format",
     "clean": "./scripts/build/clean.sh",
     "clean:all": "./scripts/build/clean.sh --all",
@@ -19,11 +19,11 @@
     "lint:fix": "./scripts/build/lint.sh --fix",
     "format": "./scripts/build/format.sh",
     "format:check": "./scripts/build/format.sh --check",
-    "typecheck": "tsc -b",
-    "dev": "tsonic run"
+    "typecheck": "tsc -b"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "npm/*"
   ],
   "devDependencies": {
     "@eslint/js": "^9.37.0",
@@ -39,7 +39,7 @@
     "globals": "15.15.0",
     "mocha": "11.7.2",
     "prettier": "3.6.2",
-    "tsonic": "^0.0.74",
+    "tsonic": "0.0.75",
     "typescript": "5.9.2",
     "typescript-eslint": "^8.45.0"
   },
@@ -61,7 +61,7 @@
   "author": "Tsonic Project",
   "license": "MIT",
   "dependencies": {
-    "@tsonic/cli": "0.0.74",
+    "@tsonic/cli": "0.0.75",
     "@tsonic/core": "10.0.40",
     "@tsonic/dotnet": "10.0.40",
     "@tsonic/globals": "10.0.41",

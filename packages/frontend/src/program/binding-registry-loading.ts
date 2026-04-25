@@ -127,7 +127,249 @@ const splitSignatureTypeList = (str: string): string[] => {
   return result;
 };
 
-const stableSerialize = (value: unknown): string => JSON.stringify(value);
+const stableSerialize = (value: unknown): string => {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
+    .join(",")}}`;
+};
+
+const getMemberBindingOverloadDiscriminator = (
+  member: MemberBinding
+): string => {
+  if (member.signature !== undefined) {
+    return `signature:${member.signature}`;
+  }
+
+  const parts: string[] = [];
+  if (member.semanticSignature !== undefined) {
+    parts.push(`semanticSignature:${stableSerialize(member.semanticSignature)}`);
+  }
+  if (member.semanticType !== undefined) {
+    parts.push(`semanticType:${stableSerialize(member.semanticType)}`);
+  }
+  if (member.parameterCount !== undefined) {
+    parts.push(`parameterCount:${member.parameterCount}`);
+  }
+  if (member.parameterModifiers !== undefined) {
+    parts.push(`parameterModifiers:${stableSerialize(member.parameterModifiers)}`);
+  }
+
+  return parts.join("|");
+};
+
+const getMemberBindingIdentityKey = (member: MemberBinding): string =>
+  `${member.kind}:${member.alias}:${member.binding.assembly}:${member.binding.type}:${member.binding.member}:${getMemberBindingOverloadDiscriminator(member)}`;
+
+const throwMemberBindingConflict = (
+  context: string,
+  alias: string,
+  field: string
+): never => {
+  throw new Error(`Conflicting member binding for ${context}:${alias}.${field}`);
+};
+
+const mergeOptionalField = <T>(
+  existing: T | undefined,
+  incoming: T | undefined,
+  context: string,
+  alias: string,
+  field: string
+): T | undefined => {
+  if (incoming === undefined) {
+    return existing;
+  }
+  if (existing === undefined) {
+    return incoming;
+  }
+  if (stableSerialize(existing) !== stableSerialize(incoming)) {
+    throwMemberBindingConflict(context, alias, field);
+  }
+  return existing;
+};
+
+const mergeOptionalMetadataObject = <T extends object>(
+  existing: T | undefined,
+  incoming: T | undefined,
+  context: string,
+  alias: string,
+  field: string
+): T | undefined => {
+  if (incoming === undefined) {
+    return existing;
+  }
+  if (existing === undefined) {
+    return incoming;
+  }
+
+  const merged: Record<string, unknown> = {
+    ...(existing as Record<string, unknown>),
+  };
+  for (const [key, incomingValue] of Object.entries(
+    incoming as Record<string, unknown>
+  )) {
+    if (incomingValue === undefined) {
+      continue;
+    }
+    const existingValue = merged[key];
+    if (existingValue === undefined) {
+      merged[key] = incomingValue;
+      continue;
+    }
+    if (stableSerialize(existingValue) !== stableSerialize(incomingValue)) {
+      throwMemberBindingConflict(context, alias, `${field}.${key}`);
+    }
+  }
+
+  return merged as T;
+};
+
+const mergeMemberBinding = (
+  existing: MemberBinding,
+  incoming: MemberBinding,
+  context: string
+): MemberBinding => {
+  const alias = mergeOptionalField(
+    existing.alias,
+    incoming.alias,
+    context,
+    incoming.alias,
+    "alias"
+  ) as string;
+
+  return {
+    kind: mergeOptionalField(
+      existing.kind,
+      incoming.kind,
+      context,
+      alias,
+      "kind"
+    ) as MemberBinding["kind"],
+    signature: mergeOptionalField(
+      existing.signature,
+      incoming.signature,
+      context,
+      alias,
+      "signature"
+    ),
+    semanticType: mergeOptionalField(
+      existing.semanticType,
+      incoming.semanticType,
+      context,
+      alias,
+      "semanticType"
+    ),
+    semanticOptional: mergeOptionalField(
+      existing.semanticOptional,
+      incoming.semanticOptional,
+      context,
+      alias,
+      "semanticOptional"
+    ),
+    semanticSignature: mergeOptionalField(
+      existing.semanticSignature,
+      incoming.semanticSignature,
+      context,
+      alias,
+      "semanticSignature"
+    ),
+    receiverExpectedType: mergeOptionalField(
+      existing.receiverExpectedType,
+      incoming.receiverExpectedType,
+      context,
+      alias,
+      "receiverExpectedType"
+    ),
+    overloadFamily: mergeOptionalField(
+      existing.overloadFamily,
+      incoming.overloadFamily,
+      context,
+      alias,
+      "overloadFamily"
+    ),
+    parameterCount: mergeOptionalField(
+      existing.parameterCount,
+      incoming.parameterCount,
+      context,
+      alias,
+      "parameterCount"
+    ),
+    name: mergeOptionalField(
+      existing.name,
+      incoming.name,
+      context,
+      alias,
+      "name"
+    ) as string,
+    alias,
+    binding: mergeOptionalMetadataObject(
+      existing.binding,
+      incoming.binding,
+      context,
+      alias,
+      "binding"
+    ) as MemberBinding["binding"],
+    parameterModifiers: mergeOptionalField(
+      existing.parameterModifiers,
+      incoming.parameterModifiers,
+      context,
+      alias,
+      "parameterModifiers"
+    ),
+    isExtensionMethod: mergeOptionalField(
+      existing.isExtensionMethod,
+      incoming.isExtensionMethod,
+      context,
+      alias,
+      "isExtensionMethod"
+    ),
+    emitSemantics: mergeOptionalMetadataObject(
+      existing.emitSemantics,
+      incoming.emitSemantics,
+      context,
+      alias,
+      "emitSemantics"
+    ),
+    sourceOrigin: mergeOptionalMetadataObject(
+      existing.sourceOrigin,
+      incoming.sourceOrigin,
+      context,
+      alias,
+      "sourceOrigin"
+    ),
+  };
+};
+
+const upsertMemberBinding = (
+  members: MemberBinding[],
+  member: MemberBinding,
+  context: string
+): void => {
+  const identityKey = getMemberBindingIdentityKey(member);
+  const index = members.findIndex(
+    (candidate) => getMemberBindingIdentityKey(candidate) === identityKey
+  );
+  if (index >= 0) {
+    const existingMember = members[index];
+    if (existingMember === undefined) {
+      throw new Error(`Internal binding overload index missing for ${context}`);
+    }
+    members[index] = mergeMemberBinding(existingMember, member, context);
+    return;
+  }
+
+  members.push(member);
+};
 
 const shouldPreferIncomingSimpleBinding = (
   existing: SimpleBindingDescriptor | undefined,
@@ -152,29 +394,29 @@ const mergeMemberBindings = (
   incoming: readonly MemberBinding[],
   context: string
 ): readonly MemberBinding[] => {
-  const merged = [...existing];
-  const seen = new Map<string, string>();
+  const merged: MemberBinding[] = [];
+  const seen = new Map<string, { index: number; member: MemberBinding }>();
+
+  const add = (member: MemberBinding): void => {
+    const key = getMemberBindingIdentityKey(member);
+    const previous = seen.get(key);
+    if (previous !== undefined) {
+      const nextMember = mergeMemberBinding(previous.member, member, context);
+      merged[previous.index] = nextMember;
+      seen.set(key, { index: previous.index, member: nextMember });
+      return;
+    }
+
+    seen.set(key, { index: merged.length, member });
+    merged.push(member);
+  };
 
   for (const member of existing) {
-    const key = `${member.kind}:${member.alias}:${member.binding.assembly}:${member.binding.type}:${member.binding.member}:${member.signature ?? ""}`;
-    seen.set(key, stableSerialize(member));
+    add(member);
   }
 
   for (const member of incoming) {
-    const key = `${member.kind}:${member.alias}:${member.binding.assembly}:${member.binding.type}:${member.binding.member}:${member.signature ?? ""}`;
-    const serialized = stableSerialize(member);
-    const previous = seen.get(key);
-    if (previous !== undefined) {
-      if (previous !== serialized) {
-        throw new Error(
-          `Conflicting member binding for ${context}:${member.alias}`
-        );
-      }
-      continue;
-    }
-
-    seen.set(key, serialized);
-    merged.push(member);
+    add(member);
   }
 
   return merged;
@@ -559,13 +801,7 @@ export const addBindingsToState = (
 
   const addMemberOverload = (key: string, member: MemberBinding): void => {
     const existing = state.memberOverloads.get(key) ?? [];
-    const serialized = stableSerialize(member);
-    if (
-      existing.some((candidate) => stableSerialize(candidate) === serialized)
-    ) {
-      return;
-    }
-    existing.push(member);
+    upsertMemberBinding(existing, member, key);
     state.memberOverloads.set(key, existing);
   };
 
@@ -578,13 +814,7 @@ export const addBindingsToState = (
       member.binding.member
     );
     const existing = state.clrMemberOverloads.get(clrTargetKey) ?? [];
-    const serialized = stableSerialize(member);
-    if (
-      existing.some((candidate) => stableSerialize(candidate) === serialized)
-    ) {
-      return;
-    }
-    existing.push(member);
+    upsertMemberBinding(existing, member, clrTargetKey);
     state.clrMemberOverloads.set(clrTargetKey, existing);
   };
 
@@ -790,7 +1020,11 @@ export const addBindingsToState = (
             }
 
             const list = receiverMap.get(memberBinding.alias) ?? [];
-            list.push(memberBinding);
+            upsertMemberBinding(
+              list,
+              memberBinding,
+              `${namespaceKey}.${receiverTypeName}.${memberBinding.alias}`
+            );
             receiverMap.set(memberBinding.alias, list);
           }
         }

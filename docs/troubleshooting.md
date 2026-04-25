@@ -26,6 +26,53 @@ Also check whether you are mixing up:
 - authored source packages
 - generated CLR binding packages
 
+## `npm ci` fails in a fresh checkout
+
+Check that the root workspace is using the real wrapper package:
+
+- `npm/tsonic/package.json` should be the only workspace package named
+  `tsonic`
+- root `package.json` and `package-lock.json` should pin the same package
+  versions
+- `node_modules/.bin/tsonic` should resolve into `packages/cli/dist/index.js`
+  through the local workspace, not a global install
+
+A generated sample project named `packages/tsonic` is a repository hygiene bug,
+not a valid compiler package.
+
+## Runtime DLL is missing
+
+For compiler development, build the sibling runtime first:
+
+```bash
+cd ../runtime
+dotnet build -c Release
+cd ../tsonic
+./test/scripts/run-all.sh
+```
+
+The compiler repo intentionally consumes `../runtime` for runtime DLL sync. If
+that sibling does not exist, runtime-dependent tests should fail clearly rather
+than search arbitrary machine paths.
+
+## Source-package graph test cannot find `../js` or `../nodejs`
+
+The full compiler gate includes frontend tests that validate authored
+source-package traversal using the sibling `js` and `nodejs` repos. This is
+intentional: the published `@tsonic/js` and `@tsonic/nodejs` binding packages
+contain declarations and binding metadata, not the authored
+`tsonic.package.json` source package closure those tests are proving.
+
+Use the standard developer layout:
+
+```text
+~/repos/tsoniclang/
+  tsonic/
+  js/
+  nodejs/
+  runtime/
+```
+
 ## A downstream app fails but compiler tests are green
 
 That can happen. Real package graphs and published programs expose integration

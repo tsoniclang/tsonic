@@ -21,6 +21,10 @@ Notes:
   - --no-unit is intended for iteration. Final verification must include unit + golden tests.
   - --no-cli, --no-fixtures, and --fast are intended for iteration.
   - Concurrency is controlled via TEST_CONCURRENCY (default: 4).
+  - E2E fixture runs share NUGET_PACKAGES via TSONIC_E2E_NUGET_PACKAGES_DIR
+    (default: .tests/nuget/packages) and clean per-fixture build artifacts.
+  - Set TSONIC_E2E_KEEP_ARTIFACTS=1 for a focused debug rerun when artifacts
+    need to be inspected after a fixture completes.
 EOF
 }
 

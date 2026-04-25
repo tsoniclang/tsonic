@@ -50,6 +50,55 @@ Requirements:
 - Node.js 22+
 - .NET 10 SDK
 
+## Working From Source
+
+For compiler development, use a sibling checkout layout. The compiler repo is
+expected to live beside the runtime and first-party package repos:
+
+```text
+~/repos/tsoniclang/
+  tsonic/
+  runtime/
+  core/
+  dotnet/
+  globals/
+  js/
+  nodejs/
+  aspnetcore/
+  efcore/
+  efcore-sqlite/
+  microsoft-extensions/
+```
+
+The `../runtime` dependency is intentional for this repo: tests and package
+preflight copy `Tsonic.Runtime.dll` from the sibling runtime build. Most source
+and binding package resolution paths use siblings only when they are present
+and proven by a `package.json`; otherwise they use installed npm packages. The
+full compiler gate also includes source-package graph tests that intentionally
+require the authored `../js` and `../nodejs` source-package repos, because
+published binding packages do not contain the source-package manifests or
+transitive TypeScript source files those tests are proving.
+
+```bash
+cd ~/repos/tsoniclang/runtime
+dotnet build -c Release
+
+cd ../tsonic
+npm ci
+npm run build
+./test/scripts/run-all.sh
+```
+
+The full test runner stores shared NuGet packages in `.tests/nuget/packages`
+and removes per-fixture `.tsonic`, `generated`, `out`, and `dist` artifacts as
+each fixture completes. For a focused fixture debug run, set
+`TSONIC_E2E_KEEP_ARTIFACTS=1` to preserve those artifacts for inspection.
+To clean artifacts left by an interrupted run, use
+`./test/scripts/clean-fixture-artifacts.sh`.
+
+`npm run build` is a non-mutating compiler build. Use `npm run format` or
+`npm run format:check` explicitly for formatting.
+
 ## Quick Start
 
 ### Default CLR workspace
@@ -205,6 +254,12 @@ Supported output shapes include:
 ## Current V1 Highlights
 
 - AST-only emitter pipeline
+- canonical type identity keys for type comparison, overload matching, and
+  runtime-union decisions
+- source-package graphs compiled transitively with source-backed metadata
+  retained through call, constructor, and narrowing paths
+- runtime union carriers that preserve union arm identity instead of lowering
+  ambiguous values through `object`
 - Promise constructor + `then` / `catch` / `finally` lowering
 - deterministic closed-world `import()` support
 - supported `import.meta` subset: `url`, `filename`, `dirname`, and bare `import.meta`
