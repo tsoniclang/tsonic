@@ -528,6 +528,126 @@ describe("Binding System", () => {
       ).to.equal("receiver");
     });
 
+    it("should merge duplicate tsbindgen member metadata additively", () => {
+      const addArraySegmentBindings = (
+        registry: BindingRegistry,
+        path: string,
+        emitSemantics?: {
+          readonly callableStaticAccessorKind: "property" | "field";
+        }
+      ): void => {
+        const emptyProperty = {
+          clrName: "Empty",
+          declaringClrType: "System.ArraySegment`1",
+          declaringAssemblyName: "System.Private.CoreLib",
+          normalizedSignature:
+            "Empty|:ArraySegment_1|static=true|accessor=get",
+          ...(emitSemantics ? { emitSemantics } : {}),
+        };
+
+        registry.addBindings(path, {
+          namespace: "System",
+          types: [
+            {
+              clrName: "System.ArraySegment`1",
+              assemblyName: "System.Private.CoreLib",
+              kind: "Struct",
+              methods: [],
+              properties: [emptyProperty],
+              fields: [],
+            },
+          ],
+        });
+      };
+
+      for (const order of ["older-first", "newer-first"] as const) {
+        const registry = new BindingRegistry();
+        if (order === "older-first") {
+          addArraySegmentBindings(registry, "/old/System/bindings.json");
+          addArraySegmentBindings(registry, "/new/System/bindings.json", {
+            callableStaticAccessorKind: "property",
+          });
+        } else {
+          addArraySegmentBindings(registry, "/new/System/bindings.json", {
+            callableStaticAccessorKind: "property",
+          });
+          addArraySegmentBindings(registry, "/old/System/bindings.json");
+        }
+
+        const overloads = registry.getMemberOverloads(
+          "ArraySegment_1",
+          "Empty"
+        );
+        const type = registry.getType("ArraySegment_1");
+        expect(overloads).to.have.lengthOf(1);
+        expect(type?.members).to.have.lengthOf(1);
+        expect(
+          overloads?.[0]?.emitSemantics?.callableStaticAccessorKind
+        ).to.equal("property");
+        expect(
+          type?.members[0]?.emitSemantics?.callableStaticAccessorKind
+        ).to.equal("property");
+      }
+    });
+
+    it("should reject duplicate tsbindgen member metadata conflicts", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/first/System/bindings.json", {
+        namespace: "System",
+        types: [
+          {
+            clrName: "System.ArraySegment`1",
+            assemblyName: "System.Private.CoreLib",
+            kind: "Struct",
+            methods: [],
+            properties: [
+              {
+                clrName: "Empty",
+                declaringClrType: "System.ArraySegment`1",
+                declaringAssemblyName: "System.Private.CoreLib",
+                normalizedSignature:
+                  "Empty|:ArraySegment_1|static=true|accessor=get",
+                emitSemantics: {
+                  callableStaticAccessorKind: "field",
+                },
+              },
+            ],
+            fields: [],
+          },
+        ],
+      });
+
+      expect(() =>
+        registry.addBindings("/second/System/bindings.json", {
+          namespace: "System",
+          types: [
+            {
+              clrName: "System.ArraySegment`1",
+              assemblyName: "System.Private.CoreLib",
+              kind: "Struct",
+              methods: [],
+              properties: [
+                {
+                  clrName: "Empty",
+                  declaringClrType: "System.ArraySegment`1",
+                  declaringAssemblyName: "System.Private.CoreLib",
+                  normalizedSignature:
+                    "Empty|:ArraySegment_1|static=true|accessor=get",
+                  emitSemantics: {
+                    callableStaticAccessorKind: "property",
+                  },
+                },
+              ],
+              fields: [],
+            },
+          ],
+        })
+      ).to.throw(
+        /Conflicting member binding for System\.ArraySegment_1:Empty\.emitSemantics\.callableStaticAccessorKind/
+      );
+    });
+
     it("should expose tsbindgen namespace types for namespace-scoped import identity", () => {
       const registry = new BindingRegistry();
 
