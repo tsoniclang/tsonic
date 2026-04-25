@@ -5,6 +5,46 @@
 - Node.js 22+
 - .NET 10 SDK
 
+## Source checkout for contributors
+
+For Tsonic compiler work, the supported developer layout is a sibling checkout
+under one parent directory:
+
+```text
+~/repos/tsoniclang/
+  tsonic/
+  runtime/
+  core/
+  dotnet/
+  globals/
+  js/
+  nodejs/
+  aspnetcore/
+  efcore/
+  efcore-sqlite/
+  microsoft-extensions/
+```
+
+`runtime` is the only required sibling for the compiler's runtime DLL sync:
+
+```bash
+cd ~/repos/tsoniclang/runtime
+dotnet build -c Release
+
+cd ../tsonic
+npm ci
+npm run build
+./test/scripts/run-all.sh
+```
+
+The other siblings are used by tests and local package-wave development when
+present. Resolution is deterministic: a sibling package is used only if its
+expected `package.json` exists; otherwise installed npm packages are used.
+
+The repo-local `tsonic` command is the workspace package in `npm/tsonic`, which
+forwards to `@tsonic/cli`. There should not be another root workspace package
+named `tsonic`.
+
 ## Install
 
 ```bash

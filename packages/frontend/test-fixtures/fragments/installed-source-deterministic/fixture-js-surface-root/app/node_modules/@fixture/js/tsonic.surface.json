@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "@fixture/js",
+  "extends": ["clr"],
+  "requiredTypeRoots": ["."]
+}

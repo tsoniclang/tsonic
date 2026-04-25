@@ -33,14 +33,21 @@ const findModuleByFilePath = (
 const jsSourceRoot = path.resolve(repoRoot, "../js/versions/10");
 const nodejsSourceRoot = path.resolve(repoRoot, "../nodejs/versions/10");
 const coreRoot = path.join(repoRoot, "node_modules", "@tsonic", "core");
+const expectPackageRoot = (label: string, packageRoot: string): void => {
+  const manifestPath = path.join(packageRoot, "package.json");
+  expect(
+    fs.existsSync(manifestPath),
+    `Fixture fast coverage requires ${label} at ${packageRoot}; ` +
+      `expected package manifest ${manifestPath}. ` +
+      `Use the full tsoniclang developer checkout layout when running the full compiler gate.`
+  ).to.equal(true);
+};
 
 describe("Fixture fast coverage", function () {
   this.timeout(90_000);
 
   it("mirrors nodejs-surface-module-graph through the frontend dependency graph", () => {
-    expect(fs.existsSync(path.join(nodejsSourceRoot, "package.json"))).to.equal(
-      true
-    );
+    expectPackageRoot("@tsonic/nodejs source package", nodejsSourceRoot);
 
     const fixtureName = "nodejs-surface-module-graph";
     const result = buildModuleDependencyGraph(fixtureEntryPath(fixtureName), {
@@ -100,9 +107,7 @@ describe("Fixture fast coverage", function () {
   });
 
   it("mirrors nodejs-path-posix-join through source-package subpath graph traversal", () => {
-    expect(fs.existsSync(path.join(nodejsSourceRoot, "package.json"))).to.equal(
-      true
-    );
+    expectPackageRoot("@tsonic/nodejs source package", nodejsSourceRoot);
 
     const fixtureName = "nodejs-path-posix-join";
     const result = buildModuleDependencyGraph(fixtureEntryPath(fixtureName), {
@@ -127,9 +132,7 @@ describe("Fixture fast coverage", function () {
   });
 
   it("mirrors js-surface-node-aliases through node alias dependency graph", () => {
-    expect(fs.existsSync(path.join(nodejsSourceRoot, "package.json"))).to.equal(
-      true
-    );
+    expectPackageRoot("@tsonic/nodejs source package", nodejsSourceRoot);
 
     const fixtureName = "js-surface-node-aliases";
     const result = buildModuleDependencyGraph(fixtureEntryPath(fixtureName), {
@@ -174,9 +177,7 @@ describe("Fixture fast coverage", function () {
   });
 
   it("mirrors nodejs-surface-alias-coverage through broad node alias graph traversal", () => {
-    expect(fs.existsSync(path.join(nodejsSourceRoot, "package.json"))).to.equal(
-      true
-    );
+    expectPackageRoot("@tsonic/nodejs source package", nodejsSourceRoot);
 
     const fixtureName = "nodejs-surface-alias-coverage";
     const result = buildModuleDependencyGraph(fixtureEntryPath(fixtureName), {
@@ -275,9 +276,7 @@ describe("Fixture fast coverage", function () {
   });
 
   it("mirrors nodejs-surface-imports-negative with exact frontend diagnostics", () => {
-    expect(fs.existsSync(path.join(nodejsSourceRoot, "package.json"))).to.equal(
-      true
-    );
+    expectPackageRoot("@tsonic/nodejs source package", nodejsSourceRoot);
 
     const fixtureName = "nodejs-surface-imports-negative";
     const result = buildModuleDependencyGraph(fixtureEntryPath(fixtureName), {
@@ -312,10 +311,8 @@ describe("Fixture fast coverage", function () {
     },
   ] as const) {
     it(`mirrors ${scenario.fixtureName} with exact frontend diagnostics`, () => {
-      expect(fs.existsSync(path.join(jsSourceRoot, "package.json"))).to.equal(
-        true
-      );
-      expect(fs.existsSync(path.join(coreRoot, "package.json"))).to.equal(true);
+      expectPackageRoot("@tsonic/js source package", jsSourceRoot);
+      expectPackageRoot("@tsonic/core installed package", coreRoot);
 
       const metaPath = path.join(
         fixtureRoot(scenario.fixtureName),

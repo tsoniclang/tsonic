@@ -529,22 +529,76 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const rootDir = process.argv[2];
+const monorepoParent = path.dirname(rootDir);
 
-const paths = {
-  "@tsonic/core/*": ["../core/versions/10/*"],
-  "@tsonic/dotnet/*": ["../dotnet/versions/10/*"],
-  "@tsonic/globals": ["../globals/versions/10/index.d.ts"],
-  "@tsonic/aspnetcore/*": ["../aspnetcore/*"],
-  "@tsonic/efcore/*": ["../efcore/*"],
-  "@tsonic/efcore-sqlite/*": ["../efcore-sqlite/*"],
-  "@tsonic/microsoft-extensions/*": ["../microsoft-extensions/*"],
-};
+const packageCandidates = new Map([
+  ["@tsonic/core", [path.join(monorepoParent, "core", "versions", "10")]],
+  ["@tsonic/dotnet", [path.join(monorepoParent, "dotnet", "versions", "10")]],
+  ["@tsonic/globals", [path.join(monorepoParent, "globals", "versions", "10")]],
+  ["@tsonic/js", [path.join(monorepoParent, "js", "versions", "10")]],
+  ["@tsonic/nodejs", [path.join(monorepoParent, "nodejs", "versions", "10")]],
+  ["@tsonic/aspnetcore", [path.join(monorepoParent, "aspnetcore")]],
+  ["@tsonic/efcore", [path.join(monorepoParent, "efcore")]],
+  ["@tsonic/efcore-sqlite", [path.join(monorepoParent, "efcore-sqlite")]],
+  ["@tsonic/microsoft-extensions", [path.join(monorepoParent, "microsoft-extensions")]],
+]);
 
 const readJson = (jsonPath) => {
   if (!fs.existsSync(jsonPath)) {
     return undefined;
   }
   return JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+};
+
+const installedPackageRoot = (packageName) =>
+  path.join(rootDir, "node_modules", ...packageName.split("/"));
+
+const resolvePackageRoot = (packageName) => {
+  const candidates = [
+    ...(packageCandidates.get(packageName) ?? []),
+    installedPackageRoot(packageName),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "package.json"))) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+};
+
+const toRelativeTarget = (target) =>
+  path.relative(rootDir, target).replace(/\\/g, "/");
+
+const paths = {};
+
+const addWildcardPackage = (packageName) => {
+  const packageRoot = resolvePackageRoot(packageName);
+  if (!packageRoot) {
+    return;
+  }
+
+  paths[`${packageName}/*`] = [`${toRelativeTarget(packageRoot)}/*`];
+};
+
+const addIndexPackage = (packageName) => {
+  const packageRoot = resolvePackageRoot(packageName);
+  if (!packageRoot) {
+    return;
+  }
+
+  const packageJson = readJson(path.join(packageRoot, "package.json"));
+  const entry =
+    typeof packageJson?.types === "string"
+      ? packageJson.types
+      : typeof packageJson?.typings === "string"
+        ? packageJson.typings
+        : "index.d.ts";
+  const resolvedEntry = path.resolve(packageRoot, entry);
+  if (fs.existsSync(resolvedEntry)) {
+    paths[packageName] = [toRelativeTarget(resolvedEntry)];
+  }
 };
 
 const resolvePackageExportTarget = (exportsField, exportKey) => {
@@ -573,8 +627,12 @@ const resolvePackageExportTarget = (exportsField, exportKey) => {
   return undefined;
 };
 
-const addExportMappedPackage = (packageName, packageRootRelative) => {
-  const packageRoot = path.resolve(rootDir, packageRootRelative);
+const addExportMappedPackage = (packageName) => {
+  const packageRoot = resolvePackageRoot(packageName);
+  if (!packageRoot) {
+    return;
+  }
+
   const packageJsonPath = path.join(packageRoot, "package.json");
   if (!fs.existsSync(packageJsonPath)) {
     return;
@@ -595,10 +653,8 @@ const addExportMappedPackage = (packageName, packageRootRelative) => {
     return;
   }
 
-  const toRelativeTarget = (target) =>
-    path
-      .relative(rootDir, path.resolve(packageRoot, target))
-      .replace(/\\/g, "/");
+  const toPackageRelativeTarget = (target) =>
+    toRelativeTarget(path.resolve(packageRoot, target));
 
   const addEntry = (specifier, target) => {
     if (typeof target !== "string" || target.length === 0) {
@@ -606,7 +662,7 @@ const addExportMappedPackage = (packageName, packageRootRelative) => {
     }
 
     if (!paths[specifier]) {
-      paths[specifier] = [toRelativeTarget(target)];
+      paths[specifier] = [toPackageRelativeTarget(target)];
     }
   };
 
@@ -683,8 +739,15 @@ const addExportMappedPackage = (packageName, packageRootRelative) => {
   }
 };
 
-addExportMappedPackage("@tsonic/js", "../js/versions/10");
-addExportMappedPackage("@tsonic/nodejs", "../nodejs/versions/10");
+addWildcardPackage("@tsonic/core");
+addWildcardPackage("@tsonic/dotnet");
+addWildcardPackage("@tsonic/aspnetcore");
+addWildcardPackage("@tsonic/efcore");
+addWildcardPackage("@tsonic/efcore-sqlite");
+addWildcardPackage("@tsonic/microsoft-extensions");
+addIndexPackage("@tsonic/globals");
+addExportMappedPackage("@tsonic/js");
+addExportMappedPackage("@tsonic/nodejs");
 
 console.log(JSON.stringify(paths, null, 6));
 EOF

@@ -98,7 +98,12 @@ At workspace root, `package.json` owns:
 
 - npm workspaces
 - devDependency on `tsonic`
-- top-level scripts such as `build` and `dev`
+- top-level scripts such as `build`, `format`, and `test`
+
+In this compiler repo, the public `tsonic` npm wrapper lives under
+`npm/tsonic`. It is a workspace package that forwards to `@tsonic/cli`.
+Generated sample projects must not be checked in as another workspace package
+named `tsonic`, because that shadows the real wrapper and breaks `npm ci`.
 
 At project root (`packages/<project>/package.json`), the package name is the
 npm identity that other source packages import.
@@ -135,6 +140,25 @@ Current authored manifests can also declare:
 - required type roots
 - module alias maps
 - runtime metadata such as framework references and runtime packages
+
+The compiler preserves source-backed metadata through constructor metadata,
+call metadata, and narrowed aliases. That means an imported source-package type
+is still compared by its canonical identity after it flows through helpers,
+generic returns, or branch narrowing.
+
+Example:
+
+```ts
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import type { RequestHandler } from "@tsonic/express/index.js";
+
+const handlers = new List<RequestHandler>();
+```
+
+The `RequestHandler` identity comes from the Express source package. The `List`
+constructor metadata must carry that lowered identity to emission; if raw
+anonymous or unresolved alias metadata leaks through, the emitter must fail
+rather than guess a CLR type.
 
 ## Local first-party package references
 

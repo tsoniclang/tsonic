@@ -190,3 +190,12 @@ node_modules/
 
 # Internal tooling artifacts (restore scratch, caches)
 .tsonic/
+
+# Synthetic package fixtures intentionally model installed package layouts.
+!packages/frontend/test-fixtures/**/node_modules/
+!packages/frontend/test-fixtures/**/node_modules/**
+!packages/frontend/test-fixtures/**/.tsonic/
+!packages/frontend/test-fixtures/**/.tsonic/**
+!test/fixtures/source-package-*/packages/*/node_modules/
+!test/fixtures/source-package-*/packages/*/node_modules/**
+!test/fixtures/source-package-*/packages/*/node_modules/**/*.cs

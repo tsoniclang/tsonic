@@ -14,6 +14,26 @@ Provides:
 
 This is the only runtime DLL that the CLI/test harness syncs locally under `packages/cli/runtime`.
 
+For compiler development, this repo intentionally depends on a sibling runtime
+checkout:
+
+```text
+~/repos/tsoniclang/
+  runtime/
+  tsonic/
+```
+
+The sync path is:
+
+```text
+../runtime/artifacts/bin/Tsonic.Runtime/Release/net10.0/Tsonic.Runtime.dll
+```
+
+That dependency is explicit and source-controlled in scripts. It is acceptable
+because the runtime is a separate first-party repo in the same development
+wave. It should not be replaced by an implicit global lookup or a best-effort
+fallback.
+
 ## Surface Runtime Overlays
 
 Ambient/module surfaces such as `@tsonic/js` and `@tsonic/nodejs` are source packages.
@@ -39,3 +59,8 @@ Runtime implementation and surface projection must remain coherent:
 - core emitted runtime support lives in `Tsonic.Runtime`
 - source package manifests describe surface/runtime overlays
 - bindings manifests remain only for CLR / tsbindgen interop packages
+
+Runtime-union support also belongs to this boundary. The emitter may preserve a
+runtime union carrier or project it only when the expected target proves that a
+projection is required. Lowering a source value to `object` just to make an
+assignment compile is not a valid runtime strategy.
