@@ -323,6 +323,37 @@ if [ "$SKIP_FIXTURES" = true ]; then
 fi
 echo "" | tee -a "$LOG_FILE"
 
+RUNTIME_SYNC_REQUIRED=false
+if { [ "$SKIP_UNIT" = false ] && [ "$SKIP_CLI" = false ]; } || \
+   { [ "$SKIP_FIXTURES" = false ] && [ "$QUICK_MODE" = false ]; }; then
+    RUNTIME_SYNC_REQUIRED=true
+fi
+
+run_runtime_sync_phase() {
+    if [ "$RUNTIME_SYNC_REQUIRED" != true ]; then
+        RUNTIME_SYNC_STATUS="skipped"
+        trace_event phase-done scope phase phase runtime-sync status skipped durationMs 0
+        return
+    fi
+
+    echo -e "${BLUE}--- Syncing Core Runtime DLL ---${NC}" | tee -a "$LOG_FILE"
+    runtime_sync_started_ms="$(now_ms)"
+    trace_event phase-start scope phase phase runtime-sync
+    if "$ROOT_DIR/scripts/sync-runtime-dlls.sh" 2>&1 | tee -a "$LOG_FILE"; then
+        RUNTIME_SYNC_STATUS="passed"
+    else
+        RUNTIME_SYNC_STATUS="failed"
+        if [ "$SKIP_FIXTURES" = false ] && [ "$QUICK_MODE" = false ]; then
+            E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
+        fi
+        echo -e "${RED}FAIL: core runtime DLL sync failed${NC}" | tee -a "$LOG_FILE"
+    fi
+    RUNTIME_SYNC_DURATION_MS=$(( $(now_ms) - runtime_sync_started_ms ))
+    trace_event phase-done scope phase phase runtime-sync status "$RUNTIME_SYNC_STATUS" durationMs "$RUNTIME_SYNC_DURATION_MS"
+    echo "Duration: $(format_duration_ms "$RUNTIME_SYNC_DURATION_MS")" | tee -a "$LOG_FILE"
+    echo "" | tee -a "$LOG_FILE"
+}
+
 # ============================================================
 # 0.5 Fresh workspace build
 # ============================================================
@@ -351,6 +382,11 @@ echo "Duration: $(format_duration_ms "$FRESH_BUILD_DURATION_MS")" | tee -a "$LOG
 echo "" | tee -a "$LOG_FILE"
 
 # ============================================================
+# 0.75 Core runtime DLL sync
+# ============================================================
+run_runtime_sync_phase
+
+# ============================================================
 # 1. Package Tests
 # ============================================================
 echo -e "${BLUE}--- Running Unit & Golden Tests ---${NC}" | tee -a "$LOG_FILE"
@@ -374,6 +410,13 @@ else
         echo -e "${YELLOW}SKIP: CLI tests (--no-cli/--fast)${NC}" | tee -a "$LOG_FILE"
         CLI_STATUS="skipped"
         trace_event phase-done scope package package "@tsonic/cli" label "CLI Tests" status skipped wallMs 0 executed 0 passed 0 failed 0 skipped 0
+        echo "" | tee -a "$LOG_FILE"
+    elif [ "$RUNTIME_SYNC_STATUS" = "failed" ]; then
+        echo -e "${RED}FAIL: CLI tests require core runtime DLL sync; skipping to avoid cascading build failures.${NC}" | tee -a "$LOG_FILE"
+        CLI_STATUS="failed"
+        CLI_ALL_FAILED=1
+        CLI_ALL_COUNT=1
+        trace_event phase-done scope package package "@tsonic/cli" label "CLI Tests" status failed wallMs 0 executed 0 passed 0 failed 1 skipped 0
         echo "" | tee -a "$LOG_FILE"
     else
         run_mocha_phase "CLI" "CLI Tests" "test:cli" "@tsonic/cli"
@@ -438,40 +481,17 @@ echo "" | tee -a "$LOG_FILE"
 
 if [ "$SKIP_FIXTURES" = true ]; then
     echo -e "${YELLOW}--- Skipping Fixture Phases (--no-fixtures/--fast) ---${NC}" | tee -a "$LOG_FILE"
-    RUNTIME_SYNC_STATUS="skipped"
     AOT_PREFLIGHT_STATUS="skipped"
-    trace_event phase-done scope phase phase runtime-sync status skipped durationMs 0
     trace_event phase-done scope phase phase nativeaot-preflight status skipped durationMs 0
     trace_event phase-done scope phase phase e2e-dotnet status skipped durationMs 0 passed 0 failed 0
     trace_event phase-done scope phase phase e2e-negative status skipped durationMs 0 passed 0 failed 0
 elif [ "$QUICK_MODE" = true ]; then
     echo -e "${YELLOW}--- Skipping E2E Tests (--quick mode) ---${NC}" | tee -a "$LOG_FILE"
-    RUNTIME_SYNC_STATUS="skipped"
     AOT_PREFLIGHT_STATUS="skipped"
-    trace_event phase-done scope phase phase runtime-sync status skipped durationMs 0
     trace_event phase-done scope phase phase nativeaot-preflight status skipped durationMs 0
     trace_event phase-done scope phase phase e2e-dotnet status skipped durationMs 0 passed 0 failed 0
     trace_event phase-done scope phase phase e2e-negative status skipped durationMs 0 passed 0 failed 0
 else
-    # ============================================================
-    # 1.5 Core runtime DLL sync
-    # ============================================================
-    echo -e "${BLUE}--- Syncing Core Runtime DLL ---${NC}" | tee -a "$LOG_FILE"
-    runtime_sync_started_ms="$(now_ms)"
-    trace_event phase-start scope phase phase runtime-sync
-    if "$ROOT_DIR/scripts/sync-runtime-dlls.sh" 2>&1 | tee -a "$LOG_FILE"; then
-        RUNTIME_SYNC_STATUS="passed"
-    else
-        RUNTIME_SYNC_STATUS="failed"
-        # Count as an E2E failure so the overall run fails.
-        E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
-        echo -e "${RED}FAIL: core runtime DLL sync failed${NC}" | tee -a "$LOG_FILE"
-    fi
-    RUNTIME_SYNC_DURATION_MS=$(( $(now_ms) - runtime_sync_started_ms ))
-    trace_event phase-done scope phase phase runtime-sync status "$RUNTIME_SYNC_STATUS" durationMs "$RUNTIME_SYNC_DURATION_MS"
-    echo "Duration: $(format_duration_ms "$RUNTIME_SYNC_DURATION_MS")" | tee -a "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
-
     RUN_E2E_FIXTURES=true
     if [ "$RUNTIME_SYNC_STATUS" = "passed" ]; then
         echo -e "${BLUE}--- NativeAOT Preflight ---${NC}" | tee -a "$LOG_FILE"
