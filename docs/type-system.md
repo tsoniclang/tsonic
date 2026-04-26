@@ -161,7 +161,7 @@ import {
 
 ## Generics and strictness
 
-The current compiler favors deterministic generic behavior over permissive
+The compiler favors deterministic generic behavior over permissive
 fallbacks. That means:
 
 - no silent `any` escapes

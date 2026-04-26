@@ -143,7 +143,7 @@ framework from installed shared-framework assemblies.
 
 Removes a NuGet package reference from `tsonic.workspace.json`.
 
-Use this when the workspace no longer needs a CLR package or when you want to
+Use this when the workspace does not need a CLR package or when you want to
 replace it with a different package family.
 
 ### `tsonic update nuget <PackageId> <Version>`
@@ -242,7 +242,7 @@ This only works when:
 - `output.type` is `"library"`
 - `output.packable` is `true`
 
-The current pack flow is:
+The pack flow is:
 
 1. generate the library project
 2. run `dotnet pack` on the generated `tsonic.csproj`
@@ -259,7 +259,7 @@ The current pack flow is:
 - `--no-generate` — build or run from an existing generated directory
 - `--keep-temp` — keep build artifacts
 
-Other useful current flags:
+Other useful flags:
 
 - positional `<entry>` for `generate`, `build`, and `run`
 - `-c, --config <file>` to select a workspace file explicitly
@@ -267,7 +267,7 @@ Other useful current flags:
 - `--types-version <ver>` and `--skip-types` for init bootstrapping
 - `-L, --lib <path>` for explicit DLL references during build flows
 
-## Important current rules
+## Important rules
 
 - surfaces are ambient-world selection, not normal packages
 - `@tsonic/nodejs` is a package, not a surface
@@ -283,7 +283,7 @@ Other useful current flags:
 - use `init` once per workspace root
 - use `add npm` for authored source packages and prebuilt binding packages
 - use `add nuget`, `add framework`, and `add package` for CLR inputs
-- use `restore` after dependency-graph changes
+- use `restore` after dependency-graph edits
 - use `generate` when debugging or when a downstream tool needs the generated
   project
 - use `build`, `run`, `test`, and `pack` for normal day-to-day workflows

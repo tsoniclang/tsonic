@@ -18,7 +18,7 @@ This section is the detailed architecture companion to the main compiler guide.
 - [Diagnostics](diagnostics.md)
 - [Type Mappings](type-mappings.md)
 
-## Current design rules
+## Design rules
 
 - compiler-owned core globals are injected virtually by the frontend
 - ambient surfaces are resolved through surface manifests

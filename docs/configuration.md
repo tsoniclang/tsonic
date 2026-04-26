@@ -1,6 +1,6 @@
 # Configuration
 
-The current configuration model has three layers:
+The configuration model has three layers:
 
 - workspace config: `tsonic.workspace.json`
 - project config: `packages/<project>/tsonic.json`
@@ -89,7 +89,7 @@ Typical fields include:
 
 ## 4. Decide local package ownership mode
 
-The current model supports local first-party package references with explicit
+The model supports local first-party package references with explicit
 ownership:
 
 ```json

@@ -65,7 +65,7 @@ export function main(): void {
 
 ## Source package consumption
 
-This is the current first-party package model generalized to your own packages:
+This is the first-party package model generalized to your own packages:
 
 ```ts
 import { clamp } from "@acme/math";

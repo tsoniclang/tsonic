@@ -4,9 +4,9 @@ title: .NET Interop
 
 # Dotnet Interop
 
-This page exists because older docs and links referred to “dotnet interop”.
+This page is a compatibility entry point for “dotnet interop” links.
 
-The current material lives here:
+The material lives here:
 
 - [CLR Bindings and Interop](dotnet-bindings.md)
 - [Bindings](bindings.md)

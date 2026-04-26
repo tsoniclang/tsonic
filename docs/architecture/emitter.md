@@ -2,7 +2,7 @@
 
 The emitter converts IR into `CSharpAst`, then the printer turns that into C#.
 
-## Current architecture
+## Architecture
 
 ```text
 IR
@@ -12,12 +12,11 @@ IR
   -> .cs text
 ```
 
-## Important current fact
+## Important fact
 
-The emitter is AST-only now.
+The emitter is AST-only.
 
-The old mixed pipeline of AST plus mid-pipeline C# text shims is no longer the
-supported architecture.
+Mixed AST plus mid-pipeline C# text shims are not supported architecture.
 
 ## Major areas
 

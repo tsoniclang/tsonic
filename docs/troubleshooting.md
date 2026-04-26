@@ -84,6 +84,12 @@ repo.
 That is usually a `tsbindgen` regen issue, not a first-party source-package
 issue. Recheck the generated binding repo and publish-wave state.
 
+## A duplicate binding metadata error appears
+
+The compiler merges binding metadata by proven CLR identity. If two packages
+claim the same CLR type with incompatible metadata, treat that as a package
+ownership problem rather than a TypeScript import problem.
+
 ## A local multi-project workspace behaves strangely
 
 Check the local package ownership mode in `references.packages`:

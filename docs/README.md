@@ -15,11 +15,11 @@ pack.
 - how surfaces differ from packages
 - how first-party source packages differ from generated CLR binding packages
 - how generated output is structured
-- what the current architecture guarantees and rejects
+- what the architecture guarantees and rejects
 
-## Current model
+## Model
 
-The current V1 model is:
+The V1 model is:
 
 - one compiler-owned noLib baseline
 - one active ambient surface per workspace
@@ -53,4 +53,4 @@ The current V1 model is:
 ## What this guide does not do
 
 This section is not a copy of repo-internal design notes. It explains the
-current public model for users and downstream application authors.
+public model for users and downstream application authors.
