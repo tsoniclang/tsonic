@@ -241,7 +241,7 @@ Keep the distinction clear:
 Generated binding packages use `tsonic.bindings.json`, not
 `tsonic.package.json`.
 
-That difference is one of the most important distinctions in the current stack:
+That difference is one of the most important distinctions in the stack:
 
 - authored packages -> source manifest, package graph, transitive compilation
 - generated bindings -> declarations plus CLR metadata consumed by the compiler
@@ -265,7 +265,7 @@ packages with `tsonic.package.json`.
 
 ## Init-generated layout
 
-`tsonic init` now creates a workspace shaped like this:
+`tsonic init` creates a workspace shaped like this:
 
 ```text
 my-workspace/

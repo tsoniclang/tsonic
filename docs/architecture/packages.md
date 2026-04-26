@@ -15,7 +15,7 @@ These implement the compiler and CLI itself.
 
 The `tsonic` package is the npm wrapper under `npm/tsonic`. It forwards the
 binary to `@tsonic/cli`. It should stay on the same patch version line as the
-compiler packages until a deliberate major release; `1.0.0` is not the current
+compiler packages until a deliberate major release; `1.0.0` is not the package
 release track.
 
 ## Core authoring packages

@@ -77,13 +77,13 @@ The release bar also includes:
 This is necessary because many regressions only surface after full package
 graphs are compiled, published, or run.
 
-In the current wave discipline, those downstream checks are normally run against
-local sibling repos for first-party packages and generated bindings. That avoids
-declaring a wave green while it still depends on stale published packages.
+In wave discipline, those downstream checks run against local sibling repos for
+first-party packages and generated bindings. That avoids declaring a wave green
+while it depends on incompatible published packages.
 
 ## Wave discipline
 
-The current release discipline is:
+The release discipline is:
 
 1. get the compiler green
 2. get first-party packages green

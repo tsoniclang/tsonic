@@ -151,11 +151,11 @@ restate every API member in those repos individually.
 
 ## Why the docs separate this from first-party packages
 
-The current architecture has two distinct kinds of packages:
+The architecture has two distinct kinds of packages:
 
 - authored first-party source packages like `@tsonic/js`, `@tsonic/nodejs`, and
   `@tsonic/express`
 - generated CLR binding packages produced by `tsbindgen`
 
-The site now keeps those categories separate because they have different build,
+The site keeps those categories separate because they have different build,
 ownership, and release flows.

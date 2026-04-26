@@ -71,7 +71,7 @@ restore/build flow.
 Authored source packages and generated CLR binding packages both look like npm
 packages to a user, but they are not owned or validated the same way.
 
-That is why the current docs keep them separate.
+That is why the docs keep them separate.
 
 ## Read next
 

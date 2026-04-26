@@ -4,7 +4,7 @@ title: Examples
 
 # Examples
 
-These examples reflect the current source-first package model and the way the
+These examples reflect the source-first package model and the way the
 ecosystem is actually exercised in `proof-is-in-the-pudding`.
 
 ## Pages

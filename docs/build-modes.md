@@ -75,7 +75,7 @@ That requires:
 
 ## Local package ownership and build mode
 
-The current build model also supports local first-party package references with
+The build model also supports local first-party package references with
 two ownership modes:
 
 - `source` — compile the referenced package into the generated source closure

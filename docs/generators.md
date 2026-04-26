@@ -8,7 +8,7 @@ Generator support exists where lowering is explicit and deterministic.
 
 ## Rule
 
-If a generator shape can be lowered to the current runtime model, it is
+If a generator shape can be lowered to the runtime model, it is
 supported. If not, it is rejected rather than emulated loosely.
 
 ## What that means in practice

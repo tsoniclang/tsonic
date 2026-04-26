@@ -3,7 +3,7 @@
 Tsonic is intentionally incomplete where deterministic lowering is not yet
 credible.
 
-## Current boundaries
+## Boundaries
 
 - fully open-ended dynamic JavaScript behavior is out of scope
 - unsupported reflection-heavy patterns are rejected
@@ -13,12 +13,12 @@ credible.
 
 ## Read this as a design boundary, not a temporary apology
 
-The current compiler would rather reject a construct than accept it under a
+The compiler rejects constructs instead of accepting them under a
 model that cannot be defended end-to-end.
 
 ## Why this is a feature
 
 The compiler chooses correctness and predictability over permissive fallback.
 
-That is why the site now documents the stack in strict terms instead of implying
+That is why the site documents the stack in strict terms instead of implying
 best-effort compatibility.

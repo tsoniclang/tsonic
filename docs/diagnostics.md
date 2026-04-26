@@ -42,7 +42,7 @@ not a local code workaround.
 await import(specifier);
 ```
 
-This fails because the import graph is no longer closed-world.
+This fails because the import graph is not closed-world.
 
 ### Overload or generic ambiguity
 

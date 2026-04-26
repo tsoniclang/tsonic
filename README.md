@@ -2,7 +2,7 @@
 
 Tsonic compiles a strict, deterministic subset of TypeScript into C#, then into native binaries or .NET libraries.
 
-The current V1 model is:
+The V1 model is:
 
 - one compiler-owned noLib core
 - one active ambient surface per workspace
@@ -210,7 +210,8 @@ tsonic restore
 
 ## First-Party Source Packages
 
-`tsonic init` now creates npm-publish-ready source packages by default. Each project gets a source manifest at:
+`tsonic init` creates npm-publish-ready source packages by default. Each
+project gets a source manifest at:
 
 ```text
 packages/<project>/tsonic.package.json
@@ -251,7 +252,7 @@ Supported output shapes include:
 - managed library
 - NativeAOT shared/static library
 
-## Current V1 Highlights
+## V1 Highlights
 
 - AST-only emitter pipeline
 - canonical type identity keys for type comparison, overload matching, and

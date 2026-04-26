@@ -110,7 +110,7 @@ export function main(): void {
 }
 ```
 
-This is the current package model in action:
+This is the package model in action:
 
 - ambient world from `@tsonic/js`
 - Node-style modules from `@tsonic/nodejs`
@@ -130,7 +130,7 @@ import { ILogger_1 } from "@tsonic/microsoft-extensions/Microsoft.Extensions.Log
 
 ## First-party source packages
 
-`tsonic init` now produces source-package-ready projects by default. Each
+`tsonic init` produces source-package-ready projects by default. Each
 project gets a `tsonic.package.json` manifest.
 
 Example:

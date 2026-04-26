@@ -12,7 +12,7 @@ Use `@tsonic/core/types.js` when CLR numeric intent matters.
 import type { int, long, double, bool } from "@tsonic/core/types.js";
 ```
 
-Common current types include:
+Common numeric intent types include:
 
 - `byte`
 - `sbyte`

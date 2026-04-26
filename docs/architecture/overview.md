@@ -48,9 +48,9 @@ manifest model.
 
 ### 4. The emitter is AST-only
 
-The emitter no longer assembles C# through mixed string shims.
+The emitter assembles C# through AST nodes instead of mixed string shims.
 
-Current path:
+Emitter path:
 
 ```text
 IR -> CSharpAst -> printer -> C# text

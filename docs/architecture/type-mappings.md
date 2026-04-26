@@ -62,7 +62,8 @@ That is still a CLR binding package call surface.
 
 ## Surface effect
 
-Surface changes the ambient API, not the meaning of explicit CLR imports.
+Surface selection selects the ambient API, not the meaning of explicit CLR
+imports.
 
 Example:
 

@@ -66,5 +66,5 @@ Use `@tsonic/core/lang.js` when you need CLR-specific semantics such as:
 - `out`
 - attribute markers and overload-family markers
 
-The current package model keeps those CLR-facing tools explicit instead of
+The package model keeps those CLR-facing tools explicit instead of
 hiding them behind ambient JS-style behavior.

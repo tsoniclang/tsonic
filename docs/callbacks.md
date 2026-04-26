@@ -36,7 +36,7 @@ to the compiler.
 - JS-surface callbacks passed into CLR-heavy APIs without explicit intent
 - callbacks that rely on dynamic `any` / `unknown` escape hatches
 
-## Current rule of thumb
+## Rule of thumb
 
 - JS-to-JS callback flows are usually straightforward
 - CLR-bound callback flows are where explicit annotations matter most

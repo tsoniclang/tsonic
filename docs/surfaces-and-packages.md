@@ -5,7 +5,7 @@ The most important distinction in Tsonic is:
 - **surface** = ambient world
 - **package** = imported library or source package
 
-Confusing those two is the fastest way to misunderstand the current stack.
+Confusing those two is the fastest way to misunderstand the stack.
 
 ## Surfaces
 

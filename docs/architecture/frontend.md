@@ -14,7 +14,7 @@ The frontend owns TypeScript-facing semantics.
 
 ## Program creation
 
-Important current behavior:
+Important behavior:
 
 - compiler core globals are injected virtually
 - `surface` selects the ambient runtime personality
@@ -24,7 +24,7 @@ Important current behavior:
 
 ## Surface profiles
 
-Current model:
+Surface model:
 
 - builtin `clr`
 - package surfaces via `tsonic.surface.json`
@@ -60,9 +60,9 @@ That means the frontend has to understand:
 
 ## Why this matters
 
-This is the point where the current stack differs most from a normal TypeScript
+This is the point where the stack differs most from a normal TypeScript
 toolchain:
 
 - authored source packages are part of the same program
 - generated CLR binding packages are not
-- the active surface changes ambient semantics without changing package imports
+- the active surface selects ambient semantics without altering package imports

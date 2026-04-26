@@ -4,7 +4,7 @@ title: Workspace Package Graphs
 
 # Workspace Package Graphs
 
-The current default model is source-package-first, even inside a single local
+The default model is source-package-first, even inside a single local
 workspace.
 
 ## Example layout
@@ -92,7 +92,7 @@ If you want a real assembly boundary instead:
 Result:
 
 - Tsonic builds `domain` first
-- the current project references its DLL
+- the consuming project references its DLL
 - generated output does not duplicate source ownership for that package
 
 ## Practical rule
@@ -103,5 +103,5 @@ Use `source` unless you have a deliberate reason to keep a DLL boundary:
 - independent library versioning
 - assembly-level separation for a large workspace
 
-For most first-party local packages, the current default and recommended mode is
+For most first-party local packages, the default and recommended mode is
 still `source`.

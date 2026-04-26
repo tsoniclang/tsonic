@@ -84,7 +84,7 @@ Example:
 Result:
 
 - the local package is built first
-- the current project references its DLL
+- the consuming project references its DLL
 - the generated source closure does not duplicate ownership for that package
 
 ## Why generated output matters
