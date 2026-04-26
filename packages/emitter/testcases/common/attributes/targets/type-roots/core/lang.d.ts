@@ -15,9 +15,6 @@ declare module "@tsonic/core/lang.js" {
     readonly args: readonly JsValue[];
   }
 
-  export type InstanceOf<C extends Ctor<object, readonly JsValue[]>> =
-    C extends Ctor<infer I, readonly JsValue[]> ? I : never;
-
   export declare function asinterface<T>(value: JsValue): T;
 
   export type MethodKeys<T> = {

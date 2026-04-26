@@ -192,6 +192,19 @@ const scanInstalledSourcePackages = (
 
   const packageIndex = new Map<string, string>();
   let currentDir = normalizedRoot;
+  const workspaceBoundary = (() => {
+    let candidate = normalizedRoot;
+    for (;;) {
+      if (fs.existsSync(path.join(candidate, "tsonic.workspace.json"))) {
+        return canonicalizeRootDirPath(candidate);
+      }
+      const parentDir = path.dirname(candidate);
+      if (parentDir === candidate) {
+        return undefined;
+      }
+      candidate = parentDir;
+    }
+  })();
 
   for (;;) {
     const nodeModulesRoot = path.join(currentDir, "node_modules");
@@ -224,6 +237,13 @@ const scanInstalledSourcePackages = (
           path.join(nodeModulesRoot, entry.name)
         );
       }
+    }
+
+    if (
+      workspaceBoundary !== undefined &&
+      canonicalizeRootDirPath(currentDir) === workspaceBoundary
+    ) {
+      break;
     }
 
     const parentDir = path.dirname(currentDir);
@@ -335,7 +355,7 @@ export const discoverProgramInputs = (
     }
     if (
       activeSurfacePackageNames.has(packageName) &&
-      activeAuthoritativeSourcePackageRoots.get(packageName) !== packageRoot
+      !activeAuthoritativeSourcePackageRoots.has(packageName)
     ) {
       activeAuthoritativeSourcePackageRoots.set(packageName, packageRoot);
     }

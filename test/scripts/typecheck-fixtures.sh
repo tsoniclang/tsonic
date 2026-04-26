@@ -52,7 +52,14 @@ EOF
 }
 
 now_ms() {
-  date +%s%3N
+  local ns
+  ns="$(date +%s%N 2>/dev/null || true)"
+  if [[ "$ns" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$((ns / 1000000))"
+    return
+  fi
+
+  printf '%s000' "$(date +%s)"
 }
 
 format_duration_ms() {

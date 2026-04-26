@@ -49,6 +49,8 @@ E2E_NEGATIVE_PASSED=0
 E2E_NEGATIVE_FAILED=0
 FRESH_BUILD_PASSED=0
 FRESH_BUILD_FAILED=0
+RELEASE_SMOKE_PASSED=0
+RELEASE_SMOKE_FAILED=0
 
 # Package/unit phase tracking
 FRONTEND_STATUS="not-run"
@@ -107,11 +109,13 @@ CLI_DURATION_MS=0
 
 # Step status
 FRESH_BUILD_STATUS="unknown"
+RELEASE_SMOKE_STATUS="unknown"
 UNIT_STATUS="unknown"
 TSC_STATUS="unknown"
 RUNTIME_SYNC_STATUS="unknown"
 AOT_PREFLIGHT_STATUS="not-run"
 FRESH_BUILD_DURATION_MS=0
+RELEASE_SMOKE_DURATION_MS=0
 UNIT_DURATION_MS=0
 TSC_DURATION_MS=0
 RUNTIME_SYNC_DURATION_MS=0
@@ -384,6 +388,35 @@ fi
 FRESH_BUILD_DURATION_MS=$(( $(now_ms) - fresh_build_started_ms ))
 trace_event phase-done scope phase phase fresh-build status "$FRESH_BUILD_STATUS" durationMs "$FRESH_BUILD_DURATION_MS" passed "$FRESH_BUILD_PASSED" failed "$FRESH_BUILD_FAILED"
 echo "Duration: $(format_duration_ms "$FRESH_BUILD_DURATION_MS")" | tee -a "$LOG_FILE"
+
+echo "" | tee -a "$LOG_FILE"
+
+# ============================================================
+# 0.6 Release package smoke
+# ============================================================
+echo -e "${BLUE}--- Running Release Package Smoke ---${NC}" | tee -a "$LOG_FILE"
+release_smoke_started_ms="$(now_ms)"
+trace_event phase-start scope phase phase release-package-smoke
+
+if [ "$SKIP_UNIT" = true ]; then
+    echo -e "${YELLOW}SKIP: release package smoke (--no-unit)${NC}" | tee -a "$LOG_FILE"
+    RELEASE_SMOKE_STATUS="skipped"
+elif [ "$FRESH_BUILD_STATUS" != "passed" ]; then
+    echo -e "${YELLOW}SKIP: release package smoke (fresh build did not pass)${NC}" | tee -a "$LOG_FILE"
+    RELEASE_SMOKE_STATUS="skipped"
+else
+    if bash "$ROOT_DIR/test/scripts/release-package-smoke.sh" 2>&1 | tee -a "$LOG_FILE"; then
+        RELEASE_SMOKE_STATUS="passed"
+        RELEASE_SMOKE_PASSED=1
+    else
+        RELEASE_SMOKE_STATUS="failed"
+        RELEASE_SMOKE_FAILED=1
+    fi
+fi
+
+RELEASE_SMOKE_DURATION_MS=$(( $(now_ms) - release_smoke_started_ms ))
+trace_event phase-done scope phase phase release-package-smoke status "$RELEASE_SMOKE_STATUS" durationMs "$RELEASE_SMOKE_DURATION_MS" passed "$RELEASE_SMOKE_PASSED" failed "$RELEASE_SMOKE_FAILED"
+echo "Duration: $(format_duration_ms "$RELEASE_SMOKE_DURATION_MS")" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 

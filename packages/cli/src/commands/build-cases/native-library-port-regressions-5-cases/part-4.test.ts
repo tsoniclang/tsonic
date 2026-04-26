@@ -1,4 +1,4 @@
-import { describe, it } from "mocha";
+import { before, describe, it } from "mocha";
 import { buildTestTimeoutMs } from "../helpers.js";
 import { expect } from "chai";
 import {
@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { resolveConfig } from "../../../config.js";
 import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests/bindings.js";
 import { buildCommand } from "../../build.js";
+import { skipIfNativeAotUnavailable } from "../../native-aot-test-support.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
@@ -59,6 +60,10 @@ const resolveEffectiveConfig = (
 
 describe("build command (native library port regressions)", function () {
   this.timeout(buildTestTimeoutMs);
+
+  before(function () {
+    skipIfNativeAotUnavailable(this);
+  });
 
   it("infers branch-local storage from narrowed member-access initializers for repeated locals", () => {
     const dir = mkdtempSync(

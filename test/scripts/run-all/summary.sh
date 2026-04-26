@@ -122,8 +122,8 @@ print_summary_and_exit() {
     echo "========================================" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
 
-    TOTAL_PASSED=$((FRESH_BUILD_PASSED + UNIT_PASSED + TSC_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASSED))
-    TOTAL_FAILED=$((FRESH_BUILD_FAILED + UNIT_FAILED + TSC_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
+    TOTAL_PASSED=$((FRESH_BUILD_PASSED + RELEASE_SMOKE_PASSED + UNIT_PASSED + TSC_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASSED))
+    TOTAL_FAILED=$((FRESH_BUILD_FAILED + RELEASE_SMOKE_FAILED + UNIT_FAILED + TSC_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
 
     echo "Fresh Workspace Build:" | tee -a "$LOG_FILE"
     if [ "$FRESH_BUILD_STATUS" = "skipped" ]; then
@@ -138,6 +138,8 @@ print_summary_and_exit() {
     fi
     echo "  Duration: $(format_duration_ms "$FRESH_BUILD_DURATION_MS")" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
+
+    print_phase_status_block "Release Package Smoke" "$RELEASE_SMOKE_STATUS" "$RELEASE_SMOKE_DURATION_MS"
 
     echo "Unit & Golden Tests:" | tee -a "$LOG_FILE"
     if [ "$UNIT_STATUS" = "skipped" ]; then

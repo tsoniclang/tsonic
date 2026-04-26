@@ -17,11 +17,14 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCli } from "../cli.js";
+import {
+  detectNativeAotRid,
+  probeNativeAotSupport,
+} from "./native-aot-test-support.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -32,91 +35,10 @@ const linkDir = (target: string, linkPath: string): void => {
   symlinkSync(target, linkPath, "dir");
 };
 
-const detectRid = (): string => {
-  const platform = process.platform;
-  const arch = process.arch;
-
-  const ridMap: Record<string, string> = {
-    "darwin-x64": "osx-x64",
-    "darwin-arm64": "osx-arm64",
-    "linux-x64": "linux-x64",
-    "linux-arm64": "linux-arm64",
-    "win32-x64": "win-x64",
-    "win32-arm64": "win-arm64",
-  };
-
-  const key = `${platform}-${arch}`;
-  return ridMap[key] || "linux-x64";
-};
-
 const nativeExt = (): string => {
   if (process.platform === "win32") return ".dll";
   if (process.platform === "darwin") return ".dylib";
   return ".so";
-};
-
-const probeNativeAotSupport = (rid: string): { readonly ok: boolean } => {
-  const probeDir = mkdtempSync(join(tmpdir(), "tsonic-native-aot-probe-"));
-  try {
-    const projectName = "AotProbe";
-    const projectDir = join(probeDir, projectName);
-    const create = spawnSync(
-      "dotnet",
-      [
-        "new",
-        "classlib",
-        "--framework",
-        "net10.0",
-        "--name",
-        projectName,
-        "--no-restore",
-        "--force",
-      ],
-      {
-        cwd: probeDir,
-        encoding: "utf-8",
-      }
-    );
-    if (create.status !== 0) return { ok: false };
-
-    const publish = spawnSync(
-      "dotnet",
-      [
-        "publish",
-        `${projectName}.csproj`,
-        "-c",
-        "Release",
-        "-r",
-        rid,
-        "--self-contained",
-        "true",
-        "/p:PublishAot=true",
-        "/p:NativeLib=Shared",
-        "--nologo",
-      ],
-      {
-        cwd: projectDir,
-        encoding: "utf-8",
-      }
-    );
-    if (publish.status === 0) return { ok: true };
-
-    const output = `${publish.stdout ?? ""}\n${publish.stderr ?? ""}`;
-    if (
-      output.includes("MSB4216") ||
-      output.includes("MSB4027") ||
-      output.includes("ComputeManagedAssemblies")
-    ) {
-      return { ok: false };
-    }
-
-    // Any publish failure means this machine/toolchain is not suitable for
-    // NativeAOT in this test run. Skip rather than running assertions on a
-    // partial/unsupported environment.
-    return { ok: false };
-  } finally {
-    rmSync(probeDir, { recursive: true, force: true });
-  }
 };
 
 describe("build command (NativeAOT library)", function () {
@@ -124,10 +46,10 @@ describe("build command (NativeAOT library)", function () {
 
   it("builds a NativeAOT shared library and writes publish output under dist/", async function () {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-native-lib-"));
-    const rid = detectRid();
+    const rid = detectNativeAotRid();
 
     try {
-      const probe = probeNativeAotSupport(rid);
+      const probe = probeNativeAotSupport();
       if (!probe.ok) this.skip();
 
       mkdirSync(join(dir, "packages", "native-lib", "src"), {

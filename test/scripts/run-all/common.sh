@@ -29,7 +29,14 @@ EOF
 }
 
 now_ms() {
-    date +%s%3N
+    local ns
+    ns="$(date +%s%N 2>/dev/null || true)"
+    if [[ "$ns" =~ ^[0-9]+$ ]]; then
+        printf '%s' "$((ns / 1000000))"
+        return
+    fi
+
+    printf '%s000' "$(date +%s)"
 }
 
 format_duration_ms() {
@@ -280,7 +287,10 @@ nativeaot_preflight_check() {
     fi
 
     local tmp_dir
-    tmp_dir="$(mktemp -d /tmp/tsonic-aot-preflight-XXXXXX)"
+    local preflight_root
+    preflight_root="${ROOT_DIR:-$(cd "$RUN_ALL_LIB_DIR/../../.." && pwd)}"
+    mkdir -p "$preflight_root/.tests"
+    tmp_dir="$(mktemp -d "$preflight_root/.tests/native-aot-preflight-XXXXXX")"
     local probe_dir="$tmp_dir/AotPreflight"
     local probe_log="$tmp_dir/preflight.log"
 

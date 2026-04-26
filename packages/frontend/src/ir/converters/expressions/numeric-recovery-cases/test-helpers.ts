@@ -55,12 +55,26 @@ export const compileWithTypeRoots = (
   typeRoots: readonly string[],
   surface?: string
 ): { modules: readonly IrModule[]; ok: boolean; error?: string } => {
-  const tmpDir = `/tmp/numeric-recovery-test-${Date.now()}`;
-  fs.mkdirSync(tmpDir, { recursive: true });
+  const tmpRoot = path.join(monorepoRoot, ".temp");
+  fs.mkdirSync(tmpRoot, { recursive: true });
+  const tmpDir = fs.mkdtempSync(path.join(tmpRoot, "numeric-recovery-test-"));
+  fs.writeFileSync(
+    path.join(tmpDir, "tsonic.workspace.json"),
+    JSON.stringify(
+      {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+      },
+      null,
+      2
+    )
+  );
   installPackageLink(tmpDir, "@tsonic/core", corePath);
   installPackageLink(tmpDir, "@tsonic/globals", globalsPath);
-  installPackageLink(tmpDir, "@tsonic/js", jsPath);
   installPackageLink(tmpDir, "@tsonic/dotnet", dotnetPath);
+  if (surface === "@tsonic/js") {
+    installPackageLink(tmpDir, "@tsonic/js", jsPath);
+  }
 
   const filePath = path.join(tmpDir, "test.ts");
   fs.writeFileSync(filePath, code);
@@ -91,7 +105,26 @@ export const compileWithTypeRoots = (
     return { modules: [], ok: false, error: errorMsg };
   }
 
-  return { modules: irResult.value, ok: true };
+  const projectModules = irResult.value.filter((module) => {
+    const normalizedFilePath = module.filePath.replace(/\\/g, "/");
+    if (!path.isAbsolute(module.filePath)) {
+      return (
+        !normalizedFilePath.startsWith("node_modules/") &&
+        !normalizedFilePath.startsWith("__tsonic/")
+      );
+    }
+
+    const relative = path.relative(tmpDir, module.filePath).replace(/\\/g, "/");
+    return (
+      relative !== "" &&
+      !relative.startsWith("../") &&
+      !path.isAbsolute(relative) &&
+      !relative.startsWith("node_modules/") &&
+      !relative.startsWith("__tsonic/")
+    );
+  });
+
+  return { modules: projectModules, ok: true };
 };
 
 export const compileWithGlobals = (
