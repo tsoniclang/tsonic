@@ -46,6 +46,7 @@ const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "
 const lock = JSON.parse(fs.readFileSync(path.join(rootDir, "package-lock.json"), "utf8"));
 
 const expectedPackages = new Map([
+  ["@tsonic/tsbindgen", path.join(tsoniclangRoot, "tsbindgen", "package.json")],
   ["@tsonic/core", path.join(tsoniclangRoot, "core", "versions", "10", "package.json")],
   ["@tsonic/dotnet", path.join(tsoniclangRoot, "dotnet", "versions", "10", "package.json")],
   ["@tsonic/globals", path.join(tsoniclangRoot, "globals", "versions", "10", "package.json")],
@@ -91,8 +92,16 @@ for (const [name, packageJsonPath] of expectedPackages) {
   }
 }
 
+const cliPkg = JSON.parse(fs.readFileSync(path.join(rootDir, "packages", "cli", "package.json"), "utf8"));
+const tsbindgen = JSON.parse(fs.readFileSync(path.join(tsoniclangRoot, "tsbindgen", "package.json"), "utf8"));
+const cliTsbindgenSpec = cliPkg.dependencies?.["@tsonic/tsbindgen"];
+if (cliTsbindgenSpec !== tsbindgen.version) {
+  failures.push(`@tsonic/cli: @tsonic/tsbindgen dependency is ${cliTsbindgenSpec ?? "<missing>"}, sibling package is ${tsbindgen.version}`);
+}
+
 const lockText = JSON.stringify(lock);
 for (const stale of [
+  "\"@tsonic/tsbindgen\":\"0.7.51\"",
   "\"@tsonic/core\":\"10.0.40\"",
   "\"@tsonic/dotnet\":\"10.0.40\"",
   "\"@tsonic/js\":\"10.0.48\"",
@@ -127,6 +136,7 @@ emitter_tgz="$(pack_package "$ROOT_DIR/packages/emitter")"
 backend_tgz="$(pack_package "$ROOT_DIR/packages/backend")"
 cli_tgz="$(pack_package "$ROOT_DIR/packages/cli")"
 tsonic_tgz="$(pack_package "$ROOT_DIR/npm/tsonic")"
+tsbindgen_tgz="$(pack_package "$TSONICLANG_ROOT/tsbindgen")"
 core_tgz="$(pack_package "$TSONICLANG_ROOT/core/versions/10")"
 dotnet_tgz="$(pack_package "$TSONICLANG_ROOT/dotnet/versions/10")"
 globals_tgz="$(pack_package "$TSONICLANG_ROOT/globals/versions/10")"
@@ -222,18 +232,23 @@ TS
     "$backend_tgz" \
     "$cli_tgz" \
     "$tsonic_tgz" \
+    "$tsbindgen_tgz" \
     "$core_tgz" \
     "$dotnet_tgz"
 )
 
-node - "$CONSUMER_DIR" <<'NODE'
+node - "$CONSUMER_DIR" "$TSONICLANG_ROOT" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 
 const consumerDir = process.argv[2];
+const tsoniclangRoot = process.argv[3];
+const packageVersion = (packageJsonPath) =>
+  JSON.parse(fs.readFileSync(packageJsonPath, "utf8")).version;
 const versions = new Map([
-  ["@tsonic/core", "10.0.41"],
-  ["@tsonic/dotnet", "10.0.41"],
+  ["@tsonic/tsbindgen", packageVersion(path.join(tsoniclangRoot, "tsbindgen", "package.json"))],
+  ["@tsonic/core", packageVersion(path.join(tsoniclangRoot, "core", "versions", "10", "package.json"))],
+  ["@tsonic/dotnet", packageVersion(path.join(tsoniclangRoot, "dotnet", "versions", "10", "package.json"))],
 ]);
 
 for (const [name, expected] of versions) {

@@ -16,6 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WRAPPER_DIR="$ROOT_DIR/npm/tsonic"
 RUNTIME_DIR="$(cd "$ROOT_DIR/../runtime" && pwd)"
+TSBINDGEN_PACKAGE_JSON="$ROOT_DIR/../tsbindgen/package.json"
 
 # Parse arguments
 IGNORE_BRANCHES_AHEAD=false
@@ -156,7 +157,26 @@ fi
 
 echo "  All packages at version $FIRST_VERSION ✓"
 
-# 6. Check all package versions against npm
+# 6. Ensure the CLI consumes the synchronized tsbindgen package.
+echo "=== Checking tsbindgen package dependency ==="
+if [ ! -f "$TSBINDGEN_PACKAGE_JSON" ]; then
+    echo "Error: Missing sibling tsbindgen package.json:"
+    echo "  $TSBINDGEN_PACKAGE_JSON"
+    echo "Publishing tsonic requires the synchronized tsoniclang/tsbindgen checkout."
+    exit 1
+fi
+
+CLI_TSBINDGEN_VERSION=$(node -p "require('./packages/cli/package.json').dependencies['@tsonic/tsbindgen']")
+TSBINDGEN_VERSION=$(node -p "require('$TSBINDGEN_PACKAGE_JSON').version")
+if [ "$CLI_TSBINDGEN_VERSION" != "$TSBINDGEN_VERSION" ]; then
+    echo "Error: @tsonic/cli depends on @tsonic/tsbindgen@$CLI_TSBINDGEN_VERSION, but sibling tsbindgen is $TSBINDGEN_VERSION."
+    echo "Update packages/cli/package.json and package-lock.json before publishing."
+    exit 1
+fi
+
+echo "  @tsonic/tsbindgen@$CLI_TSBINDGEN_VERSION ✓"
+
+# 7. Check all package versions against npm
 echo "=== Checking versions against npm ==="
 NEEDS_BUMP=()
 ALL_GREATER=true
