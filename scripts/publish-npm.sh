@@ -3,12 +3,14 @@ set -euo pipefail
 
 # Publish @tsonic/* packages and tsonic wrapper to npm
 #
-# Usage: ./scripts/publish-npm.sh [--ignore-branches-ahead] [--skip-tests]
+# Usage: ./scripts/publish-npm.sh [--ignore-branches-ahead] [--skip-tests] [--dangerously-skip-tests]
 #
 # Options:
 #   --ignore-branches-ahead  Skip check for local branches ahead of main
 #   --skip-tests             Skip running tests iff a full unfiltered ./test/scripts/run-all.sh
 #                            stamp exists for the current HEAD commit.
+#   --dangerously-skip-tests Skip tests without requiring a full-pass stamp. This is intended
+#                            only for an explicitly authorized release wave.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -18,6 +20,7 @@ RUNTIME_DIR="$(cd "$ROOT_DIR/../runtime" && pwd)"
 # Parse arguments
 IGNORE_BRANCHES_AHEAD=false
 SKIP_TESTS=false
+DANGEROUSLY_SKIP_TESTS=false
 for arg in "$@"; do
     case $arg in
         --ignore-branches-ahead)
@@ -25,6 +28,13 @@ for arg in "$@"; do
             ;;
         --skip-tests)
             SKIP_TESTS=true
+            ;;
+        --dangerously-skip-tests)
+            DANGEROUSLY_SKIP_TESTS=true
+            ;;
+        *)
+            echo "Error: unknown argument '$arg'"
+            exit 1
             ;;
     esac
 done
@@ -313,7 +323,10 @@ echo "  Copied core runtime DLL ✓"
 echo "=== Building all packages ==="
 ./scripts/build/all.sh --no-format
 
-if [ "$SKIP_TESTS" = true ]; then
+if [ "$DANGEROUSLY_SKIP_TESTS" = true ]; then
+    echo "=== DANGEROUSLY skipping tests (--dangerously-skip-tests) ==="
+    echo "  No full-pass stamp was required for this publish."
+elif [ "$SKIP_TESTS" = true ]; then
     echo "=== Skipping tests (--skip-tests) ==="
     STAMP_FILE="$ROOT_DIR/.tests/run-all-last-success.json"
     HEAD_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
