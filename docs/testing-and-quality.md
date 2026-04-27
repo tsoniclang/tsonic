@@ -45,7 +45,7 @@ For the full compiler gate, use the tsoniclang developer checkout layout. The
 gate includes tests that prove source-package graph traversal against authored
 first-party packages, so `../js` and `../nodejs` are required source-package
 sibling repos, not replaceable by published binding packages. Build the sibling
-runtime first:
+runtime first, and make sure the platform NativeAOT toolchain is installed:
 
 ```bash
 cd ../runtime
@@ -53,6 +53,17 @@ dotnet build -c Release
 cd ../tsonic
 ./test/scripts/run-all.sh
 ```
+
+NativeAOT prerequisites:
+
+- Linux: `clang` or `gcc` available on `PATH`
+- macOS: Xcode Command Line Tools
+- Windows: Visual Studio C++ build tools
+
+NativeAOT-capable CLI tests share a cached NativeAOT probe. When the toolchain
+is unavailable, those tests skip their NativeAOT assertions and the full gate
+reports a single NativeAOT preflight failure instead of many downstream linker
+failures.
 
 ## Package gates
 

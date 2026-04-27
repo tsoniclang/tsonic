@@ -4,6 +4,10 @@
 
 - Node.js 22+
 - .NET 10 SDK
+- NativeAOT platform toolchain:
+  - Linux: `clang` or `gcc` on `PATH`
+  - macOS: Xcode Command Line Tools
+  - Windows: Visual Studio C++ build tools
 
 ## Source checkout for contributors
 
@@ -36,6 +40,10 @@ npm ci
 npm run build
 ./test/scripts/run-all.sh
 ```
+
+The full compiler gate builds NativeAOT outputs. If the platform linker is
+missing, the gate fails the NativeAOT preflight with the linker prerequisite
+instead of reporting compiler correctness failures.
 
 The other siblings are used by tests and local package-wave development when
 present. Resolution is deterministic: a sibling package is used only if its

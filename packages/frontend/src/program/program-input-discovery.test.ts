@@ -340,6 +340,174 @@ describe("discoverProgramInputs", () => {
     }
   });
 
+  it("does not let passive installed source packages override active authoritative surface roots", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/rootdir-external"
+    );
+
+    try {
+      const projectRoot = fixture.path("workspace/app");
+      const sourceRoot = fixture.path("workspace/app/src");
+      const entryFile = fixture.path("workspace/app/src/index.ts");
+      const siblingJsRoot = fixture.path("workspace/js/versions/10");
+      const installedJsRoot = fixture.path(
+        "workspace/app/node_modules/@tsonic/js"
+      );
+      const siblingAmbientFile = path.join(siblingJsRoot, "globals.ts");
+      const installedAmbientFile = path.join(installedJsRoot, "globals.ts");
+
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(entryFile, "export const app = true;\n");
+      for (const packageRoot of [siblingJsRoot, installedJsRoot]) {
+        fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+        fs.writeFileSync(
+          path.join(packageRoot, "package.json"),
+          JSON.stringify(
+            { name: "@tsonic/js", version: "10.0.49", type: "module" },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(packageRoot, "tsonic.package.json"),
+          JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "js",
+                ambient: ["./globals.ts"],
+                exports: { ".": "./src/index.ts" },
+              },
+            },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(path.join(packageRoot, "src/index.ts"), "export {};\n");
+      }
+      fs.writeFileSync(siblingAmbientFile, "declare const siblingJs: string;\n");
+      fs.writeFileSync(
+        installedAmbientFile,
+        "declare const installedJs: string;\n"
+      );
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+          surface: "@tsonic/js",
+        },
+        {
+          requiredTypeRoots: [siblingJsRoot],
+          resolvedModes: ["@tsonic/js"],
+        }
+      );
+
+      expect(
+        discovery.authoritativeTsonicPackageRoots.get("@tsonic/js")
+      ).to.equal(siblingJsRoot);
+      expect(discovery.typeRoots).to.include(siblingJsRoot);
+      expect(discovery.typeRoots).to.not.include(installedJsRoot);
+      expect(discovery.allFiles).to.include(siblingAmbientFile);
+      expect(discovery.allFiles).to.not.include(installedAmbientFile);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("does not scan source packages above the workspace root", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/rootdir-external"
+    );
+
+    try {
+      const workspaceRoot = fixture.path("app");
+      const projectRoot = fixture.path("app");
+      const sourceRoot = fixture.path("app/src");
+      const entryFile = fixture.path("app/src/index.ts");
+      const parentJsRoot = fixture.path("node_modules/@tsonic/js");
+
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(entryFile, "export const app = true;\n");
+      fs.writeFileSync(
+        path.join(workspaceRoot, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        )
+      );
+      fs.mkdirSync(path.join(parentJsRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(parentJsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "10.0.49", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(parentJsRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "js",
+              ambient: ["./src/globals.ts"],
+              exports: { ".": "./src/index.ts" },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(path.join(parentJsRoot, "src/index.ts"), "export {};\n");
+      fs.writeFileSync(
+        path.join(parentJsRoot, "src/globals.ts"),
+        "declare const parentJsLeak: string;\n"
+      );
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: ["clr"],
+        }
+      );
+
+      expect(
+        discovery.authoritativeTsonicPackageRoots.has("@tsonic/js")
+      ).to.equal(false);
+      expect(
+        discovery.allFiles.includes(path.join(parentJsRoot, "src/globals.ts"))
+      ).to.equal(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("orders active source-package typeRoots from the current surface before inherited surfaces", () => {
     const fixture = materializeFrontendFixture(
       "surface/profiles/sibling-nodejs-surface-before-default"

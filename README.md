@@ -49,6 +49,10 @@ Requirements:
 
 - Node.js 22+
 - .NET 10 SDK
+- NativeAOT toolchain for full builds/tests:
+  - Linux: `clang` or `gcc` available on `PATH`
+  - macOS: Xcode Command Line Tools
+  - Windows: Visual Studio C++ build tools
 
 ## Working From Source
 
@@ -88,6 +92,11 @@ npm ci
 npm run build
 ./test/scripts/run-all.sh
 ```
+
+`./test/scripts/run-all.sh` performs a NativeAOT preflight before fixture
+execution. A missing platform linker is a machine prerequisite failure, not a
+compiler failure; install the platform toolchain before treating the full gate
+as green.
 
 The full test runner stores shared NuGet packages in `.tests/nuget/packages`
 and removes per-fixture `.tsonic`, `generated`, `out`, and `dist` artifacts as
