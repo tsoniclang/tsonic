@@ -16,6 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WRAPPER_DIR="$ROOT_DIR/npm/tsonic"
 RUNTIME_DIR="$(cd "$ROOT_DIR/../runtime" && pwd)"
+TSBINDGEN_PACKAGE_JSON="$ROOT_DIR/../tsbindgen/package.json"
 
 # Parse arguments
 IGNORE_BRANCHES_AHEAD=false
@@ -156,7 +157,26 @@ fi
 
 echo "  All packages at version $FIRST_VERSION ✓"
 
-# 6. Check all package versions against npm
+# 6. Ensure the CLI consumes the synchronized tsbindgen package.
+echo "=== Checking tsbindgen package dependency ==="
+if [ ! -f "$TSBINDGEN_PACKAGE_JSON" ]; then
+    echo "Error: Missing sibling tsbindgen package.json:"
+    echo "  $TSBINDGEN_PACKAGE_JSON"
+    echo "Publishing tsonic requires the synchronized tsoniclang/tsbindgen checkout."
+    exit 1
+fi
+
+CLI_TSBINDGEN_VERSION=$(node -p "require('./packages/cli/package.json').dependencies['@tsonic/tsbindgen']")
+TSBINDGEN_VERSION=$(node -p "require('$TSBINDGEN_PACKAGE_JSON').version")
+if [ "$CLI_TSBINDGEN_VERSION" != "$TSBINDGEN_VERSION" ]; then
+    echo "Error: @tsonic/cli depends on @tsonic/tsbindgen@$CLI_TSBINDGEN_VERSION, but sibling tsbindgen is $TSBINDGEN_VERSION."
+    echo "Update packages/cli/package.json and package-lock.json before publishing."
+    exit 1
+fi
+
+echo "  @tsonic/tsbindgen@$CLI_TSBINDGEN_VERSION ✓"
+
+# 7. Check all package versions against npm
 echo "=== Checking versions against npm ==="
 NEEDS_BUMP=()
 ALL_GREATER=true
@@ -268,8 +288,24 @@ if [ "$ALL_GREATER" != true ]; then
         fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
     "
 
+    # Update root self-references used by local installs and release smoke
+    node -e "
+        const fs = require('fs');
+        const path = './package.json';
+        const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+        if (pkg.dependencies && pkg.dependencies['@tsonic/cli']) {
+            pkg.dependencies['@tsonic/cli'] = '$NEW_VERSION';
+        }
+        if (pkg.devDependencies && pkg.devDependencies.tsonic) {
+            pkg.devDependencies.tsonic = '$NEW_VERSION';
+        }
+        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
+    "
+
+    npm install --package-lock-only --ignore-scripts
+
     echo "=== Committing version changes ==="
-    git add packages/*/package.json npm/tsonic/package.json
+    git add package.json package-lock.json packages/*/package.json npm/tsonic/package.json
     git commit -m "chore: bump version to $NEW_VERSION"
     git push -u origin HEAD
 
