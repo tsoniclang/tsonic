@@ -14,7 +14,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include('string[] chars = new string[] { "", "" };');
       expect(csharp).to.include(
         "chars[0] = ((global::System.Func<string, int, string>)"
@@ -40,7 +42,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("string name = default(string);");
     });
 
-    it("prefers typed CLR option overloads over erased JsValue for object literals", () => {
+    it("prefers typed CLR option overloads over erased unknown for object literals", () => {
       const source = `
         declare class MkdirOptions {
           readonly __tsonic_type_nodejs_MkdirOptions: never;
@@ -50,7 +52,7 @@ describe("End-to-End Integration", () => {
         declare const fs: {
           mkdirSync(path: string, options: MkdirOptions): void;
           mkdirSync(path: string, recursive?: boolean): void;
-          mkdirSync(path: string, options: JsValue): void;
+          mkdirSync(path: string, options: unknown): void;
         };
 
         export function ensure(dir: string): void {
@@ -65,9 +67,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("Dictionary<string, object?>");
     });
 
-    it("uses explicit JsValue dictionary fallback for broad object literal arguments", () => {
+    it("uses explicit dictionary construction for dictionary object literal arguments", () => {
       const source = `
-        declare function deepEqual(left: JsValue, right: JsValue): void;
+        declare function deepEqual(left: Record<string, string>, right: Record<string, string>): void;
 
         export function run(): void {
           deepEqual({ name: "Alice" }, { name: "Bob" });
@@ -76,7 +78,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "new global::System.Collections.Generic.Dictionary<string, object?>"
+        "new global::System.Collections.Generic.Dictionary<string, string>"
       );
       expect(csharp).to.include('["name"] = "Alice"');
       expect(csharp).to.include('["name"] = "Bob"');
@@ -126,12 +128,12 @@ describe("End-to-End Integration", () => {
 
     it("passes broad object call expectations through narrowed record locals without storage casts", () => {
       const source = `
-        const isObject = (value: JsValue): value is Record<string, JsValue> => {
+        const isObject = (value: unknown): value is Record<string, string | number> => {
           return value !== null && typeof value === "object" && !Array.isArray(value);
         };
 
         export function main(): void {
-          const root = JSON.parse("{\\"title\\":\\"hello\\",\\"count\\":2}");
+          const root: Record<string, string | number> = JSON.parse("{\\"title\\":\\"hello\\",\\"count\\":2}");
           if (!isObject(root)) return;
           const first = Object.entries(root)[0];
           if (first === undefined) return;
@@ -252,7 +254,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).not.to.include("api.take();");
-      expect(csharp).to.include("api.take)(default(int?))");
+      expect(csharp).to.include("api.take(default(int?))");
     });
 
     it("emits IterableIterator generic class methods as direct enumerable yields", () => {
@@ -320,11 +322,11 @@ describe("End-to-End Integration", () => {
 
     it("preserves generic target assertions after iterable narrowing", () => {
       const source = `
-        function isIterableObject(value: JsValue): value is Iterable<JsValue> {
+        function isIterableObject(value: unknown): value is Iterable<unknown> {
           return true;
         }
 
-        export function first<T>(item: JsValue): T | undefined {
+        export function first<T>(item: unknown): T | undefined {
           if (isIterableObject(item)) {
             for (const value of item as Iterable<T>) {
               return value;
@@ -342,12 +344,12 @@ describe("End-to-End Integration", () => {
 
     it("preserves class-generic iterable assertions after iterable narrowing", () => {
       const source = `
-        function isIterableObject(value: JsValue): value is Iterable<JsValue> {
+        function isIterableObject(value: unknown): value is Iterable<unknown> {
           return true;
         }
 
         export class Box<T> {
-          first(item: JsValue): T | undefined {
+          first(item: unknown): T | undefined {
             if (isIterableObject(item)) {
               for (const value of item as Iterable<T>) {
                 return value;
@@ -366,12 +368,12 @@ describe("End-to-End Integration", () => {
 
     it("preserves class-generic iterable assertions under the js surface", () => {
       const source = `
-        function isIterableObject(value: JsValue): value is Iterable<JsValue> {
+        function isIterableObject(value: unknown): value is Iterable<unknown> {
           return true;
         }
 
         export class Box<T> {
-          first(item: JsValue): T | undefined {
+          first(item: unknown): T | undefined {
             if (isIterableObject(item)) {
               for (const value of item as Iterable<T>) {
                 return value;
@@ -392,11 +394,11 @@ describe("End-to-End Integration", () => {
 
     it("preserves narrowed iterable casts in for-of loops", () => {
       const source = `
-        function isIterableObject(value: JsValue): value is Iterable<JsValue> {
+        function isIterableObject(value: unknown): value is Iterable<unknown> {
           return true;
         }
 
-        export function first(value: JsValue): JsValue {
+        export function first(value: unknown): unknown {
           if (isIterableObject(value)) {
             for (const item of value) {
               return item;
@@ -416,8 +418,8 @@ describe("End-to-End Integration", () => {
 
     it("casts structural receiver assertions before well-known-symbol property reads", () => {
       const source = `
-        export function getIterator(source: Iterable<string> | ArrayLike<string>): JsValue {
-          const iterator = (source as { readonly [Symbol.iterator]?: JsValue })[Symbol.iterator];
+        export function getIterator(source: Iterable<string> | ArrayLike<string>): unknown {
+          const iterator = (source as { readonly [Symbol.iterator]?: unknown })[Symbol.iterator];
           return iterator;
         }
       `;
@@ -537,7 +539,7 @@ describe("End-to-End Integration", () => {
     it("applies authored constructor defaults before body assignments", () => {
       const source = `
         class PatternBox {
-          readonly flags: string;
+          flags: string;
 
           constructor(flags: string = "") {
             this.flags = flags;
@@ -577,7 +579,7 @@ describe("End-to-End Integration", () => {
           ToArray(): T[];
         }
 
-        export function run<TResult>(values: List<JsValue>): TResult[] {
+        export function run<TResult>(values: List<unknown>): TResult[] {
           return values.ToArray() as TResult[];
         }
       `;
@@ -592,9 +594,9 @@ describe("End-to-End Integration", () => {
     it("lowers async generator class methods without raw AsyncGenerator return types", () => {
       const source = `
         export class TimersPromises {
-          public async *setInterval(
+          async *setInterval(
             value?: string
-          ): AsyncGenerator<string, void, JsValue> {
+          ): AsyncGenerator<string, void> {
             while (true) {
               yield value ?? "tick";
             }
@@ -607,12 +609,10 @@ describe("End-to-End Integration", () => {
         "Task<global::AsyncGenerator<string, object, object>>"
       );
       expect(csharp).to.include(
-        "public sealed class TimersPromises__setInterval_exchange"
+        "public async global::System.Collections.Generic.IAsyncEnumerable<string> setInterval"
       );
-      expect(csharp).to.include(
-        "var exchange = new TimersPromises__setInterval_exchange()"
-      );
-      expect(csharp).to.include("yield return exchange;");
+      expect(csharp).to.include('yield return value ?? "tick";');
+      expect(csharp).not.to.include("TimersPromises__setInterval_exchange");
     });
 
     it("contextualizes numeric nullish fallbacks to the result type", () => {

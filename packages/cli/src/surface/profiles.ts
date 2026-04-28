@@ -238,11 +238,6 @@ const resolveSurfacePackage = (
   const packageName = getSurfacePackageName(mode);
   if (!packageName) return undefined;
 
-  const sibling = tryResolveSiblingSurfacePackage(packageName, workspaceRoot);
-  if (sibling && isSourceSurfacePackageRoot(sibling.packageRoot)) {
-    return sibling;
-  }
-
   const workspaceInstalled = tryResolveProjectInstalledSurfacePackage(
     packageName,
     workspaceRoot
@@ -253,6 +248,12 @@ const resolveSurfacePackage = (
   ) {
     return workspaceInstalled;
   }
+
+  const sibling = tryResolveSiblingSurfacePackage(packageName, workspaceRoot);
+  if (sibling && isSourceSurfacePackageRoot(sibling.packageRoot)) {
+    return sibling;
+  }
+
   if (
     workspaceInstalled &&
     existsSync(join(workspaceInstalled.packageRoot, "tsonic.surface.json"))
@@ -263,9 +264,6 @@ const resolveSurfacePackage = (
   try {
     const pkgJsonPath = req.resolve(`${packageName}/package.json`);
     const installed = { packageName, packageRoot: dirname(pkgJsonPath) };
-    if (sibling && isSourceSurfacePackageRoot(sibling.packageRoot)) {
-      return sibling;
-    }
     if (isSourceSurfacePackageRoot(installed.packageRoot)) {
       return installed;
     }
@@ -277,12 +275,6 @@ const resolveSurfacePackage = (
     }
     if (existsSync(join(installed.packageRoot, "tsonic.surface.json"))) {
       return installed;
-    }
-    if (
-      sibling &&
-      existsSync(join(sibling.packageRoot, "tsonic.surface.json"))
-    ) {
-      return sibling;
     }
     return installed;
   } catch {

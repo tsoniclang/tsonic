@@ -56,11 +56,11 @@ describe("field<T> marker", function () {
         import type { field } from "@tsonic/core/lang.js";
 
         export class Base {
-          public name: string = "base";
+          name: string = "base";
         }
 
         export class Derived extends Base {
-          public name: field<string> = "derived";
+          name: field<string> = "derived";
         }
       `
     );

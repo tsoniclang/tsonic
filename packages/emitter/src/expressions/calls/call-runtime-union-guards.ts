@@ -1,12 +1,13 @@
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
+import { currentNarrowedType } from "../../core/semantic/narrowing-builders.js";
 import {
-  currentNarrowedType,
-  isArrayLikeNarrowingCandidate,
-} from "../../core/semantic/narrowing-builders.js";
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import { unwrapTransparentNarrowingTarget } from "../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
@@ -55,6 +56,20 @@ const buildRuntimeUnionMemberOrChain = (
           : check,
       undefined
     ) ?? booleanLiteral(false)
+  );
+};
+
+const isArrayLikeNarrowingCandidate = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "arrayType" || resolved.kind === "tupleType") {
+    return true;
+  }
+  return (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "Array" || resolved.name === "ReadonlyArray")
   );
 };
 

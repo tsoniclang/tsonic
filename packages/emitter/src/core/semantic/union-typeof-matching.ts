@@ -13,6 +13,57 @@ import { resolveTypeAlias } from "./nullish-value-helpers.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
 
+const genericTypeofTarget = (tag: string): IrType | undefined => {
+  switch (tag) {
+    case "string":
+      return { kind: "primitiveType", name: "string" };
+    case "number":
+      return { kind: "primitiveType", name: "number" };
+    case "boolean":
+      return { kind: "primitiveType", name: "boolean" };
+    case "undefined":
+      return { kind: "primitiveType", name: "undefined" };
+    case "object":
+      return {
+        kind: "referenceType",
+        name: "object",
+        resolvedClrType: "global::System.Object",
+      };
+    case "function":
+      return {
+        kind: "functionType",
+        parameters: [],
+        returnType: { kind: "unknownType" },
+      };
+    default:
+      return undefined;
+  }
+};
+
+const containsBroadTypeofBoundary = (
+  type: IrType,
+  context: EmitterContext,
+  seen = new Set<string>()
+): boolean => {
+  const key = getContextualTypeVisitKey(type, context);
+  if (seen.has(key)) {
+    return false;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(key);
+  const resolved = resolveTypeAlias(type, context);
+  if (resolved.kind === "unknownType" || resolved.kind === "anyType") {
+    return true;
+  }
+  if (resolved.kind === "unionType") {
+    return resolved.types.some((member) =>
+      containsBroadTypeofBoundary(member, context, nextSeen)
+    );
+  }
+  return false;
+};
+
 export const matchesTypeofTag = (
   type: IrType,
   tag: string,
@@ -76,23 +127,6 @@ export const matchesTypeofTag = (
       return resolved.name === "null";
     default:
       return false;
-  }
-};
-
-const genericTypeofTarget = (tag: string): IrType | undefined => {
-  switch (tag) {
-    case "string":
-      return { kind: "primitiveType", name: "string" };
-    case "number":
-      return { kind: "primitiveType", name: "number" };
-    case "boolean":
-      return { kind: "primitiveType", name: "boolean" };
-    case "undefined":
-      return { kind: "primitiveType", name: "undefined" };
-    case "object":
-      return { kind: "referenceType", name: "object" };
-    default:
-      return undefined;
   }
 };
 
@@ -168,10 +202,12 @@ export const narrowTypeByTypeofTag = (
   tag: string,
   context: EmitterContext
 ): IrType | undefined => {
-  if (!currentType) return genericTypeofTarget(tag);
+  if (!currentType) return undefined;
 
   return (
     filterTypeofCandidateLeaves(currentType, tag, context, true) ??
-    genericTypeofTarget(tag)
+    (containsBroadTypeofBoundary(currentType, context)
+      ? genericTypeofTarget(tag)
+      : undefined)
   );
 };

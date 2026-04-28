@@ -1,33 +1,9 @@
-/**
- * Constructor conversion with parameter properties
- */
-
 import * as ts from "typescript";
 import { IrClassMember, IrStatement } from "../../../../types.js";
 import { convertBlockStatement } from "../../control.js";
-import {
-  hasReadonlyModifier,
-  getAccessibility,
-  convertParameters,
-  makeOptionalType,
-} from "../../helpers.js";
+import { getAccessibility, convertParameters } from "../../helpers.js";
 import { withParameterTypeEnv } from "../../../type-env.js";
 import type { ProgramContext } from "../../../../program-context.js";
-
-const isParameterPropertyParameter = (
-  param: ts.ParameterDeclaration
-): boolean => {
-  const modifiers = ts.getModifiers(param);
-  return (
-    modifiers?.some(
-      (m) =>
-        m.kind === ts.SyntaxKind.PublicKeyword ||
-        m.kind === ts.SyntaxKind.PrivateKeyword ||
-        m.kind === ts.SyntaxKind.ProtectedKeyword ||
-        m.kind === ts.SyntaxKind.ReadonlyKeyword
-    ) ?? false
-  );
-};
 
 const isLeadingSuperCallStatement = (statement: IrStatement): boolean => {
   if (statement.kind !== "expressionStatement") {
@@ -47,57 +23,20 @@ const isLeadingSuperCallStatement = (statement: IrStatement): boolean => {
  */
 export const convertConstructor = (
   node: ts.ConstructorDeclaration,
-  ctx: ProgramContext,
-  constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
+  ctx: ProgramContext
 ): IrClassMember => {
   const parameters = convertParameters(node.parameters, ctx);
   const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
-  const parameterPropertyAssignments: IrStatement[] = [];
 
-  // Add assignments for parameter properties (parameters with explicit modifiers)
-  if (constructorParams) {
-    for (const param of constructorParams) {
-      if (isParameterPropertyParameter(param) && ts.isIdentifier(param.name)) {
-        // Create: this.name = name;
-        parameterPropertyAssignments.push({
-          kind: "expressionStatement",
-          expression: {
-            kind: "assignment",
-            operator: "=",
-            left: {
-              kind: "memberAccess",
-              object: {
-                kind: "this",
-              },
-              property: param.name.text,
-              isComputed: false,
-              isOptional: false,
-            },
-            right: {
-              kind: "identifier",
-              name: param.name.text,
-            },
-          },
-        });
-      }
-    }
-  }
-
-  // Add existing constructor body statements
   const statements: IrStatement[] = [];
   if (node.body) {
     const existingBody = convertBlockStatement(node.body, bodyCtx, undefined);
     const [first, ...rest] = existingBody.statements;
     if (first && isLeadingSuperCallStatement(first)) {
-      statements.push(first, ...parameterPropertyAssignments, ...rest);
+      statements.push(first, ...rest);
     } else {
-      statements.push(
-        ...parameterPropertyAssignments,
-        ...existingBody.statements
-      );
+      statements.push(...existingBody.statements);
     }
-  } else {
-    statements.push(...parameterPropertyAssignments);
   }
 
   return {
@@ -106,50 +45,4 @@ export const convertConstructor = (
     body: { kind: "blockStatement", statements },
     accessibility: getAccessibility(node),
   };
-};
-
-/**
- * Extract parameter properties from constructor
- */
-export const extractParameterProperties = (
-  constructor: ts.ConstructorDeclaration | undefined,
-  ctx: ProgramContext
-): IrClassMember[] => {
-  if (!constructor) {
-    return [];
-  }
-
-  const parameterProperties: IrClassMember[] = [];
-
-  for (const param of constructor.parameters) {
-    if (!isParameterPropertyParameter(param)) {
-      continue; // Not a parameter property
-    }
-
-    // Create a field declaration for this parameter property
-    if (ts.isIdentifier(param.name)) {
-      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-      const accessibility = getAccessibility(param);
-      const rawType = param.type
-        ? ctx.typeSystem.typeFromSyntax(
-            ctx.binding.captureTypeSyntax(param.type)
-          )
-        : undefined;
-
-      const type =
-        rawType && param.questionToken ? makeOptionalType(rawType) : rawType;
-
-      parameterProperties.push({
-        kind: "propertyDeclaration",
-        name: param.name.text,
-        type,
-        initializer: undefined, // Will be assigned in constructor
-        isStatic: false,
-        isReadonly: hasReadonlyModifier(param),
-        accessibility,
-      });
-    }
-  }
-
-  return parameterProperties;
 };

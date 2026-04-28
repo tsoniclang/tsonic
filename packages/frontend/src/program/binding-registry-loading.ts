@@ -153,7 +153,9 @@ const getMemberBindingOverloadDiscriminator = (
 
   const parts: string[] = [];
   if (member.semanticSignature !== undefined) {
-    parts.push(`semanticSignature:${stableSerialize(member.semanticSignature)}`);
+    parts.push(
+      `semanticSignature:${stableSerialize(member.semanticSignature)}`
+    );
   }
   if (member.semanticType !== undefined) {
     parts.push(`semanticType:${stableSerialize(member.semanticType)}`);
@@ -162,7 +164,9 @@ const getMemberBindingOverloadDiscriminator = (
     parts.push(`parameterCount:${member.parameterCount}`);
   }
   if (member.parameterModifiers !== undefined) {
-    parts.push(`parameterModifiers:${stableSerialize(member.parameterModifiers)}`);
+    parts.push(
+      `parameterModifiers:${stableSerialize(member.parameterModifiers)}`
+    );
   }
 
   return parts.join("|");
@@ -176,7 +180,9 @@ const throwMemberBindingConflict = (
   alias: string,
   field: string
 ): never => {
-  throw new Error(`Conflicting member binding for ${context}:${alias}.${field}`);
+  throw new Error(
+    `Conflicting member binding for ${context}:${alias}.${field}`
+  );
 };
 
 const mergeOptionalField = <T>(

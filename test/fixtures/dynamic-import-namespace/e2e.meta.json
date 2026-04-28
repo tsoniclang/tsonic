@@ -1,3 +1,0 @@
-{
-  "description": "closed-world dynamic import namespace values are lowered deterministically."
-}

@@ -2,7 +2,6 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
   runValidation,
-  runValidationInTempProject,
   hasDiagnostic,
 } from "./test-helpers.js";
 
@@ -21,7 +20,7 @@ describe("validateUnsupportedFeatures", () => {
         hasDiagnostic(
           result,
           "TSN2001",
-          "'with' statement is not supported in strict AOT mode"
+          "'with' statement is not supported in strict NativeAOT mode"
         )
       ).to.equal(true);
     });
@@ -51,31 +50,31 @@ describe("validateUnsupportedFeatures", () => {
       );
     });
 
-    it("allows import.meta.url", () => {
+    it("rejects import.meta.url", () => {
       const result = runValidation(`
         const url = import.meta.url;
         console.log(url);
       `);
 
-      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
     });
 
-    it("allows import.meta.filename", () => {
+    it("rejects import.meta.filename", () => {
       const result = runValidation(`
         const file = import.meta.filename;
         console.log(file);
       `);
 
-      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
     });
 
-    it("allows import.meta.dirname", () => {
+    it("rejects import.meta.dirname", () => {
       const result = runValidation(`
         const dir = import.meta.dirname;
         console.log(dir);
       `);
 
-      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
     });
 
     it("rejects unsupported import.meta fields", () => {
@@ -87,7 +86,7 @@ describe("validateUnsupportedFeatures", () => {
       expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
     });
 
-    it("allows bare import.meta object usage", () => {
+    it("rejects bare import.meta object usage", () => {
       const result = runValidation(`
         declare global {
           interface ImportMeta {
@@ -100,42 +99,28 @@ describe("validateUnsupportedFeatures", () => {
         console.log(meta.url, meta.filename, meta.dirname);
       `);
 
-      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
     });
 
-    it("allows dynamic import() when returned as a local closed-world value", () => {
-      const result = runValidationInTempProject(
-        `
+    it("rejects dynamic import() when returned as a value", () => {
+      const result = runValidation(`
         async function load() {
           return import("./module.js");
         }
-      `,
-        {
-          "src/module.ts": "export const value = 42;\n",
-        }
-      );
+      `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
-        false
-      );
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
     });
 
-    it("allows await import() when module namespace is consumed deterministically", () => {
-      const result = runValidationInTempProject(
-        `
+    it("rejects await import() when module namespace is consumed", () => {
+      const result = runValidation(`
         async function load() {
           const module = await import("./module.js");
           return module.value;
         }
-      `,
-        {
-          "src/module.ts": "export const value = 42;\n",
-        }
-      );
+      `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
-        false
-      );
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
     });
 
     it("rejects dynamic import() in side-effect form", () => {
@@ -145,24 +130,17 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN2001", 'await import("./local-module.js")')
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
     });
 
-    it("allows awaited dynamic import() in relative side-effect form", () => {
-      const result = runValidationInTempProject(
-        `
+    it("rejects awaited dynamic import() in side-effect form", () => {
+      const result = runValidation(`
         async function load() {
           await import("./module.js");
         }
-      `,
-        {
-          "src/module.ts": "export class Box {}\n",
-        }
-      );
+      `);
 
-      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
     });
 
     it("rejects dynamic import() side-effect form with non-literal specifier", () => {
@@ -172,27 +150,7 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN2001", "string-literal specifiers")
-      ).to.equal(true);
-    });
-
-    it("rejects dynamic import() value usage when runtime exports are not deterministically representable", () => {
-      const result = runValidationInTempProject(
-        `
-        async function load() {
-          const module = await import("./module.js");
-          return module.Box;
-        }
-      `,
-        {
-          "src/module.ts": "export class Box {}\n",
-        }
-      );
-
-      expect(hasDiagnostic(result, "TSN2001", "Unsupported export")).to.equal(
-        true
-      );
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
     });
 
     it("rejects awaited dynamic import() with bare package specifier", () => {
@@ -205,6 +163,118 @@ describe("validateUnsupportedFeatures", () => {
       expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
         true
       );
+    });
+
+    it("rejects the JavaScript in operator", () => {
+      const result = runValidation(`
+        export function hasName(value: { name?: string }): boolean {
+          return "name" in value;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "'in' operator")).to.equal(true);
+    });
+
+    it("rejects TypeScript public class modifiers", () => {
+      const result = runValidation(`
+        export class User {
+          public name: string = "";
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "class modifier 'public'")
+      ).to.equal(true);
+    });
+
+    it("rejects TypeScript private class modifiers", () => {
+      const result = runValidation(`
+        export class User {
+          private name: string = "";
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "class modifier 'private'")
+      ).to.equal(true);
+    });
+
+    it("rejects TypeScript protected class modifiers", () => {
+      const result = runValidation(`
+        export class User {
+          protected getName(): string {
+            return "";
+          }
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "class modifier 'protected'")
+      ).to.equal(true);
+    });
+
+    it("rejects TypeScript readonly class field modifiers", () => {
+      const result = runValidation(`
+        export class User {
+          readonly id: string = "";
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "class modifier 'readonly'")
+      ).to.equal(true);
+    });
+
+    it("rejects TypeScript abstract class modifiers", () => {
+      const result = runValidation(`
+        export abstract class Base {
+          abstract run(): void;
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "class modifier 'abstract'")
+      ).to.equal(true);
+    });
+
+    it("rejects TypeScript constructor parameter properties", () => {
+      const result = runValidation(`
+        export class User {
+          constructor(readonly name: string) {}
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "constructor parameter properties")
+      ).to.equal(true);
+    });
+
+    it("allows ECMAScript private fields", () => {
+      const result = runValidation(`
+        export class User {
+          #name: string = "";
+
+          getName(): string {
+            return this.#name;
+          }
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "class modifier")).to.equal(
+        false
+      );
+    });
+
+    it("allows readonly type-only members", () => {
+      const result = runValidation(`
+        interface User {
+          readonly id: string;
+        }
+        const user: User = { id: "u1" };
+        console.log(user.id);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "readonly")).to.equal(false);
     });
 
     it("does not reject static import declarations", () => {

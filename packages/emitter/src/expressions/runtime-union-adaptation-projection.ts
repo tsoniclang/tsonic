@@ -19,7 +19,7 @@ import {
   isBroadObjectPassThroughType,
   isBroadObjectSlotType,
   normalizeBroadObjectSinkType,
-} from "../core/semantic/js-value-types.js";
+} from "../core/semantic/broad-object-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 
 const isRuntimeUnionMemberProjectionAst = (
@@ -166,7 +166,17 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     projectionExpectedType,
     context
   );
-  if (normalizedExpected.kind === "unionType") {
+  const expectedOwnsRuntimeCarrier =
+    projectionExpectedType.kind === "unionType" &&
+    typeof projectionExpectedType.runtimeCarrierFamilyKey === "string" &&
+    projectionExpectedType.runtimeCarrierFamilyKey.length > 0;
+  if (
+    (projectionExpectedType.kind === "unionType" &&
+      !expectedOwnsRuntimeCarrier) ||
+    (normalizedExpected.kind === "unionType" &&
+      projectionExpectedType.kind !== "referenceType" &&
+      !expectedOwnsRuntimeCarrier)
+  ) {
     return undefined;
   }
 

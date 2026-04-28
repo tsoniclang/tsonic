@@ -100,6 +100,11 @@ export type CSharpObjectCreationExpressionAst = {
   readonly initializer?: readonly CSharpExpressionAst[];
 };
 
+export type CSharpAnonymousObjectCreationExpressionAst = {
+  readonly kind: "anonymousObjectCreationExpression";
+  readonly initializer: readonly CSharpExpressionAst[];
+};
+
 export type CSharpArrayCreationExpressionAst = {
   readonly kind: "arrayCreationExpression";
   readonly elementType: CSharpTypeAst;
@@ -280,6 +285,7 @@ export type CSharpExpressionAst =
   | CSharpImplicitElementAccessExpressionAst
   | CSharpInvocationExpressionAst
   | CSharpObjectCreationExpressionAst
+  | CSharpAnonymousObjectCreationExpressionAst
   | CSharpArrayCreationExpressionAst
   | CSharpStackAllocArrayCreationExpressionAst
   | CSharpAssignmentExpressionAst

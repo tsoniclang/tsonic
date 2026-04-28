@@ -6,7 +6,11 @@ class Key {
 }
 
 class Key2 {
-  constructor(public RevokedAt?: long) {}
+  RevokedAt?: long;
+
+  constructor(RevokedAt?: long) {
+    this.RevokedAt = RevokedAt;
+  }
 }
 
 export function main(): void {

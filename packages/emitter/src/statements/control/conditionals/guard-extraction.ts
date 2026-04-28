@@ -29,13 +29,12 @@ import {
 } from "./branch-context.js";
 import {
   buildRuntimeUnionComplementBinding,
-  buildRuntimeUnionSubsetBinding,
   resolveRuntimeSubsetSourceInfo,
 } from "../../../core/semantic/narrowing-builders.js";
 import {
   isBroadObjectSlotType,
   isJsValueReferenceType,
-} from "../../../core/semantic/js-value-types.js";
+} from "../../../core/semantic/broad-object-types.js";
 import { getContextualTypeVisitKey } from "../../../core/semantic/deterministic-type-keys.js";
 
 export const isArrayLikeNarrowingCandidate = (
@@ -94,12 +93,12 @@ const canNarrowBroadRuntimeValueToArray = (
   );
 };
 
-const JS_VALUE_ARRAY_TYPE: IrType = {
+const BROAD_OBJECT_ARRAY_TYPE: IrType = {
   kind: "arrayType",
   elementType: {
     kind: "referenceType",
-    name: "JsValue",
-    resolvedClrType: "Tsonic.Runtime.JsValue",
+    name: "object",
+    resolvedClrType: "global::System.Object",
   },
 };
 
@@ -119,7 +118,9 @@ export const narrowTypeByArrayShape = (
       const isArrayLike = isArrayLikeNarrowingCandidate(member, context);
       return wantArray ? isArrayLike : !isArrayLike;
     });
-    const narrowed = hasBroadArrayFallback ? [...kept, JS_VALUE_ARRAY_TYPE] : kept;
+    const narrowed = hasBroadArrayFallback
+      ? [...kept, BROAD_OBJECT_ARRAY_TYPE]
+      : kept;
     if (narrowed.length === 0) return undefined;
     if (narrowed.length === 1) return narrowed[0];
     return normalizedUnionType(narrowed);
@@ -135,7 +136,7 @@ export const narrowTypeByArrayShape = (
       isBroadJsValueType(resolved) ||
       isBroadObjectSlotType(resolved, context)
     ) {
-      return JS_VALUE_ARRAY_TYPE;
+      return BROAD_OBJECT_ARRAY_TYPE;
     }
     return isArrayLike ? resolved : undefined;
   }
@@ -249,7 +250,7 @@ export type TypeofGuardRefinement = {
   readonly matchTag: boolean;
 };
 
-const tryExtractDirectTypeofGuard = (
+export const tryExtractDirectTypeofGuard = (
   expr: Extract<IrStatement, { kind: "ifStatement" }>["condition"]
 ):
   | {
@@ -369,6 +370,13 @@ export const applyTypeofGuardRefinements = (
     if (!narrowedType) {
       continue;
     }
+    if (
+      currentType &&
+      getContextualTypeVisitKey(currentType, currentContext) ===
+        getContextualTypeVisitKey(narrowedType, currentContext)
+    ) {
+      continue;
+    }
 
     const [rawTargetAst, rawTargetContext] = emitExpressionAst(
       refinement.targetExpr,
@@ -419,33 +427,15 @@ export const applyTypeofGuardRefinements = (
                 currentContext
               )
             : undefined;
-        const subsetBinding = buildRuntimeUnionSubsetBinding(
-          rawTargetAst,
-          runtimeUnionFrame,
-          existingBinding?.sourceType ??
-            existingBinding?.type ??
-            currentType ??
-            narrowedType,
-          narrowedType,
-          rawTargetContext,
-          sourceInfo
-        );
-        if (subsetBinding) {
-          const [binding, subsetContext] = subsetBinding;
-          nextBindings.set(refinement.bindingKey, binding);
-          currentContext = {
-            ...subsetContext,
-            narrowedBindings: nextBindings,
-          };
-          continue;
-        }
-
         nextBindings.set(
           refinement.bindingKey,
           buildProjectedExprBinding(
             buildUnionNarrowAst(rawTargetAst, memberN),
             memberType,
-            currentType,
+            sourceInfo?.sourceType ??
+              existingBinding?.sourceType ??
+              existingBinding?.type ??
+              currentType,
             rawTargetAst
           )
         );

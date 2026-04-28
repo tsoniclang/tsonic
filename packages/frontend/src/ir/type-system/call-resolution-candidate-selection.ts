@@ -21,6 +21,10 @@ import {
   normalizeToNominal,
   stripTsonicExtensionWrappers,
 } from "./type-system-state-helpers.js";
+import {
+  getIterableShape,
+  getKnownIterableCarrierMode,
+} from "./iterable-type-shapes.js";
 
 type CandidateSelection = {
   readonly sigId: SignatureId | undefined;
@@ -39,6 +43,7 @@ type ScoredCandidate = {
 };
 
 type CandidateScore = readonly [
+  number,
   number,
   number,
   number,
@@ -516,6 +521,40 @@ const countBroadNumberExplicitlyAcceptedArguments = (
   return compatible;
 };
 
+const countIterableCarrierCompatibleArguments = (
+  state: TypeSystemState,
+  resolved: ResolvedCall,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  let compatible = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    resolved.parameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const parameterType = resolved.parameterTypes[index];
+    const argumentType = argTypes[index];
+    if (!parameterType || !argumentType) {
+      continue;
+    }
+
+    const parameterMode = getKnownIterableCarrierMode(state, parameterType);
+    if (!parameterMode) {
+      continue;
+    }
+
+    const argumentShape = getIterableShape(state, argumentType);
+    if (argumentShape?.mode === parameterMode) {
+      compatible += 1;
+    }
+  }
+
+  return compatible;
+};
+
 const countExactFunctionArityMatches = (
   state: TypeSystemState,
   resolved: ResolvedCall,
@@ -617,6 +656,17 @@ const buildCandidateScore = (
         argumentCount
       )
     : 0;
+  const iterableCarrierCompatibleArgumentCount = argTypes
+    ? countIterableCarrierCompatibleArguments(
+        state,
+        {
+          ...resolved,
+          parameterTypes: participatingParameterTypes,
+        },
+        participatingArgTypes ?? [],
+        argumentCount
+      )
+    : 0;
   const exactFunctionArityMatches = argTypes
     ? countExactFunctionArityMatches(
         state,
@@ -656,6 +706,7 @@ const buildCandidateScore = (
     receiverCompatibilityScore,
     broadNumberIndependentCompatibleArgumentCount,
     broadNumberExplicitlyAcceptedArgumentCount,
+    iterableCarrierCompatibleArgumentCount,
     compatibleArgumentCount,
     exactFunctionArityMatches,
     exactArityNonRest,

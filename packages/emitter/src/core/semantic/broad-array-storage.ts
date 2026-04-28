@@ -1,6 +1,6 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import { isBroadObjectSlotType } from "./js-value-types.js";
+import { isBroadObjectSlotType } from "./broad-object-types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
 import {
   getArrayLikeElementType,
@@ -87,9 +87,7 @@ export const isBroadValueCarrierType = (
 
   if (
     type.kind === "referenceType" &&
-    (type.name === "JsValue" ||
-      type.typeId?.tsName === "JsValue" ||
-      isBroadObjectSlotType(type, context))
+    isBroadObjectSlotType(type, context)
   ) {
     return true;
   }

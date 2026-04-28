@@ -38,9 +38,7 @@ const referenceTypesHaveExactRuntimeIdentity = (
     return false;
   }
 
-  if (
-    referenceTypesHaveNominalIdentity(resolvedLeft, resolvedRight, context)
-  ) {
+  if (referenceTypesHaveNominalIdentity(resolvedLeft, resolvedRight, context)) {
     return referenceTypesShareNominalIdentity(
       resolvedLeft,
       resolvedRight,

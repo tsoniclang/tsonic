@@ -34,7 +34,6 @@ import {
   emitBranchScopedStatementAst,
 } from "./branch-context.js";
 import {
-  tryEmitInGuard,
   tryEmitPropertyTruthinessGuard,
   tryEmitDiscriminantEqualityGuard,
 } from "./if-emit-union-guards.js";
@@ -53,12 +52,6 @@ export const emitIfStatementAst = (
   stmt: Extract<IrStatement, { kind: "ifStatement" }>,
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
-  // Case A3: In guard ("error" in auth)
-  {
-    const result = tryEmitInGuard(stmt, context);
-    if (result) return result;
-  }
-
   // Case A3a: Property truthiness guard (result.success)
   {
     const result = tryEmitPropertyTruthinessGuard(stmt, context);

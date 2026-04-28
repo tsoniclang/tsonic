@@ -6,7 +6,7 @@
  */
 
 import { IrExpression } from "@tsonic/frontend";
-import { EmitterContext } from "../types.js";
+import { contextSurfaceIncludesJs, EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { resolveArrayLikeReceiverType } from "../core/semantic/type-resolution.js";
 import { resolveTypeMemberKind } from "../core/semantic/member-surfaces.js";
@@ -77,6 +77,16 @@ export const tryEmitMemberBindingAccess = (
   const sourcePropertyName =
     typeof expr.property === "string" ? expr.property : member;
   const arrayLikeReceiver = resolveArrayLikeReceiverType(receiverType, context);
+  const directReceiverStorageType =
+    usage === "value" &&
+    typeof expr.property === "string" &&
+    isLengthPropertyName(expr.property)
+      ? resolveDirectStorageIrType(expr.object, context)
+      : undefined;
+  const directArrayLikeReceiver = resolveArrayLikeReceiverType(
+    directReceiverStorageType,
+    context
+  );
   const hasArrayLikeBindingHint =
     bindingTypeLeaf === "Array" ||
     bindingTypeLeaf === "ReadonlyArray" ||
@@ -133,9 +143,25 @@ export const tryEmitMemberBindingAccess = (
     bindingTargetsStringLength &&
     ((receiverHasDeterministicMember &&
       !isStringReceiverType(receiverType, context)) ||
+      directArrayLikeReceiver ||
       emittedReceiverIsConcreteNonString)
   ) {
     return undefined;
+  }
+  if (
+    usage === "value" &&
+    typeof expr.property === "string" &&
+    isLengthPropertyName(expr.property) &&
+    contextSurfaceIncludesJs(context) &&
+    directArrayLikeReceiver
+  ) {
+    const [objectAst, withObject] = emitExpressionAst(expr.object, context);
+    return tryEmitJsSurfaceArrayLikeLengthAccess(
+      expr,
+      objectAst,
+      directReceiverStorageType,
+      withObject
+    );
   }
   if (
     usage === "value" &&
@@ -151,7 +177,7 @@ export const tryEmitMemberBindingAccess = (
     usage === "value" &&
     typeof expr.property === "string" &&
     isLengthPropertyName(expr.property) &&
-    context.options.surface === "@tsonic/js" &&
+    contextSurfaceIncludesJs(context) &&
     !expr.memberBinding.isExtensionMethod &&
     !hasSourceDeclaredReceiverMember &&
     (arrayLikeReceiver || hasArrayLikeBindingHint)
@@ -359,17 +385,19 @@ export const tryEmitMemberBindingAccess = (
       expr.object.kind === "asinterface" ? transparentReceiver : undefined;
     const receiverForEmission =
       erasedAsInterfaceReceiver ??
-      (transparentReceiverAlreadyExposesMember ? transparentReceiver : undefined);
+      (transparentReceiverAlreadyExposesMember
+        ? transparentReceiver
+        : undefined);
     const [objectAst, newContext] =
       receiverForEmission !== undefined
         ? emitExpressionAst(receiverForEmission, context)
         : emitExpressionAst(expr.object, context);
     const receiverSourceExpr =
-      receiverForEmission !== undefined
-        ? receiverForEmission
-        : expr.object;
+      receiverForEmission !== undefined ? receiverForEmission : expr.object;
     const receiverMaterializationType =
-      erasedAsInterfaceReceiver !== undefined ? transparentReceiverType : receiverType;
+      erasedAsInterfaceReceiver !== undefined
+        ? transparentReceiverType
+        : receiverType;
     const receiverStorageType = resolveDirectStorageIrType(
       receiverSourceExpr,
       context

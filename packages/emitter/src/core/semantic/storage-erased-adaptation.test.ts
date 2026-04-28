@@ -274,7 +274,10 @@ describe("storage-erased-adaptation", () => {
   });
 
   it("materializes nullable exact numeric storage before exact-value assignments", () => {
-    const context = createContext({ rootNamespace: "Test", surface: "@tsonic/js" });
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
 
     const result = adaptStorageErasedValueAst({
       valueAst: identifierExpression("value"),

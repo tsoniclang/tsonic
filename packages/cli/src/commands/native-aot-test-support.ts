@@ -1,10 +1,5 @@
 import { spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Context } from "mocha";
@@ -39,7 +34,7 @@ const formatProcessFailure = (
   command: string,
   output: {
     readonly status: number | null;
-    readonly signal: NodeJS.Signals | null;
+    readonly signal: string | null;
     readonly stdout?: string | Buffer | null;
     readonly stderr?: string | Buffer | null;
     readonly error?: Error;

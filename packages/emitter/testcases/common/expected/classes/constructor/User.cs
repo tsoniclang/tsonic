@@ -6,18 +6,18 @@ namespace TestCases.common.classes.constructor
 
         public string email { get; set; }
 
-        private string password { get; set; }
+        private string __private_password;
 
         public User(string name, string email, string password)
         {
             this.name = name;
             this.email = email;
-            this.password = password;
+            this.__private_password = password;
         }
 
         public bool authenticate(string input)
         {
-            return input == this.password;
+            return input == this.__private_password;
         }
     }
 }

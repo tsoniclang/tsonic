@@ -48,7 +48,7 @@ The resolver handles:
 - CLR binding packages
 - source-package imports
 - package-manifest overlays
-- deterministic closed-world dynamic imports
+- static ESM import graphs
 
 ## Stage 4: validation
 
@@ -60,6 +60,9 @@ Validation enforces:
 - generic/runtime-shape determinism
 - object-literal runtime constraints
 - package-manifest correctness
+- rejection of runtime dynamic constructs such as `typeof`, `Array.isArray`,
+  dynamic `import()`, `import.meta`, `globalThis`, `delete`, `for...in`, and
+  JavaScript `in`
 
 ## Stage 5: IR
 

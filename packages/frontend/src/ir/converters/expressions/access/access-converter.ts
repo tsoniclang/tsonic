@@ -27,19 +27,37 @@ import {
   resolveHierarchicalBindingFromMemberId,
   resolveExtensionMethodsBinding,
 } from "./binding-resolution.js";
-import { createDiagnostic } from "../../../../types/diagnostic.js";
-import {
-  SUPPORTED_IMPORT_META_FIELDS,
-  tryConvertImportMetaProperty,
-} from "../import-meta.js";
 import {
   isWellKnownSymbolPropertyName,
   tryResolveDeterministicPropertyNameFromExpression,
 } from "../../../syntax/property-names.js";
-import {
-  tryGetObjectLiteralMethodArgumentCapture,
-  tryGetObjectLiteralMethodArgumentsLength,
-} from "../../../../object-literal-method-runtime.js";
+
+const typeHasClrIdentity = (
+  type: IrExpression["inferredType"] | undefined
+): boolean => {
+  if (!type) return false;
+  switch (type.kind) {
+    case "referenceType":
+      return !!type.resolvedClrType || !!type.typeId?.clrName;
+    case "unionType":
+    case "intersectionType":
+      return type.types.some(typeHasClrIdentity);
+    case "arrayType":
+      return typeHasClrTypeIdentity(type.elementType);
+    case "tupleType":
+      return type.elementTypes.some(typeHasClrTypeIdentity);
+    default:
+      return false;
+  }
+};
+
+const typeHasClrTypeIdentity = (
+  type: NonNullable<IrExpression["inferredType"]>
+): boolean => typeHasClrIdentity(type);
+
+const expressionHasClrIdentity = (expr: IrExpression): boolean =>
+  ("resolvedClrType" in expr && typeof expr.resolvedClrType === "string") ||
+  typeHasClrIdentity(expr.inferredType);
 
 /**
  * Convert property access or element access expression
@@ -52,43 +70,6 @@ export const convertMemberExpression = (
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
-    const importMetaExpr = tryConvertImportMetaProperty(node, ctx);
-    if (importMetaExpr) return importMetaExpr;
-    const objectMethodArgumentsLength =
-      tryGetObjectLiteralMethodArgumentsLength(node);
-    if (objectMethodArgumentsLength !== undefined) {
-      return {
-        kind: "literal",
-        value: objectMethodArgumentsLength,
-        raw: String(objectMethodArgumentsLength),
-        inferredType: { kind: "primitiveType", name: "int" },
-        sourceSpan,
-      };
-    }
-    if (
-      ts.isMetaProperty(node.expression) &&
-      node.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
-      node.expression.name.text === "meta" &&
-      !SUPPORTED_IMPORT_META_FIELDS.has(node.name.text)
-    ) {
-      ctx.diagnostics.push(
-        createDiagnostic(
-          "TSN2001",
-          "error",
-          `import.meta.${node.name.text} is not supported in strict AOT mode`,
-          getSourceSpan(node),
-          "Supported fields: import.meta.url, import.meta.filename, import.meta.dirname"
-        )
-      );
-      return {
-        kind: "literal",
-        value: undefined,
-        raw: "undefined",
-        inferredType: { kind: "primitiveType", name: "undefined" },
-        sourceSpan,
-      };
-    }
-
     const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
     const currentReceiverType = getCurrentTypeForAccessExpression(
@@ -117,6 +98,12 @@ export const convertMemberExpression = (
         : undefined;
 
     // Try to resolve hierarchical binding
+    const hierarchicalMemberBinding =
+      exactMemberId === undefined ||
+      (exactMemberBinding === undefined &&
+        expressionHasClrIdentity(bindingResolutionObject))
+        ? resolveHierarchicalBinding(bindingResolutionObject, propertyName, ctx)
+        : undefined;
     const memberBinding =
       resolveExtensionMethodsBinding(
         node,
@@ -125,16 +112,14 @@ export const convertMemberExpression = (
         ctx
       ) ??
       exactMemberBinding ??
-      (exactMemberId === undefined
-        ? resolveHierarchicalBinding(bindingResolutionObject, propertyName, ctx)
-        : undefined);
+      hierarchicalMemberBinding;
 
     // DETERMINISTIC TYPING: Property type comes from explicit TypeSystem queries only.
     //
     // The receiver's inferredType enables NominalEnv to walk inheritance chains
     // and substitute type parameters correctly for inherited generic members.
     //
-    // Built-ins like string.length work because globals declare them with proper types.
+    // Surface members work only when the active surface declares them with proper types.
     // If getDeclaredPropertyType returns undefined, it means the property declaration
     // is missing - use unknownType as poison so validation can emit TSN5203.
     //
@@ -161,10 +146,10 @@ export const convertMemberExpression = (
         ?.types.some((t) => t.alias === propertyName) === true;
 
     // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
-    // The emitter uses memberBinding separately for C# casing (e.g., length -> Length).
+    // The emitter uses memberBinding separately for C# member naming.
     //
     // Priority order for inferredType:
-    // 1. If declaredType exists, use it (covers built-ins like string.length -> int)
+    // 1. If declaredType exists, use it.
     // 2. If memberBinding exists but no declaredType, use undefined (pure CLR-bound)
     // 3. Otherwise, poison with unknownType for validation (TSN5203)
     //
@@ -209,24 +194,6 @@ export const convertMemberExpression = (
       inferredType: propertyInferredType,
     };
   } else {
-    const objectMethodArgumentCapture =
-      tryGetObjectLiteralMethodArgumentCapture(node);
-    if (objectMethodArgumentCapture) {
-      const inferredType = objectMethodArgumentCapture.parameter.type
-        ? ctx.typeSystem.typeFromSyntax(
-            ctx.binding.captureTypeSyntax(
-              objectMethodArgumentCapture.parameter.type
-            )
-          )
-        : undefined;
-      return {
-        kind: "identifier",
-        name: objectMethodArgumentCapture.tempName,
-        inferredType,
-        sourceSpan,
-      };
-    }
-
     // Element access (computed): obj[expr]
     const object = convertExpression(node.expression, ctx, undefined);
 

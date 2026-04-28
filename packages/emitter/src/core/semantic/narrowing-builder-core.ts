@@ -6,11 +6,7 @@
  * nullish guard construction/stripping, and type-narrowing predicates.
  */
 
-import {
-  IrExpression,
-  IrType,
-  normalizedUnionType,
-} from "@tsonic/frontend";
+import { IrExpression, IrType, normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext, NarrowedBinding } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
@@ -30,11 +26,6 @@ import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
 } from "./runtime-reification.js";
-import {
-  isBroadObjectSlotType,
-  isJsValueReferenceType,
-} from "./js-value-types.js";
-import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
 
 export type BranchTruthiness = "truthy" | "falsy";
 
@@ -333,165 +324,6 @@ export const tryStripConditionalNullishGuardAst = (
   }
 
   return current.whenFalse;
-};
-
-export const isArrayLikeNarrowingCandidate = (
-  type: IrType,
-  context: EmitterContext
-): boolean => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (resolved.kind === "arrayType" || resolved.kind === "tupleType") {
-    return true;
-  }
-  if (
-    resolved.kind === "referenceType" &&
-    (resolved.name === "Array" || resolved.name === "ReadonlyArray")
-  ) {
-    return true;
-  }
-  return false;
-};
-
-const hasArrayLikeNarrowingCandidate = (
-  type: IrType,
-  context: EmitterContext,
-  seen = new Set<string>()
-): boolean => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (isArrayLikeNarrowingCandidate(resolved, context)) {
-    return true;
-  }
-  if (resolved.kind !== "unionType") {
-    return false;
-  }
-
-  const key = getContextualTypeVisitKey(resolved, context);
-  if (seen.has(key)) {
-    return false;
-  }
-  const nextSeen = new Set(seen);
-  nextSeen.add(key);
-  return resolved.types.some((member) =>
-    hasArrayLikeNarrowingCandidate(member, context, nextSeen)
-  );
-};
-
-const isBroadJsValueType = (type: IrType): boolean =>
-  isJsValueReferenceType(type);
-
-const canNarrowBroadRuntimeValueToArray = (
-  type: IrType,
-  context: EmitterContext,
-  seen = new Set<string>()
-): boolean => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  const key = getContextualTypeVisitKey(resolved, context);
-  if (seen.has(key)) {
-    return false;
-  }
-
-  if (
-    resolved.kind === "unknownType" ||
-    resolved.kind === "anyType" ||
-    resolved.kind === "objectType" ||
-    (resolved.kind === "referenceType" && resolved.name === "object") ||
-    isBroadJsValueType(resolved) ||
-    isBroadObjectSlotType(resolved, context)
-  ) {
-    return true;
-  }
-
-  if (resolved.kind !== "unionType") {
-    return false;
-  }
-
-  const nextSeen = new Set(seen);
-  nextSeen.add(key);
-  return resolved.types.some(
-    (member) =>
-      !!member &&
-      !isArrayLikeNarrowingCandidate(member, context) &&
-      canNarrowBroadRuntimeValueToArray(member, context, nextSeen)
-  );
-};
-
-const JS_VALUE_ARRAY_TYPE: IrType = {
-  kind: "arrayType",
-  elementType: {
-    kind: "referenceType",
-    name: "JsValue",
-    resolvedClrType: "Tsonic.Runtime.JsValue",
-  },
-};
-
-export const narrowTypeByArrayShape = (
-  currentType: IrType | undefined,
-  wantArray: boolean,
-  context: EmitterContext,
-  seen = new Set<string>()
-): IrType | undefined => {
-  if (!currentType) return undefined;
-
-  const resolved = resolveTypeAlias(stripNullish(currentType), context);
-  if (resolved.kind === "unionType") {
-    const key = getContextualTypeVisitKey(resolved, context);
-    if (seen.has(key)) {
-      return undefined;
-    }
-    const nextSeen = new Set(seen);
-    nextSeen.add(key);
-    const hasBroadArrayFallback =
-      wantArray && canNarrowBroadRuntimeValueToArray(resolved, context, seen);
-    const kept = resolved.types.flatMap((member): readonly IrType[] => {
-      if (!member) return [];
-      const isArrayLike = isArrayLikeNarrowingCandidate(member, context);
-      if (isArrayLike) {
-        return wantArray ? [member] : [];
-      }
-
-      const resolvedMember = resolveTypeAlias(stripNullish(member), context);
-      if (resolvedMember.kind === "unionType") {
-        const nested = narrowTypeByArrayShape(
-          member,
-          wantArray,
-          context,
-          nextSeen
-        );
-        if (!nested) {
-          return [];
-        }
-        if (
-          !wantArray &&
-          !hasArrayLikeNarrowingCandidate(resolvedMember, context, nextSeen)
-        ) {
-          return [member];
-        }
-        return [nested];
-      }
-
-      return wantArray ? [] : [member];
-    });
-    const narrowed = hasBroadArrayFallback ? [...kept, JS_VALUE_ARRAY_TYPE] : kept;
-    if (narrowed.length === 0) return undefined;
-    if (narrowed.length === 1) return narrowed[0];
-    return normalizedUnionType(narrowed);
-  }
-
-  const isArrayLike = isArrayLikeNarrowingCandidate(resolved, context);
-  if (wantArray) {
-    if (
-      resolved.kind === "unknownType" ||
-      resolved.kind === "anyType" ||
-      resolved.kind === "objectType" ||
-      (resolved.kind === "referenceType" && resolved.name === "object") ||
-      isBroadJsValueType(resolved) ||
-      isBroadObjectSlotType(resolved, context)
-    ) {
-      return JS_VALUE_ARRAY_TYPE;
-    }
-    return isArrayLike ? resolved : undefined;
-  }
-  return isArrayLike ? undefined : resolved;
 };
 
 export const narrowTypeByNotAssignableTarget = (

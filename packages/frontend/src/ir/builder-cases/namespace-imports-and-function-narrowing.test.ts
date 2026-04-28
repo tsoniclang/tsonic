@@ -139,112 +139,6 @@ describe("IR Builder", function () {
       }
     });
 
-    it("preserves Array.isArray fallthrough narrowing after early-return array branches in function declarations", () => {
-      const fixture = createFilesystemTestProgram(
-        {
-          "src/index.ts": [
-            "declare function takesString(value: string): void;",
-            "",
-            "export function appendHeader(value: string | string[]): string {",
-            "  if (Array.isArray(value)) {",
-            '    return value.join("|");',
-            "  }",
-            "  takesString(value);",
-            "  return value;",
-            "}",
-          ].join("\n"),
-        },
-        "src/index.ts"
-      );
-
-      try {
-        const result = buildIrModule(
-          fixture.sourceFile,
-          fixture.testProgram,
-          fixture.options,
-          fixture.ctx
-        );
-
-        expect(result.ok).to.equal(true);
-        if (!result.ok) return;
-
-        const fn = result.value.body.find(
-          (stmt): stmt is IrFunctionDeclaration =>
-            stmt.kind === "functionDeclaration" && stmt.name === "appendHeader"
-        );
-        expect(fn).to.not.equal(undefined);
-        if (!fn) return;
-
-        const callStmt = fn.body.statements.find(
-          (
-            stmt
-          ): stmt is Extract<
-            IrFunctionDeclaration["body"]["statements"][number],
-            { kind: "expressionStatement" }
-          > => stmt.kind === "expressionStatement"
-        );
-        expect(callStmt?.kind).to.equal("expressionStatement");
-        if (
-          !callStmt ||
-          callStmt.kind !== "expressionStatement" ||
-          callStmt.expression.kind !== "call"
-        ) {
-          return;
-        }
-
-        const callArg = callStmt.expression.arguments[0];
-        expect(callArg?.inferredType).to.deep.equal({
-          kind: "primitiveType",
-          name: "string",
-        });
-
-        const returnStmt = fn.body.statements.at(-1);
-        expect(returnStmt?.kind).to.equal("returnStatement");
-        if (
-          !returnStmt ||
-          returnStmt.kind !== "returnStatement" ||
-          !returnStmt.expression
-        ) {
-          return;
-        }
-
-        expect(returnStmt.expression.inferredType).to.deep.equal({
-          kind: "primitiveType",
-          name: "string",
-        });
-
-        const ifStmt = fn.body.statements.find(
-          (
-            stmt
-          ): stmt is Extract<
-            IrFunctionDeclaration["body"]["statements"][number],
-            { kind: "ifStatement" }
-          > => stmt.kind === "ifStatement"
-        );
-        expect(ifStmt?.kind).to.equal("ifStatement");
-        if (!ifStmt || ifStmt.condition.kind !== "call") {
-          return;
-        }
-
-        expect(ifStmt.condition.narrowing?.kind).to.equal("typePredicate");
-        expect(ifStmt.condition.narrowing?.argIndex).to.equal(0);
-        expect(ifStmt.condition.narrowing?.targetType.kind).to.equal(
-          "arrayType"
-        );
-        if (
-          !ifStmt.condition.narrowing ||
-          ifStmt.condition.narrowing.targetType.kind !== "arrayType"
-        ) {
-          return;
-        }
-        expect(ifStmt.condition.narrowing.targetType.elementType).to.deep.equal(
-          { kind: "primitiveType", name: "string" }
-        );
-      } finally {
-        fixture.cleanup();
-      }
-    });
-
     it("preserves instanceof fallthrough narrowing after early-return constructor branches in function declarations", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -617,7 +511,7 @@ describe("IR Builder", function () {
             "",
             "export async function run(flag: boolean): Promise<string> {",
             "  const result = await render(flag);",
-            '  if ("error" in result) {',
+            "  if (!result.success) {",
             "    return result.error;",
             "  }",
             "  return result.rendered;",

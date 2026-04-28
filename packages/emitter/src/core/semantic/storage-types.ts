@@ -156,13 +156,12 @@ const normalizeOutOfScopeTypeParameters = (
       const normalizedTypeArguments = type.typeArguments.map((typeArgument) =>
         normalizeOutOfScopeTypeParameters(typeArgument, context, visited)
       );
-      return normalizedTypeArguments.every(
-        (typeArgument, index) =>
-          typesEquivalent(
-            typeArgument,
-            type.typeArguments?.[index] ?? typeArgument,
-            context
-          )
+      return normalizedTypeArguments.every((typeArgument, index) =>
+        typesEquivalent(
+          typeArgument,
+          type.typeArguments?.[index] ?? typeArgument,
+          context
+        )
       )
         ? type
         : {
@@ -188,7 +187,11 @@ const normalizeOutOfScopeTypeParameters = (
         context,
         visited
       );
-      return typesEquivalent(normalizedElementType, resolved.elementType, context)
+      return typesEquivalent(
+        normalizedElementType,
+        resolved.elementType,
+        context
+      )
         ? resolved
         : {
             ...resolved,
@@ -221,13 +224,12 @@ const normalizeOutOfScopeTypeParameters = (
       const normalizedElementTypes = resolved.elementTypes.map((elementType) =>
         normalizeOutOfScopeTypeParameters(elementType, context, visited)
       );
-      return normalizedElementTypes.every(
-        (elementType, index) =>
-          typesEquivalent(
-            elementType,
-            resolved.elementTypes[index] ?? elementType,
-            context
-          )
+      return normalizedElementTypes.every((elementType, index) =>
+        typesEquivalent(
+          elementType,
+          resolved.elementTypes[index] ?? elementType,
+          context
+        )
       )
         ? resolved
         : {
@@ -244,13 +246,12 @@ const normalizeOutOfScopeTypeParameters = (
       const normalizedTypeArguments = resolved.typeArguments.map((typeArg) =>
         normalizeOutOfScopeTypeParameters(typeArg, context, visited)
       );
-      return normalizedTypeArguments.every(
-        (typeArg, index) =>
-          typesEquivalent(
-            typeArg,
-            resolved.typeArguments?.[index] ?? typeArg,
-            context
-          )
+      return normalizedTypeArguments.every((typeArg, index) =>
+        typesEquivalent(
+          typeArg,
+          resolved.typeArguments?.[index] ?? typeArg,
+          context
+        )
       )
         ? resolved
         : {
@@ -263,9 +264,8 @@ const normalizeOutOfScopeTypeParameters = (
       const normalizedMembers = resolved.types.map((member) =>
         normalizeOutOfScopeTypeParameters(member, context, visited)
       );
-      return normalizedMembers.every(
-        (member, index) =>
-          typesEquivalent(member, resolved.types[index] ?? member, context)
+      return normalizedMembers.every((member, index) =>
+        typesEquivalent(member, resolved.types[index] ?? member, context)
       )
         ? resolved
         : {
@@ -297,15 +297,13 @@ const normalizeOutOfScopeTypeParameters = (
         context,
         visited
       );
-      return normalizedParameters.every(
-        (parameter, index) =>
-          typesEquivalent(
-            parameter.type ?? { kind: "voidType" },
-            resolved.parameters[index]?.type ?? { kind: "voidType" },
-            context
-          )
-      ) &&
-        typesEquivalent(normalizedReturnType, resolved.returnType, context)
+      return normalizedParameters.every((parameter, index) =>
+        typesEquivalent(
+          parameter.type ?? { kind: "voidType" },
+          resolved.parameters[index]?.type ?? { kind: "voidType" },
+          context
+        )
+      ) && typesEquivalent(normalizedReturnType, resolved.returnType, context)
         ? resolved
         : {
             ...resolved,
@@ -318,9 +316,8 @@ const normalizeOutOfScopeTypeParameters = (
       const normalizedMembers = resolved.types.map((member) =>
         normalizeOutOfScopeTypeParameters(member, context, visited)
       );
-      return normalizedMembers.every(
-        (member, index) =>
-          typesEquivalent(member, resolved.types[index] ?? member, context)
+      return normalizedMembers.every((member, index) =>
+        typesEquivalent(member, resolved.types[index] ?? member, context)
       )
         ? resolved
         : {
@@ -358,13 +355,12 @@ export const normalizeRuntimeStorageType = (
       const normalizedTypeArguments = type.typeArguments.map((typeArgument) =>
         normalizeOutOfScopeTypeParameters(typeArgument, context)
       );
-      return normalizedTypeArguments.every(
-        (typeArgument, index) =>
-          typesEquivalent(
-            typeArgument,
-            type.typeArguments?.[index] ?? typeArgument,
-            context
-          )
+      return normalizedTypeArguments.every((typeArgument, index) =>
+        typesEquivalent(
+          typeArgument,
+          type.typeArguments?.[index] ?? typeArgument,
+          context
+        )
       )
         ? type
         : {
@@ -550,7 +546,9 @@ export const normalizeRuntimeStorageType = (
       normalizeRuntimeStorageType(nonNullishMember, context, activeArrayKeys) ??
       nonNullishMember;
 
-    if (typesEquivalent(normalizedNonNullishMember, nonNullishMember, context)) {
+    if (
+      typesEquivalent(normalizedNonNullishMember, nonNullishMember, context)
+    ) {
       return resolved;
     }
 

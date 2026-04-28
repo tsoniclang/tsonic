@@ -1,5 +1,13 @@
-import { getAwaitedIrType, type IrExpression, type IrType } from "@tsonic/frontend";
-import type { EmitterContext, NarrowedBinding } from "../../types.js";
+import {
+  getAwaitedIrType,
+  type IrExpression,
+  type IrType,
+} from "@tsonic/frontend";
+import {
+  contextSurfaceIncludesJs,
+  type EmitterContext,
+  type NarrowedBinding,
+} from "../../types.js";
 import { resolveIdentifierValueSurfaceType } from "./direct-value-surfaces.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
@@ -55,9 +63,7 @@ const pickPreferredCarrierCandidate = (
   candidates.find((candidate) =>
     hasExplicitRuntimeCarrierIdentity(candidate, context)
   ) ??
-  candidates.find(
-    (candidate): candidate is IrType => candidate !== undefined
-  );
+  candidates.find((candidate): candidate is IrType => candidate !== undefined);
 
 const getExpressionSourceBackedReturnType = (
   expr: IrExpression
@@ -90,8 +96,12 @@ const resolveAwaitedDirectReturnType = (
 ): IrType | undefined =>
   pickPreferredCarrierCandidate(
     context,
-    getAwaitedCarrierCandidate(resolveRuntimeCarrierIrType(expr.expression, context)),
-    getAwaitedCarrierCandidate(getExpressionSourceBackedReturnType(expr.expression)),
+    getAwaitedCarrierCandidate(
+      resolveRuntimeCarrierIrType(expr.expression, context)
+    ),
+    getAwaitedCarrierCandidate(
+      getExpressionSourceBackedReturnType(expr.expression)
+    ),
     resolveEffectiveExpressionType(expr, context),
     expr.inferredType
   );
@@ -122,7 +132,7 @@ const resolveMemberAccessStorageType = (
       resolvedMemberOwnerType?.kind === "dictionaryType"
     ) {
       const acceptsMissingValue =
-        expr.isOptional || context.options.surface === "@tsonic/js";
+        expr.isOptional || contextSurfaceIncludesJs(context);
       return (
         getAcceptedSurfaceType(
           resolvedMemberOwnerType.valueType,

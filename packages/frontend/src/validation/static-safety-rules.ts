@@ -3,7 +3,7 @@
  *
  * Contains the main validation visitor and rule implementations for:
  * - TSN7401: 'any' type usage
- * - TSN7402: 'unknown' type usage outside erased overload stubs
+ * - TSN7402: JsValue usage in emitted source code
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
  * - TSN7413: Dictionary key must be string, number, or symbol
@@ -13,9 +13,6 @@
  *
  * This ensures NativeAOT-compatible, predictable-performance output.
  *
- * Note: We intentionally do NOT validate JS built-in usage (arr.map, str.length)
- * or dictionary dot-access patterns. These will fail naturally in C# if used
- * incorrectly, which is an acceptable failure mode.
  */
 
 import * as ts from "typescript";
@@ -122,24 +119,7 @@ export const validateStaticSafety = (
       );
     }
 
-    // TSN7402: Check for explicit 'unknown' type annotations
-    if (
-      node.kind === ts.SyntaxKind.UnknownKeyword &&
-      !isBroadOverloadStubType
-    ) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7402",
-          "error",
-          "'unknown' type is not supported. Provide a concrete type, use JsValue, or keep it only on an erased overload stub implementation signature.",
-          getNodeLocation(sourceFile, node),
-          "Replace 'unknown' with a specific type or JsValue, or keep it only on an erased overload stub implementation signature."
-        )
-      );
-    }
-
-    // TSN7401/TSN7402: Check for broad type assertions
+    // TSN7401: Check for broad type assertions
     const assertionTargetType = getAssertionTargetTypeNode(node);
     if (assertionTargetType?.kind === ts.SyntaxKind.AnyKeyword) {
       currentCollector = addDiagnostic(
@@ -150,19 +130,6 @@ export const validateStaticSafety = (
           "'any' type assertion is not supported. Use a specific type assertion.",
           getNodeLocation(sourceFile, node),
           "Replace this assertion with a specific type like 'as object' or 'as YourType'."
-        )
-      );
-    }
-
-    if (assertionTargetType?.kind === ts.SyntaxKind.UnknownKeyword) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7402",
-          "error",
-          "'unknown' type assertion is not supported. Use a specific type assertion or JsValue.",
-          getNodeLocation(sourceFile, node),
-          "Replace this assertion with a specific type or JsValue."
         )
       );
     }
@@ -266,6 +233,19 @@ export const validateStaticSafety = (
         const name = typeName.text;
         const hasTypeArgs = node.typeArguments && node.typeArguments.length > 0;
 
+        if (name === "JsValue") {
+          currentCollector = addDiagnostic(
+            currentCollector,
+            createDiagnostic(
+              "TSN7402",
+              "error",
+              "JsValue is not supported in emitted Tsonic code.",
+              getNodeLocation(sourceFile, node),
+              "Use a concrete DTO/domain type or generated typed JSON serializer path."
+            )
+          );
+        }
+
         // TSN7419: 'never' cannot be used as a generic type argument.
         //
         // This is airplane-grade: CLR has no bottom type usable as a generic argument.
@@ -298,9 +278,9 @@ export const validateStaticSafety = (
                 createDiagnostic(
                   "TSN7413",
                   "error",
-                  "Dictionary key type must be 'string', 'number', or 'symbol'. Other key types are not supported.",
+                  "Dictionary key type must be 'string' or 'number'. Other key types are not supported.",
                   getNodeLocation(sourceFile, keyTypeNode),
-                  "Use Record<string, V>, Record<number, V>, or Record<symbol, V>."
+                  "Use Record<string, V> or Record<number, V>."
                 )
               );
             }
@@ -310,7 +290,6 @@ export const validateStaticSafety = (
     }
 
     // TSN7413: Check for unsupported index signature key types
-    // string, number, and symbol are allowed (matches TypeScript's PropertyKey constraint)
     if (ts.isIndexSignatureDeclaration(node)) {
       const keyParam = node.parameters[0];
       if (keyParam?.type && !isAllowedKeyType(keyParam.type)) {
@@ -319,9 +298,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7413",
             "error",
-            "Index signature key type must be 'string', 'number', or 'symbol'. Other key types are not supported.",
+            "Index signature key type must be 'string' or 'number'. Other key types are not supported.",
             getNodeLocation(sourceFile, keyParam.type),
-            "Use { [key: string]: V }, { [key: number]: V }, or { [key: symbol]: V }."
+            "Use { [key: string]: V } or { [key: number]: V }."
           )
         );
       }

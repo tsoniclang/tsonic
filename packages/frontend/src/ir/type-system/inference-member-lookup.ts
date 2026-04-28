@@ -36,8 +36,10 @@ import {
   convertTypeNode,
   attachTypeIds,
 } from "./type-system-call-resolution.js";
+import { surfaceIncludesJs } from "../../surface/profiles.js";
 
 const getAmbientInterfaceLookupTarget = (
+  state: TypeSystemState,
   receiver: IrType
 ):
   | {
@@ -45,27 +47,14 @@ const getAmbientInterfaceLookupTarget = (
       readonly typeArguments: readonly IrType[];
     }
   | undefined => {
+  if (!surfaceIncludesJs(state.surfaceCapabilities)) {
+    return undefined;
+  }
+
   if (receiver.kind === "arrayType") {
     return {
       interfaceNames: ["Array", "JSArray_1$instance"],
       typeArguments: [receiver.elementType],
-    };
-  }
-
-  if (receiver.kind === "tupleType") {
-    const tupleMembers = receiver.elementTypes.filter(
-      (element): element is IrType => element !== undefined
-    );
-    const onlyTupleMember = tupleMembers[0];
-    return {
-      interfaceNames: ["Array", "JSArray_1$instance"],
-      typeArguments: [
-        tupleMembers.length === 0
-          ? { kind: "unknownType" }
-          : tupleMembers.length === 1 && onlyTupleMember
-            ? onlyTupleMember
-            : { kind: "unionType", types: tupleMembers },
-      ],
     };
   }
 
@@ -289,181 +278,12 @@ const flattenCallableAmbientType = (
   return [];
 };
 
-const getArrayRuntimeElementType = (receiver: IrType): IrType | undefined => {
-  if (receiver.kind === "arrayType") {
-    return receiver.elementType;
-  }
-
-  if (receiver.kind === "tupleType") {
-    const tupleMembers = receiver.elementTypes.filter(
-      (element): element is IrType => element !== undefined
-    );
-    const onlyTupleMember = tupleMembers[0];
-    if (tupleMembers.length === 0) {
-      return { kind: "unknownType" };
-    }
-    if (tupleMembers.length === 1 && onlyTupleMember) {
-      return onlyTupleMember;
-    }
-    return { kind: "unionType", types: tupleMembers };
-  }
-
-  return undefined;
-};
-
-const makeValueParameter = (
-  name: string,
-  type: IrType,
-  isOptional: boolean = false
-): IrParameter => ({
-  kind: "parameter",
-  pattern: {
-    kind: "identifierPattern",
-    name,
-  },
-  type,
-  initializer: undefined,
-  isOptional,
-  isRest: false,
-  passing: "value",
-});
-
-const STRING_IR_TYPE: IrType = { kind: "primitiveType", name: "string" };
-const INT_IR_TYPE: IrType = { kind: "primitiveType", name: "int" };
-
-const lookupJsStringRuntimeMember = (
-  memberName: string
-): IrType | undefined => {
-  if (
-    memberName === "Length" ||
-    memberName === "Count" ||
-    memberName === "length"
-  ) {
-    return INT_IR_TYPE;
-  }
-
-  if (memberName === "charCodeAt" || memberName === "codePointAt") {
-    return {
-      kind: "functionType",
-      parameters: [makeValueParameter("index", INT_IR_TYPE)],
-      returnType: INT_IR_TYPE,
-    };
-  }
-
-  if (memberName === "indexOf" || memberName === "lastIndexOf") {
-    return {
-      kind: "functionType",
-      parameters: [
-        makeValueParameter("searchString", STRING_IR_TYPE),
-        makeValueParameter("position", INT_IR_TYPE, true),
-      ],
-      returnType: INT_IR_TYPE,
-    };
-  }
-
-  if (memberName === "search" || memberName === "localeCompare") {
-    return {
-      kind: "functionType",
-      parameters: [makeValueParameter("value", STRING_IR_TYPE)],
-      returnType: INT_IR_TYPE,
-    };
-  }
-
-  return undefined;
-};
-
-const lookupJsArrayRuntimeMember = (
-  state: TypeSystemState,
-  receiver: IrType,
-  memberName: string
-): IrType | undefined => {
-  const elementType = getArrayRuntimeElementType(receiver);
-  if (!elementType) {
-    return undefined;
-  }
-
-  const runtimeTypeId =
-    state.unifiedCatalog.resolveClrName("Tsonic.Runtime.JSArray`1") ??
-    state.unifiedCatalog.resolveTsName("JSArray_1");
-  if (!runtimeTypeId) {
-    return undefined;
-  }
-
-  const runtimeMember = state.unifiedCatalog.getMember(
-    runtimeTypeId,
-    memberName
-  );
-  if (!runtimeMember) {
-    return undefined;
-  }
-
-  const typeParameters = state.unifiedCatalog.getTypeParameters(runtimeTypeId);
-  const substitution =
-    typeParameters.length === 0
-      ? undefined
-      : new Map<string, IrType>(
-          typeParameters.map((typeParameter, index) => [
-            typeParameter.name,
-            index === 0 ? elementType : ({ kind: "unknownType" } as IrType),
-          ])
-        );
-
-  const memberType = runtimeMember.type;
-  if (memberType) {
-    return attachTypeIds(
-      state,
-      substitution ? irSubstitute(memberType, substitution) : memberType
-    );
-  }
-
-  const signatures = runtimeMember.signatures ?? [];
-  if (signatures.length === 0) {
-    return undefined;
-  }
-
-  const overloadFamily = buildCallableOverloadFamilyType(
-    signatures.map((signature) =>
-      buildFunctionTypeFromSignatureShape(
-        signature.parameters.map((parameter) => ({
-          name: parameter.name,
-          type:
-            substitution && substitution.size > 0
-              ? irSubstitute(parameter.type, substitution)
-              : parameter.type,
-          isOptional: parameter.isOptional,
-          isRest: parameter.isRest,
-          mode: parameter.mode,
-        })),
-        substitution && substitution.size > 0
-          ? irSubstitute(signature.returnType, substitution)
-          : signature.returnType,
-        signature.typeParameters.map((typeParameter) => ({
-          kind: "typeParameter" as const,
-          name: typeParameter.name,
-          constraint: typeParameter.constraint
-            ? substitution && substitution.size > 0
-              ? irSubstitute(typeParameter.constraint, substitution)
-              : typeParameter.constraint
-            : undefined,
-          default: typeParameter.defaultType
-            ? substitution && substitution.size > 0
-              ? irSubstitute(typeParameter.defaultType, substitution)
-              : typeParameter.defaultType
-            : undefined,
-        }))
-      )
-    )
-  );
-
-  return attachTypeIds(state, overloadFamily);
-};
-
 const lookupAmbientInterfaceMember = (
   state: TypeSystemState,
   receiver: IrType,
   memberName: string
 ): IrType | undefined => {
-  const target = getAmbientInterfaceLookupTarget(receiver);
+  const target = getAmbientInterfaceLookupTarget(state, receiver);
   if (!target) {
     return undefined;
   }
@@ -627,79 +447,6 @@ export const resolveMemberTypeNoDiag = (
   receiver: IrType,
   memberName: string
 ): IrType | undefined => {
-  // Built-in dictionary pseudo-members used by TS-side ergonomics.
-  // Record<K, V> lowers to dictionaryType, and callers often use:
-  // - dict.Keys[i]
-  // - dict.Values[i]
-  // - dict.Count / dict.Length
-  //
-  // Resolve these deterministically at TypeSystem level so downstream passes
-  // (numeric proof, element access typing) don't receive unknownType poison.
-  if (receiver.kind === "dictionaryType") {
-    if (memberName === "Keys") {
-      return {
-        kind: "arrayType",
-        elementType: receiver.keyType,
-      };
-    }
-    if (memberName === "Values") {
-      return {
-        kind: "arrayType",
-        elementType: receiver.valueType,
-      };
-    }
-    if (memberName === "Count" || memberName === "Length") {
-      return { kind: "primitiveType", name: "int" };
-    }
-
-    return receiver.valueType;
-  }
-
-  // Built-in array pseudo-members.
-  // Arrays are structural IR types and may not resolve via nominal lookup.
-  //
-  // Support both CLR-style `Length`/`Count` and TS/JS-style `length`.
-  // The latter is required for JS surfaces even when the underlying runtime
-  // value is an explicit CLR array (for example `Encoding.UTF8.GetBytes(...).length`).
-  if (receiver.kind === "arrayType") {
-    if (
-      memberName === "Length" ||
-      memberName === "Count" ||
-      memberName === "length"
-    ) {
-      return { kind: "primitiveType", name: "int" };
-    }
-  }
-
-  const jsArrayRuntimeMember = lookupJsArrayRuntimeMember(
-    state,
-    receiver,
-    memberName
-  );
-  if (jsArrayRuntimeMember) {
-    return jsArrayRuntimeMember;
-  }
-
-  // Tuples behave like fixed-size arrays for length access.
-  if (receiver.kind === "tupleType") {
-    if (
-      memberName === "Length" ||
-      memberName === "Count" ||
-      memberName === "length"
-    ) {
-      return { kind: "primitiveType", name: "int" };
-    }
-  }
-
-  // JavaScript strings expose `.length` as an exact integer at runtime.
-  // Preserve that exactness for numeric proof and source-port ergonomics.
-  if (receiver.kind === "primitiveType" && receiver.name === "string") {
-    const runtimeMember = lookupJsStringRuntimeMember(memberName);
-    if (runtimeMember) {
-      return runtimeMember;
-    }
-  }
-
   if (
     receiver.kind === "referenceType" &&
     receiver.structuralMembers &&

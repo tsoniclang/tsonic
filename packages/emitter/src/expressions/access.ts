@@ -3,13 +3,13 @@
  *
  * Heavy-lifting helpers live in:
  *   - ./access-resolution.ts  (receiver resolution, reification, member names)
- *   - ./access-length.ts      (length/count property access helpers)
+ *   - ./access-length.ts      (JS-surface .length interop)
  *   - ./access-computed.ts    (computed indexing: dict[key], arr[i], str[i])
- *   - ./access-property.ts    (non-computed property access: dict.Keys, .length, etc.)
+ *   - ./access-property.ts    (non-computed declared property access)
  */
 
 import { IrExpression, type IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../types.js";
+import { contextSurfaceIncludesJs, EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
@@ -67,6 +67,10 @@ export const emitMemberAccess = (
   usage: MemberAccessUsage = "value",
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const objectType = resolveEffectiveReceiverType(expr.object, context);
+  const propertyName =
+    typeof expr.property === "string" ? expr.property : undefined;
+
   // Nullable guard narrowing for member-access expressions.
   const narrowKey = context.narrowedBindings
     ? getMemberAccessNarrowKey(expr)
@@ -107,10 +111,6 @@ export const emitMemberAccess = (
       }
     }
   }
-
-  const objectType = resolveEffectiveReceiverType(expr.object, context);
-  const propertyName =
-    typeof expr.property === "string" ? expr.property : undefined;
 
   if (
     !expr.isComputed &&
@@ -158,7 +158,7 @@ export const emitMemberAccess = (
   if (
     !expr.isComputed &&
     usage === "value" &&
-    context.options.surface === "@tsonic/js" &&
+    contextSurfaceIncludesJs(context) &&
     isStringReceiverType(objectType, context) &&
     ((expr.property as string) === "length" ||
       (expr.property as string) === "Length")

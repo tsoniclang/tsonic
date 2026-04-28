@@ -37,10 +37,10 @@ import {
 } from "../syntax/overload-stubs.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 
-const CATCH_VARIABLE_JS_VALUE_TYPE: IrReferenceType = {
+const CATCH_VARIABLE_EXCEPTION_TYPE: IrReferenceType = {
   kind: "referenceType",
-  name: "JsValue",
-  resolvedClrType: "Tsonic.Runtime.JsValue",
+  name: "System.Exception",
+  resolvedClrType: "global::System.Exception",
 };
 
 const isCatchVariableDeclaration = (
@@ -549,7 +549,7 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     if (inferred) {
       result = inferred;
     } else if (isCatchVariableDeclaration(effectiveDeclNode)) {
-      result = CATCH_VARIABLE_JS_VALUE_TYPE;
+      result = CATCH_VARIABLE_EXCEPTION_TYPE;
     } else {
       // Not a simple literal - require explicit type annotation
       emitDiagnostic(
@@ -561,7 +561,7 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     }
   } else {
     if (isCatchVariableDeclaration(effectiveDeclNode)) {
-      result = CATCH_VARIABLE_JS_VALUE_TYPE;
+      result = CATCH_VARIABLE_EXCEPTION_TYPE;
       state.declTypeCache.set(declId.id, result);
       return result;
     }

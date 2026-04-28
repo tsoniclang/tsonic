@@ -39,7 +39,6 @@ export function main(): void {
     set.has(upper),
     p,
     chars.join("-"),
-    Array.isArray(more),
     more.join("-"),
     spreadCopy.join("-"),
     joinedNumber,

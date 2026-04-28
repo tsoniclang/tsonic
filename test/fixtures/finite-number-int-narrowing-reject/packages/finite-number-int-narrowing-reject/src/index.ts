@@ -1,7 +1,7 @@
-import type { int, JsValue } from "@tsonic/core/types.js";
+import type { int } from "@tsonic/core/types.js";
 
-export function toIndex(value: JsValue): int | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+export function toIndex(value: number): int | undefined {
+  if (!Number.isFinite(value)) {
     return undefined;
   }
   return value as int;

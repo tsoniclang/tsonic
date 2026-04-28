@@ -12,7 +12,7 @@ describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("Type access and Records", () => {
-    it("types Record<string, unknown>.Keys as string[] without unknown poison", () => {
+    it("does not synthesize CLR dictionary Keys as an array", () => {
       const source = `
         export function firstKey(settings: Record<string, unknown>): string | undefined {
           const settingsKeys = settings.Keys;
@@ -31,6 +31,8 @@ describe("IR Builder", function () {
       expect(result.ok).to.equal(true);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      expect(ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203"))
+        .to.equal(true);
       if (!result.ok) return;
 
       const fn = result.value.body.find(
@@ -53,13 +55,10 @@ describe("IR Builder", function () {
       const keyInit = keyDecl?.declarations[0]?.initializer;
       expect(keyInit?.kind).to.equal("memberAccess");
       if (!keyInit || keyInit.kind !== "memberAccess") return;
-      expect(keyInit.inferredType).to.deep.equal({
-        kind: "arrayType",
-        elementType: { kind: "primitiveType", name: "string" },
-      });
+      expect(keyInit.inferredType).to.deep.equal({ kind: "unknownType" });
     });
 
-    it("types Record<string, unknown>.Values as unknown[] deterministically", () => {
+    it("does not synthesize CLR dictionary Values as an array", () => {
       const source = `
         export function firstValue(settings: Record<string, unknown>): unknown | undefined {
           const values = settings.Values;
@@ -75,6 +74,8 @@ describe("IR Builder", function () {
       expect(result.ok).to.equal(true);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      expect(ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203"))
+        .to.equal(true);
       if (!result.ok) return;
 
       const fn = result.value.body.find(
@@ -96,10 +97,7 @@ describe("IR Builder", function () {
       const valuesInit = valuesDecl?.declarations[0]?.initializer;
       expect(valuesInit?.kind).to.equal("memberAccess");
       if (!valuesInit || valuesInit.kind !== "memberAccess") return;
-      expect(valuesInit.inferredType).to.deep.equal({
-        kind: "arrayType",
-        elementType: { kind: "unknownType", explicit: true },
-      });
+      expect(valuesInit.inferredType).to.deep.equal({ kind: "unknownType" });
     });
 
     it("allows arbitrary property access on Record<string, unknown> without unknown poison", () => {
@@ -121,12 +119,11 @@ describe("IR Builder", function () {
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
     });
 
-    it("allows declared JsValue members on structural callback parameters", () => {
+    it("allows declared unknown members on structural callback parameters", () => {
       const source = `
-        import type { JsValue } from "@tsonic/core/types.js";
 
         export function project(
-          rawUpdates: { stream_id: string; property: string; value: JsValue }[]
+          rawUpdates: { stream_id: string; property: string; value: unknown }[]
         ): string[] {
           return rawUpdates.map((update) => String(update.value ?? ""));
         }
@@ -141,12 +138,11 @@ describe("IR Builder", function () {
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
     });
 
-    it("allows explicit JsValue nominal members without poisoning property access", () => {
+    it("allows explicit unknown nominal members without poisoning property access", () => {
       const source = `
-        import type { JsValue } from "@tsonic/core/types.js";
 
         class Box {
-          public value: JsValue = null;
+          value: unknown = null;
         }
 
         export function read(box: Box): string {
@@ -240,14 +236,14 @@ describe("IR Builder", function () {
 
     it("treats string-literal element access on narrowed unions like property access", () => {
       const source = `
-        type Err = { error: string; code?: string };
-        type Ok = { events: string[] };
+        type Err = { success: false; error: string; code?: string };
+        type Ok = { success: true; events: string[] };
 
         declare function getEvents(): Err | Ok;
 
         export function run(): string {
           const result = getEvents();
-          if ("error" in result) {
+          if (!result.success) {
             return result["code"] ?? result["error"];
           }
           return result["events"][0] ?? "";
@@ -465,7 +461,7 @@ describe("IR Builder", function () {
       });
     });
 
-    it("types tuple Length access as int without unknown poison", () => {
+    it("does not treat tuples as CLR arrays for Length access", () => {
       const source = `
         export function tupleCount(pair: [string, int]): int {
           return pair.Length;
@@ -479,6 +475,8 @@ describe("IR Builder", function () {
       const result = buildIrModule(sourceFile, testProgram, options, ctx);
       expect(result.ok).to.equal(true);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203"))
+        .to.equal(true);
       if (!result.ok) return;
 
       const fn = result.value.body.find(
@@ -501,8 +499,7 @@ describe("IR Builder", function () {
       expect(returnStmt.expression.kind).to.equal("memberAccess");
       if (returnStmt.expression.kind !== "memberAccess") return;
       expect(returnStmt.expression.inferredType).to.deep.equal({
-        kind: "primitiveType",
-        name: "int",
+        kind: "unknownType",
       });
     });
   });

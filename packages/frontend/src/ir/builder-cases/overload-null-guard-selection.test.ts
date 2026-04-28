@@ -60,7 +60,7 @@ describe("IR Builder", function () {
         import { overloads as O } from "@tsonic/core/lang.js";
 
         class Headers {
-          readonly AllKeys: (string | null)[] | string[] = [];
+          AllKeys: (string | null)[] | string[] = [];
 
           Get(index: number): string | null;
           Get(name: string | null): string | null;
@@ -81,7 +81,7 @@ describe("IR Builder", function () {
         O<Headers>().method(x => x.Get_string).family(x => x.Get);
 
         class Request {
-          public Headers: Headers = new Headers();
+          Headers: Headers = new Headers();
         }
 
         export function run(request: Request): string | null {

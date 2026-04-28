@@ -2,7 +2,6 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../emitter.js";
 import { IrModule } from "@tsonic/frontend";
-import type { TypeMemberKind } from "../emitter-types/core.js";
 
 const makeModule = (body: IrModule["body"]): IrModule => ({
   kind: "module",
@@ -253,49 +252,5 @@ describe("Emitter precedence + parentheses", () => {
     const result = emitModule(module);
     expect(result).to.include("x?.Y.Z");
     expect(result).not.to.include("(x?.Y).Z");
-  });
-
-  it("wraps lowered `in`-guard OR chains so surrounding boolean operators keep meaning", () => {
-    const typeMemberIndex = new Map<string, Map<string, TypeMemberKind>>([
-      ["MyApp.A", new Map<string, TypeMemberKind>([["prop", "property"]])],
-      ["MyApp.B", new Map<string, TypeMemberKind>([["prop", "property"]])],
-    ]);
-
-    const module = makeModule([
-      {
-        kind: "ifStatement",
-        condition: {
-          kind: "logical",
-          operator: "&&",
-          left: {
-            kind: "binary",
-            operator: "in",
-            inferredType: { kind: "primitiveType", name: "boolean" },
-            left: { kind: "literal", value: "prop" },
-            right: {
-              kind: "identifier",
-              name: "x",
-              inferredType: {
-                kind: "unionType",
-                types: [
-                  { kind: "referenceType", name: "MyApp.A" },
-                  { kind: "referenceType", name: "MyApp.B" },
-                ],
-              },
-            },
-          },
-          right: {
-            kind: "identifier",
-            name: "ok",
-            inferredType: { kind: "primitiveType", name: "boolean" },
-          },
-        },
-        thenStatement: { kind: "blockStatement", statements: [] },
-        elseStatement: undefined,
-      },
-    ]);
-
-    const result = emitModule(module, { typeMemberIndex });
-    expect(result).to.include("if ((x.Is1() || x.Is2()) && ok)");
   });
 });

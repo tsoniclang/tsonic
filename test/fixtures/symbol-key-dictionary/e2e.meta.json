@@ -1,3 +1,0 @@
-{
-  "description": "Symbol-key dictionaries lower to Dictionary<object, T> with ContainsKey/Remove semantics."
-}

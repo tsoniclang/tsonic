@@ -18,7 +18,7 @@ import {
   isDefinitelyTerminating,
   resolveRuntimeUnionFrame,
 } from "./guard-analysis.js";
-import { narrowTypeByNotAssignableTarget } from "./guard-extraction.js";
+import { narrowTypeByNotAssignableTarget } from "../../../core/semantic/narrowing-builders.js";
 import {
   buildProjectedExprBinding,
   buildIsNCondition,

@@ -9,7 +9,7 @@
 
 import type { IrType } from "@tsonic/frontend";
 import { normalizedUnionType } from "@tsonic/frontend";
-import type { EmitterContext } from "../../types.js";
+import { contextSurfaceIncludesJs, type EmitterContext } from "../../types.js";
 import { getIdentifierTypeName } from "../format/backend-ast/utils.js";
 import { resolveLocalTypeInfo } from "./property-lookup-resolution.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
@@ -222,13 +222,8 @@ export const getArrayLikeElementType = (
   if (resolved.kind === "arrayType") {
     return resolved.elementType;
   }
-  if (resolved.kind === "tupleType") {
-    if (resolved.elementTypes.length === 1) {
-      return resolved.elementTypes[0];
-    }
-    return undefined;
-  }
   if (
+    contextSurfaceIncludesJs(context) &&
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
       resolved.name === "ReadonlyArray" ||

@@ -1,6 +1,5 @@
 /**
- * Structural guard detectors: in-guard, predicate-guard, and instanceof-guard.
- * Handles tryResolveInGuard, tryResolvePredicateGuard, and tryResolveInstanceofGuard.
+ * Structural guard detectors: predicate guards and instanceof guards.
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
@@ -10,10 +9,7 @@ import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
-import {
-  hasDeterministicPropertyMembership,
-  splitRuntimeNullishUnionMembers,
-} from "../../../core/semantic/type-resolution.js";
+import { splitRuntimeNullishUnionMembers } from "../../../core/semantic/type-resolution.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
@@ -32,109 +28,12 @@ import { buildSubsetUnionType } from "./branch-context.js";
 import type {
   GuardInfo,
   InstanceofGuardInfo,
-  InGuardInfo,
 } from "./guard-types.js";
 import {
-  extractTransparentIdentifierTarget,
   resolveGuardRuntimeUnionFrame,
   buildRenameNarrowedMap,
   withoutNarrowedBinding,
 } from "./guard-types.js";
-
-/**
- * Try to extract guard info from an `("prop" in x)` binary expression.
- */
-export const tryResolveInGuard = (
-  condition: IrExpression,
-  context: EmitterContext
-): InGuardInfo | undefined => {
-  if (condition.kind !== "binary") return undefined;
-  if (condition.operator !== "in") return undefined;
-
-  // LHS must be a string literal
-  if (condition.left.kind !== "literal") return undefined;
-  if (typeof condition.left.value !== "string") return undefined;
-
-  // RHS must be a bindable identifier, even if transparent assertion wrappers
-  // were introduced around it during earlier contextual typing/narrowing passes.
-  const target = extractTransparentIdentifierTarget(condition.right);
-  if (!target) return undefined;
-
-  const propertyName = condition.left.value;
-  const originalName = target.name;
-
-  const unionSourceType = condition.right.inferredType ?? target.inferredType;
-  if (!unionSourceType) return undefined;
-
-  const frame = resolveGuardRuntimeUnionFrame(
-    originalName,
-    unionSourceType,
-    target,
-    context
-  );
-  if (!frame) return undefined;
-
-  const { members, candidateMemberNs, runtimeUnionArity } = frame;
-  const unionArity = members.length;
-  if (unionArity < 2) return undefined;
-
-  // Find which union members contain the property.
-  const matchingIndices: number[] = [];
-  const matchingMemberNs: number[] = [];
-  for (let i = 0; i < members.length; i++) {
-    const member = members[i];
-    if (!member || member.kind !== "referenceType") continue;
-    if (
-      hasDeterministicPropertyMembership(member, propertyName, context) === true
-    ) {
-      matchingIndices.push(i);
-      matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
-    }
-  }
-
-  // Only support the common "exactly one matching member" narrowing case.
-  if (matchingMemberNs.length !== 1) return undefined;
-
-  const memberN = matchingMemberNs[0];
-  if (!memberN) return undefined;
-  const matchingIndex = matchingIndices[0];
-  if (matchingIndex === undefined) return undefined;
-
-  const nextId = (context.tempVarId ?? 0) + 1;
-  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-
-  const narrowedName = makeNarrowedLocalName(
-    originalName,
-    memberN ?? "subset",
-    nextId
-  );
-  const escapedOrig = emitRemappedLocalName(originalName, context);
-  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
-  const memberType = members[matchingIndex];
-  if (!memberType) return undefined;
-  const narrowedMap = buildRenameNarrowedMap(
-    originalName,
-    narrowedName,
-    memberType,
-    unionSourceType,
-    ctxWithId
-  );
-
-  return {
-    originalName,
-    propertyName,
-    memberN,
-    unionArity,
-    runtimeUnionArity,
-    candidateMemberNs,
-    candidateMembers: members,
-    ctxWithId,
-    narrowedName,
-    escapedOrig,
-    escapedNarrow,
-    narrowedMap,
-  };
-};
 
 /**
  * Try to extract guard info from a predicate call expression.

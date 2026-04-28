@@ -48,6 +48,7 @@ import {
   buildRuntimeUnionTypeAst,
 } from "../core/semantic/runtime-unions.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 
 /**
  * Check if a type name indicates an unsupported support type.
@@ -127,6 +128,27 @@ export const emitReferenceType = (
       );
       if (layout) {
         return [buildRuntimeUnionTypeAst(layout), layoutContext];
+      }
+      if (!willCarryAsRuntimeUnion(resolvedAlias, context)) {
+        return emitTypeAst(resolvedAlias, context);
+      }
+      if (
+        resolvedAlias.runtimeCarrierName &&
+        resolvedAlias.runtimeCarrierNamespace
+      ) {
+        const carrierFullName = `global::${resolvedAlias.runtimeCarrierNamespace}.${resolvedAlias.runtimeCarrierName}`;
+        const typeArgumentTypes =
+          typeArguments && typeArguments.length > 0
+            ? typeArguments
+            : resolvedAlias.runtimeCarrierTypeArguments;
+        if (typeArgumentTypes && typeArgumentTypes.length > 0) {
+          const [typeArgAsts, nextContext] = emitTypeArgAsts(
+            typeArgumentTypes,
+            context
+          );
+          return [identifierTypeWithArgs(carrierFullName, typeArgAsts), nextContext];
+        }
+        return [identifierType(carrierFullName), context];
       }
     }
     return emitTypeAst(resolvedAlias, context);

@@ -23,6 +23,7 @@ import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
 } from "./runtime-unions.js";
+import { expandRuntimeUnionMembers } from "./runtime-union-expansion.js";
 import { buildRuntimeUnionFactoryCallAst } from "./runtime-union-projection.js";
 import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
 import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
@@ -32,6 +33,7 @@ import {
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
+  unionMemberMatchesTarget,
 } from "./type-resolution.js";
 import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 import { resolveRuntimeMaterializationTargetType } from "./runtime-materialization-targets.js";
@@ -39,7 +41,7 @@ import { resolveTypeMemberKind } from "./member-surfaces.js";
 import { resolveAnonymousStructuralReferenceType } from "../../expressions/structural-anonymous-targets.js";
 import { canPreferAnonymousStructuralTarget } from "../../expressions/structural-type-shapes.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
-import { isBroadObjectSlotType } from "./js-value-types.js";
+import { isBroadObjectSlotType } from "./broad-object-types.js";
 
 const resolveAnonymousStructuralMaterializationTarget = (
   type: IrType,
@@ -164,7 +166,7 @@ const normalizeEmittableMaterializationType = (
   }
 };
 
-const resolveEmittableMaterializationType = (
+export const resolveEmittableMaterializationType = (
   type: IrType,
   context: EmitterContext
 ): IrType =>
@@ -213,11 +215,59 @@ const sourceAlreadyExposesStructuralTarget = (
       resolveTypeMemberKind(sourceType, member.name, context) !== undefined
   ) ?? false;
 
+const resolveSourceOwnedStructuralMaterializationTarget = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): IrType | undefined => {
+  const targetShape = resolveTypeAlias(stripNullish(targetType), context);
+  if (targetShape.kind !== "objectType") {
+    return undefined;
+  }
+
+  const candidateMembers =
+    sourceType.kind === "unionType"
+      ? expandRuntimeUnionMembers(sourceType, context)
+      : [sourceType];
+  const matches = candidateMembers.filter((member) => {
+    const nonNullishMember = stripNullish(member);
+    if (nonNullishMember.kind !== "referenceType") {
+      return false;
+    }
+    const info = resolveLocalTypeInfo(nonNullishMember, context);
+    if (!info || info.info.kind !== "typeAlias") {
+      return false;
+    }
+    return areIrTypesEquivalent(
+      resolveTypeAlias(nonNullishMember, context),
+      targetShape,
+      context
+    );
+  });
+
+  const byKey = new Map(
+    matches.map((member) => [
+      getContextualTypeVisitKey(member, context),
+      member,
+    ])
+  );
+  return byKey.size === 1 ? [...byKey.values()][0] : undefined;
+};
+
 const preferEmittableMaterializationTarget = (
   sourceType: IrType,
   narrowedType: IrType,
   context: EmitterContext
 ): IrType => {
+  const sourceOwnedTarget = resolveSourceOwnedStructuralMaterializationTarget(
+    sourceType,
+    narrowedType,
+    context
+  );
+  if (sourceOwnedTarget) {
+    return sourceOwnedTarget;
+  }
+
   const emittableNarrowedType =
     resolveAnonymousStructuralMaterializationTarget(narrowedType, context) ??
     narrowedType;
@@ -233,6 +283,54 @@ const preferEmittableMaterializationTarget = (
     )
     ? sourceType
     : emittableNarrowedType;
+};
+
+const tryBuildRuntimeUnionSubsetMaterializationAst = (
+  sourceAst: CSharpExpressionAst,
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    !willCarryAsRuntimeUnion(sourceType, context) ||
+    !willCarryAsRuntimeUnion(targetType, context)
+  ) {
+    return undefined;
+  }
+
+  const [sourceLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
+    sourceType,
+    context,
+    emitTypeAst
+  );
+  if (!sourceLayout) {
+    return undefined;
+  }
+
+  const selectedMemberNs = sourceLayout.members.flatMap((member, index) =>
+    member && unionMemberMatchesTarget(member, targetType, sourceLayoutContext)
+      ? [index + 1]
+      : []
+  );
+  if (
+    selectedMemberNs.length === 0 ||
+    selectedMemberNs.length === sourceLayout.members.length
+  ) {
+    return undefined;
+  }
+
+  return tryBuildRuntimeMaterializationAst(
+    sourceAst,
+    sourceType,
+    targetType,
+    sourceLayoutContext,
+    emitTypeAst,
+    new Set(selectedMemberNs),
+    {
+      members: sourceLayout.members,
+      candidateMemberNs: sourceLayout.members.map((_, index) => index + 1),
+    }
+  );
 };
 
 const isExactExpressionToType = (
@@ -558,13 +656,24 @@ export const materializeDirectNarrowingAst = (
 
   const runtimeMaterialized = tryBuildRuntimeMaterializationAst(
     sourceAst,
-    sourceType,
-    narrowedType,
+    comparableSourceType,
+    comparableEmissionTargetType,
     context,
     emitTypeAst
   );
   if (runtimeMaterialized) {
     return runtimeMaterialized;
+  }
+
+  const runtimeSubsetMaterialized =
+    tryBuildRuntimeUnionSubsetMaterializationAst(
+      sourceAst,
+      comparableSourceType,
+      comparableEmissionTargetType,
+      context
+    );
+  if (runtimeSubsetMaterialized) {
+    return runtimeSubsetMaterialized;
   }
 
   const [targetRuntimeLayout, targetRuntimeLayoutContext] =

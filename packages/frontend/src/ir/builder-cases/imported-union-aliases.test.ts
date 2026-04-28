@@ -23,7 +23,7 @@ describe("IR Builder", function () {
           | TypedArrayInput<TElement>;
 
         export class TypedArrayBase<TElement extends number> {
-          public constructor(lengthOrValues: number | TypedArrayInput<TElement>) {
+          constructor(lengthOrValues: number | TypedArrayInput<TElement>) {
             void lengthOrValues;
           }
         }
@@ -33,7 +33,7 @@ describe("IR Builder", function () {
         import { TypedArrayBase } from "./typed-array-core.js";
 
         export class Uint16Array extends TypedArrayBase<number> {
-          public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+          constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
             super(lengthOrValues);
           }
         }
@@ -125,7 +125,7 @@ describe("IR Builder", function () {
           | TypedArrayInput<TElement>;
 
         export class Uint16Array {
-          public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+          constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
             void lengthOrValues;
           }
         }
@@ -201,7 +201,7 @@ describe("IR Builder", function () {
           | TypedArrayInput<TElement>;
 
         export class Uint16Array {
-          public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+          constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
             void lengthOrValues;
           }
         }

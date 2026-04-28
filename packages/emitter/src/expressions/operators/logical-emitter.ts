@@ -12,7 +12,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
-import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
+import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import { isBooleanType } from "./helpers.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";

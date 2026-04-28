@@ -91,9 +91,7 @@ export const findSemanticUnionMemberIndex = (
     // might appear as a direct member)
     if (strippedTarget.kind === "unionType") {
       const targetMembers = flattenSemanticUnionMembers(strippedTarget);
-      if (
-        targetMembers.some((t) => areIrTypesEquivalent(t, member, context))
-      ) {
+      if (targetMembers.some((t) => areIrTypesEquivalent(t, member, context))) {
         matches.push(i);
         continue;
       }

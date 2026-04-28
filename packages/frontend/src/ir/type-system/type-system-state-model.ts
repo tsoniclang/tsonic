@@ -3,6 +3,7 @@ import type { Diagnostic } from "../../types/diagnostic.js";
 import type { IrType } from "../types/index.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
+import type { SurfaceCapabilities } from "../../surface/profiles.js";
 import { neverType, unknownType, voidType } from "./types.js";
 import type { DeclId, SignatureId } from "./types.js";
 import type {
@@ -19,6 +20,7 @@ export type TypeSystemState = {
   // From TypeSystemConfig
   readonly sourceRoot: string;
   readonly rootNamespace: string;
+  readonly surfaceCapabilities: SurfaceCapabilities;
   readonly handleRegistry: HandleRegistry;
   readonly typeRegistry: TypeRegistryAPI;
   readonly nominalEnv: NominalEnvAPI;

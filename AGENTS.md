@@ -40,10 +40,22 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 
 ## Testing Workflow
 
+- Treat the Tsonic test suite and documented language rules as canonical. External/downstream repositories may expose bugs or missing coverage, but they must not redefine the language or compiler contract.
+- A change in language/spec/surface behavior requires explicit maintainer approval before implementation. Do not infer a spec change from downstream pressure, failing external tests, or convenience.
+- When downstream source relies on behavior outside the approved spec, fix the downstream source or bring the spec question back to the maintainer; do not weaken the compiler.
 - Never add code branches, heuristics, compatibility shims, or special cases just to make tests pass.
 - Never add bridge code, temporary compatibility layers, or product-path debug helpers as a “final” fix.
 - If temporary instrumentation or debug code is necessary during investigation, keep it under `.temp/` and out of product codepaths.
 - When a test fails, fix the underlying compiler/runtime/package root cause or remove the invalid assumption from the test.
+
+## NativeAOT First (IMPORTANT)
+
+- Tsonic is strict compile-time native-binary-first. Emitting/debugging MSIL is allowed only as a secondary path; every product compiler/runtime/codegen design must remain compatible with publishing to pure native code.
+- Do not use runtime reflection, member discovery, dynamic invocation, generated `dynamic`, `System.Reflection` fallbacks, `GetProperty`/`GetProperties`, `GetMethod`/`GetMethods`, `MethodInfo.Invoke`, `MakeGenericMethod`, `Activator.CreateInstance`, or `Assembly.Load` as language/runtime semantics.
+- If a feature needs member access, method dispatch, object projection, serialization metadata, or structural conversion, the compiler must prove it statically and emit closed generated code, source-generated metadata, or calls into closed runtime-owned carriers.
+- Broad carriers such as `unknown`, `object`, `JsValue`, dictionaries, and dynamic JSON objects may only use deterministic closed-carrier operations; they must not reflect over arbitrary CLR objects.
+- If semantics cannot be proven without runtime reflection, emit a deterministic diagnostic instead of guessing or falling back.
+- Build-time tooling may inspect assemblies as tooling input, but that reflection must not appear in product runtime paths or generated user code.
 
 ## Reports and Analysis
 
@@ -110,6 +122,15 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 - If the compiler does not know something deterministically, it must fail with a real diagnostic rather than infer semantics from names, patterns, or partial metadata.
 - If a path or artifact is optional, discovery must prove it exists before reading it; do not probe and then silently recover.
 - Remove existing heuristic/native-compat code when touching that area unless the maintainer explicitly requests otherwise.
+
+## Source Syntax Discipline (IMPORTANT)
+
+- Treat TypeScript as a type-annotation layer over standard modern JavaScript. Runtime-shape syntax in product code, runtime-facing tests, fixtures, docs, and first-party source packages must stay compatible with modern ECMAScript semantics.
+- Do not use TypeScript-only runtime-shape features as implementation mechanisms or compiler signals, including explicit `public`, parameter properties, namespaces, decorators, non-ECMAScript class modifiers, or syntax whose runtime meaning does not exist in standard JavaScript.
+- Type-only syntax is allowed only when it is erased and does not affect runtime shape: type annotations, `type`/`interface` declarations, `import type`, and type-only assertions required for deterministic compiler typing.
+- Do not add explicit `public` modifiers as compiler signals, test aids, overload matching aids, or source-package workarounds.
+- Omitted class member accessibility is semantically public; compiler logic must canonicalize it instead of requiring explicit modifiers.
+- If compiler behavior depends on a spelling difference between equivalent TypeScript forms, fix compiler normalization rather than changing source spelling.
 
 ## ESM Only (IMPORTANT)
 

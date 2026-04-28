@@ -1,15 +1,15 @@
 import { Console } from "@tsonic/dotnet/System.js";
 
 class Base {
-  public value: string = "base";
+  value: string = "base";
 
-  public Print(): void {
+  Print(): void {
     Console.WriteLine(this.value);
   }
 }
 
 class Derived extends Base {
-  public value: string = "derived";
+  value: string = "derived";
 }
 
 export function main(): void {

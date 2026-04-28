@@ -194,7 +194,9 @@ export const normalizePromiseChainResultIrType = (
       if (!member) continue;
       const normalized = normalizePromiseChainResultIrType(member);
       if (!normalized) continue;
-      if (normalizedTypes.some((candidate) => irTypesEqual(candidate, normalized))) {
+      if (
+        normalizedTypes.some((candidate) => irTypesEqual(candidate, normalized))
+      ) {
         continue;
       }
       normalizedTypes.push(normalized);

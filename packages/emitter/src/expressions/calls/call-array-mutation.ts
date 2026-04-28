@@ -7,7 +7,7 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../../types.js";
+import { contextSurfaceIncludesJs, EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import type {
@@ -21,21 +21,14 @@ import { needsIntCast } from "./call-analysis.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
+import {
+  JS_ARRAY_MUTATING_METHODS,
+  JS_ARRAY_RETURNING_METHODS,
+  jsArrayMethodReturnsMutatedArray,
+} from "../../core/semantic/js-array-surface-members.js";
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
-
-const nativeArrayMutationMembers = new Set([
-  "push",
-  "pop",
-  "shift",
-  "unshift",
-  "splice",
-  "sort",
-  "reverse",
-  "fill",
-  "copyWithin",
-]);
 
 export const isArrayWrapperBindingType = (bindingType: string): boolean => {
   const leaf = stripClrGenericArity(bindingType).split(".").pop();
@@ -52,6 +45,7 @@ export const shouldPreferNativeArrayWrapperInterop = (
   context: EmitterContext
 ): boolean =>
   !!binding &&
+  contextSurfaceIncludesJs(context) &&
   isArrayWrapperBindingType(binding.type) &&
   !!resolveArrayLikeReceiverType(receiverType, context)?.elementType;
 
@@ -68,28 +62,7 @@ export const hasDirectNativeArrayLikeInteropShape = (
   );
 };
 
-const returnsMutatedArrayMember = (memberName: string): boolean =>
-  memberName === "sort" ||
-  memberName === "reverse" ||
-  memberName === "fill" ||
-  memberName === "copyWithin";
-
-export const nativeArrayReturningInteropMembers = new Set([
-  "concat",
-  "copyWithin",
-  "filter",
-  "flat",
-  "flatMap",
-  "map",
-  "reverse",
-  "slice",
-  "sort",
-  "splice",
-  "toReversed",
-  "toSorted",
-  "toSpliced",
-  "with",
-]);
+export const nativeArrayReturningInteropMembers = JS_ARRAY_RETURNING_METHODS;
 
 const createVarLocal = (
   name: string,
@@ -209,11 +182,12 @@ export const emitArrayMutationInteropCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!contextSurfaceIncludesJs(context)) return undefined;
   if (expr.isOptional) return undefined;
   if (expr.callee.kind !== "memberAccess") return undefined;
   if (expr.callee.isComputed) return undefined;
   if (typeof expr.callee.property !== "string") return undefined;
-  if (!nativeArrayMutationMembers.has(expr.callee.property)) return undefined;
+  if (!JS_ARRAY_MUTATING_METHODS.has(expr.callee.property)) return undefined;
 
   const binding = expr.callee.memberBinding;
   if (
@@ -293,7 +267,7 @@ export const emitArrayMutationInteropCall = (
       },
       arguments: [],
     };
-  } else if (returnsMutatedArrayMember(expr.callee.property)) {
+  } else if (jsArrayMethodReturnsMutatedArray(expr.callee.property)) {
     returnExpression = mutatedArrayAst;
   }
 

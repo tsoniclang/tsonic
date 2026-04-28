@@ -108,7 +108,8 @@ describe("type-equivalence", () => {
     const left: IrType = {
       kind: "referenceType",
       name: "Dictionary",
-      resolvedClrType: "global::System.Collections.Generic.Dictionary<string, int>",
+      resolvedClrType:
+        "global::System.Collections.Generic.Dictionary<string, int>",
       typeArguments: [
         { kind: "primitiveType", name: "string" },
         { kind: "primitiveType", name: "int" },
@@ -154,11 +155,7 @@ describe("type-equivalence", () => {
     };
 
     expect(
-      areIrTypesEquivalent(
-        narrowedBranchType,
-        sourceBackedBranchType,
-        context
-      )
+      areIrTypesEquivalent(narrowedBranchType, sourceBackedBranchType, context)
     ).to.equal(true);
   });
 
@@ -412,7 +409,9 @@ describe("type-equivalence", () => {
       ],
     };
 
-    expect(() => areIrTypesEquivalent(left, right, recursiveContext)).to.not.throw();
+    expect(() =>
+      areIrTypesEquivalent(left, right, recursiveContext)
+    ).to.not.throw();
     expect(areIrTypesEquivalent(left, right, recursiveContext)).to.equal(true);
   });
 });

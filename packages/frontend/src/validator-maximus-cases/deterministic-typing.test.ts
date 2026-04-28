@@ -128,16 +128,16 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "nullable union narrowing through in-operator remains deterministic",
+        name: "nullable union narrowing through discriminants remains deterministic",
         source: `
           type R = { ok: true; value: number } | { ok: false; error: string };
           function read(r: R): number {
-            if ("error" in r) {
+            if (!r.ok) {
               return 0;
             }
             return r.value;
           }
-          void read;
+          read({ ok: true, value: 1 });
         `,
       },
       {

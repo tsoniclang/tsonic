@@ -3,7 +3,7 @@ import { Console } from "@tsonic/dotnet/System.js";
 export class TemplateValue {}
 
 export class BoolValue extends TemplateValue {
-  public readonly value: boolean;
+  value: boolean;
 
   constructor(value: boolean) {
     super();
@@ -12,7 +12,7 @@ export class BoolValue extends TemplateValue {
 }
 
 export class StrValue extends TemplateValue {
-  public readonly value: string;
+  value: string;
 
   constructor(value: string) {
     super();
@@ -27,9 +27,9 @@ export function isBoolValue(v: TemplateUnion): v is BoolValue {
   return v instanceof BoolValue;
 }
 
-// In-guard + predicate-guard narrowing for union shapes.
+// Predicate-guard narrowing for union shapes.
 export class KindA {
-  public readonly kind: string;
+  kind: string;
 
   constructor() {
     this.kind = "a";
@@ -37,7 +37,7 @@ export class KindA {
 }
 
 export class KindB {
-  public readonly other: number;
+  other: number;
 
   constructor() {
     this.other = 123;
@@ -47,7 +47,7 @@ export class KindB {
 export type KindUnion = KindA | KindB;
 
 export function isKindA(v: KindUnion): v is KindA {
-  return "kind" in v;
+  return v instanceof KindA;
 }
 
 export function main(): void {
@@ -96,14 +96,14 @@ export function main(): void {
   }
   Console.WriteLine(shadow);
 
-  // Shadowing + in-guard: ensure the guard uses the renamed identifier.
+  // Shadowing + predicate guard: ensure the guard uses the renamed identifier.
   // This also tests that the narrowed binding is applied to the renamed variable.
   {
     const u = new KindA();
     Console.WriteLine(u.kind);
   }
   const u: KindUnion = new KindA();
-  if ("kind" in u) {
+  if (isKindA(u)) {
     Console.WriteLine(u.kind);
   }
 

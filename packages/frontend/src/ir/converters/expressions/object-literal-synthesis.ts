@@ -402,12 +402,6 @@ export const rebindObjectLiteralThisInExpression = (
                 objectLiteralThisType
               )
         ),
-        dynamicImportNamespace: expr.dynamicImportNamespace
-          ? (rebindObjectLiteralThisInExpression(
-              expr.dynamicImportNamespace,
-              objectLiteralThisType
-            ) as typeof expr.dynamicImportNamespace)
-          : undefined,
       };
 
     case "new":

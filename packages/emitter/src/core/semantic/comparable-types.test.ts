@@ -214,5 +214,4 @@ describe("comparable-types", () => {
       )
     ).to.equal(true);
   });
-
 });

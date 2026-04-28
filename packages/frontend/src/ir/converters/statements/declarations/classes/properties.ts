@@ -16,7 +16,6 @@ import { convertExpression } from "../../../../expression-converter.js";
 import { convertBlockStatement } from "../../control.js";
 import {
   hasStaticModifier,
-  hasReadonlyModifier,
   getAccessibility,
   makeOptionalType,
 } from "../../helpers.js";
@@ -187,7 +186,7 @@ export const convertProperty = (
     initializer: convertedInitializer,
     emitAsField: emitAsField || undefined,
     isStatic: hasStaticModifier(node),
-    isReadonly: hasReadonlyModifier(node),
+    isReadonly: false,
     accessibility,
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,

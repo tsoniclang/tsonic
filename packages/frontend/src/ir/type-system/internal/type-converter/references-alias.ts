@@ -160,7 +160,7 @@ const buildSourceObjectAliasReference = (
           return substituted.kind === "objectType"
             ? substituted
             : convertedBody;
-      })()
+        })()
       : convertedBody;
 
   return {

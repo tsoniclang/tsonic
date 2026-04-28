@@ -49,6 +49,10 @@ import { adaptEmittedExpressionAst } from "./expressions/expected-type-adaptatio
 import { simplifyRedundantObjectBridgeCastsAst } from "./expressions/post-emission-adaptation.js";
 import { unwrapTransparentExpression } from "./core/semantic/transparent-expressions.js";
 import { resolveEffectiveExpressionType } from "./core/semantic/narrowed-expression-types.js";
+import {
+  getAsyncWrapperResultType,
+  getAsyncWrapperSourceResultType,
+} from "./core/semantic/async-wrapper-types.js";
 
 /**
  * Emit a C# expression AST from an IR expression.
@@ -178,6 +182,10 @@ export const emitExpressionAst = (
   const effectiveActualType =
     normalizedExpr.kind === "typeAssertion"
       ? normalizedExpr.targetType
+      : normalizedExpr.kind === "await"
+        ? (getAsyncWrapperSourceResultType(normalizedExpr.expression) ??
+          getAsyncWrapperResultType(normalizedExpr.expression) ??
+          normalizedExpr.inferredType)
       : (resolveEffectiveExpressionType(normalizedExpr, adaptedContext) ??
         normalizedExpr.inferredType);
 

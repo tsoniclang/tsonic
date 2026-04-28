@@ -1,9 +1,6 @@
 import type { ProgramContext } from "../program-context.js";
 import { IrExpression, IrModule, IrStatement, IrType } from "../types.js";
-import {
-  getAwaitedIrType,
-  referenceTypeIdentity,
-} from "../types/type-ops.js";
+import { getAwaitedIrType, referenceTypeIdentity } from "../types/type-ops.js";
 import {
   collectResolutionArguments,
   resolveCallableCandidate,
@@ -127,7 +124,10 @@ const hasDeterministicIdentityConflict = (
         right.kind === "tupleType" &&
         left.elementTypes.length === right.elementTypes.length &&
         left.elementTypes.some((typeElement, index) =>
-          hasDeterministicIdentityConflict(typeElement, right.elementTypes[index])
+          hasDeterministicIdentityConflict(
+            typeElement,
+            right.elementTypes[index]
+          )
         )
       );
     case "functionType":
@@ -229,19 +229,11 @@ const refreshExpression = (
           : refreshExpression(argument, ctx)
       );
 
-      const dynamicImportNamespace = expr.dynamicImportNamespace
-        ? (refreshExpression(
-            expr.dynamicImportNamespace,
-            ctx
-          ) as typeof expr.dynamicImportNamespace)
-        : undefined;
-
       if (callee.kind === "identifier" && callee.name === "super") {
         return {
           ...expr,
           callee,
           arguments: arguments_,
-          dynamicImportNamespace,
         };
       }
 
@@ -250,7 +242,6 @@ const refreshExpression = (
           ...expr,
           callee,
           arguments: arguments_,
-          dynamicImportNamespace,
         };
       }
 
@@ -406,7 +397,6 @@ const refreshExpression = (
         ...expr,
         callee,
         arguments: arguments_,
-        dynamicImportNamespace,
         inferredType: preserveResolvedReturnType(
           expr.inferredType,
           coherentSourceBackedReturnType ?? resolved?.returnType,

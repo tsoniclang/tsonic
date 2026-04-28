@@ -52,10 +52,10 @@ export function numberTruthinessTempCollision(): number {
 }
 
 export class SetterValueShadowing {
-  private _x = 0;
+  #x = 0;
 
-  public set x(v: number) {
+  set x(v: number) {
     const value = 123;
-    this._x = v + value;
+    this.#x = v + value;
   }
 }

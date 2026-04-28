@@ -11,7 +11,6 @@
 export type {
   GuardInfo,
   InstanceofGuardInfo,
-  InGuardInfo,
   DiscriminantEqualityGuardInfo,
   PropertyTruthinessGuardInfo,
   RuntimeUnionFrame,
@@ -30,7 +29,6 @@ export {
 export {
   tryResolveDiscriminantEqualityGuard,
   tryResolvePropertyTruthinessGuard,
-  tryResolveInGuard,
   tryResolvePredicateGuard,
   tryResolveInstanceofGuard,
 } from "./guard-detectors.js";

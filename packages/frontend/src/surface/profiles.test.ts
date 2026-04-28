@@ -176,6 +176,24 @@ describe("Frontend Surface Profiles", () => {
     }
   });
 
+  it("prefers an ancestor workspace-installed source package over a sibling source package", () => {
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/installed-source-over-sibling-source"
+    );
+    try {
+      const projectRoot = fixture.path("workspace/packages/app");
+      const installedJsRoot = fixture.path("workspace/node_modules/@tsonic/js");
+      const siblingJsRoot = fixture.path("workspace/js/versions/10");
+
+      const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
+      expect(caps.requiredTypeRoots).to.deep.equal([resolve(installedJsRoot)]);
+      expect(caps.requiredTypeRoots).to.not.include(resolve(siblingJsRoot));
+      expect(caps.resolvedModes).to.deep.equal(["@tsonic/js"]);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("should not treat installed regular packages as surfaces without manifest", () => {
     const fixture = materializeFrontendFixture(
       "surface/profiles/regular-package-not-surface"

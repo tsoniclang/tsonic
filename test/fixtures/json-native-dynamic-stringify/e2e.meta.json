@@ -1,3 +1,0 @@
-{
-  "description": "dynamic JSON.stringify on unknown object values uses generated JS runtime support and runs successfully."
-}

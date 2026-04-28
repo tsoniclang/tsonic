@@ -16,6 +16,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { resolveDependencyPackageRoot } from "../../../../program/package-roots.js";
+import type { IrType } from "../../../types/index.js";
 import type {
   AssemblyTypeCatalog,
   TypeId,
@@ -23,6 +24,7 @@ import type {
   MemberEntry,
   RawBindingsPayload,
 } from "./types.js";
+import { makeTypeId } from "./types.js";
 import { extractRawDotnetBindingsPayload } from "../../../../program/dotnet-binding-payload.js";
 import {
   convertRawType,
@@ -170,6 +172,99 @@ const resolveExistingCompanionDtsFiles = (
   }
 
   return resolvedFiles;
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CORE CLR CARRIERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const CORELIB_ASSEMBLY = "System.Private.CoreLib";
+
+const coreTypeId = (clrName: string, tsName: string): TypeId =>
+  makeTypeId(`${CORELIB_ASSEMBLY}:${clrName}`, clrName, CORELIB_ASSEMBLY, tsName);
+
+const coreProperty = (
+  owner: TypeId,
+  name: string,
+  type: IrType,
+  readonly: boolean
+): MemberEntry => ({
+  tsName: name,
+  clrName: name,
+  memberKind: "property",
+  type,
+  isStatic: false,
+  isReadonly: readonly,
+  isAbstract: false,
+  isVirtual: false,
+  isOverride: false,
+  isIndexer: false,
+  hasGetter: true,
+  hasSetter: !readonly,
+  stableId: `${owner.stableId}::${name}`,
+});
+
+const createCoreClrCarrierEntries = (): readonly NominalEntry[] => {
+  const systemArray = coreTypeId("System.Array", "Array");
+  const intType: IrType = {
+    kind: "primitiveType",
+    name: "int",
+  };
+  const booleanType: IrType = {
+    kind: "primitiveType",
+    name: "boolean",
+  };
+  const objectType: IrType = {
+    kind: "referenceType",
+    name: "Object",
+    resolvedClrType: "System.Object",
+  };
+
+  return [
+    {
+      typeId: systemArray,
+      kind: "class",
+      typeParameters: [],
+      heritage: [],
+      members: new Map([
+        ["Length", coreProperty(systemArray, "Length", intType, true)],
+        ["Rank", coreProperty(systemArray, "Rank", intType, true)],
+        ["IsFixedSize", coreProperty(systemArray, "IsFixedSize", booleanType, true)],
+        ["IsReadOnly", coreProperty(systemArray, "IsReadOnly", booleanType, true)],
+        [
+          "IsSynchronized",
+          coreProperty(systemArray, "IsSynchronized", booleanType, true),
+        ],
+        ["SyncRoot", coreProperty(systemArray, "SyncRoot", objectType, true)],
+      ]),
+      origin: "assembly",
+      accessibility: "public",
+      isAbstract: true,
+      isSealed: false,
+      isStatic: false,
+    },
+  ];
+};
+
+const addCoreClrCarrierEntries = (
+  entries: Map<string, NominalEntry>,
+  tsNameToTypeId: Map<string, TypeId>,
+  clrNameToTypeId: Map<string, TypeId>,
+  namespaceToTypeIds: Map<string, TypeId[]>
+): void => {
+  for (const entry of createCoreClrCarrierEntries()) {
+    if (entries.has(entry.typeId.stableId)) {
+      continue;
+    }
+
+    entries.set(entry.typeId.stableId, entry);
+    tsNameToTypeId.set(entry.typeId.tsName, entry.typeId);
+    clrNameToTypeId.set(entry.typeId.clrName, entry.typeId);
+
+    const namespaceTypes = namespaceToTypeIds.get("System") ?? [];
+    namespaceTypes.push(entry.typeId);
+    namespaceToTypeIds.set("System", namespaceTypes);
+  }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -330,6 +425,12 @@ export const loadClrCatalog = (
     entries,
     tsNameToTypeId,
     Array.from(dtsFiles).sort()
+  );
+  addCoreClrCarrierEntries(
+    entries,
+    tsNameToTypeId,
+    clrNameToTypeId,
+    namespaceToTypeIds
   );
 
   return {

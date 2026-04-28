@@ -90,9 +90,9 @@ describe("Import Handling", () => {
   it("should lower local imports even when resolvedPath is absolute", () => {
     const module: IrModule = {
       kind: "module",
-      filePath: "common/operators/in-operator/InOperator.ts",
-      namespace: "TestCases.common.operators.inoperator",
-      className: "InOperator",
+      filePath: "common/imports/local-caller/Caller.ts",
+      namespace: "TestCases.common.imports.localcaller",
+      className: "Caller",
       isStaticContainer: true,
       imports: [
         {
@@ -100,7 +100,7 @@ describe("Import Handling", () => {
           source: "./Auth.js",
           isLocal: true,
           isClr: false,
-          resolvedPath: "/tmp/tsonic/common/operators/in-operator/Auth.ts",
+          resolvedPath: "/tmp/tsonic/common/imports/local-caller/Auth.ts",
           specifiers: [
             {
               kind: "named",
@@ -131,11 +131,11 @@ describe("Import Handling", () => {
     const result = emitModule(module, {
       moduleMap: new Map([
         [
-          "common/operators/in-operator/Auth",
+          "common/imports/local-caller/Auth",
           {
-            namespace: "TestCases.common.operators.inoperator",
+            namespace: "TestCases.common.imports.localcaller",
             className: "Auth",
-            filePath: "common/operators/in-operator/Auth.ts",
+            filePath: "common/imports/local-caller/Auth.ts",
             hasRuntimeContainer: true,
             hasTopLevelCode: false,
             imports: [],
@@ -155,7 +155,7 @@ describe("Import Handling", () => {
     });
 
     expect(result).to.include(
-      "global::TestCases.common.operators.inoperator.Auth.getAuth(false)"
+      "global::TestCases.common.imports.localcaller.Auth.getAuth(false)"
     );
   });
 

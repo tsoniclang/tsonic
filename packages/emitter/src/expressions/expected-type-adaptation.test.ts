@@ -417,7 +417,7 @@ describe("expected-type-adaptation", () => {
 
     expect(result).to.not.equal(undefined);
     expect(printExpression(result![0])).to.include(
-      'throw new global::System.InvalidCastException('
+      "throw new global::System.InvalidCastException("
     );
     expect(printExpression(result![0])).to.not.equal(
       "result.Match<string>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2)"
@@ -790,7 +790,6 @@ describe("expected-type-adaptation", () => {
     );
   });
 
-
   it("keeps broad object conditionals on their emitted storage surface", () => {
     const stringArrayType: IrType = {
       kind: "arrayType",
@@ -878,7 +877,6 @@ describe("expected-type-adaptation", () => {
       "useJson ? parsed : global::System.Array.Empty<string>()"
     );
   });
-
 
   it("reuses storage-compatible identifiers when the function return type is the only context", () => {
     const resultType: IrType = {

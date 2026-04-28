@@ -2,23 +2,26 @@
  * Conditional (ternary) expression emitter with type predicate narrowing support
  */
 
-import { getAwaitedIrType, IrExpression, IrType } from "@tsonic/frontend";
+import {
+  getAwaitedIrType,
+  IrExpression,
+  IrType,
+  normalizedUnionType,
+} from "@tsonic/frontend";
 import { EmitterContext, NarrowedBinding } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { resolveArrayLiteralContextType } from "../../core/semantic/array-expected-types.js";
-import { isAssignable } from "../../core/semantic/index.js";
+import { isAssignableToType } from "../../core/semantic/index.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { applyConditionBranchNarrowing } from "../../core/semantic/condition-branch-narrowing.js";
 import { tryResolveTernaryGuard } from "../../core/semantic/ternary-guards.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
+import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
-import {
-  referenceTypeHasClrIdentity,
-} from "../../core/semantic/clr-type-identity.js";
+import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -139,7 +142,11 @@ export const emitConditional = (
           branchExpectedType,
           branchContext
         ) ||
-        isAssignable(semanticBranchType, branchExpectedType));
+        isAssignableToType(
+          semanticBranchType,
+          branchExpectedType,
+          branchContext
+        ));
     const semanticBranchIsWholeConditionalType =
       !expectedType &&
       isBroadObjectSlotType(branchExpectedType, branchContext) &&
@@ -193,7 +200,10 @@ export const emitConditional = (
       const isEmptyArrayLiteral = (branchExpr: IrExpression): boolean =>
         branchExpr.kind === "array" && branchExpr.elements.length === 0;
 
-      if (isEmptyArrayLiteral(expr.whenTrue) === isEmptyArrayLiteral(expr.whenFalse)) {
+      if (
+        isEmptyArrayLiteral(expr.whenTrue) ===
+        isEmptyArrayLiteral(expr.whenFalse)
+      ) {
         return undefined;
       }
 
@@ -210,10 +220,12 @@ export const emitConditional = (
     ) {
       commonBranchType = trueType;
     } else if (trueType && falseType) {
-      if (isAssignable(trueType, falseType)) {
+      if (isAssignableToType(trueType, falseType, context)) {
         commonBranchType = falseType;
-      } else if (isAssignable(falseType, trueType)) {
+      } else if (isAssignableToType(falseType, trueType, context)) {
         commonBranchType = trueType;
+      } else {
+        commonBranchType = normalizedUnionType([trueType, falseType]);
       }
     }
 
@@ -233,7 +245,7 @@ export const emitConditional = (
           contextualBranchType,
           context
         ) &&
-        (isAssignable(preciseBranchType, contextualBranchType) ||
+        (isAssignableToType(preciseBranchType, contextualBranchType, context) ||
           matchesExpectedEmissionType(
             preciseBranchType,
             contextualBranchType,
@@ -367,7 +379,10 @@ export const emitConditional = (
     // Return context WITHOUT narrowing (don't leak)
     const finalContext: EmitterContext = {
       ...falseContext,
-      tempVarId: Math.max(trueContext.tempVarId ?? 0, falseContext.tempVarId ?? 0),
+      tempVarId: Math.max(
+        trueContext.tempVarId ?? 0,
+        falseContext.tempVarId ?? 0
+      ),
       usings: new Set([
         ...(trueContext.usings ?? []),
         ...(falseContext.usings ?? []),
@@ -488,7 +503,9 @@ const resolveSourceBackedBranchType = (
       return expr.sourceBackedReturnType;
     case "await": {
       const sourceType = resolveSourceBackedBranchType(expr.expression);
-      return sourceType ? (getAwaitedIrType(sourceType) ?? sourceType) : undefined;
+      return sourceType
+        ? (getAwaitedIrType(sourceType) ?? sourceType)
+        : undefined;
     }
     default:
       return undefined;

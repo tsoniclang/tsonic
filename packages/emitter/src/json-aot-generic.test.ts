@@ -9,85 +9,8 @@ import type { IrModule } from "@tsonic/frontend";
 import { createJsSurfaceBindingRegistry } from "./expressions/index-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
-const jsValueType = {
-  kind: "referenceType" as const,
-  name: "JsValue" as const,
-  resolvedClrType: "Tsonic.Runtime.JsValue" as const,
-};
 
 describe("JSON NativeAOT registry", () => {
-  it("routes broad global JSON.parse through JSON runtime support without AOT metadata", () => {
-    const module: IrModule = {
-      kind: "module",
-      filePath: "/src/index.ts",
-      namespace: "MyApp",
-      className: "index",
-      isStaticContainer: true,
-      imports: [],
-      body: [
-        {
-          kind: "functionDeclaration",
-          name: "parseUnknown",
-          parameters: [],
-          returnType: jsValueType,
-          body: {
-            kind: "blockStatement",
-            statements: [
-              {
-                kind: "returnStatement",
-                expression: {
-                  kind: "call",
-                  callee: {
-                    kind: "memberAccess",
-                    object: { kind: "identifier", name: "JSON" },
-                    property: "parse",
-                    isComputed: false,
-                    isOptional: false,
-                    memberBinding: {
-                      kind: "method",
-                      assembly: "js",
-                      type: "js.JSON",
-                      member: "parse",
-                    },
-                  },
-                  arguments: [
-                    {
-                      kind: "literal",
-                      value: '{"title":"hello"}',
-                    },
-                  ],
-                  isOptional: false,
-                  inferredType: jsValueType,
-                },
-              },
-            ],
-          },
-          isExported: true,
-          isAsync: false,
-          isGenerator: false,
-        },
-      ],
-      exports: [],
-    };
-
-    const result = emitCSharpFiles([module], {
-      rootNamespace: "MyApp",
-      enableJsonAot: true,
-      surface: "@tsonic/js",
-      bindingRegistry: jsSurfaceBindingRegistry,
-    });
-    expect(result.ok).to.equal(true);
-    if (!result.ok) return;
-
-    const code = result.files.get("index.cs");
-    expect(code).to.not.equal(undefined);
-    expect(code).to.include(
-      'global::js.JSON.parse("{\\"title\\":\\"hello\\"}")'
-    );
-    expect(code).to.not.include("TsonicJson.Options");
-    expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
-  });
-
   it("uses the inferred closed result type for global JSON.parse without explicit type arguments", () => {
     const module: IrModule = {
       kind: "module",
@@ -154,7 +77,12 @@ describe("JSON NativeAOT registry", () => {
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });
 
-  it("routes global JSON.stringify on JsValue inputs through runtime stringify", () => {
+  it("serializes closed nominal payloads through generated NativeAOT metadata", () => {
+    const payloadType = {
+      kind: "referenceType" as const,
+      name: "Payload" as const,
+    };
+
     const module: IrModule = {
       kind: "module",
       filePath: "/src/index.ts",
@@ -164,13 +92,38 @@ describe("JSON NativeAOT registry", () => {
       imports: [],
       body: [
         {
+          kind: "classDeclaration",
+          name: "Payload",
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "ok",
+              type: { kind: "primitiveType", name: "boolean" },
+              accessibility: "public",
+              isStatic: false,
+              isReadonly: false,
+            },
+            {
+              kind: "propertyDeclaration",
+              name: "value",
+              type: { kind: "primitiveType", name: "int" },
+              accessibility: "public",
+              isStatic: false,
+              isReadonly: false,
+            },
+          ],
+          isStruct: false,
+          isExported: true,
+          implements: [],
+        },
+        {
           kind: "functionDeclaration",
-          name: "stringifyUnknown",
+          name: "stringifyPayload",
           parameters: [
             {
               kind: "parameter",
-              pattern: { kind: "identifierPattern", name: "value" },
-              type: jsValueType,
+              pattern: { kind: "identifierPattern", name: "payload" },
+              type: payloadType,
               isOptional: false,
               isRest: false,
               passing: "value",
@@ -200,8 +153,8 @@ describe("JSON NativeAOT registry", () => {
                   arguments: [
                     {
                       kind: "identifier",
-                      name: "value",
-                      inferredType: jsValueType,
+                      name: "payload",
+                      inferredType: payloadType,
                     },
                   ],
                   isOptional: false,
@@ -228,121 +181,12 @@ describe("JSON NativeAOT registry", () => {
     if (!result.ok) return;
 
     const code = result.files.get("index.cs");
-    const runtimeFile = result.files.get("__tsonic_json_runtime.g.cs");
     expect(code).to.not.equal(undefined);
-    expect(code).to.include("global::MyApp.TsonicJsonRuntime.Stringify(value)");
-    expect(runtimeFile).to.not.equal(undefined);
-    expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
-  });
-
-  it("routes boxed JS numeric object literals through runtime stringify", () => {
-    const module: IrModule = {
-      kind: "module",
-      filePath: "/src/index.ts",
-      namespace: "MyApp",
-      className: "index",
-      isStaticContainer: true,
-      imports: [],
-      body: [
-        {
-          kind: "functionDeclaration",
-          name: "stringifyInline",
-          parameters: [],
-          returnType: { kind: "primitiveType", name: "string" },
-          body: {
-            kind: "blockStatement",
-            statements: [
-              {
-                kind: "returnStatement",
-                expression: {
-                  kind: "call",
-                  callee: {
-                    kind: "memberAccess",
-                    object: { kind: "identifier", name: "JSON" },
-                    property: "stringify",
-                    isComputed: false,
-                    isOptional: false,
-                    memberBinding: {
-                      kind: "method",
-                      assembly: "js",
-                      type: "js.JSON",
-                      member: "stringify",
-                    },
-                  },
-                  arguments: [
-                    {
-                      kind: "object",
-                      properties: [
-                        {
-                          kind: "property",
-                          key: "ok",
-                          shorthand: false,
-                          value: {
-                            kind: "literal",
-                            value: true,
-                            inferredType: {
-                              kind: "primitiveType",
-                              name: "boolean",
-                            },
-                          },
-                        },
-                        {
-                          kind: "property",
-                          key: "value",
-                          shorthand: false,
-                          value: {
-                            kind: "literal",
-                            value: 3,
-                            inferredType: {
-                              kind: "primitiveType",
-                              name: "int",
-                            },
-                          },
-                        },
-                      ],
-                      hasSpreads: false,
-                      inferredType: {
-                        kind: "dictionaryType",
-                        keyType: { kind: "primitiveType", name: "string" },
-                        valueType: {
-                          kind: "referenceType",
-                          name: "object",
-                          resolvedClrType: "System.Object",
-                        },
-                      },
-                    },
-                  ],
-                  isOptional: false,
-                  inferredType: { kind: "primitiveType", name: "string" },
-                },
-              },
-            ],
-          },
-          isExported: true,
-          isAsync: false,
-          isGenerator: false,
-        },
-      ],
-      exports: [],
-    };
-
-    const result = emitCSharpFiles([module], {
-      rootNamespace: "MyApp",
-      enableJsonAot: true,
-      surface: "@tsonic/js",
-      bindingRegistry: jsSurfaceBindingRegistry,
-    });
-    expect(result.ok).to.equal(true);
-    if (!result.ok) return;
-
-    const code = result.files.get("index.cs");
-    const runtimeFile = result.files.get("__tsonic_json_runtime.g.cs");
-    expect(code).to.not.equal(undefined);
-    expect(runtimeFile).to.not.equal(undefined);
-    expect(code).to.include("global::MyApp.TsonicJsonRuntime.Stringify(");
-    expect(code).to.include('["value"] =');
-    expect(code).to.include("double)3");
-    expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
+    expect(code).to.include(
+      "global::System.Text.Json.JsonSerializer.Serialize("
+    );
+    expect(code).to.not.include("TsonicJsonRuntime");
+    expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });
 
   it("uses local semantic types for JSON.stringify on identifiers widened in frontend IR", () => {
@@ -370,7 +214,7 @@ describe("JSON NativeAOT registry", () => {
             {
               kind: "parameter",
               pattern: { kind: "identifierPattern", name: "seed" },
-              type: jsValueType,
+              type: payloadType,
               isOptional: false,
               isRest: false,
               passing: "value",
@@ -391,7 +235,7 @@ describe("JSON NativeAOT registry", () => {
                     initializer: {
                       kind: "identifier",
                       name: "seed",
-                      inferredType: jsValueType,
+                      inferredType: payloadType,
                     },
                   },
                 ],
@@ -418,7 +262,7 @@ describe("JSON NativeAOT registry", () => {
                     {
                       kind: "identifier",
                       name: "parsed",
-                      inferredType: jsValueType,
+                      inferredType: payloadType,
                     },
                   ],
                   isOptional: false,
@@ -450,7 +294,7 @@ describe("JSON NativeAOT registry", () => {
       "global::System.Text.Json.JsonSerializer.Serialize(parsed, global::MyApp.TsonicJson.Options)"
     );
     expect(code).to.not.include(
-      "global::MyApp.TsonicJsonRuntime.Stringify(parsed)"
+      "TsonicJsonRuntime"
     );
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });

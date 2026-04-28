@@ -15,6 +15,7 @@ import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { SurfaceMode } from "../program/types.js";
+import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
 
@@ -59,6 +60,8 @@ export type ProgramContext = {
    * Selected language surface mode for this compilation.
    */
   readonly surface: SurfaceMode;
+
+  readonly surfaceCapabilities: SurfaceCapabilities;
 
   /**
    * TypeScript checker for symbol-only queries in converter-time analyses.
@@ -130,10 +133,15 @@ export type ProgramContext = {
    * Lexical flow environment for property / access-path narrowings.
    *
    * Keyed by a stable serialized access path (e.g. `decl:42.foo` or `this.bar`)
-   * so negative-branch narrowing can survive for property reads like
-   * `typeof this.value === "string"` or `Array.isArray(obj.items)`.
+   * so branch narrowing can survive for deterministic property reads.
    */
   readonly accessEnv?: ReadonlyMap<string, IrType>;
+
+  /**
+   * Depth while converting a lambda body whose contextual type is a CLR
+   * expression tree, such as Expression<Func<T, TResult>>.
+   */
+  readonly expressionTreeLambdaDepth?: number;
 
   /**
    * IR conversion diagnostics emitted by converters (non-TypeSystem).

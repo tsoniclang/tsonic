@@ -30,7 +30,10 @@ import {
   findRuntimeUnionMemberIndices,
 } from "./runtime-union-matching.js";
 import { getOrRegisterRuntimeUnionCarrier } from "./runtime-union-registry.js";
-import { tryContextualTypeIdentityKey } from "./deterministic-type-keys.js";
+import {
+  getContextualTypeVisitKey,
+  tryContextualTypeIdentityKey,
+} from "./deterministic-type-keys.js";
 export {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionAssignableMemberIndices,
@@ -55,7 +58,33 @@ export const buildRuntimeUnionLayout = (
 ): [RuntimeUnionLayout | undefined, EmitterContext] => {
   const layoutSourceType =
     type.kind === "referenceType" ? resolveTypeAlias(type, context) : type;
-  const frame = buildRuntimeUnionFrame(layoutSourceType, context);
+  const layoutKey =
+    layoutSourceType.kind === "unionType" &&
+    layoutSourceType.runtimeCarrierFamilyKey
+      ? `carrier:${layoutSourceType.runtimeCarrierFamilyKey}`
+      : `type:${getContextualTypeVisitKey(layoutSourceType, context)}`;
+  if (context.activeRuntimeUnionLayoutKeys?.has(layoutKey)) {
+    return [undefined, context];
+  }
+
+  const activeRuntimeUnionLayoutKeys = new Set(
+    context.activeRuntimeUnionLayoutKeys ?? []
+  );
+  activeRuntimeUnionLayoutKeys.add(layoutKey);
+  const guardedContext: EmitterContext = {
+    ...context,
+    activeRuntimeUnionLayoutKeys,
+  };
+  const restoreLayoutContext = (nextContext: EmitterContext): EmitterContext =>
+    nextContext.activeRuntimeUnionLayoutKeys ===
+    context.activeRuntimeUnionLayoutKeys
+      ? nextContext
+      : {
+          ...nextContext,
+          activeRuntimeUnionLayoutKeys: context.activeRuntimeUnionLayoutKeys,
+        };
+
+  const frame = buildRuntimeUnionFrame(layoutSourceType, guardedContext);
   if (!frame) {
     return [undefined, context];
   }
@@ -68,7 +97,7 @@ export const buildRuntimeUnionLayout = (
   const byAstKey = preserveRuntimeLayout
     ? undefined
     : new Map<string, { member: IrType; typeAst: CSharpTypeAst }>();
-  let currentContext = context;
+  let currentContext = guardedContext;
 
   for (const member of semanticMembers) {
     const carrierMember =
@@ -100,7 +129,7 @@ export const buildRuntimeUnionLayout = (
     : Array.from(byAstKey?.values() ?? []);
 
   if (ordered.length < 2) {
-    return [undefined, currentContext];
+    return [undefined, restoreLayoutContext(currentContext)];
   }
 
   const carrierMetadata =
@@ -155,7 +184,7 @@ export const buildRuntimeUnionLayout = (
       carrierName: carrier.name,
       carrierFullName: carrier.fullName,
     },
-    sourceAliasContext,
+    restoreLayoutContext(sourceAliasContext),
   ];
 };
 
@@ -218,7 +247,9 @@ const buildSourceAliasCarrierMetadata = (
     targetModulePublicLocalTypes?.has(aliasInfo.name)
       ? "public"
       : "internal";
-  const aliasOwnerModule = [...(context.options.moduleMap?.values() ?? [])].find(
+  const aliasOwnerModule = [
+    ...(context.options.moduleMap?.values() ?? []),
+  ].find(
     (moduleInfo) =>
       moduleInfo.namespace === aliasInfo.namespace &&
       moduleInfo.localTypes?.has(aliasInfo.name)
@@ -297,8 +328,7 @@ const buildSourceAliasCarrierMetadata = (
       localTypes: context.localTypes,
       publicLocalTypes: context.publicLocalTypes,
       qualifyLocalTypes: context.qualifyLocalTypes,
-      preferResolvedLocalClrIdentity:
-        context.preferResolvedLocalClrIdentity,
+      preferResolvedLocalClrIdentity: context.preferResolvedLocalClrIdentity,
       typeParameters: context.typeParameters,
     },
   ];
@@ -456,20 +486,20 @@ export const getCanonicalRuntimeUnionMembers = (
                   !candidate.storageErasedElementType
                 ? existing
                 : (() => {
-                      const candidateKey = tryContextualTypeIdentityKey(
-                        candidateSemanticElementType,
-                        context
-                      );
-                      const existingKey = tryContextualTypeIdentityKey(
-                        existingSemanticElementType,
-                        context
-                      );
-                      return candidateKey &&
-                        existingKey &&
-                        candidateKey.localeCompare(existingKey) < 0
-                        ? existing
-                        : candidate;
-                    })();
+                    const candidateKey = tryContextualTypeIdentityKey(
+                      candidateSemanticElementType,
+                      context
+                    );
+                    const existingKey = tryContextualTypeIdentityKey(
+                      existingSemanticElementType,
+                      context
+                    );
+                    return candidateKey &&
+                      existingKey &&
+                      candidateKey.localeCompare(existingKey) < 0
+                      ? existing
+                      : candidate;
+                  })();
 
     const preferredSemanticElementType =
       preferredBase === candidate
@@ -513,7 +543,10 @@ export const getCanonicalRuntimeUnionMembers = (
         return leftKey.localeCompare(rightKey);
       }
       const leftStableKey = tryContextualTypeIdentityKey(left.member, context);
-      const rightStableKey = tryContextualTypeIdentityKey(right.member, context);
+      const rightStableKey = tryContextualTypeIdentityKey(
+        right.member,
+        context
+      );
       if (leftStableKey && rightStableKey && leftStableKey !== rightStableKey) {
         return leftStableKey.localeCompare(rightStableKey);
       }

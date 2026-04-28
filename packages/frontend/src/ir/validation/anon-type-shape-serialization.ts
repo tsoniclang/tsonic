@@ -89,7 +89,9 @@ export const serializeType = (type: IrType, state?: SerializeState): string => {
             }
 
             const params = member.parameters
-              .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
+              .map((p) =>
+                p.type ? serializeType(p.type, currentState) : "any"
+              )
               .join(",");
             const ret = member.returnType
               ? serializeType(member.returnType, currentState)
@@ -200,7 +202,9 @@ export const serializeType = (type: IrType, state?: SerializeState): string => {
           )
           .map((m) => {
             const params = m.parameters
-              .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
+              .map((p) =>
+                p.type ? serializeType(p.type, currentState) : "any"
+              )
               .join(",");
             const ret = m.returnType
               ? serializeType(m.returnType, currentState)

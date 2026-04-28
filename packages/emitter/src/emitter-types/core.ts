@@ -4,6 +4,7 @@
 
 import type {
   BindingRegistry as FrontendBindingRegistry,
+  SurfaceCapabilities,
   TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
 import type {
@@ -112,7 +113,7 @@ export type TypeAliasIndexEntry = {
  *
  * The frontend may preserve type aliases in inferredType (as referenceType by alias name)
  * even when the alias is declared in a different module. The emitter needs to resolve
- * such aliases deterministically to support features like `"prop" in x` union narrowing.
+ * such aliases deterministically for source-owned runtime union carriers.
  */
 export type TypeAliasIndex = {
   /** Lookup by fully-qualified alias name. */
@@ -125,6 +126,7 @@ export type TypeAliasIndex = {
 export type EmitterOptions = {
   /** Surface mode used during frontend compilation. */
   readonly surface?: string;
+  readonly surfaceCapabilities?: SurfaceCapabilities;
   /** Root namespace for the application */
   readonly rootNamespace: string;
   /**
@@ -426,6 +428,8 @@ export type EmitterContext = {
    * instead of recursing forever.
    */
   readonly activeTypeEmissionKeys?: ReadonlySet<string>;
+  /** Active runtime-union layout construction stack keyed by carrier/type identity. */
+  readonly activeRuntimeUnionLayoutKeys?: ReadonlySet<string>;
   /** Scoped identifier remaps for union narrowing */
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
@@ -433,8 +437,7 @@ export type EmitterContext = {
   /**
    * Scoped map of local const boolean aliases to their authored condition expressions.
    *
-   * Used to preserve deterministic narrowing through patterns like:
-   * `const isArray = Array.isArray(value); if (isArray) { ... }`
+   * Used to preserve deterministic narrowing through boolean alias conditions.
    */
   readonly conditionAliases?: ReadonlyMap<string, IrExpression>;
   /** Semantic (frontend IR) types for locals/parameters — alias names,
@@ -508,6 +511,4 @@ export type JsonAotRegistry = {
   readonly rootTypes: Map<string, CSharpTypeAst>;
   /** Whether any JsonSerializer calls were detected */
   needsJsonAot: boolean;
-  /** Whether any dynamic JS JSON runtime helper calls were emitted */
-  needsRuntimeJsonSupport: boolean;
 };

@@ -19,9 +19,7 @@ import {
   getAllPropertySignatures,
 } from "./property-member-lookup.js";
 import { getRuntimeUnionAliasReferenceKey } from "./runtime-union-alias-identity.js";
-import {
-  typesHaveDeterministicIdentityConflict,
-} from "./clr-type-identity.js";
+import { typesHaveDeterministicIdentityConflict } from "./clr-type-identity.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { referenceTypesShareNominalIdentity } from "./reference-type-identity.js";
 import {

@@ -176,6 +176,153 @@ describe("IR Builder", function () {
       }
     });
 
+    it("preserves override from class overload families onto real bodies", () => {
+      const { fixture, result } = collectOverloadsFromFixture({
+        "src/index.ts": [
+          'import { overloads as O } from "@tsonic/core/lang.js";',
+          'import type { int } from "@tsonic/core/types.js";',
+          "",
+          "declare class DbContext {",
+          "  SaveChanges(): int;",
+          "  SaveChanges(acceptAllChangesOnSuccess: boolean): int;",
+          "}",
+          "",
+          "export class WorkspaceDbContext extends DbContext {",
+          "  override SaveChanges(): int;",
+          "  override SaveChanges(acceptAllChangesOnSuccess: boolean): int;",
+          "  SaveChanges(_acceptAllChangesOnSuccess?: boolean): int {",
+          "    throw new Error('stub');",
+          "  }",
+          "",
+          "  SaveChangesDefault(): int {",
+          "    return super.SaveChanges();",
+          "  }",
+          "",
+          "  SaveChangesWithAccept(acceptAllChangesOnSuccess: boolean): int {",
+          "    return super.SaveChanges();",
+          "  }",
+          "}",
+          "",
+          "O<WorkspaceDbContext>().method(x => x.SaveChangesDefault).family(x => x.SaveChanges);",
+          "O<WorkspaceDbContext>().method(x => x.SaveChangesWithAccept).family(x => x.SaveChanges);",
+        ].join("\n"),
+      });
+
+      try {
+        expect(
+          result?.ok,
+          result && !result.ok
+            ? result.diagnostics
+                .map((diagnostic) => diagnostic.message)
+                .join("\n")
+            : undefined
+        ).to.equal(true);
+        if (!result?.ok) return;
+
+        const module = result.modules[0];
+        expect(module).to.not.equal(undefined);
+        if (!module) return;
+
+        const dbClass = module.body.find(
+          (statement): statement is IrClassDeclaration =>
+            statement.kind === "classDeclaration" &&
+            statement.name === "WorkspaceDbContext"
+        );
+        expect(dbClass).to.not.equal(undefined);
+        if (!dbClass) return;
+
+        const methods = dbClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration"
+        );
+        expect(methods.map((member) => member.name)).to.deep.equal([
+          "SaveChangesDefault",
+          "SaveChangesWithAccept",
+        ]);
+        expect(methods.map((member) => member.isOverride)).to.deep.equal([
+          true,
+          true,
+        ]);
+        expect(methods.map((member) => member.isShadow)).to.deep.equal([
+          undefined,
+          undefined,
+        ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("copies override only from the matched class overload signature", () => {
+      const { fixture, result } = collectOverloadsFromFixture({
+        "src/index.ts": [
+          'import { overloads as O } from "@tsonic/core/lang.js";',
+          'import type { int } from "@tsonic/core/types.js";',
+          "",
+          "class Router {",
+          "  get(path: string, count: int): this { return this; }",
+          "}",
+          "",
+          "class Application extends Router {",
+          "  get(name: string): string;",
+          "  override get(path: string, count: int): this;",
+          "  override get(_nameOrPath: any, _count?: any): any {",
+          "    throw new Error('stub');",
+          "  }",
+          "",
+          "  get_name(name: string): string {",
+          "    return name;",
+          "  }",
+          "",
+          "  get_path(path: string, count: int): this {",
+          "    return super.get(path, count);",
+          "  }",
+          "}",
+          "",
+          "O<Application>().method(x => x.get_name).family(x => x.get);",
+          "O<Application>().method(x => x.get_path).family(x => x.get);",
+        ].join("\n"),
+      });
+
+      try {
+        expect(
+          result?.ok,
+          result && !result.ok
+            ? result.diagnostics
+                .map((diagnostic) => diagnostic.message)
+                .join("\n")
+            : undefined
+        ).to.equal(true);
+        if (!result?.ok) return;
+
+        const module = result.modules[0];
+        expect(module).to.not.equal(undefined);
+        if (!module) return;
+
+        const appClass = module.body.find(
+          (statement): statement is IrClassDeclaration =>
+            statement.kind === "classDeclaration" &&
+            statement.name === "Application"
+        );
+        expect(appClass).to.not.equal(undefined);
+        if (!appClass) return;
+
+        const methods = appClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration"
+        );
+        expect(methods.map((member) => member.name)).to.deep.equal([
+          "get_name",
+          "get_path",
+        ]);
+        expect(methods.map((member) => member.isOverride)).to.deep.equal([
+          undefined,
+          true,
+        ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("groups static class stub overloads onto real bodies without wrapper helpers", () => {
       const { fixture, result } = collectOverloadsFromFixture({
         "src/index.ts": [

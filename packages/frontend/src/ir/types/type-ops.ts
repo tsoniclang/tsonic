@@ -280,7 +280,10 @@ const collectCanonicalRuntimeUnionFamilyMembers = (
   }
 
   return [
-    ...normalizeTypeList(Array.from(deduped.values()), createStableTypeKeyState()),
+    ...normalizeTypeList(
+      Array.from(deduped.values()),
+      createStableTypeKeyState()
+    ),
     ...opaqueMembers,
   ];
 };
@@ -407,7 +410,9 @@ export const referenceTypeHasClrIdentity = (
   }
 
   for (const rawName of rawNames) {
-    if (typeKey === getClrIdentityKey(rawName, type.typeArguments?.length ?? 0)) {
+    if (
+      typeKey === getClrIdentityKey(rawName, type.typeArguments?.length ?? 0)
+    ) {
       return true;
     }
   }
@@ -471,10 +476,10 @@ const coarseTypeHeadIdentity = (type: IrType, depth = 0): string => {
         depth >= maxDepth
           ? "*"
           : (type.typeArguments ?? [])
-        .map((arg) =>
-          arg ? coarseTypeHeadIdentity(arg, depth + 1) : "unknown"
-        )
-        .join(",");
+              .map((arg) =>
+                arg ? coarseTypeHeadIdentity(arg, depth + 1) : "unknown"
+              )
+              .join(",");
       const members = (type.structuralMembers ?? [])
         .map((member) => coarseInterfaceMemberRecursionIdentity(member))
         .sort()
@@ -539,21 +544,20 @@ const coarseTypeRecursionIdentity = (
     case "dictionaryType":
       return `dict:${coarseTypeHeadIdentity(type.keyType)}=>${coarseTypeHeadIdentity(type.valueType)}`;
 
-    case "referenceType":
-      {
-        const identity = referenceTypeIdentity(type);
-        if (!identity && !type.structuralMembers) {
-          throw new Error(
-            `Cannot build stable type key for identity-less reference type '${type.name}'`
-          );
-        }
-        return `ref:${identity ?? "structural"}:${(type.typeArguments ?? [])
-          .map((arg) => (arg ? coarseTypeHeadIdentity(arg) : "unknown"))
-          .join(",")}:${(type.structuralMembers ?? [])
-          .map((member) => coarseInterfaceMemberRecursionIdentity(member))
-          .sort()
-          .join("|")}`;
+    case "referenceType": {
+      const identity = referenceTypeIdentity(type);
+      if (!identity && !type.structuralMembers) {
+        throw new Error(
+          `Cannot build stable type key for identity-less reference type '${type.name}'`
+        );
       }
+      return `ref:${identity ?? "structural"}:${(type.typeArguments ?? [])
+        .map((arg) => (arg ? coarseTypeHeadIdentity(arg) : "unknown"))
+        .join(",")}:${(type.structuralMembers ?? [])
+        .map((member) => coarseInterfaceMemberRecursionIdentity(member))
+        .sort()
+        .join("|")}`;
+    }
 
     case "functionType":
       return `fn:${type.parameters
@@ -750,8 +754,7 @@ const stableIrTypeKeyImpl = (
           t ? stableIrTypeKeyImpl(t, state) : "unknown"
         );
         const members =
-          type.structuralMembers &&
-          !identity
+          type.structuralMembers && !identity
             ? sortByStableKey(type.structuralMembers, interfaceMemberKey, state)
                 .map((member) => interfaceMemberKey(member, state))
                 .join("|")
@@ -1102,20 +1105,43 @@ export const normalizedUnionType = (
     (type) => !shouldDropLiteralInPresenceOfPrimitive(type, primitiveFamilies)
   );
 
-  const deduped = new Map<string, IrType>();
-  const opaqueMembers: IrType[] = [];
-  for (const t of canonicalized) {
-    const key = stableIrTypeKeyIfDeterministic(t);
-    if (key) {
-      deduped.set(key, t);
-    } else {
-      opaqueMembers.push(t);
+  const normalized = (() => {
+    if (options.preserveRuntimeLayout === true) {
+      const seenDeterministic = new Set<string>();
+      const sourceOrderedMembers: IrType[] = [];
+      for (const type of canonicalized) {
+        const key = stableIrTypeKeyIfDeterministic(type);
+        if (!key) {
+          sourceOrderedMembers.push(type);
+          continue;
+        }
+        if (seenDeterministic.has(key)) {
+          continue;
+        }
+        seenDeterministic.add(key);
+        sourceOrderedMembers.push(type);
+      }
+      return sourceOrderedMembers;
     }
-  }
-  const normalized = [
-    ...normalizeTypeList(Array.from(deduped.values()), createStableTypeKeyState()),
-    ...opaqueMembers,
-  ];
+
+    const deduped = new Map<string, IrType>();
+    const opaqueMembers: IrType[] = [];
+    for (const type of canonicalized) {
+      const key = stableIrTypeKeyIfDeterministic(type);
+      if (key) {
+        deduped.set(key, type);
+      } else {
+        opaqueMembers.push(type);
+      }
+    }
+    return [
+      ...normalizeTypeList(
+        Array.from(deduped.values()),
+        createStableTypeKeyState()
+      ),
+      ...opaqueMembers,
+    ];
+  })();
   if (normalized.length === 1) {
     const single = normalized[0];
     if (single) return single;

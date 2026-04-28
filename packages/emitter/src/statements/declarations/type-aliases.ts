@@ -115,7 +115,10 @@ const emitStructuralTypeAlias = (
       // Property type
       const [baseTypeAst, typeContext] = (() => {
         if (member.type) {
-          return emitTypeAst(normalizeValueSlotType(member.type), currentContext);
+          return emitTypeAst(
+            normalizeValueSlotType(member.type),
+            currentContext
+          );
         }
         const objType: CSharpTypeAst = identifierType("object");
         return [objType, currentContext] as const;

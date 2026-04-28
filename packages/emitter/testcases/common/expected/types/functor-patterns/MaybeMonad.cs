@@ -28,36 +28,36 @@ namespace TestCases.common.types.functorpatterns
     public class Maybe<T> : Functor<T>
         where T : class
     {
-        private T? value { get; set; }
+        private T? __private_value;
 
         public Maybe(T? value) : base()
         {
-            this.value = value;
+            this.__private_value = value;
         }
 
         public override Maybe<U> map<U>(global::System.Func<T, U> fn)
             where U : class
         {
-            if (this.value == null)
+            if (this.__private_value == null)
             {
                 return Maybe.nothing<U>();
             }
-            return Maybe.just(fn(this.value));
+            return Maybe.just(fn(this.__private_value));
         }
 
         public Maybe<U> flatMap<U>(global::System.Func<T, Maybe<U>> fn)
             where U : class
         {
-            if (this.value == null)
+            if (this.__private_value == null)
             {
                 return Maybe.nothing<U>();
             }
-            return fn(this.value);
+            return fn(this.__private_value);
         }
 
         public T getOrElse(T defaultValue)
         {
-            return this.value != null ? this.value : defaultValue;
+            return this.__private_value != null ? this.__private_value : defaultValue;
         }
     }
 }

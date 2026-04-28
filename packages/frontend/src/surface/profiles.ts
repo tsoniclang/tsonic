@@ -16,6 +16,15 @@ export type SurfaceCapabilities = {
   readonly requiredTypeRoots: readonly string[];
 };
 
+export const surfaceIncludesMode = (
+  capabilities: Pick<SurfaceCapabilities, "resolvedModes">,
+  mode: SurfaceMode
+): boolean => capabilities.resolvedModes.includes(mode);
+
+export const surfaceIncludesJs = (
+  capabilities: Pick<SurfaceCapabilities, "resolvedModes">
+): boolean => surfaceIncludesMode(capabilities, "@tsonic/js");
+
 type SurfaceManifest = {
   readonly schemaVersion?: unknown;
   readonly id?: unknown;
@@ -242,11 +251,6 @@ const resolveSurfacePackage = (
     };
   }
 
-  const sibling = tryResolveSiblingSurfacePackage(packageName, projectRoot);
-  if (sibling && isSourceSurfacePackageRoot(sibling.packageRoot)) {
-    return sibling;
-  }
-
   const workspaceInstalled = tryResolveProjectInstalledSurfacePackage(
     packageName,
     projectRoot
@@ -257,6 +261,12 @@ const resolveSurfacePackage = (
   ) {
     return workspaceInstalled;
   }
+
+  const sibling = tryResolveSiblingSurfacePackage(packageName, projectRoot);
+  if (sibling && isSourceSurfacePackageRoot(sibling.packageRoot)) {
+    return sibling;
+  }
+
   if (
     workspaceInstalled &&
     existsSync(join(workspaceInstalled.packageRoot, "tsonic.surface.json"))
@@ -267,9 +277,6 @@ const resolveSurfacePackage = (
   try {
     const pkgJsonPath = req.resolve(`${packageName}/package.json`);
     const installed = { packageName, packageRoot: dirname(pkgJsonPath) };
-    if (sibling && isSourceSurfacePackageRoot(sibling.packageRoot)) {
-      return sibling;
-    }
     if (isSourceSurfacePackageRoot(installed.packageRoot)) {
       return installed;
     }
@@ -281,12 +288,6 @@ const resolveSurfacePackage = (
     }
     if (existsSync(join(installed.packageRoot, "tsonic.surface.json"))) {
       return installed;
-    }
-    if (
-      sibling &&
-      existsSync(join(sibling.packageRoot, "tsonic.surface.json"))
-    ) {
-      return sibling;
     }
     return installed;
   } catch {

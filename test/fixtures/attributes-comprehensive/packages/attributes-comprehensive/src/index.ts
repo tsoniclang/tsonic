@@ -19,14 +19,14 @@ export class NamesAttribute extends Attribute {
 }
 
 export class User {
-  private _nameField!: string;
+  #nameField!: string;
 
   get name(): string {
-    return this._nameField;
+    return this.#nameField;
   }
 
   set name(value: string) {
-    this._nameField = value;
+    this.#nameField = value;
   }
 
   save(): void {}

@@ -15,7 +15,11 @@
 import type { IrExpression } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { allocateLocalName } from "../format/local-names.js";
-import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
+import {
+  resolveEffectiveExpressionType,
+  tryResolveRuntimeUnionMemberType,
+} from "./narrowed-expression-types.js";
+import { stripNullish } from "./type-resolution.js";
 import {
   booleanLiteral,
   charLiteral,
@@ -63,7 +67,16 @@ export const toBooleanConditionAst = (
   emittedAst: CSharpExpressionAst,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const inferredType = resolveEffectiveExpressionType(expr, context);
+  const effectiveType = resolveEffectiveExpressionType(expr, context);
+  const inferredType =
+    (effectiveType
+      ? tryResolveRuntimeUnionMemberType(
+          stripNullish(effectiveType),
+          emittedAst,
+          context,
+          { verifyReceiver: false }
+        )
+      : undefined) ?? effectiveType;
   const resolved = inferredType
     ? resolveLocalTypeAlias(
         coerceClrPrimitiveToPrimitiveType(inferredType) ?? inferredType,

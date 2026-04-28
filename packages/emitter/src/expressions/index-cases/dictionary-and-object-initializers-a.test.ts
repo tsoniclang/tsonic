@@ -8,7 +8,7 @@ import {
 } from "./helpers.js";
 
 describe("Expression Emission", () => {
-  it("should emit CLR Count for structural dictionary count without member binding", () => {
+  it("should emit CLR Count for structural dictionary Count without member binding", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -34,7 +34,7 @@ describe("Expression Emission", () => {
                 },
               },
             },
-            property: "Length",
+            property: "Count",
             isComputed: false,
             isOptional: false,
           },
@@ -470,7 +470,7 @@ describe("Expression Emission", () => {
     );
   });
 
-  it("should lower dictionary.Keys to a materialized key array", () => {
+  it("should emit dictionary.Keys as the declared CLR member", () => {
     const dictType: IrType = {
       kind: "dictionaryType",
       keyType: { kind: "primitiveType", name: "string" },
@@ -503,10 +503,7 @@ describe("Expression Emission", () => {
                 property: "Keys",
                 isComputed: false,
                 isOptional: false,
-                inferredType: {
-                  kind: "arrayType",
-                  elementType: { kind: "primitiveType", name: "string" },
-                },
+                inferredType: { kind: "unknownType" },
               },
             },
           ],
@@ -516,12 +513,12 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include(
-      "new global::System.Collections.Generic.List<string>(dict.Keys).ToArray()"
-    );
+    expect(result).to.include("dict.Keys");
+    expect(result).not.to.include("new global::System.Collections.Generic.List");
+    expect(result).not.to.include(".ToArray()");
   });
 
-  it("should lower dictionary.Values to a materialized value array", () => {
+  it("should emit dictionary.Values as the declared CLR member", () => {
     const dictType: IrType = {
       kind: "dictionaryType",
       keyType: { kind: "primitiveType", name: "string" },
@@ -554,10 +551,7 @@ describe("Expression Emission", () => {
                 property: "Values",
                 isComputed: false,
                 isOptional: false,
-                inferredType: {
-                  kind: "arrayType",
-                  elementType: { kind: "referenceType", name: "long" },
-                },
+                inferredType: { kind: "unknownType" },
               },
             },
           ],
@@ -567,8 +561,8 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include(
-      "new global::System.Collections.Generic.List<long>(dict.Values).ToArray()"
-    );
+    expect(result).to.include("dict.Values");
+    expect(result).not.to.include("new global::System.Collections.Generic.List");
+    expect(result).not.to.include(".ToArray()");
   });
 });

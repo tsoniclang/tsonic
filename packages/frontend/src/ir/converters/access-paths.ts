@@ -184,7 +184,7 @@ export const getCurrentTypeForAccessPath = (
       kind: "byName",
       name: segment,
     });
-    if (memberType.kind === "unknownType") {
+    if (memberType.kind === "unknownType" && memberType.explicit !== true) {
       return undefined;
     }
     currentType = memberType;

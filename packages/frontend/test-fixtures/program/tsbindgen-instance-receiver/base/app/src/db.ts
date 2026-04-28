@@ -10,7 +10,7 @@ export interface PostEntity {
 }
 
 export class BlogDbContext implements DbContext {
-  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbContext!: never;
+  __tsonic_type_Microsoft_EntityFrameworkCore_DbContext!: never;
   posts!: DbSet_1<PostEntity>;
   Remove<TEntity>(entity: TEntity): EntityEntry_1<TEntity> {
     throw new Error("not reached");

@@ -77,7 +77,7 @@ import {
 import {
   isBroadObjectPassThroughType,
   isBroadObjectSlotType,
-} from "../core/semantic/js-value-types.js";
+} from "../core/semantic/broad-object-types.js";
 
 // ---------------------------------------------------------------------------
 // Polymorphic-this helpers (used by orchestrator and emitTypeAssertion)
@@ -476,6 +476,40 @@ export const emitTypeAssertion = (
   const preservedSystemArrayStorageAtEntry =
     runtimeAssertionTarget.kind === "arrayType" &&
     isSystemArrayStorageType(sourceStorageTypeAtEntry, context);
+
+  if (isTransparentFlowAssertion && expectedType) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      expectedType
+    );
+  }
+
+  if (
+    isTransparentFlowAssertion &&
+    currentTransparentSourceType &&
+    !areIrTypesEquivalent(
+      currentTransparentSourceType,
+      runtimeAssertionTarget,
+      context
+    ) &&
+    (matchesExpectedEmissionType(
+      currentTransparentSourceType,
+      runtimeAssertionTarget,
+      context
+    ) ||
+      matchesSemanticExpectedType(
+        currentTransparentSourceType,
+        runtimeAssertionTarget,
+        context
+      ))
+  ) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      currentTransparentSourceType
+    );
+  }
 
   if (
     (resolvedAssertionTarget.kind === "primitiveType" &&

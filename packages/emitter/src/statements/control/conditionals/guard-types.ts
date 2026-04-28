@@ -82,33 +82,6 @@ export type InstanceofGuardInfo = {
 };
 
 /**
- * Information extracted from an `("prop" in x)` condition.
- *
- * This is used for union narrowing over structural union members (Union<T1..Tn>):
- *   if ("error" in auth) { ... } → if (auth.IsN()) { var auth__N_k = auth.AsN(); ... }
- *
- * NOTE: We only support the common "single matching member" narrowing case today:
- * - RHS must be an identifier
- * - RHS inferred type must resolve to a carried runtime union (arity 2+)
- * - LHS must be a string literal
- * - The property must exist on exactly ONE union member (so narrowing is single-type)
- */
-export type InGuardInfo = {
-  readonly originalName: string;
-  readonly propertyName: string;
-  readonly memberN: number;
-  readonly unionArity: number;
-  readonly runtimeUnionArity: number;
-  readonly candidateMemberNs: readonly number[];
-  readonly candidateMembers: readonly IrType[];
-  readonly ctxWithId: EmitterContext;
-  readonly narrowedName: string;
-  readonly escapedOrig: string;
-  readonly escapedNarrow: string;
-  readonly narrowedMap: Map<string, NarrowedBinding>;
-};
-
-/**
  * Information extracted from a discriminant literal equality check:
  *   if (x.kind === "circle") { ... }
  *

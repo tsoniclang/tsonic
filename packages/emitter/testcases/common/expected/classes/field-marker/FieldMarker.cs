@@ -6,6 +6,6 @@ namespace TestCases.common.classes.fieldmarker
 
         public string nickname { get; set; } = "ali";
 
-        public readonly string email = "a@example.com";
+        public string email = "a@example.com";
     }
 }

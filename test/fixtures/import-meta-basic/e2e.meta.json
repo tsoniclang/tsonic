@@ -1,3 +1,0 @@
-{
-  "description": "import.meta.url/filename/dirname are lowered deterministically as compile-time literals."
-}

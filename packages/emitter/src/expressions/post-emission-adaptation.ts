@@ -12,13 +12,11 @@ import {
   splitRuntimeNullishUnionMembers,
   isDefinitelyValueType,
 } from "../core/semantic/type-resolution.js";
-import {
-  matchesExpectedEmissionType,
-} from "../core/semantic/expected-type-matching.js";
+import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { isAssignable } from "../core/semantic/type-compatibility.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
-import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
+import { isBroadObjectSlotType } from "../core/semantic/broad-object-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   extractCalleeNameFromAst,
@@ -657,7 +655,8 @@ export const isNumericFactoryCreateCheckedAst = (
     current.arguments.length === 1 &&
     current.expression.kind === "memberAccessExpression" &&
     current.expression.memberName === "CreateChecked" &&
-    extractCalleeNameFromAst(current.expression.expression) === targetFactoryType
+    extractCalleeNameFromAst(current.expression.expression) ===
+      targetFactoryType
   );
 };
 
@@ -1197,7 +1196,11 @@ export const maybeCastNumericToExpectedJsNumberAst = (
     !isNumericSourceIrType(actualType, context) ||
     isNumericLiteralAst(ast) ||
     isNumericFactoryCreateCheckedAst(ast, expectedType, context) ||
-    areIrTypesEquivalent(stripNullish(actualType), stripNullish(expectedType), context)
+    areIrTypesEquivalent(
+      stripNullish(actualType),
+      stripNullish(expectedType),
+      context
+    )
   ) {
     return [ast, context];
   }

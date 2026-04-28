@@ -21,8 +21,6 @@ export {
   buildRuntimeSubsetExpressionAst,
   buildConditionalNullishGuardAst,
   tryStripConditionalNullishGuardAst,
-  isArrayLikeNarrowingCandidate,
-  narrowTypeByArrayShape,
   narrowTypeByNotAssignableTarget,
   currentNarrowedType,
   resolveRuntimeUnionFrame,

@@ -15,8 +15,9 @@ import {
   IrStatement,
   IrType,
 } from "@tsonic/frontend";
-import type { EmitterContext } from "../../types.js";
+import { contextSurfaceIncludesJs, type EmitterContext } from "../../types.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import { JS_ARRAY_MUTATING_METHODS } from "./js-array-surface-members.js";
 
 export type MutableStorageAnalysis = {
   readonly mutableModuleBindings: ReadonlySet<string>;
@@ -35,18 +36,6 @@ export type VisitStatementFn = (
   mutablePropertySlots: Set<string>,
   scopes: ScopeStack
 ) => void;
-
-const nativeArrayMutationMembers = new Set([
-  "push",
-  "pop",
-  "shift",
-  "unshift",
-  "splice",
-  "sort",
-  "reverse",
-  "fill",
-  "copyWithin",
-]);
 
 export const propertySlotKey = (
   typeName: string,
@@ -341,7 +330,8 @@ export const checkArrayMutationOnCall = (
     expr.callee.kind !== "memberAccess" ||
     expr.callee.isComputed ||
     typeof expr.callee.property !== "string" ||
-    !nativeArrayMutationMembers.has(expr.callee.property)
+    !contextSurfaceIncludesJs(context) ||
+    !JS_ARRAY_MUTATING_METHODS.has(expr.callee.property)
   ) {
     return;
   }

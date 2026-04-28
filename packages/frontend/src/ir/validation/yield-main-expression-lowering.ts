@@ -205,33 +205,12 @@ export const lowerExpressionWithYields = (
             loweredArgs.push(loweredArg.expression);
           }
         }
-        const loweredDynamicImportNamespace =
-          expr.kind === "call" && expr.dynamicImportNamespace
-            ? lower(expr.dynamicImportNamespace)
-            : undefined;
-        if (
-          expr.kind === "call" &&
-          expr.dynamicImportNamespace &&
-          !loweredDynamicImportNamespace
-        ) {
-          return undefined;
-        }
-        if (loweredDynamicImportNamespace) {
-          preludes.push(...loweredDynamicImportNamespace.prelude);
-        }
         return {
           prelude: preludes,
           expression: {
             ...expr,
             callee: loweredCallee.expression,
             arguments: loweredArgs,
-            ...(expr.kind === "call"
-              ? {
-                  dynamicImportNamespace: loweredDynamicImportNamespace
-                    ? (loweredDynamicImportNamespace.expression as typeof expr.dynamicImportNamespace)
-                    : expr.dynamicImportNamespace,
-                }
-              : {}),
           },
         };
       }

@@ -19,6 +19,7 @@ This affects how you should read and write Tsonic code:
 - authored source packages are compiled as part of the same program
 - unsupported dynamic behavior is rejected instead of being preserved
 - generated output is treated as a closed world
+- runtime reflection and runtime shape discovery are not language semantics
 
 ## What that means in practice
 
@@ -26,6 +27,26 @@ This affects how you should read and write Tsonic code:
 - explicit numeric intent matters
 - package graphs are compiled deterministically
 - emitted output is treated as a closed world
+- JSON APIs require concrete compile-time types so generated serializers can be
+  rooted for NativeAOT
+
+## Unsupported runtime-dynamic constructs
+
+These constructs are rejected in emitted Tsonic code:
+
+```ts
+typeof value;
+Array.isArray(value);
+"name" in value;
+delete value.name;
+for (const key in value) {}
+await import("./module.js");
+import.meta.url;
+globalThis;
+```
+
+Use concrete domain types, static imports, explicit discriminant fields, nominal
+guards, `for...of` over typed collections, and typed JSON APIs.
 
 ## Use the right docs
 

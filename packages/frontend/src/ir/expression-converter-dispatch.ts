@@ -7,7 +7,7 @@
 
 import * as ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type {
   IrExpression,
   IrNumericNarrowingExpression,
@@ -43,10 +43,6 @@ import {
   convertConditionalExpression,
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
-import {
-  convertImportMetaObject,
-  isImportMetaMetaProperty,
-} from "./converters/expressions/import-meta.js";
 import { getSourceSpan } from "./converters/expressions/helpers.js";
 import { shouldWrapExpressionWithAssertion } from "./converters/assertion-wrapping.js";
 import {
@@ -59,6 +55,9 @@ import {
 } from "./expression-converter-helpers.js";
 import { resolveAmbientGlobalSourceOwner } from "./converters/expressions/ambient-global-source-owner.js";
 import type { DeclId } from "./type-system/types.js";
+import { readSourcePackageMetadata } from "../program/source-package-metadata.js";
+import { getNamespaceFromPath } from "../resolver/namespace.js";
+import { getClassNameFromPath } from "../resolver/naming.js";
 
 const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
   ts.isImportClause(decl) ||
@@ -184,11 +183,207 @@ const readNamespaceFromBindingsJson = (
   }
 };
 
-const resolveImportedIdentifierClrType = (
+type ImportedIdentifierClrBinding = {
+  readonly resolvedClrType: string;
+  readonly resolvedAssembly?: string;
+};
+
+type SourceFileExportKind =
+  | "class"
+  | "enum"
+  | "function"
+  | "interface"
+  | "variable";
+
+type SourceFileTopLevelExport = {
+  readonly exportName: string;
+  readonly localName: string;
+  readonly kind: SourceFileExportKind;
+};
+
+const findContainingSourcePackageRoot = (
+  filePath: string
+): string | undefined => {
+  let currentDir = dirname(resolve(filePath));
+  for (;;) {
+    if (readSourcePackageMetadata(currentDir)) {
+      return currentDir;
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      return undefined;
+    }
+    currentDir = parentDir;
+  }
+};
+
+const isExportedStatement = (statement: ts.Statement): boolean =>
+  !!(ts.canHaveModifiers(statement)
+    ? ts
+        .getModifiers(statement)
+        ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    : false);
+
+const collectSourceFileTopLevelExports = (
+  sourceFile: ts.SourceFile
+): readonly SourceFileTopLevelExport[] => {
+  const topLevel = new Map<
+    string,
+    { readonly localName: string; readonly kind: SourceFileExportKind }
+  >();
+  const exports: SourceFileTopLevelExport[] = [];
+  const seen = new Set<string>();
+
+  const addTopLevel = (
+    localName: string | undefined,
+    kind: SourceFileExportKind
+  ): void => {
+    if (localName) {
+      topLevel.set(localName, { localName, kind });
+    }
+  };
+
+  const pushExport = (exportName: string, localName: string): void => {
+    const topLevelSymbol = topLevel.get(localName);
+    if (!topLevelSymbol) {
+      return;
+    }
+
+    const key = `${exportName}::${localName}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    exports.push({
+      exportName,
+      localName,
+      kind: topLevelSymbol.kind,
+    });
+  };
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isClassDeclaration(statement)) {
+      addTopLevel(statement.name?.text, "class");
+      continue;
+    }
+    if (ts.isEnumDeclaration(statement)) {
+      addTopLevel(statement.name.text, "enum");
+      continue;
+    }
+    if (ts.isFunctionDeclaration(statement)) {
+      addTopLevel(statement.name?.text, "function");
+      continue;
+    }
+    if (ts.isInterfaceDeclaration(statement)) {
+      addTopLevel(statement.name.text, "interface");
+      continue;
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          addTopLevel(declaration.name.text, "variable");
+        }
+      }
+    }
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (
+      (ts.isClassDeclaration(statement) ||
+        ts.isEnumDeclaration(statement) ||
+        ts.isFunctionDeclaration(statement) ||
+        ts.isInterfaceDeclaration(statement)) &&
+      isExportedStatement(statement) &&
+      statement.name?.text
+    ) {
+      pushExport(statement.name.text, statement.name.text);
+      continue;
+    }
+
+    if (
+      ts.isVariableStatement(statement) &&
+      isExportedStatement(statement)
+    ) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          pushExport(declaration.name.text, declaration.name.text);
+        }
+      }
+      continue;
+    }
+
+    if (
+      !ts.isExportDeclaration(statement) ||
+      !!statement.moduleSpecifier ||
+      !statement.exportClause ||
+      !ts.isNamedExports(statement.exportClause)
+    ) {
+      continue;
+    }
+
+    for (const element of statement.exportClause.elements) {
+      pushExport(
+        element.name.text,
+        element.propertyName?.text ?? element.name.text
+      );
+    }
+  }
+
+  return exports;
+};
+
+const resolveSourcePackageImportedIdentifierClrBinding = (
+  declPath: string,
+  exportName: string
+): ImportedIdentifierClrBinding | undefined => {
+  const packageRoot = findContainingSourcePackageRoot(declPath);
+  if (!packageRoot) {
+    return undefined;
+  }
+
+  const metadata = readSourcePackageMetadata(packageRoot);
+  if (!metadata) {
+    return undefined;
+  }
+
+  const sourceFile = ts.createSourceFile(
+    declPath,
+    readFileSync(declPath, "utf-8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const exported = collectSourceFileTopLevelExports(sourceFile).find(
+    (candidate) => candidate.exportName === exportName
+  );
+  if (!exported) {
+    return undefined;
+  }
+
+  const namespace = getNamespaceFromPath(
+    declPath,
+    metadata.sourceRoot,
+    metadata.namespace
+  );
+  const owner =
+    exported.kind === "class" ||
+    exported.kind === "enum" ||
+    exported.kind === "interface"
+      ? `${namespace}.${exported.localName}`
+      : `${namespace}.${getClassNameFromPath(declPath)}.${exported.localName}`;
+
+  return {
+    resolvedClrType: owner,
+    resolvedAssembly: metadata.namespace,
+  };
+};
+
+const resolveImportedIdentifierClrBinding = (
   declId: DeclId,
   declarations: readonly ts.Declaration[],
   ctx: ProgramContext
-): string | undefined => {
+): ImportedIdentifierClrBinding | undefined => {
   const importSpecifier = declarations.find(ts.isImportSpecifier);
   if (!importSpecifier) {
     return undefined;
@@ -199,6 +394,14 @@ const resolveImportedIdentifierClrType = (
   const declPath = ctx.binding.getSourceFilePathOfDecl(declId);
   if (!declPath) {
     return undefined;
+  }
+
+  const sourcePackageBinding = resolveSourcePackageImportedIdentifierClrBinding(
+    declPath,
+    exportName
+  );
+  if (sourcePackageBinding) {
+    return sourcePackageBinding;
   }
 
   const bindingsPath = findOwningBindingsJson(declPath);
@@ -230,7 +433,8 @@ const resolveImportedIdentifierClrType = (
     return simpleClrName.replace(/`\d+$/, "") === exportName;
   };
 
-  return namespaceBinding.types.find(matchesExportName)?.name;
+  const resolvedClrType = namespaceBinding.types.find(matchesExportName)?.name;
+  return resolvedClrType ? { resolvedClrType } : undefined;
 };
 
 /**
@@ -292,8 +496,6 @@ export const convertExpression = (
     };
   }
   if (ts.isVoidExpression(node)) {
-    // `void expr` evaluates `expr` and yields `undefined` (void type).
-    // Do NOT drop the operand: `void foo()` must still call foo().
     return {
       kind: "unary",
       operator: "void",
@@ -376,9 +578,13 @@ export const convertExpression = (
       symbolDeclarations.length > 0 &&
       !hasImportLikeDeclaration &&
       symbolDeclarations.every(isAmbientGlobalDeclaration);
-    const importResolvedClrType =
+    const importResolvedClrBinding =
       declId && hasImportLikeDeclaration
-        ? resolveImportedIdentifierClrType(declId, symbolDeclarations, ctx)
+        ? resolveImportedIdentifierClrBinding(
+            declId,
+            symbolDeclarations,
+            ctx
+          )
         : undefined;
     const suppressSyntheticFlowAssertion =
       isMemberAccessReceiverExpression(node);
@@ -432,7 +638,9 @@ export const convertExpression = (
       name: node.text,
       inferredType: effectiveIdentifierType,
       sourceSpan: getSourceSpan(node),
-      resolvedClrType: importResolvedClrType ?? ambientSourceOwner,
+      resolvedClrType:
+        importResolvedClrBinding?.resolvedClrType ?? ambientSourceOwner,
+      resolvedAssembly: importResolvedClrBinding?.resolvedAssembly,
       originalName,
       declId,
     };
@@ -451,9 +659,6 @@ export const convertExpression = (
       };
     }
     return baseIdentifier;
-  }
-  if (isImportMetaMetaProperty(node)) {
-    return convertImportMetaObject(node, ctx);
   }
   if (ts.isArrayLiteralExpression(node)) {
     return convertArrayLiteral(node, ctx, expectedType);
@@ -483,7 +688,6 @@ export const convertExpression = (
     return convertUpdateExpression(node, ctx);
   }
   if (ts.isTypeOfExpression(node)) {
-    // typeof always returns string
     return {
       kind: "unary",
       operator: "typeof",
@@ -493,7 +697,6 @@ export const convertExpression = (
     };
   }
   if (ts.isVoidExpression(node)) {
-    // void always returns undefined (void type)
     return {
       kind: "unary",
       operator: "void",
@@ -503,14 +706,9 @@ export const convertExpression = (
     };
   }
   if (ts.isDeleteExpression(node)) {
-    // delete always returns boolean
-    return {
-      kind: "unary",
-      operator: "delete",
-      expression: convertExpression(node.expression, ctx, undefined),
-      inferredType: { kind: "primitiveType", name: "boolean" },
-      sourceSpan: getSourceSpan(node),
-    };
+    throw new Error(
+      "ICE: delete expression reached IR conversion - validation missed TSN2001"
+    );
   }
   if (ts.isConditionalExpression(node)) {
     return convertConditionalExpression(node, ctx, expectedType);

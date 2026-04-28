@@ -540,8 +540,7 @@ describe("Binding System", () => {
           clrName: "Empty",
           declaringClrType: "System.ArraySegment`1",
           declaringAssemblyName: "System.Private.CoreLib",
-          normalizedSignature:
-            "Empty|:ArraySegment_1|static=true|accessor=get",
+          normalizedSignature: "Empty|:ArraySegment_1|static=true|accessor=get",
           ...(emitSemantics ? { emitSemantics } : {}),
         };
 

@@ -41,8 +41,14 @@ const computeArrayElementType = (
     if (types.some((type) => type.kind === "anyType")) {
       return { kind: "anyType" };
     }
-    if (types.some((type) => type.kind === "unknownType")) {
-      return { kind: "unknownType" };
+    const unknownTypes = types.filter(
+      (type): type is Extract<IrType, { kind: "unknownType" }> =>
+        type.kind === "unknownType"
+    );
+    if (unknownTypes.length > 0) {
+      return unknownTypes.every((type) => type.explicit === true)
+        ? { kind: "unknownType", explicit: true }
+        : { kind: "unknownType" };
     }
     const first = types[0];
     if (first && types.every((t) => typesEqual(t, first))) {

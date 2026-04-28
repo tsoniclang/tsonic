@@ -107,7 +107,28 @@ export const normalizeNamespaceAliasQualifiedName = (
 };
 
 export const normalizeExpandedAliasType = (type: IrType): IrType =>
-  type.kind === "unionType" ? normalizedUnionType(type.types) : type;
+  type.kind === "unionType"
+    ? normalizedUnionType(type.types, {
+        ...(type.preserveRuntimeLayout === true
+          ? { preserveRuntimeLayout: true as const }
+          : {}),
+        ...(type.runtimeCarrierFamilyKey !== undefined
+          ? { runtimeCarrierFamilyKey: type.runtimeCarrierFamilyKey }
+          : {}),
+        ...(type.runtimeCarrierName !== undefined
+          ? { runtimeCarrierName: type.runtimeCarrierName }
+          : {}),
+        ...(type.runtimeCarrierNamespace !== undefined
+          ? { runtimeCarrierNamespace: type.runtimeCarrierNamespace }
+          : {}),
+        ...(type.runtimeCarrierTypeParameters !== undefined
+          ? { runtimeCarrierTypeParameters: type.runtimeCarrierTypeParameters }
+          : {}),
+        ...(type.runtimeCarrierTypeArguments !== undefined
+          ? { runtimeCarrierTypeArguments: type.runtimeCarrierTypeArguments }
+          : {}),
+      })
+    : type;
 
 export const isSymbolTypeReferenceNode = (node: ts.TypeNode): boolean =>
   ts.isTypeReferenceNode(node) &&

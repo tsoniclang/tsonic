@@ -12,11 +12,14 @@
  */
 
 import { type IrType } from "@tsonic/frontend";
+import type { EmitterContext } from "../../types.js";
 import {
   getReferenceDeterministicIdentityKey,
   referenceTypeHasClrIdentity,
   typesShareDirectClrIdentity,
 } from "./clr-type-identity.js";
+import { referenceTypesShareNominalIdentity } from "./reference-type-identity.js";
+import { resolveLocalTypeInfo, substituteTypeArgs } from "./type-resolution.js";
 
 /**
  * Integer type names that map to C# integer types
@@ -197,6 +200,118 @@ export const isAssignable = (
         );
       }
     }
+  }
+
+  return false;
+};
+
+const buildAssignablePairKey = (
+  fromType: IrType,
+  toType: IrType,
+  context: EmitterContext
+): string => {
+  const typeKey = (type: IrType): string => {
+    if (type.kind === "referenceType") {
+      return (
+        getReferenceDeterministicIdentityKey(type) ??
+        `${type.name}/${type.typeArguments?.length ?? 0}`
+      );
+    }
+    return type.kind;
+  };
+
+  return `${typeKey(fromType)}=>${typeKey(toType)}@${context.moduleNamespace ?? context.options.rootNamespace}`;
+};
+
+const substituteHeritageType = (
+  heritageType: IrType,
+  ownerType: Extract<IrType, { kind: "referenceType" }>,
+  ownerTypeParameters: readonly string[]
+): IrType => {
+  const typeArguments = ownerType.typeArguments ?? [];
+  return ownerTypeParameters.length > 0 && typeArguments.length > 0
+    ? substituteTypeArgs(heritageType, ownerTypeParameters, typeArguments)
+    : heritageType;
+};
+
+const isReferenceAssignableThroughHeritage = (
+  fromType: Extract<IrType, { kind: "referenceType" }>,
+  toType: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext,
+  visited: Set<string>
+): boolean => {
+  if (referenceTypesShareNominalIdentity(fromType, toType, context)) {
+    return true;
+  }
+
+  const localInfo = resolveLocalTypeInfo(fromType, context)?.info;
+  if (!localInfo) {
+    return false;
+  }
+
+  const heritageTypes =
+    localInfo.kind === "class"
+      ? [
+          ...(localInfo.superClass ? [localInfo.superClass] : []),
+          ...localInfo.implements,
+        ]
+      : localInfo.kind === "interface"
+        ? localInfo.extends
+        : [];
+
+  return heritageTypes.some((heritageType) =>
+    isAssignableToType(
+      substituteHeritageType(
+        heritageType,
+        fromType,
+        localInfo.kind === "class" || localInfo.kind === "interface"
+          ? localInfo.typeParameters
+          : []
+      ),
+      toType,
+      context,
+      visited
+    )
+  );
+};
+
+export const isAssignableToType = (
+  fromType: IrType | undefined,
+  toType: IrType | undefined,
+  context: EmitterContext,
+  visited: Set<string> = new Set<string>()
+): boolean => {
+  if (!fromType || !toType) return false;
+
+  if (isAssignable(fromType, toType)) {
+    return true;
+  }
+
+  const pairKey = buildAssignablePairKey(fromType, toType, context);
+  if (visited.has(pairKey)) {
+    return false;
+  }
+  visited.add(pairKey);
+
+  if (toType.kind === "unionType") {
+    return toType.types.some((member) =>
+      isAssignableToType(fromType, member, context, visited)
+    );
+  }
+
+  if (fromType.kind === "unionType") {
+    return fromType.types.every((member) =>
+      isAssignableToType(member, toType, context, visited)
+    );
+  }
+
+  if (fromType.kind === "referenceType" && toType.kind === "referenceType") {
+    return isReferenceAssignableThroughHeritage(
+      fromType,
+      toType,
+      context,
+      visited
+    );
   }
 
   return false;

@@ -36,7 +36,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "./type-resolution.js";
-import { isBroadObjectSlotType } from "./js-value-types.js";
+import { isBroadObjectSlotType } from "./broad-object-types.js";
 import {
   boxValueAst,
   buildArrayShapeCondition,
@@ -66,6 +66,18 @@ export type RuntimeReificationPlan = {
 export type RuntimeMaterializationSourceFrame = {
   readonly members: readonly IrType[];
   readonly candidateMemberNs?: readonly number[];
+};
+
+const stripRuntimeCarrierFamilyForSubset = (type: IrType): IrType => {
+  if (type.kind !== "unionType") {
+    return type;
+  }
+
+  return {
+    kind: "unionType",
+    types: type.types.map(stripRuntimeCarrierFamilyForSubset),
+    preserveRuntimeLayout: true,
+  };
 };
 
 const isBroadObjectRuntimeMemberType = (
@@ -322,7 +334,19 @@ export const tryBuildRuntimeMaterializationAst = (
   selectedSourceMemberNs?: ReadonlySet<number>,
   sourceFrame?: RuntimeMaterializationSourceFrame
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  if (runtimeUnionAliasReferencesMatch(sourceType, targetType, context)) {
+  const materializationTargetType =
+    selectedSourceMemberNs && selectedSourceMemberNs.size > 0
+      ? stripRuntimeCarrierFamilyForSubset(targetType)
+      : targetType;
+
+  if (
+    !selectedSourceMemberNs &&
+    runtimeUnionAliasReferencesMatch(
+      sourceType,
+      materializationTargetType,
+      context
+    )
+  ) {
     return [valueAst, context];
   }
 
@@ -385,13 +409,18 @@ export const tryBuildRuntimeMaterializationAst = (
   }
 
   const [targetLayout, targetLayoutContext] = buildRuntimeUnionLayout(
-    targetType,
+    materializationTargetType,
     sourceLayoutContext,
     emitTypeAst
   );
 
   if (targetLayout) {
-    if (getRuntimeUnionAliasReferenceKey(targetType, targetLayoutContext)) {
+    if (
+      getRuntimeUnionAliasReferenceKey(
+        materializationTargetType,
+        targetLayoutContext
+      )
+    ) {
       const targetUnionTypeAst = buildRuntimeUnionTypeAst(targetLayout);
       const lambdaArgs: CSharpExpressionAst[] = [];
       let sawReachableMatch = false;
@@ -419,12 +448,12 @@ export const tryBuildRuntimeMaterializationAst = (
         ) {
           body = buildInvalidRuntimeUnionMaterializationExpression(
             actualMember,
-            targetType
+            materializationTargetType
           );
         } else if (
           runtimeUnionAliasReferencesMatch(
             actualMember,
-            targetType,
+            materializationTargetType,
             currentContext
           )
         ) {
@@ -451,7 +480,7 @@ export const tryBuildRuntimeMaterializationAst = (
           ) {
             body = buildInvalidRuntimeUnionMaterializationExpression(
               actualMember,
-              targetType
+              materializationTargetType
             );
           } else {
             const nestedMaterialization = tryBuildRuntimeMaterializationAst(
@@ -529,7 +558,7 @@ export const tryBuildRuntimeMaterializationAst = (
       buildExcludedMemberBody: ({ actualMember }) =>
         buildInvalidRuntimeUnionMaterializationExpression(
           actualMember,
-          targetType
+          materializationTargetType
         ),
       buildUnmappedMemberBody: ({
         actualMember,
@@ -539,19 +568,19 @@ export const tryBuildRuntimeMaterializationAst = (
         tryBuildRuntimeMaterializationAst(
           parameterExpr,
           actualMember,
-          targetType,
+          materializationTargetType,
           nextContext,
           emitTypeAst
         ) ??
         buildInvalidRuntimeUnionMaterializationExpression(
           actualMember,
-          targetType
+          materializationTargetType
         ),
     });
   }
 
   const [targetTypeAst, nextContext] = emitTypeAst(
-    targetType,
+    materializationTargetType,
     targetLayoutContext
   );
   const directRuntimeCarrierType = resolveDirectRuntimeCarrierType(
@@ -584,7 +613,10 @@ export const tryBuildRuntimeMaterializationAst = (
   const concreteTargetTypeKey = stableConcreteTypeKeyFromAst(
     concreteTargetTypeAst
   );
-  const isBroadObjectTarget = isBroadObjectSlotType(targetType, nextContext);
+  const isBroadObjectTarget = isBroadObjectSlotType(
+    materializationTargetType,
+    nextContext
+  );
   const sourceSurfaceMemberTypeAsts =
     getRuntimeUnionCastMemberTypeAsts(valueAst);
   const matchingSourceIndices = sourceLayout.members.flatMap((member, index) =>
@@ -594,7 +626,11 @@ export const tryBuildRuntimeMaterializationAst = (
         effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1
       )) &&
     (isBroadObjectTarget ||
-      canMaterializeArrayToBroadObjectArray(member, targetType, nextContext) ||
+      canMaterializeArrayToBroadObjectArray(
+        member,
+        materializationTargetType,
+        nextContext
+      ) ||
       (() => {
         const sourceMemberTypeAst =
           sourceSurfaceMemberTypeAsts?.[index] ??
@@ -607,7 +643,7 @@ export const tryBuildRuntimeMaterializationAst = (
           concreteTargetTypeKey
         );
       })() ||
-      findRuntimeUnionMemberIndex([member], targetType, nextContext) === 0)
+      findRuntimeUnionMemberIndex([member], materializationTargetType, nextContext) === 0)
       ? [index]
       : []
   );
@@ -640,7 +676,7 @@ export const tryBuildRuntimeMaterializationAst = (
         parameters: [{ name: parameterName }],
         body: buildInvalidRuntimeUnionMaterializationExpression(
           actualMember,
-          targetType
+          materializationTargetType
         ),
       });
       continue;
@@ -653,7 +689,7 @@ export const tryBuildRuntimeMaterializationAst = (
         parameters: [{ name: parameterName }],
         body: buildInvalidRuntimeUnionMaterializationExpression(
           actualMember,
-          targetType
+          materializationTargetType
         ),
       });
       continue;
@@ -662,7 +698,7 @@ export const tryBuildRuntimeMaterializationAst = (
     const arrayElementMaterialization = tryBuildArrayElementMaterializationAst(
       parameterExpr,
       actualMember,
-      targetType,
+      materializationTargetType,
       matchContext,
       emitTypeAst
     );

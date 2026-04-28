@@ -256,7 +256,10 @@ export const lowerType = (
 
       ctx.loweredTypeByIdentity.set(type, enrichedLoweredReference);
       if (stableKey) {
-        ctx.loweredReferenceByStableKey.set(stableKey, enrichedLoweredReference);
+        ctx.loweredReferenceByStableKey.set(
+          stableKey,
+          enrichedLoweredReference
+        );
       }
 
       if (hasStructuralMembers) {

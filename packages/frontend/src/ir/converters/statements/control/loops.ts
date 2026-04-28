@@ -1,5 +1,5 @@
 /**
- * Loop statement converters (while, for, for-of, for-in)
+ * Loop statement converters (while, for, for-of)
  *
  * Phase 5 Step 4: Uses ProgramContext instead of Binding.
  */
@@ -9,7 +9,6 @@ import {
   IrWhileStatement,
   IrForStatement,
   IrForOfStatement,
-  IrForInStatement,
   IrType,
 } from "../../../types.js";
 import { normalizedUnionType } from "../../../types/type-ops.js";
@@ -251,68 +250,13 @@ export const convertForOfStatement = (
   };
 };
 
-/**
- * Convert for-in statement
- *
- * @param expectedReturnType - Return type from enclosing function for contextual typing.
- */
+/** Unsupported `for...in` conversion guard. */
 export const convertForInStatement = (
-  node: ts.ForInStatement,
-  ctx: ProgramContext,
-  expectedReturnType?: IrType
-): IrForInStatement => {
-  const firstDecl = ts.isVariableDeclarationList(node.initializer)
-    ? node.initializer.declarations[0]
-    : undefined;
-
-  const variable = ts.isVariableDeclarationList(node.initializer)
-    ? convertBindingName(
-        firstDecl?.name ?? ts.factory.createIdentifier("_"),
-        ctx
-      )
-    : ts.isIdentifier(node.initializer)
-      ? convertBindingName(node.initializer, ctx)
-      : convertBindingName(ts.factory.createIdentifier("_"), ctx);
-
-  const typedVariable =
-    variable.kind === "identifierPattern"
-      ? {
-          ...variable,
-          type: { kind: "primitiveType", name: "string" } as const,
-        }
-      : variable;
-
-  // `for (k in obj)` binds `k` as a string. Thread this into the body for
-  // correct boolean-context lowering (empty string is falsy in JS).
-  let bodyCtx = ctx;
-  const stringType = {
-    kind: "primitiveType" as const,
-    name: "string" as const,
-  };
-  if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
-    bodyCtx = withVariableTypeEnv(ctx, [firstDecl], {
-      kind: "variableDeclaration",
-      declarationKind: "const",
-      declarations: [
-        { kind: "variableDeclarator", name: typedVariable, type: stringType },
-      ],
-      isExported: false,
-    });
-  } else if (ts.isIdentifier(node.initializer)) {
-    // Assignment form: for (k in obj) { ... } where k is pre-declared.
-    // Do not override its declaration type here.
-    bodyCtx = ctx;
-  }
-
-  const body = convertStatementSingle(
-    node.statement,
-    bodyCtx,
-    expectedReturnType
+  _node: ts.ForInStatement,
+  _ctx: ProgramContext,
+  _expectedReturnType?: IrType
+): never => {
+  throw new Error(
+    "ICE: for...in reached IR conversion - validation missed TSN2001"
   );
-  return {
-    kind: "forInStatement",
-    variable: typedVariable,
-    expression: convertExpression(node.expression, ctx, undefined),
-    body: body ?? { kind: "emptyStatement" },
-  };
 };

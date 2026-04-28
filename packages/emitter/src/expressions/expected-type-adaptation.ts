@@ -2,7 +2,7 @@ import { type IrExpression, type IrType } from "@tsonic/frontend";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
-import type { EmitterContext } from "../types.js";
+import { contextSurfaceIncludesJs, type EmitterContext } from "../types.js";
 import { sameTypeAstSurface } from "../core/format/backend-ast/utils.js";
 import {
   matchesExpectedEmissionType,
@@ -39,6 +39,7 @@ import {
   resolveDirectRuntimeCarrierType,
   resolveDirectValueSurfaceType,
 } from "../core/semantic/direct-value-surfaces.js";
+import { getAsyncWrapperSourceResultType } from "../core/semantic/async-wrapper-types.js";
 import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
 import { hasMatchingRuntimeCarrierElementType } from "./structural-collection-adaptation.js";
 import { matchesEmittedStorageSurface } from "./identifier-storage.js";
@@ -52,7 +53,7 @@ import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import {
   isBroadObjectPassThroughType,
   isBroadObjectSlotType,
-} from "../core/semantic/js-value-types.js";
+} from "../core/semantic/broad-object-types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import {
   getRuntimeUnionAliasReferenceKey,
@@ -182,6 +183,35 @@ const matchesRuntimeUnionCarrierSurface = (
   );
 };
 
+const runtimeUnionCarrierSurfaceDiffers = (
+  actualType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!actualType || !expectedType) {
+    return false;
+  }
+
+  const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
+    actualType,
+    context,
+    emitTypeAst
+  );
+  const [expectedLayout] = buildRuntimeUnionLayout(
+    expectedType,
+    actualLayoutContext,
+    emitTypeAst
+  );
+  if (!actualLayout || !expectedLayout) {
+    return false;
+  }
+
+  return !sameTypeAstSurface(
+    buildRuntimeUnionTypeAst(actualLayout),
+    buildRuntimeUnionTypeAst(expectedLayout)
+  );
+};
+
 const hasMatchingRuntimeCarrierFamily = (
   actualType: IrType | undefined,
   expectedType: IrType | undefined,
@@ -207,7 +237,7 @@ const hasMatchingRuntimeCarrierFamily = (
     resolvedActual.runtimeCarrierFamilyKey !== undefined &&
     resolvedActual.runtimeCarrierFamilyKey ===
       resolvedExpected.runtimeCarrierFamilyKey
-    );
+  );
 };
 
 export const hasMismatchedCollectionElementCarrier = (
@@ -225,14 +255,8 @@ export const hasMismatchedCollectionElementCarrier = (
     );
   }
 
-  const sourceDictionaryValueType = getDictionaryValueType(
-    sourceType,
-    context
-  );
-  const targetDictionaryValueType = getDictionaryValueType(
-    targetType,
-    context
-  );
+  const sourceDictionaryValueType = getDictionaryValueType(sourceType, context);
+  const targetDictionaryValueType = getDictionaryValueType(targetType, context);
   if (sourceDictionaryValueType && targetDictionaryValueType) {
     return !hasMatchingRuntimeCarrierElementType(
       sourceDictionaryValueType,
@@ -411,8 +435,7 @@ const isCurrentInstanceSelfTarget = (
   const unwrappedAst = unwrapTransparentAst(ast);
   if (
     unwrappedAst.kind !== "identifierExpression" ||
-    unwrappedAst.identifier !==
-      (context.objectLiteralThisIdentifier ?? "this")
+    unwrappedAst.identifier !== (context.objectLiteralThisIdentifier ?? "this")
   ) {
     return false;
   }
@@ -431,10 +454,9 @@ const isCurrentInstanceSelfTarget = (
   };
 
   const targetType = stripNullish(expectedType);
-  const candidateThisTypes = [
-    expr.inferredType,
-    declaringType,
-  ].filter((candidate): candidate is IrType => candidate !== undefined);
+  const candidateThisTypes = [expr.inferredType, declaringType].filter(
+    (candidate): candidate is IrType => candidate !== undefined
+  );
 
   return candidateThisTypes.some((candidate) =>
     areIrTypesEquivalent(candidate, targetType, context)
@@ -484,6 +506,18 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
   const expressionStillCarriesRuntimeUnion =
     !!effectiveExpressionType &&
     willCarryAsRuntimeUnion(stripNullish(effectiveExpressionType), context);
+  if (
+    hasProjectedNarrowing &&
+    effectiveExpressionType &&
+    expressionStillCarriesRuntimeUnion &&
+    resolveCarrierPreservingSourceType(
+      effectiveExpressionType,
+      carrierTargetType,
+      context
+    )
+  ) {
+    return carrierTargetType;
+  }
   if (!hasProjectedNarrowing) {
     const directStorageType = resolveDirectStorageIrType(
       transparentExpr,
@@ -627,7 +661,10 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
     return selectedExpectedType;
   }
 
-  if (carrierTargetType && willCarryAsRuntimeUnion(carrierTargetType, context)) {
+  if (
+    carrierTargetType &&
+    willCarryAsRuntimeUnion(carrierTargetType, context)
+  ) {
     return undefined;
   }
 
@@ -756,7 +793,7 @@ const requiresJsNumberBoxingAdaptation = (
   expectedType: IrType | undefined,
   context: EmitterContext
 ): boolean =>
-  context.options.surface === "@tsonic/js" &&
+  contextSurfaceIncludesJs(context) &&
   isBroadObjectSlotType(expectedType, context) &&
   isJsNumericAdaptationSource(actualType, context);
 
@@ -997,18 +1034,25 @@ const preferNarrowedEffectiveActualType = (
   const directNullableBase = getSingleRuntimeNullishBaseType(directStorageType);
   if (
     directNullableBase &&
-    areIrTypesEquivalent(directNullableBase, effectiveExpressionType, context) &&
+    areIrTypesEquivalent(
+      directNullableBase,
+      effectiveExpressionType,
+      context
+    ) &&
     isDefinitelyValueType(resolveTypeAlias(directNullableBase, context))
   ) {
-    const expectedRetainsRuntimeNullish =
-      expectedType
-        ? (splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ??
-          false)
-        : true;
+    const expectedRetainsRuntimeNullish = expectedType
+      ? (splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ??
+        false)
+      : true;
     if (
       !expectedRetainsRuntimeNullish &&
       expectedType &&
-      matchesExpectedEmissionType(effectiveExpressionType, expectedType, context)
+      matchesExpectedEmissionType(
+        effectiveExpressionType,
+        expectedType,
+        context
+      )
     ) {
       return effectiveExpressionType;
     }
@@ -1230,6 +1274,12 @@ export const adaptValueToExpectedTypeAst = (opts: {
     valueAst,
     context
   );
+  const directRuntimeCarrierRequiresMaterialization =
+    runtimeUnionCarrierSurfaceDiffers(
+      directRuntimeCarrierType,
+      expectedType,
+      context
+    );
   if (
     directRuntimeCarrierType &&
     resolveCarrierPreservingSourceType(
@@ -1266,6 +1316,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
 
   if (
     directValueSurfaceType &&
+    !directRuntimeCarrierRequiresMaterialization &&
     resolveCarrierPreservingSourceType(
       directValueSurfaceType,
       expectedType,
@@ -1322,7 +1373,6 @@ export const adaptEmittedExpressionAst = (opts: {
   readonly expectedType: IrType | undefined;
 }): [CSharpExpressionAst, EmitterContext] => {
   const { expr, valueAst, context, expectedType } = opts;
-
   const [castedAst, castedContext] = maybeCastNullishTypeParamAst(
     expr,
     valueAst,
@@ -1354,10 +1404,7 @@ export const adaptEmittedExpressionAst = (opts: {
   const matchesExactExpectedSurface =
     !!exactExpectedSurface &&
     (isExactExpressionToType(normalizedCastedAst, exactExpectedSurface[0]) ||
-      isExactArrayCreationToType(
-        normalizedCastedAst,
-        exactExpectedSurface[0]
-      ));
+      isExactArrayCreationToType(normalizedCastedAst, exactExpectedSurface[0]));
   const exactAssertedSurface =
     expr.kind === "typeAssertion"
       ? tryEmitExactComparisonTargetAst(
@@ -1388,10 +1435,7 @@ export const adaptEmittedExpressionAst = (opts: {
     expr.kind === "typeAssertion" &&
     !!exactAssertedSurface &&
     (isExactExpressionToType(normalizedCastedAst, exactAssertedSurface[0]) ||
-      isExactArrayCreationToType(
-        normalizedCastedAst,
-        exactAssertedSurface[0]
-      ));
+      isExactArrayCreationToType(normalizedCastedAst, exactAssertedSurface[0]));
   const preservedTypeForAdaptation =
     expr.kind === "typeAssertion"
       ? preservesAssertedSurface
@@ -1623,6 +1667,44 @@ export const adaptEmittedExpressionAst = (opts: {
     normalizedCastedAst,
     castedContext
   );
+  if (expectedType && directStorageExpressionType) {
+    const structuralAdjusted = tryAdaptStructuralExpressionAst(
+      normalizedCastedAst,
+      directStorageExpressionType,
+      castedContext,
+      expectedType,
+      maybeAdaptRuntimeUnionExpressionAst
+    );
+    if (structuralAdjusted) {
+      return structuralAdjusted;
+    }
+  }
+  if (
+    expectedType &&
+    directStorageExpressionType &&
+    matchesExpectedEmissionType(
+      directStorageExpressionType,
+      expectedType,
+      castedContext
+    ) &&
+    !requiresJsNumberBoxingAdaptation(
+      directStorageExpressionType,
+      expectedType,
+      castedContext
+    ) &&
+    !requiresValueTypeMaterialization(
+      directStorageExpressionType,
+      expectedType,
+      castedContext
+    ) &&
+    !willCarryAsRuntimeUnion(stripNullish(expectedType), castedContext) &&
+    !willCarryAsRuntimeUnion(
+      stripNullish(directStorageExpressionType),
+      castedContext
+    )
+  ) {
+    return [normalizedCastedAst, castedContext];
+  }
   const exactStorageSurfaceType = expectedType
     ? resolveExactStorageSurfaceExpressionType(normalizedCastedAst)
     : undefined;
@@ -1632,7 +1714,7 @@ export const adaptEmittedExpressionAst = (opts: {
         exactStorageSurfaceType,
         expectedType,
         castedContext
-    );
+      );
     if (sameStorageSurface) {
       return [normalizedCastedAst, storageSurfaceContext];
     }
@@ -1652,10 +1734,7 @@ export const adaptEmittedExpressionAst = (opts: {
     expectedType &&
     directStorageExpressionType &&
     isBroadCarrierPreservingTarget(expectedType, castedContext) &&
-    isBroadObjectPassThroughType(
-      directStorageExpressionType,
-      castedContext
-    ) &&
+    isBroadObjectPassThroughType(directStorageExpressionType, castedContext) &&
     !requiresJsNumberBoxingAdaptation(
       directStorageExpressionType,
       expectedType,
@@ -1685,6 +1764,9 @@ export const adaptEmittedExpressionAst = (opts: {
   const actualType =
     preservedTypeForAdaptation ??
     (expr.kind === "typeAssertion" ? expr.targetType : undefined) ??
+    (adaptationSourceExpr.kind === "await"
+      ? getAsyncWrapperSourceResultType(adaptationSourceExpr.expression)
+      : undefined) ??
     structuralViewReturnType ??
     (expr.kind === "call" || expr.kind === "new"
       ? expr.sourceBackedReturnType
@@ -1708,8 +1790,16 @@ export const adaptEmittedExpressionAst = (opts: {
     actualType &&
     isBroadCarrierPreservingTarget(expectedType, castedContext) &&
     isBroadObjectPassThroughType(actualType, castedContext) &&
-    !requiresJsNumberBoxingAdaptation(actualType, expectedType, castedContext) &&
-    !requiresValueTypeMaterialization(actualType, expectedType, castedContext) &&
+    !requiresJsNumberBoxingAdaptation(
+      actualType,
+      expectedType,
+      castedContext
+    ) &&
+    !requiresValueTypeMaterialization(
+      actualType,
+      expectedType,
+      castedContext
+    ) &&
     !willCarryAsRuntimeUnion(stripNullish(actualType), castedContext)
   ) {
     return [

@@ -40,7 +40,11 @@ const buildRuntimeUnionPropertyTruthinessCondition = (
   unionArity: number,
   context: EmitterContext
 ): CSharpExpressionAst => {
-  const emittedPropertyName = emitCSharpName(propertyName, "properties", context);
+  const emittedPropertyName = emitCSharpName(
+    propertyName,
+    "properties",
+    context
+  );
   const matchAst = buildRuntimeUnionMatchAst(
     toReceiverAst(receiver),
     Array.from({ length: unionArity }, (_, index) => {
@@ -96,7 +100,9 @@ export const tryEmitPropertyTruthinessGuard = (
   if (
     runtimeUnionArity !== unionArity ||
     candidateMemberNs.length !== unionArity ||
-    !candidateMemberNs.every((candidateMemberN, index) => candidateMemberN === index + 1)
+    !candidateMemberNs.every(
+      (candidateMemberN, index) => candidateMemberN === index + 1
+    )
   ) {
     return undefined;
   }

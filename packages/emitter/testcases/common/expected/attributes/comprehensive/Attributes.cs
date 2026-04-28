@@ -9,18 +9,18 @@ namespace TestCases.common.attributes.comprehensive
 
         }
 
-        private string _nameField { get; set; }
+        private string __private_nameField;
 
         [global::System.ObsoleteAttribute("prop")]
         public string name
             {
             get
                 {
-                    return this._nameField;
+                    return this.__private_nameField;
                 }
             set
                 {
-                    this._nameField = value;
+                    this.__private_nameField = value;
                 }
             }
 

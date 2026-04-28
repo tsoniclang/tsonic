@@ -271,8 +271,10 @@ Supported output shapes include:
 - runtime union carriers that preserve union arm identity instead of lowering
   ambiguous values through `object`
 - Promise constructor + `then` / `catch` / `finally` lowering
-- deterministic closed-world `import()` support
-- supported `import.meta` subset: `url`, `filename`, `dirname`, and bare `import.meta`
+- static ESM import graphs only; dynamic `import()` and `import.meta` are not
+  emitted language features
+- typed JSON parse/stringify lowering through compile-time serialization
+  metadata
 - broader object-literal support:
   - accessors
   - computed constant keys

@@ -8,7 +8,6 @@ import {
   IrFunctionType,
   IrObjectExpression,
   IrObjectProperty,
-  IrDictionaryType,
   IrType,
   IrExpression,
 } from "../../types.js";
@@ -18,7 +17,6 @@ import { checkSynthesisEligibility } from "../anonymous-synthesis.js";
 import type { ProgramContext } from "../../program-context.js";
 import { createDiagnostic } from "../../../types/diagnostic.js";
 import { convertAccessorProperty } from "../statements/declarations/classes/properties.js";
-import { createObjectLiteralMethodArgumentPrelude } from "../../../object-literal-method-runtime.js";
 import {
   getPropertyExpectedType,
   selectObjectLiteralContextualType,
@@ -47,6 +45,7 @@ export const convertObjectLiteral = (
 ): IrObjectExpression => {
   const properties: IrObjectProperty[] = [];
   const behaviorMembers: IrClassMember[] = [];
+  const emitAsAnonymousObject = (ctx.expressionTreeLambdaDepth ?? 0) > 0;
   const pendingMethods: {
     readonly key: string | IrExpression;
     readonly keyName: string;
@@ -88,6 +87,29 @@ export const convertObjectLiteral = (
     })
     .filter((key): key is string => key !== undefined);
 
+  if (emitAsAnonymousObject) {
+    for (const prop of node.properties) {
+      const isSupportedAnonymousProperty =
+        (ts.isPropertyAssignment(prop) &&
+          !ts.isComputedPropertyName(prop.name) &&
+          (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))) ||
+        ts.isShorthandPropertyAssignment(prop);
+      if (isSupportedAnonymousProperty) {
+        continue;
+      }
+
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN7403",
+          "error",
+          "Expression-tree object literal must use only identifier or string-literal data properties.",
+          getSourceSpan(prop),
+          "Use a plain object literal such as ({ Id: row.Id, Name: row.Name })."
+        )
+      );
+    }
+  }
+
   // Type parameters are NOT valid instantiation targets for object literals.
   //
   // If we treat `T` as a contextual nominal type, the emitter can end up producing
@@ -108,48 +130,10 @@ export const convertObjectLiteral = (
           ctx
         );
 
-  // `object`/`any`/`unknown` are not valid nominal instantiation targets for object literals.
-  //
-  // Historically we treated these as "no contextual type" and relied on TSN7403 synthesis to
-  // produce a nominal `__Anon_*` type. That works for many cases, but it is a poor fit when
-  // the target surface is truly dynamic (e.g. JSON payloads passed as `unknown`).
-  //
-  // For those dynamic contexts, we deterministically lower a "plain" object literal to a
-  // Dictionary<string, object?> shape. This is:
-  // - a valid CLR instantiation target (unlike `object`)
-  // - stable and structurally faithful to JS object semantics for string keys
-  // - AOT-friendly (no runtime reflection required by downstream libraries)
-  //
-  // Non-plain literals (spreads, computed keys) still fall back to TSN7403 synthesis.
-  const isDynamicObjectLikeContext =
-    contextualCandidate?.kind === "anyType" ||
-    contextualCandidate?.kind === "unknownType";
-
-  const isPlainObjectLiteralAst = node.properties.every(
-    (p) =>
-      (ts.isPropertyAssignment(p) &&
-        !ts.isComputedPropertyName(p.name) &&
-        (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) ||
-      ts.isShorthandPropertyAssignment(p)
-  );
-
-  const shouldLowerToDictionary =
-    isDynamicObjectLikeContext && isPlainObjectLiteralAst;
-  const dictionaryValueExpectedType: IrType = {
-    kind: "referenceType",
-    name: "JsValue",
-    resolvedClrType: "Tsonic.Runtime.JsValue",
-  };
-
   const getObjectLiteralPropertyExpectedType = (
     keyName: string | undefined
   ): IrType | undefined =>
-    keyName
-      ? (getPropertyExpectedType(keyName, expectedType, ctx) ??
-        (shouldLowerToDictionary ? dictionaryValueExpectedType : undefined))
-      : shouldLowerToDictionary
-        ? dictionaryValueExpectedType
-        : undefined;
+    keyName ? getPropertyExpectedType(keyName, expectedType, ctx) : undefined;
 
   // Track if we have any spreads (needed for emitter IIFE lowering)
   let hasSpreads = false;
@@ -323,16 +307,6 @@ export const convertObjectLiteral = (
 
   let contextualType = contextualCandidate;
 
-  if (isDynamicObjectLikeContext) {
-    contextualType = shouldLowerToDictionary
-      ? ({
-          kind: "dictionaryType",
-          keyType: { kind: "primitiveType", name: "string" },
-          valueType: dictionaryValueExpectedType,
-        } satisfies IrDictionaryType)
-      : undefined;
-  }
-
   // If no contextual type, check if eligible for synthesis
   // DETERMINISTIC IR TYPING (INV-0 compliant): Uses AST-based synthesis
   if (!contextualType) {
@@ -384,17 +358,9 @@ export const convertObjectLiteral = (
   const resolvedMethodTypes = new Map<string, IrFunctionType>();
 
   for (const pendingMethod of pendingMethods) {
-    const methodPrelude = createObjectLiteralMethodArgumentPrelude(
-      pendingMethod.node
-    );
     const methodBody = pendingMethod.node.body
-      ? methodPrelude.length > 0
-        ? ts.factory.updateBlock(pendingMethod.node.body, [
-            ...methodPrelude,
-            ...pendingMethod.node.body.statements,
-          ])
-        : pendingMethod.node.body
-      : ts.factory.createBlock(methodPrelude, true);
+      ? pendingMethod.node.body
+      : ts.factory.createBlock([], true);
     const methodModifiers = pendingMethod.node.modifiers?.filter(ts.isModifier);
     const methodAsFunctionExpr = ts.setTextRange(
       ts.factory.createFunctionExpression(
@@ -505,5 +471,6 @@ export const convertObjectLiteral = (
     sourceSpan: getSourceSpan(node),
     contextualType,
     hasSpreads, // Add flag for emitter to know about spreads
+    emitAsAnonymousObject: emitAsAnonymousObject || undefined,
   };
 };

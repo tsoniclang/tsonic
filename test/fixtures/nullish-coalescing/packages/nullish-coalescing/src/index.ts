@@ -9,7 +9,7 @@ function getNumber(value: number | null): number {
 }
 
 class BoolHolder {
-  readonly value: boolean;
+  value: boolean;
 
   constructor(value: boolean) {
     this.value = value;

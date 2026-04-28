@@ -206,7 +206,6 @@ const createRecursiveGenericBox = (): IrType => {
   return boxType;
 };
 
-
 const createFreshNamedRecursiveBox = (valueType: IrType): IrType => {
   const createBox = (): Extract<IrType, { kind: "referenceType" }> => {
     const box = {

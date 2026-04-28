@@ -71,7 +71,10 @@ describe("generated-files", () => {
       registry,
       {
         ...metadata,
-        definitionMemberTypeAsts: [identifierType("Router"), identifierType("string")],
+        definitionMemberTypeAsts: [
+          identifierType("Router"),
+          identifierType("string"),
+        ],
         accessModifier: "internal",
       }
     );

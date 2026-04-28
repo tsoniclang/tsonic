@@ -20,7 +20,10 @@ import { emitUnionType } from "./unions.js";
 import { emitIntersectionType } from "./intersections.js";
 import { emitLiteralType } from "./literals.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
-import { identifierType } from "../core/format/backend-ast/builders.js";
+import {
+  identifierType,
+  nullableType,
+} from "../core/format/backend-ast/builders.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { resolveTypeAlias } from "../core/semantic/type-resolution.js";
 import { getContextualTypeVisitKey } from "../core/semantic/deterministic-type-keys.js";
@@ -245,6 +248,12 @@ export const emitTypeAst = (
         );
 
       case "unknownType":
+        if (type.explicit === true) {
+          return [
+            nullableType({ kind: "predefinedType", keyword: "object" }),
+            guardedContext,
+          ];
+        }
         throw new Error(
           "ICE: 'unknown' type reached emitter - validated programs must erase overload stubs and reject unknown elsewhere" +
             buildEmitterIceContext(guardedContext)

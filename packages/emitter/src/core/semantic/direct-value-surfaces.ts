@@ -156,8 +156,7 @@ const withOptionalUndefined = (type: IrType): IrType => {
   if (
     type.kind === "unionType" &&
     type.types.some(
-      (member) =>
-        member.kind === "primitiveType" && member.name === "undefined"
+      (member) => member.kind === "primitiveType" && member.name === "undefined"
     )
   ) {
     return type;
@@ -195,7 +194,11 @@ const tryResolveDirectMemberAccessSurfaceType = (
     return undefined;
   }
 
-  const memberType = getPropertyType(receiverType, directAst.memberName, context);
+  const memberType = getPropertyType(
+    receiverType,
+    directAst.memberName,
+    context
+  );
   if (!memberType) {
     return undefined;
   }
@@ -316,7 +319,9 @@ export const resolveDirectRuntimeCarrierType = (
   }
 
   if (identifierBinding.isNarrowedRenameIdentifier) {
-    const narrowed = context.narrowedBindings?.get(identifierBinding.sourceName);
+    const narrowed = context.narrowedBindings?.get(
+      identifierBinding.sourceName
+    );
     return hasExplicitRuntimeCarrierIdentity(narrowed?.type, context)
       ? narrowed?.type
       : undefined;

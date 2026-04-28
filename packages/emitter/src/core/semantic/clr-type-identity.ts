@@ -155,9 +155,7 @@ export const getPrimitiveClrIdentityKey = (
   return rawName ? getClrIdentityKey(rawName) : undefined;
 };
 
-export const getDirectClrIdentityKey = (
-  type: IrType
-): string | undefined => {
+export const getDirectClrIdentityKey = (type: IrType): string | undefined => {
   if (type.kind === "primitiveType") {
     return getPrimitiveClrIdentityKey(type);
   }
@@ -207,7 +205,9 @@ export const referenceTypesHaveDeterministicIdentityConflict = (
 
   const leftKey = getReferenceClrIdentityKey(left);
   const rightKey = getReferenceClrIdentityKey(right);
-  return leftKey !== undefined && rightKey !== undefined && leftKey !== rightKey;
+  return (
+    leftKey !== undefined && rightKey !== undefined && leftKey !== rightKey
+  );
 };
 
 export const typesShareDirectClrIdentity = (
@@ -329,7 +329,9 @@ export const referenceTypeHasClrIdentity = (
   }
 
   for (const rawName of rawNames) {
-    if (typeKey === getClrIdentityKey(rawName, type.typeArguments?.length ?? 0)) {
+    if (
+      typeKey === getClrIdentityKey(rawName, type.typeArguments?.length ?? 0)
+    ) {
       return true;
     }
   }

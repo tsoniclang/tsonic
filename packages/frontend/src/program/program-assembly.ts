@@ -232,10 +232,7 @@ export const createProgram = (
     allFiles: discoveredAllFiles,
     tsOptions,
   } = discovery;
-  const bindingRoots = dedupeCanonicalFilePaths([
-    ...typeRoots,
-    ...authoritativeTsonicPackageRoots.values(),
-  ]);
+  const bindingRoots = dedupeCanonicalFilePaths(typeRoots);
   const bindings = loadBindings(bindingRoots);
   const bindingSourceFiles = resolveSourceBackedBindingFiles(
     bindings,
@@ -647,6 +644,7 @@ export const createProgram = (
     program,
     checker,
     options,
+    surfaceCapabilities,
     authoritativeTsonicPackageRoots,
     declarationModuleAliases,
     sourceFiles,

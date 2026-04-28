@@ -16,10 +16,11 @@ describe("type-resolution", () => {
     };
 
     const createContext = (
-      localTypes: ReadonlyMap<string, LocalTypeInfo>
+      localTypes: ReadonlyMap<string, LocalTypeInfo>,
+      surface?: string
     ): EmitterContext => ({
       indentLevel: 0,
-      options: defaultOptions,
+      options: surface ? { ...defaultOptions, surface } : defaultOptions,
       isStatic: false,
       isAsync: false,
       localTypes,
@@ -55,7 +56,7 @@ describe("type-resolution", () => {
     });
 
     it("resolves ReadonlyArray element types through generic references", () => {
-      const context = createContext(new Map());
+      const context = createContext(new Map(), "@tsonic/js");
 
       const result = getArrayLikeElementType(
         {
@@ -73,7 +74,7 @@ describe("type-resolution", () => {
     });
 
     it("resolves ArrayLike element types through generic references", () => {
-      const context = createContext(new Map());
+      const context = createContext(new Map(), "@tsonic/js");
 
       const result = getArrayLikeElementType(
         {
@@ -88,6 +89,21 @@ describe("type-resolution", () => {
         kind: "primitiveType",
         name: "number",
       });
+    });
+
+    it("does not treat JS array-like references as CLR array-like outside the JS surface", () => {
+      const context = createContext(new Map());
+
+      const result = getArrayLikeElementType(
+        {
+          kind: "referenceType",
+          name: "ReadonlyArray",
+          typeArguments: [{ kind: "primitiveType", name: "string" }],
+        },
+        context
+      );
+
+      expect(result).to.equal(undefined);
     });
 
     it("does not treat a locally declared Array<T> class as an array-like wrapper", () => {

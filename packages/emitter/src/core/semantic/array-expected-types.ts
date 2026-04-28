@@ -65,7 +65,8 @@ const getUniqueArrayLiteralContextCandidates = (
   return Array.from(
     new Map(
       arrayLikeMembers.map(
-        (member) => [getContextualTypeVisitKey(member, context), member] as const
+        (member) =>
+          [getContextualTypeVisitKey(member, context), member] as const
       )
     ).values()
   );

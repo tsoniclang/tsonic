@@ -3,7 +3,7 @@
  *
  * Extracted from binary-emitter.ts — contains the emitBinary entry point
  * that handles comparison, nullish, arithmetic, and standard binary operators.
- * The `in` and `instanceof` special cases are delegated to binary-special-ops.ts.
+ * The `instanceof` special case is delegated to binary-special-ops.ts.
  *
  * NEW NUMERIC SPEC:
  * - Literals use raw lexeme (no contextual widening)
@@ -45,12 +45,11 @@ import {
   buildNullishComparisonContext,
 } from "./binary-helpers.js";
 import {
-  emitInOperator,
   emitInstanceof,
   emitTypeofComparison,
 } from "./binary-special-ops.js";
 import { emitRuntimeUnionLiteralComparison } from "./binary-runtime-union-comparison.js";
-import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
+import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
 
 const BITWISE_OPERATORS = new Set(["&", "|", "^", "<<", ">>", ">>>"]);
@@ -126,19 +125,20 @@ export const emitBinary = (
 
   const op = operatorMap[expr.operator] ?? expr.operator;
 
-  // Handle `"prop" in x` (union narrowing / dictionary membership)
   if (expr.operator === "in") {
-    return emitInOperator(expr, context);
-  }
-
-  // Handle instanceof operator specially
-  if (expr.operator === "instanceof") {
-    return emitInstanceof(expr, context);
+    throw new Error(
+      "ICE: in operator reached emitter - validation missed TSN2001"
+    );
   }
 
   const typeofComparison = emitTypeofComparison(expr, context);
   if (typeofComparison) {
     return typeofComparison;
+  }
+
+  // Handle instanceof operator specially
+  if (expr.operator === "instanceof") {
+    return emitInstanceof(expr, context);
   }
 
   const runtimeUnionLiteralComparison = emitRuntimeUnionLiteralComparison(

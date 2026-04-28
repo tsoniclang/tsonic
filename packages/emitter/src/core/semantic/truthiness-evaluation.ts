@@ -90,8 +90,7 @@ export const isInherentlyBooleanExpression = (expr: IrExpression): boolean => {
       expr.operator === ">" ||
       expr.operator === "<=" ||
       expr.operator === ">=" ||
-      expr.operator === "instanceof" ||
-      expr.operator === "in"
+      expr.operator === "instanceof"
     );
   }
 

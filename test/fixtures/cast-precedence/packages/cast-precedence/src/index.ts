@@ -1,9 +1,8 @@
 import { Console } from "@tsonic/dotnet/System.js";
 import { trycast } from "@tsonic/core/lang.js";
-import type { JsValue } from "@tsonic/core/types.js";
 
 class Person {
-  public name: string;
+  name: string;
 
   constructor(name: string) {
     this.name = name;
@@ -15,7 +14,7 @@ class Person {
 }
 
 export function main(): void {
-  const u: JsValue = new Person("Alice");
+  const u: object = new Person("Alice");
 
   // Cast receiver must be parenthesized before member access / invocation in C#:
   //   ((Person)u).name / ((Person)u).greet()

@@ -41,10 +41,8 @@ import {
   extractArgumentPassing,
   extractArgumentPassingFromBinding,
 } from "./call-site-analysis.js";
-import { narrowTypeByArrayShape } from "../../array-type-guards.js";
 import {
   collectResolutionArguments,
-  isArrayIsArrayCall,
   resolveCallableCandidate,
 } from "./call-resolution.js";
 import { tryConvertIntrinsicCall } from "./call-intrinsics.js";
@@ -66,6 +64,7 @@ import {
 } from "./invocation-finalization.js";
 import {
   getClrIdentityKey,
+  referenceTypeHasClrIdentity,
   referenceTypeIdentity,
 } from "../../../types/type-ops.js";
 
@@ -86,8 +85,31 @@ const isStableNamedAggregateContextType = (
   type?.kind === "referenceType" &&
   !type.name.startsWith("__Anon_") &&
   !type.name.startsWith("__Rest_") &&
-  type.name !== "object" &&
-  type.name !== "JsValue";
+  type.name !== "object";
+
+const isExpressionTreeContextType = (type: IrType | undefined): boolean => {
+  if (!type || type.kind !== "referenceType") return false;
+  if (type.typeArguments?.length !== 1) return false;
+  return (
+    type.typeId?.tsName === "Expression_1" ||
+    type.name === "Expression_1" ||
+    referenceTypeHasClrIdentity(type, [
+      "System.Linq.Expressions.Expression`1",
+      "System.Linq.Expressions.Expression_1",
+    ])
+  );
+};
+
+const getLambdaContextualExpectedType = (
+  expectedType: IrType | undefined,
+  typeSystem: ProgramContext["typeSystem"]
+): IrType | undefined => {
+  if (!expectedType) return undefined;
+  if (isExpressionTreeContextType(expectedType)) return expectedType;
+  return expectedType.kind === "functionType"
+    ? expectedType
+    : (typeSystem.delegateToFunctionType(expectedType) ?? expectedType);
+};
 
 const preserveStableNamedAggregateArgumentIdentity = (
   argument: IrExpression,
@@ -1687,7 +1709,6 @@ const scoreSourceBackedSurfaceCandidate = (
       case "referenceType":
         return (
           type.name === "object" ||
-          type.name === "JsValue" ||
           containsAmbiguousSourceSurfaceType(type)
         );
       case "unionType":
@@ -3241,12 +3262,10 @@ export const convertCallExpression = (
     }
 
     const expectedType = parameterTypesForDeferredContext?.[index];
-    const contextualExpectedType =
-      expectedType?.kind === "functionType"
-        ? expectedType
-        : expectedType
-          ? (typeSystem.delegateToFunctionType(expectedType) ?? expectedType)
-          : undefined;
+    const contextualExpectedType = getLambdaContextualExpectedType(
+      expectedType,
+      typeSystem
+    );
 
     if (
       shouldRecontextualizeAggregateLater &&
@@ -3606,10 +3625,6 @@ export const convertCallExpression = (
       return { kind: "voidType" } as const;
     }
 
-    if (ts.isCallExpression(node) && isArrayIsArrayCall(node.expression)) {
-      return { kind: "primitiveType", name: "boolean" } as const;
-    }
-
     const resolvedReturnType =
       finalSourceBackedReturnType ??
       finalCallableResolution?.resolved?.returnType ??
@@ -3662,22 +3677,6 @@ export const convertCallExpression = (
   );
 
   const narrowing: IrCallExpression["narrowing"] = (() => {
-    if (ts.isCallExpression(node) && isArrayIsArrayCall(node.expression)) {
-      const currentType = finalizedArgTypes[0];
-      const targetType = narrowTypeByArrayShape(
-        ctx.typeSystem,
-        currentType,
-        true
-      );
-      if (targetType) {
-        return {
-          kind: "typePredicate",
-          argIndex: 0,
-          targetType,
-        };
-      }
-    }
-
     const pred = finalResolved?.typePredicate;
     if (pred?.kind === "param") {
       const currentArgumentType = finalizedArgTypes[pred.parameterIndex];

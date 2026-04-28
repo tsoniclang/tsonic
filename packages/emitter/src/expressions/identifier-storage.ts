@@ -26,10 +26,7 @@ import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adap
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
-import {
-  isBroadObjectPassThroughType,
-  isJsValueReferenceType,
-} from "../core/semantic/js-value-types.js";
+import { isBroadObjectPassThroughType } from "../core/semantic/broad-object-types.js";
 import { referenceTypeHasClrIdentity } from "../core/semantic/clr-type-identity.js";
 import {
   getArrayElementType,
@@ -144,13 +141,6 @@ export const isBroadStorageTarget = (
     return false;
   }
 
-  if (
-    expectedType.kind === "referenceType" &&
-    isJsValueReferenceType(expectedType)
-  ) {
-    return true;
-  }
-
   const resolved = resolveTypeAlias(stripNullish(expectedType), context);
   return (
     resolved.kind === "unknownType" ||
@@ -159,8 +149,7 @@ export const isBroadStorageTarget = (
     (resolved.kind === "unionType" &&
       resolved.types.some(
         (member) =>
-          member.kind === "objectType" ||
-          isSystemObjectReferenceType(member)
+          member.kind === "objectType" || isSystemObjectReferenceType(member)
       ) &&
       resolved.types.every(
         (member) =>
@@ -650,6 +639,13 @@ export const tryEmitMaterializedNarrowedIdentifier = (
     narrowed.exprAst,
     context
   );
+  if (
+    directMemberType &&
+    matchesExpectedEmissionType(directMemberType, expectedType, context)
+  ) {
+    return [narrowed.exprAst, context];
+  }
+
   if (
     directMemberType &&
     willCarryAsRuntimeUnion(expectedType, context) &&

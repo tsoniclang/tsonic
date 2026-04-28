@@ -1,1 +1,0 @@
-- RecordNestedObject.ts: should lower nested object literals under Record<string, unknown> to dictionaries

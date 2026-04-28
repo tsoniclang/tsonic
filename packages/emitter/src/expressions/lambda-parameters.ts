@@ -75,6 +75,7 @@ type PlannedLambdaParameter = {
   readonly emittedName: string;
   readonly bindsDirectly: boolean;
   readonly bindingSourceExpression?: CSharpExpressionAst;
+  readonly bindingSourceType?: IrType;
   readonly emitInParameterList: boolean;
 };
 
@@ -242,6 +243,13 @@ export const emitLambdaParametersAst = (
           : param.type;
 
     if (shouldLowerFromContextualRest(param, index)) {
+      const contextualElementType =
+        param.isRest && index === contextualRestIndex
+          ? (contextualRestParameter?.type ?? param.type)
+          : (getArrayLikeElementType(
+              contextualRestParameter?.type,
+              currentContext
+            ) ?? undefined);
       synthesizeRestCarrierParameter();
       pushPlannedParameter({
         parameter: param,
@@ -250,13 +258,8 @@ export const emitLambdaParametersAst = (
         emitInParameterList: false,
         isOptional: param.isOptional || param.initializer !== undefined,
         bindingSourceExpression: buildRestCarrierExpression(index),
-        type:
-          param.isRest && index === contextualRestIndex
-            ? (contextualRestParameter?.type ?? param.type)
-            : (getArrayLikeElementType(
-                contextualRestParameter?.type,
-                currentContext
-              ) ?? undefined),
+        bindingSourceType: contextualElementType,
+        type: param.type ?? contextualElementType,
       });
       continue;
     }
@@ -329,7 +332,7 @@ export const emitLambdaParametersAst = (
         bindsDirectly: planned.bindsDirectly,
         resolvedType: planned.type,
         bindingSourceExpression: planned.bindingSourceExpression,
-        bindingSourceType: planned.type,
+        bindingSourceType: planned.bindingSourceType ?? planned.type,
       });
       continue;
     }
@@ -387,7 +390,14 @@ export const lowerLambdaParameterPreludeAst = (
       kind: "identifierExpression",
       identifier: parameter.emittedName,
     };
-    const inputType = parameter.bindingSourceType ?? parameter.parameter.type;
+    const inputType =
+      parameter.parameter.pattern.kind === "identifierPattern"
+        ? (parameter.resolvedType ??
+          parameter.parameter.type ??
+          parameter.bindingSourceType)
+        : (parameter.bindingSourceType ??
+          parameter.resolvedType ??
+          parameter.parameter.type);
 
     if (parameter.parameter.initializer) {
       const [defaultAst, defaultContext] = emitExpressionAst(

@@ -61,6 +61,12 @@ const joinTypes = (
   if (!right) {
     return left;
   }
+  if (left.kind === "anyType" || right.kind === "anyType") {
+    return { kind: "anyType" };
+  }
+  if (left.kind === "unknownType" || right.kind === "unknownType") {
+    return { kind: "unknownType" };
+  }
   return areIrTypesEquivalent(left, right, context)
     ? left
     : normalizedUnionType([left, right]);

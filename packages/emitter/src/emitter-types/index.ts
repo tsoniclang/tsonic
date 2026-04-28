@@ -33,6 +33,7 @@ export {
   withAsync,
   withClassName,
   withScoped,
+  contextSurfaceIncludesJs,
 } from "./context.js";
 export { getIndent } from "./formatting.js";
 export { renderTypeFQN, renderMemberFQN, renderFQN, FQN } from "./fqn.js";

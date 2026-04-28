@@ -11,10 +11,7 @@ import {
 } from "../../helpers.js";
 import { convertAccessorProperty, convertProperty } from "./properties.js";
 import { convertMethod } from "./methods.js";
-import {
-  convertConstructor,
-  extractParameterProperties,
-} from "./constructors.js";
+import { convertConstructor } from "./constructors.js";
 import { getClassMemberName } from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 import { resolveHeritageReferenceType } from "../../../heritage-reference-type.js";
@@ -25,15 +22,14 @@ import { resolveHeritageReferenceType } from "../../../heritage-reference-type.j
 const convertClassMember = (
   node: ts.ClassElement,
   ctx: ProgramContext,
-  superClass: ts.ExpressionWithTypeArguments | undefined,
-  constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
+  superClass: ts.ExpressionWithTypeArguments | undefined
 ): IrClassMember | null => {
   if (ts.isPropertyDeclaration(node)) {
     return convertProperty(node, ctx, superClass);
   }
 
   if (ts.isConstructorDeclaration(node)) {
-    return convertConstructor(node, ctx, constructorParams);
+    return convertConstructor(node, ctx);
   }
 
   return null;
@@ -150,16 +146,6 @@ export const convertClassDeclaration = (
 
   // Filter to only include members declared directly on this class (not inherited)
   const ownMembers = filterOwnMembers(node);
-  const constructorImplementation = ownMembers.find(
-    ts.isConstructorDeclaration
-  );
-
-  // Extract parameter properties from the implementation constructor when present.
-  const parameterProperties = extractParameterProperties(
-    constructorImplementation,
-    ctx
-  );
-
   const accessorPairs = new Map<
     string,
     { getter?: ts.GetAccessorDeclaration; setter?: ts.SetAccessorDeclaration }
@@ -209,27 +195,17 @@ export const convertClassDeclaration = (
     }
 
     if (ts.isConstructorDeclaration(member)) {
-      convertedMembers.push(
-        convertConstructor(member, ctx, constructorImplementation?.parameters)
-      );
+      convertedMembers.push(convertConstructor(member, ctx));
       continue;
     }
 
-    const converted = convertClassMember(
-      member,
-      ctx,
-      superClass,
-      constructorImplementation?.parameters
-    );
+    const converted = convertClassMember(member, ctx, superClass);
     if (converted) {
       convertedMembers.push(converted);
     }
   }
 
-  // Deduplicate members by name (keep first occurrence)
-  // Parameter properties should take precedence over regular properties with same name
-  const allMembers = [...parameterProperties, ...convertedMembers];
-  const deduplicatedMembers = deduplicateMembers(allMembers);
+  const deduplicatedMembers = deduplicateMembers(convertedMembers);
 
   // Filter out __brand property if this is a struct
   const finalMembers = isStruct

@@ -239,19 +239,8 @@ const deriveUnaryResultType = (
     return operandType;
   }
 
-  // typeof always returns string
-  if (operator === "typeof") {
-    return { kind: "primitiveType", name: "string" };
-  }
-
-  // void always returns undefined (void type)
   if (operator === "void") {
     return { kind: "voidType" };
-  }
-
-  // delete returns boolean
-  if (operator === "delete") {
-    return { kind: "primitiveType", name: "boolean" };
   }
 
   // ++/-- return same type as operand
@@ -277,6 +266,12 @@ export const convertBinaryExpression = (
 ): IrExpression => {
   const operator = convertBinaryOperator(node.operatorToken);
   const sourceSpan = getSourceSpan(node);
+
+  if (operator === "in") {
+    throw new Error(
+      "ICE: in operator reached IR conversion - validation missed TSN2001"
+    );
+  }
 
   // Handle assignment separately
   // Thread LHS type to RHS for deterministic typing (e.g., x = 10 where x: int)

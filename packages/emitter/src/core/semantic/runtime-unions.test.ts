@@ -84,7 +84,9 @@ describe("runtime-unions", () => {
         clrName: "Fixture.Channels.repo.Item",
         assemblyName: "@fixture/channels",
       },
-      structuralMembers: [property("id", { kind: "primitiveType", name: "int" })],
+      structuralMembers: [
+        property("id", { kind: "primitiveType", name: "int" }),
+      ],
     };
     const domainItem: IrType = {
       kind: "referenceType",
@@ -96,7 +98,9 @@ describe("runtime-unions", () => {
         clrName: "Fixture.Channels.domain.Item",
         assemblyName: "@fixture/channels",
       },
-      structuralMembers: [property("id", { kind: "primitiveType", name: "int" })],
+      structuralMembers: [
+        property("id", { kind: "primitiveType", name: "int" }),
+      ],
     };
 
     const indices = findExactRuntimeUnionMemberIndices(

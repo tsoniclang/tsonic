@@ -116,7 +116,8 @@ const substituteType = (
         );
       clone.types = type.types.map((t) => substituteType(t, mapping, visited));
       if (substitutedRuntimeCarrierTypeArguments) {
-        clone.runtimeCarrierTypeArguments = substitutedRuntimeCarrierTypeArguments;
+        clone.runtimeCarrierTypeArguments =
+          substitutedRuntimeCarrierTypeArguments;
       }
       return clone;
     }

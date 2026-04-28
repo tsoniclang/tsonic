@@ -34,7 +34,8 @@ to the compiler.
 - overloaded CLR methods with weakly inferred callback returns
 - callbacks crossing package or generic boundaries without enough type context
 - JS-surface callbacks passed into CLR-heavy APIs without explicit intent
-- callbacks that rely on dynamic `any` / `unknown` escape hatches
+- callbacks that rely on dynamic `any` escape hatches or un-narrowed `unknown`
+  values
 
 ## Rule of thumb
 

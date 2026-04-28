@@ -62,8 +62,11 @@ describe("loadClrCatalog", () => {
       const jsRoot = fixture.path("node_modules/@tsonic/js");
 
       const catalog = loadClrCatalog(nodeModulesRoot, [jsRoot]);
-      expect(catalog.entries.size).to.equal(1);
+      expect(catalog.entries.size).to.equal(2);
       expect(catalog.entries.has("js:js.console")).to.equal(true);
+      expect(catalog.entries.has("System.Private.CoreLib:System.Array")).to.equal(
+        true
+      );
     } finally {
       fixture.cleanup();
     }
@@ -228,7 +231,9 @@ describe("loadClrCatalog", () => {
         syncBuiltinESMExports();
 
         const catalog = loadClrCatalog(nodeModulesRoot, [symlinkedJsRoot]);
-        expect(catalog.entries.size).to.equal(1);
+        expect(
+          [...catalog.entries.keys()].filter((key) => key === "js:js.console")
+        ).to.have.length(1);
         expect(warnings).to.deep.equal([]);
       } finally {
         console.warn = originalWarn;

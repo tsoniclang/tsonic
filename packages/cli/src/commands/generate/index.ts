@@ -458,6 +458,7 @@ export const generateCommand = (
 
     const emitResult = emitCSharpFiles(prunedEmittedModules, {
       surface: config.surface,
+      surfaceCapabilities: graphResult.value.surfaceCapabilities,
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries,

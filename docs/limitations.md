@@ -10,6 +10,11 @@ credible.
 - unsupported generic/runtime shape combinations are rejected rather than
   guessed
 - unsupported package graph shapes fail explicitly
+- `unknown` is a broad boundary type that can be stored and narrowed only
+  through deterministic closed-carrier guards
+- source-level `JsValue` is rejected; use `unknown` at user-facing JS/JSON
+  boundaries
+- JSON parse/stringify requires a closed compile-time type
 
 ## Read this as a design boundary, not a temporary apology
 

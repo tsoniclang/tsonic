@@ -20,6 +20,7 @@ import {
   tryBuildRuntimeMaterializationAst,
   tryBuildRuntimeReificationPlan,
 } from "../core/semantic/runtime-reification.js";
+import { resolveEmittableMaterializationType } from "../core/semantic/materialized-narrowing.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
@@ -32,10 +33,8 @@ import {
   resolveDirectValueSurfaceType,
 } from "../core/semantic/direct-value-surfaces.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
-import {
-  matchesExpectedEmissionType,
-} from "../core/semantic/expected-type-matching.js";
-import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
+import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import { isBroadObjectSlotType } from "../core/semantic/broad-object-types.js";
 import {
   isDefinitelyValueType,
   normalizeStructuralEmissionType,
@@ -116,11 +115,7 @@ const structuralObjectEmissionCompatibility = (
     }
 
     if (
-      !matchesExpectedEmissionType(
-        actualProp.type,
-        memberProp.type,
-        context
-      )
+      !matchesExpectedEmissionType(actualProp.type, memberProp.type, context)
     ) {
       return false;
     }
@@ -149,11 +144,8 @@ const runtimeUnionMemberIsEmissionCompatible = (
   }
 
   return (
-    structuralObjectEmissionCompatibility(
-      actualType,
-      memberType,
-      context
-    ) !== false
+    structuralObjectEmissionCompatibility(actualType, memberType, context) !==
+    false
   );
 };
 
@@ -250,6 +242,40 @@ const maybeCastNumericToExpectedJsNumberAst = (
   ];
 };
 
+const runtimeUnionCarrierSurfaceDiffers = (
+  carrierType: IrType | undefined,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  if (!carrierType) {
+    return false;
+  }
+
+  const [carrierLayout, carrierLayoutContext] = buildRuntimeUnionLayout(
+    carrierType,
+    context,
+    emitTypeAst
+  );
+  const [expectedLayout] = buildRuntimeUnionLayout(
+    expectedType,
+    carrierLayoutContext,
+    emitTypeAst
+  );
+  if (!carrierLayout || !expectedLayout) {
+    return false;
+  }
+
+  return !sameTypeAstSurface(
+    buildRuntimeUnionTypeAst(carrierLayout),
+    buildRuntimeUnionTypeAst(expectedLayout)
+  );
+};
+
+const unwrapComparableTypeForEmission = (
+  type: IrType,
+  context: EmitterContext
+): IrType => (willCarryAsRuntimeUnion(type, context) ? type : unwrapComparableType(type));
+
 const tryAdaptRuntimeUnionMemberValueAst = (opts: {
   readonly ast: CSharpExpressionAst;
   readonly actualType: IrType;
@@ -271,24 +297,36 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
     return nestedRuntimeUnionAdaptation;
   }
 
+  const upcastWithVisited = (
+    nestedAst: CSharpExpressionAst,
+    nestedActualType: IrType | undefined,
+    nestedContext: EmitterContext,
+    nestedExpectedType: IrType | undefined,
+    nestedVisited?: ReadonlySet<string>
+  ): [CSharpExpressionAst, EmitterContext] | undefined =>
+    maybeAdaptRuntimeUnionExpressionAst(
+      nestedAst,
+      nestedActualType,
+      nestedContext,
+      nestedExpectedType,
+      nestedVisited && nestedVisited.size > 0
+        ? new Set([...visited, ...nestedVisited])
+        : visited
+    );
+
   const structuralAdaptation = tryAdaptStructuralExpressionAst(
     ast,
     actualType,
     context,
     memberType,
-    maybeAdaptRuntimeUnionExpressionAst
+    upcastWithVisited
   );
   if (structuralAdaptation) {
     return structuralAdaptation;
   }
 
   const [numericAdjustedAst, numericAdjustedContext] =
-    maybeCastNumericToExpectedIntegralAst(
-      ast,
-      actualType,
-      context,
-      memberType
-    );
+    maybeCastNumericToExpectedIntegralAst(ast, actualType, context, memberType);
   if (numericAdjustedAst !== ast) {
     return [numericAdjustedAst, numericAdjustedContext];
   }
@@ -303,22 +341,53 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
     return numericJsNumberAdjusted;
   }
 
-  const [actualTypeAst, actualTypeContext] = emitTypeAst(actualType, context);
-  const actualSurfaceMatches =
-    stableTypeKeyFromAst(stripNullableTypeAst(actualTypeAst)) ===
-    stableTypeKeyFromAst(stripNullableTypeAst(memberTypeAst));
   if (
-    actualSurfaceMatches ||
     isExactExpressionToType(ast, stripNullableTypeAst(memberTypeAst)) ||
     isExactArrayCreationToType(ast, memberTypeAst)
   ) {
+    return [ast, context];
+  }
+
+  const emittableActualType = resolveEmittableMaterializationType(
+    actualType,
+    context
+  );
+
+  const memberEmissionCompatible = runtimeUnionMemberIsEmissionCompatible(
+    emittableActualType,
+    memberType,
+    context
+  );
+  if (!memberEmissionCompatible) {
+    if (canUseRuntimeUnionMemberCast(actualType, context)) {
+      return [
+        {
+          kind: "castExpression",
+          type: memberTypeAst,
+          expression: ast,
+        },
+        context,
+      ];
+    }
+    return undefined;
+  }
+
+  if (resolveComparableType(emittableActualType, context).kind === "objectType") {
+    return undefined;
+  }
+
+  const [actualTypeAst, actualTypeContext] = emitTypeAst(
+    emittableActualType,
+    context
+  );
+  const actualSurfaceMatches =
+    stableTypeKeyFromAst(stripNullableTypeAst(actualTypeAst)) ===
+    stableTypeKeyFromAst(stripNullableTypeAst(memberTypeAst));
+  if (actualSurfaceMatches) {
     return [ast, actualTypeContext];
   }
 
-  if (
-    runtimeUnionMemberIsEmissionCompatible(actualType, memberType, context) &&
-    resolveComparableType(actualType, context).kind !== "objectType"
-  ) {
+  if (memberEmissionCompatible) {
     return [ast, context];
   }
 
@@ -550,13 +619,26 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (!actualType || !expectedType) return undefined;
 
+  const selectedSourceMemberKey = selectedSourceMemberNs
+    ? Array.from(selectedSourceMemberNs).join(",")
+    : "*";
+  const rawVisitKey = `${getContextualTypeVisitKey(
+    actualType,
+    context
+  )}=>${getContextualTypeVisitKey(expectedType, context)}=>${selectedSourceMemberKey}`;
+  if (visited.has(rawVisitKey)) {
+    return undefined;
+  }
+  const earlyVisited = new Set(visited);
+  earlyVisited.add(rawVisitKey);
+
   const topLevelNullishOptionalUnion =
     maybeAdaptTopLevelNullishOptionalUnionAst(
       ast,
       actualType,
       context,
       expectedType,
-      visited,
+      earlyVisited,
       selectedSourceMemberNs
     );
   if (topLevelNullishOptionalUnion) {
@@ -570,15 +652,13 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     !actualNullishSplit?.hasRuntimeNullish
   ) {
     const nonNullishExpectedType = stripNullish(expectedType);
-    if (
-      !areIrTypesEquivalent(nonNullishExpectedType, expectedType, context)
-    ) {
+    if (!areIrTypesEquivalent(nonNullishExpectedType, expectedType, context)) {
       const adaptedNonNullishOptional = maybeAdaptRuntimeUnionExpressionAst(
         ast,
         actualType,
         context,
         nonNullishExpectedType,
-        visited,
+        earlyVisited,
         selectedSourceMemberNs
       );
       if (adaptedNonNullishOptional) {
@@ -621,6 +701,20 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   const preferredActualType = (() => {
     if (!directValueSurfaceType) {
       return extractedMemberType;
+    }
+
+    const emissionDirectRuntimeCarrierType = directRuntimeCarrierType
+      ? normalizeStructuralEmissionType(directRuntimeCarrierType, context)
+      : undefined;
+    if (
+      emissionDirectRuntimeCarrierType &&
+      runtimeUnionCarrierSurfaceDiffers(
+        emissionDirectRuntimeCarrierType,
+        expectedType,
+        context
+      )
+    ) {
+      return emissionDirectRuntimeCarrierType;
     }
 
     const emissionDirectValueSurfaceType = normalizeStructuralEmissionType(
@@ -670,11 +764,11 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   })();
 
   const emissionActualType = normalizeStructuralEmissionType(
-    unwrapComparableType(preferredActualType),
+    unwrapComparableTypeForEmission(preferredActualType, context),
     context
   );
   const emissionExpectedType = normalizeStructuralEmissionType(
-    unwrapComparableType(expectedType),
+    unwrapComparableTypeForEmission(expectedType, context),
     context
   );
   const normalizedActualType = resolveComparableType(
@@ -806,12 +900,29 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   const requiresEquivalentRuntimeUnionMaterialization =
     equivalentRuntimeUnionLayouts && !canReuseEquivalentRuntimeUnionAst;
 
+  const structuralUpcastWithVisited = (
+    nestedAst: CSharpExpressionAst,
+    nestedActualType: IrType | undefined,
+    nestedContext: EmitterContext,
+    nestedExpectedType: IrType | undefined,
+    nestedVisited?: ReadonlySet<string>
+  ): [CSharpExpressionAst, EmitterContext] | undefined =>
+    maybeAdaptRuntimeUnionExpressionAst(
+      nestedAst,
+      nestedActualType,
+      nestedContext,
+      nestedExpectedType,
+      nestedVisited && nestedVisited.size > 0
+        ? new Set([...earlyVisited, ...nestedVisited])
+        : earlyVisited
+    );
+
   const adapted = tryAdaptStructuralExpressionAst(
     ast,
     emissionActualType,
     context,
     emissionExpectedType,
-    maybeAdaptRuntimeUnionExpressionAst
+    structuralUpcastWithVisited
   );
   if (adapted && normalizedExpectedType.kind !== "unionType") {
     return adapted;
@@ -861,13 +972,11 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   const visitKey = `${getContextualTypeVisitKey(
     normalizedActualType,
     context
-  )}=>${getContextualTypeVisitKey(normalizedExpected, context)}=>${
-    selectedSourceMemberNs ? Array.from(selectedSourceMemberNs).join(",") : "*"
-  }`;
+  )}=>${getContextualTypeVisitKey(normalizedExpected, context)}=>${selectedSourceMemberKey}`;
   if (visited.has(visitKey)) {
     return undefined;
   }
-  const nextVisited = new Set(visited);
+  const nextVisited = new Set(earlyVisited);
   nextVisited.add(visitKey);
 
   const projectedUnion = maybeProjectRuntimeUnionMemberExpressionAst(
@@ -891,10 +1000,12 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     const [expectedRuntimeLayout, expectedRuntimeLayoutContext] =
       buildRuntimeUnionLayout(emissionExpectedType, context, emitTypeAst);
     if (expectedRuntimeLayout) {
-      const actualRuntimeTypeAst = buildRuntimeUnionTypeAst(actualRuntimeLayout);
+      const actualRuntimeTypeAst =
+        buildRuntimeUnionTypeAst(actualRuntimeLayout);
       const exactRuntimeCarrierMemberIndices =
         expectedRuntimeLayout.memberTypeAsts.flatMap((memberTypeAst, index) =>
-          memberTypeAst && sameTypeAstSurface(memberTypeAst, actualRuntimeTypeAst)
+          memberTypeAst &&
+          sameTypeAstSurface(memberTypeAst, actualRuntimeTypeAst)
             ? [index]
             : []
         );
@@ -1015,8 +1126,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
         (isExactExpressionToType(
           ast,
           stripNullableTypeAst(selectedMemberTypeAst)
-        ) ||
-        isExactArrayCreationToType(ast, selectedMemberTypeAst)
+        ) || isExactArrayCreationToType(ast, selectedMemberTypeAst)
           ? ast
           : undefined);
 
@@ -1048,9 +1158,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
         context: layoutContext,
         visited: nextVisited,
       });
-      return memberValue
-        ? [{ index, value: memberValue } as const]
-        : [];
+      return memberValue ? [{ index, value: memberValue } as const] : [];
     }
   );
   if (materializedMemberCandidates.length === 1) {
@@ -1098,9 +1206,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     layoutContext
   );
   const deterministicDirectMatchingMemberIndices =
-    directMatchingMemberIndices.length === 1
-      ? directMatchingMemberIndices
-      : [];
+    directMatchingMemberIndices.length === 1 ? directMatchingMemberIndices : [];
   if (deterministicDirectMatchingMemberIndices.length === 1) {
     const [directIndex] = deterministicDirectMatchingMemberIndices;
     if (directIndex !== undefined) {
@@ -1137,43 +1243,42 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     }
   }
 
-  const deterministicAssignableMemberIndices =
-    actualRuntimeLayout
-        ? []
-        : (() => {
-          const indices = findRuntimeUnionMemberIndices(
-            runtimeLayout.members,
-            emissionActualType,
-            layoutContext
-          );
-          if (indices.length === 1) {
-            return indices;
-          }
+  const deterministicAssignableMemberIndices = actualRuntimeLayout
+    ? []
+    : (() => {
+        const indices = findRuntimeUnionMemberIndices(
+          runtimeLayout.members,
+          emissionActualType,
+          layoutContext
+        );
+        if (indices.length === 1) {
+          return indices;
+        }
 
-          const assignableIndices = findRuntimeUnionAssignableMemberIndices(
-            runtimeLayout.members,
-            emissionActualType,
-            layoutContext
-          );
-          if (assignableIndices.length === 1) {
-            return assignableIndices;
-          }
+        const assignableIndices = findRuntimeUnionAssignableMemberIndices(
+          runtimeLayout.members,
+          emissionActualType,
+          layoutContext
+        );
+        if (assignableIndices.length === 1) {
+          return assignableIndices;
+        }
 
-          const emissionCompatibleIndices = runtimeLayout.members.flatMap(
-            (member, index) =>
-              member &&
-              runtimeUnionMemberIsEmissionCompatible(
-                emissionActualType,
-                member,
-                layoutContext
-              )
-                ? [index]
-                : []
-          );
-          return emissionCompatibleIndices.length === 1
-            ? emissionCompatibleIndices
-            : [];
-        })();
+        const emissionCompatibleIndices = runtimeLayout.members.flatMap(
+          (member, index) =>
+            member &&
+            runtimeUnionMemberIsEmissionCompatible(
+              emissionActualType,
+              member,
+              layoutContext
+            )
+              ? [index]
+              : []
+        );
+        return emissionCompatibleIndices.length === 1
+          ? emissionCompatibleIndices
+          : [];
+      })();
   if (deterministicAssignableMemberIndices.length === 1) {
     const [directIndex] = deterministicAssignableMemberIndices;
     if (directIndex !== undefined) {
@@ -1188,14 +1293,13 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
           context: layoutContext,
           visited: nextVisited,
         });
-        const directlyAssignableMemberValue =
-          runtimeUnionMemberCanAcceptValue(
-            directMember,
-            emissionActualType,
-            layoutContext
-          )
-            ? ast
-            : undefined;
+        const directlyAssignableMemberValue = runtimeUnionMemberCanAcceptValue(
+          directMember,
+          emissionActualType,
+          layoutContext
+        )
+          ? ast
+          : undefined;
         const selectedValueAst =
           directMemberValue?.[0] ??
           directlyAssignableMemberValue ??

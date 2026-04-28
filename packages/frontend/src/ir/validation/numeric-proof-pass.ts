@@ -7,7 +7,6 @@
  * - numeric-proof-walk.ts: IR tree traversal and proof attachment
  *
  * CRITICAL: If this pass emits ANY errors, the emitter MUST NOT run.
- * Unlike the previous implementation, this pass does NOT allow fallback casts.
  * If we cannot prove a narrowing, compilation FAILS.
  *
  * This follows Alice's "Provably-Sound Numeric Types" specification:

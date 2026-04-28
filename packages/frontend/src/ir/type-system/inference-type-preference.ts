@@ -67,7 +67,8 @@ const scoreTypeIdentity = (
         return (
           60 +
           type.elementTypes.reduce(
-            (total, elementType) => total + scoreTypeIdentity(elementType, seen),
+            (total, elementType) =>
+              total + scoreTypeIdentity(elementType, seen),
             0
           )
         );
@@ -123,7 +124,8 @@ export const areEquivalentInferenceTypes = (
   right: IrType
 ): boolean =>
   relations.typesEqual(left, right) ||
-  (relations.isAssignableTo(left, right) && relations.isAssignableTo(right, left));
+  (relations.isAssignableTo(left, right) &&
+    relations.isAssignableTo(right, left));
 
 export const choosePreferredEquivalentInferenceType = (
   relations: TypeRelations,

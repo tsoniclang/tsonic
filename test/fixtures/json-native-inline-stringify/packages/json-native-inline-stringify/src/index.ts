@@ -1,4 +1,10 @@
+type Payload = {
+  ok: boolean;
+  value: number;
+};
+
 export function main(): void {
-  const text = JSON.stringify({ ok: true, value: 3 });
+  const payload: Payload = { ok: true, value: 3 };
+  const text = JSON.stringify(payload);
   console.log(text);
 }

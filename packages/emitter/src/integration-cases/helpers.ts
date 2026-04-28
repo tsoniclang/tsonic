@@ -532,6 +532,7 @@ export const compileProjectToCSharp = (
     const emitResult = emitCSharpFiles(reloweredAfterRefreshModules, {
       rootNamespace,
       bindingRegistry: program.bindings,
+      surfaceCapabilities: program.surfaceCapabilities,
       ...emitOptions,
     });
     if (!emitResult.ok) {

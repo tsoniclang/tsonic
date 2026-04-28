@@ -4,32 +4,32 @@
 
 export class AsyncCache<K, V> {
   // ERROR: Cannot find name 'Map'
-  private cache: Map<K, V> = new Map();
-  private loading: Map<K, Promise<V>> = new Map();
+  #cache: Map<K, V> = new Map();
+  #loading: Map<K, Promise<V>> = new Map();
 
   async get(key: K, loader: () => Promise<V>): Promise<V> {
-    if (this.cache.has(key)) {
-      return this.cache.get(key)!;
+    if (this.#cache.has(key)) {
+      return this.#cache.get(key)!;
     }
 
-    if (this.loading.has(key)) {
-      return this.loading.get(key)!;
+    if (this.#loading.has(key)) {
+      return this.#loading.get(key)!;
     }
 
     const promise = loader();
-    this.loading.set(key, promise);
+    this.#loading.set(key, promise);
 
     try {
       const value = await promise;
-      this.cache.set(key, value);
+      this.#cache.set(key, value);
       return value;
     } finally {
-      this.loading.delete(key);
+      this.#loading.delete(key);
     }
   }
 
   clear(): void {
-    this.cache.clear();
-    this.loading.clear();
+    this.#cache.clear();
+    this.#loading.clear();
   }
 }

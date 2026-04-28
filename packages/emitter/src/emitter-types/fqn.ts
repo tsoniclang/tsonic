@@ -61,7 +61,6 @@ export const FQN = {
 
   // Tsonic.Runtime
   TsonicRuntime: {
-    DynamicObject: "global::Tsonic.Runtime.DynamicObject",
     Union: (types: string) => `global::Tsonic.Runtime.Union<${types}>`,
   },
 
