@@ -18,6 +18,7 @@ import {
 import { emitTypeAst } from "../type-emitter.js";
 import { resolveTypeAlias, stripNullish } from "../core/semantic/type-resolution.js";
 import { nullableType } from "../core/format/backend-ast/builders.js";
+import { emitCSharpName } from "../naming-policy.js";
 import {
   sameTypeAstSurface,
   stripNullableTypeAst,
@@ -190,6 +191,19 @@ export const emitPropertyAccess = (
   }
 
   if (resolvedObjectType?.kind === "dictionaryType") {
+    if (prop === "Count" || prop === "Keys" || prop === "Values") {
+      return [
+        {
+          kind: expr.isOptional
+            ? "conditionalMemberAccessExpression"
+            : "memberAccessExpression",
+          expression: receiverAst,
+          memberName: emitCSharpName(prop, "properties", context),
+        },
+        receiverContext,
+      ];
+    }
+
     const keyAst = createStringLiteralExpression(prop);
     if (usage !== "write" && contextSurfaceIncludesJs(context)) {
       const fallbackType =

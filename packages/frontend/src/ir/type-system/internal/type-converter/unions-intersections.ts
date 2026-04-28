@@ -15,10 +15,7 @@ export const convertUnionType = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType => {
-  return normalizedUnionType(
-    node.types.map((t) => convertType(t, binding)),
-    { preserveRuntimeLayout: true }
-  );
+  return normalizedUnionType(node.types.map((t) => convertType(t, binding)));
 };
 
 /**

@@ -654,30 +654,35 @@ export const materializeDirectNarrowingAst = (
     return [sourceAst, nextContext];
   }
 
-  const runtimeMaterialized = tryBuildRuntimeMaterializationAst(
-    sourceAst,
-    comparableSourceType,
-    comparableEmissionTargetType,
-    context,
-    emitTypeAst
-  );
-  if (runtimeMaterialized) {
-    return runtimeMaterialized;
+  if (!sourceWasParameterModifierWrapped) {
+    const runtimeMaterialized = tryBuildRuntimeMaterializationAst(
+      sourceAst,
+      comparableSourceType,
+      comparableEmissionTargetType,
+      context,
+      emitTypeAst
+    );
+    if (runtimeMaterialized) {
+      return runtimeMaterialized;
+    }
   }
 
-  const runtimeSubsetMaterialized =
-    tryBuildRuntimeUnionSubsetMaterializationAst(
+  const runtimeSubsetMaterialized = !sourceWasParameterModifierWrapped
+    ? tryBuildRuntimeUnionSubsetMaterializationAst(
       sourceAst,
       comparableSourceType,
       comparableEmissionTargetType,
       context
-    );
+      )
+    : undefined;
   if (runtimeSubsetMaterialized) {
     return runtimeSubsetMaterialized;
   }
 
   const [targetRuntimeLayout, targetRuntimeLayoutContext] =
-    buildRuntimeUnionLayout(comparableEmissionTargetType, context, emitTypeAst);
+    !sourceWasParameterModifierWrapped
+      ? buildRuntimeUnionLayout(comparableEmissionTargetType, context, emitTypeAst)
+      : [undefined, context];
   if (
     targetRuntimeLayout &&
     !willCarryAsRuntimeUnion(comparableSourceType, context)

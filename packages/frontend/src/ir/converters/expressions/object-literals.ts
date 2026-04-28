@@ -17,6 +17,7 @@ import { checkSynthesisEligibility } from "../anonymous-synthesis.js";
 import type { ProgramContext } from "../../program-context.js";
 import { createDiagnostic } from "../../../types/diagnostic.js";
 import { convertAccessorProperty } from "../statements/declarations/classes/properties.js";
+import { createObjectLiteralMethodArgumentPrelude } from "../../../object-literal-method-runtime.js";
 import {
   getPropertyExpectedType,
   selectObjectLiteralContextualType,
@@ -358,9 +359,17 @@ export const convertObjectLiteral = (
   const resolvedMethodTypes = new Map<string, IrFunctionType>();
 
   for (const pendingMethod of pendingMethods) {
+    const methodPrelude = createObjectLiteralMethodArgumentPrelude(
+      pendingMethod.node
+    );
     const methodBody = pendingMethod.node.body
-      ? pendingMethod.node.body
-      : ts.factory.createBlock([], true);
+      ? methodPrelude.length > 0
+        ? ts.factory.updateBlock(pendingMethod.node.body, [
+            ...methodPrelude,
+            ...pendingMethod.node.body.statements,
+          ])
+        : pendingMethod.node.body
+      : ts.factory.createBlock(methodPrelude, true);
     const methodModifiers = pendingMethod.node.modifiers?.filter(ts.isModifier);
     const methodAsFunctionExpr = ts.setTextRange(
       ts.factory.createFunctionExpression(

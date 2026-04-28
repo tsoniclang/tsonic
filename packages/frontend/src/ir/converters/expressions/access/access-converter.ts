@@ -31,6 +31,10 @@ import {
   isWellKnownSymbolPropertyName,
   tryResolveDeterministicPropertyNameFromExpression,
 } from "../../../syntax/property-names.js";
+import {
+  tryGetObjectLiteralMethodArgumentCapture,
+  tryGetObjectLiteralMethodArgumentsLength,
+} from "../../../../object-literal-method-runtime.js";
 
 const typeHasClrIdentity = (
   type: IrExpression["inferredType"] | undefined
@@ -70,6 +74,18 @@ export const convertMemberExpression = (
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
+    const objectMethodArgumentsLength =
+      tryGetObjectLiteralMethodArgumentsLength(node);
+    if (objectMethodArgumentsLength !== undefined) {
+      return {
+        kind: "literal",
+        value: objectMethodArgumentsLength,
+        raw: String(objectMethodArgumentsLength),
+        inferredType: { kind: "primitiveType", name: "int" },
+        sourceSpan,
+      };
+    }
+
     const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
     const currentReceiverType = getCurrentTypeForAccessExpression(
@@ -194,6 +210,24 @@ export const convertMemberExpression = (
       inferredType: propertyInferredType,
     };
   } else {
+    const objectMethodArgumentCapture =
+      tryGetObjectLiteralMethodArgumentCapture(node);
+    if (objectMethodArgumentCapture) {
+      const inferredType = objectMethodArgumentCapture.parameter.type
+        ? ctx.typeSystem.typeFromSyntax(
+            ctx.binding.captureTypeSyntax(
+              objectMethodArgumentCapture.parameter.type
+            )
+          )
+        : undefined;
+      return {
+        kind: "identifier",
+        name: objectMethodArgumentCapture.tempName,
+        inferredType,
+        sourceSpan,
+      };
+    }
+
     // Element access (computed): obj[expr]
     const object = convertExpression(node.expression, ctx, undefined);
 
