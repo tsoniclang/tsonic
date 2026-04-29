@@ -69,6 +69,7 @@ export const resolveAnonymousStructuralReferenceType = (
     .map((member) => ({
       name: member.name,
       isOptional: member.isOptional,
+      isReadonly: member.isReadonly ?? false,
       type: optionalPropertyComparableType(member.type),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -95,6 +96,7 @@ export const resolveAnonymousStructuralReferenceType = (
         .map((member) => ({
           name: member.name,
           isOptional: !member.isRequired,
+          isReadonly: member.isReadonly ?? false,
           type: optionalPropertyComparableType(member.type),
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
@@ -106,6 +108,7 @@ export const resolveAnonymousStructuralReferenceType = (
             !!targetProp &&
             prop.name === targetProp.name &&
             prop.isOptional === targetProp.isOptional &&
+            prop.isReadonly === targetProp.isReadonly &&
             areIrTypesEquivalent(prop.type, targetProp.type, context)
           );
         })
@@ -156,6 +159,7 @@ export const resolveAnonymousStructuralReferenceType = (
         .map((member) => ({
           name: member.alias,
           isOptional: member.semanticOptional === true,
+          isReadonly: false,
           type: optionalPropertyComparableType(
             member.semanticType ?? parseBindingPropertyType(member.signature)
           ),
@@ -170,6 +174,7 @@ export const resolveAnonymousStructuralReferenceType = (
             !!targetProp &&
             prop.name === targetProp.name &&
             prop.isOptional === targetProp.isOptional &&
+            prop.isReadonly === targetProp.isReadonly &&
             areIrTypesEquivalent(prop.type, targetProp.type, context)
           );
         })

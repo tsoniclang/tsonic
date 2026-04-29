@@ -3,12 +3,15 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../../../types.js";
+import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
 import { emitTypeAst } from "../../../type-emitter.js";
-import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../../../core/format/backend-ast/types.js";
 import { splitRuntimeNullishUnionMembers } from "../../../core/semantic/type-resolution.js";
 import {
   findExactRuntimeUnionMemberIndices,
@@ -18,6 +21,7 @@ import {
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 import { buildRuntimeSubsetExpressionAst } from "../../../core/semantic/narrowing-builders.js";
+import { willCarryAsRuntimeUnion } from "../../../core/semantic/union-semantics.js";
 import {
   getMemberAccessNarrowKey,
   makeNarrowedLocalName,
@@ -34,6 +38,70 @@ import {
   buildRenameNarrowedMap,
   withoutNarrowedBinding,
 } from "./guard-types.js";
+
+const getRuntimeCarrierBindingType = (
+  binding: NarrowedBinding | undefined,
+  context: EmitterContext
+): IrType | undefined =>
+  [binding?.sourceType, binding?.type].find(
+    (candidate): candidate is IrType =>
+      candidate !== undefined && willCarryAsRuntimeUnion(candidate, context)
+  );
+
+const preserveIncomingNarrowedBindings = (
+  incomingContext: EmitterContext,
+  emittedContext: EmitterContext
+): EmitterContext => {
+  if (!incomingContext.narrowedBindings) {
+    return emittedContext;
+  }
+
+  const narrowedBindings = new Map(incomingContext.narrowedBindings);
+  for (const [key, binding] of emittedContext.narrowedBindings ?? []) {
+    narrowedBindings.set(key, binding);
+  }
+
+  return { ...emittedContext, narrowedBindings };
+};
+
+const getPredicateReceiverAstFromExistingBinding = (
+  binding: NarrowedBinding | undefined,
+  context: EmitterContext
+): CSharpExpressionAst | undefined => {
+  if (!binding) {
+    return undefined;
+  }
+
+  if (binding.kind === "runtimeSubset") {
+    return binding.storageExprAst;
+  }
+
+  if (binding.kind !== "expr") {
+    return undefined;
+  }
+
+  if (binding.type && willCarryAsRuntimeUnion(binding.type, context)) {
+    return binding.exprAst;
+  }
+
+  if (
+    binding.carrierExprAst &&
+    binding.carrierType &&
+    willCarryAsRuntimeUnion(binding.carrierType, context)
+  ) {
+    return binding.carrierExprAst;
+  }
+
+  if (
+    binding.carrierExprAst &&
+    binding.sourceType &&
+    willCarryAsRuntimeUnion(binding.sourceType, context)
+  ) {
+    return binding.carrierExprAst;
+  }
+
+  return undefined;
+};
 
 /**
  * Try to extract guard info from a predicate call expression.
@@ -101,13 +169,21 @@ export const tryResolvePredicateGuard = (
     memberN ?? "subset",
     nextId
   );
-  const rawContext = withoutNarrowedBinding(context, originalName);
-  const [argAst] = emitExpressionAst(target, rawContext, unionSourceType);
-  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const currentSubsetBinding = context.narrowedBindings?.get(originalName);
+  const rawContext = withoutNarrowedBinding(context, originalName);
+  const existingReceiverAst =
+    target.kind === "identifier"
+      ? getPredicateReceiverAstFromExistingBinding(
+          currentSubsetBinding,
+          context
+        )
+      : undefined;
+  const [argAst] = existingReceiverAst
+    ? ([existingReceiverAst, context] as const)
+    : emitExpressionAst(target, rawContext, unionSourceType);
+  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const sourceType =
-    currentSubsetBinding?.sourceType ??
-    currentSubsetBinding?.type ??
+    getRuntimeCarrierBindingType(currentSubsetBinding, context) ??
     buildSubsetUnionType(frame.members) ??
     unionSourceType;
   const narrowedMap = buildRenameNarrowedMap(
@@ -221,17 +297,17 @@ export const tryResolveInstanceofGuard = (
     condition.right.inferredType
   );
   let rhsTypeAst: CSharpTypeAst | undefined;
-  let ctxAfterRhs = rhsCtxAfterExpr;
+  let ctxAfterRhs = preserveIncomingNarrowedBindings(context, rhsCtxAfterExpr);
 
   if (rhsAst.kind === "typeReferenceExpression") {
     rhsTypeAst = rhsAst.type;
   } else if (inferredRhsType) {
     const [emittedTypeAst, nextCtx] = emitTypeAst(
       inferredRhsType,
-      rhsCtxAfterExpr
+      ctxAfterRhs
     );
     rhsTypeAst = emittedTypeAst;
-    ctxAfterRhs = nextCtx;
+    ctxAfterRhs = preserveIncomingNarrowedBindings(context, nextCtx);
   }
 
   if (!rhsTypeAst) {

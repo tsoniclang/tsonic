@@ -132,8 +132,10 @@ describe("End-to-End Integration", () => {
           return value !== null && typeof value === "object" && !Array.isArray(value);
         };
 
+        declare function loadRoot(): Record<string, string | number>;
+
         export function main(): void {
-          const root: Record<string, string | number> = JSON.parse("{\\"title\\":\\"hello\\",\\"count\\":2}");
+          const root = loadRoot();
           if (!isObject(root)) return;
           const first = Object.entries(root)[0];
           if (first === undefined) return;

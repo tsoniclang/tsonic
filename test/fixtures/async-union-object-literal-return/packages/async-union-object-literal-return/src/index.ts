@@ -14,7 +14,7 @@ async function getEvents(
 
 export async function main(): Promise<void> {
   const failure = await getEvents(false);
-  if (!failure.success) {
+  if (failure.success === false) {
     Console.WriteLine(failure.error + ":" + (failure.code ?? "NONE"));
   }
 

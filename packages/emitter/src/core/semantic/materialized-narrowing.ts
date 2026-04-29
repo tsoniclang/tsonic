@@ -329,6 +329,7 @@ const tryBuildRuntimeUnionSubsetMaterializationAst = (
     {
       members: sourceLayout.members,
       candidateMemberNs: sourceLayout.members.map((_, index) => index + 1),
+      runtimeUnionArity: sourceLayout.runtimeUnionArity,
     }
   );
 };
@@ -654,6 +655,10 @@ export const materializeDirectNarrowingAst = (
     return [sourceAst, nextContext];
   }
 
+  if (isExactExpressionToType(sourceAst, concreteTargetTypeAst)) {
+    return [sourceAst, nextContext];
+  }
+
   if (!sourceWasParameterModifierWrapped) {
     const runtimeMaterialized = tryBuildRuntimeMaterializationAst(
       sourceAst,
@@ -764,10 +769,6 @@ export const materializeDirectNarrowingAst = (
       context
     );
   if (canReuseAssignableSurface) {
-    return [sourceAst, nextContext];
-  }
-
-  if (isExactExpressionToType(sourceAst, concreteTargetTypeAst)) {
     return [sourceAst, nextContext];
   }
 

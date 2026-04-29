@@ -734,6 +734,70 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(adaptedAst)).to.equal("array");
   });
 
+  it("keeps nominal class type assertions as casts instead of structural rematerialization", () => {
+    const namesAttributeType: IrType = {
+      kind: "referenceType",
+      name: "NamesAttribute",
+      resolvedClrType: "Test.NamesAttribute",
+    };
+    const stringArrayType: IrType = {
+      kind: "arrayType",
+      elementType: { kind: "primitiveType", name: "string" },
+      origin: "explicit",
+    };
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+      }),
+      localTypes: new Map([
+        [
+          "NamesAttribute",
+          {
+            kind: "class" as const,
+            typeParameters: [],
+            members: [
+              {
+                kind: "propertyDeclaration" as const,
+                name: "Names",
+                type: stringArrayType,
+                isStatic: false,
+                isReadonly: false,
+                accessibility: "public" as const,
+                isRequired: true,
+                initializer: undefined,
+                attributes: [],
+              },
+            ],
+            superClass: undefined,
+            implements: [],
+          },
+        ],
+      ]),
+    };
+
+    const [adaptedAst] = adaptEmittedExpressionAst({
+      expr: {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "attribute",
+          inferredType: { kind: "referenceType", name: "object" },
+        },
+        targetType: namesAttributeType,
+        inferredType: namesAttributeType,
+      },
+      valueAst: {
+        kind: "castExpression",
+        type: identifierType("NamesAttribute"),
+        expression: identifierExpression("attribute"),
+      },
+      context,
+      expectedType: namesAttributeType,
+    });
+
+    expect(printExpression(adaptedAst)).to.equal("(NamesAttribute)attribute");
+  });
+
   it("does not rematerialize nullable array-return calls when source and target emit the same surface", () => {
     const context = createContext({
       rootNamespace: "Test",

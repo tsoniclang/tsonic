@@ -12,6 +12,8 @@ export {
   type RuntimeUnionFrame,
   toReceiverAst,
   buildUnionNarrowAst,
+  buildMappedUnionNarrowAst,
+  tryMapProjectedRuntimeMemberN,
   buildSubsetUnionType,
   withoutNarrowedBinding,
   applyBinding,

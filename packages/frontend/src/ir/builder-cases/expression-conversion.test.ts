@@ -60,6 +60,28 @@ describe("IR Builder", function () {
       }
     });
 
+    it("uses function-typed identifiers for object literal call-argument context", () => {
+      const source = `
+        type Getter = ({ x }: { x: number }) => number;
+
+        export function main(): void {
+          const getX: Getter = ({ x }) => x;
+          getX({ x: 4 });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(
+        false
+      );
+    });
+
     it("contextually types awaited async return object literals against awaited return shapes", () => {
       const source = `
         type HandlerControl = {

@@ -477,6 +477,10 @@ const resolveEffectiveBranchType = (
   expr: IrExpression,
   context: EmitterContext
 ): IrType | undefined => {
+  if (expr.kind === "typeAssertion" || expr.kind === "asinterface") {
+    return resolveEffectiveBranchType(expr.expression, context) ?? expr.targetType;
+  }
+
   if (expr.kind === "identifier") {
     return context.narrowedBindings?.get(expr.name)?.type ?? expr.inferredType;
   }

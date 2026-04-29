@@ -153,10 +153,10 @@ describe("build command (native library port regressions)", function () {
         [
           "export class ProcessModule {",
           '  #argv: string[] = ["node", "app"];',
-          "  public get argv(): string[] {",
+          "  get argv(): string[] {",
           "    return this.#argv;",
           "  }",
-          "  public set argv(value: string[] | undefined) {",
+          "  set argv(value: string[] | undefined) {",
           "    this.#argv = value ?? [];",
           "  }",
           "}",
@@ -243,7 +243,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("builds source-package class properties explicitly annotated as JsValue", () => {
+  it("builds source-package class properties explicitly annotated as unknown", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-unknown-member-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
@@ -305,18 +305,16 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(sourcePackageRoot, "src/index.ts"),
         [
-          'import type { JsValue } from "@tsonic/core/types.js";',
-          "",
           "export class AssertionErrorLike extends Error {",
-          "  public actual: JsValue | undefined = undefined;",
-          "  public expected: JsValue | undefined = undefined;",
-          '  public operator: string = "";',
-          "  public generatedMessage: boolean = false;",
+          "  actual: unknown | undefined = undefined;",
+          "  expected: unknown | undefined = undefined;",
+          '  operator: string = "";',
+          "  generatedMessage: boolean = false;",
           "",
-          "  public constructor(",
+          "  constructor(",
           "    message?: string,",
-          "    actual?: JsValue,",
-          "    expected?: JsValue,",
+          "    actual?: unknown,",
+          "    expected?: unknown,",
           '    operator: string = ""',
           "  ) {",
           "    super(message);",
@@ -327,7 +325,7 @@ describe("build command (native library port regressions)", function () {
           "  }",
           "}",
           "",
-          "export function readActual(error: AssertionErrorLike): JsValue | undefined {",
+          "export function readActual(error: AssertionErrorLike): unknown | undefined {",
           "  return error.actual;",
           "}",
         ].join("\n"),
@@ -365,11 +363,9 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
-          'import type { JsValue } from "@tsonic/core/types.js";',
-          "",
           'import { AssertionErrorLike, readActual } from "@demo/pkg";',
           "",
-          "export function main(): JsValue | undefined {",
+          "export function main(): unknown | undefined {",
           '  return readActual(new AssertionErrorLike("boom", 1, 2, "==="));',
           "}",
         ].join("\n"),
@@ -467,7 +463,7 @@ describe("build command (native library port regressions)", function () {
           'import type { int } from "@tsonic/core/types.js";',
           "",
           "export class DelayBox {",
-          "  public wait(delay: int = 1 as int): int {",
+          "  wait(delay: int = 1 as int): int {",
           "    return delay;",
           "  }",
           "}",

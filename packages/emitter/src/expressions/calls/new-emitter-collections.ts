@@ -5,16 +5,12 @@ import {
   emitTypeArgumentsAst,
   generateSpecializedName,
 } from "../identifiers.js";
-import { emitTypeAst } from "../../type-emitter.js";
 import {
   clrTypeNameToTypeAst,
   extractCalleeNameFromAst,
   normalizeClrQualifiedName,
 } from "../../core/format/backend-ast/utils.js";
-import {
-  decimalIntegerLiteral,
-  identifierType,
-} from "../../core/format/backend-ast/builders.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -139,20 +135,6 @@ export const emitListCollectionInitializer = (
     },
     currentContext,
   ];
-};
-
-export const isArrayConstructorCall = (
-  expr: Extract<IrExpression, { kind: "new" }>
-): boolean => {
-  if (expr.callee.kind !== "identifier" || expr.callee.name !== "Array") {
-    return false;
-  }
-
-  return (
-    expr.inferredType?.kind === "arrayType" &&
-    !!expr.typeArguments &&
-    expr.typeArguments.length === 1
-  );
 };
 
 const makeClrValueArrayType = (
@@ -434,48 +416,6 @@ export const emitUint8ArrayNumericLengthConstructor = (
       kind: "objectCreationExpression",
       type: typeAst,
       arguments: [argAst],
-    },
-    currentContext,
-  ];
-};
-
-export const emitArrayConstructor = (
-  expr: Extract<IrExpression, { kind: "new" }>,
-  context: EmitterContext
-): [CSharpExpressionAst, EmitterContext] => {
-  let currentContext = context;
-
-  const elementType = expr.typeArguments?.[0];
-  if (!elementType) {
-    return [
-      {
-        kind: "arrayCreationExpression",
-        elementType: { kind: "predefinedType", keyword: "object" },
-        sizeExpression: decimalIntegerLiteral(0),
-      },
-      currentContext,
-    ];
-  }
-
-  const [elementTypeAst, typeContext] = emitTypeAst(
-    elementType,
-    currentContext
-  );
-  currentContext = typeContext;
-
-  let sizeAstNode: CSharpExpressionAst = decimalIntegerLiteral(0);
-  const sizeArg = expr.arguments[0];
-  if (sizeArg && sizeArg.kind !== "spread") {
-    const [sizeAst, sizeContext] = emitExpressionAst(sizeArg, currentContext);
-    sizeAstNode = sizeAst;
-    currentContext = sizeContext;
-  }
-
-  return [
-    {
-      kind: "arrayCreationExpression",
-      elementType: elementTypeAst,
-      sizeExpression: sizeAstNode,
     },
     currentContext,
   ];

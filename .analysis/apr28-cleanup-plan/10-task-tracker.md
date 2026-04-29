@@ -10,11 +10,11 @@ Status meanings:
 
 ## Current Priority Override
 
-The first execution block is now drift repair from `00-drift-first-recovery-plan.md`.
+The first implementation block is now P0 centralization from `13-centralization-audit.md`.
 
 The interrupted task was the interim diff review. That review is complete enough to drive the next implementation phase and is captured under `.analysis/interim-review-apr28-A`.
 
-Nothing downstream, package-related, publish-related, or broad full-gate-related should proceed until the drift block below is complete.
+Nothing downstream, package-related, publish-related, or broad full-gate-related should proceed until the P0 centralization block and drift block below are complete.
 
 ## Drift-First Block
 
@@ -29,6 +29,7 @@ Nothing downstream, package-related, publish-related, or broad full-gate-related
 | DF6 | Prove Jotster P0 fixes in emitter/golden tests | TODO | `override` family and expression-tree anonymous object examples both have emitted C# proof |
 | DF7 | Reconcile docs with drift rules | TODO | Docs distinguish flow facts from runtime dynamic probing |
 | DF8 | Incorporate semantic authority super-review | DONE | `11-semantic-authority-super-review.md` records SA1-SA14 with examples and acceptance criteria |
+| DF9 | Incorporate centralization audit | DONE | `13-centralization-audit.md` records CA1-CA18 with examples, current repeated authority, central owner, and acceptance criteria |
 
 ## Semantic Authority Block
 
@@ -48,6 +49,31 @@ Nothing downstream, package-related, publish-related, or broad full-gate-related
 | SA12 | Runtime-union guards consume discriminant proof | TODO | `IsN`/`AsN` emitted only from explicit union arm proof |
 | SA13 | Expression-tree anonymous object proof | TODO | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
 | SA14 | JSON broad cases become diagnostics | TODO | typed serializers remain; untyped/broad dynamic JSON fails before emitter |
+
+## Centralization Block
+
+These tasks come from `13-centralization-audit.md`. P0 centralization is the first implementation gate because it prevents every subsequent fix from adding another local semantic decision.
+
+| ID | Task | Status | Acceptance |
+| --- | --- | --- | --- |
+| CA1 | Centralize flow/narrowing facts | TODO | Frontend records branch facts; emitter does not parse `typeof`, `in`, `Array.isArray`, predicates, or `instanceof` for semantic narrowing |
+| CA2 | Centralize type identity/equivalence/stable keys | TODO | Nominal/CLR/reference comparison uses one identity API; no semantic raw string comparison of emitted C# names |
+| CA3 | Centralize surface API availability and lowering | TODO | Surface metadata resolves JS/CLR/API members; no hardcoded source-name lowering in emitter |
+| CA4 | Centralize member/property/indexer lookup | TODO | TypeSystem returns member/indexer access plans; no duplicate numeric-key/member lookup tables |
+| CA5 | Centralize call/overload/signature/argument resolution | TODO | IR carries resolved call and argument adaptation plan; emitter does not select overloads or infer lambda context |
+| CA6 | Centralize object literal target/materialization | TODO | IR carries nominal/anonymous/dictionary/structural materialization plan; emitter has no object-shape fallback |
+| CA7 | Centralize `unknown`/`object`/`JsValue` broad-carrier policy | TODO | Opaque storage is distinct from structural use; property/method access requires frontend proof and closed NativeAOT-safe carrier |
+| CA8 | Centralize numeric proof/conversion authority | TODO | Numeric conversions/indexing require proof tokens or type-system relation; no emitter-only numeric compatibility fallback |
+| CA9 | Centralize JSON parse/stringify policy | TODO | JSON operations carry typed/unknown-with-validation/invalid plan; emitter does not independently decide closedness |
+| CA10 | Centralize truthiness/nullish boolean policy | TODO | Branch condition facts are normalized once and consumed by branch, ternary, logical, and coalesce lowering |
+| CA11 | Centralize intrinsics/provenance/reserved names | TODO | Intrinsic registry owns name, arity, provenance, target eligibility, and emitted IR kind |
+| CA12 | Centralize async wrapper semantics | TODO | Promise/Task/ValueTask/Awaited identity and return normalization come from one async type service |
+| CA13 | Centralize direct storage/carrier selection | TODO | Variable, return, conditional, and argument adaptation consume one storage/carrier plan |
+| CA14 | Centralize diagnostics vs ICE policy | TODO | User-facing unsupported cases are caught by validation/soundness gate; emitter ICEs are unreachable invariant checks only |
+| CA15 | Centralize stable serialization/dedup ordering | TODO | Type/member/object-shape/backend-AST stable keys come from one deterministic key service |
+| CA16 | Centralize config/manifest schema parsing | TODO | CLI/frontend/package loaders share schema validators and path-aware diagnostics |
+| CA17 | Centralize package/source/path identity | TODO | Resolver/CLI/package manifest code share one canonical package identity model |
+| CA18 | Centralize test fixture/generated artifact policy | TODO | Test scripts, hygiene, fixtures, and cleanup agree on checked-in vs generated artifacts |
 
 ## Current Checkpoint Tasks
 
@@ -130,10 +156,11 @@ Nothing downstream, package-related, publish-related, or broad full-gate-related
 ## Current Focus Queue
 
 1. Finish and preserve the interim diff review artifacts.
-2. Execute `DF1` through `DF7` from the drift-first block.
-3. Reconcile implementation files and docs against the repaired drift rules.
-4. Finish tsonic compiler uncertainty cleanup.
-5. Rerun focused tests and group failures by root cause.
-6. Run the full upstream Tsonic gate with `./test/scripts/run-all.sh`.
-7. Commit and push each completed step on `apr28-refactor`.
-8. Open one PR after the full upstream gate is green.
+2. Execute `CA1` through `CA8` as the P0 centralization gate.
+3. Execute `DF1` through `DF7` through the centralized owners.
+4. Reconcile implementation files and docs against the repaired centralization and drift rules.
+5. Finish tsonic compiler uncertainty cleanup.
+6. Rerun focused tests and group failures by root cause.
+7. Run the full upstream Tsonic gate with `./test/scripts/run-all.sh`.
+8. Commit and push each completed step on `apr28-refactor`.
+9. Open one PR after the full upstream gate is green.

@@ -118,6 +118,168 @@ const UNKNOWN_ARRAY_TYPE: IrType = {
   elementType: { kind: "unknownType", explicit: true },
 };
 
+const TYPEOF_NUMBER_PRIMITIVES = new Set([
+  "number",
+  "int",
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+  "uint",
+  "long",
+  "ulong",
+  "float",
+  "double",
+  "decimal",
+]);
+
+const typeofGenericTarget = (tag: string): IrType | undefined => {
+  switch (tag) {
+    case "string":
+      return { kind: "primitiveType", name: "string" };
+    case "number":
+      return { kind: "primitiveType", name: "number" };
+    case "boolean":
+      return { kind: "primitiveType", name: "boolean" };
+    case "undefined":
+      return { kind: "primitiveType", name: "undefined" };
+    case "object":
+      return {
+        kind: "referenceType",
+        name: "object",
+        resolvedClrType: "global::System.Object",
+      };
+    case "function":
+      return {
+        kind: "functionType",
+        parameters: [],
+        returnType: { kind: "unknownType", explicit: true },
+      };
+    default:
+      return undefined;
+  }
+};
+
+const matchesTypeofTag = (type: IrType, tag: string): boolean => {
+  if (type.kind === "literalType") {
+    switch (tag) {
+      case "string":
+        return typeof type.value === "string";
+      case "number":
+        return typeof type.value === "number";
+      case "boolean":
+        return typeof type.value === "boolean";
+      case "object":
+        return type.value === null;
+      default:
+        return false;
+    }
+  }
+
+  switch (type.kind) {
+    case "functionType":
+      return tag === "function";
+    case "arrayType":
+    case "tupleType":
+    case "objectType":
+    case "dictionaryType":
+      return tag === "object";
+    case "referenceType":
+      return tag === "object" && type.name !== "Function";
+    case "primitiveType":
+      switch (tag) {
+        case "string":
+          return type.name === "string";
+        case "number":
+          return TYPEOF_NUMBER_PRIMITIVES.has(type.name);
+        case "boolean":
+          return type.name === "boolean";
+        case "undefined":
+          return type.name === "undefined";
+        case "object":
+          return type.name === "null";
+        default:
+          return false;
+      }
+    default:
+      return false;
+  }
+};
+
+const tryReadTypeofTag = (expr: ts.Expression): string | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  return ts.isStringLiteral(unwrapped) ||
+    ts.isNoSubstitutionTemplateLiteral(unwrapped)
+    ? unwrapped.text
+    : undefined;
+};
+
+const tryReadTypeofTarget = (
+  expr: ts.Expression,
+  ctx: ProgramContext
+): AccessPathTarget | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  return ts.isTypeOfExpression(unwrapped)
+    ? getAccessPathTarget(unwrapped.expression, ctx)
+    : undefined;
+};
+
+const tryResolveTypeofNarrowing = (
+  expr: ts.Expression,
+  ctx: ProgramContext,
+  whenTruthy: boolean
+): TypeNarrowing | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  if (!ts.isBinaryExpression(unwrapped)) {
+    return undefined;
+  }
+
+  const operator = unwrapped.operatorToken.kind;
+  const equality =
+    operator === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+    operator === ts.SyntaxKind.EqualsEqualsToken;
+  const inequality =
+    operator === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+    operator === ts.SyntaxKind.ExclamationEqualsToken;
+  if (!equality && !inequality) {
+    return undefined;
+  }
+
+  const leftTarget = tryReadTypeofTarget(unwrapped.left, ctx);
+  const rightTarget = tryReadTypeofTarget(unwrapped.right, ctx);
+  const leftTag = tryReadTypeofTag(unwrapped.left);
+  const rightTag = tryReadTypeofTag(unwrapped.right);
+  const target = leftTarget ?? rightTarget;
+  const tag = leftTarget ? rightTag : rightTarget ? leftTag : undefined;
+  if (!target || !tag) {
+    return undefined;
+  }
+
+  const wantMatch = whenTruthy ? equality : inequality;
+  const currentType = getCurrentTypeForAccessPath(target, ctx);
+  if (!currentType) {
+    return undefined;
+  }
+
+  if (currentType.kind === "unknownType") {
+    const genericTarget = typeofGenericTarget(tag);
+    return wantMatch && currentType.explicit === true && genericTarget
+      ? makeTypeNarrowing(target, genericTarget)
+      : undefined;
+  }
+
+  if (currentType.kind === "anyType") {
+    return undefined;
+  }
+
+  const narrowed = filterTypeByResolvedCandidates(
+    currentType,
+    (candidate) => matchesTypeofTag(candidate, tag) === wantMatch,
+    ctx
+  );
+  return narrowed ? makeTypeNarrowing(target, narrowed) : undefined;
+};
+
 const isArrayLikeCandidate = (type: IrType): boolean => {
   if (type.kind === "arrayType" || type.kind === "tupleType") {
     return true;
@@ -352,6 +514,9 @@ export const collectTypeNarrowingsInTruthyExpr = (
   const direct = tryResolveTruthyNarrowing(unwrapped, ctx);
   if (direct) return [direct];
 
+  const typeofNarrowing = tryResolveTypeofNarrowing(unwrapped, ctx, true);
+  if (typeofNarrowing) return [typeofNarrowing];
+
   const predicateNarrowing = tryResolveCallPredicateNarrowing(
     unwrapped,
     ctx,
@@ -483,6 +648,9 @@ export const collectTypeNarrowingsInFalsyExpr = (
 
   const direct = tryResolveFalsyNarrowing(unwrapped, ctx);
   if (direct) return [direct];
+
+  const typeofNarrowing = tryResolveTypeofNarrowing(unwrapped, ctx, false);
+  if (typeofNarrowing) return [typeofNarrowing];
 
   const predicateNarrowing = tryResolveCallPredicateNarrowing(
     unwrapped,

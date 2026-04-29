@@ -10,6 +10,7 @@ import { IrType } from "../../types.js";
 import { SourceLocation } from "../../../types/diagnostic.js";
 import { getSourceLocation } from "../../../program/diagnostics.js";
 import type { ProgramContext } from "../../program-context.js";
+import { expandParameterTypesForArguments } from "../../type-system/type-system-call-resolution.js";
 
 /**
  * Get source span for a TypeScript node.
@@ -360,6 +361,57 @@ export const isAssignmentOperator = (
   );
 };
 
+const stripParenthesizedExpression = (node: ts.Expression): ts.Expression => {
+  let current = node;
+  while (ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
+};
+
+const getIdentifierCallableArgumentType = (
+  call: ts.CallExpression,
+  argumentIndex: number,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const target = stripParenthesizedExpression(call.expression);
+  if (!ts.isIdentifier(target)) {
+    return undefined;
+  }
+
+  const declId = ctx.binding.resolveIdentifier(target);
+  if (!declId) {
+    return undefined;
+  }
+
+  const valueType = ctx.typeSystem.typeOfValueRead(declId);
+  const callableType =
+    valueType?.kind === "functionType"
+      ? valueType
+      : valueType
+        ? ctx.typeSystem.delegateToFunctionType(valueType)
+        : undefined;
+  if (!callableType) {
+    return undefined;
+  }
+
+  const parameterType = expandParameterTypesForArguments(
+    callableType.parameters,
+    callableType.parameters.map((parameter) => parameter.type),
+    call.arguments.length
+  )[argumentIndex];
+
+  if (
+    !parameterType ||
+    parameterType.kind === "unknownType" ||
+    ctx.typeSystem.containsTypeParameter(parameterType)
+  ) {
+    return undefined;
+  }
+
+  return parameterType;
+};
+
 /**
  * Get the contextual type for an expression from explicit TypeNodes.
  *
@@ -439,6 +491,17 @@ export const getContextualType = (
         ? parent.arguments.indexOf(node as ts.Expression)
         : -1;
       if (argIndex >= 0) {
+        if (ts.isCallExpression(parent)) {
+          const directCallableParameterType = getIdentifierCallableArgumentType(
+            parent,
+            argIndex,
+            ctx
+          );
+          if (directCallableParameterType) {
+            return directCallableParameterType;
+          }
+        }
+
         // Handle both CallExpression and NewExpression
         const sigId = ts.isCallExpression(parent)
           ? ctx.binding.resolveCallSignature(parent)

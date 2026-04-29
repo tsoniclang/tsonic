@@ -20,6 +20,7 @@ import {
   buildRuntimeUnionTypeAst,
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
+  findRuntimeUnionMemberIndices,
 } from "./runtime-unions.js";
 import {
   buildRuntimeUnionFactoryCallAst,
@@ -66,6 +67,7 @@ export type RuntimeReificationPlan = {
 export type RuntimeMaterializationSourceFrame = {
   readonly members: readonly IrType[];
   readonly candidateMemberNs?: readonly number[];
+  readonly runtimeUnionArity?: number;
 };
 
 const stripRuntimeCarrierFamilyForSubset = (type: IrType): IrType => {
@@ -73,11 +75,14 @@ const stripRuntimeCarrierFamilyForSubset = (type: IrType): IrType => {
     return type;
   }
 
-  return {
+  const stripped = {
     kind: "unionType",
     types: type.types.map(stripRuntimeCarrierFamilyForSubset),
-    preserveRuntimeLayout: true,
-  };
+  } as const satisfies Extract<IrType, { kind: "unionType" }>;
+
+  return type.preserveRuntimeLayout === true
+    ? { ...stripped, preserveRuntimeLayout: true }
+    : stripped;
 };
 
 const isBroadObjectRuntimeMemberType = (
@@ -325,6 +330,47 @@ const canMaterializeArrayToBroadObjectArray = (
   );
 };
 
+const tryBuildScalarToRuntimeUnionMaterializationAst = (
+  valueAst: CSharpExpressionAst,
+  sourceType: IrType,
+  targetLayout: NonNullable<ReturnType<typeof buildRuntimeUnionLayout>[0]>,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const matchingMemberIndices = findRuntimeUnionMemberIndices(
+    targetLayout.members,
+    sourceType,
+    context
+  );
+  if (matchingMemberIndices.length !== 1) {
+    return undefined;
+  }
+
+  const memberIndex = matchingMemberIndices[0];
+  if (memberIndex === undefined) {
+    return undefined;
+  }
+
+  const targetMemberTypeAst = targetLayout.memberTypeAsts[memberIndex];
+  if (!targetMemberTypeAst) {
+    return undefined;
+  }
+
+  const [sourceTypeAst, sourceTypeContext] = emitTypeAst(sourceType, context);
+  return [
+    buildRuntimeUnionFactoryCallAst(
+      buildRuntimeUnionTypeAst(targetLayout),
+      memberIndex + 1,
+      maybeCastMaterializedValueAst(
+        valueAst,
+        sourceTypeAst,
+        targetMemberTypeAst
+      )
+    ),
+    sourceTypeContext,
+  ];
+};
+
 export const tryBuildRuntimeMaterializationAst = (
   valueAst: CSharpExpressionAst,
   sourceType: IrType,
@@ -374,6 +420,7 @@ export const tryBuildRuntimeMaterializationAst = (
           return member ? [member] : [];
         }),
         candidateMemberNs: restrictedIndices.map((index) => index + 1),
+        runtimeUnionArity: sourceLayout.runtimeUnionArity,
       };
     })();
   const [sourceLayout, sourceLayoutContext] = (() => {
@@ -394,25 +441,67 @@ export const tryBuildRuntimeMaterializationAst = (
       currentContext = nextContext;
     }
 
+    const [fullSourceLayout] = buildRuntimeUnionLayout(
+      resolveDirectRuntimeCarrierType(valueAst, currentContext) ?? sourceType,
+      currentContext,
+      emitTypeAst
+    );
+    const candidateArity =
+      effectiveSourceFrame.candidateMemberNs &&
+      effectiveSourceFrame.candidateMemberNs.length > 0
+        ? Math.max(...effectiveSourceFrame.candidateMemberNs)
+        : members.length;
+    const runtimeUnionArity = Math.max(
+      effectiveSourceFrame.runtimeUnionArity ?? 0,
+      fullSourceLayout?.runtimeUnionArity ?? 0,
+      candidateArity,
+      members.length
+    );
+
     return [
       {
         members,
         memberTypeAsts,
         carrierTypeArgumentAsts: memberTypeAsts,
-        runtimeUnionArity: members.length,
+        runtimeUnionArity,
       },
       currentContext,
     ] as const;
   })();
-  if (!sourceLayout) {
-    return undefined;
-  }
 
   const [targetLayout, targetLayoutContext] = buildRuntimeUnionLayout(
     materializationTargetType,
     sourceLayoutContext,
     emitTypeAst
   );
+
+  if (targetLayout) {
+    const directRuntimeCarrierType =
+      resolveDirectRuntimeCarrierType(valueAst, targetLayoutContext) ??
+      resolveDirectValueSurfaceType(valueAst, targetLayoutContext);
+    if (
+      directRuntimeCarrierType &&
+      runtimeUnionAliasReferencesMatch(
+        directRuntimeCarrierType,
+        materializationTargetType,
+        targetLayoutContext
+      )
+    ) {
+      return [valueAst, targetLayoutContext];
+    }
+  }
+
+  if (!sourceLayout) {
+    return targetLayout
+      ? tryBuildScalarToRuntimeUnionMaterializationAst(
+          valueAst,
+          sourceType,
+          targetLayout,
+          targetLayoutContext,
+          emitTypeAst
+        )
+      : undefined;
+  }
 
   if (targetLayout) {
     if (
@@ -425,24 +514,39 @@ export const tryBuildRuntimeMaterializationAst = (
       const lambdaArgs: CSharpExpressionAst[] = [];
       let sawReachableMatch = false;
       let currentContext = targetLayoutContext;
-
+      const sourceMemberIndexBySlot = new Map<number, number>();
       for (let index = 0; index < sourceLayout.members.length; index += 1) {
-        const actualMember = sourceLayout.members[index];
-        const actualMemberTypeAst = sourceLayout.memberTypeAsts[index];
-        if (!actualMember || !actualMemberTypeAst) {
-          continue;
-        }
+        sourceMemberIndexBySlot.set(
+          effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1,
+          index
+        );
+      }
 
-        const parameterName = `__tsonic_union_member_${index + 1}`;
+      for (
+        let slotIndex = 0;
+        slotIndex < sourceLayout.runtimeUnionArity;
+        slotIndex += 1
+      ) {
+        const sourceMemberN = slotIndex + 1;
+        const index = sourceMemberIndexBySlot.get(sourceMemberN);
+        const actualMember =
+          index !== undefined ? sourceLayout.members[index] : undefined;
+        const actualMemberTypeAst =
+          index !== undefined ? sourceLayout.memberTypeAsts[index] : undefined;
+
+        const parameterName = `__tsonic_union_member_${sourceMemberN}`;
         const parameterExpr: CSharpExpressionAst = {
           kind: "identifierExpression",
           identifier: parameterName,
         };
-        const sourceMemberN =
-          effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1;
 
         let body: CSharpExpressionAst;
-        if (
+        if (!actualMember || !actualMemberTypeAst) {
+          body = buildInvalidRuntimeUnionMaterializationExpression(
+            { kind: "unknownType" },
+            materializationTargetType
+          );
+        } else if (
           selectedSourceMemberNs &&
           !selectedSourceMemberNs.has(sourceMemberN)
         ) {
@@ -654,20 +758,42 @@ export const tryBuildRuntimeMaterializationAst = (
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let matchContext = nextContext;
+  const sourceMemberIndexBySlot = new Map<number, number>();
   for (let index = 0; index < sourceLayout.members.length; index += 1) {
-    const actualMember = sourceLayout.members[index];
-    if (!actualMember) {
-      continue;
-    }
+    sourceMemberIndexBySlot.set(
+      effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1,
+      index
+    );
+  }
 
-    const parameterName = `__tsonic_union_member_${index + 1}`;
+  for (
+    let slotIndex = 0;
+    slotIndex < sourceLayout.runtimeUnionArity;
+    slotIndex += 1
+  ) {
+    const sourceMemberN = slotIndex + 1;
+    const index = sourceMemberIndexBySlot.get(sourceMemberN);
+    const actualMember =
+      index !== undefined ? sourceLayout.members[index] : undefined;
+
+    const parameterName = `__tsonic_union_member_${sourceMemberN}`;
     const parameterExpr: CSharpExpressionAst = {
       kind: "identifierExpression",
       identifier: parameterName,
     };
 
-    const sourceMemberN =
-      effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1;
+    if (!actualMember || index === undefined) {
+      lambdaArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: parameterName }],
+        body: buildInvalidRuntimeUnionMaterializationExpression(
+          { kind: "unknownType" },
+          materializationTargetType
+        ),
+      });
+      continue;
+    }
 
     if (selectedSourceMemberNs && !selectedSourceMemberNs.has(sourceMemberN)) {
       lambdaArgs.push({

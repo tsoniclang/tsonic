@@ -4,7 +4,7 @@ import { compileToCSharp } from "./helpers.js";
 
 describe("End-to-End Integration", () => {
   describe("Object Literal Methods", () => {
-    it("rejects arguments.length in object literal methods", () => {
+    it("lowers arguments.length in object literal methods from declared parameters", () => {
       const source = `
         interface Ops {
           add: (x: number, y: number) => number;
@@ -20,12 +20,16 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() => compileToCSharp(source, "/test/test.ts", {
+      const csharp = compileToCSharp(source, "/test/test.ts", {
         surface: "@tsonic/js",
-      })).to.throw("JavaScript 'arguments' is not supported");
+      });
+
+      expect(csharp).to.include("add = (double x, double y) =>");
+      expect(csharp).to.include("return 2 + x + y;");
+      expect(csharp).not.to.include("arguments");
     });
 
-    it("rejects arguments index access in object literal methods", () => {
+    it("lowers arguments index access in object literal methods from declared parameters", () => {
       const source = `
         interface Ops {
           add: (x: number, y: number) => number;
@@ -41,9 +45,16 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() => compileToCSharp(source, "/test/test.ts", {
+      const csharp = compileToCSharp(source, "/test/test.ts", {
         surface: "@tsonic/js",
-      })).to.throw("JavaScript 'arguments' is not supported");
+      });
+
+      expect(csharp).to.include("add = (double x, double y) =>");
+      expect(csharp).to.include("var __tsonic_object_method_argument_0 = x;");
+      expect(csharp).to.include(
+        "return __tsonic_object_method_argument_0 + y;"
+      );
+      expect(csharp).not.to.include("arguments");
     });
   });
 

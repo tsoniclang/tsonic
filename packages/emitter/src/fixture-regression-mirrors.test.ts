@@ -485,7 +485,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("Buffer.fromUint8Array((value.As3()));");
+      expect(csharp).to.include("Buffer.fromUint8Array((value.As2()));");
       expect(csharp).not.to.include(
         "Buffer.fromUint8Array(((global::Tsonic.Internal.Union<double[], global::js.Uint8Array>)"
       );

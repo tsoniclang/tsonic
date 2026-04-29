@@ -53,7 +53,11 @@ const containsBroadTypeofBoundary = (
   const nextSeen = new Set(seen);
   nextSeen.add(key);
   const resolved = resolveTypeAlias(type, context);
-  if (resolved.kind === "unknownType" || resolved.kind === "anyType") {
+  if (
+    resolved.kind === "unknownType" ||
+    resolved.kind === "anyType" ||
+    resolved.kind === "typeParameterType"
+  ) {
     return true;
   }
   if (resolved.kind === "unionType") {

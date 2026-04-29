@@ -15,8 +15,12 @@ import {
   resolveTypeAlias,
   stripNullish,
   getPropertyType,
+  resolveLocalTypeInfo,
 } from "../core/semantic/type-resolution.js";
-import { resolveStructuralReferenceType } from "../core/semantic/structural-resolution.js";
+import {
+  isCompilerGeneratedStructuralReferenceType,
+  resolveStructuralReferenceType,
+} from "../core/semantic/structural-resolution.js";
 import {
   sameTypeAstSurface,
   getIdentifierTypeLeafName,
@@ -55,6 +59,33 @@ const buildStructuralSourceAccess = (
   };
 };
 
+const isStructuralObjectTargetType = (
+  type: IrType,
+  resolvedType: IrType,
+  context: EmitterContext
+): boolean => {
+  if (resolvedType.kind === "objectType") {
+    return true;
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  const localInfo = resolveLocalTypeInfo(type, context)?.info;
+  if (localInfo?.kind === "class" || localInfo?.kind === "enum") {
+    return false;
+  }
+
+  if (isCompilerGeneratedStructuralReferenceType(type)) {
+    return true;
+  }
+
+  return !!type.structuralMembers?.some(
+    (member) => member.kind === "propertySignature"
+  );
+};
+
 export const tryAdaptStructuralObjectExpressionAst = (
   emittedAst: CSharpExpressionAst,
   sourceType: IrType | undefined,
@@ -82,10 +113,14 @@ export const tryAdaptStructuralObjectExpressionAst = (
 
   const prefersAnonymousStructuralTarget =
     canPreferAnonymousStructuralTarget(expectedType);
-  const canonicalStructuralTarget = resolveStructuralReferenceType(
-    expectedType,
+  const canUseCanonicalStructuralTarget = isStructuralObjectTargetType(
+    strippedExpectedType,
+    resolvedExpectedType,
     context
   );
+  const canonicalStructuralTarget = canUseCanonicalStructuralTarget
+    ? resolveStructuralReferenceType(expectedType, context)
+    : undefined;
   const anonymousStructuralTarget =
     prefersAnonymousStructuralTarget &&
     !(
@@ -94,6 +129,9 @@ export const tryAdaptStructuralObjectExpressionAst = (
     )
       ? resolveAnonymousStructuralReferenceType(expectedType, context)
       : undefined;
+  if (!canUseCanonicalStructuralTarget && !anonymousStructuralTarget) {
+    return undefined;
+  }
   const targetStructuralType =
     canonicalStructuralTarget ??
     anonymousStructuralTarget ??

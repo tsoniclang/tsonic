@@ -57,6 +57,30 @@ const NUMERIC_TYPEOF_PATTERN_NAMES = [
   "decimal",
 ] as const;
 
+const mayProduceNullableValue = (ast: CSharpExpressionAst): boolean => {
+  switch (ast.kind) {
+    case "conditionalMemberAccessExpression":
+    case "conditionalElementAccessExpression":
+      return true;
+    case "conditionalExpression":
+      return (
+        mayProduceNullableValue(ast.whenTrue) ||
+        mayProduceNullableValue(ast.whenFalse)
+      );
+    case "memberAccessExpression":
+    case "elementAccessExpression":
+    case "invocationExpression":
+      return mayProduceNullableValue(ast.expression);
+    case "parenthesizedExpression":
+    case "castExpression":
+    case "asExpression":
+    case "suppressNullableWarningExpression":
+      return mayProduceNullableValue(ast.expression);
+    default:
+      return false;
+  }
+};
+
 const buildRuntimeUnionMemberOrChain = (
   receiver: CSharpExpressionAst,
   memberNs: readonly number[]
@@ -65,15 +89,26 @@ const buildRuntimeUnionMemberOrChain = (
     return booleanLiteral(false);
   }
 
-  const checks = memberNs.map<CSharpExpressionAst>((memberN) => ({
-    kind: "invocationExpression",
-    expression: {
-      kind: "memberAccessExpression",
-      expression: receiver,
-      memberName: `Is${memberN}`,
-    },
-    arguments: [],
-  }));
+  const receiverCanBeNullable = mayProduceNullableValue(receiver);
+  const checks = memberNs.map<CSharpExpressionAst>((memberN) => {
+    const check: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: receiver,
+        memberName: `Is${memberN}`,
+      },
+      arguments: [],
+    };
+    return receiverCanBeNullable
+      ? {
+          kind: "binaryExpression",
+          operatorToken: "==",
+          left: check,
+          right: booleanLiteral(true),
+        }
+      : check;
+  });
 
   const combined = checks.reduce<CSharpExpressionAst | undefined>(
     (current, check) =>

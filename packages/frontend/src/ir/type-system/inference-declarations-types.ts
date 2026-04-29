@@ -450,6 +450,10 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     }
     return undefined;
   })();
+  const hasExplicitVariableType =
+    effectiveValueDecl &&
+    ts.isVariableDeclaration(effectiveValueDecl) &&
+    effectiveValueDecl.type !== undefined;
   const effectiveKind: DeclKind = (() => {
     const source = effectiveDeclNode;
     if (!source) return declInfo.kind;
@@ -485,6 +489,7 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   } else if (effectiveDeclNode && ts.isNamespaceImport(effectiveDeclNode)) {
     result = buildNamespaceImportType(state, effectiveDeclNode);
   } else if (
+    !hasExplicitVariableType &&
     effectiveFunctionValueDecl &&
     (ts.isFunctionDeclaration(effectiveFunctionValueDecl) ||
       ts.isMethodDeclaration(effectiveFunctionValueDecl) ||

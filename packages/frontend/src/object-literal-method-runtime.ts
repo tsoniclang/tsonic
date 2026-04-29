@@ -349,6 +349,33 @@ export const tryGetObjectLiteralMethodArgumentsLength = (
   return analysis.arity;
 };
 
+export const isSupportedObjectLiteralMethodArgumentsReference = (
+  node: ts.Identifier
+): boolean => {
+  if (node.text !== "arguments") {
+    return false;
+  }
+
+  const parent = node.parent;
+  if (!parent) {
+    return false;
+  }
+
+  if (
+    isArgumentsLengthAccess(parent) &&
+    parent.expression === node &&
+    tryGetObjectLiteralMethodArgumentsLength(parent) !== undefined
+  ) {
+    return true;
+  }
+
+  return (
+    isArgumentsIndexAccess(parent) &&
+    parent.expression === node &&
+    tryGetObjectLiteralMethodArgumentCapture(parent) !== undefined
+  );
+};
+
 export const tryGetObjectLiteralMethodArgumentCapture = (
   node: ts.ElementAccessExpression
 ): ObjectLiteralMethodArgumentsCapture | undefined => {

@@ -111,6 +111,57 @@ const containsDeterministicReferenceIdentity = (type: IrType): boolean => {
   }
 };
 
+const runtimeUnionAliasExpandsToType = (
+  aliasType: IrType,
+  expandedType: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolvedAlias = resolveTypeAlias(stripNullish(aliasType), context);
+  const resolvedExpanded = resolveTypeAlias(stripNullish(expandedType), context);
+  if (
+    resolvedAlias.kind !== "unionType" ||
+    resolvedExpanded.kind !== "unionType" ||
+    resolvedAlias.runtimeCarrierFamilyKey === undefined ||
+    resolvedAlias.types.length !== resolvedExpanded.types.length
+  ) {
+    return false;
+  }
+
+  const usedExpandedMembers = new Set<number>();
+  for (const aliasMember of resolvedAlias.types) {
+    let matched = false;
+    for (let index = 0; index < resolvedExpanded.types.length; index++) {
+      if (usedExpandedMembers.has(index)) {
+        continue;
+      }
+
+      const expandedMember = resolvedExpanded.types[index];
+      if (
+        expandedMember &&
+        areIrTypesEquivalent(aliasMember, expandedMember, context)
+      ) {
+        usedExpandedMembers.add(index);
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const sourceBackedAwaitedTypeMatchesInferredType = (
+  sourceAwaitedType: IrType,
+  inferredType: IrType,
+  context: EmitterContext
+): boolean =>
+  areIrTypesEquivalent(sourceAwaitedType, inferredType, context) ||
+  runtimeUnionAliasExpandsToType(sourceAwaitedType, inferredType, context);
+
 const resolveSourceBackedInitializerType = (
   expression: IrExpression,
   context: EmitterContext
@@ -134,7 +185,7 @@ const resolveSourceBackedInitializerType = (
         expression.inferredType &&
         containsDeterministicReferenceIdentity(sourceAwaitedType) &&
         containsDeterministicReferenceIdentity(expression.inferredType) &&
-        !areIrTypesEquivalent(
+        !sourceBackedAwaitedTypeMatchesInferredType(
           sourceAwaitedType,
           expression.inferredType,
           context

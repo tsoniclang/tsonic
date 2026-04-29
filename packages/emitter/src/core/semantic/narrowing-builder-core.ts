@@ -40,6 +40,7 @@ export type RuntimeSubsetSourceInfo = {
   readonly sourceType: IrType;
   readonly sourceMembers?: readonly IrType[];
   readonly sourceCandidateMemberNs?: readonly number[];
+  readonly runtimeUnionArity?: number;
 };
 
 export const toReceiverAst = (
@@ -64,6 +65,68 @@ export const buildUnionNarrowAst = (
     arguments: [],
   },
 });
+
+const unwrapProjectionAst = (ast: CSharpExpressionAst): CSharpExpressionAst => {
+  let current = ast;
+  while (
+    current.kind === "parenthesizedExpression" ||
+    current.kind === "castExpression"
+  ) {
+    current = current.expression;
+  }
+  return current;
+};
+
+const tryReadRuntimeUnionFactoryMemberN = (
+  ast: CSharpExpressionAst
+): number | undefined => {
+  const current = unwrapProjectionAst(ast);
+  if (
+    current.kind !== "invocationExpression" ||
+    current.expression.kind !== "memberAccessExpression"
+  ) {
+    return undefined;
+  }
+
+  const match = /^From([1-9][0-9]*)$/.exec(current.expression.memberName);
+  return match?.[1] ? Number.parseInt(match[1], 10) : undefined;
+};
+
+export const tryMapProjectedRuntimeMemberN = (
+  receiver: string | CSharpExpressionAst,
+  sourceMemberN: number
+): number | undefined => {
+  if (typeof receiver === "string") {
+    return undefined;
+  }
+
+  const current = unwrapProjectionAst(receiver);
+  if (
+    current.kind !== "invocationExpression" ||
+    current.expression.kind !== "memberAccessExpression" ||
+    current.expression.memberName !== "Match"
+  ) {
+    return undefined;
+  }
+
+  const lambda = current.arguments[sourceMemberN - 1];
+  if (!lambda || lambda.kind !== "lambdaExpression") {
+    return undefined;
+  }
+
+  return lambda.body.kind === "blockStatement"
+    ? undefined
+    : tryReadRuntimeUnionFactoryMemberN(lambda.body);
+};
+
+export const buildMappedUnionNarrowAst = (
+  receiver: string | CSharpExpressionAst,
+  sourceMemberN: number
+): CSharpExpressionAst =>
+  buildUnionNarrowAst(
+    receiver,
+    tryMapProjectedRuntimeMemberN(receiver, sourceMemberN) ?? sourceMemberN
+  );
 
 export const buildSubsetUnionType = (
   members: readonly IrType[]
@@ -125,6 +188,9 @@ export const resolveRuntimeSubsetSourceInfo = (
       sourceCandidateMemberNs: hasExplicitSourceFrame
         ? existingBinding.sourceCandidateMemberNs
         : undefined,
+      runtimeUnionArity: hasExplicitSourceFrame
+        ? existingBinding.runtimeUnionArity
+        : undefined,
     };
   }
 
@@ -140,6 +206,9 @@ export const resolveRuntimeSubsetSourceInfo = (
       : undefined,
     sourceCandidateMemberNs: canReuseFrameAsSource
       ? runtimeUnionFrame.candidateMemberNs
+      : undefined,
+    runtimeUnionArity: canReuseFrameAsSource
+      ? runtimeUnionFrame.runtimeUnionArity
       : undefined,
   };
 };
@@ -178,7 +247,7 @@ export const buildProjectedExprBinding = (
     exprAst,
     storageType ?? type,
     carrierExprAst,
-    carrierType
+    carrierType ?? sourceType
   );
 
 export const resolveExistingNarrowingSourceType = (
@@ -206,6 +275,7 @@ export const buildRuntimeSubsetExpressionAst = (
       ? {
           members: narrowed.sourceMembers,
           candidateMemberNs: narrowed.sourceCandidateMemberNs,
+          runtimeUnionArity: narrowed.runtimeUnionArity,
         }
       : undefined;
 

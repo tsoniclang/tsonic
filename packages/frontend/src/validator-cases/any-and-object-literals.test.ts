@@ -317,6 +317,19 @@ describe("Static Safety Validation", () => {
       expect(objDiag).to.equal(undefined);
     });
 
+    it("should reject object literal assigned to broad object type", () => {
+      const source = `
+        const value: object = { x: 1 };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).not.to.equal(undefined);
+      expect(objDiag?.message).to.include("broad runtime object type");
+    });
+
     it("should allow object literal with Record type", () => {
       const source = `
         const d: Record<string, number> = { a: 1, b: 2 };

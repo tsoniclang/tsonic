@@ -10,6 +10,7 @@ import {
   referenceTypesHaveNominalIdentity,
   referenceTypesShareNominalIdentity,
 } from "./reference-type-identity.js";
+import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
 
 const referenceTypeIdentity = (
   type: Extract<IrType, { kind: "referenceType" }>
@@ -75,6 +76,10 @@ export const areIrTypesEquivalent = (
   }
 
   if (typesShareDirectClrIdentity(left, right)) {
+    return true;
+  }
+
+  if (runtimeUnionAliasReferencesMatch(left, right, context)) {
     return true;
   }
 

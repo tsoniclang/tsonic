@@ -220,7 +220,7 @@ describe("build command (native library port regressions)", function () {
         [
           "class Application {",
           '  mountpath: string | string[] = "/";',
-          "  private acceptString(value: string): void {",
+          "  #acceptString(value: string): void {",
           "    console.log(value);",
           "  }",
           "  path(): string {",
@@ -228,7 +228,7 @@ describe("build command (native library port regressions)", function () {
           "      return this.mountpath;",
           "    }",
           "    const item = this.mountpath[0]!;",
-          "    this.acceptString(item);",
+          "    this.#acceptString(item);",
           "    return item;",
           "  }",
           "}",

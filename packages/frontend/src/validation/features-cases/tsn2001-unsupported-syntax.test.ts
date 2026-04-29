@@ -165,6 +165,30 @@ describe("validateUnsupportedFeatures", () => {
       );
     });
 
+    it("rejects JavaScript Array construction on the default surface", () => {
+      const result = runValidation(`
+        export function make(): number[] {
+          return new Array<number>(4);
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "JavaScript surface API 'new Array")
+      ).to.equal(true);
+    });
+
+    it("rejects JavaScript Array function calls on the default surface", () => {
+      const result = runValidation(`
+        export function make(): number[] {
+          return Array(4);
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "JavaScript surface API 'Array")
+      ).to.equal(true);
+    });
+
     it("rejects the JavaScript in operator", () => {
       const result = runValidation(`
         export function hasName(value: { name?: string }): boolean {
@@ -247,6 +271,32 @@ describe("validateUnsupportedFeatures", () => {
       expect(
         hasDiagnostic(result, "TSN2001", "constructor parameter properties")
       ).to.equal(true);
+    });
+
+    it("allows deterministic object-literal method arguments.length lowering", () => {
+      const result = runValidation(`
+        const value = {
+          count(x: number): number {
+            return arguments.length + x;
+          },
+        };
+        value.count(1);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "arguments")).to.equal(false);
+    });
+
+    it("allows deterministic object-literal method arguments index lowering", () => {
+      const result = runValidation(`
+        const value = {
+          first(x: number): number {
+            return arguments[0] as number;
+          },
+        };
+        value.first(1);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "arguments")).to.equal(false);
     });
 
     it("allows ECMAScript private fields", () => {

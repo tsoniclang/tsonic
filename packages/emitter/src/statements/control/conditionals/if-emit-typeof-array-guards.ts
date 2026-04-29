@@ -42,6 +42,7 @@ import {
   withRuntimeUnionMemberNarrowing,
   applyExprFallthroughNarrowing,
   emitExprAstCb,
+  withoutNarrowedBinding,
   mergeBranchExitContext,
   mergeBranchContextMeta,
   resetBranchFlowState,
@@ -125,7 +126,8 @@ const buildNonUnionTypeofCondition = (
     currentType.kind !== "unionType" &&
     currentType.kind !== "unknownType" &&
     currentType.kind !== "anyType" &&
-    currentType.kind !== "objectType"
+    currentType.kind !== "objectType" &&
+    currentType.kind !== "typeParameterType"
   ) {
     return booleanLiteral(matchesTypeofTag(currentType, tag, context));
   }
@@ -182,7 +184,7 @@ const tryEmitDirectTypeofConditionAst = (
 
   const [targetAst, targetContext] = emitExpressionAst(
     guard.targetExpr,
-    context
+    withoutNarrowedBinding(context, guard.bindingKey)
   );
   const runtimeFrameContext: EmitterContext = {
     ...targetContext,

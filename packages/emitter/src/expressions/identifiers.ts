@@ -26,6 +26,7 @@ import {
   tryEmitMaterializedNarrowedIdentifier,
   matchesEmittedStorageSurface,
   tryEmitReifiedStorageIdentifier,
+  tryEmitRuntimeSubsetMemberProjectionIdentifier,
   tryEmitStorageCompatibleIdentifier,
   tryEmitStorageCompatibleNarrowedIdentifier,
 } from "./identifier-storage.js";
@@ -168,21 +169,27 @@ export const emitIdentifier = (
         const canReuseOriginalCarrierForExpectedTarget =
           !!expectedType &&
           !!narrowed.sourceType &&
-          (sameSourceCarrierSurface ||
-            (isBroadStorageTarget(expectedType, context) &&
-              matchesExpectedEmissionType(
-                stripNullish(narrowed.sourceType),
-                expectedType,
-                context
-              )));
+          !isBroadStorageTarget(expectedType, context) &&
+          sameSourceCarrierSurface;
         if (canReuseOriginalCarrierForExpectedTarget) {
           const originalCarrier =
             narrowed.storageExprAst ??
             identifierExpression(
               context.localNameMap?.get(expr.name) ??
                 escapeCSharpIdentifier(expr.name)
-            );
+          );
           return [originalCarrier, sourceCarrierContext];
+        }
+
+        const directMemberProjection =
+          tryEmitRuntimeSubsetMemberProjectionIdentifier(
+            expr,
+            narrowed,
+            context,
+            expectedType
+          );
+        if (directMemberProjection) {
+          return directMemberProjection;
         }
 
         const shouldPreferNarrowedSubsetTarget =

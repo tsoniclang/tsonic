@@ -19,6 +19,7 @@ import {
   findMappedRuntimeUnionMemberIndex,
 } from "./runtime-union-member-mapping.js";
 import { describeIrTypeForDiagnostics } from "./deterministic-type-keys.js";
+import { UNKNOWN_TYPE } from "./runtime-union-shared.js";
 
 type RuntimeUnionProjectionBodyResult =
   | CSharpExpressionAst
@@ -153,15 +154,23 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = opts.context;
 
+  const sourceMemberIndexBySlot = new Map<number, number>();
   for (let index = 0; index < opts.sourceLayout.members.length; index += 1) {
-    const actualMember = opts.sourceLayout.members[index];
-    const actualMemberTypeAst = opts.sourceLayout.memberTypeAsts[index];
-    if (!actualMember || !actualMemberTypeAst) {
-      continue;
-    }
+    sourceMemberIndexBySlot.set(opts.candidateMemberNs?.[index] ?? index + 1, index);
+  }
+  const sourceArity = Math.max(
+    opts.sourceLayout.runtimeUnionArity,
+    opts.sourceLayout.members.length
+  );
 
-    const sourceMemberN = opts.candidateMemberNs?.[index] ?? index + 1;
-    const parameterName = `__tsonic_union_member_${index + 1}`;
+  for (let slotIndex = 0; slotIndex < sourceArity; slotIndex += 1) {
+    const sourceMemberN = slotIndex + 1;
+    const index = sourceMemberIndexBySlot.get(sourceMemberN);
+    const actualMember =
+      index !== undefined ? opts.sourceLayout.members[index] : undefined;
+    const actualMemberTypeAst =
+      index !== undefined ? opts.sourceLayout.memberTypeAsts[index] : undefined;
+    const parameterName = `__tsonic_union_member_${sourceMemberN}`;
     const parameterExpr = identifierExpression(parameterName);
 
     const pushLambda = (body: CSharpExpressionAst): void => {
@@ -172,6 +181,19 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
         body,
       });
     };
+
+    if (!actualMember || !actualMemberTypeAst) {
+      const excludedBody = opts.buildExcludedMemberBody?.({
+        actualMember: UNKNOWN_TYPE,
+        sourceMemberN,
+        context: currentContext,
+      });
+      if (!excludedBody) {
+        return undefined;
+      }
+      pushLambda(excludedBody);
+      continue;
+    }
 
     if (
       opts.selectedSourceMemberNs &&

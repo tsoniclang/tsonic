@@ -11,6 +11,7 @@ import {
   IrType,
   IrExpression,
 } from "../../types.js";
+import { referenceTypeHasClrIdentity } from "../../types/type-ops.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { checkSynthesisEligibility } from "../anonymous-synthesis.js";
@@ -30,6 +31,47 @@ import {
   rebindObjectLiteralThisInClassMember,
   rebindObjectLiteralThisInExpression,
 } from "./object-literal-helpers.js";
+
+const BROAD_OBJECT_LITERAL_CONTEXT_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+]);
+
+const isBroadObjectLiteralContext = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (type.kind === "anyType" || type.kind === "unknownType") {
+    return true;
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  if (
+    type.structuralMembers?.some(
+      (member) => member.kind === "propertySignature"
+    )
+  ) {
+    return false;
+  }
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  if (
+    simpleName === "object" ||
+    simpleName === "Object" ||
+    simpleName === "JsValue"
+  ) {
+    return true;
+  }
+
+  return referenceTypeHasClrIdentity(
+    type,
+    BROAD_OBJECT_LITERAL_CONTEXT_CLR_NAMES
+  );
+};
 
 /**
  * Convert object literal expression
@@ -66,7 +108,13 @@ export const convertObjectLiteral = (
   // Contextual type priority:
   // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
-  const contextualCandidateRaw = expectedType ?? getContextualType(node, ctx);
+  const contextualCandidateFromParent = expectedType ?? getContextualType(node, ctx);
+  const hasBroadObjectLiteralContext = isBroadObjectLiteralContext(
+    contextualCandidateFromParent
+  );
+  const contextualCandidateRaw = hasBroadObjectLiteralContext
+    ? undefined
+    : contextualCandidateFromParent;
   const literalKeys = node.properties
     .map((prop) => {
       if (ts.isPropertyAssignment(prop)) {
@@ -109,6 +157,18 @@ export const convertObjectLiteral = (
         )
       );
     }
+  }
+
+  if (hasBroadObjectLiteralContext && !emitAsAnonymousObject) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN7403",
+        "error",
+        "Object literal cannot target a broad runtime object type deterministically.",
+        getSourceSpan(node),
+        "Use a concrete object type, dictionary type, or expression-tree projection context."
+      )
+    );
   }
 
   // Type parameters are NOT valid instantiation targets for object literals.

@@ -1,0 +1,6 @@
+{
+  "expectFailure": true,
+  "description": "Object literals require a concrete object, dictionary, or expression-tree projection context.",
+  "expectedErrors": ["TSN7403"],
+  "diagnosticCodes": ["TSN7403"]
+}

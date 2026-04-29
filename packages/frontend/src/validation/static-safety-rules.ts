@@ -36,6 +36,7 @@ import {
   checkBasicSynthesisEligibility,
   lambdaHasExpectedTypeContext,
   objectLiteralHasContextualType,
+  objectLiteralHasBroadContextualType,
   isAllowedGenericFunctionValueIdentifierUse,
   getReferencedIdentifierSymbol,
 } from "./contextual-type-analysis.js";
@@ -81,6 +82,97 @@ const getAssertionTargetTypeNode = (node: ts.Node): ts.TypeNode | undefined => {
   return undefined;
 };
 
+const isJsonParseCall = (node: ts.Node): node is ts.CallExpression => {
+  if (!ts.isCallExpression(node)) {
+    return false;
+  }
+
+  const expression = node.expression;
+  return (
+    ts.isPropertyAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "JSON" &&
+    expression.name.text === "parse"
+  );
+};
+
+const unwrapContextualJsonParseParent = (node: ts.Node): ts.Node => {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current.parent) ||
+    ts.isNonNullExpression(current.parent)
+  ) {
+    current = current.parent;
+  }
+  return current.parent;
+};
+
+const getJsonParseContextualTargetTypeNode = (
+  node: ts.CallExpression
+): ts.TypeNode | undefined => {
+  const parent = unwrapContextualJsonParseParent(node);
+
+  if (
+    ts.isVariableDeclaration(parent) &&
+    parent.initializer === node &&
+    parent.type
+  ) {
+    return parent.type;
+  }
+
+  if (
+    (ts.isAsExpression(parent) || ts.isTypeAssertionExpression(parent)) &&
+    parent.expression === node
+  ) {
+    return parent.type;
+  }
+
+  return undefined;
+};
+
+const isBroadJsonTargetTypeNode = (node: ts.TypeNode): boolean => {
+  if (
+    node.kind === ts.SyntaxKind.UnknownKeyword ||
+    node.kind === ts.SyntaxKind.AnyKeyword ||
+    node.kind === ts.SyntaxKind.ObjectKeyword
+  ) {
+    return true;
+  }
+
+  if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) {
+    return true;
+  }
+
+  if (ts.isArrayTypeNode(node)) {
+    return isBroadJsonTargetTypeNode(node.elementType);
+  }
+
+  if (ts.isTupleTypeNode(node)) {
+    return node.elements.some((element) =>
+      isBroadJsonTargetTypeNode(element as ts.TypeNode)
+    );
+  }
+
+  if (ts.isParenthesizedTypeNode(node)) {
+    return isBroadJsonTargetTypeNode(node.type);
+  }
+
+  if (ts.isTypeReferenceNode(node)) {
+    return (
+      node.typeArguments?.some((typeArg) =>
+        isBroadJsonTargetTypeNode(typeArg)
+      ) ?? false
+    );
+  }
+
+  return false;
+};
+
+const getJsonParseTargetTypeNode = (
+  node: ts.CallExpression
+): ts.TypeNode | undefined =>
+  node.typeArguments?.[0] ?? getJsonParseContextualTargetTypeNode(node);
+
 /**
  * Validate a source file for static safety violations.
  */
@@ -104,6 +196,22 @@ export const validateStaticSafety = (
     let currentCollector = accCollector;
 
     const isBroadOverloadStubType = isInsideOverloadStubSignatureType(node);
+
+    if (isJsonParseCall(node)) {
+      const targetTypeNode = getJsonParseTargetTypeNode(node);
+      if (!targetTypeNode || isBroadJsonTargetTypeNode(targetTypeNode)) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN5001",
+            "error",
+            "JSON.parse requires a closed compile-time target type for NativeAOT-safe code.",
+            getNodeLocation(sourceFile, node),
+            "Use JSON.parse<T>(json), assign to a concrete typed variable, or use generated typed serializer code. Broad targets such as unknown, any, object, and unions are not supported for untyped JSON parsing."
+          )
+        );
+      }
+    }
 
     // TSN7401: Check for explicit 'any' type annotations
     if (node.kind === ts.SyntaxKind.AnyKeyword && !isBroadOverloadStubType) {
@@ -199,6 +307,19 @@ export const validateStaticSafety = (
     // Now supports auto-synthesis for eligible object literals (spreads, arrow props)
     // DETERMINISTIC (INV-0): Uses AST-based contextual type detection, not getContextualType
     if (ts.isObjectLiteralExpression(node)) {
+      if (objectLiteralHasBroadContextualType(node)) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN7403",
+            "error",
+            "Object literal cannot target a broad runtime object type deterministically.",
+            getNodeLocation(sourceFile, node),
+            "Use a concrete object type, dictionary type, or expression-tree projection context."
+          )
+        );
+      }
+
       // Check if object literal has a contextual type using deterministic AST analysis
       const hasContextualType = objectLiteralHasContextualType(node);
 
@@ -321,8 +442,8 @@ export const validateStaticSafety = (
     // TSN7410 retired:
     // Intersection types are lowered by the type emitter.
 
-    // TSN7416 retired:
-    // new Array() without explicit type argument is lowered by the emitter.
+    // JavaScript Array constructor calls are surface APIs and are rejected by
+    // validateUnsupportedFeatures when the active surface does not include JS.
 
     // TSN7417 retired:
     // Empty arrays are inferred/erased deterministically by array conversion rules.

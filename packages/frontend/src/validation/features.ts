@@ -10,6 +10,7 @@ import {
   resolveSurfaceCapabilities,
   surfaceIncludesJs,
 } from "../surface/profiles.js";
+import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-literal-method-runtime.js";
 
 const JS_BUILTIN_MEMBER_NAMES = new Set([
   "length",
@@ -66,7 +67,7 @@ const JS_AMBIENT_GLOBAL_CALLS: Readonly<Record<string, readonly string[]>> = {
   Object: ["entries", "fromEntries", "keys", "values"],
 };
 
-const JS_AMBIENT_GLOBAL_FUNCTIONS = new Set(["Symbol"]);
+const JS_AMBIENT_GLOBAL_FUNCTIONS = new Set(["Array", "Symbol"]);
 
 const isDynamicImportCall = (node: ts.CallExpression): boolean =>
   node.expression.kind === ts.SyntaxKind.ImportKeyword;
@@ -348,6 +349,21 @@ const getNonJsGlobalApiCall = (
     : undefined;
 };
 
+const getNonJsGlobalConstructorCall = (
+  node: ts.NewExpression,
+  program: TsonicProgram
+): string | undefined => {
+  if (
+    ts.isIdentifier(node.expression) &&
+    JS_AMBIENT_GLOBAL_FUNCTIONS.has(node.expression.text) &&
+    isAmbientIdentifier(node.expression, program)
+  ) {
+    return `new ${node.expression.text}(...)`;
+  }
+
+  return undefined;
+};
+
 const isUnsupportedFunctionLengthAccess = (
   node: ts.Node,
   checker: ts.TypeChecker
@@ -582,13 +598,25 @@ export const validateUnsupportedFeatures = (
           );
         }
       }
+
+      if (ts.isNewExpression(node)) {
+        const globalApi = getNonJsGlobalConstructorCall(node, program);
+        if (globalApi) {
+          addUnsupported(
+            node,
+            `JavaScript surface API '${globalApi}' is not available in the active surface.`,
+            "Use an explicit CLR/domain API, or compile with a surface that provides JavaScript APIs."
+          );
+        }
+      }
     }
 
     if (
       ts.isIdentifier(node) &&
       node.text === "arguments" &&
       !isAmbientOrDeclarationNode(node) &&
-      isIdentifierReference(node)
+      isIdentifierReference(node) &&
+      !isSupportedObjectLiteralMethodArgumentsReference(node)
     ) {
       addUnsupported(
         node,

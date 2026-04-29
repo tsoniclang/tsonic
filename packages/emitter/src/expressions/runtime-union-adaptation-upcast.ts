@@ -37,7 +37,7 @@ import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matc
 import { isBroadObjectSlotType } from "../core/semantic/broad-object-types.js";
 import {
   isDefinitelyValueType,
-  normalizeStructuralEmissionType,
+  resolveStructuralReferenceType,
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
@@ -75,9 +75,177 @@ import {
   maybeWidenRuntimeUnionExpressionAst,
   maybeProjectRuntimeUnionMemberExpressionAst,
 } from "./runtime-union-adaptation-projection.js";
+import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
 import { getContextualTypeVisitKey } from "../core/semantic/deterministic-type-keys.js";
+import { rebuildUnionTypePreservingCarrierFamily } from "../core/semantic/runtime-union-family-preservation.js";
+import { referenceTypesShareClrIdentity } from "../core/semantic/clr-type-identity.js";
+
+const normalizeRuntimeUnionEmissionType = (
+  type: IrType,
+  context: EmitterContext
+): IrType => {
+  const cache = new Map<IrType, IrType>();
+  const active = new Set<IrType>();
+
+  const normalize = (current: IrType): IrType => {
+    const cached = cache.get(current);
+    if (cached) {
+      return cached;
+    }
+    if (active.has(current)) {
+      return current;
+    }
+
+    if (current.kind !== "referenceType") {
+      const anonymousReference = resolveAnonymousStructuralReferenceType(
+        current,
+        context
+      );
+      if (anonymousReference) {
+        cache.set(current, anonymousReference);
+        return anonymousReference;
+      }
+    }
+
+    const structuralReference = resolveStructuralReferenceType(
+      current,
+      context
+    );
+    if (structuralReference) {
+      cache.set(current, structuralReference);
+      return structuralReference;
+    }
+
+    active.add(current);
+    const normalized = (() => {
+      switch (current.kind) {
+        case "arrayType": {
+          const elementType = normalize(current.elementType);
+          const tuplePrefixElementTypes =
+            current.tuplePrefixElementTypes?.map(normalize);
+          const tupleRestElementType = current.tupleRestElementType
+            ? normalize(current.tupleRestElementType)
+            : undefined;
+          const changed =
+            elementType !== current.elementType ||
+            (!!tuplePrefixElementTypes &&
+              tuplePrefixElementTypes.some(
+                (member, index) =>
+                  member !== current.tuplePrefixElementTypes?.[index]
+              )) ||
+            tupleRestElementType !== current.tupleRestElementType;
+          return changed
+            ? {
+                ...current,
+                elementType,
+                ...(tuplePrefixElementTypes ? { tuplePrefixElementTypes } : {}),
+                ...(tupleRestElementType ? { tupleRestElementType } : {}),
+              }
+            : current;
+        }
+        case "dictionaryType": {
+          const keyType = normalize(current.keyType);
+          const valueType = normalize(current.valueType);
+          return keyType === current.keyType && valueType === current.valueType
+            ? current
+            : { ...current, keyType, valueType };
+        }
+        case "tupleType": {
+          const elementTypes = current.elementTypes.map(normalize);
+          return elementTypes.every(
+            (member, index) => member === current.elementTypes[index]
+          )
+            ? current
+            : { ...current, elementTypes };
+        }
+        case "functionType": {
+          const parameters = current.parameters.map((parameter) =>
+            parameter.type
+              ? { ...parameter, type: normalize(parameter.type) }
+              : parameter
+          );
+          const returnType = normalize(current.returnType);
+          return returnType === current.returnType &&
+            parameters.every(
+              (parameter, index) => parameter === current.parameters[index]
+            )
+            ? current
+            : { ...current, parameters, returnType };
+        }
+        case "objectType": {
+          const members = current.members.map((member) => {
+            if (member.kind === "propertySignature") {
+              const memberType = normalize(member.type);
+              return memberType === member.type
+                ? member
+                : { ...member, type: memberType };
+            }
+
+            const parameters = member.parameters.map((parameter) =>
+              parameter.type
+                ? { ...parameter, type: normalize(parameter.type) }
+                : parameter
+            );
+            const returnType = member.returnType
+              ? normalize(member.returnType)
+              : undefined;
+            return returnType === member.returnType &&
+              parameters.every(
+                (parameter, index) => parameter === member.parameters[index]
+              )
+              ? member
+              : { ...member, parameters, ...(returnType ? { returnType } : {}) };
+          });
+          return members.every(
+            (member, index) => member === current.members[index]
+          )
+            ? current
+            : { ...current, members };
+        }
+        case "unionType": {
+          const types = current.types.map(normalize);
+          return types.every(
+            (member, index) => member === current.types[index]
+          )
+            ? current
+            : rebuildUnionTypePreservingCarrierFamily(current, types);
+        }
+        case "intersectionType": {
+          const types = current.types.map(normalize);
+          return types.every(
+            (member, index) => member === current.types[index]
+          )
+            ? current
+            : { ...current, types };
+        }
+        case "referenceType": {
+          const typeArguments = current.typeArguments?.map(normalize);
+          return typeArguments &&
+            typeArguments.some(
+              (member, index) => member !== current.typeArguments?.[index]
+            )
+            ? { ...current, typeArguments }
+            : current;
+        }
+        case "primitiveType":
+        case "typeParameterType":
+        case "literalType":
+        case "anyType":
+        case "unknownType":
+        case "voidType":
+        case "neverType":
+          return current;
+      }
+    })();
+    active.delete(current);
+    cache.set(current, normalized);
+    return normalized;
+  };
+
+  return normalize(type);
+};
 
 const isValueTypeStructuralObjectEmissionOnlyMatch = (
   actualType: IrType,
@@ -276,6 +444,32 @@ const unwrapComparableTypeForEmission = (
   context: EmitterContext
 ): IrType => (willCarryAsRuntimeUnion(type, context) ? type : unwrapComparableType(type));
 
+const referenceTypesHaveSameNominalIdentity = (
+  actualType: IrType,
+  memberType: IrType,
+  context: EmitterContext
+): boolean => {
+  const actual = stripNullish(actualType);
+  const member = stripNullish(memberType);
+  if (actual.kind !== "referenceType" || member.kind !== "referenceType") {
+    return false;
+  }
+
+  if (!referenceTypesShareClrIdentity(actual, member)) {
+    return false;
+  }
+
+  const actualArgs = actual.typeArguments ?? [];
+  const memberArgs = member.typeArguments ?? [];
+  return (
+    actualArgs.length === memberArgs.length &&
+    actualArgs.every((actualArg, index) => {
+      const memberArg = memberArgs[index];
+      return !!memberArg && areIrTypesEquivalent(actualArg, memberArg, context);
+    })
+  );
+};
+
 const tryAdaptRuntimeUnionMemberValueAst = (opts: {
   readonly ast: CSharpExpressionAst;
   readonly actualType: IrType;
@@ -295,6 +489,27 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
   );
   if (nestedRuntimeUnionAdaptation) {
     return nestedRuntimeUnionAdaptation;
+  }
+
+  const exactActualSurface = (() => {
+    try {
+      return emitTypeAst(actualType, context);
+    } catch {
+      return undefined;
+    }
+  })();
+  if (exactActualSurface) {
+    const [actualTypeAst, actualTypeContext] = exactActualSurface;
+    if (
+      stableTypeKeyFromAst(stripNullableTypeAst(actualTypeAst)) ===
+      stableTypeKeyFromAst(stripNullableTypeAst(memberTypeAst))
+    ) {
+      return [ast, actualTypeContext];
+    }
+  }
+
+  if (referenceTypesHaveSameNominalIdentity(actualType, memberType, context)) {
+    return [ast, context];
   }
 
   const upcastWithVisited = (
@@ -376,15 +591,15 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
     return undefined;
   }
 
-  const [actualTypeAst, actualTypeContext] = emitTypeAst(
+  const [emittableActualTypeAst, emittableActualTypeContext] = emitTypeAst(
     emittableActualType,
     context
   );
-  const actualSurfaceMatches =
-    stableTypeKeyFromAst(stripNullableTypeAst(actualTypeAst)) ===
+  const emittableActualSurfaceMatches =
+    stableTypeKeyFromAst(stripNullableTypeAst(emittableActualTypeAst)) ===
     stableTypeKeyFromAst(stripNullableTypeAst(memberTypeAst));
-  if (actualSurfaceMatches) {
-    return [ast, actualTypeContext];
+  if (emittableActualSurfaceMatches) {
+    return [ast, emittableActualTypeContext];
   }
 
   if (memberEmissionCompatible) {
@@ -704,7 +919,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     }
 
     const emissionDirectRuntimeCarrierType = directRuntimeCarrierType
-      ? normalizeStructuralEmissionType(directRuntimeCarrierType, context)
+      ? normalizeRuntimeUnionEmissionType(directRuntimeCarrierType, context)
       : undefined;
     if (
       emissionDirectRuntimeCarrierType &&
@@ -717,14 +932,26 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       return emissionDirectRuntimeCarrierType;
     }
 
-    const emissionDirectValueSurfaceType = normalizeStructuralEmissionType(
+    const emissionDirectValueSurfaceType = normalizeRuntimeUnionEmissionType(
       directValueSurfaceType,
       context
     );
-    const emissionExtractedMemberType = normalizeStructuralEmissionType(
+    const emissionExtractedMemberType = normalizeRuntimeUnionEmissionType(
       extractedMemberType,
       context
     );
+    const comparableDirectValueSurfaceType = resolveComparableType(
+      emissionDirectValueSurfaceType,
+      context
+    );
+    if (
+      !willCarryAsRuntimeUnion(emissionDirectValueSurfaceType, context) &&
+      comparableDirectValueSurfaceType.kind !== "anyType" &&
+      comparableDirectValueSurfaceType.kind !== "unknownType" &&
+      !isBroadObjectSlotType(comparableDirectValueSurfaceType, context)
+    ) {
+      return emissionDirectValueSurfaceType;
+    }
 
     const [directLayout, directLayoutContext] = buildRuntimeUnionLayout(
       emissionDirectValueSurfaceType,
@@ -763,11 +990,11 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     return emissionExtractedMemberType;
   })();
 
-  const emissionActualType = normalizeStructuralEmissionType(
+  const emissionActualType = normalizeRuntimeUnionEmissionType(
     unwrapComparableTypeForEmission(preferredActualType, context),
     context
   );
-  const emissionExpectedType = normalizeStructuralEmissionType(
+  const emissionExpectedType = normalizeRuntimeUnionEmissionType(
     unwrapComparableTypeForEmission(expectedType, context),
     context
   );

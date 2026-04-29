@@ -38,7 +38,7 @@ class Maybe<T> extends Functor<T> {
   }
 
   getOrElse(defaultValue: T): T {
-    return this.value !== null ? this.value : defaultValue;
+    return this.#value !== null ? this.#value : defaultValue;
   }
 }
 

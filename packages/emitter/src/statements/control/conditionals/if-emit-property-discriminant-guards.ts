@@ -538,7 +538,7 @@ export const tryEmitNegatedPredicateGuard = (
       kind: "rename",
       name: thenNarrowedName,
       type: otherMemberType,
-      sourceType: buildSubsetUnionType(candidateMembers),
+      sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
     });
 
     const thenCastStmt = buildCastLocalDecl(
@@ -546,11 +546,20 @@ export const tryEmitNegatedPredicateGuard = (
       receiverAst,
       otherMemberN
     );
+    const thenLocalValueTypes = new Map(thenCtxWithId.localValueTypes ?? []);
+    thenLocalValueTypes.set(thenNarrowedName, otherMemberType);
+    if (escapedThenNarrow !== thenNarrowedName) {
+      thenLocalValueTypes.set(escapedThenNarrow, otherMemberType);
+    }
 
     const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(
       [thenCastStmt],
       thenStatement,
-      { ...thenCtxWithId, narrowedBindings: thenNarrowedMap }
+      {
+        ...thenCtxWithId,
+        localValueTypes: thenLocalValueTypes,
+        narrowedBindings: thenNarrowedMap,
+      }
     );
     thenStmt = thenBlock;
     thenCtx = thenBlockCtx;

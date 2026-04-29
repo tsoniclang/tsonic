@@ -33,14 +33,17 @@ The drift findings from that review are incorporated into `00-drift-first-recove
 
 The deeper semantic-authority review is incorporated into `11-semantic-authority-super-review.md`. That file is part of the active execution contract. It expands the drift block from individual symptoms into the core architectural repair: frontend/type-system proof first, emitter materialization second.
 
+The centralization audit is incorporated into `13-centralization-audit.md`. That file is part of the active execution contract. It expands the semantic-authority review into a complete inventory of repeated semantic decisions that must be centralized instead of patched locally.
+
 Execution order:
 
 1. Preserve the interim diff review.
-2. Fix drift from `00-drift-first-recovery-plan.md`.
-3. Execute semantic-authority tasks from `11-semantic-authority-super-review.md`.
-4. Reconcile remaining plan files against the repaired drift rules.
-5. Resume compiler cleanup tasks.
-6. Run the full Tsonic upstream gate with `./test/scripts/run-all.sh`.
+2. Establish P0 centralization boundaries from `13-centralization-audit.md`.
+3. Execute semantic-authority tasks from `11-semantic-authority-super-review.md` through those central boundaries.
+4. Fix drift from `00-drift-first-recovery-plan.md` without adding local semantic rediscovery.
+5. Reconcile remaining plan files against the repaired centralization and drift rules.
+6. Resume compiler cleanup tasks only through centralized owners.
+7. Run the full Tsonic upstream gate with `./test/scripts/run-all.sh`.
 
 For the `apr28-refactor` branch, downstream repositories are analysis inputs only. The execution goal is a clean upstream Tsonic run-all gate before opening the PR. Downstream cleanup resumes after this upstream branch is merged or explicitly re-scoped.
 
@@ -219,8 +222,39 @@ import type { int } from "@tsonic/core/types.js";
 10. Downstream cleanup.
 11. Full validation gate.
 12. Semantic authority consolidation.
+13. Centralization audit and deduplication.
 
 Each workstream has a dedicated file in this directory with examples, expected behavior, risks, and tracking state.
+
+## Centralization Contract
+
+The centralization audit makes the following rule explicit:
+
+```text
+If a compiler decision determines source validity, type/member identity, call target,
+branch fact, storage carrier, proof requirement, or NativeAOT safety, it must have
+one owner.
+```
+
+Local helpers may format or materialize. They may not independently rediscover semantic truth.
+
+Invalid architecture:
+
+```text
+frontend accepts `xs.length`
+validation checks a JS-name allowlist
+emitter separately recognizes `length` and lowers to `Length`
+```
+
+Correct architecture:
+
+```text
+surface metadata resolves `xs.length` to a declared member
+frontend records the resolved member binding in IR
+emitter emits the already-resolved target
+```
+
+The same rule applies to narrowing, type identity, object literal materialization, numeric proof, JSON policy, async wrappers, and diagnostics.
 
 ## Current Working State
 

@@ -3,6 +3,7 @@ import type { EmitterContext } from "../../types.js";
 import { resolveLocalTypeInfo, resolveTypeAlias } from "./type-resolution.js";
 import { UNKNOWN_TYPE } from "./runtime-union-shared.js";
 import { tryContextualTypeIdentityKey } from "./deterministic-type-keys.js";
+import { getReferenceNominalIdentityKey } from "./reference-type-identity.js";
 
 const toRuntimeOrderingComparableType = (type: IrType): IrType => {
   if (type.kind === "literalType") {
@@ -107,6 +108,10 @@ const buildRuntimeOrderingStructuralKey = (
 
   const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
   if (!localInfo) {
+    const nominalIdentity = getReferenceNominalIdentityKey(resolved, context);
+    if (nominalIdentity) {
+      return undefined;
+    }
     return undefined;
   }
 
@@ -114,36 +119,19 @@ const buildRuntimeOrderingStructuralKey = (
     return buildRuntimeOrderingMemberSignature(localInfo.type.members, context);
   }
 
-  if (localInfo.kind !== "class" && localInfo.kind !== "interface") {
+  if (localInfo.kind !== "interface") {
+    const nominalIdentity = getReferenceNominalIdentityKey(resolved, context);
+    if (nominalIdentity) {
+      return undefined;
+    }
     return undefined;
   }
 
   const members = localInfo.members.flatMap<
     Extract<IrType, { kind: "objectType" }>["members"][number]
   >((member) => {
-    if (member.kind === "propertyDeclaration" && member.type) {
-      return [
-        {
-          kind: "propertySignature" as const,
-          name: member.name,
-          type: member.type,
-          isOptional: false,
-          isReadonly: member.isReadonly ?? false,
-        },
-      ];
-    }
     if (member.kind === "propertySignature") {
       return [member];
-    }
-    if (member.kind === "methodDeclaration") {
-      return [
-        {
-          kind: "methodSignature" as const,
-          name: member.name,
-          parameters: member.parameters,
-          returnType: member.returnType ?? UNKNOWN_TYPE,
-        },
-      ];
     }
     if (member.kind === "methodSignature") {
       return [member];

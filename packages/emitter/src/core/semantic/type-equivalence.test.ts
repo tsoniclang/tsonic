@@ -414,4 +414,42 @@ describe("type-equivalence", () => {
     ).to.not.throw();
     expect(areIrTypesEquivalent(left, right, recursiveContext)).to.equal(true);
   });
+
+  it("compares runtime-union alias references against their carrier union by deterministic carrier identity", () => {
+    const aliasTarget: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+      ],
+      preserveRuntimeLayout: true,
+      runtimeCarrierFamilyKey: "Test.Result",
+      runtimeCarrierName: "Result",
+      runtimeCarrierNamespace: "Test",
+      runtimeCarrierTypeParameters: ["T"],
+      runtimeCarrierTypeArguments: [{ kind: "primitiveType", name: "boolean" }],
+    };
+    const aliasContext: EmitterContext = {
+      ...createContext({ rootNamespace: "Test" }),
+      localTypes: new Map([
+        [
+          "Result",
+          {
+            kind: "typeAlias",
+            typeParameters: ["T"],
+            type: aliasTarget,
+          },
+        ],
+      ]),
+    };
+    const aliasRef: IrType = {
+      kind: "referenceType",
+      name: "Result",
+      typeArguments: [{ kind: "primitiveType", name: "boolean" }],
+    };
+
+    expect(areIrTypesEquivalent(aliasRef, aliasTarget, aliasContext)).to.equal(
+      true
+    );
+  });
 });

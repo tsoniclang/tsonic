@@ -506,7 +506,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.match(
-        /resp\.end\(global::Tsonic\.Internal\.Union<[^>]+>\.From3\(text\)\);/
+        /resp\.end\(global::Tsonic\.Internal\.Union<[^>]+>\.From2\(text\)\);/
       );
       expect(csharp).to.include(
         'normalizeHeaderValue(resp.getHeader("x-test") == null ? default(global::Tsonic.Internal.Union<string[], string>?) : global::Tsonic.Internal.Union<string[], string>.From2(resp.getHeader("x-test")));'
@@ -3498,7 +3498,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "return Buffer.fromNonString(value.Match<global::Tsonic.Internal.Union<double[], global::Test.Buffer, global::fixturejs.Uint8Array>>("
+        "return Buffer.fromNonString(value.Match<global::Tsonic.Internal.Union<double[], global::fixturejs.Uint8Array, global::Test.Buffer>>("
       );
       expect(csharp).not.to.include("return Buffer.fromNonString(value);");
       expect(csharp).not.to.include(
@@ -3806,9 +3806,12 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("if (chunk.Is3())");
       expect(csharp).to.include(
-        "return ServerResponse._copyUint8Array(chunk__is_1);"
+        "return ServerResponse._copyUint8Array(chunk__is_1.buffer);"
       );
-      expect(csharp).to.include("new byte[source.length]");
+      expect(csharp).to.include(
+        "return ServerResponse._copyUint8Array(chunk__is_2);"
+      );
+      expect(csharp).to.include("for (int index = 0; index < source.length;");
       expect(csharp).to.include("source.at(index)");
       expect(csharp).not.to.include(
         "new global::js.Array<object>(chunk__is_1).length"
@@ -3942,7 +3945,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         `
           export function build(): number[] {
-            const table: number[] = new Array<number>(1);
+            const table: number[] = [0];
             const polynomial = 0xedb88320;
             let crc = 0;
             crc = (crc & 1) === 1 ? (crc >>> 1) ^ polynomial : crc >>> 1;
@@ -4170,7 +4173,7 @@ describe("End-to-End Integration", () => {
         "if (((global::System.Object)(optionsOrListener)) != null)"
       );
       expect(csharp).to.include(
-        "return (optionsOrListener.As1()).allowHalfOpen ?? false;"
+        "return (optionsOrListener.As2()).allowHalfOpen ?? false;"
       );
       expect(csharp).not.to.include(
         "return optionsOrListener.allowHalfOpen ?? false;"
@@ -4304,13 +4307,13 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("var value = chunkOrCallback.Match");
       expect(csharp).to.include(
-        "global::Tsonic.Internal.Union<byte[], global::js.Uint8Array, string, global::Test.Buffer>"
+        "global::Tsonic.Internal.Union<byte[], string, global::js.Uint8Array, global::Test.Buffer>"
       );
       expect(csharp).to.include(
         '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot materialize runtime union functionType to unionType")'
       );
       expect(csharp).not.to.include(
-        "var value = (global::Tsonic.Internal.Union<byte[], global::js.Uint8Array, string, global::Test.Buffer>)chunkOrCallback;"
+        "var value = (global::Tsonic.Internal.Union<byte[], string, global::js.Uint8Array, global::Test.Buffer>)chunkOrCallback;"
       );
     });
 
@@ -4762,7 +4765,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("p.argv = default(string[]);");
       expect(csharp).to.include(
-        "Assert.Equal((object)(double)0, (object)(double)p.argv.Length);"
+        "Assert.Equal((object)(double)0, p.argv.Length);"
       );
       expect(csharp).to.not.include(
         "new global::js.Array<object>((object)p.argv).length"
