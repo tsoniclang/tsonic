@@ -17,11 +17,22 @@ require_tool node
 require_tool npm
 require_tool dotnet
 
+RUNTIME_ROOT="$ROOT/../runtime"
+
 echo "== Toolchain =="
 echo "git:    $(git --version)"
 echo "node:   $(node --version)"
 echo "npm:    $(npm --version)"
 echo "dotnet: $(dotnet --version)"
+
+if [ ! -d "$RUNTIME_ROOT" ]; then
+  echo "FAIL: required sibling runtime repo not found: $RUNTIME_ROOT" >&2
+  echo "Check out tsoniclang/runtime next to this repo." >&2
+  exit 1
+fi
+
+echo "== Building sibling runtime =="
+dotnet build "$RUNTIME_ROOT/Tsonic.Runtime.sln" -c Release
 
 echo "== Installing dependencies =="
 npm ci
