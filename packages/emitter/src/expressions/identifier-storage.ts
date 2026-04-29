@@ -37,6 +37,7 @@ import { resolveStructuralReferenceType } from "../core/semantic/structural-shap
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { isBroadObjectPassThroughType } from "../core/semantic/broad-object-types.js";
+import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
 import { referenceTypeHasClrIdentity } from "../core/semantic/clr-type-identity.js";
 import {
   getArrayElementType,
@@ -563,9 +564,15 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     isBroadStorageTarget(expectedType, context) &&
     willCarryAsRuntimeUnion(storageType, context) &&
     !willCarryAsRuntimeUnion(narrowed.type, context);
+  const shouldAvoidBroadCarrierReuseForProjectedNarrowing =
+    !!expectedType &&
+    isBroadStorageTarget(expectedType, context) &&
+    narrowed.carrierExprAst !== undefined &&
+    narrowed.carrierExprAst !== narrowed.exprAst;
   const shouldAvoidStorageReuse =
     shouldAvoidBroadStorageReuse ||
-    shouldAvoidProjectedRuntimeUnionStorageReuse;
+    shouldAvoidProjectedRuntimeUnionStorageReuse ||
+    shouldAvoidBroadCarrierReuseForProjectedNarrowing;
   const originalRuntimeCarrierAst =
     narrowed.carrierExprAst ??
     narrowed.storageExprAst ??
@@ -748,9 +755,31 @@ export const tryEmitMaterializedNarrowedIdentifier = (
     narrowed.exprAst,
     context
   );
+  if (
+    directMemberType &&
+    willCarryAsRuntimeUnion(directMemberType, context) &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    runtimeUnionAliasReferencesMatch(directMemberType, expectedType, context)
+  ) {
+    return [narrowed.exprAst, context];
+  }
+
   const directSurfaceMemberType =
     resolveDirectValueSurfaceType(narrowed.exprAst, context) ??
     directMemberType;
+  if (
+    directSurfaceMemberType &&
+    willCarryAsRuntimeUnion(directSurfaceMemberType, context) &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    runtimeUnionAliasReferencesMatch(
+      directSurfaceMemberType,
+      expectedType,
+      context
+    )
+  ) {
+    return [narrowed.exprAst, context];
+  }
+
   if (
     directSurfaceMemberType &&
     willCarryAsRuntimeUnion(expectedType, context) &&

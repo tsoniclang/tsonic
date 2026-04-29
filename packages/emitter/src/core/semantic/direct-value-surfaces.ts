@@ -5,6 +5,7 @@ import type {
   CSharpTypeAst,
 } from "../format/backend-ast/types.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
+import { collectRuntimeUnionRawMembers } from "./runtime-union-expansion.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
@@ -148,13 +149,22 @@ const tryResolveRuntimeUnionAsMemberType = (
     return undefined;
   }
 
-  const receiverCarrierType = preferRuntimeCarrierCandidate(
-    context,
-    resolveDirectRuntimeCarrierType(directAst.expression.expression, context),
-    resolveDirectValueSurfaceType(directAst.expression.expression, context)
-  );
+  const receiverCarrierType =
+    resolveProjectionReceiverRuntimeCarrierType(
+      directAst.expression.expression,
+      context
+    ) ?? resolveDirectValueSurfaceType(directAst.expression.expression, context);
   if (!receiverCarrierType) {
     return undefined;
+  }
+
+  const rawRuntimeMembers = collectRuntimeUnionRawMembers(
+    receiverCarrierType,
+    context
+  );
+  const rawRuntimeMember = rawRuntimeMembers[memberIndex];
+  if (hasExplicitRuntimeCarrierIdentity(rawRuntimeMember, context)) {
+    return rawRuntimeMember;
   }
 
   const runtimeMembers = getCanonicalRuntimeUnionMembers(
@@ -409,6 +419,50 @@ const resolveNamedRuntimeCarrierType = (
         localStorageType
       );
   }
+};
+
+const resolveProjectionReceiverRuntimeCarrierType = (
+  valueAst: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  const directAst = unwrapTransparentValueAst(valueAst);
+  if (directAst.kind !== "identifierExpression") {
+    return resolveDirectRuntimeCarrierType(directAst, context);
+  }
+
+  const identifierBinding = resolveDirectIdentifierBinding(
+    directAst.identifier,
+    context
+  );
+  if (!identifierBinding) {
+    return undefined;
+  }
+
+  const localStorageType = context.localValueTypes?.get(
+    identifierBinding.sourceName
+  );
+  const localSemanticType = context.localSemanticTypes?.get(
+    identifierBinding.sourceName
+  );
+  const narrowed = context.narrowedBindings?.get(identifierBinding.sourceName);
+  if (narrowed?.kind !== "expr") {
+    return preferRuntimeCarrierCandidate(
+      context,
+      localStorageType,
+      localSemanticType,
+      resolveNamedRuntimeCarrierType(identifierBinding.sourceName, context)
+    );
+  }
+
+  return preferRuntimeCarrierCandidate(
+    context,
+    localStorageType,
+    localSemanticType,
+    narrowed.carrierType,
+    narrowed.sourceType,
+    narrowed.storageType,
+    narrowed.type
+  );
 };
 
 const resolveCanonicalNarrowedMemberType = (

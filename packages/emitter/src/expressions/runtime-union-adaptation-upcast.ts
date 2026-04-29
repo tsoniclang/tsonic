@@ -80,6 +80,7 @@ import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
 import { getContextualTypeVisitKey } from "../core/semantic/deterministic-type-keys.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "../core/semantic/runtime-union-family-preservation.js";
+import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
 import { referenceTypesShareClrIdentity } from "../core/semantic/clr-type-identity.js";
 
 const normalizeRuntimeUnionEmissionType = (
@@ -891,6 +892,13 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
 
   const extractedMemberType =
     tryResolveRuntimeUnionMemberType(actualType, ast, context) ?? actualType;
+  if (
+    willCarryAsRuntimeUnion(extractedMemberType, context) &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    runtimeUnionAliasReferencesMatch(extractedMemberType, expectedType, context)
+  ) {
+    return [ast, context];
+  }
 
   const exactComparisonTargetAst = tryEmitExactComparisonTargetAst(
     expectedType,

@@ -8,11 +8,15 @@ import {
 import type { EmitterContext } from "../../types.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { collectRuntimeUnionRawMembers } from "./runtime-union-expansion.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
 import { isAssignable, isAssignableToType } from "./type-compatibility.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { tryContextualTypeIdentityKey } from "./deterministic-type-keys.js";
-import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
+import {
+  getRuntimeUnionAliasReferenceKey,
+  runtimeUnionAliasReferencesMatch,
+} from "./runtime-union-alias-identity.js";
 
 const withOptionalUndefined = (type: IrType): IrType => {
   if (
@@ -416,6 +420,15 @@ export const tryResolveRuntimeUnionMemberType = (
   }
 
   const { memberN } = projection;
+  const rawRuntimeMembers = collectRuntimeUnionRawMembers(baseType, context);
+  const rawRuntimeMember =
+    memberN >= 1 ? rawRuntimeMembers[memberN - 1] : undefined;
+  if (
+    rawRuntimeMember &&
+    getRuntimeUnionAliasReferenceKey(rawRuntimeMember, context)
+  ) {
+    return rawRuntimeMember;
+  }
 
   const canonicalRuntimeMembers = getCanonicalRuntimeUnionMembers(
     baseType,

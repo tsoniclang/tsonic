@@ -1312,6 +1312,22 @@ const selectCollectionMaterializationActualArgumentType = (opts: {
     return selectedActualType;
   }
 
+  if (
+    selectedActualType &&
+    (runtimeUnionAliasReferencesMatch(
+      selectedActualType,
+      expectedType,
+      context
+    ) ||
+      resolveCarrierPreservingSourceType(
+        selectedActualType,
+        expectedType,
+        context
+      ))
+  ) {
+    return selectedActualType;
+  }
+
   const sourceBackedReturnType =
     arg.kind === "call" || arg.kind === "new"
       ? arg.sourceBackedReturnType
@@ -2636,6 +2652,21 @@ const selectDeterministicUnionParameterMember = (
     resolveEffectiveExpressionType(arg, context) ??
     arg.inferredType;
   if (!actualType) {
+    return expectedType;
+  }
+
+  if (
+    runtimeUnionAliasReferencesMatch(actualType, expectedType, context) ||
+    (arg.kind === "identifier" &&
+      (() => {
+        const narrowed = context.narrowedBindings?.get(arg.name);
+        return (
+          narrowed?.kind === "expr" &&
+          narrowed.type !== undefined &&
+          runtimeUnionAliasReferencesMatch(narrowed.type, expectedType, context)
+        );
+      })())
+  ) {
     return expectedType;
   }
 
