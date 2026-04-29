@@ -80,7 +80,10 @@ import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
 import { getContextualTypeVisitKey } from "../core/semantic/deterministic-type-keys.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "../core/semantic/runtime-union-family-preservation.js";
-import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
+import {
+  getRuntimeUnionAliasReferenceKey,
+  runtimeUnionAliasReferencesMatch,
+} from "../core/semantic/runtime-union-alias-identity.js";
 import { referenceTypesShareClrIdentity } from "../core/semantic/clr-type-identity.js";
 
 const normalizeRuntimeUnionEmissionType = (
@@ -480,6 +483,13 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
   readonly visited: ReadonlySet<string>;
 }): [CSharpExpressionAst, EmitterContext] | undefined => {
   const { ast, actualType, memberType, memberTypeAst, context, visited } = opts;
+  const actualAliasKey = getRuntimeUnionAliasReferenceKey(actualType, context);
+  if (
+    actualAliasKey !== undefined &&
+    !runtimeUnionAliasReferencesMatch(actualType, memberType, context)
+  ) {
+    return undefined;
+  }
 
   const nestedRuntimeUnionAdaptation = maybeAdaptRuntimeUnionExpressionAst(
     ast,

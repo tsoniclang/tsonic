@@ -14,6 +14,7 @@ import {
   stripNullish,
   unionMemberMatchesTarget,
 } from "./type-resolution.js";
+import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
 import {
   getContextualTypeVisitKey,
   tryContextualTypeIdentityKey,
@@ -56,6 +57,13 @@ export const findRuntimeUnionMemberIndex = (
 ): number | undefined => {
   for (let index = 0; index < members.length; index += 1) {
     const member = members[index];
+    if (member && runtimeUnionAliasReferencesMatch(member, target, context)) {
+      return index;
+    }
+  }
+
+  for (let index = 0; index < members.length; index += 1) {
+    const member = members[index];
     if (member && unionMemberMatchesTarget(member, target, context)) {
       return index;
     }
@@ -77,6 +85,15 @@ export const findExactRuntimeUnionMemberIndices = (
   target: IrType,
   context: EmitterContext
 ): readonly number[] => {
+  const aliasMatches = members.flatMap((member, index) =>
+    member && runtimeUnionAliasReferencesMatch(member, target, context)
+      ? [index]
+      : []
+  );
+  if (aliasMatches.length > 0) {
+    return aliasMatches;
+  }
+
   const resolvedTarget = resolveTypeAlias(stripNullish(target), context);
   const targetKey = tryContextualTypeIdentityKey(resolvedTarget, context);
   return members.flatMap((member, index) => {

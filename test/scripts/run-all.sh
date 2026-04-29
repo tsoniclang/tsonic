@@ -208,6 +208,15 @@ if [ ! -x "$ROOT_DIR/node_modules/.bin/tsc" ]; then
     exit 1
 fi
 
+if [ -x "$ROOT_DIR/scripts/bindings-semantics/install-local-wave.sh" ]; then
+    echo -e "${BLUE}--- Installing Local First-Party Source Packages ---${NC}" | tee -a "$LOG_FILE"
+    if ! "$ROOT_DIR/scripts/bindings-semantics/install-local-wave.sh" "$ROOT_DIR" 2>&1 | tee -a "$LOG_FILE"; then
+        echo -e "${RED}FAIL: local first-party source package installation failed${NC}" | tee -a "$LOG_FILE"
+        exit 1
+    fi
+    echo "" | tee -a "$LOG_FILE"
+fi
+
 # ============================================================
 # Resume/Checkpoint cache (per commit + args)
 # ============================================================

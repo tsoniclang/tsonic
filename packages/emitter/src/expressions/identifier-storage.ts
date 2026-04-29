@@ -767,6 +767,46 @@ export const tryEmitMaterializedNarrowedIdentifier = (
   const directSurfaceMemberType =
     resolveDirectValueSurfaceType(narrowed.exprAst, context) ??
     directMemberType;
+
+  const directAliasCarrierType = directMemberType ?? directSurfaceMemberType;
+  if (
+    directAliasCarrierType &&
+    willCarryAsRuntimeUnion(directAliasCarrierType, context) &&
+    willCarryAsRuntimeUnion(expectedType, context)
+  ) {
+    const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
+      expectedType,
+      context,
+      emitTypeAst
+    );
+    if (expectedLayout) {
+      const aliasMemberIndices = expectedLayout.members.flatMap(
+        (member, index) =>
+          member &&
+          runtimeUnionAliasReferencesMatch(
+            member,
+            directAliasCarrierType,
+            expectedLayoutContext
+          )
+            ? [index]
+            : []
+      );
+      if (aliasMemberIndices.length === 1) {
+        const [memberIndex] = aliasMemberIndices;
+        if (memberIndex !== undefined) {
+          return [
+            buildRuntimeUnionFactoryCallAst(
+              buildRuntimeUnionTypeAst(expectedLayout),
+              memberIndex + 1,
+              narrowed.exprAst
+            ),
+            expectedLayoutContext,
+          ];
+        }
+      }
+    }
+  }
+
   if (
     directSurfaceMemberType &&
     willCarryAsRuntimeUnion(directSurfaceMemberType, context) &&

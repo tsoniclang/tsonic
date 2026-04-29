@@ -474,6 +474,11 @@ export const tryBuildRuntimeMaterializationAst = (
     sourceLayoutContext,
     emitTypeAst
   );
+  const scalarSourceFrameType =
+    effectiveSourceFrame?.members.length === 1
+      ? effectiveSourceFrame.members[0]
+      : undefined;
+  const scalarSourceType = scalarSourceFrameType ?? sourceType;
 
   if (targetLayout) {
     const directRuntimeCarrierType =
@@ -489,13 +494,38 @@ export const tryBuildRuntimeMaterializationAst = (
     ) {
       return [valueAst, targetLayoutContext];
     }
+
+    const sourceAliasMemberIndices = targetLayout.members.flatMap(
+      (member, index) =>
+        member &&
+        runtimeUnionAliasReferencesMatch(
+          member,
+          scalarSourceType,
+          targetLayoutContext
+        )
+          ? [index]
+          : []
+    );
+    if (sourceAliasMemberIndices.length === 1) {
+      const [sourceAliasMemberIndex] = sourceAliasMemberIndices;
+      if (sourceAliasMemberIndex !== undefined) {
+        return [
+          buildRuntimeUnionFactoryCallAst(
+            buildRuntimeUnionTypeAst(targetLayout),
+            sourceAliasMemberIndex + 1,
+            valueAst
+          ),
+          targetLayoutContext,
+        ];
+      }
+    }
   }
 
   if (!sourceLayout) {
     return targetLayout
       ? tryBuildScalarToRuntimeUnionMaterializationAst(
           valueAst,
-          sourceType,
+          scalarSourceType,
           targetLayout,
           targetLayoutContext,
           emitTypeAst

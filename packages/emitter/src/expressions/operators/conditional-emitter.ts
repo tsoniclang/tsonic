@@ -105,6 +105,35 @@ export const emitConditional = (
           return false;
       }
     };
+    const isIdentifierProjectionCarrierAst = (
+      candidate: CSharpExpressionAst,
+      identifier: string
+    ): boolean => {
+      switch (candidate.kind) {
+        case "parenthesizedExpression":
+        case "suppressNullableWarningExpression":
+          return isIdentifierProjectionCarrierAst(
+            candidate.expression,
+            identifier
+          );
+        case "castExpression":
+        case "asExpression":
+          return isIdentifierProjectionCarrierAst(
+            candidate.expression,
+            identifier
+          );
+        case "invocationExpression": {
+          const callee = candidate.expression;
+          return (
+            callee.kind === "memberAccessExpression" &&
+            /^As[1-9][0-9]*$/.test(callee.memberName) &&
+            isRawIdentifierCarrierAst(callee.expression, identifier)
+          );
+        }
+        default:
+          return false;
+      }
+    };
 
     if (branchExpr.kind !== "identifier" || !branchExpectedType) {
       return [branchAst, branchContext];
@@ -114,7 +143,15 @@ export const emitConditional = (
       branchContext.localNameMap?.get(branchExpr.name) ??
       context.localNameMap?.get(branchExpr.name) ??
       escapeCSharpIdentifier(branchExpr.name);
-    if (!isRawIdentifierCarrierAst(branchAst, emittedIdentifier)) {
+    const branchAstIsRawCarrier = isRawIdentifierCarrierAst(
+      branchAst,
+      emittedIdentifier
+    );
+    const branchAstIsProjectedCarrier = isIdentifierProjectionCarrierAst(
+      branchAst,
+      emittedIdentifier
+    );
+    if (!branchAstIsRawCarrier && !branchAstIsProjectedCarrier) {
       return [branchAst, branchContext];
     }
 
@@ -164,11 +201,13 @@ export const emitConditional = (
         : branchExpectedType;
 
     return materializeDirectNarrowingAst(
-      {
-        kind: "identifierExpression",
-        identifier: emittedIdentifier,
-      },
-      storageType,
+      branchAstIsRawCarrier
+        ? {
+            kind: "identifierExpression",
+            identifier: emittedIdentifier,
+          }
+        : branchAst,
+      branchAstIsRawCarrier ? storageType : (semanticBranchType ?? storageType),
       materializationTargetType,
       branchContext
     );
@@ -347,7 +386,11 @@ export const emitConditional = (
 
     const [rawTrueAst, rawTrueContext] =
       polarity === "positive"
-        ? emitExpressionAst(expr.whenTrue, narrowedContext, branchExpectedType)
+        ? emitExpressionAst(
+            expr.whenTrue,
+            narrowedContext,
+            expr.whenTrue.kind === "identifier" ? undefined : branchExpectedType
+          )
         : emitExpressionAst(
             expr.whenTrue,
             complementContext,
@@ -363,7 +406,13 @@ export const emitConditional = (
 
     const [rawFalseAst, rawFalseContext] =
       polarity === "negative"
-        ? emitExpressionAst(expr.whenFalse, narrowedContext, branchExpectedType)
+        ? emitExpressionAst(
+            expr.whenFalse,
+            narrowedContext,
+            expr.whenFalse.kind === "identifier"
+              ? undefined
+              : branchExpectedType
+          )
         : emitExpressionAst(
             expr.whenFalse,
             complementContext,
@@ -424,12 +473,20 @@ export const emitConditional = (
     truthyBranchContext,
     falsyBranchContext
   );
+  const branchIdentifierHasNarrowing = (
+    branchExpr: IrExpression,
+    branchContext: EmitterContext
+  ): boolean =>
+    branchExpr.kind === "identifier" &&
+    branchContext.narrowedBindings?.has(branchExpr.name) === true;
 
   // Pass expectedType (or inferred type) to both branches for null/undefined → default conversion
   const [rawTrueAst, rawTrueContext] = emitExpressionAst(
     expr.whenTrue,
     truthyBranchContext,
-    branchExpectedType
+    branchIdentifierHasNarrowing(expr.whenTrue, truthyBranchContext)
+      ? undefined
+      : branchExpectedType
   );
   const [trueAst, trueContext] = materializeRawIdentifierBranch(
     expr.whenTrue,
@@ -440,7 +497,9 @@ export const emitConditional = (
   const [rawFalseAst, rawFalseContext] = emitExpressionAst(
     expr.whenFalse,
     falsyBranchContext,
-    branchExpectedType
+    branchIdentifierHasNarrowing(expr.whenFalse, falsyBranchContext)
+      ? undefined
+      : branchExpectedType
   );
   const [falseAst, falseContext] = materializeRawIdentifierBranch(
     expr.whenFalse,

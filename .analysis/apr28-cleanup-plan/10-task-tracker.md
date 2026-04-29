@@ -106,7 +106,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C8 | Object literal broad target rejected before emitter | IN PROGRESS | `TSN7403` not ICE in normal invalid source |
 | C9 | JSON.parse requires closed target or approved unknown carrier | IN PROGRESS | Typed parse fixtures pass; untyped parse diagnostics |
 | C10 | JSON.stringify requires closed source | IN PROGRESS | DTO/object literal contextual type passes |
-| C11 | Runtime union alias storage emission fixed | IN PROGRESS | Missing alias carrier no longer emitted |
+| C11 | Runtime union alias storage emission fixed | DONE | Exact alias carrier identity wins before scalar/surface expansion; focused emitter/frontend/CLI/typecheck validation passed |
 | C12 | Runtime union narrowed member returns re-wrap | IN PROGRESS | FromN emitted for narrowed temp return |
 | C13 | CLR type identity uses deterministic type id | IN PROGRESS | No raw generic display string compare for semantic decisions |
 | C14 | Overload family copies `override` | IN PROGRESS | IR + emitted C# proof |
@@ -164,3 +164,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 7. Run the full upstream Tsonic gate with `./test/scripts/run-all.sh`.
 8. Commit and push each completed step on `apr28-refactor`.
 9. Open one PR after the full upstream gate is green.
+
+## Validation Notes
+
+- 2026-04-29 13:55 IST: completed the recursive alias carrier checkpoint. The failing source shape was `const mountedAt = isPathSpec(first) ? first : "/"` where `first` narrows to the source-owned `PathSpec` runtime-union alias and the conditional target is `string | PathSpec`. The fix preserves exact alias identity before scalar/surface expansion, so `PathSpec` materializes as the `PathSpec` arm instead of being expanded to its inner `string` arm. Focused validation passed: `npm run build`, targeted emitter tests, targeted frontend tests, targeted CLI source-package test, and `npm run typecheck`.

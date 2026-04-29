@@ -37,6 +37,9 @@ dotnet build "$RUNTIME_ROOT/Tsonic.Runtime.sln" -c Release
 echo "== Installing dependencies =="
 npm ci
 
+echo "== Installing local sibling Tsonic packages =="
+"$ROOT/scripts/bindings-semantics/install-local-wave.sh" "$ROOT"
+
 echo "== Building =="
 npm run build
 
