@@ -233,19 +233,14 @@ describe("IR Builder", function () {
         expect(arrayDecl).to.not.equal(undefined);
         if (!arrayDecl) return;
 
-        const impl = arrayDecl.members.at(-1);
+        const impl = arrayDecl.members.find(
+          (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
+            member.kind === "methodDeclaration" && member.name === "from"
+        );
         expect(impl?.kind).to.equal("methodDeclaration");
         if (!impl || impl.kind !== "methodDeclaration" || !impl.body) return;
 
-        const nonStringIf = impl.body.statements[1];
-        expect(nonStringIf?.kind).to.equal("ifStatement");
-        if (!nonStringIf || nonStringIf.kind !== "ifStatement") return;
-
-        const thenBlock = nonStringIf.thenStatement;
-        expect(thenBlock.kind).to.equal("blockStatement");
-        if (thenBlock.kind !== "blockStatement") return;
-
-        const returnStmt = thenBlock.statements[0];
+        const returnStmt = impl.body.statements[0];
         expect(returnStmt?.kind).to.equal("returnStatement");
         if (!returnStmt || returnStmt.kind !== "returnStatement") return;
 

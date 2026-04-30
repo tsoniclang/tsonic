@@ -983,14 +983,14 @@ describe("IR Builder", function () {
           {
             "src/http/server.ts": `
               export class Server {
-                public end(): Server {
+                end(): Server {
                   return this;
                 }
               }
             `,
             "src/net/server.ts": `
               export class Server {
-                public close(): Server {
+                close(): Server {
                   return this;
                 }
               }

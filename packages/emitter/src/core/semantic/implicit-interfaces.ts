@@ -429,7 +429,11 @@ export const resolveCompatibleImplementedInterfaces = (
     const key = `${candidate.namespace}::${candidate.name}`;
     if (resolved.has(key)) continue;
 
-    const matches = collectCompatibleMembers(localInfo, candidate.info, context);
+    const matches = collectCompatibleMembers(
+      localInfo,
+      candidate.info,
+      context
+    );
     if (!matches) continue;
 
     resolved.set(key, {

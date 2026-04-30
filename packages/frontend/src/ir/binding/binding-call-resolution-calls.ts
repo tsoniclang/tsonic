@@ -203,6 +203,26 @@ export const resolveCallSignature = (
       if (memberMode) {
         return memberMode;
       }
+
+      const heritageModes = new Set<"sync" | "async">();
+      for (const heritageClause of declaration.heritageClauses ?? []) {
+        for (const heritageType of heritageClause.types) {
+          const heritageMode = getHeritageIterableMode(
+            heritageType,
+            seenSymbols
+          );
+          if (heritageMode) {
+            heritageModes.add(heritageMode);
+          }
+        }
+      }
+
+      if (heritageModes.size === 1) {
+        return [...heritageModes][0];
+      }
+      if (heritageModes.size > 1) {
+        return undefined;
+      }
     }
 
     if (ts.isTypeLiteralNode(declaration)) {
@@ -218,6 +238,48 @@ export const resolveCallSignature = (
     }
 
     return getTypeNodeIterableMode(typeNode, seenSymbols);
+  };
+
+  const getHeritageIterableMode = (
+    heritageType: ts.ExpressionWithTypeArguments,
+    seenSymbols: Set<ts.Symbol>
+  ): "sync" | "async" | undefined => {
+    const expression = heritageType.expression;
+    const name =
+      ts.isIdentifier(expression) || ts.isPropertyAccessExpression(expression)
+        ? expression.getText()
+        : undefined;
+    const leafName = name?.split(".").pop();
+    const namedMode = getKnownIterableModeFromName(leafName);
+    if (namedMode) {
+      return namedMode;
+    }
+
+    const symbol = ctx.checker.getSymbolAtLocation(expression);
+    if (!symbol) {
+      return undefined;
+    }
+
+    const resolvedSymbol =
+      symbol.flags & ts.SymbolFlags.Alias
+        ? ctx.checker.getAliasedSymbol(symbol)
+        : symbol;
+    if (seenSymbols.has(resolvedSymbol)) {
+      return undefined;
+    }
+    seenSymbols.add(resolvedSymbol);
+
+    for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
+      const declarationMode = getDeclarationIterableMode(
+        declaration,
+        seenSymbols
+      );
+      if (declarationMode) {
+        return declarationMode;
+      }
+    }
+
+    return undefined;
   };
 
   const getTypeNodeIterableMode = (
@@ -281,6 +343,48 @@ export const resolveCallSignature = (
     }
 
     return undefined;
+  };
+
+  const getCheckerTypeIterableMode = (
+    type: ts.Type | undefined,
+    seenSymbols = new Set<ts.Symbol>()
+  ): "sync" | "async" | undefined => {
+    if (!type) {
+      return undefined;
+    }
+
+    if (type.isUnion()) {
+      const modes = new Set(
+        type.types
+          .map((member) => getCheckerTypeIterableMode(member, seenSymbols))
+          .filter((mode): mode is "sync" | "async" => mode !== undefined)
+      );
+      return modes.size === 1 ? [...modes][0] : undefined;
+    }
+
+    const rawSymbol = type.aliasSymbol ?? type.getSymbol();
+    if (!rawSymbol) {
+      return undefined;
+    }
+
+    const symbol =
+      rawSymbol.flags & ts.SymbolFlags.Alias
+        ? ctx.checker.getAliasedSymbol(rawSymbol)
+        : rawSymbol;
+    if (seenSymbols.has(symbol)) {
+      return undefined;
+    }
+    seenSymbols.add(symbol);
+
+    const modes = new Set<"sync" | "async">();
+    for (const declaration of symbol.getDeclarations() ?? []) {
+      const mode = getDeclarationIterableMode(declaration, seenSymbols);
+      if (mode) {
+        modes.add(mode);
+      }
+    }
+
+    return modes.size === 1 ? [...modes][0] : undefined;
   };
 
   const getExplicitClrPrimitiveAlias = (
@@ -515,7 +619,7 @@ export const resolveCallSignature = (
           return mode;
         }
       }
-      return undefined;
+      return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
     }
 
     if (
@@ -540,25 +644,37 @@ export const resolveCallSignature = (
           return mode;
         }
       }
-      return undefined;
+      return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
     }
 
     if (ts.isCallExpression(expr)) {
       const signature = ctx.checker.getResolvedSignature(expr);
-      return getTypeNodeIterableMode(
-        getReturnTypeNode(
-          signature?.getDeclaration() as ts.SignatureDeclaration | undefined
-        )
+      return (
+        getTypeNodeIterableMode(
+          getReturnTypeNode(
+            signature?.getDeclaration() as ts.SignatureDeclaration | undefined
+          )
+        ) ?? getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr))
       );
+    }
+
+    if (ts.isNewExpression(expr)) {
+      return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
+    }
+
+    if (ts.isAwaitExpression(expr)) {
+      return getExplicitIterableEvidence(expr.expression, seen);
     }
 
     if (ts.isConditionalExpression(expr)) {
       const whenTrue = getExplicitIterableEvidence(expr.whenTrue, seen);
       const whenFalse = getExplicitIterableEvidence(expr.whenFalse, seen);
-      return whenTrue && whenTrue === whenFalse ? whenTrue : undefined;
+      return whenTrue && whenTrue === whenFalse
+        ? whenTrue
+        : getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
     }
 
-    return undefined;
+    return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
   };
 
   const getExplicitArgumentClrPrimitiveAlias = (

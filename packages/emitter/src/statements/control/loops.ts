@@ -1,5 +1,5 @@
 /**
- * Loop statement emitters (while, for, for-of, for-in)
+ * Loop statement emitters (while, for, for-of)
  * Returns CSharpStatementAst nodes.
  */
 
@@ -8,10 +8,6 @@ import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitStatementAst } from "../../statement-emitter.js";
 import { lowerPatternAst } from "../../patterns.js";
-import {
-  resolveTypeAlias,
-  stripNullish,
-} from "../../core/semantic/type-resolution.js";
 import { deriveForOfElementType } from "../../core/semantic/iteration-types.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
@@ -22,7 +18,6 @@ import {
 } from "../../core/format/local-names.js";
 import {
   registerForOfElementSymbolTypes,
-  registerForInKeyTypes,
 } from "../../core/semantic/symbol-types.js";
 import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
 import type {
@@ -373,86 +368,12 @@ export const emitForOfStatementAst = (
   ];
 };
 
-/**
- * Emit a for-in statement as AST
- *
- * TypeScript: for (const k in dict) { ... }
- * C#: foreach (var k in dict.Keys) { ... }
- *
- * Note: We currently support for-in only for `Record<string, T>` / dictionaryType receivers.
- */
+/** Unsupported `for...in` emission guard. */
 export const emitForInStatementAst = (
-  stmt: Extract<IrStatement, { kind: "forInStatement" }>,
-  context: EmitterContext
-): [readonly CSharpStatementAst[], EmitterContext] => {
-  const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
-  const outerNameMap = exprContext.localNameMap;
-  const outerConditionAliases = exprContext.conditionAliases;
-  const outerSemanticTypes = exprContext.localSemanticTypes;
-  const outerValueTypes = exprContext.localValueTypes;
-  let loopContext: EmitterContext = {
-    ...exprContext,
-    localNameMap: new Map(outerNameMap ?? []),
-    conditionAliases: new Map(outerConditionAliases ?? []),
-  };
-
-  if (stmt.variable.kind !== "identifierPattern") {
-    throw new Error(`for...in requires an identifier binding pattern`);
-  }
-
-  const receiverType = stmt.expression.inferredType
-    ? resolveTypeAlias(stripNullish(stmt.expression.inferredType), context)
-    : undefined;
-
-  if (
-    receiverType?.kind !== "dictionaryType" ||
-    receiverType.keyType.kind !== "primitiveType" ||
-    receiverType.keyType.name !== "string"
-  ) {
-    throw new Error(
-      `for...in is only supported for Record<string, T> dictionaries (got ${receiverType?.kind ?? "unknown"}).`
-    );
-  }
-
-  const originalName = stmt.variable.name;
-  const alloc = allocateLocalName(originalName, loopContext);
-  loopContext = registerLocalName(
-    originalName,
-    alloc.emittedName,
-    alloc.context
+  _stmt: Extract<IrStatement, { kind: "forInStatement" }>,
+  _context: EmitterContext
+): never => {
+  throw new Error(
+    "ICE: for...in reached emitter - validation missed TSN2001"
   );
-  loopContext = registerForInKeyTypes(originalName, loopContext);
-  const varName = alloc.emittedName;
-
-  // Iterate over .Keys: (expr).Keys
-  const keysExpr: CSharpExpressionAst = {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "parenthesizedExpression",
-      expression: exprAst,
-    },
-    memberName: "Keys",
-  };
-
-  const [bodyStmts, bodyContext] = emitStatementAst(stmt.body, loopContext);
-
-  const foreachStmt: CSharpStatementAst = {
-    kind: "foreachStatement",
-    isAwait: false,
-    type: { kind: "varType" },
-    identifier: varName,
-    expression: keysExpr,
-    body: wrapInBlock(bodyStmts),
-  };
-
-  return [
-    [foreachStmt],
-    {
-      ...bodyContext,
-      localNameMap: outerNameMap,
-      conditionAliases: outerConditionAliases,
-      localSemanticTypes: outerSemanticTypes,
-      localValueTypes: outerValueTypes,
-    },
-  ];
 };

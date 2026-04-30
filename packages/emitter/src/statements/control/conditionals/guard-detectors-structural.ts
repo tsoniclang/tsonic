@@ -1,19 +1,18 @@
 /**
- * Structural guard detectors: in-guard, predicate-guard, and instanceof-guard.
- * Handles tryResolveInGuard, tryResolvePredicateGuard, and tryResolveInstanceofGuard.
+ * Structural guard detectors: predicate guards and instanceof guards.
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../../../types.js";
+import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
 import { emitTypeAst } from "../../../type-emitter.js";
-import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
-import {
-  hasDeterministicPropertyMembership,
-  splitRuntimeNullishUnionMembers,
-} from "../../../core/semantic/type-resolution.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../../../core/format/backend-ast/types.js";
+import { splitRuntimeNullishUnionMembers } from "../../../core/semantic/type-resolution.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
@@ -22,6 +21,7 @@ import {
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 import { buildRuntimeSubsetExpressionAst } from "../../../core/semantic/narrowing-builders.js";
+import { willCarryAsRuntimeUnion } from "../../../core/semantic/union-semantics.js";
 import {
   getMemberAccessNarrowKey,
   makeNarrowedLocalName,
@@ -32,108 +32,75 @@ import { buildSubsetUnionType } from "./branch-context.js";
 import type {
   GuardInfo,
   InstanceofGuardInfo,
-  InGuardInfo,
 } from "./guard-types.js";
 import {
-  extractTransparentIdentifierTarget,
   resolveGuardRuntimeUnionFrame,
   buildRenameNarrowedMap,
   withoutNarrowedBinding,
 } from "./guard-types.js";
 
-/**
- * Try to extract guard info from an `("prop" in x)` binary expression.
- */
-export const tryResolveInGuard = (
-  condition: IrExpression,
+const getRuntimeCarrierBindingType = (
+  binding: NarrowedBinding | undefined,
   context: EmitterContext
-): InGuardInfo | undefined => {
-  if (condition.kind !== "binary") return undefined;
-  if (condition.operator !== "in") return undefined;
-
-  // LHS must be a string literal
-  if (condition.left.kind !== "literal") return undefined;
-  if (typeof condition.left.value !== "string") return undefined;
-
-  // RHS must be a bindable identifier, even if transparent assertion wrappers
-  // were introduced around it during earlier contextual typing/narrowing passes.
-  const target = extractTransparentIdentifierTarget(condition.right);
-  if (!target) return undefined;
-
-  const propertyName = condition.left.value;
-  const originalName = target.name;
-
-  const unionSourceType = condition.right.inferredType ?? target.inferredType;
-  if (!unionSourceType) return undefined;
-
-  const frame = resolveGuardRuntimeUnionFrame(
-    originalName,
-    unionSourceType,
-    target,
-    context
+): IrType | undefined =>
+  [binding?.sourceType, binding?.type].find(
+    (candidate): candidate is IrType =>
+      candidate !== undefined && willCarryAsRuntimeUnion(candidate, context)
   );
-  if (!frame) return undefined;
 
-  const { members, candidateMemberNs, runtimeUnionArity } = frame;
-  const unionArity = members.length;
-  if (unionArity < 2) return undefined;
-
-  // Find which union members contain the property.
-  const matchingIndices: number[] = [];
-  const matchingMemberNs: number[] = [];
-  for (let i = 0; i < members.length; i++) {
-    const member = members[i];
-    if (!member || member.kind !== "referenceType") continue;
-    if (
-      hasDeterministicPropertyMembership(member, propertyName, context) === true
-    ) {
-      matchingIndices.push(i);
-      matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
-    }
+const preserveIncomingNarrowedBindings = (
+  incomingContext: EmitterContext,
+  emittedContext: EmitterContext
+): EmitterContext => {
+  if (!incomingContext.narrowedBindings) {
+    return emittedContext;
   }
 
-  // Only support the common "exactly one matching member" narrowing case.
-  if (matchingMemberNs.length !== 1) return undefined;
+  const narrowedBindings = new Map(incomingContext.narrowedBindings);
+  for (const [key, binding] of emittedContext.narrowedBindings ?? []) {
+    narrowedBindings.set(key, binding);
+  }
 
-  const memberN = matchingMemberNs[0];
-  if (!memberN) return undefined;
-  const matchingIndex = matchingIndices[0];
-  if (matchingIndex === undefined) return undefined;
+  return { ...emittedContext, narrowedBindings };
+};
 
-  const nextId = (context.tempVarId ?? 0) + 1;
-  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+const getPredicateReceiverAstFromExistingBinding = (
+  binding: NarrowedBinding | undefined,
+  context: EmitterContext
+): CSharpExpressionAst | undefined => {
+  if (!binding) {
+    return undefined;
+  }
 
-  const narrowedName = makeNarrowedLocalName(
-    originalName,
-    memberN ?? "subset",
-    nextId
-  );
-  const escapedOrig = emitRemappedLocalName(originalName, context);
-  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
-  const memberType = members[matchingIndex];
-  if (!memberType) return undefined;
-  const narrowedMap = buildRenameNarrowedMap(
-    originalName,
-    narrowedName,
-    memberType,
-    unionSourceType,
-    ctxWithId
-  );
+  if (binding.kind === "runtimeSubset") {
+    return binding.storageExprAst;
+  }
 
-  return {
-    originalName,
-    propertyName,
-    memberN,
-    unionArity,
-    runtimeUnionArity,
-    candidateMemberNs,
-    candidateMembers: members,
-    ctxWithId,
-    narrowedName,
-    escapedOrig,
-    escapedNarrow,
-    narrowedMap,
-  };
+  if (binding.kind !== "expr") {
+    return undefined;
+  }
+
+  if (binding.type && willCarryAsRuntimeUnion(binding.type, context)) {
+    return binding.exprAst;
+  }
+
+  if (
+    binding.carrierExprAst &&
+    binding.carrierType &&
+    willCarryAsRuntimeUnion(binding.carrierType, context)
+  ) {
+    return binding.carrierExprAst;
+  }
+
+  if (
+    binding.carrierExprAst &&
+    binding.sourceType &&
+    willCarryAsRuntimeUnion(binding.sourceType, context)
+  ) {
+    return binding.carrierExprAst;
+  }
+
+  return undefined;
 };
 
 /**
@@ -202,13 +169,21 @@ export const tryResolvePredicateGuard = (
     memberN ?? "subset",
     nextId
   );
-  const rawContext = withoutNarrowedBinding(context, originalName);
-  const [argAst] = emitExpressionAst(target, rawContext, unionSourceType);
-  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const currentSubsetBinding = context.narrowedBindings?.get(originalName);
+  const rawContext = withoutNarrowedBinding(context, originalName);
+  const existingReceiverAst =
+    target.kind === "identifier"
+      ? getPredicateReceiverAstFromExistingBinding(
+          currentSubsetBinding,
+          context
+        )
+      : undefined;
+  const [argAst] = existingReceiverAst
+    ? ([existingReceiverAst, context] as const)
+    : emitExpressionAst(target, rawContext, unionSourceType);
+  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const sourceType =
-    currentSubsetBinding?.sourceType ??
-    currentSubsetBinding?.type ??
+    getRuntimeCarrierBindingType(currentSubsetBinding, context) ??
     buildSubsetUnionType(frame.members) ??
     unionSourceType;
   const narrowedMap = buildRenameNarrowedMap(
@@ -322,17 +297,17 @@ export const tryResolveInstanceofGuard = (
     condition.right.inferredType
   );
   let rhsTypeAst: CSharpTypeAst | undefined;
-  let ctxAfterRhs = rhsCtxAfterExpr;
+  let ctxAfterRhs = preserveIncomingNarrowedBindings(context, rhsCtxAfterExpr);
 
   if (rhsAst.kind === "typeReferenceExpression") {
     rhsTypeAst = rhsAst.type;
   } else if (inferredRhsType) {
     const [emittedTypeAst, nextCtx] = emitTypeAst(
       inferredRhsType,
-      rhsCtxAfterExpr
+      ctxAfterRhs
     );
     rhsTypeAst = emittedTypeAst;
-    ctxAfterRhs = nextCtx;
+    ctxAfterRhs = preserveIncomingNarrowedBindings(context, nextCtx);
   }
 
   if (!rhsTypeAst) {

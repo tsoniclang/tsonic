@@ -3,11 +3,7 @@
  * Handles the main emitCallArguments function and function-value call argument emission.
  */
 
-import {
-  IrExpression,
-  IrType,
-  IrParameter,
-} from "@tsonic/frontend";
+import { IrExpression, IrType, IrParameter } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -19,7 +15,10 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
-import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
+import {
+  extractCalleeNameFromAst,
+  sameTypeAstSurface,
+} from "../../core/format/backend-ast/utils.js";
 import {
   resolveEffectiveExpressionType,
   resolveRuntimeSubsetMemberNs,
@@ -42,7 +41,7 @@ import {
   resolveEmptyArrayLiteralContextType,
 } from "../../core/semantic/array-expected-types.js";
 import { resolveRuntimeMaterializationTargetType } from "../../core/semantic/runtime-materialization-targets.js";
-import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
+import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
 import { runtimeUnionMemberCanAcceptValue } from "../../core/semantic/runtime-union-matching.js";
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
@@ -51,7 +50,10 @@ import {
   tryContextualTypeIdentityKey,
 } from "../../core/semantic/deterministic-type-keys.js";
 import { unwrapTransparentExpression } from "../../core/semantic/transparent-expressions.js";
-import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
+import {
+  buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+} from "../../core/semantic/runtime-unions.js";
 import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-union-alias-identity.js";
 import { getPassingModifierFromCast, isLValue } from "./call-analysis.js";
 import {
@@ -322,6 +324,58 @@ const resolveCarrierPassThroughArgumentType = (
   return resolveCarrierPreservingSourceType(carrierType, expectedType, context);
 };
 
+const tryEmitSelectedRuntimeCarrierSourceAst = (opts: {
+  readonly arg: IrExpression;
+  readonly expectedType: IrType | undefined;
+  readonly selectedSourceMemberNs: ReadonlySet<number> | undefined;
+  readonly context: EmitterContext;
+}):
+  | {
+      readonly ast: CSharpExpressionAst;
+      readonly context: EmitterContext;
+      readonly actualType: IrType;
+    }
+  | undefined => {
+  const { arg, expectedType, selectedSourceMemberNs, context } = opts;
+  if (
+    !expectedType ||
+    !selectedSourceMemberNs ||
+    selectedSourceMemberNs.size === 0 ||
+    !willCarryAsRuntimeUnion(expectedType, context)
+  ) {
+    return undefined;
+  }
+
+  const narrowedMemberNs = resolveRuntimeSubsetMemberNs(arg, context);
+  if (
+    !narrowedMemberNs ||
+    !intersectSelectedSourceMemberNs(narrowedMemberNs, selectedSourceMemberNs)
+  ) {
+    return undefined;
+  }
+
+  const carrierAst = resolveRuntimeCarrierCompatibleExpressionAst({
+    expr: arg,
+    context,
+  });
+  const carrierType =
+    resolveRuntimeCarrierCompatibleIrType({ expr: arg, context }) ??
+    resolveDirectStorageCompatibleIrType({ expr: arg, context });
+  if (
+    !carrierAst ||
+    !carrierType ||
+    !willCarryAsRuntimeUnion(stripNullish(carrierType), context)
+  ) {
+    return undefined;
+  }
+
+  return {
+    ast: carrierAst,
+    context,
+    actualType: carrierType,
+  };
+};
+
 const resolveContextualAdaptedArgumentType = (
   valueAst: CSharpExpressionAst,
   contextualExpectedType: IrType | undefined,
@@ -398,11 +452,7 @@ const resolveExactRawEmittedExpectedType = (opts: {
     !adaptationExpectedType ||
     !rawEmitExpectedType ||
     (arg.kind !== "call" && arg.kind !== "new") ||
-    !areIrTypesEquivalent(
-      rawEmitExpectedType,
-      adaptationExpectedType,
-      context
-    )
+    !areIrTypesEquivalent(rawEmitExpectedType, adaptationExpectedType, context)
   ) {
     return undefined;
   }
@@ -532,7 +582,9 @@ const surfaceUnionMemberContainsSelectedType = (
   const selectedComparable = resolveComparableType(resolvedSelected, context);
   const matchesMember = (candidate: IrType): boolean => {
     const candidateComparable = resolveComparableType(candidate, context);
-    if (areIrTypesEquivalent(candidateComparable, selectedComparable, context)) {
+    if (
+      areIrTypesEquivalent(candidateComparable, selectedComparable, context)
+    ) {
       return true;
     }
 
@@ -756,6 +808,72 @@ const intersectSelectedSourceMemberNs = (
     Array.from(left).filter((memberN) => right.has(memberN))
   );
   return intersection.size > 0 ? intersection : undefined;
+};
+
+const runtimeUnionCarrierSurfacesDiffer = (
+  actualType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!actualType || !expectedType) {
+    return false;
+  }
+
+  const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
+    stripNullish(actualType),
+    context,
+    emitTypeAst
+  );
+  const [expectedLayout] = buildRuntimeUnionLayout(
+    stripNullish(expectedType),
+    actualLayoutContext,
+    emitTypeAst
+  );
+  if (!actualLayout || !expectedLayout) {
+    return false;
+  }
+
+  return !sameTypeAstSurface(
+    buildRuntimeUnionTypeAst(actualLayout),
+    buildRuntimeUnionTypeAst(expectedLayout)
+  );
+};
+
+const shouldSkipRuntimeUnionArgumentMaterialization = (opts: {
+  readonly carrierPassThroughArgumentType: IrType | undefined;
+  readonly carrierPassThroughType: IrType | undefined;
+  readonly exactFinalExpectedArgumentType: IrType | undefined;
+  readonly materializationActualArgumentType: IrType | undefined;
+  readonly adaptationExpectedType: IrType | undefined;
+  readonly context: EmitterContext;
+}): boolean => {
+  const {
+    carrierPassThroughArgumentType,
+    carrierPassThroughType,
+    exactFinalExpectedArgumentType,
+    materializationActualArgumentType,
+    adaptationExpectedType,
+    context,
+  } = opts;
+  if (exactFinalExpectedArgumentType) {
+    return !runtimeUnionCarrierSurfacesDiffer(
+      materializationActualArgumentType,
+      adaptationExpectedType,
+      context
+    );
+  }
+
+  const passThroughType =
+    carrierPassThroughArgumentType ?? carrierPassThroughType;
+  if (!passThroughType) {
+    return false;
+  }
+
+  return !runtimeUnionCarrierSurfacesDiffer(
+    passThroughType,
+    adaptationExpectedType,
+    context
+  );
 };
 
 const resolveSelectedSourceMemberNs = (
@@ -1194,6 +1312,22 @@ const selectCollectionMaterializationActualArgumentType = (opts: {
     return selectedActualType;
   }
 
+  if (
+    selectedActualType &&
+    (runtimeUnionAliasReferencesMatch(
+      selectedActualType,
+      expectedType,
+      context
+    ) ||
+      resolveCarrierPreservingSourceType(
+        selectedActualType,
+        expectedType,
+        context
+      ))
+  ) {
+    return selectedActualType;
+  }
+
   const sourceBackedReturnType =
     arg.kind === "call" || arg.kind === "new"
       ? arg.sourceBackedReturnType
@@ -1278,9 +1412,10 @@ const selectNumericCastExpectedType = (
   context: EmitterContext,
   actualType?: IrType
 ): IrType | undefined => {
-  const numericCandidates = candidates.filter((candidate) =>
-    isExpectedIntegralIrType(candidate, context) ||
-    isExpectedJsNumberIrType(candidate, context)
+  const numericCandidates = candidates.filter(
+    (candidate) =>
+      isExpectedIntegralIrType(candidate, context) ||
+      isExpectedJsNumberIrType(candidate, context)
   );
   if (actualType && hasRuntimeNullishSurface(actualType)) {
     const nullishCandidate = numericCandidates.find(
@@ -1702,7 +1837,10 @@ const findMemberBindingExpectedType = (
 
   const uniqueParameterTypes = new Map<string, IrType>();
   for (const parameterType of matchingParameterTypes) {
-    const key = tryContextualTypeIdentityKey(stripNullish(parameterType), context);
+    const key = tryContextualTypeIdentityKey(
+      stripNullish(parameterType),
+      context
+    );
     if (!key) {
       return undefined;
     }
@@ -1739,7 +1877,10 @@ const findMemberBindingExpectedType = (
     if (!isNumericBindingParameterType(parameterType, context)) {
       continue;
     }
-    const key = tryContextualTypeIdentityKey(stripNullish(parameterType), context);
+    const key = tryContextualTypeIdentityKey(
+      stripNullish(parameterType),
+      context
+    );
     if (!key) {
       return undefined;
     }
@@ -2213,6 +2354,13 @@ const emitFunctionValueCallArguments = (
         expectedType: adaptationExpectedType,
         context: currentContext,
       });
+      const selectedCarrierSourceArgument =
+        tryEmitSelectedRuntimeCarrierSourceAst({
+          arg,
+          expectedType: adaptationExpectedType,
+          selectedSourceMemberNs,
+          context: currentContext,
+        });
       const concreteArrayLiteralRawExpectedType =
         arg.kind === "array"
           ? resolveConcreteArrayLiteralContextType(
@@ -2220,14 +2368,19 @@ const emitFunctionValueCallArguments = (
                 adaptationExpectedType ??
                 finalExpectedType ??
                 contextualExpectedType ??
-              selectedExpectedType ??
-              surfaceParameterType,
+                selectedExpectedType ??
+                surfaceParameterType,
               currentContext,
               arg.elements.length === 0
             )
           : undefined;
       const [rawArgAst, rawArgCtx] = carrierPassThroughArgument
         ? [carrierPassThroughArgument.ast, carrierPassThroughArgument.context]
+        : selectedCarrierSourceArgument
+          ? [
+              selectedCarrierSourceArgument.ast,
+              selectedCarrierSourceArgument.context,
+            ]
         : emitExpressionAst(
             arg,
             currentContext,
@@ -2271,6 +2424,7 @@ const emitFunctionValueCallArguments = (
         postEmitEffectiveArgumentType ?? preEmitActualArgumentType;
       const actualArgumentType =
         carrierPassThroughArgument?.actualType ??
+        selectedCarrierSourceArgument?.actualType ??
         selectAdaptationActualArgumentType({
           carrierPassThroughType,
           exactFinalExpectedArgumentType,
@@ -2293,10 +2447,17 @@ const emitFunctionValueCallArguments = (
           expectedType: adaptationExpectedType,
           context: rawArgCtx,
         });
+      const skipRuntimeUnionArgumentMaterialization =
+        shouldSkipRuntimeUnionArgumentMaterialization({
+          carrierPassThroughArgumentType: carrierPassThroughArgument?.actualType,
+          carrierPassThroughType,
+          exactFinalExpectedArgumentType,
+          materializationActualArgumentType,
+          adaptationExpectedType,
+          context: rawArgCtx,
+        });
       const [materializedArgAst, materializedArgCtx] =
-        carrierPassThroughArgument ||
-        carrierPassThroughType ||
-        exactFinalExpectedArgumentType
+        skipRuntimeUnionArgumentMaterialization
           ? [rawArgAst, rawArgCtx]
           : (adaptValueToExpectedTypeAst({
               valueAst: rawArgAst,
@@ -2309,7 +2470,8 @@ const emitFunctionValueCallArguments = (
         selectPostMaterializationNumericCastArgumentType({
           rawArgAst,
           materializedArgAst,
-          carrierPassThroughArgumentType: carrierPassThroughArgument?.actualType,
+          carrierPassThroughArgumentType:
+            carrierPassThroughArgument?.actualType,
           carrierPassThroughType,
           exactFinalExpectedArgumentType,
           adaptationExpectedType,
@@ -2490,6 +2652,21 @@ const selectDeterministicUnionParameterMember = (
     resolveEffectiveExpressionType(arg, context) ??
     arg.inferredType;
   if (!actualType) {
+    return expectedType;
+  }
+
+  if (
+    runtimeUnionAliasReferencesMatch(actualType, expectedType, context) ||
+    (arg.kind === "identifier" &&
+      (() => {
+        const narrowed = context.narrowedBindings?.get(arg.name);
+        return (
+          narrowed?.kind === "expr" &&
+          narrowed.type !== undefined &&
+          runtimeUnionAliasReferencesMatch(narrowed.type, expectedType, context)
+        );
+      })())
+  ) {
     return expectedType;
   }
 
@@ -2941,7 +3118,8 @@ const emitCallArguments = (
       surfaceParameterType,
       currentContext
     );
-    const selectedSourceMemberNs = resolveSurfaceSelectedSourceMemberNs(
+    const selectedSourceMemberNs = resolveSelectedSourceMemberNs(
+      arg,
       expectedType,
       finalExpectedType,
       surfaceParameterType,
@@ -2979,7 +3157,6 @@ const emitCallArguments = (
       })
         ? undefined
         : rawEmitExpectedTypeCandidate;
-
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
         arg.expression,
@@ -3017,6 +3194,13 @@ const emitCallArguments = (
             expectedType: adaptationExpectedType,
             context: currentContext,
           });
+        const selectedCarrierSourceArgument =
+          tryEmitSelectedRuntimeCarrierSourceAst({
+            arg,
+            expectedType: adaptationExpectedType,
+            selectedSourceMemberNs,
+            context: currentContext,
+          });
         const concreteArrayLiteralRawExpectedType =
           arg.kind === "array"
             ? resolveConcreteArrayLiteralContextType(
@@ -3032,6 +3216,11 @@ const emitCallArguments = (
             : undefined;
         const [rawArgAst, emittedContext] = carrierPassThroughArgument
           ? [carrierPassThroughArgument.ast, carrierPassThroughArgument.context]
+          : selectedCarrierSourceArgument
+            ? [
+                selectedCarrierSourceArgument.ast,
+                selectedCarrierSourceArgument.context,
+              ]
           : emitExpressionAst(
               arg,
               currentContext,
@@ -3076,6 +3265,7 @@ const emitCallArguments = (
           postEmitEffectiveArgumentType ?? preEmitEffectiveArgumentType;
         const actualArgumentType =
           carrierPassThroughArgument?.actualType ??
+          selectedCarrierSourceArgument?.actualType ??
           selectAdaptationActualArgumentType({
             carrierPassThroughType,
             exactFinalExpectedArgumentType,
@@ -3087,6 +3277,7 @@ const emitCallArguments = (
             ),
             effectiveArgumentType,
             inferredArgumentType: arg.inferredType,
+            selectedSourceMemberNs,
             context: emittedContext,
           });
         const materializationActualArgumentType =
@@ -3097,10 +3288,18 @@ const emitCallArguments = (
             expectedType: adaptationExpectedType,
             context: emittedContext,
           });
+        const skipRuntimeUnionArgumentMaterialization =
+          shouldSkipRuntimeUnionArgumentMaterialization({
+            carrierPassThroughArgumentType:
+            carrierPassThroughArgument?.actualType,
+            carrierPassThroughType,
+            exactFinalExpectedArgumentType,
+            materializationActualArgumentType,
+            adaptationExpectedType,
+            context: emittedContext,
+          });
         const [materializedArgAst, materializedContext] =
-          carrierPassThroughArgument ||
-          carrierPassThroughType ||
-          exactFinalExpectedArgumentType
+          skipRuntimeUnionArgumentMaterialization
             ? [rawArgAst, emittedContext]
             : (adaptValueToExpectedTypeAst({
                 valueAst: rawArgAst,

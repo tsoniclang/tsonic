@@ -131,7 +131,7 @@ describe("IR Builder", function () {
     it("threads generic asserted array targets into empty array literals", () => {
       const source = `
         export class Box<T> {
-          public items: Array<T | null> = [] as Array<T | null>;
+          items: Array<T | null> = [] as Array<T | null>;
         }
       `;
 
@@ -243,19 +243,22 @@ describe("IR Builder", function () {
     it("preserves generic constructor inference for nested callback and promise sites through refresh passes", () => {
       const source = `
         export class IntervalIterationResult<T> {
-          public constructor(
-            public readonly done: boolean,
-            public readonly value: T | undefined
-          ) {}
+          done: boolean;
+          value: T | undefined;
+
+          constructor(done: boolean, value: T | undefined) {
+            this.done = done;
+            this.value = value;
+          }
         }
 
         export class IntervalAsyncIterator<T> {
-          public enqueue(value?: T): void {
+          enqueue(value?: T): void {
             const waiter: (result: IntervalIterationResult<T>) => void = () => {};
             waiter(new IntervalIterationResult(false, value));
           }
 
-          public next(value?: T): Promise<IntervalIterationResult<T>> {
+          next(value?: T): Promise<IntervalIterationResult<T>> {
             return Promise.resolve(new IntervalIterationResult(false, value));
           }
         }
@@ -336,25 +339,28 @@ describe("IR Builder", function () {
             import { Queue } from "@tsonic/dotnet/System.Collections.Generic.js";
 
             export class IntervalIterationResult<T> {
-              public constructor(
-                public readonly done: boolean,
-                public readonly value: T | undefined
-              ) {}
+              done: boolean;
+              value: T | undefined;
+
+              constructor(done: boolean, value: T | undefined) {
+                this.done = done;
+                this.value = value;
+              }
             }
 
             export class IntervalAsyncIterator<T> {
-              private readonly waiters: Queue<
+              #waiters: Queue<
                 (result: IntervalIterationResult<T>) => void
               > = new Queue<(result: IntervalIterationResult<T>) => void>();
 
-              public enqueue(value?: T): void {
-                if (this.waiters.Count > 0) {
-                  const waiter = this.waiters.Dequeue();
+              enqueue(value?: T): void {
+                if (this.#waiters.Count > 0) {
+                  const waiter = this.#waiters.Dequeue();
                   waiter(new IntervalIterationResult(false, value));
                 }
               }
 
-              public next(value?: T): Promise<IntervalIterationResult<T>> {
+              next(value?: T): Promise<IntervalIterationResult<T>> {
                 return Promise.resolve(new IntervalIterationResult(false, value));
               }
             }
@@ -470,10 +476,10 @@ describe("IR Builder", function () {
         }
 
         export class Map<K, V> {
-          private readonly entriesStore = new Store<K, V>();
+          #entriesStore = new Store<K, V>();
 
-          public set(key: K, value: V): this {
-            this.entriesStore.Add({ key, value });
+          set(key: K, value: V): this {
+            this.#entriesStore.Add({ key, value });
             return this;
           }
         }
@@ -691,7 +697,7 @@ describe("IR Builder", function () {
           {
             "src/stream/readable.ts": `
             export class Readable {
-              public on(eventName: string): void {}
+              on(eventName: string): void {}
             }
           `,
             "src/child_process/child-process.ts": `
@@ -701,7 +707,7 @@ describe("IR Builder", function () {
             import type { Readable } from "../stream/readable.ts";
 
             export class Interface {
-              private _input: Readable | undefined;
+              #input: Readable | undefined;
             }
           `,
           },
@@ -726,7 +732,7 @@ describe("IR Builder", function () {
           ): member is Extract<
             (typeof iface.members)[number],
             { kind: "propertyDeclaration" }
-          > => member.kind === "propertyDeclaration" && member.name === "_input"
+          > => member.kind === "propertyDeclaration" && member.name === "#input"
         );
         expect(input).to.not.equal(undefined);
         if (!input || !input.type || input.type.kind !== "unionType") return;

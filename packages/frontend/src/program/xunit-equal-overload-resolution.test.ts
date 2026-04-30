@@ -167,26 +167,6 @@ const expectEqualCallTypes = (
 describe("Dependency Graph", function () {
   this.timeout(60_000);
 
-  it("widens generic xunit equality to object in the full dependency graph when later arguments are JsValue", () => {
-    const { fixture, result } = buildFixtureGraph("scalar-jsvalue-instance");
-
-    try {
-      expectGraphSuccess(result);
-      if (!result.ok) {
-        return;
-      }
-
-      const callStatement = expectRunEqualCall(result.value.modules);
-      if (!callStatement) {
-        return;
-      }
-
-      expectEqualCallTypes(callStatement, ["object", "object"]);
-    } finally {
-      fixture.cleanup();
-    }
-  });
-
   it("keeps string equality overloads in the full dependency graph when char aliases flow into string surfaces", () => {
     const { fixture, result } = buildFixtureGraph("char-string-instance");
 
@@ -202,68 +182,6 @@ describe("Dependency Graph", function () {
       }
 
       expectEqualCallTypes(callStatement, ["string", "string"]);
-    } finally {
-      fixture.cleanup();
-    }
-  });
-
-  it("widens generic xunit class equality to object through facade re-exports when later arguments are JsValue", () => {
-    const { fixture, result } = buildFixtureGraph(
-      "scalar-jsvalue-class-reexport"
-    );
-
-    try {
-      expectGraphSuccess(result);
-      if (!result.ok) {
-        return;
-      }
-
-      const callStatement = expectRunEqualCall(result.value.modules);
-      if (!callStatement) {
-        return;
-      }
-
-      expectEqualCallTypes(callStatement, ["object", "object"]);
-    } finally {
-      fixture.cleanup();
-    }
-  });
-
-  it("widens generic numeric equality to object when later arguments are JsValue over real xunit overloads", () => {
-    const { fixture, result } = buildFixtureGraph("numeric-jsvalue");
-
-    try {
-      expectGraphSuccess(result);
-      if (!result.ok) {
-        return;
-      }
-
-      const callStatement = expectRunEqualCall(result.value.modules);
-      if (!callStatement) {
-        return;
-      }
-
-      expectEqualCallTypes(callStatement, ["object", "object"]);
-    } finally {
-      fixture.cleanup();
-    }
-  });
-
-  it("preserves explicit JsValue storage as object across callback writes for later xunit equality", () => {
-    const { fixture, result } = buildFixtureGraph("callback-jsvalue");
-
-    try {
-      expectGraphSuccess(result);
-      if (!result.ok) {
-        return;
-      }
-
-      const callStatement = expectRunEqualCall(result.value.modules);
-      if (!callStatement) {
-        return;
-      }
-
-      expectEqualCallTypes(callStatement, ["object", "object"]);
     } finally {
       fixture.cleanup();
     }

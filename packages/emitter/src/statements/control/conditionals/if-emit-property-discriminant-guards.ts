@@ -40,7 +40,11 @@ const buildRuntimeUnionPropertyTruthinessCondition = (
   unionArity: number,
   context: EmitterContext
 ): CSharpExpressionAst => {
-  const emittedPropertyName = emitCSharpName(propertyName, "properties", context);
+  const emittedPropertyName = emitCSharpName(
+    propertyName,
+    "properties",
+    context
+  );
   const matchAst = buildRuntimeUnionMatchAst(
     toReceiverAst(receiver),
     Array.from({ length: unionArity }, (_, index) => {
@@ -96,7 +100,9 @@ export const tryEmitPropertyTruthinessGuard = (
   if (
     runtimeUnionArity !== unionArity ||
     candidateMemberNs.length !== unionArity ||
-    !candidateMemberNs.every((candidateMemberN, index) => candidateMemberN === index + 1)
+    !candidateMemberNs.every(
+      (candidateMemberN, index) => candidateMemberN === index + 1
+    )
   ) {
     return undefined;
   }
@@ -532,7 +538,7 @@ export const tryEmitNegatedPredicateGuard = (
       kind: "rename",
       name: thenNarrowedName,
       type: otherMemberType,
-      sourceType: buildSubsetUnionType(candidateMembers),
+      sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
     });
 
     const thenCastStmt = buildCastLocalDecl(
@@ -540,11 +546,20 @@ export const tryEmitNegatedPredicateGuard = (
       receiverAst,
       otherMemberN
     );
+    const thenLocalValueTypes = new Map(thenCtxWithId.localValueTypes ?? []);
+    thenLocalValueTypes.set(thenNarrowedName, otherMemberType);
+    if (escapedThenNarrow !== thenNarrowedName) {
+      thenLocalValueTypes.set(escapedThenNarrow, otherMemberType);
+    }
 
     const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(
       [thenCastStmt],
       thenStatement,
-      { ...thenCtxWithId, narrowedBindings: thenNarrowedMap }
+      {
+        ...thenCtxWithId,
+        localValueTypes: thenLocalValueTypes,
+        narrowedBindings: thenNarrowedMap,
+      }
     );
     thenStmt = thenBlock;
     thenCtx = thenBlockCtx;

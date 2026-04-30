@@ -108,7 +108,8 @@ describe("type-equivalence", () => {
     const left: IrType = {
       kind: "referenceType",
       name: "Dictionary",
-      resolvedClrType: "global::System.Collections.Generic.Dictionary<string, int>",
+      resolvedClrType:
+        "global::System.Collections.Generic.Dictionary<string, int>",
       typeArguments: [
         { kind: "primitiveType", name: "string" },
         { kind: "primitiveType", name: "int" },
@@ -154,11 +155,7 @@ describe("type-equivalence", () => {
     };
 
     expect(
-      areIrTypesEquivalent(
-        narrowedBranchType,
-        sourceBackedBranchType,
-        context
-      )
+      areIrTypesEquivalent(narrowedBranchType, sourceBackedBranchType, context)
     ).to.equal(true);
   });
 
@@ -412,7 +409,47 @@ describe("type-equivalence", () => {
       ],
     };
 
-    expect(() => areIrTypesEquivalent(left, right, recursiveContext)).to.not.throw();
+    expect(() =>
+      areIrTypesEquivalent(left, right, recursiveContext)
+    ).to.not.throw();
     expect(areIrTypesEquivalent(left, right, recursiveContext)).to.equal(true);
+  });
+
+  it("compares runtime-union alias references against their carrier union by deterministic carrier identity", () => {
+    const aliasTarget: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+      ],
+      preserveRuntimeLayout: true,
+      runtimeCarrierFamilyKey: "Test.Result",
+      runtimeCarrierName: "Result",
+      runtimeCarrierNamespace: "Test",
+      runtimeCarrierTypeParameters: ["T"],
+      runtimeCarrierTypeArguments: [{ kind: "primitiveType", name: "boolean" }],
+    };
+    const aliasContext: EmitterContext = {
+      ...createContext({ rootNamespace: "Test" }),
+      localTypes: new Map([
+        [
+          "Result",
+          {
+            kind: "typeAlias",
+            typeParameters: ["T"],
+            type: aliasTarget,
+          },
+        ],
+      ]),
+    };
+    const aliasRef: IrType = {
+      kind: "referenceType",
+      name: "Result",
+      typeArguments: [{ kind: "primitiveType", name: "boolean" }],
+    };
+
+    expect(areIrTypesEquivalent(aliasRef, aliasTarget, aliasContext)).to.equal(
+      true
+    );
   });
 });

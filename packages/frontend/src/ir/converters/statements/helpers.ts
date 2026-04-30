@@ -259,15 +259,7 @@ export const hasReadonlyModifier = (node: ts.Node): boolean => {
   );
 };
 
-/**
- * Get accessibility modifier
- */
 export const getAccessibility = (node: ts.Node): IrAccessibility => {
-  if (!ts.canHaveModifiers(node)) return "public";
-  const modifiers = ts.getModifiers(node);
-  if (modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword))
-    return "private";
-  if (modifiers?.some((m) => m.kind === ts.SyntaxKind.ProtectedKeyword))
-    return "protected";
+  void node;
   return "public";
 };

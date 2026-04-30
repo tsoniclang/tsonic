@@ -91,6 +91,7 @@ type FunctionUpdate = {
 type MethodUpdate = {
   readonly overloadFamily: NonNullable<IrMethodDeclaration["overloadFamily"]>;
   readonly accessibility: IrMethodDeclaration["accessibility"];
+  readonly isOverride?: boolean;
 };
 
 type CollectedOverloads = {
@@ -1507,6 +1508,9 @@ const collectModuleOverloads = (
       }),
       accessibility:
         activeFamilyState.implementationStub.declaration.accessibility,
+      isOverride:
+        activeFamilyState.publicSignatures[signatureIndex]?.declaration
+          .isOverride || undefined,
     });
     classMethodUpdates.set(classEntry.index, updates);
   }
@@ -1622,6 +1626,8 @@ const rebuildModule = (
             ...member,
             overloadFamily: update.overloadFamily,
             accessibility: update.accessibility,
+            isOverride: update.isOverride ?? member.isOverride,
+            isShadow: update.isOverride ? undefined : member.isShadow,
           };
         });
 

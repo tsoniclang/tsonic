@@ -126,6 +126,8 @@ export type IrObjectExpression = {
   readonly contextualType?: IrType;
   /** True if this object literal contains spread expressions (for IIFE lowering) */
   readonly hasSpreads?: boolean;
+  /** True when this literal must emit as a C# anonymous object expression. */
+  readonly emitAsAnonymousObject?: boolean;
 };
 
 export type IrObjectProperty =
@@ -281,11 +283,6 @@ export type IrCallExpression = {
     readonly argIndex: number; // which argument is being narrowed
     readonly targetType: IrType; // the asserted type
   };
-  /**
-   * Closed-world local dynamic import namespace object for `import("./local.js")`.
-   * When present, the emitter lowers the call to `Task<namespaceObject>`.
-   */
-  readonly dynamicImportNamespace?: IrObjectExpression;
 };
 
 export type IrNewExpression = {

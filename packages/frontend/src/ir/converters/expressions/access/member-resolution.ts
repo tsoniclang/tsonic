@@ -13,6 +13,7 @@ import {
 import type { ProgramContext } from "../../../program-context.js";
 import type { BindingInternal } from "../../../binding/index.js";
 import { getNumericKindFromIrType } from "../../../type-system/inference-utilities.js";
+import { surfaceIncludesJs } from "../../../../surface/profiles.js";
 
 const memberHasExplicitUnknownAnnotation = (
   node: ts.PropertyAccessExpression,
@@ -221,10 +222,6 @@ export const hasDeclaredMemberByName = (
   ctx: ProgramContext
 ): boolean => {
   if (!receiverIrType || receiverIrType.kind === "unknownType") return false;
-
-  if (receiverIrType.kind === "dictionaryType") {
-    return true;
-  }
 
   if (receiverIrType.kind === "objectType") {
     return receiverIrType.members.some(
@@ -704,12 +701,6 @@ export const extractTypeName = (
     return "Array";
   }
 
-  // Treat tuples as Array for binding lookup as well. They lower to runtime
-  // JS arrays for member resolution and must preserve the same Array surface.
-  if (inferredType.kind === "tupleType") {
-    return "Array";
-  }
-
   // Handle intersection types: TypeName$instance & __TypeName$views
   // This happens when TypeScript expands a type alias to its underlying intersection
   // during property access (e.g., listener.prefixes returns HttpListenerPrefixCollection
@@ -792,8 +783,10 @@ export const deriveElementType = (
   }
 
   if (objectType.kind === "primitiveType" && objectType.name === "string") {
-    // string[n] returns a single character (string in TS, char in C#)
-    return { kind: "primitiveType", name: "string" };
+    return {
+      kind: "primitiveType",
+      name: surfaceIncludesJs(ctx.surfaceCapabilities) ? "string" : "char",
+    };
   }
 
   if (

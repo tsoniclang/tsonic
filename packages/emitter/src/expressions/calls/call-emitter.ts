@@ -2,7 +2,7 @@
  * Call expression emitter — main dispatch and orchestration.
  *
  * Routes call expressions to specialized emitters (promise, array interop,
- * dynamic import, JSON, extension methods) and handles the default regular-call path.
+ * JSON, extension methods) and handles the default regular-call path.
  *
  * Extension method lowering lives in:
  *   - call-extension-methods.ts
@@ -34,8 +34,10 @@ import {
 } from "../../core/format/backend-ast/builders.js";
 import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
 import { resolveStructuralViewMethodSurface } from "../../core/semantic/structural-view-types.js";
-// Import from split modules
-import { emitDynamicImportCall } from "./call-dynamic-import.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import { emitJsonSerializerCall, emitGlobalJsonCall } from "./call-json.js";
 import { emitGlobalSymbolCall } from "./call-symbol.js";
 import {
@@ -350,6 +352,85 @@ const emitSyntheticArraySliceCall = (
   ];
 };
 
+const emitObjectDictionaryStaticCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    expr.callee.kind !== "memberAccess" ||
+    expr.callee.object.kind !== "identifier" ||
+    expr.callee.object.name !== "Object" ||
+    typeof expr.callee.property !== "string" ||
+    expr.arguments.length !== 1
+  ) {
+    return undefined;
+  }
+
+  const memberName = expr.callee.property;
+  if (memberName !== "keys" && memberName !== "values") {
+    return undefined;
+  }
+
+  const argument = expr.arguments[0];
+  if (!argument || argument.kind === "spread") {
+    return undefined;
+  }
+  if (!argument.inferredType) {
+    return undefined;
+  }
+
+  const argumentType = resolveTypeAlias(
+    stripNullish(argument.inferredType),
+    context
+  );
+  if (argumentType.kind !== "dictionaryType") {
+    return undefined;
+  }
+
+  let currentContext = context;
+  const [dictionaryAst, dictionaryContext] = emitExpressionAst(
+    argument,
+    currentContext
+  );
+  currentContext = dictionaryContext;
+
+  const elementType =
+    memberName === "keys" ? argumentType.keyType : argumentType.valueType;
+  const [elementTypeAst, elementTypeContext] = emitTypeAst(
+    elementType,
+    currentContext
+  );
+  currentContext = elementTypeContext;
+
+  const listTypeAst = identifierType(
+    "global::System.Collections.Generic.List",
+    [elementTypeAst]
+  );
+  const collectionMemberAst: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: dictionaryAst,
+    memberName: memberName === "keys" ? "Keys" : "Values",
+  };
+  const listAst: CSharpExpressionAst = {
+    kind: "objectCreationExpression",
+    type: listTypeAst,
+    arguments: [collectionMemberAst],
+  };
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: listAst,
+        memberName: "ToArray",
+      },
+      arguments: [],
+    },
+    currentContext,
+  ];
+};
+
 /**
  * Emit a function call expression as CSharpExpressionAst
  */
@@ -368,8 +449,13 @@ export const emitCall = (
     return syntheticArraySlice;
   }
 
-  const dynamicImport = emitDynamicImportCall(normalizedExpr, context);
-  if (dynamicImport) return dynamicImport;
+  const objectDictionaryStaticCall = emitObjectDictionaryStaticCall(
+    normalizedExpr,
+    context
+  );
+  if (objectDictionaryStaticCall) {
+    return objectDictionaryStaticCall;
+  }
 
   const promiseStaticCall = emitPromiseStaticCall(
     normalizedExpr,

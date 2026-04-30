@@ -2,7 +2,10 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "@tsonic/frontend";
 import { createContext } from "../../emitter-types/context.js";
-import { decimalIntegerLiteral } from "../format/backend-ast/builders.js";
+import {
+  decimalIntegerLiteral,
+  identifierType,
+} from "../format/backend-ast/builders.js";
 import {
   resolveDirectRuntimeCarrierType,
   resolveDirectValueSurfaceType,
@@ -157,6 +160,82 @@ describe("direct-value-surfaces", () => {
     expect(resolveDirectValueSurfaceType(as1Ast, context)).to.equal(stringType);
     expect(resolveDirectRuntimeCarrierType(as1Ast, context)).to.equal(
       undefined
+    );
+  });
+
+  it("preserves emitted runtime-union cast member order as direct carrier identity", () => {
+    const middlewareParamType: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareParam",
+    };
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+    };
+    const context = createContext({ rootNamespace: "Test" });
+    const castAst = {
+      kind: "castExpression" as const,
+      type: identifierType("global::Tsonic.Internal.Union2_8F496C93", [
+        identifierType("MiddlewareParam"),
+        identifierType("Router"),
+      ]),
+      expression: { kind: "identifierExpression" as const, identifier: "x" },
+    };
+
+    const expectedCarrier: IrType = {
+      kind: "unionType",
+      types: [middlewareParamType, routerType],
+      preserveRuntimeLayout: true,
+    };
+
+    expect(resolveDirectValueSurfaceType(castAst, context)).to.deep.equal(
+      expectedCarrier
+    );
+    expect(resolveDirectRuntimeCarrierType(castAst, context)).to.deep.equal(
+      expectedCarrier
+    );
+  });
+
+  it("preserves emitted Match result runtime-union member order as direct carrier identity", () => {
+    const middlewareParamType: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareParam",
+    };
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+    };
+    const context = createContext({ rootNamespace: "Test" });
+    const matchAst = {
+      kind: "invocationExpression" as const,
+      expression: {
+        kind: "memberAccessExpression" as const,
+        expression: {
+          kind: "identifierExpression" as const,
+          identifier: "handler",
+        },
+        memberName: "Match",
+      },
+      typeArguments: [
+        identifierType("global::Tsonic.Internal.Union2_8F496C93", [
+          identifierType("MiddlewareParam"),
+          identifierType("Router"),
+        ]),
+      ],
+      arguments: [],
+    };
+
+    const expectedCarrier: IrType = {
+      kind: "unionType",
+      types: [middlewareParamType, routerType],
+      preserveRuntimeLayout: true,
+    };
+
+    expect(resolveDirectValueSurfaceType(matchAst, context)).to.deep.equal(
+      expectedCarrier
+    );
+    expect(resolveDirectRuntimeCarrierType(matchAst, context)).to.deep.equal(
+      expectedCarrier
     );
   });
 });

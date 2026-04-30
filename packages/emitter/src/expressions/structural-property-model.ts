@@ -53,12 +53,17 @@ const collectLocalStructuralProperties = (
     }
 
     case "class": {
-      if (info.members.some((member) => member.kind === "methodDeclaration")) {
+      if (
+        info.members.some(
+          (member) => member.kind === "methodDeclaration" && !member.isStatic
+        )
+      ) {
         return undefined;
       }
       const props: StructuralPropertyInfo[] = [];
       for (const member of info.members) {
         if (member.kind !== "propertyDeclaration") continue;
+        if (member.isStatic) continue;
         if (!member.type) return undefined;
         const isOptional = hasNullishBranch(member.type);
         props.push({
@@ -275,6 +280,10 @@ export const parseBindingPropertyType = (
   return { kind: "unknownType" };
 };
 
+const isStaticBindingMember = (
+  member: { readonly signature?: string }
+): boolean => member.signature?.includes("|static=true") === true;
+
 const collectBindingStructuralProperties = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
@@ -302,11 +311,14 @@ const collectBindingStructuralProperties = (
   for (const candidate of candidates) {
     const binding = registry.get(candidate);
     if (!binding) continue;
-    if (binding.members.some((member) => member.kind === "method")) {
+    const instanceMembers = binding.members.filter(
+      (member) => !isStaticBindingMember(member)
+    );
+    if (instanceMembers.some((member) => member.kind === "method")) {
       return undefined;
     }
 
-    const props = binding.members
+    const props = instanceMembers
       .filter(
         (
           member

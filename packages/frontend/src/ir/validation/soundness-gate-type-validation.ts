@@ -173,7 +173,7 @@ export const validateType = (
         break;
 
       case "unknownType":
-        if (options.allowRootUnknownType) {
+        if (type.explicit === true || options.allowRootUnknownType) {
           break;
         }
         ctx.diagnostics.push(
@@ -182,7 +182,7 @@ export const validateType = (
             "error",
             `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'unknown' which must have been eliminated before emission.`,
             moduleLocation(ctx),
-            "Replace explicit 'unknown' with a concrete type or JsValue, and ensure unresolved placeholder types are eliminated before the soundness gate."
+            "Replace explicit 'unknown' with a concrete type, and ensure unresolved placeholder types are eliminated before the soundness gate."
           )
         );
         break;

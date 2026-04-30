@@ -1,8 +1,0 @@
-{
-  "$schema": "https://tsonic.org/schema/v1.json",
-  "rootNamespace": "DynamicImportNamespaceFunction",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "dynamic-import-namespace-function"
-}

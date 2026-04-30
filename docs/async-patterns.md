@@ -35,7 +35,8 @@ export async function loadText(path: string): Promise<string> {
   stable lowered shape
 - code relies on open-ended dynamic thenables instead of ordinary Promise-based
   flows
-- control flow depends on dynamic import or other non-closed-world edges
+- control flow depends on runtime shape inspection or other non-closed-world
+  edges
 
 ## Important rule
 
@@ -47,5 +48,6 @@ not keep implicit dynamic promise behavior just because TypeScript accepts it.
 - annotate return types on exported async functions
 - annotate callback returns when CLR overloads are involved
 - prefer normal `Promise<T>` flows over clever promise-like abstractions
+- keep module edges as static ESM imports
 - debug async failures the same way you debug any other lowering issue: reduce
   to a small repro and inspect the generated output

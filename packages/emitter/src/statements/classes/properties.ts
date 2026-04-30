@@ -43,7 +43,10 @@ export const emitInterfaceMemberAsProperty = (
             const typeAst: CSharpTypeAst = identifierType(typeName);
             return [typeAst, currentContext] as const;
           }
-          return emitTypeAst(normalizeValueSlotType(member.type), currentContext);
+          return emitTypeAst(
+            normalizeValueSlotType(member.type),
+            currentContext
+          );
         }
         const typeAst: CSharpTypeAst = identifierType("object");
         return [typeAst, currentContext] as const;

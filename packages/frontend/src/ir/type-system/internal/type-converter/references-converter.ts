@@ -177,6 +177,22 @@ export const convertTypeReference = (
         return shape ? convertType(shape, binding) : { kind: "unknownType" };
       }
 
+      const firstTypeArg = node.typeArguments?.[0];
+      const isConcreteClassReference =
+        declNode &&
+        (ts.isClassDeclaration(declNode) || ts.isClassExpression(declNode));
+      if (
+        !isConcreteClassReference &&
+        (typeName === "Array" || typeName === "ReadonlyArray") &&
+        firstTypeArg
+      ) {
+        return {
+          kind: "arrayType",
+          elementType: convertType(firstTypeArg, binding),
+          origin: "explicit",
+        };
+      }
+
       // Pure index-signature interface/type alias: treat as dictionaryType.
       const pureIndexSigDict = declNode
         ? tryConvertPureIndexSignatureToDictionary(

@@ -8,7 +8,6 @@
 
 export {
   tryEmitPredicateGuard,
-  tryEmitInGuard,
 } from "./if-emit-predicate-guards.js";
 
 export {

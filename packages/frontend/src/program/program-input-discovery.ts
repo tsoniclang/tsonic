@@ -340,9 +340,13 @@ export const discoverProgramInputs = (
   for (const typeRoot of resolvedRequestedTypeRoots) {
     const packageName = readPackageName(path.join(typeRoot, "package.json"));
     if (packageName && isExplicitAuthoritativePackageRoot(typeRoot)) {
-      authoritativeTsonicPackageRoots.set(packageName, typeRoot);
+      if (!authoritativeTsonicPackageRoots.has(packageName)) {
+        authoritativeTsonicPackageRoots.set(packageName, typeRoot);
+      }
       if (readSourcePackageMetadata(typeRoot)) {
-        activeAuthoritativeSourcePackageRoots.set(packageName, typeRoot);
+        if (!activeAuthoritativeSourcePackageRoots.has(packageName)) {
+          activeAuthoritativeSourcePackageRoots.set(packageName, typeRoot);
+        }
       }
     }
   }

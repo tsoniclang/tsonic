@@ -123,6 +123,7 @@ export const getExpressionPrecedence = (expr: CSharpExpressionAst): number => {
     case "implicitElementAccessExpression":
     case "invocationExpression":
     case "objectCreationExpression":
+    case "anonymousObjectCreationExpression":
     case "arrayCreationExpression":
     case "stackAllocArrayCreationExpression":
     case "defaultExpression":

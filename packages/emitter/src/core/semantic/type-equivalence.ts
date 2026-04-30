@@ -10,15 +10,14 @@ import {
   referenceTypesHaveNominalIdentity,
   referenceTypesShareNominalIdentity,
 } from "./reference-type-identity.js";
+import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
 
 const referenceTypeIdentity = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): string | undefined => getReferenceDeterministicIdentityKey(type);
 
 const buildTypePairKey = (leftKey: string, rightKey: string): string =>
-  leftKey <= rightKey
-    ? `${leftKey}=>${rightKey}`
-    : `${rightKey}=>${leftKey}`;
+  leftKey <= rightKey ? `${leftKey}=>${rightKey}` : `${rightKey}=>${leftKey}`;
 
 const coarseTypeEquivalenceIdentity = (type: IrType): string => {
   switch (type.kind) {
@@ -80,6 +79,10 @@ export const areIrTypesEquivalent = (
     return true;
   }
 
+  if (runtimeUnionAliasReferencesMatch(left, right, context)) {
+    return true;
+  }
+
   const rawPairKey = buildTypePairKey(
     coarseTypeEquivalenceIdentity(left),
     coarseTypeEquivalenceIdentity(right)
@@ -89,10 +92,7 @@ export const areIrTypesEquivalent = (
   }
   visitedPairs.add(rawPairKey);
 
-  if (
-    left.kind === "referenceType" &&
-    right.kind === "referenceType"
-  ) {
+  if (left.kind === "referenceType" && right.kind === "referenceType") {
     if (referenceTypesShareNominalIdentity(left, right, context)) {
       const leftArgs = left.typeArguments ?? [];
       const rightArgs = right.typeArguments ?? [];
@@ -153,7 +153,11 @@ export const areIrTypesEquivalent = (
       for (let i = 0; i < aArgs.length; i++) {
         const aa = aArgs[i];
         const bb = bArgs[i];
-        if (!aa || !bb || !areIrTypesEquivalent(aa, bb, context, visitedPairs)) {
+        if (
+          !aa ||
+          !bb ||
+          !areIrTypesEquivalent(aa, bb, context, visitedPairs)
+        ) {
           return false;
         }
       }
@@ -189,7 +193,11 @@ export const areIrTypesEquivalent = (
       for (let i = 0; i < a.elementTypes.length; i++) {
         const ae = a.elementTypes[i];
         const be = rb.elementTypes[i];
-        if (!ae || !be || !areIrTypesEquivalent(ae, be, context, visitedPairs)) {
+        if (
+          !ae ||
+          !be ||
+          !areIrTypesEquivalent(ae, be, context, visitedPairs)
+        ) {
           return false;
         }
       }
@@ -301,7 +309,9 @@ export const areIrTypesEquivalent = (
             if (!ap.type || !bp.type) {
               return false;
             }
-            if (!areIrTypesEquivalent(ap.type, bp.type, context, visitedPairs)) {
+            if (
+              !areIrTypesEquivalent(ap.type, bp.type, context, visitedPairs)
+            ) {
               return false;
             }
           }

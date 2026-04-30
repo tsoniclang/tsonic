@@ -377,13 +377,6 @@ export const processExpression = (
         arguments: expr.arguments.map((a: IrExpression) =>
           processExpression(a, ctx, processStmt)
         ),
-        dynamicImportNamespace: expr.dynamicImportNamespace
-          ? (processExpression(
-              expr.dynamicImportNamespace,
-              ctx,
-              processStmt
-            ) as typeof expr.dynamicImportNamespace)
-          : undefined,
       };
 
     case "new":

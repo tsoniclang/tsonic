@@ -14,15 +14,9 @@ export {
   isEqualityOperator,
   isInequalityOperator,
   makeTypeNarrowing,
-  extractArrayIsArrayTarget,
   tryResolveCallPredicateNarrowing,
   extractIdentifierPropertyAccess,
-  genericTypeofTarget,
-  matchesResolvedTypeofTag,
   filterTypeByResolvedCandidates,
-  narrowTypeByTypeofTag,
-  narrowTypeByNotTypeofTag,
-  tryResolveTypeofNarrowing,
 } from "./narrowing-resolvers-typeof.js";
 
 export type { EqualityLiteralTarget } from "./narrowing-resolvers-equality.js";

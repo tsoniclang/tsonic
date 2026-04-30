@@ -3,11 +3,15 @@
  * Handles Array.isArray guards and typeof guards.
  */
 
-import { IrStatement } from "@tsonic/frontend";
+import { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitTypeAst } from "../../../type-emitter.js";
-import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpStatementAst,
+  CSharpTypeAst,
+} from "../../../core/format/backend-ast/types.js";
 import { emitBooleanConditionAst } from "../../../core/semantic/boolean-context.js";
 import { applyConditionBranchNarrowing } from "../../../core/semantic/condition-branch-narrowing.js";
 import { currentNarrowedType } from "../../../core/semantic/narrowing-builders.js";
@@ -24,17 +28,21 @@ import {
 import {
   tryExtractArrayIsArrayGuard,
   collectTypeofGuardRefinements,
+  tryExtractDirectTypeofGuard,
+  applyTypeofGuardRefinements,
   narrowTypeByArrayShape,
   isArrayLikeNarrowingCandidate,
 } from "./guard-extraction.js";
 import {
   buildExprBinding,
+  buildAnyIsNCondition,
   buildIsNCondition,
   wrapInBlock,
   withComplementNarrowing,
   withRuntimeUnionMemberNarrowing,
   applyExprFallthroughNarrowing,
   emitExprAstCb,
+  withoutNarrowedBinding,
   mergeBranchExitContext,
   mergeBranchContextMeta,
   resetBranchFlowState,
@@ -44,9 +52,298 @@ import {
   resolveRuntimeArrayMemberStorageType,
   SYSTEM_ARRAY_STORAGE_TYPE,
 } from "../../../core/semantic/broad-array-storage.js";
+import {
+  matchesTypeofTag,
+  resolveTypeAlias,
+  splitRuntimeNullishUnionMembers,
+  stripNullish,
+} from "../../../core/semantic/type-resolution.js";
+import { isBroadObjectSlotType } from "../../../core/semantic/broad-object-types.js";
+import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
+import {
+  booleanLiteral,
+  nullLiteral,
+} from "../../../core/format/backend-ast/builders.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
 type GuardResult = [readonly CSharpStatementAst[], EmitterContext] | undefined;
+
+const negateConditionAst = (
+  expression: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "prefixUnaryExpression",
+  operatorToken: "!",
+  operand: {
+    kind: "parenthesizedExpression",
+    expression,
+  },
+});
+
+const maybeNegateConditionAst = (
+  expression: CSharpExpressionAst,
+  negate: boolean
+): CSharpExpressionAst => (negate ? negateConditionAst(expression) : expression);
+
+const buildTypePatternCondition = (
+  expression: CSharpExpressionAst,
+  type: CSharpTypeAst
+): CSharpExpressionAst => ({
+  kind: "isExpression",
+  expression,
+  pattern: {
+    kind: "typePattern",
+    type,
+  },
+});
+
+const buildOrCondition = (
+  conditions: readonly CSharpExpressionAst[]
+): CSharpExpressionAst =>
+  conditions.reduce<CSharpExpressionAst | undefined>(
+    (current, condition) =>
+      current
+        ? {
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "binaryExpression",
+              operatorToken: "||",
+              left: current,
+              right: condition,
+            },
+          }
+        : condition,
+    undefined
+  ) ?? booleanLiteral(false);
+
+const buildNonUnionTypeofCondition = (
+  expression: CSharpExpressionAst,
+  tag: string,
+  currentType: IrType | undefined,
+  context: EmitterContext
+): CSharpExpressionAst => {
+  if (
+    currentType &&
+    currentType.kind !== "unionType" &&
+    currentType.kind !== "unknownType" &&
+    currentType.kind !== "anyType" &&
+    currentType.kind !== "objectType" &&
+    currentType.kind !== "typeParameterType"
+  ) {
+    return booleanLiteral(matchesTypeofTag(currentType, tag, context));
+  }
+
+  switch (tag) {
+    case "string":
+      return buildTypePatternCondition(expression, {
+        kind: "predefinedType",
+        keyword: "string",
+      });
+    case "boolean":
+      return buildTypePatternCondition(expression, {
+        kind: "predefinedType",
+        keyword: "bool",
+      });
+    case "number":
+      return buildOrCondition([
+        buildTypePatternCondition(expression, {
+          kind: "predefinedType",
+          keyword: "double",
+        }),
+        buildTypePatternCondition(expression, {
+          kind: "predefinedType",
+          keyword: "int",
+        }),
+      ]);
+    case "undefined":
+      return {
+        kind: "binaryExpression",
+        operatorToken: "==",
+        left: expression,
+        right: nullLiteral(),
+      };
+    case "object":
+      return {
+        kind: "binaryExpression",
+        operatorToken: "!=",
+        left: expression,
+        right: nullLiteral(),
+      };
+    default:
+      return booleanLiteral(false);
+  }
+};
+
+const tryEmitDirectTypeofConditionAst = (
+  condition: IrExpression,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const guard = tryExtractDirectTypeofGuard(condition);
+  if (!guard) {
+    return undefined;
+  }
+
+  const [targetAst, targetContext] = emitExpressionAst(
+    guard.targetExpr,
+    withoutNarrowedBinding(context, guard.bindingKey)
+  );
+  const runtimeFrameContext: EmitterContext = {
+    ...targetContext,
+    narrowedBindings: context.narrowedBindings,
+  };
+  const effectiveTargetType =
+    resolveEffectiveExpressionType(guard.targetExpr, runtimeFrameContext) ??
+    guard.targetExpr.inferredType;
+  const currentType =
+    context.narrowedBindings?.get(guard.bindingKey)?.type ??
+    effectiveTargetType;
+  const resolvedCurrentType = currentType
+    ? resolveTypeAlias(stripNullish(currentType), runtimeFrameContext)
+    : undefined;
+  const directStorageType = resolveDirectStorageExpressionType(
+    guard.targetExpr,
+    targetAst,
+    runtimeFrameContext
+  );
+  const directStorageIsBroad =
+    directStorageType !== undefined &&
+    isBroadObjectSlotType(directStorageType, runtimeFrameContext);
+  const runtimeUnionFrame =
+    currentType &&
+    resolveRuntimeUnionFrame(
+      guard.bindingKey,
+      currentType,
+      runtimeFrameContext
+    );
+
+  const matchingRuntimeMemberNs =
+    runtimeUnionFrame?.members.flatMap((member, index) => {
+      if (!member || !matchesTypeofTag(member, guard.tag, runtimeFrameContext)) {
+        return [];
+      }
+      const runtimeMemberN = runtimeUnionFrame.candidateMemberNs[index];
+      return runtimeMemberN ? [runtimeMemberN] : [];
+    }) ?? [];
+  const guardRuntimeNullish =
+    runtimeUnionFrame !== undefined &&
+    (currentType
+      ? (splitRuntimeNullishUnionMembers(currentType)?.hasRuntimeNullish ??
+        false)
+      : false);
+
+  const positiveCondition =
+    runtimeUnionFrame && matchingRuntimeMemberNs.length > 0
+      ? buildAnyIsNCondition(
+          resolveRuntimeCarrierExpressionAst(
+            guard.targetExpr,
+            runtimeFrameContext
+          ) ?? targetAst,
+          matchingRuntimeMemberNs,
+          false,
+          guardRuntimeNullish
+        )
+      : buildNonUnionTypeofCondition(
+          targetAst,
+          guard.tag,
+          directStorageIsBroad ? undefined : (resolvedCurrentType ?? currentType),
+          targetContext
+        );
+
+  return [
+    maybeNegateConditionAst(
+      positiveCondition,
+      !guard.matchesInTruthyBranch
+    ),
+    targetContext,
+  ];
+};
+
+const emitTypeofAwareBooleanConditionAst = (
+  condition: IrExpression,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const direct = tryEmitDirectTypeofConditionAst(condition, context);
+  if (direct) {
+    return direct;
+  }
+
+  if (condition.kind === "unary" && condition.operator === "!") {
+    const [innerAst, innerContext] = emitTypeofAwareBooleanConditionAst(
+      condition.expression,
+      context
+    );
+    return [negateConditionAst(innerAst), innerContext];
+  }
+
+  if (
+    condition.kind === "logical" &&
+    (condition.operator === "&&" || condition.operator === "||")
+  ) {
+    const [leftAst, leftContext] = emitTypeofAwareBooleanConditionAst(
+      condition.left,
+      context
+    );
+    const rightBaseContext = applyConditionBranchNarrowing(
+      condition.left,
+      condition.operator === "&&" ? "truthy" : "falsy",
+      leftContext,
+      emitExprAstCb
+    );
+    const [rightAst, rightContext] = emitTypeofAwareBooleanConditionAst(
+      condition.right,
+      rightBaseContext
+    );
+    return [
+      {
+        kind: "binaryExpression",
+        operatorToken: condition.operator,
+        left: leftAst,
+        right: rightAst,
+      },
+      {
+        ...rightContext,
+        localNameMap: context.localNameMap,
+        conditionAliases: context.conditionAliases,
+        localSemanticTypes: context.localSemanticTypes,
+        localValueTypes: context.localValueTypes,
+        tempVarId: Math.max(
+          context.tempVarId ?? 0,
+          leftContext.tempVarId ?? 0,
+          rightContext.tempVarId ?? 0
+        ),
+        usings: new Set([
+          ...(context.usings ?? []),
+          ...(leftContext.usings ?? []),
+          ...(rightContext.usings ?? []),
+        ]),
+        usedLocalNames: new Set([
+          ...(context.usedLocalNames ?? []),
+          ...(leftContext.usedLocalNames ?? []),
+          ...(rightContext.usedLocalNames ?? []),
+        ]),
+        narrowedBindings: leftContext.narrowedBindings,
+      },
+    ];
+  }
+
+  return emitBooleanConditionAst(condition, emitExprAstCb, context);
+};
+
+const applyTypeofAwareConditionBranchNarrowing = (
+  condition: IrExpression,
+  branch: "truthy" | "falsy",
+  context: EmitterContext
+): EmitterContext => {
+  const branchContext = applyConditionBranchNarrowing(
+    condition,
+    branch,
+    context,
+    emitExprAstCb
+  );
+  const refinements = collectTypeofGuardRefinements(condition, branch);
+  return refinements.length > 0
+    ? applyTypeofGuardRefinements(branchContext, refinements)
+    : branchContext;
+};
 
 /**
  * Array.isArray guard emission.
@@ -386,9 +683,8 @@ export const tryEmitTypeofGuard = (
     return undefined;
   }
 
-  const [condAst, condCtxAfterCond] = emitBooleanConditionAst(
+  const [condAst, condCtxAfterCond] = emitTypeofAwareBooleanConditionAst(
     stmt.condition,
-    emitExprAstCb,
     context
   );
   const preservedNarrowedBindings = context.narrowedBindings;
@@ -399,11 +695,10 @@ export const tryEmitTypeofGuard = (
 
   const thenCtx =
     truthyTypeofRefinements.length > 0
-      ? applyConditionBranchNarrowing(
+      ? applyTypeofAwareConditionBranchNarrowing(
           stmt.condition,
           "truthy",
-          semanticCondContext,
-          emitExprAstCb
+          semanticCondContext
         )
       : semanticCondContext;
   const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
@@ -424,11 +719,10 @@ export const tryEmitTypeofGuard = (
   };
   const falsyFallthroughContext =
     falsyTypeofRefinements.length > 0
-      ? (applyConditionBranchNarrowing(
+      ? (applyTypeofAwareConditionBranchNarrowing(
           stmt.condition,
           "falsy",
-          elseBaseContext,
-          emitExprAstCb
+          elseBaseContext
         ) ?? elseBaseContext)
       : elseBaseContext;
   let finalContext: EmitterContext = thenTerminates
@@ -443,11 +737,10 @@ export const tryEmitTypeofGuard = (
   if (stmt.elseStatement) {
     const elseCtx =
       falsyTypeofRefinements.length > 0
-        ? applyConditionBranchNarrowing(
+        ? applyTypeofAwareConditionBranchNarrowing(
             stmt.condition,
             "falsy",
-            elseBaseContext,
-            emitExprAstCb
+            elseBaseContext
           )
         : elseBaseContext;
     const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
@@ -475,7 +768,7 @@ export const tryEmitTypeofGuard = (
     thenTerminates &&
     falsyTypeofRefinements.length > 0
   ) {
-    finalContext = applyConditionBranchNarrowing(
+    finalContext = applyTypeofAwareConditionBranchNarrowing(
       stmt.condition,
       "falsy",
       {
@@ -484,8 +777,7 @@ export const tryEmitTypeofGuard = (
         usings: finalContext.usings,
         usedLocalNames: finalContext.usedLocalNames,
         narrowedBindings: preservedNarrowedBindings,
-      },
-      emitExprAstCb
+      }
     );
   }
 

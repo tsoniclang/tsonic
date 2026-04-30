@@ -10,6 +10,7 @@ type ContextualKeyState = {
   readonly keys: WeakMap<object, string>;
   readonly ids: WeakMap<object, number>;
   readonly active: WeakSet<object>;
+  readonly activeReferenceKeys: Set<string>;
   nextId: number;
 };
 
@@ -17,6 +18,7 @@ const createContextualKeyState = (): ContextualKeyState => ({
   keys: new WeakMap<object, string>(),
   ids: new WeakMap<object, number>(),
   active: new WeakSet<object>(),
+  activeReferenceKeys: new Set<string>(),
   nextId: 0,
 });
 
@@ -157,44 +159,59 @@ const contextualReferenceTypeIdentityKey = (
   context: EmitterContext,
   state: ContextualKeyState
 ): string | undefined => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (resolved !== type) {
-    if (resolved.kind !== "referenceType") {
-      return contextualTypeIdentityKey(resolved, context, state);
+  const rawIdentity =
+    getReferenceNominalIdentityKey(type, context) ??
+    type.typeId?.stableId ??
+    type.typeId?.tsName ??
+    type.name;
+  const rawReferenceKey = `ref:${rawIdentity}`;
+  if (state.activeReferenceKeys.has(rawReferenceKey)) {
+    return `cycle:${rawReferenceKey}`;
+  }
+
+  state.activeReferenceKeys.add(rawReferenceKey);
+  try {
+    const identity = getReferenceNominalIdentityKey(type, context);
+    const argumentKeys: string[] = [];
+    for (const argument of type.typeArguments ?? []) {
+      const argumentKey = contextualTypeIdentityKey(argument, context, state);
+      if (!argumentKey) {
+        return undefined;
+      }
+      argumentKeys.push(argumentKey);
     }
-    return contextualReferenceTypeIdentityKey(resolved, context, state);
-  }
 
-  const identity = getReferenceNominalIdentityKey(type, context);
-  if (!identity && !type.structuralMembers) {
-    return undefined;
-  }
+    if (identity) {
+      return `ref:${identity}<${argumentKeys.join(",")}>`;
+    }
 
-  const argumentKeys: string[] = [];
-  for (const argument of type.typeArguments ?? []) {
-    const argumentKey = contextualTypeIdentityKey(argument, context, state);
-    if (!argumentKey) {
+    const resolved = resolveTypeAlias(stripNullish(type), context);
+    if (resolved !== type) {
+      if (resolved.kind !== "referenceType") {
+        return contextualTypeIdentityKey(resolved, context, state);
+      }
+      return contextualReferenceTypeIdentityKey(resolved, context, state);
+    }
+
+    if (!type.structuralMembers) {
       return undefined;
     }
-    argumentKeys.push(argumentKey);
-  }
 
-  if (identity) {
-    return `ref:${identity}<${argumentKeys.join(",")}>`;
-  }
-
-  const memberKeys: string[] = [];
-  for (const member of type.structuralMembers ?? []) {
-    const memberKey = contextualMemberKey(member, context, state);
-    if (!memberKey) {
-      return undefined;
+    const memberKeys: string[] = [];
+    for (const member of type.structuralMembers ?? []) {
+      const memberKey = contextualMemberKey(member, context, state);
+      if (!memberKey) {
+        return undefined;
+      }
+      memberKeys.push(memberKey);
     }
-    memberKeys.push(memberKey);
-  }
 
-  return `ref:structural<${argumentKeys.join(",")}>{${memberKeys
-    .sort()
-    .join("|")}}`;
+    return `ref:structural<${argumentKeys.join(",")}>{${memberKeys
+      .sort()
+      .join("|")}}`;
+  } finally {
+    state.activeReferenceKeys.delete(rawReferenceKey);
+  }
 };
 
 const contextualTypeIdentityKey = (
@@ -253,7 +270,10 @@ const contextualTypeIdentityKey = (
           }
           tuplePrefixKeys.push(elementTypeKey);
         }
-        if (key === undefined && tuplePrefixKeys.length !== (type.tuplePrefixElementTypes ?? []).length) {
+        if (
+          key === undefined &&
+          tuplePrefixKeys.length !== (type.tuplePrefixElementTypes ?? []).length
+        ) {
           break;
         }
         const restKey = type.tupleRestElementType
@@ -300,7 +320,11 @@ const contextualTypeIdentityKey = (
       case "functionType": {
         const parameterKeys: string[] = [];
         for (const parameter of type.parameters) {
-          const parameterKey = contextualParameterKey(parameter, context, state);
+          const parameterKey = contextualParameterKey(
+            parameter,
+            context,
+            state
+          );
           if (!parameterKey) {
             key = undefined;
             break;

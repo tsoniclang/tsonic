@@ -13,8 +13,6 @@ import {
   stripNullish,
   isDefinitelyValueType,
   isTypeOnlyStructuralTarget,
-  narrowTypeByTypeofTag,
-  narrowTypeByNotTypeofTag,
   findUnionMemberIndex,
 } from "../type-resolution.js";
 import {
@@ -44,8 +42,6 @@ export {
   stripNullish,
   isDefinitelyValueType,
   isTypeOnlyStructuralTarget,
-  narrowTypeByTypeofTag,
-  narrowTypeByNotTypeofTag,
   findUnionMemberIndex,
 };
 export type {

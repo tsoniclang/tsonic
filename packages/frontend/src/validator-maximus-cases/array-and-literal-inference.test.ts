@@ -2,7 +2,7 @@ import { describe, it, expect, hasCode } from "./helpers.js";
 
 describe("Maximus Validation Coverage", () => {
   describe("Array constructor inference", () => {
-    const allowCases: ReadonlyArray<{
+    const rejectCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -36,33 +36,39 @@ describe("Maximus Validation Coverage", () => {
       {
         name: "Array() call expression",
         source: `const a = Array(10);`,
-      },
+      }
+    ];
+
+    for (const c of rejectCases) {
+      it(`rejects ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN2001")).to.equal(true);
+      });
+    }
+
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
       {
         name: "qualified type named Array",
         source: `
           namespace Custom {
             export class Array {
-              constructor(public readonly value: number) {}
+              value: number;
+              constructor(value: number) {
+                this.value = value;
+              }
             }
           }
           const a = new Custom.Array(1);
           console.log(a.value);
         `,
       },
-      {
-        name: "typed factory wrapping Array",
-        source: `
-          function make(): number[] {
-            return new Array<number>(5);
-          }
-          console.log(make().length);
-        `,
-      },
     ];
 
     for (const c of allowCases) {
       it(`allows ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7416")).to.equal(false);
+        expect(hasCode(c.source, "TSN2001")).to.equal(false);
       });
     }
   });

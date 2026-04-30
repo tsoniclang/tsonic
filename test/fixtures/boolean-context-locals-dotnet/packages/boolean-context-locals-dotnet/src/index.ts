@@ -1,6 +1,5 @@
 import { Console } from "@tsonic/dotnet/System.js";
-import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-import type { int, long, JsValue } from "@tsonic/core/types.js";
+import type { int, long } from "@tsonic/core/types.js";
 
 type BoolBox = { readonly __kind: "BoolBox"; readonly value: boolean };
 type WrappedBool = boolean | BoolBox;
@@ -49,41 +48,19 @@ export function main(): void {
   }
   Console.WriteLine(nonEmpty);
 
-  // 6) for-in loop variable is always string; empty key must be falsy.
-  const obj: Record<string, int> = { "": 1 as int, a: 2 as int };
-  let nonEmptyKeys = 0 as int;
-  for (const k in obj) {
-    if (k) nonEmptyKeys++;
-  }
-  Console.WriteLine(nonEmptyKeys);
-
-  // 7) Destructuring must type bound locals so numeric truthiness works.
+  // 6) Destructuring must type bound locals so numeric truthiness works.
   const [n] = [0 as int];
   let d = 0 as int;
   if (n) d = 1 as int;
   Console.WriteLine(d);
 
-  // 8) CLR bool return types (System.Boolean) must not degrade to `!= null`.
+  // 7) CLR bool return types (System.Boolean) must not degrade to `!= null`.
   // This catches a subtle miscompile where `if (bclBool)` becomes `if (bclBool != null)`,
   // which silently compiles (boxing) but is always true for value types.
   const bclBool = "x".Contains("y");
   Console.WriteLine(bclBool ? "T" : "F");
 
-  // 9) JsValue-typed locals must use JS truthiness, not `!= null`.
-  // `false as JsValue` boxes to a non-null object in C#, so `!= null` would miscompile to true.
-  const unkBool = false as JsValue;
-  Console.WriteLine(unkBool ? "T" : "F");
-
-  const unkInt = 0 as JsValue;
-  Console.WriteLine(unkInt ? "T" : "F");
-
-  const unkString = "" as JsValue;
-  Console.WriteLine(unkString ? "T" : "F");
-
-  const unkObj = new List<int>() as JsValue;
-  Console.WriteLine(unkObj ? "T" : "F");
-
-  // 10) Union wrappers around falsy CLR primitives must not degrade to `!= null`.
+  // 8) Union wrappers around falsy CLR primitives must not degrade to `!= null`.
   //
   // Union/intersection types can appear via bindings and generics. If boolean-context lowering
   // emits `x != null` for these, C# can silently box value types (bool/int/...) and become
@@ -100,14 +77,14 @@ export function main(): void {
   const wrappedEmpty: WrappedString = "";
   Console.WriteLine(wrappedEmpty ? "T" : "F");
 
-  // 11) Unary `!` must apply JS truthiness (not require a boolean operand).
+  // 9) Unary `!` must apply JS truthiness (not require a boolean operand).
   const z0 = 0 as int;
   Console.WriteLine(!z0 ? "T" : "F");
 
   const z1 = 1 as int;
   Console.WriteLine(!z1 ? "T" : "F");
 
-  // 12) Logical short-circuit must be preserved (side effects must not run when skipped).
+  // 10) Logical short-circuit must be preserved (side effects must not run when skipped).
   let calls = 0 as int;
   const hit = (): boolean => {
     calls++;
@@ -126,14 +103,14 @@ export function main(): void {
   const s4 = false || hit();
   Console.WriteLine(calls);
 
-  // 13) Precedence between && and || must match JS/TS.
+  // 11) Precedence between && and || must match JS/TS.
   const g1 = (false && false) || true;
   Console.WriteLine(g1 ? "T" : "F");
 
   const g2 = false && (false || true);
   Console.WriteLine(g2 ? "T" : "F");
 
-  // 14) Numeric truthiness must parenthesize non-simple expressions like `a ?? b`
+  // 12) Numeric truthiness must parenthesize non-simple expressions like `a ?? b`
   // under pattern matching (`is double tmp`) to avoid precedence bugs in C#.
   const maybe0: number | undefined = undefined;
   Console.WriteLine((maybe0 ?? 0) ? "T" : "F");
@@ -141,14 +118,14 @@ export function main(): void {
   const maybe1: number | undefined = 1;
   Console.WriteLine((maybe1 ?? 0) ? "T" : "F");
 
-  // 15) Same precedence hazard for conditional (ternary) expressions producing numbers.
+  // 13) Same precedence hazard for conditional (ternary) expressions producing numbers.
   const t1 = true;
   Console.WriteLine((t1 ? 0 : 1) ? "T" : "F");
 
   const t2 = false;
   Console.WriteLine((t2 ? 0 : 1) ? "T" : "F");
 
-  // 16) NaN must be falsy under JS truthiness rules for numbers.
+  // 14) NaN must be falsy under JS truthiness rules for numbers.
   const n0: number = 0;
   const nan = n0 / n0;
   Console.WriteLine(nan ? "T" : "F");

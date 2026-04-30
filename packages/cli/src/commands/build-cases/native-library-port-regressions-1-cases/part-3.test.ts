@@ -236,7 +236,7 @@ describe("build command (native library port regressions)", function () {
         join(projectRoot, "src", "index.ts"),
         [
           "class Application {",
-          "  readonly router: Application = this;",
+          "  router: Application = this;",
           "}",
           "",
           "export function main(): Application {",
@@ -269,10 +269,10 @@ describe("build command (native library port regressions)", function () {
       expect(result.ok).to.equal(true);
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include("public Application router { get; init; }");
+      expect(tree).to.include("public Application router { get; set; }");
       expect(tree).to.include("public Application()");
       expect(tree).to.include("this.router = this;");
-      expect(tree).to.not.include("router { get; init; } = this;");
+      expect(tree).to.not.include("router { get; set; } = this;");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

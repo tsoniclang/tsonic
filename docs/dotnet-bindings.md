@@ -118,12 +118,12 @@ import {
 import { SqliteDbContextOptionsBuilderExtensions } from "@tsonic/efcore-sqlite/Microsoft.EntityFrameworkCore.js";
 
 export class TodoItem {
-  public id: number = 0;
-  public title: string = "";
+  id: number = 0;
+  title: string = "";
 }
 
 export class AppDbContext extends DbContext {
-  public todos!: DbSet<TodoItem>;
+  todos!: DbSet<TodoItem>;
 }
 
 export function createContext(): AppDbContext {

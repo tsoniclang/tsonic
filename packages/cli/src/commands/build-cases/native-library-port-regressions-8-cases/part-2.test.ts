@@ -132,7 +132,7 @@ describe("build command (native library port regressions)", function () {
           'import { overloads as O } from "@tsonic/core/lang.js";',
           "",
           "export class Counter {",
-          '  readonly #label: string = "ctr";',
+          '  #label: string = "ctr";',
           "  #count: number = 0;",
           "",
           "  get #prefix(): string {",

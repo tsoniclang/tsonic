@@ -7,8 +7,8 @@ describe("End-to-End Integration", () => {
     it("preserves reference nullable narrowing across repeated reassignment guards", () => {
       const source = `
         class ImageDimensions {
-          readonly width: number;
-          readonly height: number;
+          width: number;
+          height: number;
 
           constructor(width: number, height: number) {
             this.width = width;
@@ -45,11 +45,11 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("return dims;");
     });
 
-    it("materializes Array.isArray-narrowed JsValue locals before array storage declarations", () => {
+    it("materializes Array.isArray-narrowed unknown locals before array storage declarations", () => {
       const source = `
-        export function parseJsonStringArray(value: JsValue): string[] | undefined {
+        export function parseJsonStringArray(value: unknown): string[] | undefined {
           if (!Array.isArray(value)) return undefined;
-          const values = value as JsValue[];
+          const values = value as unknown[];
           const items: string[] = [];
           for (let i = 0; i < values.length; i++) {
             const current = values[i];
@@ -68,16 +68,18 @@ describe("End-to-End Integration", () => {
 
     it("preserves System.Array storage for broad array assertions after Array.isArray fallthrough guards", () => {
       const source = `
-        export function firstDefined(value: JsValue): boolean {
+        export function firstDefined(value: unknown): boolean {
           if (!Array.isArray(value)) {
             return false;
           }
 
-          return (value as JsValue[]).length > 0 && (value as JsValue[])[0] !== undefined;
+          return (value as unknown[]).length > 0 && (value as unknown[])[0] !== undefined;
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include("((global::System.Array)value).Length > 0");
       expect(csharp).to.include("((global::System.Array)value).GetValue(0)");
       expect(csharp).to.not.include("(object?[])value");
@@ -111,23 +113,25 @@ describe("End-to-End Integration", () => {
         import type { int } from "@tsonic/core/types.js";
 
         declare function compare(
-          left: (index: int) => JsValue,
-          right: (index: int) => JsValue
+          left: (index: int) => unknown,
+          right: (index: int) => unknown
         ): void;
 
-        export function run(left: JsValue, right: JsValue): void {
+        export function run(left: unknown, right: unknown): void {
           if (!Array.isArray(left) || !Array.isArray(right)) {
             return;
           }
 
           compare(
-            (index) => (left as JsValue[])[index],
-            (index) => (right as JsValue[])[index]
+            (index) => (left as unknown[])[index],
+            (index) => (right as unknown[])[index]
           );
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include("((global::System.Array)left).GetValue(index)");
       expect(csharp).to.include(
         "((global::System.Array)right).GetValue(index)"
@@ -145,11 +149,11 @@ describe("End-to-End Integration", () => {
           right: object,
           leftLength: int,
           rightLength: int,
-          getLeftValue: (index: int) => JsValue,
-          getRightValue: (index: int) => JsValue
+          getLeftValue: (index: int) => unknown,
+          getRightValue: (index: int) => unknown
         ): boolean;
 
-        export function run(left: JsValue, right: JsValue): boolean {
+        export function run(left: unknown, right: unknown): boolean {
           const leftIsArray = Array.isArray(left);
           const rightIsArray = Array.isArray(right);
           if (leftIsArray || rightIsArray) {
@@ -160,10 +164,10 @@ describe("End-to-End Integration", () => {
             return compare(
               left as object,
               right as object,
-              (left as JsValue[]).length,
-              (right as JsValue[]).length,
-              (index) => (left as JsValue[])[index],
-              (index) => (right as JsValue[])[index]
+              (left as unknown[]).length,
+              (right as unknown[]).length,
+              (index) => (left as unknown[])[index],
+              (index) => (right as unknown[])[index]
             );
           }
 
@@ -171,7 +175,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include("((global::System.Array)left).Length");
       expect(csharp).to.include("((global::System.Array)right).Length");
       expect(csharp).to.include("((global::System.Array)left).GetValue(index)");
@@ -191,11 +197,11 @@ describe("End-to-End Integration", () => {
           right: object,
           leftLength: int,
           rightLength: int,
-          getLeftValue: (index: int) => JsValue,
-          getRightValue: (index: int) => JsValue
+          getLeftValue: (index: int) => unknown,
+          getRightValue: (index: int) => unknown
         ): boolean;
 
-        export function run(left: JsValue, right: JsValue): boolean {
+        export function run(left: unknown, right: unknown): boolean {
           const leftIsArray = Array.isArray(left);
           const rightIsArray = Array.isArray(right);
           if (leftIsArray || rightIsArray) {
@@ -206,10 +212,10 @@ describe("End-to-End Integration", () => {
             return compare(
               left as object,
               right as object,
-              (left as JsValue[]).length,
-              (right as JsValue[]).length,
-              (index) => (left as JsValue[])[index],
-              (index) => (right as JsValue[])[index]
+              (left as unknown[]).length,
+              (right as unknown[]).length,
+              (index) => (left as unknown[])[index],
+              (index) => (right as unknown[])[index]
             );
           }
 
@@ -232,7 +238,7 @@ describe("End-to-End Integration", () => {
 
     it("materializes Object.entries Array.isArray fallthrough assertions to CLR arrays", () => {
       const source = `
-        export function parse(root: JsValue): number {
+        export function parse(root: unknown): number {
           if (root === null || typeof root !== "object" || Array.isArray(root)) {
             return 0;
           }
@@ -244,7 +250,7 @@ describe("End-to-End Integration", () => {
               continue;
             }
 
-            const mountsValue = value as JsValue[];
+            const mountsValue = value as unknown[];
             return mountsValue.length;
           }
 
@@ -263,7 +269,7 @@ describe("End-to-End Integration", () => {
     it("keeps nullable reference assignments nominal after local null guards", () => {
       const source = `
         class PageContext {
-          readonly slug: string;
+          slug: string;
 
           constructor(slug: string) {
             this.slug = slug;
@@ -318,33 +324,33 @@ describe("End-to-End Integration", () => {
           mapfn: (value: T, index: int) => TResult
         ): TResult[];
 
-        export class Array<T = JsValue> {
-          public static from(source: string): string[];
-          public static from<TResult>(
+        export class Array<T = unknown> {
+          static from(source: string): string[];
+          static from<TResult>(
             source: string,
             mapfn: (value: string, index: int) => TResult
           ): TResult[];
-          public static from<T>(source: Iterable<T>): T[];
-          public static from<T, TResult>(
+          static from<T>(source: Iterable<T>): T[];
+          static from<T, TResult>(
             source: Iterable<T>,
             mapfn: (value: T, index: int) => TResult
           ): TResult[];
-          public static from(_source: any, _mapfn?: any): any {
+          static from(_source: any, _mapfn?: any): any {
             throw new Error("stub");
           }
-          public static from_string(source: string): string[] {
+          static from_string(source: string): string[] {
             return mapString(source);
           }
-          public static from_stringMapped<TResult>(
+          static from_stringMapped<TResult>(
             source: string,
             mapfn: (value: string, index: int) => TResult
           ): TResult[] {
             return mapStringMapped(source, mapfn);
           }
-          public static from_iterable<T>(source: Iterable<T>): T[] {
+          static from_iterable<T>(source: Iterable<T>): T[] {
             return mapIterable(source);
           }
-          public static from_iterableMapped<T, TResult>(
+          static from_iterableMapped<T, TResult>(
             source: Iterable<T>,
             mapfn: (value: T, index: int) => TResult
           ): TResult[] {
@@ -503,12 +509,11 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("new string[] { param.name, param.value }");
     });
 
-    it("keeps nullable CLR string returns direct when broad JsValue is expected", () => {
+    it("keeps nullable CLR string returns direct when broad unknown is expected", () => {
       const source = `
-        import type { JsValue } from "@tsonic/core/types.js";
         declare function getText(): string | null;
 
-        export function fromText(): JsValue {
+        export function fromText(): unknown {
           return getText();
         }
       `;
@@ -521,9 +526,8 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("getText().Match");
     });
 
-    it("keeps nullable member-call strings direct when broad JsValue is expected", () => {
+    it("keeps nullable member-call strings direct when broad unknown is expected", () => {
       const source = `
-        import type { JsValue } from "@tsonic/core/types.js";
 
         class Reader {
           GetText(): string | null {
@@ -531,7 +535,7 @@ describe("End-to-End Integration", () => {
           }
         }
 
-        export function fromReader(reader: Reader): JsValue {
+        export function fromReader(reader: Reader): unknown {
           return reader.GetText();
         }
       `;
@@ -544,9 +548,8 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("reader.GetText().Match");
     });
 
-    it("keeps nullable arrow returns direct when broad JsValue is expected", () => {
+    it("keeps nullable arrow returns direct when broad unknown is expected", () => {
       const source = `
-        import type { JsValue } from "@tsonic/core/types.js";
 
         class Reader {
           GetText(): string | null {
@@ -554,7 +557,7 @@ describe("End-to-End Integration", () => {
           }
         }
 
-        export const fromReader = (reader: Reader): JsValue => {
+        export const fromReader = (reader: Reader): unknown => {
           return reader.GetText();
         };
       `;
@@ -567,15 +570,14 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("reader.GetText().Match");
     });
 
-    it("keeps nullable declaration-only member calls direct when broad JsValue is expected", () => {
+    it("keeps nullable declaration-only member calls direct when broad unknown is expected", () => {
       const source = `
-        import type { JsValue } from "@tsonic/core/types.js";
 
         declare class Reader {
           GetText(): string | null;
         }
 
-        export const fromReader = (reader: Reader): JsValue => {
+        export const fromReader = (reader: Reader): unknown => {
           return reader.GetText();
         };
       `;
@@ -588,17 +590,17 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("reader.GetText().Match");
     });
 
-    it("preserves nullish coalescing with null for nullable numeric values flowing into JsValue slots", () => {
+    it("preserves nullish coalescing with null for nullable numeric values flowing into unknown slots", () => {
       const source = `
-        import type { JsValue, int, long } from "@tsonic/core/types.js";
+        import type { int, long } from "@tsonic/core/types.js";
 
         class User {
           BotType?: int;
           BotOwnerId?: long;
         }
 
-        export function run(u: User): Record<string, JsValue> {
-          const resp: Record<string, JsValue> = {};
+        export function run(u: User): Record<string, unknown> {
+          const resp: Record<string, unknown> = {};
           resp["bot_type"] = u.BotType ?? null;
           resp["bot_owner_id"] = u.BotOwnerId ?? null;
           return resp;
@@ -617,16 +619,16 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("u.BotOwnerId ?? default");
     });
 
-    it("keeps numeric nullish fallbacks unboxed until after coalescing in broad JsValue slots", () => {
+    it("keeps numeric nullish fallbacks unboxed until after coalescing in broad unknown slots", () => {
       const source = `
-        import type { JsValue, int } from "@tsonic/core/types.js";
+        import type { int } from "@tsonic/core/types.js";
 
         class UserSetting {
           EmailAddressVisibility!: int;
         }
 
-        export function run(setting?: UserSetting | null): Record<string, JsValue> {
-          const entry: Record<string, JsValue> = {};
+        export function run(setting?: UserSetting | null): Record<string, unknown> {
+          const entry: Record<string, unknown> = {};
           entry["email_address_visibility"] = setting?.EmailAddressVisibility ?? 1;
           return entry;
         }
@@ -637,8 +639,9 @@ describe("End-to-End Integration", () => {
       });
 
       expect(csharp).to.include(
-        'entry["email_address_visibility"] = (object)(double)(setting?.EmailAddressVisibility ?? 1);'
+        'entry["email_address_visibility"] = setting?.EmailAddressVisibility ?? 1;'
       );
+      expect(csharp).not.to.include("(object)(double)(setting?.EmailAddressVisibility");
       expect(csharp).to.not.include("?? (object)(double)1");
     });
 
@@ -675,7 +678,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include("if (handler.Is1())");
       expect(csharp).to.include(
         "for (int index = 0; index < (handler.As1()).Length; index += 1)"
@@ -690,18 +695,19 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("if (!isMiddlewareHandler(handler))");
       expect(csharp).to.include(
-        'throw new global::System.Exception("middleware handlers must be functions");'
+        'throw new global::js.Error("middleware handlers must be functions");'
       );
       expect(csharp).to.include(
-        "result.push(global::Tsonic.Internal.Union<global::System.Action<string>, global::Test.Router>.From1((handler.As2())));"
+        "global::Tsonic.Internal.ArrayInterop.WrapArray(result)"
       );
+      expect(csharp).to.include("result = __tsonic_arrayWrapper");
     });
 
     it("prefers assignable conditional supertypes without double runtime-union projection", () => {
       const source = `
         class TemplateValue {}
         class PageValue extends TemplateValue {
-          readonly slug: string;
+          slug: string;
           constructor(slug: string) {
             super();
             this.slug = slug;
@@ -801,7 +807,7 @@ describe("End-to-End Integration", () => {
     it("narrows reassigned locals before native array mutation interop calls", () => {
       const source = `
         class Item {
-          readonly name: string;
+          name: string;
 
           constructor(name: string) {
             this.name = name;
@@ -819,7 +825,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.match(/\.push\((?:\(Item\))?entry\);/);
       expect(csharp).to.not.include(".push((object)entry);");
     });
@@ -827,7 +835,7 @@ describe("End-to-End Integration", () => {
     it("narrows reassigned member accesses before subsequent reads", () => {
       const source = `
         class Item {
-          readonly name: string;
+          name: string;
 
           constructor(name: string) {
             this.name = name;
@@ -856,14 +864,14 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("consume(this.current.Value)");
     });
 
-    it("lowers typed object spreads into object-root dictionary results", () => {
+    it("lowers typed object spreads into record-root dictionary results", () => {
       const source = `
         type ApiKeyData = {
           apiKey: string;
           userId: string;
         };
 
-        export function buildResponse(data: ApiKeyData): object {
+        export function buildResponse(data: ApiKeyData): Record<string, unknown> {
           return { result: "success", msg: "", ...data };
         }
       `;
@@ -878,13 +886,13 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('__tmp["userId"] = __spread.userId');
     });
 
-    it("lowers dictionary spreads into object-root dictionary results", () => {
+    it("lowers dictionary spreads into record-root dictionary results", () => {
       const source = `
         type StringMap = {
           [key: string]: string;
         };
 
-        export function buildResponse(data: StringMap): object {
+        export function buildResponse(data: StringMap): Record<string, unknown> {
           return { result: "success", ...data, msg: "" };
         }
       `;
@@ -898,8 +906,8 @@ describe("End-to-End Integration", () => {
 
     it("uses element access for index-signature property reads and writes", () => {
       const source = `
-        export function buildState(): Record<string, JsValue> {
-          const state: Record<string, JsValue> = {};
+        export function buildState(): Record<string, unknown> {
+          const state: Record<string, unknown> = {};
           state.user_id = "u1";
           state.email = "u@example.com";
           const bot = state.user_id;

@@ -1,21 +1,25 @@
 declare module "@tsonic/core/lang.js" {
-  export type JsPrimitive = string | number | boolean | bigint | symbol;
-  export type JsValue = object | JsPrimitive | null;
+  export type AttributeArgument =
+    | string
+    | number
+    | boolean
+    | null
+    | readonly AttributeArgument[];
 
   export type Ctor<
-    T = JsValue,
-    Args extends readonly JsValue[] = readonly JsValue[],
+    T = object,
+    Args extends readonly AttributeArgument[] = readonly AttributeArgument[],
   > = new (...args: Args) => T;
 
-  export type AttributeCtor = Ctor<object, readonly JsValue[]>;
+  export type AttributeCtor = Ctor<object, readonly AttributeArgument[]>;
 
   export interface AttributeDescriptor {
     readonly kind: "attribute";
     readonly ctor: AttributeCtor;
-    readonly args: readonly JsValue[];
+    readonly args: readonly AttributeArgument[];
   }
 
-  export declare function asinterface<T>(value: JsValue): T;
+  export declare function asinterface<T>(value: object): T;
 
   export type MethodKeys<T> = {
     [K in keyof T]-?: T[K] extends (...args: infer _Args) => infer _Result
@@ -47,7 +51,7 @@ declare module "@tsonic/core/lang.js" {
 
   export interface AttributeTargetBuilder {
     target(target: AttributeTarget): AttributeTargetBuilder;
-    add(ctor: AttributeCtor, ...args: readonly JsValue[]): void;
+    add(ctor: AttributeCtor, ...args: readonly AttributeArgument[]): void;
     add(descriptor: AttributeDescriptor): void;
   }
 
@@ -62,14 +66,14 @@ declare module "@tsonic/core/lang.js" {
   }
 
   export interface FunctionAttributeBuilder {
-    add(ctor: AttributeCtor, ...args: readonly JsValue[]): void;
+    add(ctor: AttributeCtor, ...args: readonly AttributeArgument[]): void;
     add(descriptor: AttributeDescriptor): void;
   }
 
   export interface AttributesApi {
     <T>(): TypeAttributeBuilder<T>;
     <F extends Function>(fn: F): FunctionAttributeBuilder;
-    attr(ctor: AttributeCtor, ...args: readonly JsValue[]): AttributeDescriptor;
+    attr(ctor: AttributeCtor, ...args: readonly AttributeArgument[]): AttributeDescriptor;
   }
 
   export declare const attributes: AttributesApi;

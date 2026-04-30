@@ -289,6 +289,16 @@ export const isStaticTypeReference = (
   context: EmitterContext
 ): boolean => {
   if (expr.object.kind === "identifier") {
+    const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
+    if (
+      !isLocal &&
+      (expr.object.resolvedClrType !== undefined ||
+        (expr.object.csharpName !== undefined &&
+          expr.object.resolvedAssembly !== undefined))
+    ) {
+      return true;
+    }
+
     const importBinding = context.importBindings?.get(expr.object.name);
     if (importBinding?.kind === "type" || importBinding?.kind === "namespace") {
       return true;

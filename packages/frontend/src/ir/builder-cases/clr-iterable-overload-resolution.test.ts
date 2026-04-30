@@ -2,11 +2,8 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
 import {
-  IrClassDeclaration,
   IrExpressionStatement,
   IrFunctionDeclaration,
-  IrMethodDeclaration,
-  IrReturnStatement,
 } from "../types.js";
 import { createFilesystemTestProgram } from "./_test-helpers.js";
 import {
@@ -148,83 +145,6 @@ describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("CLR iterable overload resolution", () => {
-    it("infers explicit unknown into generic method parameters from array arguments", () => {
-      const fixture = createFilesystemTestProgram(
-        {
-          "src/index.ts": [
-            'import type { int } from "@tsonic/core/types.js";',
-            "export class Array<T = unknown> {",
-            "  private createWrapped<TResult>(values: readonly TResult[] | TResult[]): Array<TResult> {",
-            "    void values;",
-            "    return new Array<TResult>();",
-            "  }",
-            "  public flat(depth: int = 1 as int): Array<unknown> {",
-            "    const flattened: unknown[] = [];",
-            "    void depth;",
-            "    return this.createWrapped(flattened);",
-            "  }",
-            "}",
-          ].join("\n"),
-        },
-        "src/index.ts"
-      );
-
-      try {
-        const result = buildIrModule(
-          fixture.sourceFile,
-          fixture.testProgram,
-          fixture.options,
-          fixture.ctx
-        );
-
-        expect(result.ok).to.equal(true);
-        if (!result.ok) return;
-
-        const arrayDecl = result.value.body.find(
-          (stmt): stmt is IrClassDeclaration =>
-            stmt.kind === "classDeclaration" && stmt.name === "Array"
-        );
-        expect(arrayDecl).to.exist;
-        if (!arrayDecl) return;
-
-        const flatMethod = arrayDecl.members.find(
-          (member): member is IrMethodDeclaration =>
-            member.kind === "methodDeclaration" && member.name === "flat"
-        );
-        expect(flatMethod).to.exist;
-        if (!flatMethod?.body) return;
-
-        const returnStmt = flatMethod.body.statements.find(
-          (stmt): stmt is IrReturnStatement => stmt.kind === "returnStatement"
-        );
-        expect(returnStmt?.expression?.kind).to.equal("call");
-        if (!returnStmt?.expression || returnStmt.expression.kind !== "call") {
-          return;
-        }
-
-        expect(returnStmt.expression.inferredType?.kind).to.equal(
-          "referenceType"
-        );
-        if (returnStmt.expression.inferredType?.kind !== "referenceType") {
-          return;
-        }
-
-        expect(returnStmt.expression.inferredType.name).to.equal("Array");
-        expect(returnStmt.expression.inferredType.typeArguments).to.deep.equal([
-          { kind: "unknownType", explicit: true },
-        ]);
-        expect(returnStmt.expression.parameterTypes).to.deep.equal([
-          {
-            kind: "arrayType",
-            elementType: { kind: "unknownType", explicit: true },
-            origin: "explicit",
-          },
-        ]);
-      } finally {
-        fixture.cleanup();
-      }
-    });
-
     it("prefers IEnumerable_1 overloads for iterator-bearing class arguments", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -298,6 +218,184 @@ describe("IR Builder", function () {
         expect(secondParameterType.typeArguments).to.deep.equal([
           { kind: "primitiveType", name: "number" },
         ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("prefers IEnumerable_1 overloads for inferred variables with inherited iterator evidence", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare const Symbol: {",
+            "  readonly iterator: unique symbol;",
+            "};",
+            "interface Iterator<T> {}",
+            "interface IterableIterator<T> extends Iterator<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
+            "interface IEnumerable_1<T> {}",
+            "declare class Assert {",
+            "  static Equal<T>(expected: IEnumerable_1<T>, actual: IEnumerable_1<T>): void;",
+            "  static Equal<T>(expected: T, actual: T): void;",
+            "}",
+            "declare class IterableBase<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
+            "declare class Bytes extends IterableBase<number> {}",
+            "export function run(): void {",
+            "  const left = new Bytes();",
+            "  const right = new Bytes();",
+            "  Assert.Equal(left, right);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const module = result.value;
+        const runFn = module.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const callStatement = findEqualCallStatement(runFn.body.statements);
+        expect(callStatement).to.not.equal(undefined);
+        if (!callStatement) return;
+
+        const call = callStatement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        expect(call.parameterTypes?.[0]?.kind).to.equal("referenceType");
+        expect(call.parameterTypes?.[1]?.kind).to.equal("referenceType");
+        if (
+          call.parameterTypes?.[0]?.kind !== "referenceType" ||
+          call.parameterTypes?.[1]?.kind !== "referenceType"
+        ) {
+          return;
+        }
+
+        expect(call.parameterTypes[0].name).to.equal("IEnumerable_1");
+        expect(call.parameterTypes[1].name).to.equal("IEnumerable_1");
+        expect(call.parameterTypes[0].typeArguments).to.deep.equal([
+          { kind: "primitiveType", name: "number" },
+        ]);
+        expect(call.parameterTypes[1].typeArguments).to.deep.equal([
+          { kind: "primitiveType", name: "number" },
+        ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("prefers imported nullable IEnumerable_1 overloads for inferred variables with inherited iterator evidence", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import { Assert } from "xunit-types/Xunit.js";',
+            "",
+            "declare const Symbol: {",
+            "  readonly iterator: unique symbol;",
+            "};",
+            "interface Iterator<T> {}",
+            "interface IterableIterator<T> extends Iterator<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
+            "declare class IterableBase<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
+            "declare class Bytes extends IterableBase<number> {}",
+            "export function run(): void {",
+            "  const left = new Bytes();",
+            "  const right = new Bytes();",
+            "  Assert.Equal(left, right);",
+            "}",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js": "export {};",
+          "node_modules/xunit-types/Xunit.d.ts": [
+            'import type { IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
+            "",
+            "export interface Assert$instance {}",
+            "",
+            "export declare const Assert: (abstract new() => Assert$instance) & {",
+            "  Equal<T>(expected: IEnumerable_1<T> | null, actual: IEnumerable_1<T> | null): void;",
+            "  Equal<T>(expected: T, actual: T): void;",
+            "};",
+          ].join("\n"),
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
+            [
+              "export interface IEnumerable_1$instance<T> {",
+              "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "}",
+              "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
+            ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const module = result.value;
+        const runFn = module.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const callStatement = findEqualCallStatement(runFn.body.statements);
+        expect(callStatement).to.not.equal(undefined);
+        if (!callStatement) return;
+
+        const call = callStatement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        expect(call.parameterTypes?.[0]).to.deep.include({
+          kind: "referenceType",
+          name: "IEnumerable_1$instance",
+        });
+        expect(call.parameterTypes?.[1]).to.deep.include({
+          kind: "referenceType",
+          name: "IEnumerable_1$instance",
+        });
       } finally {
         fixture.cleanup();
       }
@@ -495,8 +593,8 @@ describe("IR Builder", function () {
             'import { Assert } from "xunit-types/Xunit.js";',
             "",
             "declare class EventEmitter {",
-            "  static once(emitter: EventEmitter, eventName: string): Promise<unknown[]>;",
-            "  emit(eventName: string, ...args: unknown[]): boolean;",
+            "  static once(emitter: EventEmitter, eventName: string): Promise<string[]>;",
+            "  emit(eventName: string, ...args: string[]): boolean;",
             "}",
             "",
             "export async function run(emitter: EventEmitter): Promise<void> {",
@@ -688,7 +786,7 @@ describe("IR Builder", function () {
             'import { Assert } from "xunit-types/Xunit.js";',
             "",
             "declare class EventEmitter {",
-            "  static once(emitter: EventEmitter, eventName: string): Promise<unknown[]>;",
+            "  static once(emitter: EventEmitter, eventName: string): Promise<string[]>;",
             "}",
             "",
             "export async function run(emitter: EventEmitter): Promise<void> {",
@@ -792,7 +890,7 @@ describe("IR Builder", function () {
             'import { Assert } from "xunit-types/Xunit.js";',
             "",
             "declare class EventEmitter {",
-            "  static once(emitter: EventEmitter, eventName: string): Promise<unknown[]>;",
+            "  static once(emitter: EventEmitter, eventName: string): Promise<string[]>;",
             "}",
             "declare class Counter {",
             "  count: int;",
@@ -1022,462 +1120,6 @@ describe("IR Builder", function () {
         expect(call.parameterTypes).to.deep.equal([
           { kind: "referenceType", name: "int" },
           { kind: "referenceType", name: "int" },
-        ]);
-      } finally {
-        fixture.cleanup();
-      }
-    });
-
-    it("widens generic equality to object over Memory<char> siblings for JsValue array elements", () => {
-      const fixture = createFilesystemTestProgram(
-        {
-          "package.json": JSON.stringify({
-            name: "test-app",
-            type: "module",
-          }),
-          "src/index.ts": [
-            'import { Assert } from "xunit-types/Xunit.js";',
-            'import type { JsValue } from "@tsonic/core/types.js";',
-            "",
-            "declare class EventEmitter {",
-            "  static once(emitter: EventEmitter, eventName: string): Promise<JsValue[]>;",
-            "}",
-            "",
-            "export async function run(emitter: EventEmitter): Promise<void> {",
-            '  const args = await EventEmitter.once(emitter, "test");',
-            "  Assert.Equal(1, args[0]);",
-            "}",
-          ].join("\n"),
-          "node_modules/@tsonic/core/package.json": JSON.stringify({
-            name: "@tsonic/core",
-            type: "module",
-          }),
-          "node_modules/@tsonic/core/types.js": "export {};",
-          "node_modules/@tsonic/core/types.d.ts": [
-            "export type char = string;",
-            "export type JsValue = object | string | number | boolean | bigint | symbol | null;",
-          ].join("\n"),
-          "node_modules/xunit-types/package.json": JSON.stringify({
-            name: "xunit-types",
-            type: "module",
-          }),
-          "node_modules/xunit-types/Xunit.js":
-            'export { Assert as Assert } from "./Xunit/internal/index.js";',
-          "node_modules/xunit-types/Xunit.d.ts":
-            'export { Assert as Assert } from "./Xunit/internal/index.js";',
-          "node_modules/xunit-types/Xunit/internal/index.js":
-            "export const Assert = undefined;",
-          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
-            'import type { char } from "@tsonic/core/types.js";',
-            'import type { Memory_1 } from "@tsonic/dotnet/System/internal/index.js";',
-            "",
-            "export interface Assert$instance {}",
-            "",
-            "export declare const Assert: (abstract new() => Assert$instance) & {",
-            "  Equal(expected: Memory_1<char>, actual: Memory_1<char>): void;",
-            "  Equal(expected: string, actual: string): void;",
-            "  Equal<T>(expected: T, actual: T): void;",
-            "};",
-          ].join("\n"),
-          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
-            name: "@tsonic/dotnet",
-            type: "module",
-          }),
-          "node_modules/@tsonic/dotnet/System/internal/index.js": "export {};",
-          "node_modules/@tsonic/dotnet/System/internal/index.d.ts": [
-            "export interface Memory_1$instance<T> {",
-            "  readonly __tsonic_type_System_Memory_1: never;",
-            "}",
-            "export type Memory_1<T> = Memory_1$instance<T>;",
-          ].join("\n"),
-        },
-        "src/index.ts"
-      );
-
-      try {
-        const result = buildIrModule(
-          fixture.sourceFile,
-          fixture.testProgram,
-          fixture.options,
-          fixture.ctx
-        );
-        if (!result.ok) {
-          expect.fail(
-            `Expected build success, got diagnostic: ${result.error.message}`
-          );
-          return;
-        }
-
-        const runDecl = result.value.body.find(
-          (statement): statement is IrFunctionDeclaration =>
-            statement.kind === "functionDeclaration" && statement.name === "run"
-        );
-        expect(runDecl).to.not.equal(undefined);
-        if (!runDecl?.body) {
-          return;
-        }
-
-        const callStatement = findEqualCallStatement(runDecl.body.statements);
-        expect(callStatement).to.not.equal(undefined);
-        if (
-          !callStatement ||
-          callStatement.kind !== "expressionStatement" ||
-          callStatement.expression.kind !== "call"
-        ) {
-          return;
-        }
-
-        expect(callStatement.expression.parameterTypes).to.deep.equal([
-          { kind: "referenceType", name: "object" },
-          { kind: "referenceType", name: "object" },
-        ]);
-      } finally {
-        fixture.cleanup();
-      }
-    });
-
-    it("keeps generic scalar equality overloads when later arguments are unknown", () => {
-      const fixture = createFilesystemTestProgram(
-        {
-          "package.json": JSON.stringify({
-            name: "test-app",
-            type: "module",
-          }),
-          "src/index.ts": [
-            'import { Assert } from "xunit-types/Xunit.js";',
-            "",
-            "declare class AssertionError {",
-            "  message: string;",
-            "  actual: unknown;",
-            "  expected: unknown;",
-            "}",
-            "",
-            "export function run(error: AssertionError): void {",
-            '  Assert.Equal("Test message", error.message);',
-            "  Assert.Equal(5, error.actual);",
-            "  Assert.Equal(10, error.expected);",
-            "}",
-          ].join("\n"),
-          "node_modules/xunit-types/package.json": JSON.stringify({
-            name: "xunit-types",
-            type: "module",
-          }),
-          "node_modules/xunit-types/Xunit.js":
-            'export { Assert as Assert } from "./Xunit/internal/index.js";',
-          "node_modules/xunit-types/Xunit.d.ts":
-            'export { Assert as Assert } from "./Xunit/internal/index.js";',
-          "node_modules/xunit-types/Xunit/internal/index.js":
-            "export const Assert = undefined;",
-          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
-            'import type { IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
-            "",
-            "export interface Assert$instance {}",
-            "",
-            "export declare const Assert: (abstract new() => Assert$instance) & {",
-            "  Equal<T>(expected: IEnumerable_1<T>, actual: IEnumerable_1<T>): void;",
-            "  Equal(expected: string, actual: string): void;",
-            "  Equal<T>(expected: T, actual: T): void;",
-            "};",
-          ].join("\n"),
-          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
-            name: "@tsonic/dotnet",
-            type: "module",
-          }),
-          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
-            "export {};",
-          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
-            [
-              "export interface IEnumerable_1$instance<T> {",
-              "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
-              "}",
-              "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
-            ].join("\n"),
-        },
-        "src/index.ts"
-      );
-
-      try {
-        const result = buildIrModule(
-          fixture.sourceFile,
-          fixture.testProgram,
-          fixture.options,
-          fixture.ctx
-        );
-
-        expect(result.ok).to.equal(true);
-        if (!result.ok) return;
-
-        const module = result.value;
-        const runFn = module.body.find(
-          (stmt): stmt is IrFunctionDeclaration =>
-            stmt.kind === "functionDeclaration" && stmt.name === "run"
-        );
-        expect(runFn).to.not.equal(undefined);
-        if (!runFn) return;
-
-        const calls = findEqualCallStatements(runFn.body.statements).map(
-          (statement) => statement.expression
-        );
-        expect(calls).to.have.length(3);
-
-        const firstCall = calls[0];
-        const secondCall = calls[1];
-        const thirdCall = calls[2];
-        expect(firstCall?.kind).to.equal("call");
-        expect(secondCall?.kind).to.equal("call");
-        expect(thirdCall?.kind).to.equal("call");
-        if (
-          firstCall?.kind !== "call" ||
-          secondCall?.kind !== "call" ||
-          thirdCall?.kind !== "call"
-        ) {
-          return;
-        }
-
-        expect(firstCall.inferredType).to.deep.equal({ kind: "voidType" });
-        expect(firstCall.parameterTypes).to.deep.equal([
-          { kind: "primitiveType", name: "string" },
-          { kind: "primitiveType", name: "string" },
-        ]);
-
-        expect(secondCall.inferredType).to.deep.equal({ kind: "voidType" });
-        expect(secondCall.parameterTypes).to.deep.equal([
-          { kind: "unknownType", explicit: true },
-          { kind: "unknownType", explicit: true },
-        ]);
-
-        expect(thirdCall.inferredType).to.deep.equal({ kind: "voidType" });
-        expect(thirdCall.parameterTypes).to.deep.equal([
-          { kind: "unknownType", explicit: true },
-          { kind: "unknownType", explicit: true },
-        ]);
-      } finally {
-        fixture.cleanup();
-      }
-    });
-
-    it("keeps optional broad-object scalar equality generic when later arguments include undefined", () => {
-      const fixture = createFilesystemTestProgram(
-        {
-          "package.json": JSON.stringify({
-            name: "test-app",
-            type: "module",
-          }),
-          "src/index.ts": [
-            'import { Assert } from "xunit-types/Xunit.js";',
-            'import type { JsValue } from "@tsonic/core/types.js";',
-            "",
-            "export function run(): void {",
-            "  let received: JsValue | undefined = undefined;",
-            "  Assert.Equal(42, received);",
-            "}",
-          ].join("\n"),
-          "node_modules/@tsonic/core/package.json": JSON.stringify({
-            name: "@tsonic/core",
-            type: "module",
-          }),
-          "node_modules/@tsonic/core/types.js": "export {};",
-          "node_modules/@tsonic/core/types.d.ts": [
-            "export type JsValue = object | string | number | boolean | bigint | symbol | null;",
-          ].join("\n"),
-          "node_modules/xunit-types/package.json": JSON.stringify({
-            name: "xunit-types",
-            type: "module",
-          }),
-          "node_modules/xunit-types/Xunit.js":
-            'export { Assert as Assert } from "./Xunit/internal/index.js";',
-          "node_modules/xunit-types/Xunit.d.ts":
-            'export { Assert as Assert } from "./Xunit/internal/index.js";',
-          "node_modules/xunit-types/Xunit/internal/index.js":
-            "export const Assert = undefined;",
-          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
-            'import type { double } from "@tsonic/core/types.js";',
-            "",
-            "export interface Assert$instance {}",
-            "",
-            "export declare const Assert: (abstract new() => Assert$instance) & {",
-            "  Equal(expected: double, actual: double): void;",
-            "  Equal(expected: string, actual: string): void;",
-            "  Equal<T>(expected: T, actual: T): void;",
-            "};",
-          ].join("\n"),
-        },
-        "src/index.ts"
-      );
-
-      try {
-        const result = buildIrModule(
-          fixture.sourceFile,
-          fixture.testProgram,
-          fixture.options,
-          fixture.ctx
-        );
-
-        expect(result.ok).to.equal(true);
-        if (!result.ok) return;
-
-        const runDecl = result.value.body.find(
-          (statement): statement is IrFunctionDeclaration =>
-            statement.kind === "functionDeclaration" && statement.name === "run"
-        );
-        expect(runDecl).to.not.equal(undefined);
-        if (!runDecl?.body) {
-          return;
-        }
-
-        const callStatement = findEqualCallStatement(runDecl.body.statements);
-        expect(callStatement).to.not.equal(undefined);
-        if (
-          !callStatement ||
-          callStatement.kind !== "expressionStatement" ||
-          callStatement.expression.kind !== "call"
-        ) {
-          return;
-        }
-
-        expect(callStatement.expression.parameterTypes).to.deep.equal([
-          { kind: "referenceType", name: "object" },
-          {
-            kind: "unionType",
-            types: [
-              { kind: "primitiveType", name: "undefined" },
-              { kind: "referenceType", name: "object" },
-            ],
-          },
-        ]);
-      } finally {
-        fixture.cleanup();
-      }
-    });
-
-    it("keeps scalar string equality over the real xunit Equal overload family when later arguments are unknown", () => {
-      const fixture = createFilesystemTestProgram(
-        {
-          "package.json": JSON.stringify({
-            name: "test-app",
-            type: "module",
-          }),
-          "src/index.ts": [
-            'import { char } from "@tsonic/core/types.js";',
-            'import { Assert } from "xunit-types/Xunit.js";',
-            "",
-            "declare class EventEmitter {",
-            "  static once(emitter: EventEmitter, eventName: string): Promise<unknown[]>;",
-            "}",
-            "",
-            "export async function run(emitter: EventEmitter): Promise<void> {",
-            '  const args = await EventEmitter.once(emitter, "test");',
-            '  Assert.Equal("arg1", args[0]);',
-            "}",
-          ].join("\n"),
-          "node_modules/@tsonic/core/package.json": JSON.stringify({
-            name: "@tsonic/core",
-            type: "module",
-          }),
-          "node_modules/@tsonic/core/types.js": "export {};",
-          "node_modules/@tsonic/core/types.d.ts": [
-            "export type char = string;",
-          ].join("\n"),
-          "node_modules/xunit-types/package.json": JSON.stringify({
-            name: "xunit-types",
-            type: "module",
-          }),
-          "node_modules/xunit-types/Xunit.js": "export {};",
-          "node_modules/xunit-types/Xunit.d.ts": [
-            'import type { char } from "@tsonic/core/types.js";',
-            'import type { IAsyncEnumerable_1, IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
-            'import type { IEquatable_1, Memory_1, ReadOnlyMemory_1, ReadOnlySpan_1, Span_1 } from "@tsonic/dotnet/System/internal/index.js";',
-            "",
-            "export interface Assert$instance {}",
-            "",
-            "export declare const Assert: (abstract new() => Assert$instance) & {",
-            "  Equal<T>(expected: IAsyncEnumerable_1<T>, actual: IAsyncEnumerable_1<T>): void;",
-            "  Equal<T>(expected: IEnumerable_1<T>, actual: IAsyncEnumerable_1<T>): void;",
-            "  Equal<T>(expected: IEnumerable_1<T>, actual: IEnumerable_1<T>): void;",
-            "  Equal<T extends IEquatable_1<T>>(expectedMemory: Memory_1<T>, actualMemory: Memory_1<T>): void;",
-            "  Equal<T extends IEquatable_1<T>>(expectedMemory: ReadOnlyMemory_1<T>, actualMemory: ReadOnlyMemory_1<T>): void;",
-            "  Equal(expected: Memory_1<char>, actual: Memory_1<char>, ignoreCase?: boolean, ignoreLineEndingDifferences?: boolean, ignoreWhiteSpaceDifferences?: boolean, ignoreAllWhiteSpace?: boolean): void;",
-            "  Equal(expected: ReadOnlyMemory_1<char>, actual: ReadOnlyMemory_1<char>): void;",
-            "  Equal(expected: ReadOnlySpan_1<char>, actual: ReadOnlySpan_1<char>): void;",
-            "  Equal(expected: Span_1<char>, actual: Span_1<char>): void;",
-            "  Equal(expected: string, actual: string, ignoreCase?: boolean, ignoreLineEndingDifferences?: boolean, ignoreWhiteSpaceDifferences?: boolean, ignoreAllWhiteSpace?: boolean): void;",
-            "  Equal(expected: string, actual: string): void;",
-            "  Equal<T>(expected: T, actual: T): void;",
-            "};",
-          ].join("\n"),
-          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
-            name: "@tsonic/dotnet",
-            type: "module",
-          }),
-          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
-            "export {};",
-          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
-            [
-              "export interface IEnumerable_1$instance<T> {",
-              "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
-              "}",
-              "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
-              "export interface IAsyncEnumerable_1$instance<T> {",
-              "  readonly __tsonic_iface_System_Collections_Generic_IAsyncEnumerable_1: never;",
-              "}",
-              "export type IAsyncEnumerable_1<T> = IAsyncEnumerable_1$instance<T>;",
-            ].join("\n"),
-          "node_modules/@tsonic/dotnet/System/internal/index.js": "export {};",
-          "node_modules/@tsonic/dotnet/System/internal/index.d.ts": [
-            "export interface IEquatable_1$instance<T> {",
-            "  readonly __tsonic_iface_System_IEquatable_1: never;",
-            "}",
-            "export type IEquatable_1<T> = IEquatable_1$instance<T>;",
-            "export interface Memory_1$instance<T> {",
-            "  readonly __tsonic_iface_System_Memory_1: never;",
-            "}",
-            "export type Memory_1<T> = Memory_1$instance<T>;",
-            "export interface ReadOnlyMemory_1$instance<T> {",
-            "  readonly __tsonic_iface_System_ReadOnlyMemory_1: never;",
-            "}",
-            "export type ReadOnlyMemory_1<T> = ReadOnlyMemory_1$instance<T>;",
-            "export interface ReadOnlySpan_1$instance<T> {",
-            "  readonly __tsonic_iface_System_ReadOnlySpan_1: never;",
-            "}",
-            "export type ReadOnlySpan_1<T> = ReadOnlySpan_1$instance<T>;",
-            "export interface Span_1$instance<T> {",
-            "  readonly __tsonic_iface_System_Span_1: never;",
-            "}",
-            "export type Span_1<T> = Span_1$instance<T>;",
-          ].join("\n"),
-        },
-        "src/index.ts"
-      );
-
-      try {
-        const result = buildIrModule(
-          fixture.sourceFile,
-          fixture.testProgram,
-          fixture.options,
-          fixture.ctx
-        );
-
-        expect(result.ok).to.equal(true);
-        if (!result.ok) return;
-
-        const runFn = result.value.body.find(
-          (stmt): stmt is IrFunctionDeclaration =>
-            stmt.kind === "functionDeclaration" && stmt.name === "run"
-        );
-        expect(runFn).to.not.equal(undefined);
-        if (!runFn) return;
-
-        const callStatement = findEqualCallStatement(runFn.body.statements);
-        expect(callStatement).to.not.equal(undefined);
-        if (!callStatement) return;
-
-        const call = callStatement.expression;
-        expect(call.kind).to.equal("call");
-        if (call.kind !== "call") return;
-
-        expect(call.parameterTypes).to.deep.equal([
-          { kind: "primitiveType", name: "string" },
-          { kind: "primitiveType", name: "string" },
         ]);
       } finally {
         fixture.cleanup();

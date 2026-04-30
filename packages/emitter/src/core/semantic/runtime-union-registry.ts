@@ -152,9 +152,7 @@ const normalizeCarrierDefinitionMemberKey = (
   type: CSharpTypeAst,
   carrierNamespaceName: string | undefined
 ): string => {
-  const typeArguments = (
-    args: readonly CSharpTypeAst[] | undefined
-  ): string =>
+  const typeArguments = (args: readonly CSharpTypeAst[] | undefined): string =>
     args && args.length > 0
       ? `<${args
           .map((arg) =>
@@ -412,13 +410,13 @@ export const getOrRegisterRuntimeUnionCarrier = (
         nextNamespaceName,
         nextName
       );
-    const definitionMembersMatch = reconciledDefinitionMemberTypeAsts !== undefined;
-    const existingDefinitionMembersAreDefault =
-      carrierDefinitionMembersMatch(
-        existing.memberTypeAsts,
-        defaultDefinitionMemberTypeAsts,
-        nextNamespaceName
-      );
+    const definitionMembersMatch =
+      reconciledDefinitionMemberTypeAsts !== undefined;
+    const existingDefinitionMembersAreDefault = carrierDefinitionMembersMatch(
+      existing.memberTypeAsts,
+      defaultDefinitionMemberTypeAsts,
+      nextNamespaceName
+    );
     if (
       metadata.definitionMemberTypeAsts &&
       existing.memberTypeAsts.length ===

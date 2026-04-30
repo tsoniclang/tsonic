@@ -385,9 +385,15 @@ describe("discoverProgramInputs", () => {
             2
           )
         );
-        fs.writeFileSync(path.join(packageRoot, "src/index.ts"), "export {};\n");
+        fs.writeFileSync(
+          path.join(packageRoot, "src/index.ts"),
+          "export {};\n"
+        );
       }
-      fs.writeFileSync(siblingAmbientFile, "declare const siblingJs: string;\n");
+      fs.writeFileSync(
+        siblingAmbientFile,
+        "declare const siblingJs: string;\n"
+      );
       fs.writeFileSync(
         installedAmbientFile,
         "declare const installedJs: string;\n"

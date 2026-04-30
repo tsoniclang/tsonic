@@ -44,7 +44,7 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module, { surface: "@tsonic/js" });
+    const result = emitModule(module);
 
     expect(result).to.include('"hello"');
     expect(result).to.include("42"); // C# handles implicit conversion
@@ -83,7 +83,7 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module, { surface: "@tsonic/js" });
+    const result = emitModule(module);
 
     // Native array syntax with explicit type
     expect(result).to.include("new int[] { 1, 2, 3 }");
@@ -408,7 +408,7 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
+    const result = emitModule(module, { surface: "@tsonic/js" });
 
     expect(result).to.include('string source = "abc";');
     expect(result).to.include("char letter = source[0];");

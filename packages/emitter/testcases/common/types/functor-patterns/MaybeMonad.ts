@@ -5,11 +5,11 @@ export class Functor<T extends object> {
 }
 
 export class Maybe<T extends object> extends Functor<T> {
-  private value: T | null;
+  #value: T | null;
 
   constructor(value: T | null) {
     super();
-    this.value = value;
+    this.#value = value;
   }
 
   static just<T extends object>(value: T): Maybe<T> {
@@ -21,20 +21,20 @@ export class Maybe<T extends object> extends Functor<T> {
   }
 
   map<U extends object>(fn: (x: T) => U): Maybe<U> {
-    if (this.value === null) {
+    if (this.#value === null) {
       return Maybe.nothing<U>();
     }
-    return Maybe.just(fn(this.value));
+    return Maybe.just(fn(this.#value));
   }
 
   flatMap<U extends object>(fn: (x: T) => Maybe<U>): Maybe<U> {
-    if (this.value === null) {
+    if (this.#value === null) {
       return Maybe.nothing<U>();
     }
-    return fn(this.value);
+    return fn(this.#value);
   }
 
   getOrElse(defaultValue: T): T {
-    return this.value !== null ? this.value : defaultValue;
+    return this.#value !== null ? this.#value : defaultValue;
   }
 }

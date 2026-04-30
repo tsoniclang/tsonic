@@ -146,6 +146,39 @@ export const findContainingFunction = (
   return undefined;
 };
 
+const isBroadObjectLiteralContextType = (typeNode: ts.TypeNode): boolean =>
+  typeNode.kind === ts.SyntaxKind.ObjectKeyword ||
+  typeNode.kind === ts.SyntaxKind.UnknownKeyword ||
+  typeNode.kind === ts.SyntaxKind.AnyKeyword;
+
+export const objectLiteralHasBroadContextualType = (
+  node: ts.ObjectLiteralExpression
+): boolean => {
+  const parent = node.parent;
+
+  if (ts.isVariableDeclaration(parent) && parent.type) {
+    return isBroadObjectLiteralContextType(parent.type);
+  }
+
+  if (ts.isReturnStatement(parent)) {
+    const containingFunction = findContainingFunction(parent);
+    return !!(
+      containingFunction?.type &&
+      isBroadObjectLiteralContextType(containingFunction.type)
+    );
+  }
+
+  if (ts.isAsExpression(parent) && parent.type) {
+    return isBroadObjectLiteralContextType(parent.type);
+  }
+
+  if (ts.isSatisfiesExpression(parent) && parent.type) {
+    return isBroadObjectLiteralContextType(parent.type);
+  }
+
+  return false;
+};
+
 /**
  * DETERMINISTIC IR TYPING (INV-0 compliant):
  * Check if an object literal is in a position where expected types are available.
@@ -156,7 +189,7 @@ export const objectLiteralHasContextualType = (
   const parent = node.parent;
 
   if (ts.isVariableDeclaration(parent) && parent.type) {
-    return true;
+    return !isBroadObjectLiteralContextType(parent.type);
   }
 
   if (ts.isCallExpression(parent)) {
@@ -170,7 +203,7 @@ export const objectLiteralHasContextualType = (
   if (ts.isReturnStatement(parent)) {
     const containingFunction = findContainingFunction(parent);
     if (containingFunction && containingFunction.type) {
-      return true;
+      return !isBroadObjectLiteralContextType(containingFunction.type);
     }
   }
 
@@ -186,11 +219,11 @@ export const objectLiteralHasContextualType = (
   }
 
   if (ts.isAsExpression(parent) && parent.type) {
-    return true;
+    return !isBroadObjectLiteralContextType(parent.type);
   }
 
   if (ts.isSatisfiesExpression(parent) && parent.type) {
-    return true;
+    return !isBroadObjectLiteralContextType(parent.type);
   }
 
   return false;

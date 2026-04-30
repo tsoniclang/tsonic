@@ -8,6 +8,7 @@ import { BindingRegistry } from "./bindings.js";
 import { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { Binding } from "../ir/binding/index.js";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
+import type { SurfaceCapabilities } from "../surface/profiles.js";
 
 export type SurfaceMode = string;
 
@@ -25,6 +26,7 @@ export type TsonicProgram = {
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
   readonly options: CompilerOptions;
+  readonly surfaceCapabilities?: SurfaceCapabilities;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
   readonly declarationModuleAliases?: ReadonlyMap<
     string,

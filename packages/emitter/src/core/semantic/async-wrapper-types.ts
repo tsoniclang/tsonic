@@ -33,7 +33,9 @@ const getCallReturnType = (expr: IrExpression): IrType | undefined => {
   }
 
   const calleeType = expr.callee.inferredType;
-  return calleeType?.kind === "functionType" ? calleeType.returnType : undefined;
+  return calleeType?.kind === "functionType"
+    ? calleeType.returnType
+    : undefined;
 };
 
 export const isAsyncWrapperType = (type: IrType | undefined): boolean =>
@@ -96,4 +98,27 @@ export const getAsyncWrapperResultType = (
       ? getAwaitedIrType(expr.inferredType)
       : undefined;
   return inferredAwaited ?? expr.inferredType;
+};
+
+export const getAsyncWrapperSourceResultType = (
+  expr: IrExpression
+): IrType | undefined => {
+  const sourceBackedAwaited =
+    (expr.kind === "call" || expr.kind === "new") && expr.sourceBackedReturnType
+      ? getAwaitedIrType(expr.sourceBackedReturnType)
+      : undefined;
+  if (sourceBackedAwaited) {
+    return sourceBackedAwaited;
+  }
+
+  const calleeReturnType = getCallReturnType(expr);
+  const calleeAwaited =
+    calleeReturnType?.kind === "referenceType"
+      ? getAwaitedIrType(calleeReturnType)
+      : undefined;
+  if (calleeAwaited) {
+    return calleeAwaited;
+  }
+
+  return getAsyncWrapperResultType(expr);
 };

@@ -26,6 +26,7 @@ import {
   tryEmitMaterializedNarrowedIdentifier,
   matchesEmittedStorageSurface,
   tryEmitReifiedStorageIdentifier,
+  tryEmitRuntimeSubsetMemberProjectionIdentifier,
   tryEmitStorageCompatibleIdentifier,
   tryEmitStorageCompatibleNarrowedIdentifier,
 } from "./identifier-storage.js";
@@ -157,13 +158,6 @@ export const emitIdentifier = (
 
         return [narrowed.exprAst, context];
       } else if (narrowed.kind === "runtimeSubset") {
-        const storageCompatibleExpected = expectedType
-          ? tryEmitStorageCompatibleIdentifier(expr, context, expectedType)
-          : undefined;
-        if (storageCompatibleExpected && expectedType) {
-          return [storageCompatibleExpected, context];
-        }
-
         const [sameSourceCarrierSurface, sourceCarrierContext] =
           expectedType && narrowed.sourceType
             ? matchesEmittedStorageSurface(
@@ -175,21 +169,27 @@ export const emitIdentifier = (
         const canReuseOriginalCarrierForExpectedTarget =
           !!expectedType &&
           !!narrowed.sourceType &&
-          (sameSourceCarrierSurface ||
-            (isBroadStorageTarget(expectedType, context) &&
-              matchesExpectedEmissionType(
-                stripNullish(narrowed.sourceType),
-                expectedType,
-                context
-              )));
+          !isBroadStorageTarget(expectedType, context) &&
+          sameSourceCarrierSurface;
         if (canReuseOriginalCarrierForExpectedTarget) {
           const originalCarrier =
             narrowed.storageExprAst ??
             identifierExpression(
               context.localNameMap?.get(expr.name) ??
                 escapeCSharpIdentifier(expr.name)
-            );
+          );
           return [originalCarrier, sourceCarrierContext];
+        }
+
+        const directMemberProjection =
+          tryEmitRuntimeSubsetMemberProjectionIdentifier(
+            expr,
+            narrowed,
+            context,
+            expectedType
+          );
+        if (directMemberProjection) {
+          return directMemberProjection;
         }
 
         const shouldPreferNarrowedSubsetTarget =
@@ -226,13 +226,6 @@ export const emitIdentifier = (
         if (implicitStorage) {
           return implicitStorage;
         }
-
-        // Storage-compatible shortcut is intentionally skipped here.
-        // When a runtimeSubset binding is active, the variable has been
-        // narrowed to a semantic subset (e.g., PathSpec slots within a
-        // 5-member carrier). The raw storage identifier carries the full
-        // carrier, not the subset. Using it would lose the narrowing and
-        // cause incorrect carrier-shape adaptation downstream.
 
         const subsetAst = buildRuntimeSubsetExpressionAst(
           expr,

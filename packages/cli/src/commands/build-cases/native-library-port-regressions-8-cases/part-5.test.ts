@@ -118,7 +118,7 @@ describe("build command (native library port regressions)", function () {
         join(projectRoot, "src", "query.ts"),
         [
           "export class Query<T> {",
-          "  readonly items: readonly T[];",
+          "  items: readonly T[];",
           "",
           "  constructor(items: readonly T[]) {",
           "    this.items = items;",
@@ -143,7 +143,7 @@ describe("build command (native library port regressions)", function () {
           'import { Query } from "./query.ts";',
           "",
           "export class ClickmeterDbContext {",
-          "  readonly items: readonly EventEntity[];",
+          "  items: readonly EventEntity[];",
           "",
           "  constructor(items: readonly EventEntity[]) {",
           "    this.items = items;",

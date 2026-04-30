@@ -83,6 +83,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
   const {
     sourceRoot,
     rootNamespace,
+    surfaceCapabilities,
     handleRegistry,
     typeRegistry,
     nominalEnv,
@@ -146,6 +147,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
   const state: TypeSystemState = {
     sourceRoot,
     rootNamespace,
+    surfaceCapabilities,
     handleRegistry,
     typeRegistry,
     nominalEnv,

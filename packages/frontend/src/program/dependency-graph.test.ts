@@ -1,5 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
@@ -41,6 +42,131 @@ const hasNonEmptyObjectTypeMetadata = (value: unknown): boolean => {
 
 describe("Dependency Graph", function () {
   this.timeout(60_000);
+  it("dedupes source-package roots by package identity during ambient discovery", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/rootdir-external"
+    );
+
+    try {
+      const projectRoot = fixture.path("workspace/app");
+      const sourceRoot = fixture.path("workspace/app/src");
+      const entryPath = path.join(sourceRoot, "index.ts");
+      const installedJsRoot = fixture.path(
+        "workspace/app/node_modules/@tsonic/js"
+      );
+      const siblingJsRoot = fixture.path("workspace/js/versions/10");
+      const nodeRoot = fixture.path(
+        "workspace/app/node_modules/@tsonic/nodejs"
+      );
+
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify({ name: "app", version: "0.0.0", type: "module" })
+      );
+      fs.writeFileSync(entryPath, "export const app = 1;\n");
+
+      for (const packageRoot of [installedJsRoot, siblingJsRoot]) {
+        fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+        fs.writeFileSync(
+          path.join(packageRoot, "package.json"),
+          JSON.stringify({
+            name: "@tsonic/js",
+            version: "10.0.49",
+            type: "module",
+          })
+        );
+        fs.writeFileSync(
+          path.join(packageRoot, "tsonic.package.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "js",
+              ambient: ["./globals.ts"],
+              exports: { ".": "./src/index.ts" },
+            },
+          })
+        );
+        fs.writeFileSync(
+          path.join(packageRoot, "globals.ts"),
+          [
+            "export {};",
+            "declare global {",
+            "  interface Array<T> {}",
+            "  interface Boolean {}",
+            "  interface CallableFunction {}",
+            "  interface Function {}",
+            "  interface IArguments {}",
+            "  interface NewableFunction {}",
+            "  interface Number {}",
+            "  interface Object {}",
+            "  interface RegExp {}",
+            "  interface String {}",
+            "}",
+            "",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(packageRoot, "src/index.ts"),
+          "export const jsPackage = 1;\n"
+        );
+      }
+
+      fs.mkdirSync(path.join(nodeRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(nodeRoot, "package.json"),
+        JSON.stringify({
+          name: "@tsonic/nodejs",
+          version: "10.0.49",
+          type: "module",
+        })
+      );
+      fs.writeFileSync(
+        path.join(nodeRoot, "tsonic.package.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
+          source: {
+            namespace: "nodejs",
+            ambient: ["./globals.ts"],
+            exports: { ".": "./src/index.ts" },
+          },
+        })
+      );
+      fs.writeFileSync(path.join(nodeRoot, "globals.ts"), "export {};\n");
+      fs.writeFileSync(
+        path.join(nodeRoot, "src/index.ts"),
+        "export const nodePackage = 1;\n"
+      );
+
+      const result = buildModuleDependencyGraph(entryPath, {
+        projectRoot,
+        sourceRoot,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        typeRoots: [installedJsRoot, nodeRoot],
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const jsGlobalsModules = result.value.modules.filter(
+        (module) =>
+          module.namespace === "js._" && module.className === "globals"
+      );
+
+      expect(jsGlobalsModules).to.have.length(1);
+      expect(jsGlobalsModules[0]?.filePath).to.equal(
+        "node_modules/@tsonic/js/globals.ts"
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("should traverse imports from installed tsonic source packages", () => {
     const fixture = materializeFrontendFixture([
       "fragments/minimal-surfaces/tsonic-js",
@@ -431,65 +557,4 @@ describe("Dependency Graph", function () {
     }
   });
 
-  it("should traverse awaited relative dynamic-import side effects", () => {
-    const fixture = materializeFrontendFixture([
-      "fragments/minimal-surfaces/tsonic-js",
-      "program/dependency-graph/dynamic-import-side-effects",
-    ]);
-
-    try {
-      const tempDir = fixture.path("app");
-      const srcDir = fixture.path("app/src");
-      const entryPath = fixture.path("app/src/index.ts");
-
-      const result = buildModuleDependencyGraph(entryPath, {
-        projectRoot: tempDir,
-        sourceRoot: srcDir,
-        rootNamespace: "Test",
-        surface: "@tsonic/js",
-      });
-
-      expect(result.ok).to.equal(true);
-      if (!result.ok) return;
-
-      expect(
-        result.value.modules.some(
-          (module) => module.filePath === "nested/module.ts"
-        )
-      ).to.equal(true);
-    } finally {
-      fixture.cleanup();
-    }
-  });
-
-  it("should traverse value-consuming closed-world dynamic imports", () => {
-    const fixture = materializeFrontendFixture([
-      "fragments/minimal-surfaces/tsonic-js",
-      "program/dependency-graph/dynamic-import-value",
-    ]);
-
-    try {
-      const tempDir = fixture.path("app");
-      const srcDir = fixture.path("app/src");
-      const entryPath = fixture.path("app/src/index.ts");
-
-      const result = buildModuleDependencyGraph(entryPath, {
-        projectRoot: tempDir,
-        sourceRoot: srcDir,
-        rootNamespace: "Test",
-        surface: "@tsonic/js",
-      });
-
-      expect(result.ok).to.equal(true);
-      if (!result.ok) return;
-
-      expect(
-        result.value.modules.some(
-          (module) => module.filePath === "nested/module.ts"
-        )
-      ).to.equal(true);
-    } finally {
-      fixture.cleanup();
-    }
-  });
 });

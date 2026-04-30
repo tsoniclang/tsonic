@@ -75,10 +75,7 @@ const isObjectTypeAst = (
   );
 };
 
-const isBroadStorageType = (
-  type: IrType,
-  context: EmitterContext
-): boolean => {
+const isBroadStorageType = (type: IrType, context: EmitterContext): boolean => {
   const resolved = resolveTypeAlias(stripNullish(type), context, {
     preserveObjectTypeAliases: true,
   });

@@ -39,10 +39,12 @@ not a local code workaround.
 ### Determinism failure
 
 ```ts
-await import(specifier);
+const value = typeof input;
 ```
 
-This fails because the import graph is not closed-world.
+This fails because runtime shape inspection is not a NativeAOT-compatible
+language operation. Use concrete types, explicit discriminants, or
+compiler-recognized nominal guards.
 
 ### Overload or generic ambiguity
 

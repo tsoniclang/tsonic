@@ -1,3 +1,0 @@
-{
-  "description": "closed-world dynamic import namespaces preserve callable exports as callable members."
-}

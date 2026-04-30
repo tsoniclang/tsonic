@@ -30,14 +30,14 @@ describe("IR Builder", function () {
         declare class Promise<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): Promise<TResult1 | TResult2>;
         }
 
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -94,7 +94,7 @@ describe("IR Builder", function () {
         declare class PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -102,7 +102,7 @@ describe("IR Builder", function () {
           constructor(
             executor: (
               resolve: (value: T | PromiseLike<T>) => void,
-              reject: (reason: JsValue) => void
+              reject: (reason: unknown) => void
             ) => void
           );
         }
@@ -168,7 +168,7 @@ describe("IR Builder", function () {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -248,7 +248,7 @@ describe("IR Builder", function () {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -256,7 +256,7 @@ describe("IR Builder", function () {
           constructor(
             executor: (
               resolve: (value: T | PromiseLike<T>) => void,
-              reject: (reason: JsValue) => void
+              reject: (reason: unknown) => void
             ) => void
           );
 
@@ -954,17 +954,19 @@ describe("IR Builder", function () {
       }
     });
 
-    it("threads constructor surface parameter types for JsValue-typed arguments", () => {
+    it("threads constructor surface parameter types for closed union arguments", () => {
       const source = `
-        class AssertionError extends Error {
-          public actual: JsValue | undefined = undefined;
-          public expected: JsValue | undefined = undefined;
-          public operator: string = "";
+        type RuntimeValue = string | number | boolean | object | null;
 
-          public constructor(
+        class AssertionError extends Error {
+          actual: RuntimeValue | undefined = undefined;
+          expected: RuntimeValue | undefined = undefined;
+          operator: string = "";
+
+          constructor(
             message?: string,
-            actual?: JsValue,
-            expected?: JsValue,
+            actual?: RuntimeValue,
+            expected?: RuntimeValue,
             operator: string = ""
           ) {
             super(message);
@@ -1024,6 +1026,20 @@ describe("IR Builder", function () {
       const expectedType = ctorDecl.parameters[2]?.type;
       expect(actualType).to.not.equal(undefined);
       expect(expectedType).to.not.equal(undefined);
+      const runtimeActualType = ctor.parameterTypes?.[1];
+      const runtimeExpectedType = ctor.parameterTypes?.[2];
+      expect(runtimeActualType?.kind).to.equal("unionType");
+      expect(runtimeExpectedType?.kind).to.equal("unionType");
+      if (
+        runtimeActualType?.kind !== "unionType" ||
+        runtimeExpectedType?.kind !== "unionType"
+      ) {
+        return;
+      }
+      expect(runtimeActualType.runtimeCarrierName).to.equal("RuntimeValue");
+      expect(runtimeActualType.runtimeCarrierNamespace).to.equal("TestApp");
+      expect(runtimeExpectedType.runtimeCarrierName).to.equal("RuntimeValue");
+      expect(runtimeExpectedType.runtimeCarrierNamespace).to.equal("TestApp");
       const optionalActualType = {
         kind: "unionType" as const,
         types: [
@@ -1038,9 +1054,11 @@ describe("IR Builder", function () {
           { kind: "primitiveType" as const, name: "undefined" },
         ],
       };
-      expect(ctor.parameterTypes?.[1]).to.deep.equal(actualType);
+      expect(ctor.parameterTypes?.[1]).to.deep.equal(runtimeActualType);
+      expect(ctor.parameterTypes?.[2]).to.deep.equal(runtimeExpectedType);
+      expect(actualType).to.not.deep.equal(runtimeActualType);
+      expect(expectedType).to.not.deep.equal(runtimeExpectedType);
       expect(ctor.surfaceParameterTypes?.[1]).to.deep.equal(optionalActualType);
-      expect(ctor.parameterTypes?.[2]).to.deep.equal(expectedType);
       expect(ctor.surfaceParameterTypes?.[2]).to.deep.equal(
         optionalExpectedType
       );
@@ -1048,14 +1066,15 @@ describe("IR Builder", function () {
 
     it("contextually types explicit lambda parameters from rest callbacks as element values", () => {
       const source = `
-        type EventListener = (...args: JsValue[]) => void;
+        type RuntimeValue = string | number | boolean | object | null;
+        type EventListener = (...args: RuntimeValue[]) => void;
 
         declare function consume(listener: EventListener): void;
 
         export function main(): void {
-          let first: JsValue = undefined;
-          let second: JsValue = undefined;
-          let third: JsValue = undefined;
+          let first: RuntimeValue = null;
+          let second: RuntimeValue = null;
+          let third: RuntimeValue = null;
 
           consume((arg1, arg2, arg3) => {
             first = arg1;

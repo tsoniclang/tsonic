@@ -198,48 +198,47 @@ const buildLocalTypeStructuralSignature = (
     return undefined;
   }
 
-  const rawMembers = localInfo.members
-    .flatMap<LocalStructuralPropertyMember | LocalStructuralMethodMember>(
-      (member) => {
-        if (member.kind === "propertyDeclaration" && member.type) {
-          return {
-            kind: "property",
-            alias: member.name,
-            semanticType: member.type,
-            semanticOptional: false,
-          };
-        }
-        if (member.kind === "propertySignature" && member.type) {
-          return {
-            kind: "property",
-            alias: member.name,
-            semanticType: member.type,
-            semanticOptional: member.isOptional,
-          };
-        }
-        if (member.kind === "methodDeclaration") {
-          return {
-            kind: "method",
-            alias: member.name,
-            parameters: member.parameters.map(
-              (parameter) => parameter.type ?? { kind: "unknownType" }
-            ),
-            returnType: member.returnType ?? { kind: "unknownType" },
-          };
-        }
-        if (member.kind === "methodSignature") {
-          return {
-            kind: "method",
-            alias: member.name,
-            parameters: member.parameters.map(
-              (parameter) => parameter.type ?? { kind: "unknownType" }
-            ),
-            returnType: member.returnType ?? { kind: "unknownType" },
-          };
-        }
-        return [];
-      }
-    );
+  const rawMembers = localInfo.members.flatMap<
+    LocalStructuralPropertyMember | LocalStructuralMethodMember
+  >((member) => {
+    if (member.kind === "propertyDeclaration" && member.type) {
+      return {
+        kind: "property",
+        alias: member.name,
+        semanticType: member.type,
+        semanticOptional: false,
+      };
+    }
+    if (member.kind === "propertySignature" && member.type) {
+      return {
+        kind: "property",
+        alias: member.name,
+        semanticType: member.type,
+        semanticOptional: member.isOptional,
+      };
+    }
+    if (member.kind === "methodDeclaration") {
+      return {
+        kind: "method",
+        alias: member.name,
+        parameters: member.parameters.map(
+          (parameter) => parameter.type ?? { kind: "unknownType" }
+        ),
+        returnType: member.returnType ?? { kind: "unknownType" },
+      };
+    }
+    if (member.kind === "methodSignature") {
+      return {
+        kind: "method",
+        alias: member.name,
+        parameters: member.parameters.map(
+          (parameter) => parameter.type ?? { kind: "unknownType" }
+        ),
+        returnType: member.returnType ?? { kind: "unknownType" },
+      };
+    }
+    return [];
+  });
 
   const members: string[] = [];
   for (const member of rawMembers) {
@@ -283,11 +282,10 @@ const buildReferenceStructuralSignature = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
 ): string | undefined => {
-  const rawMembers = (type.structuralMembers ?? [])
-    .filter(
-      (member): member is StructuralReferenceMember =>
-        member.kind === "propertySignature" || member.kind === "methodSignature"
-    );
+  const rawMembers = (type.structuralMembers ?? []).filter(
+    (member): member is StructuralReferenceMember =>
+      member.kind === "propertySignature" || member.kind === "methodSignature"
+  );
 
   const members: string[] = [];
   for (const member of rawMembers) {
@@ -306,8 +304,8 @@ const buildBindingStructuralSignature = (
   binding: FrontendTypeBinding,
   context: EmitterContext
 ): string | undefined => {
-  const rawMembers = binding.members
-    .flatMap<StructuralSignatureMember>((member) => {
+  const rawMembers = binding.members.flatMap<StructuralSignatureMember>(
+    (member) => {
       if (member.kind === "property" && member.semanticType) {
         return {
           kind: "property",
@@ -324,7 +322,8 @@ const buildBindingStructuralSignature = (
         };
       }
       return [];
-    });
+    }
+  );
 
   const members: string[] = [];
   for (const member of rawMembers) {

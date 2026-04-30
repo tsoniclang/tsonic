@@ -14,7 +14,11 @@ export function tryFirstElement<T>(arr: T[], result: out<T>): boolean {
 }
 
 export class Box<T> {
-  constructor(public value: T) {}
+  value: T;
+
+  constructor(value: T) {
+    this.value = value;
+  }
 
   getValue(): T {
     return this.value;

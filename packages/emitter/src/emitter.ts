@@ -21,7 +21,6 @@ import {
   generateArrayInteropFile,
   generateModuleContainerAttributeFile,
   generateJsonAotFile,
-  generateJsonRuntimeFile,
   generateRuntimeUnionFile,
 } from "./generated-files.js";
 import { createRuntimeUnionRegistry } from "./core/semantic/runtime-union-registry.js";
@@ -79,7 +78,6 @@ export const emitCSharpFiles = (
   const jsonAotRegistry: JsonAotRegistry = {
     rootTypes: new Map(),
     needsJsonAot: false,
-    needsRuntimeJsonSupport: false,
   };
   const runtimeUnionRegistry = createRuntimeUnionRegistry();
 
@@ -134,12 +132,6 @@ export const emitCSharpFiles = (
     const rootNamespace = options.rootNamespace ?? "TsonicApp";
     const jsonCode = generateJsonAotFile(jsonAotRegistry, rootNamespace);
     results.set("__tsonic_json.g.cs", jsonCode);
-  }
-
-  if (jsonAotRegistry.needsRuntimeJsonSupport) {
-    const rootNamespace = options.rootNamespace ?? "TsonicApp";
-    const jsonRuntimeCode = generateJsonRuntimeFile(rootNamespace);
-    results.set("__tsonic_json_runtime.g.cs", jsonRuntimeCode);
   }
 
   if (

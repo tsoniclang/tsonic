@@ -11,6 +11,7 @@ import {
   type IrExpression,
   type IrStatement,
   type IrType,
+  normalizedUnionType,
 } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
@@ -23,7 +24,7 @@ import { matchesExpectedEmissionType } from "./expected-type-matching.js";
 import { getRuntimeUnionAliasReferenceKey } from "./runtime-union-alias-identity.js";
 import { applyConditionBranchNarrowing } from "./condition-branch-narrowing.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
-import { isAssignable } from "./type-compatibility.js";
+import { isAssignableToType } from "./type-compatibility.js";
 import { getReferenceDeterministicIdentityKey } from "./clr-type-identity.js";
 
 /**
@@ -110,6 +111,57 @@ const containsDeterministicReferenceIdentity = (type: IrType): boolean => {
   }
 };
 
+const runtimeUnionAliasExpandsToType = (
+  aliasType: IrType,
+  expandedType: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolvedAlias = resolveTypeAlias(stripNullish(aliasType), context);
+  const resolvedExpanded = resolveTypeAlias(stripNullish(expandedType), context);
+  if (
+    resolvedAlias.kind !== "unionType" ||
+    resolvedExpanded.kind !== "unionType" ||
+    resolvedAlias.runtimeCarrierFamilyKey === undefined ||
+    resolvedAlias.types.length !== resolvedExpanded.types.length
+  ) {
+    return false;
+  }
+
+  const usedExpandedMembers = new Set<number>();
+  for (const aliasMember of resolvedAlias.types) {
+    let matched = false;
+    for (let index = 0; index < resolvedExpanded.types.length; index++) {
+      if (usedExpandedMembers.has(index)) {
+        continue;
+      }
+
+      const expandedMember = resolvedExpanded.types[index];
+      if (
+        expandedMember &&
+        areIrTypesEquivalent(aliasMember, expandedMember, context)
+      ) {
+        usedExpandedMembers.add(index);
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const sourceBackedAwaitedTypeMatchesInferredType = (
+  sourceAwaitedType: IrType,
+  inferredType: IrType,
+  context: EmitterContext
+): boolean =>
+  areIrTypesEquivalent(sourceAwaitedType, inferredType, context) ||
+  runtimeUnionAliasExpandsToType(sourceAwaitedType, inferredType, context);
+
 const resolveSourceBackedInitializerType = (
   expression: IrExpression,
   context: EmitterContext
@@ -133,7 +185,11 @@ const resolveSourceBackedInitializerType = (
         expression.inferredType &&
         containsDeterministicReferenceIdentity(sourceAwaitedType) &&
         containsDeterministicReferenceIdentity(expression.inferredType) &&
-        !areIrTypesEquivalent(sourceAwaitedType, expression.inferredType, context)
+        !sourceBackedAwaitedTypeMatchesInferredType(
+          sourceAwaitedType,
+          expression.inferredType,
+          context
+        )
       ) {
         return expression.inferredType;
       }
@@ -196,15 +252,34 @@ const resolveConditionalInitializerType = (
     return whenTrueType;
   }
 
-  if (isAssignable(whenTrueType, whenFalseType)) {
+  if (isAssignableToType(whenTrueType, whenFalseType, context)) {
     return whenFalseType;
   }
 
-  if (isAssignable(whenFalseType, whenTrueType)) {
+  if (isAssignableToType(whenFalseType, whenTrueType, context)) {
     return whenTrueType;
   }
 
-  return expression.inferredType;
+  return normalizedUnionType([whenTrueType, whenFalseType]);
+};
+
+const isTransparentFlowTypeAssertion = (
+  expression: Extract<IrExpression, { kind: "typeAssertion" }>
+): boolean => {
+  const inner = expression.expression;
+  if (inner.kind !== "identifier" && inner.kind !== "memberAccess") {
+    return false;
+  }
+  if (!expression.sourceSpan || !inner.sourceSpan) {
+    return false;
+  }
+
+  return (
+    expression.sourceSpan.file === inner.sourceSpan.file &&
+    expression.sourceSpan.line === inner.sourceSpan.line &&
+    expression.sourceSpan.column === inner.sourceSpan.column &&
+    expression.sourceSpan.length === inner.sourceSpan.length
+  );
 };
 
 const hasExplicitRuntimeUnionCarrierIdentity = (
@@ -240,11 +315,7 @@ const shouldPreserveSemanticRuntimeCarrierStorage = (
 
   return (
     !initializerStorageType ||
-    matchesExpectedEmissionType(
-      initializerStorageType,
-      semanticType,
-      context
-    )
+    matchesExpectedEmissionType(initializerStorageType, semanticType, context)
   );
 };
 
@@ -252,6 +323,7 @@ export const resolveSemanticVariableInitializerType = (
   initializer:
     | {
         readonly kind: string;
+        readonly name?: string;
         readonly inferredType?: IrType;
         readonly targetType?: IrType;
       }
@@ -264,7 +336,21 @@ export const resolveSemanticVariableInitializerType = (
 
   const expression = initializer as IrExpression;
 
+  if (expression.kind === "identifier") {
+    const narrowedType = context.narrowedBindings?.get(expression.name)?.type;
+    if (narrowedType) {
+      return narrowedType;
+    }
+  }
+
   if (expression.kind === "typeAssertion") {
+    if (isTransparentFlowTypeAssertion(expression)) {
+      return (
+        resolveEffectiveExpressionType(expression.expression, context) ??
+        expression.expression.inferredType ??
+        expression.targetType
+      );
+    }
     return expression.targetType;
   }
 

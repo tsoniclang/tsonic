@@ -2,7 +2,20 @@
  * Context creation and manipulation functions
  */
 
+import { surfaceIncludesJs } from "@tsonic/frontend";
 import { EmitterOptions, EmitterContext } from "./core.js";
+
+const getSurfaceCapabilities = (options: EmitterOptions) =>
+  options.surfaceCapabilities ?? {
+    mode: options.surface ?? "clr",
+    includesClr: options.surface === undefined || options.surface === "clr",
+    resolvedModes: [options.surface ?? "clr"],
+    requiredTypeRoots: [],
+  };
+
+export const contextSurfaceIncludesJs = (
+  context: Pick<EmitterContext, "options">
+): boolean => surfaceIncludesJs(getSurfaceCapabilities(context.options));
 
 /**
  * Create a new emitter context with default values
@@ -15,7 +28,10 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
 
   return {
     indentLevel: 0,
-    options,
+    options: {
+      ...options,
+      surfaceCapabilities: getSurfaceCapabilities(options),
+    },
     isStatic: false,
     isAsync: false,
     bindingsRegistry,

@@ -465,6 +465,97 @@ describe("CLI Surface Profiles", () => {
     }
   });
 
+  it("prefers an ancestor workspace-installed source package over a sibling source package", () => {
+    const parentRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-cli-installed-source-surface-")
+    );
+    const workspaceRoot = join(parentRoot, "packages", "app");
+    try {
+      mkdirSync(workspaceRoot, { recursive: true });
+      writeFileSync(
+        join(parentRoot, "package.json"),
+        JSON.stringify(
+          { name: "workspace", private: true, type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(workspaceRoot, "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
+      );
+
+      const installedJsRoot = join(parentRoot, "node_modules", "@tsonic", "js");
+      mkdirSync(join(installedJsRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(installedJsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "10.0.49", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(installedJsRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "js",
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      writeFileSync(join(installedJsRoot, "src", "index.ts"), "export {};\n");
+
+      const siblingJsRoot = join(parentRoot, "js", "versions", "10");
+      mkdirSync(join(siblingJsRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(siblingJsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "10.0.49-next.0", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(siblingJsRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "js",
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      writeFileSync(join(siblingJsRoot, "src", "index.ts"), "export {};\n");
+
+      const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
+      expect(caps.requiredTypeRoots).to.deep.equal([resolve(installedJsRoot)]);
+      expect(caps.requiredTypeRoots).to.not.include(resolve(siblingJsRoot));
+      expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
+    } finally {
+      rmSync(parentRoot, { recursive: true, force: true });
+    }
+  });
+
   it("should not treat installed regular packages as surfaces without manifest", () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-surface-nodejs-"));
     try {

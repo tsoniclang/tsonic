@@ -3,7 +3,7 @@
  *
  * Covers:
  * - TSN7401: 'any' type banned
- * - TSN7402: 'unknown' type banned outside erased overload stubs
+ * - unknown as an emitted broad boundary type
  * - TSN7403: Object literal requires nominal type
  */
 
@@ -70,8 +70,8 @@ describe("Static Safety Validation", () => {
     });
   });
 
-  describe("TSN7402 - 'unknown' type banned", () => {
-    it("should reject explicit unknown type annotation", () => {
+  describe("unknown broad boundary typing", () => {
+    it("should allow explicit unknown type annotation", () => {
       const source = `
         export function process(data: unknown): void {
           console.log(data);
@@ -84,13 +84,10 @@ describe("Static Safety Validation", () => {
       const unknownDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7402"
       );
-      expect(unknownDiag).not.to.equal(undefined);
-      expect(unknownDiag?.message).to.include(
-        "'unknown' type is not supported"
-      );
+      expect(unknownDiag).to.equal(undefined);
     });
 
-    it("should reject 'as unknown' type assertion", () => {
+    it("should allow 'as unknown' type assertion", () => {
       const source = `
         export const x = (123 as unknown);
       `;
@@ -101,8 +98,7 @@ describe("Static Safety Validation", () => {
       const unknownDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7402"
       );
-      expect(unknownDiag).not.to.equal(undefined);
-      expect(unknownDiag?.message).to.include("'unknown' type assertion");
+      expect(unknownDiag).to.equal(undefined);
     });
 
     it("should allow broad unknown signatures on erased overload stubs", () => {
@@ -319,6 +315,19 @@ describe("Static Safety Validation", () => {
 
       const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
       expect(objDiag).to.equal(undefined);
+    });
+
+    it("should reject object literal assigned to broad object type", () => {
+      const source = `
+        const value: object = { x: 1 };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).not.to.equal(undefined);
+      expect(objDiag?.message).to.include("broad runtime object type");
     });
 
     it("should allow object literal with Record type", () => {

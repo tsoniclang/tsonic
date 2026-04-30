@@ -8,11 +8,11 @@ class Functor<T> {
 }
 
 class Maybe<T> extends Functor<T> {
-  private value: T | null;
+  #value: T | null;
 
   constructor(value: T | null) {
     super();
-    this.value = value;
+    this.#value = value;
   }
 
   static just<T>(value: T): Maybe<T> {
@@ -24,21 +24,21 @@ class Maybe<T> extends Functor<T> {
   }
 
   map<U>(fn: (x: T) => U): Maybe<U> {
-    if (this.value === null) {
+    if (this.#value === null) {
       return Maybe.nothing<U>();
     }
-    return Maybe.just(fn(this.value));
+    return Maybe.just(fn(this.#value));
   }
 
   flatMap<U>(fn: (x: T) => Maybe<U>): Maybe<U> {
-    if (this.value === null) {
+    if (this.#value === null) {
       return Maybe.nothing<U>();
     }
-    return fn(this.value);
+    return fn(this.#value);
   }
 
   getOrElse(defaultValue: T): T {
-    return this.value !== null ? this.value : defaultValue;
+    return this.#value !== null ? this.#value : defaultValue;
   }
 }
 

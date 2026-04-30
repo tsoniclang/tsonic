@@ -30,13 +30,17 @@ import { runVirtualMarkingPass } from "../ir/validation/virtual-marking-pass.js"
 import { validateProgram } from "../validation/orchestrator.js";
 import {
   getLocalResolutionBoundary,
+  parsePackageSpecifier,
   resolveInstalledPackageImport,
   resolveSourcePackageAliasTarget,
   resolveSourcePackageImport,
+  resolveSourcePackageImportFromPackageRoot,
 } from "../resolver/source-package-resolution.js";
 import { resolveImport } from "../resolver.js";
-import { collectClosedWorldDynamicImportSites } from "../resolver/dynamic-import.js";
-import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import {
+  resolveSurfaceCapabilities,
+  type SurfaceCapabilities,
+} from "../surface/profiles.js";
 import { scanForDeclarationFiles } from "./core-declarations.js";
 import {
   discoverDeclarationGlobalImports,
@@ -48,6 +52,7 @@ import { readSourcePackageMetadata } from "./source-package-metadata.js";
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
   readonly entryModule: IrModule;
+  readonly surfaceCapabilities: SurfaceCapabilities;
   /** Type bindings loaded from CLR packages (for emitter bindingsRegistry) */
   readonly bindings: ReadonlyMap<string, TypeBinding>;
   /** Full binding registry for exact global/module/source binding lookups during emission. */
@@ -218,6 +223,59 @@ const collectSourcePackageModuleAliases = (
   return aliases;
 };
 
+const collectAuthoritativeSourcePackageRoots = (
+  packageRoots: readonly string[]
+): ReadonlyMap<string, string> => {
+  const roots = new Map<string, string>();
+
+  for (const packageRoot of packageRoots) {
+    const metadata = readSourcePackageMetadata(packageRoot);
+    if (!metadata || roots.has(metadata.packageName)) {
+      continue;
+    }
+    roots.set(metadata.packageName, metadata.packageRoot);
+  }
+
+  return roots;
+};
+
+const findAuthoritativePackageRootForImport = (
+  importSpecifier: string,
+  authoritativeSourcePackageRoots: ReadonlyMap<string, string>
+): string | undefined => {
+  const parsed = parsePackageSpecifier(importSpecifier);
+  if (!parsed) {
+    return undefined;
+  }
+  return authoritativeSourcePackageRoots.get(parsed.packageName);
+};
+
+const resolveSourcePackageImportWithAuthoritativeRoots = (
+  importSpecifier: string,
+  containingFile: string,
+  activeSurface: CompilerOptions["surface"],
+  projectRoot: string,
+  authoritativeSourcePackageRoots: ReadonlyMap<string, string>
+): ReturnType<typeof resolveSourcePackageImport> => {
+  const authoritativeRoot = findAuthoritativePackageRootForImport(
+    importSpecifier,
+    authoritativeSourcePackageRoots
+  );
+  return authoritativeRoot
+    ? resolveSourcePackageImportFromPackageRoot(
+        importSpecifier,
+        authoritativeRoot,
+        activeSurface,
+        projectRoot
+      )
+    : resolveSourcePackageImport(
+        importSpecifier,
+        containingFile,
+        activeSurface,
+        projectRoot
+      );
+};
+
 const queueResolvedLocalDependency = (
   importSpecifier: string,
   currentFile: string,
@@ -297,6 +355,40 @@ const isQueueableTsSourceDependency = (resolvedPath: string): boolean =>
   !resolvedPath.endsWith(".d.mts") &&
   !resolvedPath.endsWith(".d.cts");
 
+const canonicalizeExistingPath = (filePath: string): string => {
+  const normalizedPath = resolve(filePath);
+  return ts.sys.realpath?.(normalizedPath) ?? normalizedPath;
+};
+
+const dedupeDiscoveryTypeRoots = (
+  typeRoots: readonly string[]
+): readonly string[] => {
+  const seenPaths = new Set<string>();
+  const seenSourcePackageNames = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const typeRoot of typeRoots) {
+    const metadata = readSourcePackageMetadata(typeRoot);
+    if (metadata) {
+      if (seenSourcePackageNames.has(metadata.packageName)) {
+        continue;
+      }
+      seenSourcePackageNames.add(metadata.packageName);
+      deduped.push(canonicalizeExistingPath(metadata.packageRoot));
+      continue;
+    }
+
+    const canonicalPath = canonicalizeExistingPath(typeRoot);
+    if (seenPaths.has(canonicalPath)) {
+      continue;
+    }
+    seenPaths.add(canonicalPath);
+    deduped.push(canonicalPath);
+  }
+
+  return deduped;
+};
+
 /**
  * Build complete module dependency graph from entry point
  * Traverses all local imports and builds IR for all discovered modules
@@ -323,14 +415,16 @@ export const buildModuleDependencyGraph = (
   const surfaceCapabilities = resolveSurfaceCapabilities(options.surface, {
     projectRoot: options.projectRoot,
   });
-  const discoveryTypeRoots = Array.from(
-    new Set<string>([
-      ...(options.typeRoots ?? []),
-      ...surfaceCapabilities.requiredTypeRoots,
-    ])
-  ).map((typeRoot) =>
-    ts.sys.resolvePath(
-      isAbsolute(typeRoot) ? typeRoot : resolve(options.projectRoot, typeRoot)
+  const discoveryTypeRoots = dedupeDiscoveryTypeRoots(
+    Array.from(
+      new Set<string>([
+        ...(options.typeRoots ?? []),
+        ...surfaceCapabilities.requiredTypeRoots,
+      ])
+    ).map((typeRoot) =>
+      ts.sys.resolvePath(
+        isAbsolute(typeRoot) ? typeRoot : resolve(options.projectRoot, typeRoot)
+      )
     )
   );
   const sourcePackageAmbientFiles = discoveryTypeRoots.flatMap(
@@ -345,6 +439,8 @@ export const buildModuleDependencyGraph = (
   const declarationModuleAliases = new Map(
     collectSourcePackageModuleAliases(discoveryTypeRoots)
   );
+  const authoritativeSourcePackageRoots =
+    collectAuthoritativeSourcePackageRoots(discoveryTypeRoots);
   for (const [specifier, alias] of discoverDeclarationModuleAliases(
     ambientSupportFiles
   )) {
@@ -364,6 +460,7 @@ export const buildModuleDependencyGraph = (
         bindings: undefined,
         projectRoot: options.projectRoot,
         surface: options.surface,
+        authoritativeTsonicPackageRoots: authoritativeSourcePackageRoots,
         declarationModuleAliases,
       }
     );
@@ -452,20 +549,32 @@ export const buildModuleDependencyGraph = (
 
       const declarationAlias = declarationModuleAliases.get(importSpecifier);
       if (declarationAlias) {
+        const authoritativeAliasRoot = findAuthoritativePackageRootForImport(
+          declarationAlias.targetSpecifier,
+          authoritativeSourcePackageRoots
+        );
         const redirectedSourcePackage =
-          declarationAlias.targetSpecifier === "." ||
-          declarationAlias.targetSpecifier.startsWith("./")
+          authoritativeAliasRoot !== undefined
+            ? resolveSourcePackageAliasTarget(
+                declarationAlias.targetSpecifier,
+                authoritativeAliasRoot,
+                options.surface,
+                options.projectRoot
+              )
+            : declarationAlias.targetSpecifier === "." ||
+                declarationAlias.targetSpecifier.startsWith("./")
             ? resolveSourcePackageAliasTarget(
                 declarationAlias.targetSpecifier,
                 dirname(declarationAlias.declarationFile),
                 options.surface,
                 options.projectRoot
               )
-            : resolveSourcePackageImport(
+            : resolveSourcePackageImportWithAuthoritativeRoots(
                 declarationAlias.targetSpecifier,
                 currentFile,
                 options.surface,
-                options.projectRoot
+                options.projectRoot,
+                authoritativeSourcePackageRoots
               );
         if (!redirectedSourcePackage.ok) {
           diagnostics.push({
@@ -485,11 +594,12 @@ export const buildModuleDependencyGraph = (
         }
       }
 
-      const sourcePackage = resolveSourcePackageImport(
+      const sourcePackage = resolveSourcePackageImportWithAuthoritativeRoots(
         importSpecifier,
         currentFile,
         options.surface,
-        options.projectRoot
+        options.projectRoot,
+        authoritativeSourcePackageRoots
       );
       if (!sourcePackage.ok) {
         diagnostics.push({
@@ -534,19 +644,6 @@ export const buildModuleDependencyGraph = (
       }
     }
 
-    for (const site of collectClosedWorldDynamicImportSites(sourceFile)) {
-      queueResolvedLocalDependency(
-        site.specifier,
-        currentFile,
-        sourceFile,
-        site.node,
-        sourceRootAbs,
-        compilerOptions,
-        moduleResolutionCache,
-        queue,
-        diagnostics
-      );
-    }
   }
   // If any diagnostics from discovery, fail the build
   if (diagnostics.length > 0) {
@@ -761,6 +858,7 @@ export const buildModuleDependencyGraph = (
   return ok({
     modules: processedModules,
     entryModule,
+    surfaceCapabilities: tsonicProgram.surfaceCapabilities ?? surfaceCapabilities,
     bindings: tsonicProgram.bindings.getEmitterTypeMap(),
     bindingRegistry: tsonicProgram.bindings,
   });

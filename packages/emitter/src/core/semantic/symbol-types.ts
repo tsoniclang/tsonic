@@ -130,8 +130,7 @@ export const registerVariableSymbolTypes = (
 /**
  * Register catch variable types.
  *
- * Semantic: JsValue (broad JS-visible thrown value channel).
- * Storage: System.Exception (the CLR catch carrier).
+ * Catch variables are CLR exceptions in emitted code.
  */
 export const registerCatchVariableTypes = (
   originalName: string,
@@ -141,30 +140,13 @@ export const registerCatchVariableTypes = (
     originalName,
     {
       kind: "referenceType",
-      name: "JsValue",
-      resolvedClrType: "Tsonic.Runtime.JsValue",
+      name: "System.Exception",
+      resolvedClrType: "global::System.Exception",
     },
     {
       kind: "referenceType",
       name: "System.Exception",
       resolvedClrType: "global::System.Exception",
     },
-    context
-  );
-
-/**
- * Register for-in key variable types.
- *
- * Both semantic and storage are string — for-in keys are always strings
- * in both channels.
- */
-export const registerForInKeyTypes = (
-  originalName: string,
-  context: EmitterContext
-): EmitterContext =>
-  registerLocalSymbolTypes(
-    originalName,
-    { kind: "primitiveType", name: "string" },
-    { kind: "primitiveType", name: "string" },
     context
   );

@@ -1,4 +1,4 @@
 {
   "expectedOutput": "E1:Division by zero\nV2:2\n",
-  "notes": "Regression test: generic discriminated unions with inline object members must be representable (no TSN7414) and must narrow via `\"error\" in r`."
+  "notes": "Regression test: generic discriminated unions with inline object members must be representable and must narrow through the discriminant."
 }

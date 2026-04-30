@@ -17,6 +17,7 @@ import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { withParameterTypeEnv } from "../type-env.js";
 import type { ProgramContext } from "../../program-context.js";
 import { getReturnExpressionExpectedType } from "../return-expression-types.js";
+import { referenceTypeHasClrIdentity } from "../../types/type-ops.js";
 
 const isNullishPrimitive = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
@@ -51,6 +52,30 @@ const shouldUseExpectedReturnType = (
   expectedReturnType.kind !== "unknownType" &&
   expectedReturnType.kind !== "anyType" &&
   !typeSystem.containsTypeParameter(expectedReturnType);
+
+const isExpressionTreeReferenceType = (type: IrType | undefined): boolean => {
+  if (!type || type.kind !== "referenceType") return false;
+  if (type.typeArguments?.length !== 1) return false;
+  return (
+    type.typeId?.tsName === "Expression_1" ||
+    type.name === "Expression_1" ||
+    referenceTypeHasClrIdentity(type, [
+      "System.Linq.Expressions.Expression`1",
+      "System.Linq.Expressions.Expression_1",
+    ])
+  );
+};
+
+const withExpressionTreeLambdaContext = (
+  ctx: ProgramContext,
+  expectedType: IrType | undefined
+): ProgramContext =>
+  isExpressionTreeReferenceType(expectedType)
+    ? {
+        ...ctx,
+        expressionTreeLambdaDepth: (ctx.expressionTreeLambdaDepth ?? 0) + 1,
+      }
+    : ctx;
 
 const getContextualRestElementType = (
   type: IrType | undefined,
@@ -245,7 +270,10 @@ export const convertFunctionExpression = (
     expectedFnType ?? expectedType
   );
 
-  const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
+  const bodyCtx = withExpressionTreeLambdaContext(
+    withParameterTypeEnv(ctx, node.parameters, parameters),
+    expectedType
+  );
 
   const returnType =
     declaredReturnType ??
@@ -322,7 +350,10 @@ export const convertArrowFunction = (
     expectedFnType ?? expectedType
   );
 
-  const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
+  const bodyCtx = withExpressionTreeLambdaContext(
+    withParameterTypeEnv(ctx, node.parameters, parameters),
+    expectedType
+  );
 
   // Pass return type to body for contextual typing:
   // - Block body: return statements get the expected type

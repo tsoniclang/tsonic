@@ -8,10 +8,10 @@ import {
   IrFunctionType,
   IrObjectExpression,
   IrObjectProperty,
-  IrDictionaryType,
   IrType,
   IrExpression,
 } from "../../types.js";
+import { referenceTypeHasClrIdentity } from "../../types/type-ops.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { checkSynthesisEligibility } from "../anonymous-synthesis.js";
@@ -32,6 +32,47 @@ import {
   rebindObjectLiteralThisInExpression,
 } from "./object-literal-helpers.js";
 
+const BROAD_OBJECT_LITERAL_CONTEXT_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+]);
+
+const isBroadObjectLiteralContext = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (type.kind === "anyType" || type.kind === "unknownType") {
+    return true;
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  if (
+    type.structuralMembers?.some(
+      (member) => member.kind === "propertySignature"
+    )
+  ) {
+    return false;
+  }
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  if (
+    simpleName === "object" ||
+    simpleName === "Object" ||
+    simpleName === "JsValue"
+  ) {
+    return true;
+  }
+
+  return referenceTypeHasClrIdentity(
+    type,
+    BROAD_OBJECT_LITERAL_CONTEXT_CLR_NAMES
+  );
+};
+
 /**
  * Convert object literal expression
  *
@@ -47,6 +88,7 @@ export const convertObjectLiteral = (
 ): IrObjectExpression => {
   const properties: IrObjectProperty[] = [];
   const behaviorMembers: IrClassMember[] = [];
+  const emitAsAnonymousObject = (ctx.expressionTreeLambdaDepth ?? 0) > 0;
   const pendingMethods: {
     readonly key: string | IrExpression;
     readonly keyName: string;
@@ -66,7 +108,13 @@ export const convertObjectLiteral = (
   // Contextual type priority:
   // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
-  const contextualCandidateRaw = expectedType ?? getContextualType(node, ctx);
+  const contextualCandidateFromParent = expectedType ?? getContextualType(node, ctx);
+  const hasBroadObjectLiteralContext = isBroadObjectLiteralContext(
+    contextualCandidateFromParent
+  );
+  const contextualCandidateRaw = hasBroadObjectLiteralContext
+    ? undefined
+    : contextualCandidateFromParent;
   const literalKeys = node.properties
     .map((prop) => {
       if (ts.isPropertyAssignment(prop)) {
@@ -88,6 +136,41 @@ export const convertObjectLiteral = (
     })
     .filter((key): key is string => key !== undefined);
 
+  if (emitAsAnonymousObject) {
+    for (const prop of node.properties) {
+      const isSupportedAnonymousProperty =
+        (ts.isPropertyAssignment(prop) &&
+          !ts.isComputedPropertyName(prop.name) &&
+          (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))) ||
+        ts.isShorthandPropertyAssignment(prop);
+      if (isSupportedAnonymousProperty) {
+        continue;
+      }
+
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN7403",
+          "error",
+          "Expression-tree object literal must use only identifier or string-literal data properties.",
+          getSourceSpan(prop),
+          "Use a plain object literal such as ({ Id: row.Id, Name: row.Name })."
+        )
+      );
+    }
+  }
+
+  if (hasBroadObjectLiteralContext && !emitAsAnonymousObject) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN7403",
+        "error",
+        "Object literal cannot target a broad runtime object type deterministically.",
+        getSourceSpan(node),
+        "Use a concrete object type, dictionary type, or expression-tree projection context."
+      )
+    );
+  }
+
   // Type parameters are NOT valid instantiation targets for object literals.
   //
   // If we treat `T` as a contextual nominal type, the emitter can end up producing
@@ -108,48 +191,10 @@ export const convertObjectLiteral = (
           ctx
         );
 
-  // `object`/`any`/`unknown` are not valid nominal instantiation targets for object literals.
-  //
-  // Historically we treated these as "no contextual type" and relied on TSN7403 synthesis to
-  // produce a nominal `__Anon_*` type. That works for many cases, but it is a poor fit when
-  // the target surface is truly dynamic (e.g. JSON payloads passed as `unknown`).
-  //
-  // For those dynamic contexts, we deterministically lower a "plain" object literal to a
-  // Dictionary<string, object?> shape. This is:
-  // - a valid CLR instantiation target (unlike `object`)
-  // - stable and structurally faithful to JS object semantics for string keys
-  // - AOT-friendly (no runtime reflection required by downstream libraries)
-  //
-  // Non-plain literals (spreads, computed keys) still fall back to TSN7403 synthesis.
-  const isDynamicObjectLikeContext =
-    contextualCandidate?.kind === "anyType" ||
-    contextualCandidate?.kind === "unknownType";
-
-  const isPlainObjectLiteralAst = node.properties.every(
-    (p) =>
-      (ts.isPropertyAssignment(p) &&
-        !ts.isComputedPropertyName(p.name) &&
-        (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) ||
-      ts.isShorthandPropertyAssignment(p)
-  );
-
-  const shouldLowerToDictionary =
-    isDynamicObjectLikeContext && isPlainObjectLiteralAst;
-  const dictionaryValueExpectedType: IrType = {
-    kind: "referenceType",
-    name: "JsValue",
-    resolvedClrType: "Tsonic.Runtime.JsValue",
-  };
-
   const getObjectLiteralPropertyExpectedType = (
     keyName: string | undefined
   ): IrType | undefined =>
-    keyName
-      ? (getPropertyExpectedType(keyName, expectedType, ctx) ??
-        (shouldLowerToDictionary ? dictionaryValueExpectedType : undefined))
-      : shouldLowerToDictionary
-        ? dictionaryValueExpectedType
-        : undefined;
+    keyName ? getPropertyExpectedType(keyName, expectedType, ctx) : undefined;
 
   // Track if we have any spreads (needed for emitter IIFE lowering)
   let hasSpreads = false;
@@ -323,16 +368,6 @@ export const convertObjectLiteral = (
 
   let contextualType = contextualCandidate;
 
-  if (isDynamicObjectLikeContext) {
-    contextualType = shouldLowerToDictionary
-      ? ({
-          kind: "dictionaryType",
-          keyType: { kind: "primitiveType", name: "string" },
-          valueType: dictionaryValueExpectedType,
-        } satisfies IrDictionaryType)
-      : undefined;
-  }
-
   // If no contextual type, check if eligible for synthesis
   // DETERMINISTIC IR TYPING (INV-0 compliant): Uses AST-based synthesis
   if (!contextualType) {
@@ -505,5 +540,6 @@ export const convertObjectLiteral = (
     sourceSpan: getSourceSpan(node),
     contextualType,
     hasSpreads, // Add flag for emitter to know about spreads
+    emitAsAnonymousObject: emitAsAnonymousObject || undefined,
   };
 };

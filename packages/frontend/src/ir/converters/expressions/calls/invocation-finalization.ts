@@ -18,8 +18,6 @@ import {
 const BROAD_EXACTNESS_LOSER_CLR_NAMES = new Set([
   "System.Object",
   "global::System.Object",
-  "Tsonic.Runtime.JsValue",
-  "global::Tsonic.Runtime.JsValue",
 ]);
 
 const invocationFinalizationOpaqueTypeIds = new WeakMap<object, number>();
@@ -417,8 +415,7 @@ const hasStableNamedTypeIdentity = (
     case "referenceType":
       return (
         !isCompilerGeneratedStructuralCarrierName(type.name) &&
-        type.name !== "object" &&
-        type.name !== "JsValue"
+        type.name !== "object"
       );
     case "unionType":
     case "intersectionType":
@@ -491,7 +488,6 @@ export const shouldPreferExactMemberType = (
 
     if (type.kind === "referenceType") {
       return (
-        type.name === "JsValue" ||
         type.name === "object" ||
         referenceTypeHasClrIdentity(type, BROAD_EXACTNESS_LOSER_CLR_NAMES)
       );

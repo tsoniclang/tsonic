@@ -343,9 +343,22 @@ export const normalizeToNominal = (
   }
 
   if (type.kind === "arrayType") {
-    const arrayTypeId = resolveTypeIdByName(state, "Array", 1);
+    const arrayTypeId = resolveTypeIdByName(state, "System.Array", 0);
     if (!arrayTypeId) return undefined;
-    return { typeId: arrayTypeId, typeArgs: [type.elementType] };
+    return { typeId: arrayTypeId, typeArgs: [] };
+  }
+
+  if (type.kind === "dictionaryType") {
+    const dictionaryTypeId = resolveTypeIdByName(
+      state,
+      "System.Collections.Generic.Dictionary`2",
+      2
+    );
+    if (!dictionaryTypeId) return undefined;
+    return {
+      typeId: dictionaryTypeId,
+      typeArgs: [type.keyType, type.valueType],
+    };
   }
 
   return undefined;

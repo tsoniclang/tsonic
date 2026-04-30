@@ -299,32 +299,6 @@ export const unwrapExpr = (expr: ts.Expression): ts.Expression => {
   return current;
 };
 
-export const isArrayNamespaceExpression = (expr: ts.Expression): boolean => {
-  const unwrapped = unwrapExpr(expr);
-  if (ts.isIdentifier(unwrapped)) {
-    return unwrapped.text === "Array";
-  }
-
-  if (ts.isPropertyAccessExpression(unwrapped)) {
-    return (
-      ts.isIdentifier(unwrapped.expression) &&
-      unwrapped.expression.text === "globalThis" &&
-      unwrapped.name.text === "Array"
-    );
-  }
-
-  return false;
-};
-
-export const isArrayIsArrayCall = (expr: ts.Expression): boolean => {
-  const unwrapped = unwrapExpr(expr);
-  return (
-    ts.isPropertyAccessExpression(unwrapped) &&
-    unwrapped.name.text === "isArray" &&
-    isArrayNamespaceExpression(unwrapped.expression)
-  );
-};
-
 // DELETED: getDeclaredReturnTypeFallback - Alice's spec: no fallbacks allowed
 // TypeSystem.resolveCall() is the single source of truth.
 

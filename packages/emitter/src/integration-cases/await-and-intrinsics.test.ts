@@ -63,11 +63,11 @@ describe("End-to-End Integration", () => {
 
     it("normalizes alias-backed Promise-or-value unions before await", () => {
       const source = `
-        type IgnoredHandlerResult = void | JsValue | Promise<void | JsValue>;
+        type IgnoredHandlerResult = void | unknown | Promise<void | unknown>;
 
         declare function invoke(flag: boolean): IgnoredHandlerResult;
 
-        export async function run(flag: boolean): Promise<void | JsValue> {
+        export async function run(flag: boolean): Promise<void | unknown> {
           return await invoke(flag);
         }
       `;
@@ -87,7 +87,7 @@ describe("End-to-End Integration", () => {
 
     it("normalizes alias-backed Promise-or-value unions in bare await statements", () => {
       const source = `
-        type IgnoredHandlerResult = void | JsValue | Promise<void | JsValue>;
+        type IgnoredHandlerResult = void | unknown | Promise<void | unknown>;
 
         declare function invoke(flag: boolean): IgnoredHandlerResult;
 
@@ -115,7 +115,7 @@ describe("End-to-End Integration", () => {
 
         export async function run(flag: boolean): Promise<string> {
           const result = await render(flag);
-          if ("error" in result) {
+          if (!result.success) {
             return result.error;
           }
           return result.rendered;
@@ -199,7 +199,7 @@ describe("End-to-End Integration", () => {
       const source = `
         type NextControl = "route" | string | undefined;
         type NextFunction = (value?: NextControl) => void | Promise<void>;
-        type RequestHandler = (next: NextFunction) => JsValue | Promise<JsValue>;
+        type RequestHandler = (next: NextFunction) => unknown | Promise<unknown>;
 
         export function build(): RequestHandler {
           const handler: RequestHandler = async (next) => {
@@ -223,7 +223,7 @@ describe("End-to-End Integration", () => {
       const source = `
         type NextControl = "route" | "router" | string | null | undefined;
         type NextFunction = (value?: NextControl) => void | Promise<void>;
-        type RequestHandler = (next: NextFunction) => void | JsValue | Promise<void | JsValue>;
+        type RequestHandler = (next: NextFunction) => void | unknown | Promise<void | unknown>;
 
         export async function run(handler: RequestHandler, next: NextFunction): Promise<void> {
           await handler(next);
@@ -280,23 +280,25 @@ describe("End-to-End Integration", () => {
   describe("Local Function Values", () => {
     it("lowers recursive local arrow functions through explicit delegate initialization", () => {
       const source = `
+        import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+
         type Node = {
           name: string;
           children: Node[];
         };
 
         export function flatten(nodes: Node[]): string[] {
-          const names: string[] = [];
+          const names = new List<string>();
           const walk = (current: Node[]): void => {
-            for (let i = 0; i < current.length; i++) {
+            for (let i = 0; i < current.Length; i++) {
               const node = current[i]!;
-              names.push(node.name);
+              names.Add(node.name);
               walk(node.children);
             }
           };
 
           walk(nodes);
-          return names;
+          return names.ToArray();
         }
       `;
 

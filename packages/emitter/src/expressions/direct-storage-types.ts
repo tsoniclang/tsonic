@@ -23,6 +23,7 @@ import {
   buildRuntimeUnionTypeAst,
 } from "../core/semantic/runtime-unions.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import { applyConditionBranchNarrowing } from "../core/semantic/condition-branch-narrowing.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveDirectStorageIrType,
@@ -30,6 +31,12 @@ import {
   resolveIdentifierRuntimeCarrierType,
   resolveRuntimeCarrierIrType,
 } from "../core/semantic/direct-storage-ir-types.js";
+
+const emitConditionNarrowingStub = (_expr: IrExpression, ctx: EmitterContext) =>
+  [identifierExpression("__tsonic_narrow"), ctx] as [
+    ReturnType<typeof identifierExpression>,
+    EmitterContext,
+  ];
 
 const matchesStoredExpressionAst = (
   left: CSharpExpressionAst | undefined,
@@ -153,31 +160,75 @@ const tryConvertExactSurfaceTypeAstToIrType = (
         case "object":
           return { kind: "referenceType", name: "object" };
         case "byte":
-          return { kind: "referenceType", name: "byte", resolvedClrType: "global::System.Byte" };
+          return {
+            kind: "referenceType",
+            name: "byte",
+            resolvedClrType: "global::System.Byte",
+          };
         case "sbyte":
-          return { kind: "referenceType", name: "sbyte", resolvedClrType: "global::System.SByte" };
+          return {
+            kind: "referenceType",
+            name: "sbyte",
+            resolvedClrType: "global::System.SByte",
+          };
         case "short":
-          return { kind: "referenceType", name: "short", resolvedClrType: "global::System.Int16" };
+          return {
+            kind: "referenceType",
+            name: "short",
+            resolvedClrType: "global::System.Int16",
+          };
         case "ushort":
-          return { kind: "referenceType", name: "ushort", resolvedClrType: "global::System.UInt16" };
+          return {
+            kind: "referenceType",
+            name: "ushort",
+            resolvedClrType: "global::System.UInt16",
+          };
         case "int":
           return { kind: "primitiveType", name: "int" };
         case "uint":
-          return { kind: "referenceType", name: "uint", resolvedClrType: "global::System.UInt32" };
+          return {
+            kind: "referenceType",
+            name: "uint",
+            resolvedClrType: "global::System.UInt32",
+          };
         case "long":
-          return { kind: "referenceType", name: "long", resolvedClrType: "global::System.Int64" };
+          return {
+            kind: "referenceType",
+            name: "long",
+            resolvedClrType: "global::System.Int64",
+          };
         case "ulong":
-          return { kind: "referenceType", name: "ulong", resolvedClrType: "global::System.UInt64" };
+          return {
+            kind: "referenceType",
+            name: "ulong",
+            resolvedClrType: "global::System.UInt64",
+          };
         case "nint":
-          return { kind: "referenceType", name: "nint", resolvedClrType: "global::System.IntPtr" };
+          return {
+            kind: "referenceType",
+            name: "nint",
+            resolvedClrType: "global::System.IntPtr",
+          };
         case "nuint":
-          return { kind: "referenceType", name: "nuint", resolvedClrType: "global::System.UIntPtr" };
+          return {
+            kind: "referenceType",
+            name: "nuint",
+            resolvedClrType: "global::System.UIntPtr",
+          };
         case "float":
-          return { kind: "referenceType", name: "float", resolvedClrType: "global::System.Single" };
+          return {
+            kind: "referenceType",
+            name: "float",
+            resolvedClrType: "global::System.Single",
+          };
         case "double":
           return { kind: "primitiveType", name: "number" };
         case "decimal":
-          return { kind: "referenceType", name: "decimal", resolvedClrType: "global::System.Decimal" };
+          return {
+            kind: "referenceType",
+            name: "decimal",
+            resolvedClrType: "global::System.Decimal",
+          };
         case "char":
           return { kind: "primitiveType", name: "char" };
         default:
@@ -251,9 +302,7 @@ const tryConvertExactSurfaceTypeAstToIrType = (
   }
 };
 
-const isPlainDirectStorageSurfaceAst = (
-  ast: CSharpExpressionAst
-): boolean => {
+const isPlainDirectStorageSurfaceAst = (ast: CSharpExpressionAst): boolean => {
   let target = ast;
   while (
     target.kind === "parenthesizedExpression" ||
@@ -293,6 +342,14 @@ const resolveConditionalBranchStorageType = (
   context: EmitterContext,
   counterpartType: IrType | undefined
 ): IrType | undefined => {
+  if (
+    counterpartType &&
+    expr.kind === "literal" &&
+    (expr.value === undefined || expr.value === null)
+  ) {
+    return counterpartType;
+  }
+
   const directType = resolveDirectStorageExpressionType(expr, ast, context);
   if (directType) {
     return directType;
@@ -300,6 +357,14 @@ const resolveConditionalBranchStorageType = (
 
   if (!counterpartType) {
     return undefined;
+  }
+
+  if (
+    expr.inferredType &&
+    matchesExpectedEmissionType(expr.inferredType, counterpartType, context) &&
+    matchesExpectedEmissionType(counterpartType, expr.inferredType, context)
+  ) {
+    return counterpartType;
   }
 
   const sourceBackedReturnType =
@@ -398,6 +463,10 @@ export const resolveDirectStorageExpressionType = (
     return exactSurfaceType;
   }
 
+  if (expr.kind === "numericNarrowing") {
+    return expr.inferredType;
+  }
+
   const directReturnedExpressionType = (() => {
     const isRuntimeProjectionMatchAst =
       directAst.kind === "invocationExpression" &&
@@ -425,22 +494,34 @@ export const resolveDirectStorageExpressionType = (
     expr.kind === "conditional" &&
     directAst.kind === "conditionalExpression"
   ) {
+    const truthyContext = applyConditionBranchNarrowing(
+      expr.condition,
+      "truthy",
+      context,
+      emitConditionNarrowingStub
+    );
+    const falsyContext = applyConditionBranchNarrowing(
+      expr.condition,
+      "falsy",
+      context,
+      emitConditionNarrowingStub
+    );
     const directWhenTrueType = resolveDirectStorageExpressionType(
       expr.whenTrue,
       directAst.whenTrue,
-      context
+      truthyContext
     );
     const directWhenFalseType = resolveDirectStorageExpressionType(
       expr.whenFalse,
       directAst.whenFalse,
-      context
+      falsyContext
     );
     const whenTrueType =
       directWhenTrueType ??
       resolveConditionalBranchStorageType(
         expr.whenTrue,
         directAst.whenTrue,
-        context,
+        truthyContext,
         directWhenFalseType
       );
     const whenFalseType =
@@ -448,7 +529,7 @@ export const resolveDirectStorageExpressionType = (
       resolveConditionalBranchStorageType(
         expr.whenFalse,
         directAst.whenFalse,
-        context,
+        falsyContext,
         directWhenTrueType
       );
     if (
@@ -460,7 +541,6 @@ export const resolveDirectStorageExpressionType = (
       return whenTrueType;
     }
   }
-
 
   const narrowKey =
     expr.kind === "identifier"

@@ -51,27 +51,6 @@ const collectPropertyNarrowingCandidates = (
   return expanded.length > 0 ? expanded : [currentType];
 };
 
-export const narrowTypeByPropertyPresence = (
-  currentType: IrType,
-  propertyName: string,
-  wantPresent: boolean,
-  ctx: ProgramContext
-): IrType | undefined => {
-  const kept = collectPropertyNarrowingCandidates(currentType, ctx).filter(
-    (member): member is IrType => {
-      const hasMember =
-        member !== undefined &&
-        getReadableMemberTypeForNarrowing(member, propertyName, ctx) !==
-          undefined;
-      return hasMember === wantPresent;
-    }
-  );
-
-  if (kept.length === 0) return undefined;
-  if (kept.length === 1) return kept[0];
-  return normalizedUnionType(kept);
-};
-
 export const narrowTypeByPropertyTruthiness = (
   currentType: IrType,
   propertyName: string,

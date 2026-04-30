@@ -166,6 +166,7 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
     rootNamespace,
     bindingRegistry: graphResult.value.bindingRegistry,
     surface,
+    surfaceCapabilities: graphResult.value.surfaceCapabilities,
   });
 
   if (!emitResult.ok) {

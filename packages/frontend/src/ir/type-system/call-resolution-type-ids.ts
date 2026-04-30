@@ -376,7 +376,26 @@ const attachTypeIdsImpl = (
         attachTypeIdsImpl(state, t, cache)
       );
       if (type.kind === "unionType") {
-        const normalized = normalizedUnionType(attached.types);
+        const normalized = normalizedUnionType(attached.types, {
+          ...(type.preserveRuntimeLayout === true
+            ? { preserveRuntimeLayout: true as const }
+            : {}),
+          ...(type.runtimeCarrierFamilyKey !== undefined
+            ? { runtimeCarrierFamilyKey: type.runtimeCarrierFamilyKey }
+            : {}),
+          ...(type.runtimeCarrierName !== undefined
+            ? { runtimeCarrierName: type.runtimeCarrierName }
+            : {}),
+          ...(type.runtimeCarrierNamespace !== undefined
+            ? { runtimeCarrierNamespace: type.runtimeCarrierNamespace }
+            : {}),
+          ...(type.runtimeCarrierTypeParameters !== undefined
+            ? { runtimeCarrierTypeParameters: type.runtimeCarrierTypeParameters }
+            : {}),
+          ...(type.runtimeCarrierTypeArguments !== undefined
+            ? { runtimeCarrierTypeArguments: type.runtimeCarrierTypeArguments }
+            : {}),
+        });
         if (normalized.kind === "unionType") {
           attached.types = normalized.types;
         }

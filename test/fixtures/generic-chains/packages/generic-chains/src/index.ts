@@ -83,18 +83,22 @@ function mapContainer<T, U>(
 // ============ Generic Class ============
 
 class Box<T> {
-  constructor(private content: T) {}
+  #content: T;
+
+  constructor(content: T) {
+    this.#content = content;
+  }
 
   get(): T {
-    return this.content;
+    return this.#content;
   }
 
   map<U>(fn: (x: T) => U): Box<U> {
-    return new Box<U>(fn(this.content));
+    return new Box<U>(fn(this.#content));
   }
 
   flatMap<U>(fn: (x: T) => Box<U>): Box<U> {
-    return fn(this.content);
+    return fn(this.#content);
   }
 }
 

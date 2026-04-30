@@ -885,7 +885,10 @@ describe("Expression Emission", () => {
                             name: "undefined",
                           },
                         },
-                        inferredType: { kind: "primitiveType", name: "boolean" },
+                        inferredType: {
+                          kind: "primitiveType",
+                          name: "boolean",
+                        },
                       },
                       whenTrue: {
                         kind: "memberAccess",
@@ -902,7 +905,10 @@ describe("Expression Emission", () => {
                       whenFalse: {
                         kind: "identifier",
                         name: "undefined",
-                        inferredType: { kind: "primitiveType", name: "undefined" },
+                        inferredType: {
+                          kind: "primitiveType",
+                          name: "undefined",
+                        },
                       },
                       inferredType: optionalNumberType,
                     },

@@ -128,7 +128,7 @@ describe("IR Builder", function () {
     it("should convert class declarations", () => {
       const source = `
         export class User {
-          private name: string;
+          name: string;
           constructor(name: string) {
             this.name = name;
           }
@@ -157,10 +157,14 @@ describe("IR Builder", function () {
       }
     });
 
-    it("preserves readonly-only constructor parameter properties as class members", () => {
+    it("converts explicit constructor assignments to class fields", () => {
       const source = `
         export class BoolValue {
-          constructor(readonly value: boolean) {}
+          value: boolean;
+
+          constructor(value: boolean) {
+            this.value = value;
+          }
         }
       `;
 
@@ -188,7 +192,7 @@ describe("IR Builder", function () {
       expect(valueProp?.kind).to.equal("propertyDeclaration");
       if (!valueProp || valueProp.kind !== "propertyDeclaration") return;
 
-      expect(valueProp.isReadonly).to.equal(true);
+      expect(valueProp.isReadonly).to.equal(false);
       expect(valueProp.accessibility).to.equal("public");
       expect(valueProp.type).to.deep.equal({
         kind: "primitiveType",
@@ -196,15 +200,22 @@ describe("IR Builder", function () {
       });
     });
 
-    it("places parameter-property assignments after a leading super call", () => {
+    it("preserves explicit constructor assignments after a leading super call", () => {
       const source = `
         class Base {
-          constructor(readonly tag: string) {}
+          tag: string;
+
+          constructor(tag: string) {
+            this.tag = tag;
+          }
         }
 
         export class Derived extends Base {
-          constructor(readonly value: boolean) {
+          value: boolean;
+
+          constructor(value: boolean) {
             super("ok");
+            this.value = value;
           }
         }
       `;

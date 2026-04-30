@@ -338,10 +338,7 @@ const interfaceMembersEqual = (
   left: IrInterfaceMember,
   right: IrInterfaceMember
 ): boolean => {
-  if (
-    left.kind !== right.kind ||
-    left.name !== right.name
-  ) {
+  if (left.kind !== right.kind || left.name !== right.name) {
     return false;
   }
 

@@ -173,9 +173,6 @@ export const validateExpression = (
           }
         });
       }
-      if (expr.dynamicImportNamespace) {
-        scanExpressionForCalls(expr.dynamicImportNamespace, ctx);
-      }
       break;
     }
 
@@ -235,9 +232,6 @@ export const scanExpressionForCalls = (
           scanExpressionForCalls(arg, ctx);
         }
       });
-      if (expr.dynamicImportNamespace) {
-        scanExpressionForCalls(expr.dynamicImportNamespace, ctx);
-      }
       break;
     }
 

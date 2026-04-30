@@ -34,6 +34,7 @@ import {
   collectSupportedGenericFunctionValueSymbols,
   collectWrittenSymbols,
 } from "../generic-function-values.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 
 const withSimpleTypeAliases = (
   assemblyCatalog: AssemblyTypeCatalog,
@@ -78,6 +79,12 @@ export const createProgramContext = (
   program: TsonicProgram,
   options: IrBuildOptions
 ): ProgramContext => {
+  const surfaceCapabilities =
+    program.surfaceCapabilities ??
+    resolveSurfaceCapabilities(program.options.surface, {
+      projectRoot: program.options.projectRoot,
+      authoritativePackageRoots: program.authoritativeTsonicPackageRoots,
+    });
   const genericFunctionValueSymbols = (() => {
     const symbols = new Set<ts.Symbol>();
 
@@ -221,6 +228,7 @@ export const createProgramContext = (
   const typeSystem = createTypeSystem({
     sourceRoot: options.sourceRoot,
     rootNamespace: options.rootNamespace,
+    surfaceCapabilities,
     handleRegistry: bindingInternal._getHandleRegistry(),
     typeRegistry,
     nominalEnv,
@@ -264,6 +272,7 @@ export const createProgramContext = (
     declarationModuleAliases: program.declarationModuleAliases ?? new Map(),
     rootNamespace: options.rootNamespace,
     surface: program.options.surface ?? "clr",
+    surfaceCapabilities,
     checker: program.checker,
     genericFunctionValueSymbols,
     tsCompilerOptions: program.program.getCompilerOptions(),

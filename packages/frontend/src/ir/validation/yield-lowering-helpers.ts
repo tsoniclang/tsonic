@@ -93,10 +93,7 @@ export const containsYield = (expr: IrExpression): boolean => {
     case "new":
       return (
         containsYield(expr.callee) ||
-        expr.arguments.some((a) => containsYield(a)) ||
-        (expr.kind === "call" &&
-          expr.dynamicImportNamespace !== undefined &&
-          containsYield(expr.dynamicImportNamespace))
+        expr.arguments.some((a) => containsYield(a))
       );
 
     case "array":
@@ -170,10 +167,7 @@ export const countYields = (expr: IrExpression): number => {
     case "new":
       return (
         countYields(expr.callee) +
-        expr.arguments.reduce((sum, a) => sum + countYields(a), 0) +
-        (expr.kind === "call" && expr.dynamicImportNamespace
-          ? countYields(expr.dynamicImportNamespace)
-          : 0)
+        expr.arguments.reduce((sum, a) => sum + countYields(a), 0)
       );
 
     case "array":

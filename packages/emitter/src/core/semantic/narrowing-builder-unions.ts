@@ -35,7 +35,7 @@ import {
   type RuntimeUnionFrame,
   type RuntimeSubsetSourceInfo,
   type EmitExprAstFn,
-  buildUnionNarrowAst,
+  buildMappedUnionNarrowAst,
   buildSubsetUnionType,
   toReceiverAst,
   withoutNarrowedBinding,
@@ -85,7 +85,7 @@ export const buildRuntimeUnionComplementBinding = (
     if (!remaining) return undefined;
     const carrierSourceType = sourceInfo?.sourceType ?? sourceType;
 
-    const narrowedExpr = buildUnionNarrowAst(
+    const narrowedExpr = buildMappedUnionNarrowAst(
       receiver,
       remaining.runtimeMemberN
     );
@@ -250,7 +250,7 @@ export const buildRuntimeUnionSubsetBinding = (
     }
     return [
       buildProjectedExprBinding(
-        buildUnionNarrowAst(narrowedReceiverAst, selected.runtimeMemberN),
+        buildMappedUnionNarrowAst(narrowedReceiverAst, selected.runtimeMemberN),
         narrowedType,
         narrowedReceiverSourceType,
         narrowedReceiverAst,
@@ -299,7 +299,8 @@ export const buildRuntimeUnionSubsetBinding = (
       ? {
           members: sourceInfo.sourceMembers,
           candidateMemberNs: sourceInfo.sourceCandidateMemberNs,
-          runtimeUnionArity: sourceInfo.sourceCandidateMemberNs.length,
+          runtimeUnionArity:
+            sourceInfo.runtimeUnionArity ?? runtimeUnionFrame.runtimeUnionArity,
         }
       : runtimeUnionFrame.runtimeUnionArity ===
             runtimeUnionFrame.members.length &&
@@ -403,6 +404,16 @@ export const applyDirectTypeNarrowing = (
       targetExpr.inferredType,
     context
   );
+  if (
+    currentType &&
+    areIrTypesEquivalent(
+      resolveTypeAlias(currentType, context),
+      resolveTypeAlias(narrowedType, context),
+      context
+    )
+  ) {
+    return context;
+  }
   const [rawTargetAst, rawTargetContext] = emitExprAst(
     targetExpr,
     withoutNarrowedBinding(context, bindingKey)
@@ -499,7 +510,11 @@ export const applyDirectTypeNarrowing = (
         return [existingCarrierAst, context, exprCarrierType] as const;
       }
 
-      return [existingBinding.exprAst, context, exprCarrierType] as const;
+      return [
+        existingBinding.carrierExprAst ?? existingBinding.exprAst,
+        context,
+        exprCarrierType,
+      ] as const;
     }
 
     if (existingBinding.kind === "runtimeSubset") {

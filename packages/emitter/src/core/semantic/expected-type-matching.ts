@@ -1,6 +1,6 @@
 import { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import { isAssignable } from "./index.js";
+import { isAssignableToType } from "./type-compatibility.js";
 import { resolveComparableType } from "./comparable-types.js";
 import {
   isDefinitelyValueType,
@@ -49,14 +49,12 @@ const isBroadObjectEmissionSink = (
     return false;
   }
 
-  const nonNullishMembers = splitRuntimeNullishUnionMembers(resolved)
-    ?.nonNullishMembers;
+  const nonNullishMembers =
+    splitRuntimeNullishUnionMembers(resolved)?.nonNullishMembers;
   const members = nonNullishMembers ?? resolved.types;
   return (
     members.length > 0 &&
-    members.every((member) =>
-      isBroadObjectEmissionSink(member, context)
-    )
+    members.every((member) => isBroadObjectEmissionSink(member, context))
   );
 };
 
@@ -81,7 +79,7 @@ const matchesRawSemanticComparableTypes = (
   expectedComparableType: IrType,
   context: EmitterContext
 ): boolean =>
-  isAssignable(actualComparableType, expectedComparableType) ||
+  isAssignableToType(actualComparableType, expectedComparableType, context) ||
   runtimeUnionMemberCanAcceptValue(
     expectedComparableType,
     actualComparableType,
@@ -155,9 +153,10 @@ export const matchesSemanticExpectedType = (
       expectedComparableType,
       context
     ) ||
-    isAssignable(
+    isAssignableToType(
       resolvedActualComparableType,
-      resolvedExpectedComparableType
+      resolvedExpectedComparableType,
+      context
     ) ||
     runtimeUnionMemberCanAcceptValue(
       resolvedExpectedComparableType,

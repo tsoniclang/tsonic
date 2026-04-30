@@ -231,12 +231,6 @@ export const lowerExpression = (
             ...expr,
             callee: loweredCallee,
             arguments: loweredArguments,
-            dynamicImportNamespace: expr.dynamicImportNamespace
-              ? (lowerExpression(expr.dynamicImportNamespace, ctx) as Extract<
-                  typeof expr.dynamicImportNamespace,
-                  { kind: "object" }
-                >)
-              : undefined,
             typeArguments: expr.typeArguments?.map((typeArgument) =>
               lowerType(typeArgument, ctx)
             ),

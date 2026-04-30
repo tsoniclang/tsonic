@@ -25,7 +25,6 @@ import type {
 import {
   emitObjectMemberName,
   getDeterministicObjectKeyName,
-  isObjectRootTypeAst,
 } from "./object-helpers.js";
 import {
   emitDictionaryLiteral,
@@ -41,6 +40,17 @@ import {
 // Re-export from sub-module
 export { resolveBehavioralObjectLiteralType } from "./object-literal-spreads.js";
 
+const describeObjectLiteralSource = (
+  expr: Extract<IrExpression, { kind: "object" }>
+): string => {
+  const span = expr.sourceSpan;
+  if (!span) {
+    return "<unknown source>";
+  }
+
+  return `${span.file}:${span.line}:${span.column}`;
+};
+
 /**
  * Emit an object literal as CSharpExpressionAst
  */
@@ -50,6 +60,49 @@ export const emitObject = (
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
+
+  if (expr.emitAsAnonymousObject) {
+    const initializerAsts: CSharpExpressionAst[] = [];
+    for (const prop of expr.properties) {
+      if (prop.kind === "spread") {
+        throw new Error(
+          "ICE: Expression-tree anonymous object literal cannot contain spreads"
+        );
+      }
+
+      const keyName = getDeterministicObjectKeyName(prop.key);
+      if (!keyName) {
+        throw new Error(
+          "ICE: Expression-tree anonymous object literal cannot contain computed keys"
+        );
+      }
+
+      const [valueAst, newContext] = emitExpressionAst(
+        prop.value,
+        currentContext,
+        undefined
+      );
+      initializerAsts.push({
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: {
+          kind: "identifierExpression",
+          identifier: emitObjectMemberName(undefined, keyName, currentContext),
+        },
+        right: valueAst,
+      });
+      currentContext = newContext;
+    }
+
+    return [
+      {
+        kind: "anonymousObjectCreationExpression",
+        initializer: initializerAsts,
+      },
+      currentContext,
+    ];
+  }
+
   const behavioralType = resolveBehavioralObjectLiteralType(
     expr,
     currentContext
@@ -78,8 +131,17 @@ export const emitObject = (
     return expectedType;
   })();
 
-  // Check if contextual type is a dictionary type
   if (effectiveType?.kind === "dictionaryType") {
+    if (
+      expr.hasSpreads ||
+      expr.properties.some((prop) => prop.kind === "spread")
+    ) {
+      return emitDictionaryLiteralWithSpreads(
+        expr,
+        currentContext,
+        effectiveType
+      );
+    }
     return emitDictionaryLiteral(expr, currentContext, effectiveType);
   }
 
@@ -115,7 +177,10 @@ export const emitObject = (
     ? resolveTypeAlias(stripNullish(instantiationType), currentContext)
     : undefined;
   if (resolvedInstantiationType?.kind === "dictionaryType") {
-    if (expr.hasSpreads) {
+    if (
+      expr.hasSpreads ||
+      expr.properties.some((prop) => prop.kind === "spread")
+    ) {
       return emitDictionaryLiteralWithSpreads(
         expr,
         currentContext,
@@ -140,7 +205,7 @@ export const emitObject = (
 
   if (!typeAst) {
     throw new Error(
-      "ICE: Object literal without contextual type reached emitter - validation missed TSN7403"
+      `ICE: Object literal without contextual type reached emitter at ${describeObjectLiteralSource(expr)} - validation missed TSN7403`
     );
   }
 
@@ -148,26 +213,10 @@ export const emitObject = (
   const safeTypeAst: CSharpTypeAst =
     typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
-  if (isObjectRootTypeAst(safeTypeAst)) {
-    const dictionaryType = {
-      kind: "dictionaryType",
-      keyType: { kind: "primitiveType", name: "string" },
-      valueType: {
-        kind: "referenceType",
-        name: "JsValue",
-        resolvedClrType: "Tsonic.Runtime.JsValue",
-      },
-    } as const;
-
-    if (expr.hasSpreads) {
-      return emitDictionaryLiteralWithSpreads(
-        expr,
-        currentContext,
-        dictionaryType
-      );
-    }
-
-    return emitDictionaryLiteral(expr, currentContext, dictionaryType);
+  if (safeTypeAst.kind === "predefinedType" && safeTypeAst.keyword === "object") {
+    throw new Error(
+      `ICE: Object literal reached emitter with broad object context at ${describeObjectLiteralSource(expr)} - validation missed TSN7403`
+    );
   }
 
   // Check if object has spreads - use IIFE pattern

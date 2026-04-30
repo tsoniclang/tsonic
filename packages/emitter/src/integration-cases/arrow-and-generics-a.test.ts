@@ -9,7 +9,9 @@ describe("End-to-End Integration", () => {
         export const noop: () => void = () => {};
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.match(
         /public\s+static\s+readonly\s+global::System\.Action\s+noop\s*=/
@@ -30,7 +32,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.match(
         /consume\(\(string __unused_value\)\s*=>\s*\{\s*\}\)/
@@ -129,13 +133,12 @@ describe("End-to-End Integration", () => {
             2
           ),
           "node_modules/@fixture/js/globals.ts": [
-            'import type { JsValue } from "@tsonic/core/types.js";',
             "",
             "declare global {",
             "  function setInterval(",
-            "    handler: (...args: JsValue[]) => void,",
+            "    handler: (...args: unknown[]) => void,",
             "    timeout?: number,",
-            "    ...args: JsValue[]",
+            "    ...args: unknown[]",
             "  ): number;",
             "}",
             "",
@@ -332,7 +335,7 @@ describe("End-to-End Integration", () => {
 
     it("lowers rest-only contextual callbacks through a synthesized rest carrier", () => {
       const source = `
-        type Tick = (...args: JsValue[]) => void;
+        type Tick = (...args: unknown[]) => void;
 
         function consume(tick: Tick): void {
           tick("ok", 1);
@@ -350,7 +353,7 @@ describe("End-to-End Integration", () => {
 
     it("preserves fixed contextual parameters and synthesizes a rest carrier after them", () => {
       const source = `
-        type Tick = (value: string, ...rest: JsValue[]) => void;
+        type Tick = (value: string, ...rest: unknown[]) => void;
 
         function consume(tick: Tick): void {
           tick("ok", 1);
@@ -391,7 +394,7 @@ describe("End-to-End Integration", () => {
 
     it("binds explicit lambda parameters from synthesized rest carriers", () => {
       const source = `
-        type Tick = (...args: JsValue[]) => void;
+        type Tick = (...args: unknown[]) => void;
 
         function consume(tick: Tick): void {
           tick("ok", 1, true);
@@ -418,7 +421,7 @@ describe("End-to-End Integration", () => {
 
     it("lowers expression-bodied undefined callbacks for void contextual delegates without void casts", () => {
       const source = `
-        type Tick = (...args: JsValue[]) => void;
+        type Tick = (...args: unknown[]) => void;
 
         function consume(tick: Tick): void {
           tick("ok");
@@ -439,7 +442,7 @@ describe("End-to-End Integration", () => {
 
     it("emits static arrow fields with params delegates for rest parameters", () => {
       const source = `
-        export const tick = (...args: JsValue[]): void => {
+        export const tick = (...args: unknown[]): void => {
           void args;
         };
 
@@ -495,9 +498,13 @@ describe("End-to-End Integration", () => {
         surface: "@tsonic/js",
       });
 
-      expect(csharp).to.include("private static int exact__Impl(int position = 0)");
+      expect(csharp).to.include(
+        "private static int exact__Impl(int position = 0)"
+      );
       expect(csharp).to.include("return takeInt(position);");
-      expect(csharp).to.include("private static int numeric__Impl(double minimumLength = 0)");
+      expect(csharp).to.include(
+        "private static int numeric__Impl(double minimumLength = 0)"
+      );
       expect(csharp).to.include("return takeInt((int)minimumLength);");
     });
 
@@ -512,7 +519,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.not.match(
         /formatLabel__Delegate\s*\([^)]*=\s*(?:global::System\.Array\.Empty|new\s+string)/
@@ -531,10 +540,18 @@ describe("End-to-End Integration", () => {
       const source = `
         class TemplateValue {}
         class BoolValue extends TemplateValue {
-          constructor(readonly value: boolean) { super(); }
+          value: boolean;
+          constructor(value: boolean) {
+            super();
+            this.value = value;
+          }
         }
         class StringValue extends TemplateValue {
-          constructor(readonly value: string) { super(); }
+          value: string;
+          constructor(value: string) {
+            super();
+            this.value = value;
+          }
         }
 
         export function render(value: TemplateValue): string {
@@ -596,7 +613,7 @@ describe("End-to-End Integration", () => {
         class TemplateValue {}
 
         class BoolValue extends TemplateValue {
-          readonly value: boolean;
+          value: boolean;
           constructor(value: boolean) {
             super();
             this.value = value;
@@ -604,7 +621,7 @@ describe("End-to-End Integration", () => {
         }
 
         class StrValue extends TemplateValue {
-          readonly value: string;
+          value: string;
           constructor(value: string) {
             super();
             this.value = value;
@@ -783,14 +800,18 @@ describe("End-to-End Integration", () => {
     it("should compile generic class with methods", () => {
       const source = `
         export class Container<T> {
-          constructor(private value: T) {}
+          #value: T;
+
+          constructor(value: T) {
+            this.#value = value;
+          }
 
           getValue(): T {
-            return this.value;
+            return this.#value;
           }
 
           setValue(newValue: T): void {
-            this.value = newValue;
+            this.#value = newValue;
           }
         }
       `;
@@ -810,22 +831,22 @@ describe("End-to-End Integration", () => {
     it("casts storage-erased nullable generic member reads back to the contextual type", () => {
       const source = `
         export class Maybe<T> {
-          private value: T | null;
+          #value: T | null;
 
           constructor(value: T | null) {
-            this.value = value;
+            this.#value = value;
           }
 
           getOrElse(defaultValue: T): T {
-            return this.value !== null ? this.value : defaultValue;
+            return this.#value !== null ? this.#value : defaultValue;
           }
         }
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.include("private object? value { get; set; }");
+      expect(csharp).to.include("private object? __private_value");
       expect(csharp).to.match(
-        /return \(*\(global::System\.Object\)\(this\.value\)\)* != null \? \(*\(T\)this\.value\)* : defaultValue;/
+        /return \(*\(global::System\.Object\)\(this\.__private_value\)\)* != null \? \(*\(T\)this\.__private_value\)* : defaultValue;/
       );
     });
   });
@@ -842,16 +863,16 @@ describe("End-to-End Integration", () => {
         }
 
         export class InMemoryRepository<T extends { id: number }> {
-          private items: T[] = [];
+          #items: T[] = [];
 
           add(item: T): void {
-            this.items.push(item);
+            this.#items.push(item);
           }
 
           findById(id: number): T | undefined {
-            for (let i: int = 0; i < this.items.Length; i++) {
-              if (this.items[i].id === id) {
-                return this.items[i];
+            for (let i: int = 0; i < this.#items.Length; i++) {
+              if (this.#items[i].id === id) {
+                return this.#items[i];
               }
             }
             return undefined;
@@ -859,7 +880,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       // Method-bearing interfaces emit as C# interfaces (required for constraints/implements)
       expect(csharp).to.match(/public\s+interface\s+Repository\s*<T>/);

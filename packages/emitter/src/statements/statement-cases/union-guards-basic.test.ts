@@ -1,5 +1,5 @@
 import { describe, it, expect, emitModule } from "./helpers.js";
-import type { IrModule, IrType, TypeMemberKind } from "./helpers.js";
+import type { IrModule, IrType } from "./helpers.js";
 describe("Statement Emission", () => {
   it("narrows discriminated unions on truthy/falsy property guards", () => {
     const okType: IrType = { kind: "referenceType", name: "Ok" };
@@ -163,85 +163,4 @@ describe("Statement Emission", () => {
     expect(result).to.include("return (result.As1()).data;");
   });
 
-  it("narrows `in`-guards for cross-module union members via the type member index", () => {
-    const typeMemberIndex = new Map<string, Map<string, TypeMemberKind>>([
-      [
-        "MyApp.Models.OkEvents",
-        new Map<string, TypeMemberKind>([["events", "property"]]),
-      ],
-      [
-        "MyApp.Models.ErrEvents",
-        new Map<string, TypeMemberKind>([["error", "property"]]),
-      ],
-    ]);
-
-    const unionReference: IrType = {
-      kind: "referenceType",
-      name: "Union_2",
-      resolvedClrType: "global::Tsonic.Runtime.Union_2",
-      typeArguments: [
-        { kind: "referenceType", name: "MyApp.Models.OkEvents" },
-        { kind: "referenceType", name: "MyApp.Models.ErrEvents" },
-      ],
-    };
-    const unionWrapper: IrType = {
-      kind: "intersectionType",
-      types: [unionReference, { kind: "referenceType", name: "__Union$views" }],
-    };
-
-    const module: IrModule = {
-      kind: "module",
-      filePath: "/src/test.ts",
-      namespace: "MyApp",
-      className: "test",
-      isStaticContainer: true,
-      imports: [],
-      body: [
-        {
-          kind: "functionDeclaration",
-          name: "handle",
-          parameters: [
-            {
-              kind: "parameter",
-              pattern: { kind: "identifierPattern", name: "result" },
-              type: unionWrapper,
-              isOptional: false,
-              isRest: false,
-              passing: "value",
-            },
-          ],
-          returnType: { kind: "voidType" },
-          body: {
-            kind: "blockStatement",
-            statements: [
-              {
-                kind: "ifStatement",
-                condition: {
-                  kind: "binary",
-                  operator: "in",
-                  inferredType: { kind: "primitiveType", name: "boolean" },
-                  left: { kind: "literal", value: "error" },
-                  right: {
-                    kind: "identifier",
-                    name: "result",
-                    inferredType: unionWrapper,
-                  },
-                },
-                thenStatement: { kind: "blockStatement", statements: [] },
-                elseStatement: undefined,
-              },
-            ],
-          },
-          isExported: false,
-          isAsync: false,
-          isGenerator: false,
-        },
-      ],
-      exports: [],
-    };
-
-    const result = emitModule(module, { typeMemberIndex });
-
-    expect(result).to.include("if (result.Is2())");
-  });
 });

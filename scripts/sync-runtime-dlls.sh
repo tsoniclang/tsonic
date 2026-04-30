@@ -10,10 +10,15 @@ mkdir -p "$DEST_DIR"
 
 RUNTIME_DLL="$RUNTIME_REPO/artifacts/bin/Tsonic.Runtime/Release/net10.0/Tsonic.Runtime.dll"
 if [[ ! -f "$RUNTIME_DLL" ]]; then
-  echo "ERROR: Missing runtime DLL: $RUNTIME_DLL"
-  echo "Build it with:"
-  echo "  cd \"$RUNTIME_REPO\" && dotnet build -c Release"
-  exit 1
+  if [[ ! -d "$RUNTIME_REPO" ]]; then
+    echo "ERROR: Missing sibling runtime repo: $RUNTIME_REPO"
+    echo "Check out tsoniclang/runtime next to this repo."
+    exit 1
+  fi
+
+  echo "Runtime DLL missing; building sibling runtime:"
+  echo "  $RUNTIME_REPO"
+  dotnet build "$RUNTIME_REPO/Tsonic.Runtime.sln" -c Release
 fi
 
 cp "$RUNTIME_DLL" "$DEST_DIR/Tsonic.Runtime.dll"

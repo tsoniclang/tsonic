@@ -41,6 +41,7 @@ import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import { getAcceptedSurfaceType } from "../core/semantic/defaults.js";
 import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
+import { contextSurfaceIncludesJs } from "../types.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst
@@ -196,7 +197,7 @@ export const emitComputedAccess = (
     : undefined;
 
   if (accessKind === "dictionary") {
-    if (context.options.surface === "@tsonic/js" && usage !== "write") {
+    if (contextSurfaceIncludesJs(context) && usage !== "write") {
       const storageObjectType =
         resolveDirectStorageCompatibleExpressionType({
           expr: expr.object,
@@ -314,7 +315,7 @@ export const emitComputedAccess = (
       (resolvedExpectedType?.kind === "referenceType" &&
         resolvedExpectedType.name === "char");
 
-    if (expectsChar) {
+    if (expectsChar || !contextSurfaceIncludesJs(context)) {
       return [charElementAccess, finalContext];
     }
 

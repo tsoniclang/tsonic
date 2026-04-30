@@ -1,8 +1,4 @@
-import {
-  IrClassMember,
-  IrInterfaceMember,
-  IrType,
-} from "@tsonic/frontend";
+import { IrClassMember, IrInterfaceMember, IrType } from "@tsonic/frontend";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -21,9 +17,7 @@ import {
   getContextualTypeVisitKey,
   tryContextualTypeIdentityKey,
 } from "../core/semantic/deterministic-type-keys.js";
-import {
-  typesHaveDeterministicIdentityConflict,
-} from "../core/semantic/clr-type-identity.js";
+import { typesHaveDeterministicIdentityConflict } from "../core/semantic/clr-type-identity.js";
 import {
   getReferenceNominalIdentityKey,
   referenceTypesHaveNominalIdentity,
@@ -217,7 +211,10 @@ const resolveIteratorMemberFromBindingRegistry = (
           context
         );
         if (returnTypeKey) {
-          candidateMatches.set(`${resolution.kind}:${returnTypeKey}`, resolution);
+          candidateMatches.set(
+            `${resolution.kind}:${returnTypeKey}`,
+            resolution
+          );
         }
         continue;
       }
@@ -232,7 +229,10 @@ const resolveIteratorMemberFromBindingRegistry = (
           context
         );
         if (returnTypeKey) {
-          candidateMatches.set(`${resolution.kind}:${returnTypeKey}`, resolution);
+          candidateMatches.set(
+            `${resolution.kind}:${returnTypeKey}`,
+            resolution
+          );
         }
       }
     }
@@ -430,13 +430,13 @@ export const isSameNominalType = (
     return false;
   }
 
-  if (
-    typesHaveDeterministicIdentityConflict(sourceResolved, targetResolved)
-  ) {
+  if (typesHaveDeterministicIdentityConflict(sourceResolved, targetResolved)) {
     return false;
   }
 
-  if (referenceTypesHaveNominalIdentity(sourceResolved, targetResolved, context)) {
+  if (
+    referenceTypesHaveNominalIdentity(sourceResolved, targetResolved, context)
+  ) {
     return referenceTypesShareNominalIdentity(
       sourceResolved,
       targetResolved,

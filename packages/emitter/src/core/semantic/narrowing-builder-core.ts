@@ -6,11 +6,7 @@
  * nullish guard construction/stripping, and type-narrowing predicates.
  */
 
-import {
-  IrExpression,
-  IrType,
-  normalizedUnionType,
-} from "@tsonic/frontend";
+import { IrExpression, IrType, normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext, NarrowedBinding } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
@@ -30,11 +26,6 @@ import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
 } from "./runtime-reification.js";
-import {
-  isBroadObjectSlotType,
-  isJsValueReferenceType,
-} from "./js-value-types.js";
-import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
 
 export type BranchTruthiness = "truthy" | "falsy";
 
@@ -49,6 +40,7 @@ export type RuntimeSubsetSourceInfo = {
   readonly sourceType: IrType;
   readonly sourceMembers?: readonly IrType[];
   readonly sourceCandidateMemberNs?: readonly number[];
+  readonly runtimeUnionArity?: number;
 };
 
 export const toReceiverAst = (
@@ -73,6 +65,68 @@ export const buildUnionNarrowAst = (
     arguments: [],
   },
 });
+
+const unwrapProjectionAst = (ast: CSharpExpressionAst): CSharpExpressionAst => {
+  let current = ast;
+  while (
+    current.kind === "parenthesizedExpression" ||
+    current.kind === "castExpression"
+  ) {
+    current = current.expression;
+  }
+  return current;
+};
+
+const tryReadRuntimeUnionFactoryMemberN = (
+  ast: CSharpExpressionAst
+): number | undefined => {
+  const current = unwrapProjectionAst(ast);
+  if (
+    current.kind !== "invocationExpression" ||
+    current.expression.kind !== "memberAccessExpression"
+  ) {
+    return undefined;
+  }
+
+  const match = /^From([1-9][0-9]*)$/.exec(current.expression.memberName);
+  return match?.[1] ? Number.parseInt(match[1], 10) : undefined;
+};
+
+export const tryMapProjectedRuntimeMemberN = (
+  receiver: string | CSharpExpressionAst,
+  sourceMemberN: number
+): number | undefined => {
+  if (typeof receiver === "string") {
+    return undefined;
+  }
+
+  const current = unwrapProjectionAst(receiver);
+  if (
+    current.kind !== "invocationExpression" ||
+    current.expression.kind !== "memberAccessExpression" ||
+    current.expression.memberName !== "Match"
+  ) {
+    return undefined;
+  }
+
+  const lambda = current.arguments[sourceMemberN - 1];
+  if (!lambda || lambda.kind !== "lambdaExpression") {
+    return undefined;
+  }
+
+  return lambda.body.kind === "blockStatement"
+    ? undefined
+    : tryReadRuntimeUnionFactoryMemberN(lambda.body);
+};
+
+export const buildMappedUnionNarrowAst = (
+  receiver: string | CSharpExpressionAst,
+  sourceMemberN: number
+): CSharpExpressionAst =>
+  buildUnionNarrowAst(
+    receiver,
+    tryMapProjectedRuntimeMemberN(receiver, sourceMemberN) ?? sourceMemberN
+  );
 
 export const buildSubsetUnionType = (
   members: readonly IrType[]
@@ -134,6 +188,9 @@ export const resolveRuntimeSubsetSourceInfo = (
       sourceCandidateMemberNs: hasExplicitSourceFrame
         ? existingBinding.sourceCandidateMemberNs
         : undefined,
+      runtimeUnionArity: hasExplicitSourceFrame
+        ? existingBinding.runtimeUnionArity
+        : undefined,
     };
   }
 
@@ -149,6 +206,9 @@ export const resolveRuntimeSubsetSourceInfo = (
       : undefined,
     sourceCandidateMemberNs: canReuseFrameAsSource
       ? runtimeUnionFrame.candidateMemberNs
+      : undefined,
+    runtimeUnionArity: canReuseFrameAsSource
+      ? runtimeUnionFrame.runtimeUnionArity
       : undefined,
   };
 };
@@ -187,7 +247,7 @@ export const buildProjectedExprBinding = (
     exprAst,
     storageType ?? type,
     carrierExprAst,
-    carrierType
+    carrierType ?? sourceType
   );
 
 export const resolveExistingNarrowingSourceType = (
@@ -215,6 +275,7 @@ export const buildRuntimeSubsetExpressionAst = (
       ? {
           members: narrowed.sourceMembers,
           candidateMemberNs: narrowed.sourceCandidateMemberNs,
+          runtimeUnionArity: narrowed.runtimeUnionArity,
         }
       : undefined;
 
@@ -333,165 +394,6 @@ export const tryStripConditionalNullishGuardAst = (
   }
 
   return current.whenFalse;
-};
-
-export const isArrayLikeNarrowingCandidate = (
-  type: IrType,
-  context: EmitterContext
-): boolean => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (resolved.kind === "arrayType" || resolved.kind === "tupleType") {
-    return true;
-  }
-  if (
-    resolved.kind === "referenceType" &&
-    (resolved.name === "Array" || resolved.name === "ReadonlyArray")
-  ) {
-    return true;
-  }
-  return false;
-};
-
-const hasArrayLikeNarrowingCandidate = (
-  type: IrType,
-  context: EmitterContext,
-  seen = new Set<string>()
-): boolean => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (isArrayLikeNarrowingCandidate(resolved, context)) {
-    return true;
-  }
-  if (resolved.kind !== "unionType") {
-    return false;
-  }
-
-  const key = getContextualTypeVisitKey(resolved, context);
-  if (seen.has(key)) {
-    return false;
-  }
-  const nextSeen = new Set(seen);
-  nextSeen.add(key);
-  return resolved.types.some((member) =>
-    hasArrayLikeNarrowingCandidate(member, context, nextSeen)
-  );
-};
-
-const isBroadJsValueType = (type: IrType): boolean =>
-  isJsValueReferenceType(type);
-
-const canNarrowBroadRuntimeValueToArray = (
-  type: IrType,
-  context: EmitterContext,
-  seen = new Set<string>()
-): boolean => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  const key = getContextualTypeVisitKey(resolved, context);
-  if (seen.has(key)) {
-    return false;
-  }
-
-  if (
-    resolved.kind === "unknownType" ||
-    resolved.kind === "anyType" ||
-    resolved.kind === "objectType" ||
-    (resolved.kind === "referenceType" && resolved.name === "object") ||
-    isBroadJsValueType(resolved) ||
-    isBroadObjectSlotType(resolved, context)
-  ) {
-    return true;
-  }
-
-  if (resolved.kind !== "unionType") {
-    return false;
-  }
-
-  const nextSeen = new Set(seen);
-  nextSeen.add(key);
-  return resolved.types.some(
-    (member) =>
-      !!member &&
-      !isArrayLikeNarrowingCandidate(member, context) &&
-      canNarrowBroadRuntimeValueToArray(member, context, nextSeen)
-  );
-};
-
-const JS_VALUE_ARRAY_TYPE: IrType = {
-  kind: "arrayType",
-  elementType: {
-    kind: "referenceType",
-    name: "JsValue",
-    resolvedClrType: "Tsonic.Runtime.JsValue",
-  },
-};
-
-export const narrowTypeByArrayShape = (
-  currentType: IrType | undefined,
-  wantArray: boolean,
-  context: EmitterContext,
-  seen = new Set<string>()
-): IrType | undefined => {
-  if (!currentType) return undefined;
-
-  const resolved = resolveTypeAlias(stripNullish(currentType), context);
-  if (resolved.kind === "unionType") {
-    const key = getContextualTypeVisitKey(resolved, context);
-    if (seen.has(key)) {
-      return undefined;
-    }
-    const nextSeen = new Set(seen);
-    nextSeen.add(key);
-    const hasBroadArrayFallback =
-      wantArray && canNarrowBroadRuntimeValueToArray(resolved, context, seen);
-    const kept = resolved.types.flatMap((member): readonly IrType[] => {
-      if (!member) return [];
-      const isArrayLike = isArrayLikeNarrowingCandidate(member, context);
-      if (isArrayLike) {
-        return wantArray ? [member] : [];
-      }
-
-      const resolvedMember = resolveTypeAlias(stripNullish(member), context);
-      if (resolvedMember.kind === "unionType") {
-        const nested = narrowTypeByArrayShape(
-          member,
-          wantArray,
-          context,
-          nextSeen
-        );
-        if (!nested) {
-          return [];
-        }
-        if (
-          !wantArray &&
-          !hasArrayLikeNarrowingCandidate(resolvedMember, context, nextSeen)
-        ) {
-          return [member];
-        }
-        return [nested];
-      }
-
-      return wantArray ? [] : [member];
-    });
-    const narrowed = hasBroadArrayFallback ? [...kept, JS_VALUE_ARRAY_TYPE] : kept;
-    if (narrowed.length === 0) return undefined;
-    if (narrowed.length === 1) return narrowed[0];
-    return normalizedUnionType(narrowed);
-  }
-
-  const isArrayLike = isArrayLikeNarrowingCandidate(resolved, context);
-  if (wantArray) {
-    if (
-      resolved.kind === "unknownType" ||
-      resolved.kind === "anyType" ||
-      resolved.kind === "objectType" ||
-      (resolved.kind === "referenceType" && resolved.name === "object") ||
-      isBroadJsValueType(resolved) ||
-      isBroadObjectSlotType(resolved, context)
-    ) {
-      return JS_VALUE_ARRAY_TYPE;
-    }
-    return isArrayLike ? resolved : undefined;
-  }
-  return isArrayLike ? undefined : resolved;
 };
 
 export const narrowTypeByNotAssignableTarget = (

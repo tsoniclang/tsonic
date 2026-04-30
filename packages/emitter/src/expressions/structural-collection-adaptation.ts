@@ -32,7 +32,7 @@ import {
 } from "./structural-type-shapes.js";
 import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
 import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
-import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
+import { isBroadObjectSlotType } from "../core/semantic/broad-object-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import { collectStructuralProperties } from "./structural-property-model.js";
 import {
@@ -359,7 +359,11 @@ const canReuseSourceCarrierForInlineStructuralElement = (
 
   const sourceProps = collectStructuralProperties(sourceType, context);
   const targetProps = collectStructuralProperties(targetType, context);
-  if (!sourceProps || !targetProps || sourceProps.length !== targetProps.length) {
+  if (
+    !sourceProps ||
+    !targetProps ||
+    sourceProps.length !== targetProps.length
+  ) {
     return false;
   }
 

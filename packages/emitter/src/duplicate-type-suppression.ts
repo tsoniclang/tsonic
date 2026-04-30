@@ -124,18 +124,14 @@ type SemanticSignature = {
   readonly deterministic: boolean;
 };
 
-const semanticSignature = (
-  stmt: EmittedTypeDeclaration
-): SemanticSignature => {
+const semanticSignature = (stmt: EmittedTypeDeclaration): SemanticSignature => {
   if (stmt.kind === "interfaceDeclaration") {
     const sortedExtends = sortTypesByDeterministicKey(stmt.extends);
     return {
       deterministic: sortedExtends !== undefined,
       text: stableCircularStringify({
         ...stmt,
-        members: [...stmt.members].sort((a, b) =>
-          a.name.localeCompare(b.name)
-        ),
+        members: [...stmt.members].sort((a, b) => a.name.localeCompare(b.name)),
         extends: sortedExtends ?? stmt.extends,
       }),
     };

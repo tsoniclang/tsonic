@@ -111,6 +111,8 @@ export const expressionMayPrintColon = (expr: CSharpExpressionAst): boolean => {
         expr.arguments.some(expressionMayPrintColon) ||
         expr.initializer?.some(expressionMayPrintColon) === true
       );
+    case "anonymousObjectCreationExpression":
+      return expr.initializer.some(expressionMayPrintColon);
     case "arrayCreationExpression":
       return (
         typeMayPrintColon(expr.elementType) ||

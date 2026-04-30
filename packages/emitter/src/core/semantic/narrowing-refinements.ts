@@ -7,10 +7,10 @@
  */
 
 export {
-  applySimpleNullableRefinement,
-  applyTruthinessNullishRefinement,
   applyDirectTypeofRefinement,
   applyArrayIsArrayRefinement,
+  applySimpleNullableRefinement,
+  applyTruthinessNullishRefinement,
 } from "./nullable-typeof-refinements.js";
 
 export {

@@ -53,11 +53,13 @@ import { Date } from "@tsonic/js/index.js";
 
 ## Dynamic import
 
-Supported deterministic forms:
+Dynamic `import()` is not part of emitted Tsonic code.
+
+Use static ESM imports instead:
 
 ```ts
-const mod = await import("./module.js");
-await import("./side-effect.js");
+import * as mod from "./module.js";
+import "./side-effect.js";
 ```
 
 Rejected:
@@ -65,7 +67,7 @@ Rejected:
 ```ts
 await import(specifier);
 await import("some-package");
+await import("./module.js");
 ```
 
-The rule is simple: the import graph must stay closed-world and resolvable at
-compile time.
+The import graph must be closed-world and resolvable before IR lowering.

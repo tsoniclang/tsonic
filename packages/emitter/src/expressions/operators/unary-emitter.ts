@@ -15,9 +15,7 @@ import {
   identifierExpression,
   identifierType,
 } from "../../core/format/backend-ast/builders.js";
-import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import { emitWritableTargetAst } from "./write-targets.js";
-import { getDictionaryComputedAccess } from "./helpers.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -58,66 +56,22 @@ export const emitUnary = (
   }
 
   if (expr.operator === "delete") {
-    // JavaScript `delete obj[key]` maps to dictionary key removal in CLR:
-    //   delete dict[key]  -> dict.Remove(key)
-    const target = getDictionaryComputedAccess(expr.expression, context);
-    if (target) {
-      const [objectAst, objectContext] = emitExpressionAst(
-        target.object,
-        context
-      );
-      const [keyAst, keyContext] = emitExpressionAst(
-        target.property,
-        objectContext
-      );
-      return [
-        {
-          kind: "invocationExpression",
-          expression: {
-            kind: "memberAccessExpression",
-            expression: objectAst,
-            memberName: "Remove",
-          },
-          arguments: [keyAst],
-        },
-        keyContext,
-      ];
-    }
-
-    const [targetAst] = emitExpressionAst(expr.expression, context);
-    const targetText = extractCalleeNameFromAst(targetAst);
     throw new Error(
-      `ICE: Unsupported delete target reached emitter: delete ${targetText}. ` +
-        `Only dictionary/index-signature deletes should survive validation.`
+      "ICE: JavaScript delete operator reached emitter - validation missed TSN2001"
     );
   }
 
   const [operandAst, newContext] = emitExpressionAst(expr.expression, context);
 
   if (expr.operator === "typeof") {
-    // typeof becomes global::Tsonic.Runtime.Operators.typeof()
-    return [
-      {
-        kind: "invocationExpression",
-        expression: {
-          ...identifierExpression("global::Tsonic.Runtime.Operators.@typeof"),
-        },
-        arguments: [operandAst],
-      },
-      newContext,
-    ];
+    throw new Error(
+      "ICE: Runtime typeof expression reached emitter - validation missed TSN2001"
+    );
   }
 
   if (expr.operator === "void") {
-    // `void expr` evaluates `expr` and yields `undefined`.
-    //
-    // In expression position we must produce a value, so use an IIFE:
-    //   (() => { <eval expr>; return default(<T>); })()
-    //
-    // In statement position, emitExpressionStatement handles this separately.
     const operand = expr.expression;
 
-    // If the operand is a literal null/undefined, evaluation is a no-op.
     const isNoopOperand =
       (operand.kind === "literal" &&
         (operand.value === undefined || operand.value === null)) ||
@@ -146,7 +100,10 @@ export const emitUnary = (
         currentContext = next;
         returnTypeAst = typeAst;
       } catch {
-        // Fall back to object? + default literal.
+        returnTypeAst = {
+          kind: "nullableType",
+          underlyingType: { kind: "predefinedType", keyword: "object" },
+        };
       }
     }
 
@@ -155,7 +112,6 @@ export const emitUnary = (
       type: effectiveExpectedType ? returnTypeAst : undefined,
     };
 
-    // Build the operand evaluation statement (if not a no-op).
     const isStatementExpr =
       operand.kind === "call" ||
       operand.kind === "new" ||
@@ -167,22 +123,18 @@ export const emitUnary = (
       ? []
       : [
           {
-            kind: "expressionStatement" as const,
+            kind: "expressionStatement",
             expression: isStatementExpr
               ? operandAst
               : ({
                   kind: "assignmentExpression",
                   operatorToken: "=",
-                  left: {
-                    kind: "identifierExpression",
-                    identifier: "_",
-                  },
+                  left: identifierExpression("_"),
                   right: operandAst,
                 } as CSharpExpressionAst),
           },
         ];
 
-    // Build IIFE: ((System.Func<T>)(() => { body }))()
     const buildIife = (
       isAsync: boolean,
       funcReturnTypeAst: CSharpTypeAst

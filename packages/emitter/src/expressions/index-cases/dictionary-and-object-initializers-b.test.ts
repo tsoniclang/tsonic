@@ -172,7 +172,7 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("dict[key] == null");
   });
 
-  it("should lower delete on symbol-key dictionary access to Remove", () => {
+  it("should reject delete on symbol-key dictionary access before emission", () => {
     const dictType: IrType = {
       kind: "dictionaryType",
       keyType: { kind: "referenceType", name: "object" },
@@ -210,11 +210,12 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
-    expect(result).to.include("dict.Remove(key);");
+    expect(() => emitModule(module)).to.throw(
+      "ICE: JavaScript delete operator reached emitter - validation missed TSN2001"
+    );
   });
 
-  it("should hard-fail unsupported delete targets instead of emitting comment placeholders", () => {
+  it("should hard-fail unsupported delete targets before emission", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -257,7 +258,7 @@ describe("Expression Emission", () => {
     };
 
     expect(() => emitModule(module)).to.throw(
-      "ICE: Unsupported delete target reached emitter"
+      "ICE: JavaScript delete operator reached emitter - validation missed TSN2001"
     );
   });
 

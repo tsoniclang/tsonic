@@ -336,7 +336,9 @@ const tryEmitRestSpreadSegmentAst = (
   return [
     {
       kind: "invocationExpression",
-      expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+      expression: identifierExpression(
+        "global::System.Linq.Enumerable.ToArray"
+      ),
       typeArguments: [targetElementTypeAst],
       arguments: [selectAst],
     },

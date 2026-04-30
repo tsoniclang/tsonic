@@ -51,11 +51,23 @@ export const resolveComparisonOperandType = (
   const target = getTransparentComparisonTarget(expr);
   if (target.kind === "identifier") {
     const storageType = context.localValueTypes?.get(target.name);
+    if (isCharType(storageType)) {
+      return storageType;
+    }
+  }
+
+  const effectiveType = resolveEffectiveExpressionType(target, context);
+  if (effectiveType) {
+    return effectiveType;
+  }
+
+  if (target.kind === "identifier") {
+    const storageType = context.localValueTypes?.get(target.name);
     if (storageType) {
       return storageType;
     }
   }
-  return resolveEffectiveExpressionType(target, context) ?? target.inferredType;
+  return target.inferredType;
 };
 
 export const isNumericOperandType = (type: IrType | undefined): boolean => {

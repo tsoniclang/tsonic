@@ -1,18 +1,18 @@
 import { Console } from "@tsonic/dotnet/System.js";
 
 class Box {
-  private readonly items: string[];
+  #items: string[];
 
   constructor() {
-    this.items = [];
+    this.#items = [];
   }
 
   add(value: string): void {
-    this.items.push(value);
+    this.#items.push(value);
   }
 
   joined(): string {
-    return this.items.join("-");
+    return this.#items.join("-");
   }
 }
 

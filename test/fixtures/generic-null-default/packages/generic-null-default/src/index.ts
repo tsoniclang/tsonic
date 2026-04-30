@@ -20,7 +20,11 @@ function wrapValue<T extends object>(value: T): Result<T> {
 
 // String wrapper - strings are primitives in TS, need wrapper for object constraint
 class StringWrapper {
-  constructor(public text: string) {}
+  text: string;
+
+  constructor(text: string) {
+    this.text = text;
+  }
 }
 
 function getConcreteNull(): Result<StringWrapper> {
@@ -29,7 +33,11 @@ function getConcreteNull(): Result<StringWrapper> {
 
 // Simple wrapper class for testing
 class NumberWrapper {
-  constructor(public num: number) {}
+  num: number;
+
+  constructor(num: number) {
+    this.num = num;
+  }
 }
 
 export function main(): void {

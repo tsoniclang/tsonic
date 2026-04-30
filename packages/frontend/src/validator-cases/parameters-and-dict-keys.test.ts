@@ -291,7 +291,7 @@ describe("Static Safety Validation", () => {
       expect(keyDiag).to.equal(undefined);
     });
 
-    it("should allow Record with symbol key", () => {
+    it("should reject Record with symbol key", () => {
       const source = `
         const d: Record<symbol, string> = {};
       `;
@@ -300,10 +300,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
-      expect(keyDiag).to.equal(undefined);
+      expect(keyDiag).not.to.equal(undefined);
     });
 
-    it("should allow index signature with symbol key", () => {
+    it("should reject index signature with symbol key", () => {
       const source = `
         interface SymIndexed {
           [key: symbol]: string;
@@ -314,10 +314,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
-      expect(keyDiag).to.equal(undefined);
+      expect(keyDiag).not.to.equal(undefined);
     });
 
-    it("should allow symbol-typed key values in dictionary access", () => {
+    it("should reject symbol-typed key values in dictionary access", () => {
       const source = `
         function read(table: Record<symbol, number>, key: symbol): number {
           return table[key];
@@ -331,7 +331,7 @@ describe("Static Safety Validation", () => {
       const typeDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7414"
       );
-      expect(keyDiag).to.equal(undefined);
+      expect(keyDiag).not.to.equal(undefined);
       expect(typeDiag).to.equal(undefined);
     });
 

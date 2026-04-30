@@ -68,6 +68,7 @@ import {
 import { isExactExpressionToType } from "./exact-comparison.js";
 import { isExactArrayCreationToType } from "./exact-comparison.js";
 import { tryAdaptStructuralCollectionExpressionAst } from "./structural-collection-adaptation.js";
+import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
 import {
   isBroadArrayReceiverAssertionTarget,
   isBroadArrayStorageTarget,
@@ -77,7 +78,7 @@ import {
 import {
   isBroadObjectPassThroughType,
   isBroadObjectSlotType,
-} from "../core/semantic/js-value-types.js";
+} from "../core/semantic/broad-object-types.js";
 
 // ---------------------------------------------------------------------------
 // Polymorphic-this helpers (used by orchestrator and emitTypeAssertion)
@@ -309,6 +310,13 @@ export const emitTypeAssertion = (
     if (target.kind === "referenceType" && context.localTypes) {
       const typeInfo = context.localTypes.get(target.name);
       if (typeInfo?.kind === "typeAlias") {
+        if (
+          typeInfo.type.kind === "objectType" ||
+          (typeInfo.type.kind === "unionType" &&
+            typeInfo.type.runtimeCarrierFamilyKey)
+        ) {
+          return target;
+        }
         const substituted =
           target.typeArguments && target.typeArguments.length > 0
             ? substituteTypeArgs(
@@ -320,7 +328,94 @@ export const emitTypeAssertion = (
         return resolveLocalTypeAliases(substituted);
       }
     }
+    if (target.kind === "arrayType") {
+      const elementType = resolveLocalTypeAliases(target.elementType);
+      return elementType === target.elementType
+        ? target
+        : { ...target, elementType };
+    }
+    if (target.kind === "dictionaryType") {
+      const keyType = resolveLocalTypeAliases(target.keyType);
+      const valueType = resolveLocalTypeAliases(target.valueType);
+      return keyType === target.keyType && valueType === target.valueType
+        ? target
+        : { ...target, keyType, valueType };
+    }
+    if (target.kind === "tupleType") {
+      const elementTypes = target.elementTypes.map(resolveLocalTypeAliases);
+      return elementTypes.every(
+        (elementType, index) => elementType === target.elementTypes[index]
+      )
+        ? target
+        : { ...target, elementTypes };
+    }
+    if (target.kind === "functionType") {
+      const parameters = target.parameters.map((parameter) => {
+        if (!parameter.type) {
+          return parameter;
+        }
+        const parameterType = resolveLocalTypeAliases(parameter.type);
+        return parameterType === parameter.type
+          ? parameter
+          : { ...parameter, type: parameterType };
+      });
+      const returnType = resolveLocalTypeAliases(target.returnType);
+      return returnType === target.returnType &&
+        parameters.every(
+          (parameter, index) => parameter === target.parameters[index]
+        )
+        ? target
+        : { ...target, parameters, returnType };
+    }
+    if (target.kind === "unionType" || target.kind === "intersectionType") {
+      const types = target.types.map(resolveLocalTypeAliases);
+      return types.every((type, index) => type === target.types[index])
+        ? target
+        : { ...target, types };
+    }
     return target;
+  };
+
+  const resolveEmissionExpectedType = (target: IrType): IrType => {
+    const structuralTarget =
+      resolveAnonymousStructuralReferenceType(target, context) ??
+      resolveStructuralReferenceType(target, context);
+    if (structuralTarget) {
+      return structuralTarget;
+    }
+
+    if (target.kind === "arrayType") {
+      const elementType = resolveEmissionExpectedType(target.elementType);
+      return elementType === target.elementType
+        ? target
+        : { ...target, elementType };
+    }
+
+    if (target.kind === "dictionaryType") {
+      const keyType = resolveEmissionExpectedType(target.keyType);
+      const valueType = resolveEmissionExpectedType(target.valueType);
+      return keyType === target.keyType && valueType === target.valueType
+        ? target
+        : { ...target, keyType, valueType };
+    }
+
+    if (target.kind === "tupleType") {
+      const elementTypes = target.elementTypes.map(resolveEmissionExpectedType);
+      return elementTypes.every(
+        (elementType, index) => elementType === target.elementTypes[index]
+      )
+        ? target
+        : { ...target, elementTypes };
+    }
+
+    if (target.kind === "unionType" || target.kind === "intersectionType") {
+      const types = target.types.map(resolveEmissionExpectedType);
+      return types.every((type, index) => type === target.types[index])
+        ? target
+        : { ...target, types };
+    }
+
+    return resolveRuntimeMaterializationTargetType(target, context);
   };
 
   const hasConcreteRuntimeCastTarget = (target: IrType): boolean => {
@@ -476,6 +571,40 @@ export const emitTypeAssertion = (
   const preservedSystemArrayStorageAtEntry =
     runtimeAssertionTarget.kind === "arrayType" &&
     isSystemArrayStorageType(sourceStorageTypeAtEntry, context);
+
+  if (isTransparentFlowAssertion && expectedType) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      resolveEmissionExpectedType(expectedType)
+    );
+  }
+
+  if (
+    isTransparentFlowAssertion &&
+    currentTransparentSourceType &&
+    !areIrTypesEquivalent(
+      currentTransparentSourceType,
+      runtimeAssertionTarget,
+      context
+    ) &&
+    (matchesExpectedEmissionType(
+      currentTransparentSourceType,
+      runtimeAssertionTarget,
+      context
+    ) ||
+      matchesSemanticExpectedType(
+        currentTransparentSourceType,
+        runtimeAssertionTarget,
+        context
+      ))
+  ) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      currentTransparentSourceType
+    );
+  }
 
   if (
     (resolvedAssertionTarget.kind === "primitiveType" &&
@@ -780,9 +909,12 @@ export const emitTypeAssertion = (
     !!sourceNarrowedBinding?.sourceType &&
     !!sourceRuntimeUnionLayout;
   const actualExpressionType =
-    sourceRuntimeUnionLayout &&
-    (activeNarrowedBinding?.kind === "runtimeSubset" || strippedSourceNarrowing)
-      ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
+    sourceRuntimeUnionLayout && activeNarrowedBinding?.kind === "runtimeSubset"
+      ? (activeNarrowedBinding.type ??
+        sourceNarrowedBinding?.sourceType ??
+        sourceExpressionType)
+      : sourceRuntimeUnionLayout && strippedSourceNarrowing
+        ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
       : resolveEffectiveExpressionType(
           transparentSourceExpression,
           sourceLayoutContext

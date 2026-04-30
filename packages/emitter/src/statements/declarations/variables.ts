@@ -399,6 +399,7 @@ export const emitVariableDeclarationAst = (
       // Emit initializer (after allocation, before registration - C# scoping)
       let initAst = undefined;
       let emittedInitializerStorageType = undefined;
+      let emittedInitializerSemanticType = undefined;
       if (decl.initializer) {
         const expectedInitializerType = shouldTreatStructuralAssertionAsErased(
           decl,
@@ -418,12 +419,10 @@ export const emitVariableDeclarationAst = (
         currentContext = newContext;
         const declaredInitializerType =
           decl.type ??
-          (decl.initializer.kind === "typeAssertion"
-            ? decl.initializer.targetType
-            : resolveEffectiveVariableInitializerType(
-                decl.initializer,
-                currentContext
-              ));
+          resolveEffectiveVariableInitializerType(
+            decl.initializer,
+            currentContext
+          );
         const storageSurfaceNeedsCast =
           decl.initializer.kind === "identifier" &&
           !!declaredInitializerType &&
@@ -461,7 +460,10 @@ export const emitVariableDeclarationAst = (
                 );
                 if (
                   candidateStorageType &&
-                  !hasUnresolvedReferenceLeaves(candidateStorageType, currentContext)
+                  !hasUnresolvedReferenceLeaves(
+                    candidateStorageType,
+                    currentContext
+                  )
                 ) {
                   return candidateStorageType;
                 }
@@ -474,6 +476,10 @@ export const emitVariableDeclarationAst = (
                   ? declaredInitializerType
                   : undefined;
               })()
+            : undefined;
+        emittedInitializerSemanticType =
+          !decl.type && decl.initializer.kind === "conditional"
+            ? emittedInitializerStorageType
             : undefined;
       } else if (typeAst.kind !== "varType") {
         initAst = {
@@ -492,7 +498,8 @@ export const emitVariableDeclarationAst = (
         originalName,
         decl,
         currentContext,
-        emittedInitializerStorageType
+        emittedInitializerStorageType,
+        emittedInitializerSemanticType
       );
       currentContext = registerConditionAlias(
         originalName,

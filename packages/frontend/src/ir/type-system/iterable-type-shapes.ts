@@ -15,6 +15,8 @@ export type IterableShape = {
   readonly elementType: IrType;
 };
 
+export type IterableMode = IterableShape["mode"];
+
 const iterableVisitKeyState = createLocalTypeIdentityState();
 
 const iterableVisitKey = (type: IrType): string => {
@@ -160,6 +162,38 @@ const tryGetKnownReferenceIterableShape = (
       mode: "async",
       elementType: firstTypeArg,
     };
+  }
+
+  return undefined;
+};
+
+export const getKnownIterableCarrierMode = (
+  state: TypeSystemState,
+  type: IrType | undefined
+): IterableMode | undefined => {
+  const normalized = normalizeIterableOperand(type);
+  if (normalized?.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const { tsName, clrName } = getReferenceTypeNames(state, normalized);
+  const normalizedTsName = normalizeIterableTypeName(tsName);
+  const clrBaseName = normalizeIterableTypeName(
+    clrName?.split(".").pop()?.replace(/`1$/, "")
+  );
+
+  if (
+    SYNC_ITERABLE_TS_NAMES.has(normalizedTsName ?? "") ||
+    clrBaseName === "IEnumerable"
+  ) {
+    return "sync";
+  }
+
+  if (
+    ASYNC_ITERABLE_TS_NAMES.has(normalizedTsName ?? "") ||
+    clrBaseName === "IAsyncEnumerable"
+  ) {
+    return "async";
   }
 
   return undefined;

@@ -7,64 +7,21 @@ describe("Maximus Validation Coverage", () => {
       readonly source: string;
     }> = [
       {
-        name: "Record with symbol key",
+        name: "Record with string key",
         source: `
-          type Symbols = Record<symbol, number>;
-          const table: Symbols = {} as Symbols;
-          void table;
+          type Strings = Record<string, number>;
+          const table: Strings = {} as Strings;
+          console.log(table);
         `,
       },
       {
-        name: "symbol index signature",
+        name: "number index signature",
         source: `
-          interface SymbolMap {
-            [key: symbol]: string;
+          interface NumberMap {
+            [key: number]: string;
           }
-          const table: SymbolMap = {} as SymbolMap;
-          void table;
-        `,
-      },
-      {
-        name: "mixed PropertyKey union",
-        source: `
-          type Dict = Record<string | number | symbol, number>;
-          const value: Dict = {} as Dict;
-          void value;
-        `,
-      },
-      {
-        name: "symbol-typed parameter used for dictionary indexing",
-        source: `
-          function read(table: Record<symbol, number>, key: symbol): number {
-            return table[key];
-          }
-          void read;
-        `,
-      },
-      {
-        name: "mixed string and symbol dictionary key operations",
-        source: `
-          function readMixed(
-            table: Record<string | symbol, number>,
-            key: symbol
-          ): number {
-            table["count"] = 1;
-            table[key] = 2;
-            return table["count"] + table[key];
-          }
-          void readMixed;
-        `,
-      },
-      {
-        name: "symbol-key undefined comparison and delete shape",
-        source: `
-          function prune(table: Record<symbol, number>, key: symbol): boolean {
-            if (table[key] !== undefined) {
-              delete table[key];
-            }
-            return table[key] === undefined;
-          }
-          void prune;
+          const table: NumberMap = {} as NumberMap;
+          console.log(table);
         `,
       },
     ];
@@ -98,6 +55,39 @@ describe("Maximus Validation Coverage", () => {
           interface Dict {
             [key: Key]: number;
           }
+        `,
+      },
+      {
+        name: "Record with symbol key",
+        source: `
+          type Symbols = Record<symbol, number>;
+          const table: Symbols = {} as Symbols;
+          console.log(table);
+        `,
+      },
+      {
+        name: "symbol index signature",
+        source: `
+          interface SymbolMap {
+            [key: symbol]: string;
+          }
+        `,
+      },
+      {
+        name: "mixed PropertyKey union",
+        source: `
+          type Dict = Record<string | number | symbol, number>;
+          const value: Dict = {} as Dict;
+          console.log(value);
+        `,
+      },
+      {
+        name: "symbol-typed parameter used for dictionary indexing",
+        source: `
+          function read(table: Record<symbol, number>, key: symbol): number {
+            return table[key];
+          }
+          console.log(read);
         `,
       },
     ];

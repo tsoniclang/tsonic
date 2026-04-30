@@ -64,11 +64,6 @@ export const processExpression = (expr: IrExpression): IrExpression => {
             ? { ...arg, expression: processExpression(arg.expression) }
             : processExpression(arg)
         ),
-        dynamicImportNamespace: expr.dynamicImportNamespace
-          ? (processExpression(
-              expr.dynamicImportNamespace
-            ) as typeof expr.dynamicImportNamespace)
-          : undefined,
       };
 
     case "new":

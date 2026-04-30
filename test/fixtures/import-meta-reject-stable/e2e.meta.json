@@ -1,5 +1,0 @@
-{
-  "expectFailure": true,
-  "description": "unsupported import.meta fields remain hard errors in strict AOT mode.",
-  "expectedErrors": ["TSN2001", "import.meta"]
-}

@@ -1,5 +1,5 @@
 /**
- * Binary operator special-case handlers — `in` operator and `instanceof`.
+ * Binary operator special-case handlers for closed-carrier runtime tests.
  *
  * Extracted from binary-dispatch.ts to keep the main dispatcher under 500 LOC.
  * These handlers are called early in emitBinary before the generic binary path.
@@ -10,18 +10,10 @@ import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import {
-  resolveTypeAlias,
-  stripNullish,
-  hasDeterministicPropertyMembership,
-  matchesTypeofTag,
-} from "../../core/semantic/type-resolution.js";
-import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../core/semantic/runtime-union-matching.js";
-import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
-import { isBroadValueCarrierType } from "../../core/semantic/broad-array-storage.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import {
   buildRuntimeUnionLayout,
@@ -44,7 +36,50 @@ import {
 } from "../../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
-import { describeIrTypeForDiagnostics } from "../../core/semantic/deterministic-type-keys.js";
+import {
+  matchesTypeofTag,
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
+import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
+
+const NUMERIC_TYPEOF_PATTERN_NAMES = [
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "float",
+  "double",
+  "decimal",
+] as const;
+
+const mayProduceNullableValue = (ast: CSharpExpressionAst): boolean => {
+  switch (ast.kind) {
+    case "conditionalMemberAccessExpression":
+    case "conditionalElementAccessExpression":
+      return true;
+    case "conditionalExpression":
+      return (
+        mayProduceNullableValue(ast.whenTrue) ||
+        mayProduceNullableValue(ast.whenFalse)
+      );
+    case "memberAccessExpression":
+    case "elementAccessExpression":
+    case "invocationExpression":
+      return mayProduceNullableValue(ast.expression);
+    case "parenthesizedExpression":
+    case "castExpression":
+    case "asExpression":
+    case "suppressNullableWarningExpression":
+      return mayProduceNullableValue(ast.expression);
+    default:
+      return false;
+  }
+};
 
 const buildRuntimeUnionMemberOrChain = (
   receiver: CSharpExpressionAst,
@@ -54,15 +89,26 @@ const buildRuntimeUnionMemberOrChain = (
     return booleanLiteral(false);
   }
 
-  const checks = memberNs.map<CSharpExpressionAst>((memberN) => ({
-    kind: "invocationExpression",
-    expression: {
-      kind: "memberAccessExpression",
-      expression: receiver,
-      memberName: `Is${memberN}`,
-    },
-    arguments: [],
-  }));
+  const receiverCanBeNullable = mayProduceNullableValue(receiver);
+  const checks = memberNs.map<CSharpExpressionAst>((memberN) => {
+    const check: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: receiver,
+        memberName: `Is${memberN}`,
+      },
+      arguments: [],
+    };
+    return receiverCanBeNullable
+      ? {
+          kind: "binaryExpression",
+          operatorToken: "==",
+          left: check,
+          right: booleanLiteral(true),
+        }
+      : check;
+  });
 
   const combined = checks.reduce<CSharpExpressionAst | undefined>(
     (current, check) =>
@@ -81,20 +127,6 @@ const buildRuntimeUnionMemberOrChain = (
   );
 
   return combined ?? booleanLiteral(false);
-};
-
-const formatIrTypeForDiagnostic = (
-  type: IrExpression["inferredType"],
-  context: EmitterContext
-): string => {
-  if (!type) {
-    return "<missing-type>";
-  }
-
-  return describeIrTypeForDiagnostics(
-    resolveTypeAlias(stripNullish(type), context),
-    context
-  );
 };
 
 const buildRuntimeUnionMemberCheck = (opts: {
@@ -171,9 +203,7 @@ const tryExtractRuntimeUnionMemberProjection = (
     return undefined;
   }
 
-  const memberMatch = /^As([1-9][0-9]*)$/.exec(
-    current.expression.memberName
-  );
+  const memberMatch = /^As([1-9][0-9]*)$/.exec(current.expression.memberName);
   if (!memberMatch) {
     return undefined;
   }
@@ -224,13 +254,124 @@ const selectRuntimeUnionCarrierType = (
       getRuntimeUnionCarrierMembers(candidate, context) !== undefined
   );
 
-const tryExtractTypeofComparison = (
+const parenthesize = (expression: CSharpExpressionAst): CSharpExpressionAst => ({
+  kind: "parenthesizedExpression",
+  expression,
+});
+
+const buildTypePatternCheck = (
+  value: CSharpExpressionAst,
+  typeName: string
+): CSharpExpressionAst => ({
+  kind: "isExpression",
+  expression: value,
+  pattern: {
+    kind: "typePattern",
+    type: identifierType(typeName),
+  },
+});
+
+const buildOrChain = (
+  expressions: readonly CSharpExpressionAst[]
+): CSharpExpressionAst =>
+  expressions.reduce<CSharpExpressionAst | undefined>(
+    (current, expression) =>
+      current
+        ? parenthesize({
+            kind: "binaryExpression",
+            operatorToken: "||",
+            left: current,
+            right: expression,
+          })
+        : expression,
+    undefined
+  ) ?? booleanLiteral(false);
+
+const buildBroadTypeofCheck = (
+  value: CSharpExpressionAst,
+  tag: string,
+  negate: boolean
+): CSharpExpressionAst | undefined => {
+  const numericCheck = buildOrChain(
+    NUMERIC_TYPEOF_PATTERN_NAMES.map((name) => buildTypePatternCheck(value, name))
+  );
+  const stringCheck = buildTypePatternCheck(value, "string");
+  const booleanCheck = buildTypePatternCheck(value, "bool");
+  const functionCheck = buildTypePatternCheck(value, "global::System.Delegate");
+  const nullCheck: CSharpExpressionAst = {
+    kind: "binaryExpression",
+    operatorToken: "==",
+    left: parenthesize({
+      kind: "castExpression",
+      type: identifierType("global::System.Object"),
+      expression: parenthesize(value),
+    }),
+    right: nullLiteral(),
+  };
+
+  const positive = (() => {
+    switch (tag) {
+      case "string":
+        return stringCheck;
+      case "number":
+        return numericCheck;
+      case "boolean":
+        return booleanCheck;
+      case "function":
+        return functionCheck;
+      case "undefined":
+        return nullCheck;
+      case "object":
+        return parenthesize({
+          kind: "binaryExpression",
+          operatorToken: "&&",
+          left: {
+            kind: "prefixUnaryExpression",
+            operatorToken: "!",
+            operand: parenthesize(nullCheck),
+          },
+          right: parenthesize({
+            kind: "binaryExpression",
+            operatorToken: "&&",
+            left: {
+              kind: "prefixUnaryExpression",
+              operatorToken: "!",
+              operand: parenthesize(
+                buildOrChain([stringCheck, numericCheck, booleanCheck])
+              ),
+            },
+            right: {
+              kind: "prefixUnaryExpression",
+              operatorToken: "!",
+              operand: parenthesize(functionCheck),
+            },
+          }),
+        });
+      default:
+        return undefined;
+    }
+  })();
+
+  if (!positive) {
+    return undefined;
+  }
+
+  return negate
+    ? {
+        kind: "prefixUnaryExpression",
+        operatorToken: "!",
+        operand: parenthesize(positive),
+      }
+    : positive;
+};
+
+const extractTypeofComparison = (
   expr: Extract<IrExpression, { kind: "binary" }>
 ):
   | {
-      operand: IrExpression;
-      tag: string;
-      negate: boolean;
+      readonly target: IrExpression;
+      readonly tag: string;
+      readonly negate: boolean;
     }
   | undefined => {
   if (
@@ -245,7 +386,12 @@ const tryExtractTypeofComparison = (
   const extract = (
     left: IrExpression,
     right: IrExpression
-  ): { operand: IrExpression; tag: string } | undefined => {
+  ):
+    | {
+        readonly target: IrExpression;
+        readonly tag: string;
+      }
+    | undefined => {
     if (left.kind !== "unary" || left.operator !== "typeof") {
       return undefined;
     }
@@ -253,13 +399,12 @@ const tryExtractTypeofComparison = (
       return undefined;
     }
     return {
-      operand: left.expression,
+      target: left.expression,
       tag: right.value,
     };
   };
 
-  const direct =
-    extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
+  const direct = extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
   if (!direct) {
     return undefined;
   }
@@ -270,305 +415,122 @@ const tryExtractTypeofComparison = (
   };
 };
 
-/**
- * Emit a direct `typeof value === "tag"` comparison against a runtime-union
- * carrier as `value.IsN()` member checks.
- */
 export const emitTypeofComparison = (
   expr: Extract<IrExpression, { kind: "binary" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const directGuard = tryExtractTypeofComparison(expr);
-  if (!directGuard) {
+  const comparison = extractTypeofComparison(expr);
+  if (!comparison) {
     return undefined;
   }
 
-  const operandType = directGuard.operand.inferredType;
-  if (!operandType) {
+  const target = unwrapTransparentNarrowingTarget(comparison.target);
+  if (!target) {
     return undefined;
   }
 
-  const target = unwrapTransparentNarrowingTarget(directGuard.operand);
-  if (target?.kind === "memberAccess" && target.isOptional) {
-    return undefined;
-  }
   const bindingKey =
-    target?.kind === "identifier"
+    target.kind === "identifier"
       ? target.name
-      : target
-        ? getMemberAccessNarrowKey(target)
-        : undefined;
-  const effectiveType =
+      : getMemberAccessNarrowKey(target);
+  const localSemanticType =
+    target.kind === "identifier"
+      ? context.localSemanticTypes?.get(target.name)
+      : undefined;
+  const currentType =
     (bindingKey
       ? currentNarrowedType(
           bindingKey,
-          target?.inferredType ?? operandType,
+          localSemanticType ??
+            target.inferredType ??
+            comparison.target.inferredType,
           context
         )
-      : undefined) ?? operandType;
+      : undefined) ??
+    localSemanticType ??
+    target.inferredType ??
+    comparison.target.inferredType;
+  const resolvedCurrent = currentType
+    ? resolveTypeAlias(stripNullish(currentType), context)
+    : undefined;
 
-  if (
-    isBroadValueCarrierType(effectiveType, context) ||
-    isBroadValueCarrierType(target?.inferredType, context)
-  ) {
+  if (!resolvedCurrent) {
     return undefined;
   }
 
-  const [operandAst, operandContext] = emitExpressionAst(
-    target ?? directGuard.operand,
-    context
-  );
+  const [targetAst, targetContext] = emitExpressionAst(target, context);
+  const canUseBroadTypeof =
+    resolvedCurrent.kind === "unknownType" ||
+    resolvedCurrent.kind === "anyType" ||
+    isBroadObjectSlotType(resolvedCurrent, context);
+  if (canUseBroadTypeof) {
+    const check = buildBroadTypeofCheck(
+      parenthesize(targetAst),
+      comparison.tag,
+      comparison.negate
+    );
+    return check ? [check, targetContext] : undefined;
+  }
+
   const directStorageType =
-    resolveRuntimeCarrierIrType(
-      target ?? directGuard.operand,
-      operandContext
+    target.kind === "identifier"
+      ? resolveIdentifierRuntimeCarrierType(target, targetContext)
+      : resolveDirectStorageExpressionType(target, targetAst, targetContext);
+  const identifierStorageType =
+    target.kind === "identifier"
+      ? targetContext.localValueTypes?.get(target.name)
+      : undefined;
+  const identifierSemanticType =
+    target.kind === "identifier"
+      ? targetContext.localSemanticTypes?.get(target.name)
+      : undefined;
+  const runtimeCarrierType =
+    selectRuntimeUnionCarrierType(
+      targetContext,
+      identifierStorageType,
+      identifierSemanticType,
+      directStorageType,
+      resolveRuntimeCarrierIrType(target, targetContext),
+      currentType
     ) ??
-    (target?.kind === "identifier"
-      ? resolveIdentifierRuntimeCarrierType(target, operandContext)
-      : resolveDirectStorageExpressionType(
-          target ?? directGuard.operand,
-          operandAst,
-          operandContext
-        ));
-  const runtimeCarrierAst =
-    (directStorageType
-      ? resolveRuntimeCarrierExpressionAst(
-          target ?? directGuard.operand,
-          operandContext
-        )
-      : undefined) ?? operandAst;
-  if (isBroadValueCarrierType(directStorageType, operandContext)) {
-    return undefined;
-  }
-  const carriesRuntimeUnion = directStorageType
-    ? willCarryAsRuntimeUnion(directStorageType, operandContext)
-    : willCarryAsRuntimeUnion(effectiveType, operandContext);
-  if (!carriesRuntimeUnion) {
-    return undefined;
-  }
-  const alignedCarrierMembers = resolveAlignedRuntimeUnionMembers(
-    bindingKey,
-    effectiveType,
-    directStorageType,
-    operandContext
-  );
-  if (!alignedCarrierMembers) {
-    return undefined;
-  }
-  const { members: effectiveMembers, candidateMemberNs } =
-    alignedCarrierMembers;
+    directStorageType ??
+    resolveRuntimeCarrierIrType(target, targetContext);
 
-  const matchingMemberNs = effectiveMembers.flatMap((member, index) =>
-    member && matchesTypeofTag(member, directGuard.tag, operandContext)
-      ? [candidateMemberNs[index] ?? index + 1]
-      : []
-  );
-
-  return buildRuntimeUnionMemberCheck({
-    receiver: runtimeCarrierAst,
-    memberNs: matchingMemberNs,
-    negate: directGuard.negate,
-    context: operandContext,
-  });
-};
-
-/**
- * Emit a `"prop" in x` expression — union narrowing or dictionary membership.
- */
-export const emitInOperator = (
-  expr: Extract<IrExpression, { kind: "binary" }>,
-  context: EmitterContext
-): [CSharpExpressionAst, EmitterContext] => {
-  // LHS must be a string literal for deterministic lowering.
-  if (expr.left.kind !== "literal" || typeof expr.left.value !== "string") {
-    throw new Error(
-      "ICE: Unsupported `in` operator form. Left-hand side must be a string literal."
-    );
-  }
-
-  const rhsType = expr.right.inferredType;
-  if (!rhsType) {
-    throw new Error("ICE: `in` operator RHS missing inferredType.");
-  }
-
-  const target = unwrapTransparentNarrowingTarget(expr.right);
-  if (target?.kind === "memberAccess" && target.isOptional) {
-    throw new Error(
-      "ICE: Unsupported `in` operator on optional member access target."
-    );
-  }
-
-  const bindingKey =
-    target?.kind === "identifier"
-      ? target.name
-      : target
-        ? getMemberAccessNarrowKey(target)
-        : undefined;
-  const effectiveType =
-    (bindingKey
-      ? currentNarrowedType(
-          bindingKey,
-          target?.inferredType ?? rhsType,
-          context
-        )
-      : undefined) ?? rhsType;
-
-  const [rhsAst, rhsCtx] = emitExpressionAst(target ?? expr.right, context);
-  const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
-  const resolvedEffectiveType = resolveTypeAlias(
-    stripNullish(effectiveType),
-    rhsCtx
-  );
-  const singleEffectiveMember =
-    resolvedEffectiveType.kind === "unionType"
-      ? resolvedEffectiveType.types.length === 1
-        ? resolvedEffectiveType.types[0]
-        : undefined
-      : resolvedEffectiveType;
-  const propName = expr.left.value;
-
-  if (singleEffectiveMember) {
-    const hasMember = hasDeterministicPropertyMembership(
-      singleEffectiveMember,
-      propName,
-      rhsCtx
-    );
-    if (hasMember === true) {
-      return [booleanLiteral(true), rhsCtx];
-    }
-    if (hasMember === false) {
-      return [booleanLiteral(false), rhsCtx];
-    }
-  }
-
-  const directStorageType =
-    resolveRuntimeCarrierIrType(target ?? expr.right, rhsCtx) ??
-    (target?.kind === "identifier"
-      ? resolveIdentifierRuntimeCarrierType(target, rhsCtx)
-      : resolveDirectStorageExpressionType(
-          target ?? expr.right,
-          rhsAst,
-          rhsCtx
-        ));
-  const runtimeCarrierAst =
-    (directStorageType
-      ? resolveRuntimeCarrierExpressionAst(target ?? expr.right, rhsCtx)
-      : undefined) ?? rhsAst;
   const alignedCarrierMembers =
-    !isBroadValueCarrierType(effectiveType, rhsCtx) &&
-    !isBroadValueCarrierType(directStorageType, rhsCtx)
+    bindingKey && currentType
       ? resolveAlignedRuntimeUnionMembers(
           bindingKey,
-          effectiveType,
-          directStorageType,
-          rhsCtx
+          currentType,
+          runtimeCarrierType,
+          targetContext
         )
       : undefined;
 
-  // Union<T1..Tn>: `"error" in auth` -> auth.IsN() (where member N has the prop)
   if (alignedCarrierMembers) {
-    const { members: runtimeMembers, candidateMemberNs } =
-      alignedCarrierMembers;
-    const matchingMembers: number[] = [];
-    const unresolvedMembers: string[] = [];
-
-    for (let i = 0; i < runtimeMembers.length; i += 1) {
-      const member = runtimeMembers[i];
-      if (!member) continue;
-
-      const hasMember = hasDeterministicPropertyMembership(
-        member,
-        propName,
-        rhsCtx
-      );
-      if (hasMember === true) {
-        matchingMembers.push(candidateMemberNs[i] ?? i + 1);
-        continue;
-      }
-      if (hasMember === undefined) {
-        unresolvedMembers.push(formatIrTypeForDiagnostic(member, rhsCtx));
-      }
-    }
-
-    if (unresolvedMembers.length > 0) {
-      throw new Error(
-        "ICE: Unable to deterministically resolve `in`-operator membership for one or more union members. " +
-          `Property: '${propName}'. Members: ${unresolvedMembers.join(", ")}`
-      );
-    }
-
-    if (matchingMembers.length === 0) {
-      return [booleanLiteral(false), rhsCtx];
-    }
-
-    // Build IsN() call ASTs and chain with ||
-    const checkAsts: CSharpExpressionAst[] = matchingMembers.map((n) => ({
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: runtimeCarrierAst,
-        memberName: `Is${n}`,
-      },
-      arguments: [],
-    }));
-
-    const orChain = checkAsts.reduce(
-      (left, right): CSharpExpressionAst => ({
-        kind: "binaryExpression",
-        operatorToken: "||",
-        left,
-        right,
-      })
+    const matchingMemberNs = alignedCarrierMembers.members.flatMap(
+      (member, index) =>
+        member && matchesTypeofTag(member, comparison.tag, targetContext)
+          ? [alignedCarrierMembers.candidateMemberNs[index] ?? index + 1]
+          : []
     );
-
-    // Wrap multi-member OR chains in parens so they compose correctly
-    // with surrounding operators (e.g., `(x.Is1() || x.Is2()) && ok`).
-    const result: CSharpExpressionAst =
-      checkAsts.length > 1
-        ? { kind: "parenthesizedExpression", expression: orChain }
-        : orChain;
-
-    return [result, rhsCtx];
+    const runtimeCarrierAst =
+      (runtimeCarrierType
+        ? resolveRuntimeCarrierExpressionAst(target, targetContext)
+        : undefined) ?? targetAst;
+    return buildRuntimeUnionMemberCheck({
+      receiver: runtimeCarrierAst,
+      memberNs: matchingMemberNs,
+      negate: comparison.negate,
+      context: targetContext,
+    });
   }
 
-  // Dictionary<K,V>: `"k" in dict` -> dict.ContainsKey("k")
-  if (resolvedRhs.kind === "dictionaryType") {
-    const keyType = stripNullish(resolvedRhs.keyType);
-    const isStringKey =
-      (keyType.kind === "primitiveType" && keyType.name === "string") ||
-      (keyType.kind === "referenceType" && keyType.name === "string");
-
-    if (!isStringKey) {
-      throw new Error(
-        "ICE: Unsupported `in` operator on dictionary with non-string keys."
-      );
-    }
-
-    const [keyAst, keyCtx] = emitExpressionAst(expr.left, rhsCtx);
-    const containsKeyAst: CSharpExpressionAst = {
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: rhsAst,
-        memberName: "ContainsKey",
-      },
-      arguments: [keyAst],
-    };
-    return [containsKeyAst, keyCtx];
+  if (resolvedCurrent.kind !== "unionType") {
+    const matches = matchesTypeofTag(resolvedCurrent, comparison.tag, context);
+    return [booleanLiteral(comparison.negate ? !matches : matches), context];
   }
 
-  const deterministicMembership = hasDeterministicPropertyMembership(
-    rhsType,
-    expr.left.value,
-    rhsCtx
-  );
-  if (deterministicMembership !== undefined) {
-    return [booleanLiteral(deterministicMembership), rhsCtx];
-  }
-
-  throw new Error(
-    "ICE: Unsupported `in` operator. Only union shape guards and Dictionary<string, T> membership are supported."
-  );
+  return undefined;
 };
 
 /**

@@ -37,10 +37,10 @@ import {
 } from "../syntax/overload-stubs.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 
-const CATCH_VARIABLE_JS_VALUE_TYPE: IrReferenceType = {
+const CATCH_VARIABLE_EXCEPTION_TYPE: IrReferenceType = {
   kind: "referenceType",
-  name: "JsValue",
-  resolvedClrType: "Tsonic.Runtime.JsValue",
+  name: "System.Exception",
+  resolvedClrType: "global::System.Exception",
 };
 
 const isCatchVariableDeclaration = (
@@ -450,6 +450,10 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     }
     return undefined;
   })();
+  const hasExplicitVariableType =
+    effectiveValueDecl &&
+    ts.isVariableDeclaration(effectiveValueDecl) &&
+    effectiveValueDecl.type !== undefined;
   const effectiveKind: DeclKind = (() => {
     const source = effectiveDeclNode;
     if (!source) return declInfo.kind;
@@ -485,6 +489,7 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   } else if (effectiveDeclNode && ts.isNamespaceImport(effectiveDeclNode)) {
     result = buildNamespaceImportType(state, effectiveDeclNode);
   } else if (
+    !hasExplicitVariableType &&
     effectiveFunctionValueDecl &&
     (ts.isFunctionDeclaration(effectiveFunctionValueDecl) ||
       ts.isMethodDeclaration(effectiveFunctionValueDecl) ||
@@ -549,7 +554,7 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     if (inferred) {
       result = inferred;
     } else if (isCatchVariableDeclaration(effectiveDeclNode)) {
-      result = CATCH_VARIABLE_JS_VALUE_TYPE;
+      result = CATCH_VARIABLE_EXCEPTION_TYPE;
     } else {
       // Not a simple literal - require explicit type annotation
       emitDiagnostic(
@@ -561,7 +566,7 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     }
   } else {
     if (isCatchVariableDeclaration(effectiveDeclNode)) {
-      result = CATCH_VARIABLE_JS_VALUE_TYPE;
+      result = CATCH_VARIABLE_EXCEPTION_TYPE;
       state.declTypeCache.set(declId.id, result);
       return result;
     }

@@ -17,17 +17,11 @@ import {
 } from "../../../types.js";
 import {
   getSourceSpan,
-  extractTypeArguments,
-  checkIfRequiresSpecialization,
 } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { IrType } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
-import {
-  convertDynamicImportNamespaceObject,
-  getDynamicImportPromiseType,
-} from "../dynamic-import.js";
 import {
   isIdentifierFromCore,
   isIdentifierFromGlobals,
@@ -372,54 +366,6 @@ export const tryConvertIntrinsicCall = (
         typeArguments: [elementType],
       },
       sourceSpan: getSourceSpan(node),
-    };
-  }
-
-  // Dynamic import expressions are preserved as normal calls.
-  //
-  // For deterministic closed-world local modules, we additionally attach:
-  // - Promise<namespaceObject> inferred type
-  // - a synthesized namespace object IR payload for the emitter
-  //
-  // Unsupported/open-world forms remain Promise<unknown> and are rejected by
-  // source validation before emission.
-  if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-    const typeArguments = extractTypeArguments(node, ctx);
-    const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
-    const callee = convertExpression(node.expression, ctx, undefined);
-    const dynamicImportNamespace = convertDynamicImportNamespaceObject(
-      node,
-      ctx
-    );
-    const args: IrCallExpression["arguments"][number][] = [];
-    for (const arg of node.arguments) {
-      if (ts.isSpreadElement(arg)) {
-        const spreadExpr = convertExpression(arg.expression, ctx, undefined);
-        args.push({
-          kind: "spread",
-          expression: spreadExpr,
-          inferredType: spreadExpr.inferredType,
-          sourceSpan: getSourceSpan(arg),
-        });
-      } else {
-        args.push(convertExpression(arg, ctx, undefined));
-      }
-    }
-
-    return {
-      kind: "call",
-      callee,
-      arguments: args,
-      isOptional: node.questionDotToken !== undefined,
-      inferredType: getDynamicImportPromiseType(node, ctx) ?? {
-        kind: "referenceType",
-        name: "Promise",
-        typeArguments: [{ kind: "unknownType" }],
-      },
-      sourceSpan: getSourceSpan(node),
-      typeArguments,
-      requiresSpecialization,
-      dynamicImportNamespace,
     };
   }
 

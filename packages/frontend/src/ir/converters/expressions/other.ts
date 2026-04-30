@@ -13,11 +13,15 @@ import { irTypesEqual, normalizedUnionType } from "../../types/type-ops.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
+import { normalizeExpectedArrayType } from "./array-literals.js";
 import {
   collectTypeNarrowingsInFalsyExpr,
   collectTypeNarrowingsInTruthyExpr,
   withAppliedNarrowings,
 } from "../flow-narrowing.js";
+
+const isEmptyArrayLiteral = (node: ts.Expression): boolean =>
+  ts.isArrayLiteralExpression(node) && node.elements.length === 0;
 
 /**
  * Convert conditional (ternary) expression
@@ -35,22 +39,45 @@ export const convertConditionalExpression = (
   expectedType: IrType | undefined
 ): IrConditionalExpression => {
   const condition = convertExpression(node.condition, ctx, undefined);
-  const whenTrue = convertExpression(
+  const truthyCtx = withAppliedNarrowings(
+    ctx,
+    collectTypeNarrowingsInTruthyExpr(node.condition, ctx)
+  );
+  const falsyCtx = withAppliedNarrowings(
+    ctx,
+    collectTypeNarrowingsInFalsyExpr(node.condition, ctx)
+  );
+
+  let whenTrue = convertExpression(
     node.whenTrue,
-    withAppliedNarrowings(
-      ctx,
-      collectTypeNarrowingsInTruthyExpr(node.condition, ctx)
-    ),
+    truthyCtx,
     expectedType
   );
-  const whenFalse = convertExpression(
+  let whenFalse = convertExpression(
     node.whenFalse,
-    withAppliedNarrowings(
-      ctx,
-      collectTypeNarrowingsInFalsyExpr(node.condition, ctx)
-    ),
+    falsyCtx,
     expectedType
   );
+
+  if (isEmptyArrayLiteral(node.whenTrue) && whenFalse.inferredType) {
+    const siblingArrayType = normalizeExpectedArrayType(
+      whenFalse.inferredType,
+      ctx
+    );
+    if (siblingArrayType) {
+      whenTrue = convertExpression(node.whenTrue, truthyCtx, siblingArrayType);
+    }
+  }
+
+  if (isEmptyArrayLiteral(node.whenFalse) && whenTrue.inferredType) {
+    const siblingArrayType = normalizeExpectedArrayType(
+      whenTrue.inferredType,
+      ctx
+    );
+    if (siblingArrayType) {
+      whenFalse = convertExpression(node.whenFalse, falsyCtx, siblingArrayType);
+    }
+  }
 
   // DETERMINISTIC:
   // - expectedType is a contextual contract for branch conversion, not a mandate

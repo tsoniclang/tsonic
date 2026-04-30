@@ -1,3 +1,0 @@
-{
-  "description": "awaited relative dynamic import side effects are lowered deterministically."
-}

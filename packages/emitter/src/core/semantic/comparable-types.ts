@@ -2,6 +2,22 @@ import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { unwrapParameterModifierType } from "./parameter-modifier-types.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
+import { getReferenceNominalIdentityKey } from "./reference-type-identity.js";
+
+type ComparableNormalizeState = {
+  readonly cache: WeakMap<object, IrType>;
+  readonly active: WeakSet<object>;
+  readonly keyCache: Map<string, IrType>;
+  readonly activeKeys: Set<string>;
+};
+
+const createComparableNormalizeState = (): ComparableNormalizeState => ({
+  cache: new WeakMap<object, IrType>(),
+  active: new WeakSet<object>(),
+  keyCache: new Map<string, IrType>(),
+  activeKeys: new Set<string>(),
+});
 
 export const unwrapComparableType = (type: IrType): IrType =>
   stripNullish(unwrapParameterModifierType(type) ?? type);
@@ -9,14 +25,13 @@ export const unwrapComparableType = (type: IrType): IrType =>
 const normalizeComparableMembers = (
   members: Extract<IrType, { kind: "objectType" }>["members"],
   context: EmitterContext,
-  cache: WeakMap<object, IrType>,
-  active: WeakSet<object>
+  state: ComparableNormalizeState
 ): Extract<IrType, { kind: "objectType" }>["members"] =>
   members.map((member) => {
     if (member.kind === "propertySignature") {
       return {
         ...member,
-        type: normalizeComparableType(member.type, context, cache, active),
+        type: normalizeComparableType(member.type, context, state),
       };
     }
 
@@ -26,17 +41,12 @@ const normalizeComparableMembers = (
         parameter.type
           ? {
               ...parameter,
-              type: normalizeComparableType(
-                parameter.type,
-                context,
-                cache,
-                active
-              ),
+              type: normalizeComparableType(parameter.type, context, state),
             }
           : parameter
       ),
       returnType: member.returnType
-        ? normalizeComparableType(member.returnType, context, cache, active)
+        ? normalizeComparableType(member.returnType, context, state)
         : undefined,
     };
   });
@@ -44,8 +54,7 @@ const normalizeComparableMembers = (
 const normalizeResolvedComparableType = (
   type: IrType,
   context: EmitterContext,
-  cache: WeakMap<object, IrType>,
-  active: WeakSet<object>
+  state: ComparableNormalizeState
 ): IrType => {
   switch (type.kind) {
     case "referenceType": {
@@ -55,14 +64,13 @@ const normalizeResolvedComparableType = (
           members: normalizeComparableMembers(
             type.structuralMembers,
             context,
-            cache,
-            active
+            state
           ),
         };
       }
 
       const typeArguments = type.typeArguments?.map((argument) =>
-        normalizeComparableType(argument, context, cache, active)
+        normalizeComparableType(argument, context, state)
       );
       const typeArgumentsChanged =
         !!typeArguments &&
@@ -74,7 +82,7 @@ const normalizeResolvedComparableType = (
 
     case "unionType": {
       const types = type.types.map((member) =>
-        normalizeComparableType(member, context, cache, active)
+        normalizeComparableType(member, context, state)
       );
       return types.some((member, index) => member !== type.types[index])
         ? { ...type, types }
@@ -83,7 +91,7 @@ const normalizeResolvedComparableType = (
 
     case "intersectionType": {
       const types = type.types.map((member) =>
-        normalizeComparableType(member, context, cache, active)
+        normalizeComparableType(member, context, state)
       );
       return types.some((member, index) => member !== type.types[index])
         ? { ...type, types }
@@ -94,20 +102,14 @@ const normalizeResolvedComparableType = (
       const elementType = normalizeComparableType(
         type.elementType,
         context,
-        cache,
-        active
+        state
       );
       return elementType !== type.elementType ? { ...type, elementType } : type;
     }
 
     case "dictionaryType": {
-      const keyType = normalizeComparableType(type.keyType, context, cache, active);
-      const valueType = normalizeComparableType(
-        type.valueType,
-        context,
-        cache,
-        active
-      );
+      const keyType = normalizeComparableType(type.keyType, context, state);
+      const valueType = normalizeComparableType(type.valueType, context, state);
       return keyType !== type.keyType || valueType !== type.valueType
         ? { ...type, keyType, valueType }
         : type;
@@ -115,9 +117,11 @@ const normalizeResolvedComparableType = (
 
     case "tupleType": {
       const elementTypes = type.elementTypes.map((element) =>
-        normalizeComparableType(element, context, cache, active)
+        normalizeComparableType(element, context, state)
       );
-      return elementTypes.some((element, index) => element !== type.elementTypes[index])
+      return elementTypes.some(
+        (element, index) => element !== type.elementTypes[index]
+      )
         ? { ...type, elementTypes }
         : type;
     }
@@ -127,29 +131,25 @@ const normalizeResolvedComparableType = (
         parameter.type
           ? {
               ...parameter,
-              type: normalizeComparableType(
-                parameter.type,
-                context,
-                cache,
-                active
-              ),
+              type: normalizeComparableType(parameter.type, context, state),
             }
           : parameter
       );
       const returnType = normalizeComparableType(
         type.returnType,
         context,
-        cache,
-        active
+        state
       );
       return returnType !== type.returnType ||
-        parameters.some((parameter, index) => parameter !== type.parameters[index])
+        parameters.some(
+          (parameter, index) => parameter !== type.parameters[index]
+        )
         ? { ...type, parameters, returnType }
         : type;
     }
 
     case "objectType": {
-      const members = normalizeComparableMembers(type.members, context, cache, active);
+      const members = normalizeComparableMembers(type.members, context, state);
       return members.some((member, index) => member !== type.members[index])
         ? { ...type, members }
         : type;
@@ -167,35 +167,60 @@ export const resolveComparableType = (
   normalizeComparableType(
     unwrapComparableType(type),
     context,
-    new WeakMap<object, IrType>(),
-    new WeakSet<object>()
+    createComparableNormalizeState()
   );
 
 const normalizeComparableType = (
   type: IrType,
   context: EmitterContext,
-  cache: WeakMap<object, IrType>,
-  active: WeakSet<object>
+  state: ComparableNormalizeState
 ): IrType => {
   const comparable = unwrapComparableType(type);
-  const cached = cache.get(comparable as object);
+  const comparableKey = getContextualTypeVisitKey(comparable, context);
+  const keyCached = state.keyCache.get(comparableKey);
+  if (keyCached) {
+    return keyCached;
+  }
+
+  const cached = state.cache.get(comparable as object);
   if (cached) {
     return cached;
   }
-  if (active.has(comparable as object)) {
+
+  if (
+    state.active.has(comparable as object) ||
+    state.activeKeys.has(comparableKey)
+  ) {
     return comparable;
   }
 
-  active.add(comparable as object);
-  const resolved = resolveTypeAlias(comparable, context);
-  const normalized = normalizeResolvedComparableType(
-    resolved,
-    context,
-    cache,
-    active
-  );
-  cache.set(comparable as object, normalized);
-  cache.set(resolved as object, normalized);
-  active.delete(comparable as object);
-  return normalized;
+  state.active.add(comparable as object);
+  state.activeKeys.add(comparableKey);
+  try {
+    const resolved = resolveTypeAlias(comparable, context);
+    if (
+      comparable.kind === "referenceType" &&
+      resolved.kind === "unionType" &&
+      resolved.runtimeCarrierFamilyKey &&
+      getReferenceNominalIdentityKey(comparable, context)
+    ) {
+      const normalized = normalizeResolvedComparableType(
+        comparable,
+        context,
+        state
+      );
+      state.cache.set(comparable as object, normalized);
+      state.keyCache.set(comparableKey, normalized);
+      return normalized;
+    }
+    const normalized = normalizeResolvedComparableType(resolved, context, state);
+    state.cache.set(comparable as object, normalized);
+    state.cache.set(resolved as object, normalized);
+    state.keyCache.set(comparableKey, normalized);
+    state.keyCache.set(getContextualTypeVisitKey(resolved, context), normalized);
+    return normalized;
+  } finally {
+    state.active.delete(comparable as object);
+    state.activeKeys.delete(comparableKey);
+  }
 };

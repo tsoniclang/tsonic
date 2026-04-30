@@ -53,7 +53,8 @@ export const deriveTypeFromExpression = (
 
 const normalizeEnvType = (type: IrType | undefined): IrType | undefined => {
   if (!type) return undefined;
-  if (type.kind === "unknownType" || type.kind === "anyType") return undefined;
+  if (type.kind === "unknownType" && type.explicit !== true) return undefined;
+  if (type.kind === "anyType") return undefined;
   return type;
 };
 

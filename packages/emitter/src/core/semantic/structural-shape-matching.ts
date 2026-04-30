@@ -8,6 +8,7 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveTypeAlias, stripNullish } from "./nullish-value-helpers.js";
+import { getReferenceNominalIdentityKey } from "./reference-type-identity.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
 
 const isCompilerGeneratedStructuralName = (name: string | undefined): boolean =>
@@ -39,6 +40,19 @@ type IteratorResultVariant = {
   readonly done: boolean;
   readonly valueType: IrType;
 };
+
+type IteratorResultResolutionState = {
+  readonly activeReferenceKeys: Set<string>;
+};
+
+const getIteratorResultReferenceKey = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): string =>
+  getReferenceNominalIdentityKey(type, context) ??
+  type.typeId?.stableId ??
+  type.resolvedClrType ??
+  type.name;
 
 const tryResolveIteratorResultVariant = (
   type: IrType,
@@ -89,14 +103,37 @@ const tryResolveIteratorResultVariant = (
 
 export const resolveIteratorResultReferenceType = (
   type: IrType,
-  context: EmitterContext
+  context: EmitterContext,
+  state: IteratorResultResolutionState = { activeReferenceKeys: new Set() }
 ): Extract<IrType, { kind: "referenceType" }> | undefined => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (resolved.kind !== "unionType" || resolved.types.length !== 2) {
+  const stripped = stripNullish(type);
+  if (stripped.kind === "referenceType") {
+    const key = getIteratorResultReferenceKey(stripped, context);
+    if (state.activeReferenceKeys.has(key)) {
+      return undefined;
+    }
+
+    state.activeReferenceKeys.add(key);
+    try {
+      const resolved = resolveTypeAlias(stripped, context);
+      if (resolved === stripped || resolved.kind !== "unionType") {
+        return undefined;
+      }
+      return resolveIteratorResultReferenceType(resolved, context, state);
+    } finally {
+      state.activeReferenceKeys.delete(key);
+    }
+  }
+
+  if (stripped.kind !== "unionType") {
     return undefined;
   }
 
-  const variants = resolved.types
+  if (stripped.types.length !== 2) {
+    return undefined;
+  }
+
+  const variants = stripped.types
     .map((member) => tryResolveIteratorResultVariant(member, context))
     .filter(
       (variant): variant is IteratorResultVariant => variant !== undefined

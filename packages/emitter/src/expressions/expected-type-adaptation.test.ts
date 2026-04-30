@@ -417,7 +417,7 @@ describe("expected-type-adaptation", () => {
 
     expect(result).to.not.equal(undefined);
     expect(printExpression(result![0])).to.include(
-      'throw new global::System.InvalidCastException('
+      "throw new global::System.InvalidCastException("
     );
     expect(printExpression(result![0])).to.not.equal(
       "result.Match<string>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2)"
@@ -734,6 +734,70 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(adaptedAst)).to.equal("array");
   });
 
+  it("keeps nominal class type assertions as casts instead of structural rematerialization", () => {
+    const namesAttributeType: IrType = {
+      kind: "referenceType",
+      name: "NamesAttribute",
+      resolvedClrType: "Test.NamesAttribute",
+    };
+    const stringArrayType: IrType = {
+      kind: "arrayType",
+      elementType: { kind: "primitiveType", name: "string" },
+      origin: "explicit",
+    };
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+      }),
+      localTypes: new Map([
+        [
+          "NamesAttribute",
+          {
+            kind: "class" as const,
+            typeParameters: [],
+            members: [
+              {
+                kind: "propertyDeclaration" as const,
+                name: "Names",
+                type: stringArrayType,
+                isStatic: false,
+                isReadonly: false,
+                accessibility: "public" as const,
+                isRequired: true,
+                initializer: undefined,
+                attributes: [],
+              },
+            ],
+            superClass: undefined,
+            implements: [],
+          },
+        ],
+      ]),
+    };
+
+    const [adaptedAst] = adaptEmittedExpressionAst({
+      expr: {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "attribute",
+          inferredType: { kind: "referenceType", name: "object" },
+        },
+        targetType: namesAttributeType,
+        inferredType: namesAttributeType,
+      },
+      valueAst: {
+        kind: "castExpression",
+        type: identifierType("NamesAttribute"),
+        expression: identifierExpression("attribute"),
+      },
+      context,
+      expectedType: namesAttributeType,
+    });
+
+    expect(printExpression(adaptedAst)).to.equal("(NamesAttribute)attribute");
+  });
+
   it("does not rematerialize nullable array-return calls when source and target emit the same surface", () => {
     const context = createContext({
       rootNamespace: "Test",
@@ -789,7 +853,6 @@ describe("expected-type-adaptation", () => {
       "listenersByEvent.get(eventName)"
     );
   });
-
 
   it("keeps broad object conditionals on their emitted storage surface", () => {
     const stringArrayType: IrType = {
@@ -878,7 +941,6 @@ describe("expected-type-adaptation", () => {
       "useJson ? parsed : global::System.Array.Empty<string>()"
     );
   });
-
 
   it("reuses storage-compatible identifiers when the function return type is the only context", () => {
     const resultType: IrType = {

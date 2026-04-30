@@ -2,21 +2,24 @@ import { Console } from "@tsonic/dotnet/System.js";
 
 async function getEvents(
   ok: boolean
-): Promise<{ events: number[] } | { error: string; code?: string }> {
+): Promise<
+  | { success: true; events: number[] }
+  | { success: false; error: string; code?: string }
+> {
   if (!ok) {
-    return { error: "ERR", code: "BAD" };
+    return { success: false, error: "ERR", code: "BAD" };
   }
-  return { events: [] };
+  return { success: true, events: [] };
 }
 
 export async function main(): Promise<void> {
   const failure = await getEvents(false);
-  if ("error" in failure) {
+  if (failure.success === false) {
     Console.WriteLine(failure.error + ":" + (failure.code ?? "NONE"));
   }
 
   const success = await getEvents(true);
-  if ("events" in success) {
+  if (success.success) {
     Console.WriteLine("COUNT:" + success.events.Length);
   }
 }

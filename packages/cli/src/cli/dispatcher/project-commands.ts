@@ -258,8 +258,7 @@ export const resolveProjectCommandConfig = (
     baseProjectConfig.tests?.outputDirectory ??
     `${resolvedConfig.outputDirectory}-test`;
   const outputName =
-    baseProjectConfig.tests?.outputName ??
-    `${resolvedConfig.outputName}.tests`;
+    baseProjectConfig.tests?.outputName ?? `${resolvedConfig.outputName}.tests`;
 
   return {
     ok: true,

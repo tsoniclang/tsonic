@@ -20,6 +20,7 @@ import type {
 } from "./types.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
+import type { SurfaceCapabilities } from "../../surface/profiles.js";
 
 import type {
   HandleRegistry,
@@ -387,6 +388,7 @@ export type TypeAuthority = {
 export type TypeSystemConfig = {
   readonly sourceRoot: string;
   readonly rootNamespace: string;
+  readonly surfaceCapabilities: SurfaceCapabilities;
   /**
    * Handle registry for looking up declarations and signatures.
    *

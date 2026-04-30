@@ -1,4 +1,9 @@
-import type { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
+import {
+  getAwaitedIrType,
+  type IrExpression,
+  type IrStatement,
+  type IrType,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitStatementAst } from "../../statement-emitter.js";
@@ -167,13 +172,19 @@ export const emitReturnStatementAst = (
     const returnExpressionType =
       resolveEffectiveExpressionType(returnExpression, context) ??
       returnExpression.inferredType;
+    const asyncReturnResultType =
+      returnExpression.kind === "await" && context.returnType !== undefined
+        ? getAwaitedIrType(context.returnType)
+        : undefined;
+    const effectiveReturnExpectedType = asyncReturnResultType ?? context.returnType;
     const returnExpectedType =
-      context.returnType &&
-      isExpectedJsNumberIrType(context.returnType, context) &&
+      effectiveReturnExpectedType &&
+      returnExpression.kind !== "conditional" &&
+      isExpectedJsNumberIrType(effectiveReturnExpectedType, context) &&
       isNumericSourceIrType(returnExpressionType, context) &&
       !isNumericTypeParameterSource(returnExpressionType, context)
         ? undefined
-        : context.returnType;
+        : effectiveReturnExpectedType;
 
     const [exprAst, newContext] = emitExpressionAst(
       returnExpression,

@@ -1,10 +1,7 @@
 /**
- * Typeof narrowing resolvers.
+ * Flow narrowing resolver utilities.
  *
- * Type-level narrowing helpers for typeof checks and shared utilities
- * (unwrapExpr, getStringLiteralText, equality/inequality operators,
- * makeTypeNarrowing, extractArrayIsArrayTarget, extractIdentifierPropertyAccess,
- * tryResolveCallPredicateNarrowing).
+ * Shared utilities for equality, predicate-call, and property-access narrowing.
  */
 
 import * as ts from "typescript";
@@ -64,23 +61,6 @@ export const isInequalityOperator = (kind: ts.SyntaxKind): boolean =>
   kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
   kind === ts.SyntaxKind.ExclamationEqualsToken;
 
-const isArrayNamespaceExpression = (expr: ts.Expression): boolean => {
-  const unwrapped = unwrapExpr(expr);
-  if (ts.isIdentifier(unwrapped)) {
-    return unwrapped.text === "Array";
-  }
-
-  if (ts.isPropertyAccessExpression(unwrapped)) {
-    return (
-      ts.isIdentifier(unwrapped.expression) &&
-      unwrapped.expression.text === "globalThis" &&
-      unwrapped.name.text === "Array"
-    );
-  }
-
-  return false;
-};
-
 export const makeTypeNarrowing = (
   target: AccessPathTarget,
   targetType: IrType
@@ -88,29 +68,6 @@ export const makeTypeNarrowing = (
   target.kind === "decl" && target.segments.length === 0
     ? { kind: "decl", declId: target.declId.id, targetType }
     : { kind: "accessPath", key: getAccessPathKey(target), targetType };
-
-export const extractArrayIsArrayTarget = (
-  expr: ts.Expression,
-  ctx: ProgramContext
-): AccessPathTarget | undefined => {
-  const unwrapped = unwrapExpr(expr);
-  if (!ts.isCallExpression(unwrapped) || unwrapped.arguments.length !== 1) {
-    return undefined;
-  }
-
-  const callee = unwrapExpr(unwrapped.expression);
-  if (
-    !ts.isPropertyAccessExpression(callee) ||
-    callee.name.text !== "isArray" ||
-    !isArrayNamespaceExpression(callee.expression)
-  ) {
-    return undefined;
-  }
-
-  const [rawValue] = unwrapped.arguments;
-  if (!rawValue) return undefined;
-  return getAccessPathTarget(rawValue, ctx);
-};
 
 export const tryResolveCallPredicateNarrowing = (
   expr: ts.Expression,
@@ -205,82 +162,6 @@ export const extractIdentifierPropertyAccess = (
   return undefined;
 };
 
-export const genericTypeofTarget = (tag: string): IrType | undefined => {
-  switch (tag) {
-    case "string":
-      return { kind: "primitiveType", name: "string" };
-    case "number":
-      return { kind: "primitiveType", name: "number" };
-    case "boolean":
-      return { kind: "primitiveType", name: "boolean" };
-    case "undefined":
-      return { kind: "primitiveType", name: "undefined" };
-    case "object":
-      return { kind: "referenceType", name: "object" };
-    default:
-      return undefined;
-  }
-};
-
-export const matchesResolvedTypeofTag = (
-  type: IrType,
-  tag: string
-): boolean => {
-  if (type.kind === "literalType") {
-    switch (tag) {
-      case "string":
-        return typeof type.value === "string";
-      case "number":
-        return typeof type.value === "number";
-      case "boolean":
-        return typeof type.value === "boolean";
-      case "object":
-        return type.value === null;
-      default:
-        return false;
-    }
-  }
-
-  if (type.kind === "functionType") {
-    return tag === "function";
-  }
-
-  if (type.kind === "arrayType" || type.kind === "tupleType") {
-    return tag === "object";
-  }
-
-  if (type.kind === "objectType" || type.kind === "dictionaryType") {
-    return tag === "object";
-  }
-
-  if (type.kind === "referenceType") {
-    if (tag === "function") {
-      return false;
-    }
-
-    if (tag === "object") {
-      return type.name !== "Function";
-    }
-
-    return false;
-  }
-
-  if (type.kind !== "primitiveType") return false;
-
-  switch (tag) {
-    case "string":
-      return type.name === "string";
-    case "number":
-      return type.name === "number" || type.name === "int";
-    case "boolean":
-      return type.name === "boolean";
-    case "undefined":
-      return type.name === "undefined";
-    default:
-      return false;
-  }
-};
-
 export const filterTypeByResolvedCandidates = (
   currentType: IrType,
   predicate: (candidate: IrType) => boolean,
@@ -296,80 +177,4 @@ export const filterTypeByResolvedCandidates = (
   if (kept.length === 0) return undefined;
   if (kept.length === 1) return kept[0];
   return normalizedUnionType(kept);
-};
-
-export const narrowTypeByTypeofTag = (
-  currentType: IrType | undefined,
-  tag: string,
-  ctx: ProgramContext
-): IrType | undefined => {
-  if (!currentType) return genericTypeofTarget(tag);
-
-  const filtered = filterTypeByResolvedCandidates(
-    currentType,
-    (candidate) => matchesResolvedTypeofTag(candidate, tag),
-    ctx
-  );
-  return filtered ?? genericTypeofTarget(tag);
-};
-
-export const narrowTypeByNotTypeofTag = (
-  currentType: IrType | undefined,
-  tag: string,
-  ctx: ProgramContext
-): IrType | undefined => {
-  if (!currentType) return undefined;
-
-  return filterTypeByResolvedCandidates(
-    currentType,
-    (candidate) => !matchesResolvedTypeofTag(candidate, tag),
-    ctx
-  );
-};
-
-export const tryResolveTypeofNarrowing = (
-  expr: ts.Expression,
-  ctx: ProgramContext,
-  whenTruthy: boolean
-): TypeNarrowing | undefined => {
-  const unwrapped = unwrapExpr(expr);
-  if (!ts.isBinaryExpression(unwrapped)) return undefined;
-
-  const operator = unwrapped.operatorToken.kind;
-  const isEquality = isEqualityOperator(operator);
-  const isInequality = isInequalityOperator(operator);
-  if (!isEquality && !isInequality) return undefined;
-
-  const left = unwrapExpr(unwrapped.left);
-  const right = unwrapExpr(unwrapped.right);
-  const leftLiteral = getStringLiteralText(left);
-  const rightLiteral = getStringLiteralText(right);
-
-  const extractTypeofTarget = (
-    candidate: ts.Expression
-  ): AccessPathTarget | undefined => {
-    if (!ts.isTypeOfExpression(candidate)) return undefined;
-    return getAccessPathTarget(candidate.expression, ctx);
-  };
-
-  const leftTypeofTarget = extractTypeofTarget(left);
-  const rightTypeofTarget = extractTypeofTarget(right);
-
-  const tag =
-    leftTypeofTarget && rightLiteral
-      ? rightLiteral
-      : rightTypeofTarget && leftLiteral
-        ? leftLiteral
-        : undefined;
-  const narrowedTarget = leftTypeofTarget ?? rightTypeofTarget;
-  if (!tag || !narrowedTarget) return undefined;
-
-  const wantTypeofTag = whenTruthy ? isEquality : isInequality;
-  const currentType = getCurrentTypeForAccessPath(narrowedTarget, ctx);
-  const targetType = wantTypeofTag
-    ? narrowTypeByTypeofTag(currentType, tag, ctx)
-    : narrowTypeByNotTypeofTag(currentType, tag, ctx);
-  if (!targetType) return undefined;
-
-  return makeTypeNarrowing(narrowedTarget, targetType);
 };

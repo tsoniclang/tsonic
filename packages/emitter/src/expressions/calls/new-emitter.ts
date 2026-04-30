@@ -19,9 +19,7 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import {
-  emitArrayConstructor,
   emitListCollectionInitializer,
-  isArrayConstructorCall,
   isListConstructorWithArrayLiteral,
 } from "./new-emitter-collections.js";
 import {
@@ -37,11 +35,6 @@ export const emitNew = (
   expr: Extract<IrExpression, { kind: "new" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  // Special case: new Array<T>(size) → new T[size]
-  if (isArrayConstructorCall(expr)) {
-    return emitArrayConstructor(expr, context);
-  }
-
   // Special case: new List<T>([...]) → new List<T> { ... }
   if (isListConstructorWithArrayLiteral(expr)) {
     return emitListCollectionInitializer(expr, context, emitNew);

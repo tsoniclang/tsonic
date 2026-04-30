@@ -42,7 +42,7 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("global::js.String.length(value)");
   });
 
-  it("should emit CLR Length for structural array length without member binding", () => {
+  it("should emit CLR Length for structural array Length without member binding", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -67,7 +67,7 @@ describe("Expression Emission", () => {
                 },
               },
             },
-            property: "length",
+            property: "Length",
             isComputed: false,
             isOptional: false,
           },
@@ -81,7 +81,7 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("channels.length");
   });
 
-  it("should emit CLR Length when imported array references lower to native arrays", () => {
+  it("should emit CLR Length when imported array references use the CLR array surface", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -114,7 +114,7 @@ describe("Expression Emission", () => {
                 typeArguments: [{ kind: "primitiveType", name: "string" }],
               },
             },
-            property: "length",
+            property: "Length",
             isComputed: false,
             isOptional: false,
           },

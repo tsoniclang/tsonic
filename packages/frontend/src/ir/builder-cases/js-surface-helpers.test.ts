@@ -867,18 +867,18 @@ describe("IR Builder", function () {
             "src/Array.ts": [
               'import type { int } from "@tsonic/core/types.js";',
               "export class Array<T> {",
-              "  public constructor() {}",
-              "  public find(callback: (value: T) => boolean): T | undefined;",
-              "  public find(callback: (value: T, index: int) => boolean): T | undefined;",
-              "  public find(callback: (value: T, index: int, array: readonly T[]) => boolean): T | undefined;",
-              "  public find(callback: (value: T, index?: int, array?: readonly T[]) => boolean): T | undefined {",
+              "  constructor() {}",
+              "  find(callback: (value: T) => boolean): T | undefined;",
+              "  find(callback: (value: T, index: int) => boolean): T | undefined;",
+              "  find(callback: (value: T, index: int, array: readonly T[]) => boolean): T | undefined;",
+              "  find(callback: (value: T, index?: int, array?: readonly T[]) => boolean): T | undefined {",
               "    void callback;",
               "    return undefined;",
               "  }",
-              "  public findIndex(callback: (value: T) => boolean): int;",
-              "  public findIndex(callback: (value: T, index: int) => boolean): int;",
-              "  public findIndex(callback: (value: T, index: int, array: readonly T[]) => boolean): int;",
-              "  public findIndex(callback: (value: T, index?: int, array?: readonly T[]) => boolean): int {",
+              "  findIndex(callback: (value: T) => boolean): int;",
+              "  findIndex(callback: (value: T, index: int) => boolean): int;",
+              "  findIndex(callback: (value: T, index: int, array: readonly T[]) => boolean): int;",
+              "  findIndex(callback: (value: T, index?: int, array?: readonly T[]) => boolean): int {",
               "    void callback;",
               "    return 0 as int;",
               "  }",
@@ -1811,7 +1811,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("uses source-backed runtime parameter surfaces for ambient globals from dependent source packages", () => {
+    it("uses source-backed runtime parameter surfaces for explicit imports from dependent source packages", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-dependent-source-globals-")
       );
@@ -1889,6 +1889,9 @@ describe("IR Builder", function () {
               dependencies: {
                 "@fixture/js": "1.0.0",
               },
+              exports: {
+                "./timers.js": "./src/timers-module.ts",
+              },
             },
             null,
             2
@@ -1942,6 +1945,8 @@ describe("IR Builder", function () {
         fs.writeFileSync(
           entryPath,
           [
+            'import { setInterval } from "@fixture/nodejs/timers.js";',
+            "",
             "export function main(): void {",
             "  setInterval(() => {}, 1000);",
             "}",
@@ -2375,7 +2380,7 @@ describe("IR Builder", function () {
           path.join(surfaceRoot, "src/Widget.ts"),
           [
             "export class Widget {",
-            "  public isWidget(): boolean {",
+            "  isWidget(): boolean {",
             "    return true;",
             "  }",
             "}",
@@ -2459,8 +2464,8 @@ describe("IR Builder", function () {
           {
             "src/RegExp.ts": [
               "export class RegExp {",
-              "  public constructor(_pattern: string, _flags?: string) {}",
-              "  public test(_value: string): boolean {",
+              "  constructor(_pattern: string, _flags?: string) {}",
+              "  test(_value: string): boolean {",
               "    return true;",
               "  }",
               "}",
@@ -2612,8 +2617,11 @@ describe("IR Builder", function () {
           },
           {
             "src/Array.ts": [
-              "export abstract class Array<T> {",
-              "  public abstract sort(compareFn?: (a: T, b: T) => number): T[];",
+              "export class Array<T> {",
+              "  sort(compareFn?: (a: T, b: T) => number): T[] {",
+              "    void compareFn;",
+              "    return [];",
+              "  }",
               "}",
             ].join("\n"),
           },

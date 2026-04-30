@@ -2,11 +2,7 @@
  * Class declaration emission — returns CSharpTypeDeclarationAst[]
  */
 
-import {
-  IrStatement,
-  type IrClassMember,
-  type IrType,
-} from "@tsonic/frontend";
+import { IrStatement, type IrClassMember, type IrType } from "@tsonic/frontend";
 import { EmitterContext, indent, withClassName } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";

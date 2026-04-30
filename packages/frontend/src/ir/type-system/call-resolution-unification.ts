@@ -28,8 +28,6 @@ import {
 const BROAD_OBJECT_INFERENCE_CLR_NAMES = new Set([
   "System.Object",
   "global::System.Object",
-  "Tsonic.Runtime.JsValue",
-  "global::Tsonic.Runtime.JsValue",
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -87,7 +85,6 @@ export const inferMethodTypeArgsFromArguments = (
     return (
       type.kind === "referenceType" &&
       (type.name === "object" ||
-        type.name === "JsValue" ||
         referenceTypeHasClrIdentity(type, BROAD_OBJECT_INFERENCE_CLR_NAMES))
     );
   };

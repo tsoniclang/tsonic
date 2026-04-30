@@ -23,7 +23,11 @@ export function wrapValue<T extends object>(value: T): Result<T> {
 
 // Wrapper class for string (reference type)
 class StringWrapper {
-  constructor(public value: string) {}
+  value: string;
+
+  constructor(value: string) {
+    this.value = value;
+  }
 }
 
 // Concrete result with reference type

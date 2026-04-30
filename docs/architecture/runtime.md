@@ -64,3 +64,14 @@ Runtime-union support also belongs to this boundary. The emitter may preserve a
 runtime union carrier or project it only when the expected target proves that a
 projection is required. Lowering a source value to `object` just to make an
 assignment compile is not a valid runtime strategy.
+
+## NativeAOT boundary
+
+Generated code and product runtime support must remain valid under NativeAOT.
+Language semantics must not depend on runtime reflection, arbitrary member
+discovery, dynamic invocation, dynamic JSON object traversal, or runtime shape
+inspection.
+
+Dynamic operations that TypeScript can typecheck are not automatically valid
+Tsonic operations. The compiler must either prove the shape statically and emit
+closed code, or reject the construct with a diagnostic.

@@ -1,4 +1,3 @@
-import "./type-resolution-cases/narrow-typeof.test.js";
 import "./type-resolution-cases/contains-type-parameter.test.js";
 import "./type-resolution-cases/structural-resolution.test.js";
 import "./type-resolution-cases/substitute-type-args.test.js";

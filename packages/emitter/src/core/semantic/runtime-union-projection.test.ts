@@ -200,6 +200,24 @@ describe("runtime-union-projection", () => {
           kind: "lambdaExpression",
           isAsync: false,
           parameters: [{ name: "__tsonic_union_member_2" }],
+          body: identifierExpression("excluded"),
+        },
+        {
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [{ name: "__tsonic_union_member_3" }],
+          body: identifierExpression("excluded"),
+        },
+        {
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [{ name: "__tsonic_union_member_4" }],
+          body: identifierExpression("excluded"),
+        },
+        {
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [{ name: "__tsonic_union_member_5" }],
           body: {
             kind: "invocationExpression",
             expression: {
@@ -213,7 +231,7 @@ describe("runtime-union-projection", () => {
               },
               memberName: "From2",
             },
-            arguments: [identifierExpression("__tsonic_union_member_2")],
+            arguments: [identifierExpression("__tsonic_union_member_5")],
           },
         },
       ],

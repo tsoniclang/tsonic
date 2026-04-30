@@ -9,7 +9,6 @@ import { emitExpressionAst } from "../../expression-emitter.js";
 import {
   registerJsonAotExpressionTypes,
   registerJsonAotType,
-  registerJsonRuntimeSupport,
 } from "./call-analysis.js";
 import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 import type {
@@ -17,22 +16,13 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
-import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
 import { emitTypeArgumentsAst } from "../identifiers.js";
-import { buildExactGlobalBindingReference } from "../exact-global-bindings.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
 
-const JSON_BROAD_CLR_NAMES = new Set([
+const SYSTEM_OBJECT_CLR_NAMES = new Set([
   "System.Object",
   "global::System.Object",
-  "Tsonic.Runtime.JsValue",
-  "global::Tsonic.Runtime.JsValue",
-]);
-
-const JS_VALUE_CLR_NAMES = new Set([
-  "Tsonic.Runtime.JsValue",
-  "global::Tsonic.Runtime.JsValue",
 ]);
 
 const isConcreteGlobalJsonParseTarget = (
@@ -48,13 +38,6 @@ const isConcreteGlobalJsonParseTarget = (
     return false;
   }
   if (type.kind === "unionType" || type.kind === "intersectionType") {
-    return false;
-  }
-  if (
-    type.kind === "referenceType" &&
-    (type.name === "JsValue" ||
-      referenceTypeHasClrIdentity(type, JS_VALUE_CLR_NAMES))
-  ) {
     return false;
   }
   return !containsTypeParameter(type);
@@ -82,103 +65,19 @@ const isConcreteGlobalJsonStringifySource = (
   if (
     type.kind === "referenceType" &&
     (type.name === "object" ||
-      type.name === "JsValue" ||
-      referenceTypeHasClrIdentity(type, JSON_BROAD_CLR_NAMES))
+      referenceTypeHasClrIdentity(type, SYSTEM_OBJECT_CLR_NAMES))
   ) {
     return false;
   }
   return !containsTypeParameter(type);
 };
 
-const emitRuntimeJsonParseCall = (
-  expr: Extract<IrExpression, { kind: "call" }>,
-  context: EmitterContext
-): [CSharpExpressionAst, EmitterContext] => {
-  let currentContext = context;
-  const argAsts: CSharpExpressionAst[] = [];
-
-  for (const arg of expr.arguments) {
-    if (arg.kind === "spread") {
-      const [spreadAst, ctx] = emitExpressionAst(
-        arg.expression,
-        currentContext
-      );
-      argAsts.push(spreadAst);
-      currentContext = ctx;
-      continue;
-    }
-
-    const [argAst, ctx] = emitExpressionAst(arg, currentContext);
-    argAsts.push(argAst);
-    currentContext = ctx;
-  }
-
-  const jsonOwnerExpression =
-    expr.callee.kind === "memberAccess" && expr.callee.memberBinding
-      ? identifierExpression(
-          normalizeClrQualifiedName(expr.callee.memberBinding.type, true)
-        )
-      : buildExactGlobalBindingReference("JSON", context);
-
-  return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: jsonOwnerExpression,
-        memberName: "parse",
-      },
-      arguments: argAsts,
-    },
-    currentContext,
-  ];
-};
-
-const emitRuntimeJsonStringifyCall = (
-  expr: Extract<IrExpression, { kind: "call" }>,
-  context: EmitterContext
-): [CSharpExpressionAst, EmitterContext] => {
-  registerJsonRuntimeSupport(context);
-  let currentContext = context;
-  const argAsts: CSharpExpressionAst[] = [];
-
-  for (const arg of expr.arguments) {
-    if (arg.kind === "spread") {
-      const [spreadAst, ctx] = emitExpressionAst(
-        arg.expression,
-        currentContext
-      );
-      argAsts.push(spreadAst);
-      currentContext = ctx;
-      continue;
-    }
-
-    const [argAst, ctx] = emitExpressionAst(arg, currentContext);
-    argAsts.push(argAst);
-    currentContext = ctx;
-  }
-
-  return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: identifierExpression(
-          `global::${context.options.rootNamespace ?? "TsonicApp"}.TsonicJsonRuntime`
-        ),
-        memberName: "Stringify",
-      },
-      arguments: argAsts,
-    },
-    currentContext,
-  ];
-};
-
 const emitJsonSerializerCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext,
   method: "Serialize" | "Deserialize",
-  deserializeTypeOverride?: IrType
+  deserializeTypeOverride?: IrType,
+  serializeSourceTypeOverride?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
@@ -219,7 +118,11 @@ const emitJsonSerializerCall = (
 
   // Emit arguments
   const argAsts: CSharpExpressionAst[] = [];
-  for (const arg of expr.arguments) {
+  for (let index = 0; index < expr.arguments.length; index += 1) {
+    const arg = expr.arguments[index];
+    if (!arg) {
+      continue;
+    }
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
         arg.expression,
@@ -228,15 +131,18 @@ const emitJsonSerializerCall = (
       argAsts.push(spreadAst);
       currentContext = ctx;
     } else {
-      const [argAst, ctx] = emitExpressionAst(arg, currentContext);
+      const [argAst, ctx] = emitExpressionAst(
+        arg,
+        currentContext,
+        method === "Serialize" && index === 0
+          ? serializeSourceTypeOverride
+          : undefined
+      );
       argAsts.push(argAst);
       currentContext = ctx;
     }
   }
 
-  // Only pass the generated JSON AOT options when this call site actually
-  // participates in the NativeAOT JSON rewrite. Broad global JSON.parse(...)
-  // calls stay on the js-surface parse path and should not force AOT metadata.
   if (context.options.jsonAotRegistry?.needsJsonAot) {
     argAsts.push(
       identifierExpression(
@@ -274,9 +180,11 @@ const emitGlobalJsonCall = (
           firstArg.inferredType)
         : undefined;
     if (!isConcreteGlobalJsonStringifySource(sourceType)) {
-      return emitRuntimeJsonStringifyCall(expr, context);
+      throw new Error(
+        "ICE: JSON.stringify reached emitter without a closed, NativeAOT-serializable source type"
+      );
     }
-    return emitJsonSerializerCall(expr, context, method);
+    return emitJsonSerializerCall(expr, context, method, undefined, sourceType);
   }
 
   const deserializeTarget =
@@ -297,7 +205,9 @@ const emitGlobalJsonCall = (
     );
   }
 
-  return emitRuntimeJsonParseCall(expr, context);
+  throw new Error(
+    "ICE: JSON.parse reached emitter without an explicit or inferred closed target type"
+  );
 };
 
 export { emitJsonSerializerCall, emitGlobalJsonCall };

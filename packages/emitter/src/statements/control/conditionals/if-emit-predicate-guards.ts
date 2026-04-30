@@ -1,7 +1,6 @@
 /**
- * Predicate and in-operator union-narrowing guard emission for if-statements.
- * Handles predicate guards (`if (isUser(account)) { ... }`) and
- * in-operator guards (`if ("error" in auth) { ... }`).
+ * Predicate union-narrowing guard emission for if-statements.
+ * Handles predicate guards (`if (isUser(account)) { ... }`).
  */
 
 import { IrStatement } from "@tsonic/frontend";
@@ -9,10 +8,8 @@ import { EmitterContext } from "../../../types.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import {
   buildAnyIsNCondition,
-  buildIsNCondition,
   buildCastLocalDecl,
   buildSubsetUnionType,
-  resetBranchFlowState,
   withComplementNarrowing,
   withComplementNarrowingForMembers,
   wrapInBlock,
@@ -21,7 +18,6 @@ import {
 } from "./branch-context.js";
 import {
   tryResolvePredicateGuard,
-  tryResolveInGuard,
   isDefinitelyTerminating,
 } from "./guard-analysis.js";
 
@@ -175,136 +171,4 @@ export const tryEmitPredicateGuard = (
   };
 
   return [[ifStmt], finalContext];
-};
-
-/**
- * Try to emit an `in`-operator guard narrowing for `if ("error" in auth) { ... }`.
- * Returns undefined if the condition is not a matching in-guard.
- */
-export const tryEmitInGuard = (
-  stmt: IfStatement,
-  context: EmitterContext
-): GuardResult => {
-  const inGuard = tryResolveInGuard(stmt.condition, context);
-  if (!inGuard) return undefined;
-
-  const {
-    originalName,
-    memberN,
-    unionArity,
-    runtimeUnionArity,
-    candidateMemberNs,
-    candidateMembers,
-    ctxWithId,
-    escapedOrig,
-    escapedNarrow,
-    narrowedMap,
-  } = inGuard;
-
-  const condAst = buildIsNCondition(escapedOrig, memberN, false);
-  const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
-
-  const thenCtx: EmitterContext = {
-    ...ctxWithId,
-    narrowedBindings: narrowedMap,
-  };
-
-  const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
-    [castStmt],
-    stmt.thenStatement,
-    thenCtx
-  );
-
-  const basePostConditionContext = resetBranchFlowState(ctxWithId, thenBodyCtx);
-  let finalContext: EmitterContext = basePostConditionContext;
-
-  let elseStmt: CSharpStatementAst | undefined;
-
-  if (stmt.elseStatement) {
-    if (unionArity === 2) {
-      const elseCtx = withComplementNarrowing(
-        originalName,
-        escapedOrig,
-        runtimeUnionArity,
-        candidateMemberNs,
-        candidateMembers,
-        memberN,
-        basePostConditionContext
-      );
-
-      const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
-        stmt.elseStatement,
-        elseCtx
-      );
-      elseStmt = wrapInBlock(elseStmts);
-      finalContext = {
-        ...elseCtxAfter,
-        narrowedBindings: ctxWithId.narrowedBindings,
-      };
-
-      return [
-        [
-          {
-            kind: "ifStatement",
-            condition: condAst,
-            thenStatement: thenBlock,
-            elseStatement: elseStmt,
-          },
-        ],
-        finalContext,
-      ];
-    }
-
-    // Can't narrow ELSE safely, emit without narrowing.
-    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(
-      stmt.elseStatement,
-      {
-        ...basePostConditionContext,
-        narrowedBindings: ctxWithId.narrowedBindings,
-      }
-    );
-    elseStmt = wrapInBlock(elseStmts);
-    finalContext = {
-      ...elseCtx,
-      narrowedBindings: ctxWithId.narrowedBindings,
-    };
-
-    return [
-      [
-        {
-          kind: "ifStatement",
-          condition: condAst,
-          thenStatement: thenBlock,
-          elseStatement: elseStmt,
-        },
-      ],
-      finalContext,
-    ];
-  }
-
-  // Post-if narrowing for early-exit patterns (2-member unions only)
-  if (isDefinitelyTerminating(stmt.thenStatement)) {
-    finalContext = withComplementNarrowing(
-      originalName,
-      escapedOrig,
-      runtimeUnionArity,
-      candidateMemberNs,
-      candidateMembers,
-      memberN,
-      basePostConditionContext
-    );
-    return [
-      [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
-      finalContext,
-    ];
-  }
-
-  finalContext = {
-    ...finalContext,
-    narrowedBindings: ctxWithId.narrowedBindings,
-  };
-  return [
-    [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
-    finalContext,
-  ];
 };

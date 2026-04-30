@@ -32,7 +32,7 @@ describe("Binding Resolution in IR", () => {
       expect(unionName).to.equal(undefined);
     });
 
-    it("returns Array for tuple types", () => {
+    it("does not treat tuple types as Array bindings", () => {
       const typeName = extractTypeName({
         kind: "tupleType",
         elementTypes: [
@@ -41,10 +41,10 @@ describe("Binding Resolution in IR", () => {
         ],
       });
 
-      expect(typeName).to.equal("Array");
+      expect(typeName).to.equal(undefined);
     });
 
-    it("returns Array for unions of arrays and tuples", () => {
+    it("does not collapse unions of arrays and tuples to Array bindings", () => {
       const typeName = extractTypeName({
         kind: "unionType",
         types: [
@@ -59,7 +59,7 @@ describe("Binding Resolution in IR", () => {
         ],
       });
 
-      expect(typeName).to.equal("Array");
+      expect(typeName).to.equal(undefined);
     });
   });
 });

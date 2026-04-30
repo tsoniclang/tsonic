@@ -32,6 +32,7 @@ export {
   withAsync,
   withClassName,
   withScoped,
+  contextSurfaceIncludesJs,
   getIndent,
   renderTypeFQN,
   renderMemberFQN,

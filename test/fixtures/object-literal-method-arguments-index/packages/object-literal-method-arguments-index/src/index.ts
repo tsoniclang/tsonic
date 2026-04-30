@@ -1,9 +1,10 @@
 import { Console } from "@tsonic/dotnet/System.js";
-import type { JsValue } from "@tsonic/core/types.js";
+
+type RuntimeValue = string | number | boolean | object | null;
 
 declare global {
   interface __ObjectLiteralMethodArgumentsIndexable {
-    readonly [index: number]: JsValue;
+    readonly [index: number]: RuntimeValue;
   }
 
   interface IArguments {

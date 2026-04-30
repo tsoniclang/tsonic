@@ -6,7 +6,7 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../../types.js";
+import { contextSurfaceIncludesJs, EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
@@ -92,6 +92,7 @@ export const emitArrayWrapperInteropCall = (
   context: EmitterContext,
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!contextSurfaceIncludesJs(context)) return undefined;
   if (expr.isOptional) return undefined;
   if (expr.callee.kind !== "memberAccess") return undefined;
   if (expr.callee.isComputed) return undefined;

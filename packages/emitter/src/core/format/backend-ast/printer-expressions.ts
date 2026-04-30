@@ -148,6 +148,10 @@ export const printExpression = (
       return `new ${typeName}${argsSection}${init}`;
     }
 
+    case "anonymousObjectCreationExpression": {
+      return `new { ${expr.initializer.map((item) => printExpression(item, indent)).join(", ")} }`;
+    }
+
     case "arrayCreationExpression": {
       // varType element type → implicitly-typed new[] { ... }
       const isImplicit = expr.elementType.kind === "varType";
@@ -295,6 +299,7 @@ const printPrimaryExpression = (
     expr.kind === "typeofExpression" ||
     expr.kind === "interpolatedStringExpression" ||
     expr.kind === "objectCreationExpression" ||
+    expr.kind === "anonymousObjectCreationExpression" ||
     expr.kind === "arrayCreationExpression"
   ) {
     return text;

@@ -32,7 +32,7 @@ const numDict = createNumberDict();
 function sumStringDict(dict: Record<string, number> | undefined): number {
   let sum = 0.0;
   if (dict) {
-    for (const k in dict) {
+    for (const k of Object.keys(dict)) {
       sum += dict[k];
     }
   }
@@ -42,7 +42,7 @@ function sumStringDict(dict: Record<string, number> | undefined): number {
 function sumIntDict(dict: Record<string, int> | undefined): int {
   let sum: int = 0;
   if (dict) {
-    for (const k in dict) {
+    for (const k of Object.keys(dict)) {
       sum += dict[k];
     }
   }

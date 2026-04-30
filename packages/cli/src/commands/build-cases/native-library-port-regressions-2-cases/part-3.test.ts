@@ -92,7 +92,7 @@ describe("build command (native library port regressions)", function () {
     skipIfNativeAotUnavailable(this);
   });
 
-  it("builds typeof-narrowed JsValue entry assignments with concrete CLR casts", () => {
+  it("builds typeof-narrowed unknown entry assignments with concrete CLR casts", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-typeof-entry-casts-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
@@ -144,9 +144,7 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
-          'import type { JsValue } from "@tsonic/core/types.js";',
-          "",
-          "export function readFirst(root: Record<string, JsValue>): string {",
+          "export function readFirst(root: Record<string, unknown>): string {",
           "  const first = Object.entries(root)[0];",
           '  let title = "";',
           "  let enabled = false;",
@@ -201,7 +199,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("keeps JS Object.entries object-based for broad JSON.parse values narrowed by user guards", () => {
+  it("rejects broad JSON.parse values even when later narrowed by user guards", () => {
     const dir = mkdtempSync(
       join(tmpdir(), "tsonic-build-json-object-entries-")
     );
@@ -255,9 +253,7 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
-          'import type { JsValue } from "@tsonic/core/types.js";',
-          "",
-          "const isObject = (value: JsValue): value is Record<string, JsValue> => {",
+          "const isObject = (value: unknown): value is Record<string, unknown> => {",
           '  return value !== null && typeof value === "object" && !Array.isArray(value);',
           "};",
           "",
@@ -294,19 +290,12 @@ describe("build command (native library port regressions)", function () {
       );
 
       const result = buildCommand(config);
-      if (!result.ok) {
-        throw new Error(result.error);
+      expect(result.ok).to.equal(false);
+      if (result.ok) {
+        throw new Error("Expected build to fail for broad JSON.parse");
       }
-      expect(result.ok).to.equal(true);
-
-      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.match(/global::js\.Object\.entries\([^\n]*root\)/);
-      expect(tree).to.not.include(
-        "(global::System.Collections.Generic.Dictionary<string, object?>)root"
-      );
-      expect(tree).to.not.include("global::System.Linq.Enumerable");
-      expect(tree).to.include("global::js.Number.toString((double)value)");
-      expect(tree).to.include("global::js.String.toUpperCase((string)value)");
+      expect(result.error).to.include("TSN5001");
+      expect(result.error).to.include("JSON.parse requires a closed");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

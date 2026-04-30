@@ -12,7 +12,11 @@ export {
   getAllPropertySignatures,
   selectUnionMemberForObjectLiteral,
 } from "./type-resolution.js";
-export { isAssignable, isIntegerType } from "./type-compatibility.js";
+export {
+  isAssignable,
+  isAssignableToType,
+  isIntegerType,
+} from "./type-compatibility.js";
 export { collectTypeParameters } from "./type-params.js";
 export { buildLocalTypes } from "./local-types.js";
 export { buildTypeMemberIndex } from "./type-member-index.js";

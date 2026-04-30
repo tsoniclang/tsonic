@@ -8,10 +8,15 @@ import {
 import type { EmitterContext } from "../../types.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { collectRuntimeUnionRawMembers } from "./runtime-union-expansion.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
-import { isAssignable } from "./type-compatibility.js";
+import { isAssignable, isAssignableToType } from "./type-compatibility.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { tryContextualTypeIdentityKey } from "./deterministic-type-keys.js";
+import {
+  getRuntimeUnionAliasReferenceKey,
+  runtimeUnionAliasReferencesMatch,
+} from "./runtime-union-alias-identity.js";
 
 const withOptionalUndefined = (type: IrType): IrType => {
   if (
@@ -80,6 +85,46 @@ const tryResolveIdentifierExpressionType = (
   return undefined;
 };
 
+const selectIdentifierSemanticType = (
+  registeredType: IrType | undefined,
+  inferredType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!registeredType) {
+    return inferredType;
+  }
+
+  if (!inferredType) {
+    return registeredType;
+  }
+
+  if (inferredType.kind === "anyType" || inferredType.kind === "unknownType") {
+    return registeredType;
+  }
+
+  const registeredBase = stripNullish(registeredType);
+  const inferredBase = stripNullish(inferredType);
+  const equivalent =
+    areIrTypesEquivalent(inferredBase, registeredBase, context) ||
+    areIrTypesEquivalent(
+      resolveTypeAlias(inferredBase, context),
+      resolveTypeAlias(registeredBase, context),
+      context
+    );
+  if (equivalent) {
+    return registeredType;
+  }
+
+  if (
+    isAssignableToType(registeredBase, inferredBase, context) &&
+    !isAssignableToType(inferredBase, registeredBase, context)
+  ) {
+    return registeredType;
+  }
+
+  return inferredType;
+};
+
 const runtimeCarrierFamilyForType = (
   type: IrType,
   context: EmitterContext
@@ -121,12 +166,10 @@ const projectionCarrierTypesMatch = (
     return baseFamily !== undefined && baseFamily === receiverFamily;
   }
 
-  return (
-    areIrTypesEquivalent(
-      stripNullish(baseType),
-      stripNullish(receiverType),
-      context
-    )
+  return areIrTypesEquivalent(
+    stripNullish(baseType),
+    stripNullish(receiverType),
+    context
   );
 };
 
@@ -140,6 +183,55 @@ const tryResolveProjectionReceiverType = (
   }
 
   return tryResolveIdentifierExpressionType(receiver.identifier, context);
+};
+
+const sourceMemberMatchesNarrowedType = (
+  sourceMember: IrType,
+  narrowedType: IrType,
+  context: EmitterContext
+): boolean => {
+  const strippedSourceMember = stripNullish(sourceMember);
+  const strippedNarrowedType = stripNullish(narrowedType);
+  const resolvedSourceMember = resolveTypeAlias(strippedSourceMember, context);
+  const resolvedNarrowedType = resolveTypeAlias(strippedNarrowedType, context);
+
+  return (
+    runtimeUnionAliasReferencesMatch(
+      strippedSourceMember,
+      strippedNarrowedType,
+      context
+    ) ||
+    runtimeUnionAliasReferencesMatch(
+      resolvedSourceMember,
+      resolvedNarrowedType,
+      context
+    ) ||
+    areIrTypesEquivalent(strippedSourceMember, strippedNarrowedType, context) ||
+    areIrTypesEquivalent(resolvedSourceMember, resolvedNarrowedType, context)
+  );
+};
+
+const resolveSingleMatchingSourceMemberN = (
+  sourceType: IrType | undefined,
+  narrowedType: IrType | undefined,
+  context: EmitterContext
+): number | undefined => {
+  if (!sourceType || !narrowedType) {
+    return undefined;
+  }
+
+  const resolvedSource = resolveTypeAlias(stripNullish(sourceType), context);
+  if (resolvedSource.kind !== "unionType") {
+    return undefined;
+  }
+
+  const matchingMemberNs = resolvedSource.types.flatMap((sourceMember, index) =>
+    sourceMemberMatchesNarrowedType(sourceMember, narrowedType, context)
+      ? [index + 1]
+      : []
+  );
+
+  return matchingMemberNs.length === 1 ? matchingMemberNs[0] : undefined;
 };
 
 const tryExtractRuntimeUnionProjection = (
@@ -218,20 +310,109 @@ const tryExtractRuntimeUnionProjection = (
     : undefined;
 };
 
+const isNullishFallbackAst = (exprAst: CSharpExpressionAst): boolean => {
+  const target = unwrapProjectionAst(exprAst);
+  return (
+    target.kind === "nullLiteralExpression" ||
+    target.kind === "defaultExpression"
+  );
+};
+
+const projectedMemberTypesMatch = (
+  left: IrType,
+  right: IrType,
+  context: EmitterContext
+): boolean =>
+  runtimeUnionAliasReferencesMatch(left, right, context) ||
+  areIrTypesEquivalent(left, right, context);
+
+const selectNullableProjectedMemberType = (
+  leftAst: CSharpExpressionAst,
+  leftType: IrType | undefined,
+  rightAst: CSharpExpressionAst,
+  rightType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (leftType && rightType) {
+    return projectedMemberTypesMatch(leftType, rightType, context)
+      ? leftType
+      : undefined;
+  }
+
+  if (leftType && isNullishFallbackAst(rightAst)) {
+    return leftType;
+  }
+
+  if (rightType && isNullishFallbackAst(leftAst)) {
+    return rightType;
+  }
+
+  return undefined;
+};
+
 export const tryResolveRuntimeUnionMemberType = (
   baseType: IrType | undefined,
   exprAst: CSharpExpressionAst,
-  context: EmitterContext
+  context: EmitterContext,
+  options: { readonly verifyReceiver?: boolean } = {}
 ): IrType | undefined => {
   if (!baseType) return undefined;
 
   const projection = tryExtractRuntimeUnionProjection(exprAst);
-  if (!projection) return undefined;
+  if (!projection) {
+    const target = unwrapProjectionAst(exprAst);
+    if (target.kind === "binaryExpression" && target.operatorToken === "??") {
+      const leftType = tryResolveRuntimeUnionMemberType(
+        baseType,
+        target.left,
+        context,
+        options
+      );
+      const rightType = tryResolveRuntimeUnionMemberType(
+        baseType,
+        target.right,
+        context,
+        options
+      );
+      return selectNullableProjectedMemberType(
+        target.left,
+        leftType,
+        target.right,
+        rightType,
+        context
+      );
+    }
+
+    if (target.kind === "conditionalExpression") {
+      const whenTrueType = tryResolveRuntimeUnionMemberType(
+        baseType,
+        target.whenTrue,
+        context,
+        options
+      );
+      const whenFalseType = tryResolveRuntimeUnionMemberType(
+        baseType,
+        target.whenFalse,
+        context,
+        options
+      );
+      return selectNullableProjectedMemberType(
+        target.whenTrue,
+        whenTrueType,
+        target.whenFalse,
+        whenFalseType,
+        context
+      );
+    }
+
+    return undefined;
+  }
 
   const receiverType = projection.receiverAst
     ? tryResolveProjectionReceiverType(projection.receiverAst, context)
     : undefined;
   if (
+    options.verifyReceiver !== false &&
     receiverType &&
     !projectionCarrierTypesMatch(baseType, receiverType, context)
   ) {
@@ -239,6 +420,15 @@ export const tryResolveRuntimeUnionMemberType = (
   }
 
   const { memberN } = projection;
+  const rawRuntimeMembers = collectRuntimeUnionRawMembers(baseType, context);
+  const rawRuntimeMember =
+    memberN >= 1 ? rawRuntimeMembers[memberN - 1] : undefined;
+  if (
+    rawRuntimeMember &&
+    getRuntimeUnionAliasReferenceKey(rawRuntimeMember, context)
+  ) {
+    return rawRuntimeMember;
+  }
 
   const canonicalRuntimeMembers = getCanonicalRuntimeUnionMembers(
     baseType,
@@ -282,9 +472,47 @@ export const resolveRuntimeSubsetMemberNs = (
   }
 
   const narrowed = context.narrowedBindings?.get(narrowKey);
-  return narrowed?.kind === "runtimeSubset"
-    ? new Set(narrowed.runtimeMemberNs)
+  if (narrowed?.kind === "runtimeSubset") {
+    return new Set(narrowed.runtimeMemberNs);
+  }
+
+  if (narrowed?.kind !== "expr") {
+    return undefined;
+  }
+
+  const sourceType =
+    narrowed.sourceType ??
+    (expr.kind === "identifier"
+      ? context.localSemanticTypes?.get(expr.name) ??
+        context.localValueTypes?.get(expr.name)
+      : undefined) ??
+    expr.inferredType;
+  const matchingSourceMemberN = resolveSingleMatchingSourceMemberN(
+    sourceType,
+    narrowed.type,
+    context
+  );
+  if (matchingSourceMemberN !== undefined) {
+    return new Set([matchingSourceMemberN]);
+  }
+
+  const projection = tryExtractRuntimeUnionProjection(narrowed.exprAst);
+  if (!projection) {
+    return undefined;
+  }
+
+  const receiverType = projection.receiverAst
+    ? tryResolveProjectionReceiverType(projection.receiverAst, context)
     : undefined;
+  if (
+    sourceType &&
+    receiverType &&
+    !projectionCarrierTypesMatch(sourceType, receiverType, context)
+  ) {
+    return undefined;
+  }
+
+  return new Set([projection.memberN]);
 };
 
 export const resolveEffectiveExpressionType = (
@@ -338,6 +566,11 @@ export const resolveEffectiveExpressionType = (
     expr.kind === "identifier"
       ? context.localSemanticTypes?.get(expr.name)
       : undefined;
+  const identifierSemanticType = selectIdentifierSemanticType(
+    registeredSemanticType,
+    baseType,
+    context
+  );
   if (!context.narrowedBindings) {
     if (
       expr.kind === "memberAccess" &&
@@ -357,10 +590,7 @@ export const resolveEffectiveExpressionType = (
         return maybeWrapOptionalMemberAccessType(expr, narrowedPropertyType);
       }
     }
-    return maybeWrapOptionalMemberAccessType(
-      expr,
-      registeredSemanticType ?? baseType
-    );
+    return maybeWrapOptionalMemberAccessType(expr, identifierSemanticType);
   }
 
   const narrowKey =
@@ -389,10 +619,7 @@ export const resolveEffectiveExpressionType = (
         return maybeWrapOptionalMemberAccessType(expr, narrowedPropertyType);
       }
     }
-    return maybeWrapOptionalMemberAccessType(
-      expr,
-      registeredSemanticType ?? baseType
-    );
+    return maybeWrapOptionalMemberAccessType(expr, identifierSemanticType);
   }
 
   const narrowed = context.narrowedBindings.get(narrowKey);
@@ -467,6 +694,6 @@ export const resolveEffectiveExpressionType = (
 
   return maybeWrapOptionalMemberAccessType(
     expr,
-    registeredSemanticType ?? baseType
+    identifierSemanticType
   );
 };

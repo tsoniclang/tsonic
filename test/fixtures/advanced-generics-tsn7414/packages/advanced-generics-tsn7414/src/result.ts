@@ -3,7 +3,7 @@
 // This must be representable in CLR emission:
 // - T/E appear inside inline object members
 // - Union members must synthesize generic CLR types
-// - Consumers should be able to narrow via `"error" in r`
+// - Consumers should be able to narrow through the discriminant
 export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
 export function ok<T, E>(value: T): Result<T, E> {

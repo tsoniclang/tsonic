@@ -3,7 +3,6 @@ import {
   it,
   expect,
   collectCodes,
-  collectCodesInTempProject,
 } from "./helpers.js";
 
 describe("Maximus Validation Coverage", () => {
@@ -22,7 +21,7 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "unsupported import.meta field",
+        name: "import.meta",
         code: "TSN2001",
         source: `
           const env = import.meta.env;
@@ -30,30 +29,30 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "dynamic import with unsupported runtime namespace export",
+        name: "dynamic import",
         code: "TSN2001",
         source: `
           async function load() {
             const module = await import("./module.js");
             return module.Box;
           }
-          void load();
+          load();
+        `,
+      },
+      {
+        name: "in operator",
+        code: "TSN2001",
+        source: `
+          export function hasName(value: { name?: string }): boolean {
+            return "name" in value;
+          }
         `,
       },
     ];
 
     for (const scenario of shouldReject) {
       it(`rejects ${scenario.name}`, () => {
-        const extraFiles: Readonly<Record<string, string>> =
-          scenario.name ===
-          "dynamic import with unsupported runtime namespace export"
-            ? { "src/module.ts": "export class Box {}\n" }
-            : {};
-        const codes =
-          scenario.name ===
-          "dynamic import with unsupported runtime namespace export"
-            ? collectCodesInTempProject(scenario.source, extraFiles)
-            : collectCodes(scenario.source, extraFiles);
+        const codes = collectCodes(scenario.source);
         expect(codes.includes(scenario.code)).to.equal(true);
       });
     }
@@ -62,60 +61,6 @@ describe("Maximus Validation Coverage", () => {
       readonly name: string;
       readonly source: string;
     }> = [
-      {
-        name: "import.meta.url",
-        source: `
-          const url = import.meta.url;
-          console.log(url);
-        `,
-      },
-      {
-        name: "import.meta.filename",
-        source: `
-          const file = import.meta.filename;
-          console.log(file);
-        `,
-      },
-      {
-        name: "import.meta.dirname",
-        source: `
-          const dir = import.meta.dirname;
-          console.log(dir);
-        `,
-      },
-      {
-        name: "bare import.meta object",
-        source: `
-          declare global {
-            interface ImportMeta {
-              readonly url: string;
-              readonly filename: string;
-              readonly dirname: string;
-            }
-          }
-          const meta = import.meta;
-          console.log(meta.url, meta.filename, meta.dirname);
-        `,
-      },
-      {
-        name: "awaited local dynamic import side-effect",
-        source: `
-          async function load(): Promise<void> {
-            await import("./module.js");
-          }
-          void load();
-        `,
-      },
-      {
-        name: "closed-world dynamic import namespace value",
-        source: `
-          async function load(): Promise<number> {
-            const module = await import("./module.js");
-            return module.value;
-          }
-          void load();
-        `,
-      },
       {
         name: "class method named then",
         source: `
@@ -155,7 +100,7 @@ describe("Maximus Validation Coverage", () => {
         source: `
           import type { Value } from "./module.js";
           const value: Value | undefined = undefined;
-          void value;
+          console.log(value);
         `,
       },
       {
@@ -183,16 +128,7 @@ describe("Maximus Validation Coverage", () => {
 
     for (const scenario of shouldAllow) {
       it(`does not falsely reject ${scenario.name}`, () => {
-        const extraFiles: Readonly<Record<string, string>> =
-          scenario.name === "closed-world dynamic import namespace value" ||
-          scenario.name === "awaited local dynamic import side-effect"
-            ? { "src/module.ts": "export const value = 42;\n" }
-            : {};
-        const codes =
-          scenario.name === "closed-world dynamic import namespace value" ||
-          scenario.name === "awaited local dynamic import side-effect"
-            ? collectCodesInTempProject(scenario.source, extraFiles)
-            : collectCodes(scenario.source, extraFiles);
+        const codes = collectCodes(scenario.source);
         expect(codes.includes("TSN2001")).to.equal(false);
         expect(codes.includes("TSN3011")).to.equal(false);
       });

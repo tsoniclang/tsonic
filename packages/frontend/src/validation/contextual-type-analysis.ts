@@ -15,6 +15,7 @@ export {
   arrayLiteralHasContextualType,
   findContainingFunction,
   objectLiteralHasContextualType,
+  objectLiteralHasBroadContextualType,
   isAllowedGenericFunctionValueIdentifierUse,
   getReferencedIdentifierSymbol,
 } from "./contextual-type-checks.js";

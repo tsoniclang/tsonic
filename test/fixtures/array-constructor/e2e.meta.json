@@ -1,0 +1,6 @@
+{
+  "expectFailure": true,
+  "description": "The default surface has native CLR arrays but no JavaScript Array constructor value.",
+  "expectedErrors": ["'Array' only refers to a type"],
+  "diagnosticCodes": ["TS2693"]
+}

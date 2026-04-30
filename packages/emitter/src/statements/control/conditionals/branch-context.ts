@@ -23,6 +23,11 @@ import { emitStatementAst } from "../../../statement-emitter.js";
 import { materializeDirectNarrowingAst } from "../../../core/semantic/materialized-narrowing.js";
 import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
 import { areIrTypesEquivalent } from "../../../core/semantic/type-equivalence.js";
+import { willCarryAsRuntimeUnion } from "../../../core/semantic/union-semantics.js";
+import {
+  buildMappedUnionNarrowAst,
+  buildUnionNarrowAst,
+} from "../../../core/semantic/narrowing-builders.js";
 import {
   identifierType,
   nullLiteral,
@@ -32,6 +37,8 @@ export type EmitExprAstFn = (
   e: IrExpression,
   ctx: EmitterContext
 ) => [CSharpExpressionAst, EmitterContext];
+
+export { buildUnionNarrowAst };
 
 /** Standard emitExpressionAst adapter for emitBooleanConditionAst callback. */
 export const emitExprAstCb: EmitExprAstFn = (e, ctx) =>
@@ -61,6 +68,12 @@ const joinTypes = (
   if (!right) {
     return left;
   }
+  if (left.kind === "anyType" || right.kind === "anyType") {
+    return { kind: "anyType" };
+  }
+  if (left.kind === "unknownType" || right.kind === "unknownType") {
+    return { kind: "unknownType" };
+  }
   return areIrTypesEquivalent(left, right, context)
     ? left
     : normalizedUnionType([left, right]);
@@ -73,6 +86,20 @@ const getBindingEffectiveType = (
 const getBindingSourceType = (
   binding: NarrowedBinding | undefined
 ): IrType | undefined => binding?.sourceType ?? binding?.type;
+
+const getRuntimeCarrierBindingSourceType = (
+  binding: NarrowedBinding | undefined,
+  fallbackMembers: readonly IrType[],
+  context: EmitterContext
+): IrType | undefined => {
+  const candidates = [binding?.sourceType, binding?.type].filter(
+    (candidate): candidate is IrType => candidate !== undefined
+  );
+  const runtimeCarrier = candidates.find((candidate) =>
+    willCarryAsRuntimeUnion(candidate, context)
+  );
+  return runtimeCarrier ?? buildSubsetUnionType(fallbackMembers);
+};
 
 const getBindingCarrierAst = (
   binding: NarrowedBinding | undefined
@@ -260,18 +287,44 @@ export const toReceiverAst = (
     ? { kind: "identifierExpression", identifier: receiver }
     : receiver;
 
+const mayProduceNullableValueAst = (ast: CSharpExpressionAst): boolean => {
+  switch (ast.kind) {
+    case "conditionalMemberAccessExpression":
+    case "conditionalElementAccessExpression":
+      return true;
+    case "conditionalExpression":
+      return (
+        mayProduceNullableValueAst(ast.whenTrue) ||
+        mayProduceNullableValueAst(ast.whenFalse)
+      );
+    case "memberAccessExpression":
+    case "elementAccessExpression":
+    case "invocationExpression":
+      return mayProduceNullableValueAst(ast.expression);
+    case "parenthesizedExpression":
+    case "castExpression":
+    case "asExpression":
+    case "suppressNullableWarningExpression":
+      return mayProduceNullableValueAst(ast.expression);
+    default:
+      return false;
+  }
+};
+
 export const buildExprBinding = (
   exprAst: CSharpExpressionAst,
   type: IrType | undefined,
   sourceType: IrType | undefined,
   storageExprAst?: CSharpExpressionAst,
   storageType?: IrType,
-  carrierExprAst?: CSharpExpressionAst
+  carrierExprAst?: CSharpExpressionAst,
+  carrierType?: IrType
 ): Extract<NarrowedBinding, { kind: "expr" }> => ({
   kind: "expr",
   exprAst,
   storageExprAst,
   carrierExprAst,
+  carrierType,
   storageType,
   type,
   sourceType,
@@ -282,7 +335,8 @@ export const buildProjectedExprBinding = (
   type: IrType | undefined,
   sourceType: IrType | undefined,
   carrierExprAst: CSharpExpressionAst,
-  storageType?: IrType
+  storageType?: IrType,
+  carrierType?: IrType
 ): Extract<NarrowedBinding, { kind: "expr" }> =>
   buildExprBinding(
     exprAst,
@@ -290,34 +344,16 @@ export const buildProjectedExprBinding = (
     sourceType,
     exprAst,
     storageType ?? type,
-    carrierExprAst
+    carrierExprAst,
+    carrierType ?? sourceType
   );
-
-/**
- * Build AST for a union narrowing expression: (escapedOrig.AsN())
- */
-export const buildUnionNarrowAst = (
-  receiver: string | CSharpExpressionAst,
-  memberN: number
-): CSharpExpressionAst => ({
-  kind: "parenthesizedExpression",
-  expression: {
-    kind: "invocationExpression",
-    expression: {
-      kind: "memberAccessExpression",
-      expression: toReceiverAst(receiver),
-      memberName: `As${memberN}`,
-    },
-    arguments: [],
-  },
-});
 
 export const buildSubsetUnionType = (
   members: readonly IrType[]
 ): IrType | undefined => {
   if (members.length === 0) return undefined;
   if (members.length === 1) return members[0];
-  return normalizedUnionType(members);
+  return normalizedUnionType(members, { preserveRuntimeLayout: true });
 };
 
 export const buildComplementNarrowedBinding = (
@@ -350,7 +386,10 @@ export const buildComplementNarrowedBinding = (
   if (remainingPairs.length === 1) {
     const remaining = remainingPairs[0];
     if (!remaining) return undefined;
-    const narrowedAst = buildUnionNarrowAst(receiver, remaining.runtimeMemberN);
+    const narrowedAst = buildMappedUnionNarrowAst(
+      receiver,
+      remaining.runtimeMemberN
+    );
 
     return buildProjectedExprBinding(
       narrowedAst,
@@ -405,7 +444,10 @@ export const buildComplementNarrowedBindingForMembers = (
   if (remainingPairs.length === 1) {
     const remaining = remainingPairs[0];
     if (!remaining) return undefined;
-    const narrowedAst = buildUnionNarrowAst(receiver, remaining.runtimeMemberN);
+    const narrowedAst = buildMappedUnionNarrowAst(
+      receiver,
+      remaining.runtimeMemberN
+    );
 
     return buildProjectedExprBinding(
       narrowedAst,
@@ -491,8 +533,11 @@ export const withComplementNarrowing = (
   baseContext: EmitterContext
 ): EmitterContext => {
   const existingBinding = baseContext.narrowedBindings?.get(originalName);
-  const sourceType =
-    existingBinding?.sourceType ?? buildSubsetUnionType(candidateMembers);
+  const sourceType = getRuntimeCarrierBindingSourceType(
+    existingBinding,
+    candidateMembers,
+    baseContext
+  );
   const sourceMembers =
     existingBinding?.kind === "runtimeSubset" &&
     existingBinding.sourceMembers &&
@@ -539,8 +584,11 @@ export const withComplementNarrowingForMembers = (
   baseContext: EmitterContext
 ): EmitterContext => {
   const existingBinding = baseContext.narrowedBindings?.get(originalName);
-  const sourceType =
-    existingBinding?.sourceType ?? buildSubsetUnionType(candidateMembers);
+  const sourceType = getRuntimeCarrierBindingSourceType(
+    existingBinding,
+    candidateMembers,
+    baseContext
+  );
   const sourceMembers =
     existingBinding?.kind === "runtimeSubset" &&
     existingBinding.sourceMembers &&
@@ -804,10 +852,24 @@ export const buildIsNCondition = (
     },
     arguments: [],
   };
+  const effectiveIsCall: CSharpExpressionAst = mayProduceNullableValueAst(
+    receiverAst
+  )
+    ? {
+        kind: "binaryExpression",
+        operatorToken: "==",
+        left: isCall,
+        right: { kind: "booleanLiteralExpression", value: true },
+      }
+    : isCall;
   if (!guardNullish) {
     return negate
-      ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: isCall }
-      : isCall;
+      ? {
+          kind: "prefixUnaryExpression",
+          operatorToken: "!",
+          operand: effectiveIsCall,
+        }
+      : effectiveIsCall;
   }
 
   const guardedIsCall: CSharpExpressionAst = {
@@ -829,7 +891,7 @@ export const buildIsNCondition = (
       },
       right: nullLiteral(),
     },
-    right: isCall,
+    right: effectiveIsCall,
   };
   return negate
     ? {

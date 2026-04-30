@@ -33,7 +33,7 @@ describe("End-to-End Integration", () => {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -41,7 +41,7 @@ describe("End-to-End Integration", () => {
           constructor(
             executor: (
               resolve: (value: T | PromiseLike<T>) => void,
-              reject: (reason: JsValue) => void
+              reject: (reason: unknown) => void
             ) => void
           );
         }
@@ -67,7 +67,7 @@ describe("End-to-End Integration", () => {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -75,13 +75,13 @@ describe("End-to-End Integration", () => {
           constructor(
             executor: (
               resolve: (value: T | PromiseLike<T>) => void,
-              reject: (reason?: JsValue) => void
+              reject: (reason?: unknown) => void
             ) => void
           );
         }
 
-        export function once(): Promise<JsValue[]> {
-          return new Promise<JsValue[]>((resolve) => {
+        export function once(): Promise<unknown[]> {
+          return new Promise<unknown[]>((resolve) => {
             resolve([]);
           });
         }
@@ -103,7 +103,7 @@ describe("End-to-End Integration", () => {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -111,18 +111,18 @@ describe("End-to-End Integration", () => {
           constructor(
             executor: (
               resolve: (value: T | PromiseLike<T>) => void,
-              reject: (reason?: JsValue) => void
+              reject: (reason?: unknown) => void
             ) => void
           );
         }
 
         declare class EventEmitter {
-          once(eventName: string, listener: (...args: JsValue[]) => void): EventEmitter;
+          once(eventName: string, listener: (...args: unknown[]) => void): EventEmitter;
         }
 
-        export function once(emitter: EventEmitter): Promise<JsValue[]> {
-          return new Promise<JsValue[]>((resolve) => {
-            emitter.once("done", (...args: JsValue[]) => {
+        export function once(emitter: EventEmitter): Promise<unknown[]> {
+          return new Promise<unknown[]>((resolve) => {
+            emitter.once("done", (...args: unknown[]) => {
               resolve(args);
             });
           });
@@ -143,7 +143,7 @@ describe("End-to-End Integration", () => {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -151,19 +151,15 @@ describe("End-to-End Integration", () => {
           constructor(
             executor: (
               resolve: (value: T | PromiseLike<T>) => void,
-              reject: (reason?: JsValue) => void
+              reject: (reason?: unknown) => void
             ) => void
           );
         }
 
-        declare function String(value?: JsValue): string;
-
         export function readLine(): Promise<string> {
           return new Promise<string>((resolve) => {
-            const lineListener = (...args: JsValue[]): void => {
-              if (args.length > 0 && typeof args[0] === "string") {
-                resolve(String(args[0]));
-              }
+            const lineListener = (line: string): void => {
+              resolve(line);
             };
 
             lineListener("ok");
@@ -174,8 +170,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.include("Action<string> __tsonic_resolve");
-      expect(csharp).to.include("resolve(String((object)args[0]));");
-      expect(csharp).not.to.include("resolve(String((object)(object)args[0]));");
+      expect(csharp).to.include("resolve(line);");
       expect(csharp).not.to.include(
         "resolve(global::Tsonic.Internal.Union<global::System.Threading.Tasks.Task<string>, string>"
       );
@@ -246,7 +241,6 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(
         /public\s+static\s+bool\s+isDog\s*\(\s*(?:global::Test\.)?Dog\s+animal\s*\)/
       );
-      // Should not emit 'dynamic' (old broken behavior)
       expect(csharp).not.to.include("dynamic isDog");
     });
   });

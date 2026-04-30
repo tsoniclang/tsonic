@@ -55,8 +55,6 @@ const CLR_PRIMITIVE_ALIAS_NAMES = new Set(["int", "char"]);
 const BROAD_OBJECT_CLR_NAMES = new Set([
   "System.Object",
   "global::System.Object",
-  "Tsonic.Runtime.JsValue",
-  "global::Tsonic.Runtime.JsValue",
 ]);
 const aliasExpansionTypeArgKeyState = createLocalTypeIdentityState();
 
@@ -167,13 +165,11 @@ const isBroadObjectTargetType = (type: IrType): boolean => {
   }
 
   const simpleName = type.name.split(".").pop() ?? type.name;
-  if (simpleName === "object" || simpleName === "JsValue") {
+  if (simpleName === "object") {
     return true;
   }
 
-  return (
-    referenceTypeHasClrIdentity(type, BROAD_OBJECT_CLR_NAMES)
-  );
+  return referenceTypeHasClrIdentity(type, BROAD_OBJECT_CLR_NAMES);
 };
 
 const isAssignableToBroadObjectTarget = (
@@ -190,6 +186,9 @@ const isAssignableToBroadObjectTarget = (
   }
 
   if (source.kind === "unknownType") {
+    if (source.explicit === true) {
+      return true;
+    }
     return false;
   }
 
@@ -591,6 +590,10 @@ const isAssignableToInternal = (
 
   // never is assignable to anything
   if (source.kind === "neverType") return true;
+
+  if (target.kind === "unknownType" && target.explicit === true) {
+    return source.kind !== "voidType";
+  }
 
   if (isBroadObjectTargetType(target)) {
     return isAssignableToBroadObjectTarget(state, source, activeAliases);

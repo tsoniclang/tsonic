@@ -13,7 +13,6 @@ export {
 } from "./guard-detectors-discriminant.js";
 
 export {
-  tryResolveInGuard,
   tryResolvePredicateGuard,
   tryResolveInstanceofGuard,
 } from "./guard-detectors-structural.js";

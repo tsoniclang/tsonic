@@ -3,7 +3,7 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../types.js";
+import { contextSurfaceIncludesJs, EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import {
   identifierExpression,
@@ -119,7 +119,7 @@ export const emitTemplateLiteral = (
       currentContext = newContext;
 
       const interpolationExpr =
-        currentContext.options.surface === "@tsonic/js"
+        contextSurfaceIncludesJs(currentContext)
           ? buildJsStringCoercionExpr(exprAst, currentContext)
           : typeMayBeNullish(exprAtIndex.inferredType)
             ? buildNullishSafeExpr(exprAst)
@@ -160,7 +160,8 @@ export const emitAwait = (
 ): [CSharpExpressionAst, EmitterContext] => {
   const [exprAst, newContext] = emitExpressionAst(expr.expression, context);
   const awaitableType =
-    getExpressionAsyncWrapperType(expr.expression) ?? expr.expression.inferredType;
+    getExpressionAsyncWrapperType(expr.expression) ??
+    expr.expression.inferredType;
   const resultType =
     expr.inferredType ??
     getAsyncWrapperResultType(expr.expression) ??

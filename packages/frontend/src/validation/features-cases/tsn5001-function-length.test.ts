@@ -18,103 +18,39 @@ describe("validateUnsupportedFeatures", () => {
       ).to.equal(true);
     });
 
-    it("rejects structural length views over opaque function values", () => {
-      const result = runValidation(`
-        export function arity(handler: unknown): number {
-          if (typeof handler !== "function") {
-            return 0;
-          }
-
-          const maybeFunction = handler as unknown as { readonly length?: number };
-          return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;
-        }
-      `);
-
-      expect(
-        hasDiagnostic(result, "TSN5001", "function.length is not supported")
-      ).to.equal(true);
-    });
-
-    it("rejects named structural length views over opaque function values", () => {
-      const result = runValidation(`
-        interface HandlerShape {
-          readonly length?: number;
-        }
-
-        export function arity(handler: unknown): number {
-          if (typeof handler !== "function") {
-            return 0;
-          }
-
-          const maybeFunction = handler as unknown as HandlerShape;
-          return typeof maybeFunction["length"] === "number" ? maybeFunction["length"] : 0;
-        }
-      `);
-
-      expect(
-        hasDiagnostic(result, "TSN5001", "function.length is not supported")
-      ).to.equal(true);
-    });
-
-    it("allows array length through structural array views", () => {
-      const result = runValidation(`
-        export function arity(values: unknown): number {
-          if (!Array.isArray(values)) {
-            return 0;
-          }
-
-          const items = values as readonly unknown[];
-          return items.length;
-        }
-      `);
-
-      expect(hasDiagnostic(result, "TSN5001")).to.equal(false);
-    });
-
-    it("allows ordinary string and array length access", () => {
+    it("rejects JavaScript string and array length on the default surface", () => {
       const result = runValidation(`
         export function run(text: string, items: readonly string[]): number {
           return text.length + items.length;
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN5001")).to.equal(false);
+      expect(
+        hasDiagnostic(result, "TSN2001", "JavaScript surface member 'length'")
+      ).to.equal(true);
     });
 
-    it("allows recursive middleware array branches narrowed by Array.isArray", () => {
+    it("allows source-owned length properties", () => {
       const result = runValidation(`
-        type RequestHandler = (value: string) => void;
-        type MiddlewareLike = RequestHandler | Router | readonly MiddlewareLike[];
+        type HasLength = { length: number };
 
-        class Router {}
-
-        export function flatten(entries: readonly MiddlewareLike[]): readonly (RequestHandler | Router)[] {
-          const result: (RequestHandler | Router)[] = [];
-
-          const append = (handler: MiddlewareLike): void => {
-            if (Array.isArray(handler)) {
-              for (let index = 0; index < handler.length; index += 1) {
-                append(handler[index]!);
-              }
-              return;
-            }
-
-            if (handler instanceof Router) {
-              result.push(handler);
-              return;
-            }
-
-            result.push(handler);
-          };
-
-          for (const entry of entries) {
-            append(entry);
-          }
-
-          return result;
+        export function run(value: HasLength): number {
+          return value.length;
         }
       `);
 
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+      expect(hasDiagnostic(result, "TSN5001")).to.equal(false);
+    });
+
+    it("allows CLR-style Length spelling on the default surface", () => {
+      const result = runValidation(`
+        export function run(items: readonly string[]): number {
+          return items.Length;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
       expect(hasDiagnostic(result, "TSN5001")).to.equal(false);
     });
   });

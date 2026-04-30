@@ -112,10 +112,10 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("uses runtime equality for JsValue-vs-boolean strict comparisons", () => {
+    it("uses runtime equality for unknown-vs-boolean strict comparisons", () => {
       const source = `
-        export function hasSubdomain(body: Record<string, JsValue>): boolean {
-          return body.allow_subdomains === true;
+        export function hasSubdomain(body: Record<string, unknown>): boolean {
+          return body["allow_subdomains"] === true;
         }
       `;
 
@@ -126,16 +126,15 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include('body["allow_subdomains"] == true');
     });
 
-    it("casts JsValue record member reads after typeof guards when assigning to nullable concrete slots", () => {
+    it("casts unknown record member reads after typeof guards when assigning to nullable concrete slots", () => {
       const source = `
-        import type { JsValue } from "@tsonic/core/types.js";
 
         type JwtPayload = {
           email?: string;
           exp?: number;
         };
 
-        export function read(payloadObject: Record<string, JsValue>): JwtPayload {
+        export function read(payloadObject: Record<string, unknown>): JwtPayload {
           let exp: number | undefined = undefined;
           if (typeof payloadObject.exp === "number") {
             exp = payloadObject.exp as number;
@@ -162,11 +161,10 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include('payload.email = payloadObject["email"];');
     });
 
-    it("materializes broad JsValue Array.isArray narrows for length and index reads", () => {
+    it("materializes broad unknown Array.isArray narrows for length and index reads", () => {
       const source = `
-        import type { JsValue } from "@tsonic/core/types.js";
 
-        declare function parseJsonValueText(value: string): JsValue;
+        declare function parseJsonValueText(value: string): unknown;
 
         export function countObjects(value: string): number {
           const parsed = parseJsonValueText(value);
@@ -189,9 +187,7 @@ describe("End-to-End Integration", () => {
         surface: "@tsonic/js",
       });
       expect(csharp).to.include("((global::System.Array)parsed).Length");
-      expect(csharp).to.include(
-        "((global::System.Array)parsed).GetValue(i)"
-      );
+      expect(csharp).to.include("((global::System.Array)parsed).GetValue(i)");
       expect(csharp).not.to.include("((object)parsed).Length");
       expect(csharp).not.to.include("((object)parsed)[i]");
     });
@@ -241,7 +237,9 @@ describe("End-to-End Integration", () => {
 
           return "other";
         }
-      `);
+      `, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.include("__tsonic_union_compare_1");
       expect(csharp).to.include("__tsonic_union_compare_2");
@@ -273,7 +271,9 @@ describe("End-to-End Integration", () => {
             portOrOptionsOrPath.host
           );
         }
-      `);
+      `, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.include("portOrOptionsOrPath.Is2()");
       expect(csharp).to.include("portOrOptionsOrPath.Is1()");
@@ -506,7 +506,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.match(
-        /resp\.end\(global::Tsonic\.Internal\.Union<[^>]+>\.From4\(text\)\);/
+        /resp\.end\(global::Tsonic\.Internal\.Union<[^>]+>\.From2\(text\)\);/
       );
       expect(csharp).to.include(
         'normalizeHeaderValue(resp.getHeader("x-test") == null ? default(global::Tsonic.Internal.Union<string[], string>?) : global::Tsonic.Internal.Union<string[], string>.From2(resp.getHeader("x-test")));'
@@ -561,13 +561,12 @@ describe("End-to-End Integration", () => {
     it("passes boxed storage values through broad calls after typeof-number narrowing", () => {
       const csharp = compileToCSharp(
         `
-          import type { JsValue } from "@tsonic/core/types.js";
 
-          const toNumberArg = (value: JsValue): number => {
+          const toNumberArg = (value: unknown): number => {
             return Number(value);
           };
 
-          export function run(args: readonly JsValue[]): number {
+          export function run(args: readonly unknown[]): number {
             const arg0 = args.length > 0 ? args[0] : undefined;
             if (typeof arg0 === "number") {
               return toNumberArg(arg0);
@@ -580,20 +579,17 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include(
-        'if (global::Tsonic.Runtime.Operators.@typeof(arg0) == "number")'
-      );
+      expect(csharp).to.include("if ((arg0 is double || arg0 is int))");
       expect(csharp).to.include("return toNumberArg(arg0);");
       expect(csharp).not.to.include("toNumberArg((object?)(double)arg0)");
     });
 
-    it("keeps broad JsValue typeof-object guards on the runtime typeof helper instead of union member checks", () => {
+    it("keeps broad unknown typeof-object guards on the runtime typeof helper instead of union member checks", () => {
       const csharp = compileToCSharp(
         `
-          import type { JsValue } from "@tsonic/core/types.js";
 
           export class Checker {
-            static isObject(value: JsValue | undefined): boolean {
+            static isObject(value: unknown | undefined): boolean {
               if (value === undefined || value === null) {
                 return false;
               }
@@ -610,9 +606,8 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include(
-        'if (global::Tsonic.Runtime.Operators.@typeof(value) != "object")'
-      );
+      expect(csharp).to.include("value != null");
+      expect(csharp).not.to.include("global::Tsonic.Runtime.Operators.@typeof");
       expect(csharp).not.to.include(
         "if (!(((global::System.Object)(value)) != null && (value.Is1() || value.Is2())))"
       );
@@ -661,7 +656,8 @@ describe("End-to-End Integration", () => {
             "}",
           ].join("\n"),
         },
-        "src/index.ts"
+        "src/index.ts",
+        { surface: "@tsonic/js" }
       );
 
       expect(csharp).to.include("socket.bind(options);");
@@ -1049,7 +1045,7 @@ describe("End-to-End Integration", () => {
 
     it("preserves compiler-generated anonymous carriers over unrelated structural globals", () => {
       const csharp = compileToCSharp(`
-        declare function deepEqual(left: JsValue, right: JsValue): void;
+        declare function deepEqual(left: unknown, right: unknown): void;
 
         export function run(): void {
           const first = { user: { name: "Alice" } };
@@ -1092,23 +1088,22 @@ describe("End-to-End Integration", () => {
 
     it("resolves emitted structural alias storage names during CLR member materialization", () => {
       const csharp = compileToCSharp(`
-        import type { JsValue } from "@tsonic/core/types.js";
         import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
         type NarrowFilter = {
           op: string;
-          value: JsValue | undefined;
+          value: unknown | undefined;
           negated?: boolean;
         };
 
-        declare function getObjectField(value: JsValue, key: string): JsValue | undefined;
+        declare function getObjectField(value: unknown, key: string): unknown | undefined;
 
-        export function parse(entries: JsValue[]): NarrowFilter[] | undefined {
+        export function parse(entries: unknown[]): NarrowFilter[] | undefined {
           const filters = new List<NarrowFilter>();
           for (let i = 0; i < entries.length; i++) {
             const entry = entries[i]!;
             if (Array.isArray(entry)) {
-              const tuple = entry as JsValue[];
+              const tuple = entry as unknown[];
               const filter: NarrowFilter = {
                 op: tuple[0] as string,
                 value: tuple[1],
@@ -1126,7 +1121,9 @@ describe("End-to-End Integration", () => {
           }
           return filters.ToArray();
         }
-      `);
+      `, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.include("class NarrowFilter__Alias");
       expect(csharp).to.include(
@@ -1160,7 +1157,7 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include("class MkdirOptions__Alias");
-      expect(csharp).to.include("((global::System.Object)(options)) != null");
+      expect(csharp).to.include("((global::System.Object)(options)) == null");
       expect(csharp).to.include("options.Is1()");
       expect(csharp).not.to.include(
         "ICE: Anonymous object type reached emitter"
@@ -1171,7 +1168,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(`
         import { FileNotFoundException } from "@tsonic/dotnet/System.IO.js";
 
-        export function isMissing(error: JsValue): boolean {
+        export function isMissing(error: unknown): boolean {
           return error instanceof FileNotFoundException;
         }
       `);
@@ -1218,6 +1215,99 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("return encoding;");
       expect(csharp).not.to.include("readValue_flag");
       expect(csharp).not.to.include("readValue_encoding");
+    });
+
+    it("preserves override on methods generated from overload family bodies", () => {
+      const source = `
+        import { overloads as O } from "@tsonic/core/lang.js";
+        import type { int } from "@tsonic/core/types.js";
+
+        export class DbContext {
+          SaveChanges(): int {
+            return 0 as int;
+          }
+        }
+
+        export class WorkspaceDbContext extends DbContext {
+          override SaveChanges(): int;
+          SaveChanges(_acceptAllChangesOnSuccess?: boolean): int {
+            throw new Error("stub");
+          }
+
+          SaveChangesDefault(): int {
+            return super.SaveChanges();
+          }
+        }
+
+        O<WorkspaceDbContext>()
+          .method((context) => context.SaveChangesDefault)
+          .family((context) => context.SaveChanges);
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("public override int SaveChanges()");
+      expect(csharp).not.to.include("public new int SaveChanges()");
+    });
+
+    it("emits expression-tree object literal bodies as anonymous objects", () => {
+      const source = `
+        interface Expression_1<TDelegate> {}
+
+        export class EntityTypeBuilder<TEntity> {
+          HasKey<TKey>(_keySelector: Expression_1<(row: TEntity) => TKey>): void {}
+          HasIndex<TKey>(_indexSelector: Expression_1<(row: TEntity) => TKey>): void {}
+        }
+
+        export class AuthProvider {
+          WorkspaceId: string = "";
+          Id: string = "";
+          DisplayName: string = "";
+        }
+
+        export function configure(builder: EntityTypeBuilder<AuthProvider>): void {
+          builder.HasKey((row: AuthProvider) => ({
+            WorkspaceId: row.WorkspaceId,
+            Id: row.Id,
+          }));
+
+          builder.HasIndex((row: AuthProvider) => ({
+            WorkspaceId: row.WorkspaceId,
+            DisplayName: row.DisplayName,
+          }));
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "builder.HasKey((AuthProvider row) => new { WorkspaceId = row.WorkspaceId, Id = row.Id });"
+      );
+      expect(csharp).to.include(
+        "builder.HasIndex((AuthProvider row) => new { WorkspaceId = row.WorkspaceId, DisplayName = row.DisplayName });"
+      );
+      expect(csharp).not.to.include("Dictionary<string, object?>");
+      expect(csharp).not.to.include(
+        "new global::System.Collections.Generic.Dictionary"
+      );
+    });
+
+    it("keeps explicit nominal casts on direct member access", () => {
+      const source = `
+        export class Person {
+          name: string;
+
+          constructor(name: string) {
+            this.name = name;
+          }
+        }
+
+        export function readName(value: object): string {
+          return (value as Person).name;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return ((Person)value).name;");
+      expect(csharp).not.to.include("Structural.GetProperty");
     });
 
     it("directly specializes awaited array-or-string overloads when omitted parameters fold away", () => {
@@ -1319,15 +1409,15 @@ describe("End-to-End Integration", () => {
         };
 
         export class ServerLike {
-          private readonly _allowHalfOpen: boolean;
+          #allowHalfOpen: boolean;
 
           constructor(
             optionsOrListener?: ServerOpts | (() => void)
           ) {
             if (typeof optionsOrListener === "function") {
-              this._allowHalfOpen = false;
+              this.#allowHalfOpen = false;
             } else {
-              this._allowHalfOpen = optionsOrListener?.allowHalfOpen ?? false;
+              this.#allowHalfOpen = optionsOrListener?.allowHalfOpen ?? false;
             }
           }
         }
@@ -1377,11 +1467,19 @@ describe("End-to-End Integration", () => {
     it("emits source-owned union aliases with source alias carrier names", () => {
       const csharp = compileToCSharp(`
         class Ok<T> {
-          constructor(public value: T) {}
+          value: T;
+
+          constructor(value: T) {
+            this.value = value;
+          }
         }
 
         class Err<E> {
-          constructor(public error: E) {}
+          error: E;
+
+          constructor(error: E) {
+            this.error = error;
+          }
         }
 
         type Result<T, E> = Ok<T> | Err<E>;
@@ -1395,6 +1493,70 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("global::Test.Result<");
       expect(csharp).to.include(".From");
       expect(csharp).to.not.include("Tsonic.Internal.Union");
+    });
+
+    it("erases broad object source-owned union aliases in emitted signatures", () => {
+      const csharp = compileToCSharp(`
+        type ConsoleValue = string | number | boolean | object | null | undefined;
+
+        export function log(...data: ConsoleValue[]): void {
+        }
+      `);
+
+      expect(csharp).to.include("public static void log(params object?[] data)");
+      expect(csharp).to.not.include("ConsoleValue");
+      expect(csharp).to.not.include("Tsonic.Internal.Union");
+    });
+
+    it("preserves scalar typeof branches for broad-object-erased unions", () => {
+      const csharp = compileToCSharp(`
+        type Value = string | number | boolean | object | null | undefined;
+
+        export function coerce(value?: Value): boolean {
+          if (value === undefined || value === null) {
+            return false;
+          }
+
+          if (typeof value === "boolean") {
+            return value;
+          }
+
+          if (typeof value === "number") {
+            return value !== 0;
+          }
+
+          return true;
+        }
+      `);
+
+      expect(csharp).to.include("if (value is bool)");
+      expect(csharp).to.include("if ((value is double || value is int))");
+      expect(csharp).to.include("return (double)value != 0");
+      expect(csharp).to.not.include("if (false)");
+      expect(csharp).to.not.include(
+        "global::System.Object.Equals((double)value, 0)"
+      );
+    });
+
+    it("uses projected runtime-union member types in boolean contexts", () => {
+      const csharp = compileToCSharp(`
+        type NumberValue = string | number | boolean | null | undefined;
+
+        export function coerce(value?: NumberValue): number {
+          if (value === undefined || value === null) {
+            return 0;
+          }
+
+          if (typeof value === "boolean") {
+            return value ? 1 : 0;
+          }
+
+          return 1;
+        }
+      `);
+
+      expect(csharp).to.include("return (double)((value.As1()) ? 1 : 0);");
+      expect(csharp).to.not.include("value.As1()) is global::Tsonic.Internal.Union");
     });
 
     it("directly specializes async void overloads when omitted parameters fold away", () => {
@@ -1444,8 +1606,8 @@ describe("End-to-End Integration", () => {
         import type { int } from "@tsonic/core/types.js";
 
         export class MkdirOptions {
-          public recursive?: boolean;
-          public mode?: int;
+          recursive?: boolean;
+          mode?: int;
         }
 
         declare function implDefault(path: string): Promise<void>;
@@ -1496,8 +1658,8 @@ describe("End-to-End Integration", () => {
         import type { int } from "@tsonic/core/types.js";
 
         export class MkdirOptions {
-          public recursive?: boolean;
-          public mode?: int;
+          recursive?: boolean;
+          mode?: int;
         }
 
         declare const fs: {
@@ -1614,7 +1776,7 @@ describe("End-to-End Integration", () => {
     it("emits generic property empty-array initializers using the declared element type", () => {
       const csharp = compileToCSharp(`
         export class Box<T> {
-          public items: Array<T | null> = [] as Array<T | null>;
+          items: Array<T | null> = [] as Array<T | null>;
         }
       `);
 
@@ -1627,14 +1789,17 @@ describe("End-to-End Integration", () => {
     it("emits generic undefined constructor arguments using the generic default type", () => {
       const csharp = compileToCSharp(`
         export class IntervalIterationResult<T> {
-          public constructor(
-            public readonly done: boolean,
-            public readonly value: T | undefined
-          ) {}
+          done: boolean;
+          value: T | undefined;
+
+          constructor(done: boolean, value: T | undefined) {
+            this.done = done;
+            this.value = value;
+          }
         }
 
         export class IntervalAsyncIterator<T> {
-          public close(): IntervalIterationResult<T> {
+          close(): IntervalIterationResult<T> {
             return new IntervalIterationResult(true, undefined);
           }
         }
@@ -1673,15 +1838,15 @@ describe("End-to-End Integration", () => {
         O(readFile_text).family(readFile);
 
         export class FsPromises {
-          public readFile(path: string): Promise<byte[]>;
-          public readFile(path: string, encoding: string): Promise<string>;
-          public readFile(_path: any, _encoding?: any): any {
+          readFile(path: string): Promise<byte[]>;
+          readFile(path: string, encoding: string): Promise<string>;
+          readFile(_path: any, _encoding?: any): any {
             throw new Error("stub");
           }
-          public readFile_bytes(path: string): Promise<byte[]> {
+          readFile_bytes(path: string): Promise<byte[]> {
             return readFile(path);
           }
-          public readFile_text(path: string, encoding: string): Promise<string> {
+          readFile_text(path: string, encoding: string): Promise<string> {
             return readFile(path, encoding);
           }
         }
@@ -1733,17 +1898,17 @@ describe("End-to-End Integration", () => {
         O(readFileSync_text).family(readFileSync);
 
         export class FsModuleNamespace {
-          public readFileSync(path: string): byte[];
-          public readFileSync(path: string, encoding: string): string;
-          public readFileSync(_path: any, _encoding?: any): any {
+          readFileSync(path: string): byte[];
+          readFileSync(path: string, encoding: string): string;
+          readFileSync(_path: any, _encoding?: any): any {
             throw new Error("stub");
           }
 
-          public readFileSync_bytes(path: string): byte[] {
+          readFileSync_bytes(path: string): byte[] {
             return readFileSync(path);
           }
 
-          public readFileSync_text(path: string, encoding: string): string {
+          readFileSync_text(path: string, encoding: string): string {
             return readFileSync(path, encoding);
           }
         }
@@ -1872,7 +2037,7 @@ describe("End-to-End Integration", () => {
         declare const process: Process;
 
         class ExecOptions {
-          public timeout: number = 0;
+          timeout: number = 0;
         }
 
         export function run(options?: ExecOptions | null): boolean {
@@ -1890,7 +2055,9 @@ describe("End-to-End Integration", () => {
         export function hasArray(values?: string[] | number): boolean {
           return Array.isArray(values);
         }
-      `);
+      `, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.include("((global::System.Object)(values)) != null");
       expect(csharp).to.include("values.Is1()");
@@ -2045,7 +2212,7 @@ describe("End-to-End Integration", () => {
             requestHeaders: Record<string, string | readonly string[] | undefined>,
           ): Record<string, string> {
             const headers: Record<string, string> = {};
-            for (const key in requestHeaders) {
+            for (const key of Object.keys(requestHeaders)) {
               const headerValue = normalizeHeaderValue(requestHeaders[key]);
               if (headerValue !== undefined) {
                 headers[key] = headerValue;
@@ -2072,7 +2239,6 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         `
           import { asinterface } from "@tsonic/core/lang.js";
-          import type { JsValue } from "@tsonic/core/types.js";
 
           interface RequestWithHeadersLookup {
             headers: Record<string, string | readonly string[] | undefined>;
@@ -2090,10 +2256,10 @@ describe("End-to-End Integration", () => {
             return value.join(", ");
           }
 
-          export function run(request: JsValue): Record<string, string> {
+          export function run(request: unknown): Record<string, string> {
             const headers: Record<string, string> = {};
             const requestHeaders = asinterface<RequestWithHeadersLookup>(request).headers;
-            for (const key in requestHeaders) {
+            for (const key of Object.keys(requestHeaders)) {
               const headerValue = normalizeHeaderValue(requestHeaders[key]);
               if (headerValue !== undefined) {
                 headers[key] = headerValue;
@@ -2148,7 +2314,7 @@ describe("End-to-End Integration", () => {
             "export function run(request: IncomingMessage): Record<string, string> {",
             "  const headers: Record<string, string> = {};",
             "  const requestHeaders = asinterface<RequestWithHeadersLookup>(request).headers;",
-            "  for (const key in requestHeaders) {",
+            "  for (const key of Object.keys(requestHeaders)) {",
             "    const headerValue = normalizeHeaderValue(requestHeaders[key]);",
             "    if (headerValue !== undefined) {",
             "      headers[key] = headerValue;",
@@ -2351,19 +2517,23 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("(object)span");
       expect(csharp).not.to.include("(object)destSpan");
     });
-    it("keeps JsValue spread-array conditionals on object arrays instead of numeric unions", () => {
-      const csharp = compileToCSharp(`
-        declare function inspect(value: JsValue): string;
+    it("keeps unknown spread-array conditionals on object arrays instead of numeric unions", () => {
+      const csharp = compileToCSharp(
+        `
+        declare function inspect(value: unknown): string;
 
         export function format(
-          message?: JsValue,
-          optionalParams: readonly JsValue[] = []
+          message?: unknown,
+          optionalParams: readonly unknown[] = []
         ): string {
           const values =
             message === undefined ? [...optionalParams] : [message, ...optionalParams];
           return values.map((value) => inspect(value)).join(" ");
         }
-      `);
+      `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
 
       expect(csharp).not.to.include("Union<double[], object?[]>");
       expect(csharp).not.to.include("(double)message");
@@ -2391,7 +2561,7 @@ describe("End-to-End Integration", () => {
     it("widens narrowed runtime-subset handlers without re-matching extracted members", () => {
       const csharp = compileToCSharp(`
         type RequestHandler = (request: string) => void;
-        type ErrorRequestHandler = (error: JsValue, request: string) => void;
+        type ErrorRequestHandler = (error: unknown, request: string) => void;
 
         class Router {}
 
@@ -2548,13 +2718,13 @@ describe("End-to-End Integration", () => {
 
     it("packs rest arrays for local function values inferred from call results", () => {
       const csharp = compileToCSharp(`
-        type DebugLogFunction = (message: string, ...args: JsValue[]) => void;
+        type DebugLogFunction = (message: string, ...args: unknown[]) => void;
 
         declare function debuglog(section: string): DebugLogFunction;
         declare function deprecate(
-          fn: (...args: JsValue[]) => JsValue,
+          fn: (...args: unknown[]) => unknown,
           message: string
-        ): (...args: JsValue[]) => JsValue;
+        ): (...args: unknown[]) => unknown;
 
         export function run(): void {
           const debug = debuglog("test");
@@ -2580,12 +2750,12 @@ describe("End-to-End Integration", () => {
     it("invokes narrowed handler assertions without matching extracted delegate members", () => {
       const csharp = compileToCSharp(`
         type RequestHandler = (request: string) => void;
-        type ErrorRequestHandler = (error: JsValue, request: string) => void;
+        type ErrorRequestHandler = (error: unknown, request: string) => void;
         type MiddlewareHandler = RequestHandler | ErrorRequestHandler;
 
         export function run(
           handlers: MiddlewareHandler[],
-          currentError?: JsValue
+          currentError?: unknown
         ): void {
           const entry = handlers[0]!;
           if (currentError === undefined) {
@@ -2618,26 +2788,26 @@ describe("End-to-End Integration", () => {
           request: Request,
           response: Response,
           next: NextFunction
-        ) => JsValue | Promise<JsValue>;
+        ) => unknown | Promise<unknown>;
         type ErrorRequestHandler = (
-          error: JsValue,
+          error: unknown,
           request: Request,
           response: Response,
           next: NextFunction
-        ) => JsValue | Promise<JsValue>;
+        ) => unknown | Promise<unknown>;
         type MiddlewareHandler = RequestHandler | ErrorRequestHandler;
 
-        declare function isMiddlewareHandler(value: JsValue): value is MiddlewareHandler;
+        declare function isMiddlewareHandler(value: unknown): value is MiddlewareHandler;
         declare function isErrorHandler(
           value: MiddlewareHandler,
           treatAsError: boolean
         ): value is ErrorRequestHandler;
 
         export async function run(
-          handlers: JsValue[],
+          handlers: unknown[],
           request: Request,
           response: Response,
-          currentError: JsValue
+          currentError: unknown
         ): Promise<void> {
           let error = currentError;
           const next = async (_value?: NextControl): Promise<void> => {};
@@ -2664,36 +2834,36 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("isErrorHandler(");
       expect(csharp).to.include(
-        "MiddlewareHandler From1(global::System.Func<object?, Request__Alias, Response__Alias"
+        "MiddlewareHandler From1(global::System.Func<Request__Alias, Response__Alias"
       );
       expect(csharp).to.include(
-        "MiddlewareHandler From2(global::System.Func<Request__Alias, Response__Alias"
+        "MiddlewareHandler From2(global::System.Func<object?, Request__Alias, Response__Alias"
       );
       expect(csharp).to.match(
-        /\.As2\(\)\)\(request, response, next\)\.Match(?:<[^\n]+>)?\(/
+        /\.As1\(\)\)\(request, response, next\)\.Match(?:<[^\n]+>)?\(/
       );
       expect(csharp).to.match(
-        /\.As1\(\)\)\(error, request, response, next\)\.Match(?:<[^\n]+>)?\(/
+        /\.As2\(\)\)\(error, request, response, next\)\.Match(?:<[^\n]+>)?\(/
       );
       expect(csharp).not.to.include("handler.Is2()");
     });
 
-    it("passes callable and nominal source-union members directly into broad JsValue guard predicates", () => {
+    it("passes callable and nominal source-union members directly into broad unknown guard predicates", () => {
       const csharp = compileToCSharp(`
         class Router {}
 
         type PathSpec = string | RegExp | readonly PathSpec[];
         type RequestHandler = (request: string) => void;
 
-        declare function isPathSpec(value: JsValue): value is PathSpec;
+        declare function isPathSpec(value: unknown): value is PathSpec;
 
         export function run(first: PathSpec | RequestHandler | Router): boolean {
           return isPathSpec(first);
         }
       `);
 
-      expect(csharp).to.include("first.Match<object?>(");
-      expect(csharp.split(".Match<object?>(").length - 1).to.equal(2);
+      expect(csharp).to.include("first.Match<object>(");
+      expect(csharp.split(".Match<object>(").length - 1).to.equal(2);
       expect(csharp).not.to.include("new global::System.InvalidCastException");
     });
 
@@ -2705,7 +2875,7 @@ describe("End-to-End Integration", () => {
         type RequestHandler = (request: string) => void;
         type MiddlewareLike = RequestHandler | Router;
 
-        declare function isPathSpec(value: JsValue): value is PathSpec;
+        declare function isPathSpec(value: unknown): value is PathSpec;
         declare function addMiddlewareLayer(path: PathSpec, handlers: readonly MiddlewareLike[]): void;
         declare function useRootMiddleware(first: MiddlewareLike, rest: readonly MiddlewareLike[]): void;
 
@@ -2719,18 +2889,18 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include("if (isPathSpec(first.Match<object?>(");
+      expect(csharp).to.include("if (isPathSpec(first.Match<object>(");
       expect(csharp).to.include("addMiddlewareLayer((first.As1()), rest);");
       expect(csharp).to.include("useRootMiddleware((first.As2()), rest);");
       expect(csharp).not.to.include("addMiddlewareLayer(first, rest);");
       expect(csharp).not.to.include("useRootMiddleware(first, rest);");
     });
 
-    it("keeps broad JsValue call arguments on their storage carrier after typeof narrowing", () => {
+    it("keeps broad unknown call arguments on their storage carrier after typeof narrowing", () => {
       const csharp = compileToCSharp(`
-        declare function toNumericValue(value: JsValue): number;
+        declare function toNumericValue(value: unknown): number;
 
-        export function run(value?: JsValue): number {
+        export function run(value?: unknown): number {
           if (value === undefined || value === null) {
             return 0;
           }
@@ -2745,7 +2915,9 @@ describe("End-to-End Integration", () => {
 
           return toNumericValue(value);
         }
-      `);
+      `, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.include("return toNumericValue(value);");
       expect(csharp).not.to.include("toNumericValue(value.Match<object?>");
@@ -2754,11 +2926,10 @@ describe("End-to-End Integration", () => {
     it("uses runtime equality for unannotated broad assertion locals", () => {
       const csharp = compileToCSharp(
         `
-          import type { JsValue } from "@tsonic/core/types.js";
 
           export function run<T>(left: T, right: T): boolean {
-            const leftValue = left as JsValue | undefined;
-            const rightValue = right as JsValue | undefined;
+            const leftValue = left as unknown | undefined;
+            const rightValue = right as unknown | undefined;
             return leftValue === rightValue;
           }
         `,
@@ -2775,9 +2946,8 @@ describe("End-to-End Integration", () => {
     it("casts Array.isArray-narrowed broad storage directly for concrete array assertions", () => {
       const csharp = compileToCSharp(
         `
-          import type { JsValue } from "@tsonic/core/types.js";
 
-          export function run(value: JsValue): string[] | undefined {
+          export function run(value: unknown): string[] | undefined {
             if (Array.isArray(value)) {
               const list = value as string[];
               list.push("x");
@@ -2832,7 +3002,9 @@ describe("End-to-End Integration", () => {
 
           return false;
         }
-      `);
+      `, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
 
       expect(csharp).to.include("pathSpec.Is1()");
       expect(csharp).not.to.include("(pathSpec.As1()).Is1()");
@@ -2869,17 +3041,17 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         `
           class Holder {
-            public date: Date | undefined;
+            date: Date | undefined;
 
-            public constructor(date?: Date) {
+            constructor(date?: Date) {
               this.date = date;
             }
           }
 
           class Box {
-            public readonly value: Date;
+            value: Date;
 
-            public constructor(value: Date) {
+            constructor(value: Date) {
               this.value = value;
             }
           }
@@ -2895,7 +3067,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "var fallback = new global::js.Date((object)(double)0);"
+        "var fallback = new global::js.Date(0);"
       );
       expect(csharp).to.include("var selected = holder.date ?? fallback;");
       expect(csharp).to.include("return new Box(selected);");
@@ -2919,13 +3091,13 @@ describe("End-to-End Integration", () => {
         type PathSpec = string | FileInfo | readonly PathSpec[];
 
         class Application extends Router {
-          get(name: string): JsValue;
+          get(name: string): unknown;
           override get(path: PathSpec, ...handlers: RouteHandler[]): this;
           override get(_nameOrPath: any, ..._handlers: any[]): any {
             throw new Error("stub");
           }
 
-          get_name(name: string): JsValue {
+          get_name(name: string): unknown {
             return name;
           }
 
@@ -3012,7 +3184,7 @@ describe("End-to-End Integration", () => {
               | TypedArrayInput<TElement>;
 
             export class Uint16Array {
-              public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+              constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
                 void lengthOrValues;
               }
             }
@@ -3057,7 +3229,7 @@ describe("End-to-End Integration", () => {
               | TypedArrayInput<TElement>;
 
             export class Uint8Array {
-              public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+              constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
                 void lengthOrValues;
               }
             }
@@ -3067,7 +3239,7 @@ describe("End-to-End Integration", () => {
             import { Uint8Array } from "./typed-array-core.js";
 
             class Parameters {
-              public Modulus: byte[] | null = null;
+              Modulus: byte[] | null = null;
             }
 
             export function run(parameters: Parameters): Uint8Array {
@@ -3106,7 +3278,7 @@ describe("End-to-End Integration", () => {
             import { Uint8Array } from "@tsonic/js/index.js";
 
             class Parameters {
-              public Modulus: byte[] | null = null;
+              Modulus: byte[] | null = null;
             }
 
             export function run(parameters: Parameters): Uint8Array {
@@ -3148,13 +3320,13 @@ describe("End-to-End Integration", () => {
               | TypedArrayInput<TElement>;
 
             export class TypedArrayBase<TElement extends number> {
-              protected constructor(lengthOrValues: int | TypedArrayInput<TElement>) {
+              constructor(lengthOrValues: int | TypedArrayInput<TElement>) {
                 void lengthOrValues;
               }
             }
 
             export class Uint8Array extends TypedArrayBase<number> {
-              public constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
+              constructor(lengthOrValues: TypedArrayConstructorInput<number>) {
                 super(lengthOrValues);
               }
             }
@@ -3326,7 +3498,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "return Buffer.fromNonString((global::Tsonic.Internal.Union<double[], global::Test.Buffer, global::fixturejs.Uint8Array>)value.Match<global::Tsonic.Internal.Union<double[], global::Test.Buffer, global::fixturejs.Uint8Array>>("
+        "return Buffer.fromNonString(value.Match<global::Tsonic.Internal.Union<double[], global::fixturejs.Uint8Array, global::Test.Buffer>>("
       );
       expect(csharp).not.to.include("return Buffer.fromNonString(value);");
       expect(csharp).not.to.include(
@@ -3337,7 +3509,7 @@ describe("End-to-End Integration", () => {
     it("preserves narrowed runtime-union members in typed byte array literals", () => {
       const csharp = compileToCSharp(
         `
-          import type { byte } from "@tsonic/core/types.js";
+          import type { byte, int } from "@tsonic/core/types.js";
 
           declare function takesBytes(values: byte[]): void;
 
@@ -3424,7 +3596,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         `
           class BoolValue {
-            public value: boolean;
+            value: boolean;
 
             constructor(value: boolean) {
               this.value = value;
@@ -3528,9 +3700,8 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1((int)("
+        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1(totalLength == 0 ? 1 : (int)totalLength));"
       );
-      expect(csharp).to.include("totalLength == 0 ? 1 :");
       expect(csharp).not.to.include(
         "return new global::js.Uint8Array(totalLength == 0 ? global::js.TypedArrayConstructorInput<byte>.From2("
       );
@@ -3604,11 +3775,14 @@ describe("End-to-End Integration", () => {
             }
           `,
         },
-        "src/index.ts"
+        "src/index.ts",
+        {
+          surface: "@tsonic/js",
+        }
       );
 
       expect(csharp).to.include("if (nextCount > rule.maxCount.Value)");
-      expect(csharp).to.include("String(rule.maxCount.Value)");
+      expect(csharp).to.include("String(rule.maxCount)");
       expect(csharp).not.to.include("rule.maxCount.Value.Value");
     });
 
@@ -3631,8 +3805,14 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("if (chunk.Is3())");
-      expect(csharp).to.include("chunk__is_1.length");
-      expect(csharp).to.include("chunk__is_1.at(index)");
+      expect(csharp).to.include(
+        "return ServerResponse._copyUint8Array(chunk__is_1.buffer);"
+      );
+      expect(csharp).to.include(
+        "return ServerResponse._copyUint8Array(chunk__is_2);"
+      );
+      expect(csharp).to.include("for (int index = 0; index < source.length;");
+      expect(csharp).to.include("source.at(index)");
       expect(csharp).not.to.include(
         "new global::js.Array<object>(chunk__is_1).length"
       );
@@ -3713,7 +3893,7 @@ describe("End-to-End Integration", () => {
           import type { int } from "@tsonic/core/types.js";
 
           class CursorPosition {
-            public rows: int = 0;
+            rows: int = 0;
           }
 
           export function run(totalLength: number): CursorPosition {
@@ -3739,11 +3919,11 @@ describe("End-to-End Integration", () => {
           import type { int } from "@tsonic/core/types.js";
 
           class Counter {
-            private _value: int = 0;
+            #value: int = 0;
 
-            public set value(v: number) {
+            set value(v: number) {
               const offset = 123;
-              this._value = v + offset;
+              this.#value = v + offset;
             }
           }
 
@@ -3758,14 +3938,14 @@ describe("End-to-End Integration", () => {
         }
       );
 
-      expect(csharp).to.include("this._value = (int)(v + offset);");
+      expect(csharp).to.include("this.__private_value = (int)(v + offset);");
     });
 
     it("keeps context-narrowed numeric conditionals on the contextual branch type", () => {
       const csharp = compileToCSharp(
         `
           export function build(): number[] {
-            const table: number[] = new Array<number>(1);
+            const table: number[] = [0];
             const polynomial = 0xedb88320;
             let crc = 0;
             crc = (crc & 1) === 1 ? (crc >>> 1) ^ polynomial : crc >>> 1;
@@ -3817,7 +3997,7 @@ describe("End-to-End Integration", () => {
 
         export function run(drafts: { type: string; to: string; topic?: string; content: string }[]): void {
           const inputs = new List<{ type: string; to: string; topic?: string; content: string }>();
-          for (let i = 0; i < drafts.length; i++) {
+          for (let i = 0; i < drafts.Length; i++) {
             const d = drafts[i];
             inputs.Add({ type: d.type, to: d.to, topic: d.topic, content: d.content });
           }
@@ -4055,6 +4235,41 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("keeps nullable projected union members direct when assigning to matching storage", () => {
+      const csharp = compileToCSharp(
+        `
+          export class Options {
+            allowHalfOpen?: boolean;
+          }
+
+          class Socket {}
+
+          export class Server {
+            _allowHalfOpen: boolean;
+
+            constructor(
+              optionsOrListener?: Options | ((socket: Socket) => void) | null,
+            ) {
+              let options: Options | null = null;
+              if (typeof optionsOrListener !== "function") {
+                options = optionsOrListener ?? null;
+              }
+
+              this._allowHalfOpen = options?.allowHalfOpen ?? false;
+            }
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "options = ((object)optionsOrListener == null ? default(Options) : (optionsOrListener.As2())) ?? null;"
+      );
+      expect(csharp).not.to.include(").Match<Options>");
+      expect(csharp).not.to.include("Cannot cast runtime union functionType");
+    });
+
     it("materializes typeof complements before later local initializers in nested nullish guards", () => {
       const csharp = compileToCSharp(
         `
@@ -4092,14 +4307,33 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("var value = chunkOrCallback.Match");
       expect(csharp).to.include(
-        "global::Tsonic.Internal.Union<byte[], global::js.Uint8Array, string, global::Test.Buffer>"
+        "global::Tsonic.Internal.Union<byte[], string, global::js.Uint8Array, global::Test.Buffer>"
       );
       expect(csharp).to.include(
         '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot materialize runtime union functionType to unionType")'
       );
       expect(csharp).not.to.include(
-        "var value = (global::Tsonic.Internal.Union<byte[], global::js.Uint8Array, string, global::Test.Buffer>)chunkOrCallback;"
+        "var value = (global::Tsonic.Internal.Union<byte[], string, global::js.Uint8Array, global::Test.Buffer>)chunkOrCallback;"
       );
+    });
+
+    it("keeps numeric return context for conditionals with mixed numeric carriers", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { byte, int } from "@tsonic/core/types.js";
+
+          export function read(values: byte[], offset: int): number {
+            const value = values[offset]!;
+            return value >= 0x80 ? value - 0x100 : value;
+          }
+        `
+      );
+
+      expect(csharp).to.include(
+        "return value >= 0x80 ? (double)(value - 0x100) : value;"
+      );
+      expect(csharp).not.to.include("Union<int, byte>");
+      expect(csharp).not.to.include(".From1(value - 0x100)");
     });
 
     it("tightens sequential typeof-plus-undefined ternary locals before storage reuse", () => {
@@ -4242,11 +4476,11 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         `
           declare function isIterableObject(
-            value: JsValue,
-          ): value is Iterable<JsValue>;
+            value: unknown
+          ): value is Iterable<unknown>;
           declare function consume<T>(value: T): void;
 
-          export function run<T>(item: JsValue): void {
+          export function run<T>(item: unknown): void {
             if (isIterableObject(item)) {
               for (const value of item as Iterable<T>) {
                 consume(value);
@@ -4377,12 +4611,16 @@ describe("End-to-End Integration", () => {
 
     it("materializes narrower function arrays into union-element arrays at call sites", () => {
       const csharp = compileToCSharp(`
-        type RouteHandler = (req: string) => JsValue;
-        type ErrorHandler = (error: JsValue, req: string) => JsValue;
+        type RouteHandler = (req: string) => unknown;
+        type ErrorHandler = (error: unknown, req: string) => unknown;
         type Handler = RouteHandler | ErrorHandler;
 
         class RouteBox {
-          constructor(readonly handlers: Handler[]) {}
+          handlers: Handler[];
+
+          constructor(handlers: Handler[]) {
+            this.handlers = handlers;
+          }
         }
 
         function flatten(handlers: RouteHandler[]): RouteHandler[] {
@@ -4432,14 +4670,14 @@ describe("End-to-End Integration", () => {
 
     it("treats fixed lambda parameters against rest callbacks as positional values", () => {
       const csharp = compileToCSharp(`
-        type EventListener = (...args: JsValue[]) => void;
+        type EventListener = (...args: unknown[]) => void;
 
         declare function consume(listener: EventListener): void;
 
         export function main(): void {
-          let first: JsValue = undefined;
-          let second: JsValue = undefined;
-          let third: JsValue = undefined;
+          let first: unknown = undefined;
+          let second: unknown = undefined;
+          let third: unknown = undefined;
 
           consume((arg1, arg2, arg3) => {
             first = arg1;
@@ -4452,6 +4690,28 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("object? arg1 = __unused_args[0];");
       expect(csharp).to.include("first = arg1;");
       expect(csharp).to.not.include("first = (object?[])arg1;");
+    });
+
+    it("preserves explicit semantic types for fixed parameters lowered from rest callbacks", () => {
+      const csharp = compileToCSharp(`
+        type RuntimeValue = string | number | boolean | object | null | undefined;
+        type EventListener = (...args: RuntimeValue[]) => void;
+
+        declare function consume(listener: EventListener): void;
+
+        export function main(): void {
+          let received = 0;
+          consume((value: RuntimeValue) => {
+            if (typeof value === "number") {
+              received = value;
+            }
+          });
+        }
+      `);
+
+      expect(csharp).to.include("object? value = __unused_args[0];");
+      expect(csharp).to.include("if ((value is double || value is int))");
+      expect(csharp).to.not.include("if (false)");
     });
 
     it("preserves nullable array arguments when forwarding identical signatures", () => {
@@ -4479,18 +4739,18 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         `
           declare class Assert {
-            static Equal(expected: JsValue, actual: JsValue): void;
+            static Equal(expected: unknown, actual: unknown): void;
           }
 
           class Proc {
-            private _argv: string[] = [];
+            #argv: string[] = [];
 
             get argv(): string[] {
-              return this._argv;
+              return this.#argv;
             }
 
             set argv(value: string[] | undefined) {
-              this._argv = value ?? [];
+              this.#argv = value ?? [];
             }
           }
 
@@ -4505,7 +4765,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("p.argv = default(string[]);");
       expect(csharp).to.include(
-        "Assert.Equal((object)(double)0, (object)(double)p.argv.Length);"
+        "Assert.Equal((object)(double)0, p.argv.Length);"
       );
       expect(csharp).to.not.include(
         "new global::js.Array<object>((object)p.argv).length"
@@ -4545,15 +4805,14 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('server.listen("/tmp/socket"');
       expect(csharp).to.include('request.on("data"');
     });
-    it("prefers inferred conditional array surfaces over broad JsValue sinks", () => {
+    it("prefers inferred conditional array surfaces over broad unknown sinks", () => {
       const csharp = compileToCSharp(
         `
-          import type { JsValue } from "@tsonic/core/types.js";
 
           declare function readIds(json: string): string[];
 
-          export function run(json: string, useJson: boolean): Record<string, JsValue> {
-            const obj: Record<string, JsValue> = {};
+          export function run(json: string, useJson: boolean): Record<string, unknown> {
+            const obj: Record<string, unknown> = {};
             obj["channel_ids"] = useJson ? readIds(json) : [];
             return obj;
           }
@@ -4567,15 +4826,14 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("keeps nullable conditional array call surfaces direct over broad JsValue sinks", () => {
+    it("keeps nullable conditional array call surfaces direct over broad unknown sinks", () => {
       const csharp = compileToCSharp(
         `
-          import type { JsValue } from "@tsonic/core/types.js";
 
           declare function maybeIds(json: string): string[] | undefined;
 
-          export function run(json: string, useJson: boolean): Record<string, JsValue> {
-            const obj: Record<string, JsValue> = {};
+          export function run(json: string, useJson: boolean): Record<string, unknown> {
+            const obj: Record<string, unknown> = {};
             obj["channel_ids"] = useJson ? maybeIds(json) : [];
             return obj;
           }
@@ -4593,11 +4851,10 @@ describe("End-to-End Integration", () => {
     it("keeps conditional reference-array surfaces direct when one branch is nullish", () => {
       const csharp = compileToCSharp(
         `
-          import type { JsValue } from "@tsonic/core/types.js";
           import { JsonSerializer } from "@tsonic/dotnet/System.Text.Json.js";
 
-          export function run(json: string, useJson: boolean): Record<string, JsValue> {
-            const obj: Record<string, JsValue> = {};
+          export function run(json: string, useJson: boolean): Record<string, unknown> {
+            const obj: Record<string, unknown> = {};
             obj["channel_ids"] =
               useJson ? JsonSerializer.Deserialize<string[]>(json) : [];
             return obj;
@@ -5155,9 +5412,9 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "clamp(lengthValue + (int)end.Value, 0, lengthValue)"
+        "clamp(lengthValue + end.Value, 0, lengthValue)"
       );
-      expect(csharp).to.include("clamp((int)end.Value, 0, lengthValue)");
+      expect(csharp).to.include("clamp(end.Value, 0, lengthValue)");
       expect(csharp).not.to.include("clamp(lengthValue + end, 0, lengthValue)");
     });
 
@@ -5313,7 +5570,7 @@ describe("End-to-End Integration", () => {
     it("materializes union array arms to broad object arrays without throwing", () => {
       const csharp = compileToCSharp(
         `
-          import type { int, JsValue } from "@tsonic/core/types.js";
+          import type { int } from "@tsonic/core/types.js";
 
           interface RecordWithTtl {
             address: string;
@@ -5321,7 +5578,7 @@ describe("End-to-End Integration", () => {
           }
 
           export function run(result: string[] | RecordWithTtl[]): number {
-            const values = result as Array<JsValue>;
+            const values = result as Array<unknown>;
             return values.length;
           }
         `,
@@ -5330,8 +5587,8 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("result.Match<object?[]>");
-      expect(csharp).to.match(
-        /global::System\.Linq\.Enumerable\.Select<(?:global::Test\.)?RecordWithTtl, object\?>/
+      expect(csharp).to.include(
+        "__tsonic_union_member_2 => (object?[])__tsonic_union_member_2"
       );
       expect(csharp).not.to.include(
         "Cannot materialize runtime union arrayType to arrayType"
