@@ -10,11 +10,21 @@ Status meanings:
 
 ## Current Priority Override
 
-The first implementation block is now P0 centralization from `13-centralization-audit.md`.
+The first implementation block remains P0 centralization from `13-centralization-audit.md`.
 
 The interrupted task was the interim diff review. That review is complete enough to drive the next implementation phase and is captured under `.analysis/interim-review-apr28-A`.
 
-Nothing downstream, package-related, publish-related, or broad full-gate-related should proceed until the P0 centralization block and drift block below are complete.
+Downstream and package/publish work remains out of scope for this checkpoint. The upstream Tsonic gate is the only validation target for this branch until the P0 centralization and drift blocks are complete.
+
+## Current Upstream Checkpoint
+
+This checkpoint completed the closed-carrier `in` operator repair and NativeAOT preflight harness repair without weakening the language:
+
+- Broad `object`/dynamic shape probing still fails before emission.
+- Closed structural carriers can prove a static key without runtime discovery.
+- String-indexed carriers lower to typed key operations.
+- Non-stable closed structural receivers are rejected until the IR can explicitly preserve evaluation semantics.
+- NativeAOT preflight discovers versioned linker libraries through the run-all harness instead of requiring manual system symlinks.
 
 ## Drift-First Block
 
@@ -27,7 +37,7 @@ Nothing downstream, package-related, publish-related, or broad full-gate-related
 | DF4 | Keep JS builtin name sets diagnostic-only | TODO | JS APIs lower only through active surface metadata or declared receiver members |
 | DF5 | Convert user-reachable ICEs to diagnostics | TODO | Untyped JSON and broad object-literal cases fail before emitter |
 | DF6 | Prove Jotster P0 fixes in emitter/golden tests | TODO | `override` family and expression-tree anonymous object examples both have emitted C# proof |
-| DF7 | Reconcile docs with drift rules | TODO | Docs distinguish flow facts from runtime dynamic probing |
+| DF7 | Reconcile docs with drift rules | IN PROGRESS | Docs now cover closed-carrier `in` and NativeAOT-safe dictionary lowering; broader unknown/flow docs remain pending |
 | DF8 | Incorporate semantic authority super-review | DONE | `11-semantic-authority-super-review.md` records SA1-SA14 with examples and acceptance criteria |
 | DF9 | Incorporate centralization audit | DONE | `13-centralization-audit.md` records CA1-CA18 with examples, current repeated authority, central owner, and acceptance criteria |
 
@@ -45,7 +55,7 @@ Nothing downstream, package-related, publish-related, or broad full-gate-related
 | SA8 | Truthiness is proven before emission | TODO | broad runtime truthiness helpers are removed or gated behind closed carriers |
 | SA9 | Assignment flow facts are frontend-owned | TODO | emitter write adaptation does not mutate semantic narrowed types |
 | SA10 | `unknown` has closed carrier semantics | TODO | opaque storage/pass-through works; structural use requires closed carrier or diagnostic |
-| SA11 | `in` uses flow fact plus carrier proof | TODO | no CLR reflection/object probing for property existence |
+| SA11 | `in` uses flow fact plus carrier proof | IN PROGRESS | Static closed-carrier and string-indexed carrier cases are proven without reflection/object probing; broader branch-flow integration remains pending |
 | SA12 | Runtime-union guards consume discriminant proof | TODO | `IsN`/`AsN` emitted only from explicit union arm proof |
 | SA13 | Expression-tree anonymous object proof | TODO | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
 | SA14 | JSON broad cases become diagnostics | TODO | typed serializers remain; untyped/broad dynamic JSON fails before emitter |
@@ -73,7 +83,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA15 | Centralize stable serialization/dedup ordering | TODO | Type/member/object-shape/backend-AST stable keys come from one deterministic key service |
 | CA16 | Centralize config/manifest schema parsing | TODO | CLI/frontend/package loaders share schema validators and path-aware diagnostics |
 | CA17 | Centralize package/source/path identity | TODO | Resolver/CLI/package manifest code share one canonical package identity model |
-| CA18 | Centralize test fixture/generated artifact policy | TODO | Test scripts, hygiene, fixtures, and cleanup agree on checked-in vs generated artifacts |
+| CA18 | Centralize test fixture/generated artifact policy | IN PROGRESS | NativeAOT linker-library discovery is centralized in the run-all harness; broader fixture/generated-artifact policy remains pending |
 
 ## Current Checkpoint Tasks
 
@@ -148,7 +158,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | ID | Task | Status |
 | --- | --- | --- |
 | P1 | Produce current diff report before resuming code edits | DONE |
-| P2 | Commit/PR tsonic cleanup | TODO |
+| P2 | Commit/PR tsonic cleanup | IN PROGRESS |
 | P3 | Commit/PR upstream package changes | TODO |
 | P4 | Commit/PR downstream changes | TODO |
 | P5 | Publish wave after merge and full validation | TODO |
@@ -162,9 +172,10 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 5. Finish tsonic compiler uncertainty cleanup.
 6. Rerun focused tests and group failures by root cause.
 7. Run the full upstream Tsonic gate with `./test/scripts/run-all.sh`.
-8. Commit and push each completed step on `apr28-refactor`.
+8. Commit and push each completed step on `apr30-complete-cleanup-plan`.
 9. Open one PR after the full upstream gate is green.
 
 ## Validation Notes
 
 - 2026-04-29 13:55 IST: completed the recursive alias carrier checkpoint. The failing source shape was `const mountedAt = isPathSpec(first) ? first : "/"` where `first` narrows to the source-owned `PathSpec` runtime-union alias and the conditional target is `string | PathSpec`. The fix preserves exact alias identity before scalar/surface expansion, so `PathSpec` materializes as the `PathSpec` arm instead of being expanded to its inner `string` arm. Focused validation passed: `npm run build`, targeted emitter tests, targeted frontend tests, targeted CLI source-package test, and `npm run typecheck`.
+- 2026-04-30 23:59 IST: completed the closed-carrier `in` and NativeAOT preflight checkpoint on `apr30-complete-cleanup-plan`. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers|preserves readable array surfaces after setter writes before length reads' --reporter spec` with 2 passing. Full upstream gate passed with run id `20260430-222604-302148de`: 3088 passed, 0 failed.

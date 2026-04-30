@@ -267,12 +267,6 @@ export const convertBinaryExpression = (
   const operator = convertBinaryOperator(node.operatorToken);
   const sourceSpan = getSourceSpan(node);
 
-  if (operator === "in") {
-    throw new Error(
-      "ICE: in operator reached IR conversion - validation missed TSN2001"
-    );
-  }
-
   // Handle assignment separately
   // Thread LHS type to RHS for deterministic typing (e.g., x = 10 where x: int)
   if (isAssignmentOperator(node.operatorToken)) {

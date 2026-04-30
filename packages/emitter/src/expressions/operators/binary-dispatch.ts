@@ -30,11 +30,13 @@ import {
   getDictionaryComputedAccess,
 } from "./helpers.js";
 import {
+  booleanLiteral,
   charLiteral,
   decimalIntegerLiteral,
   identifierExpression,
   identifierType,
   nullLiteral,
+  stringLiteral,
 } from "../../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
@@ -59,6 +61,114 @@ const JS_BITWISE_NUMBERISH_CLR_NAMES = new Set([
   "System.Double",
   "global::System.Double",
 ]);
+
+const getStaticInOperatorKey = (expr: IrExpression): string | undefined =>
+  expr.kind === "literal" && typeof expr.value === "string"
+    ? expr.value
+    : undefined;
+
+const typeHasClosedMember = (
+  type: IrType | undefined,
+  memberName: string,
+  context: EmitterContext,
+  seen = new Set<IrType>()
+): boolean => {
+  if (!type || seen.has(type)) {
+    return false;
+  }
+
+  seen.add(type);
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  if (resolved.kind === "dictionaryType") {
+    return true;
+  }
+
+  if (resolved.kind === "unionType") {
+    const nonNullishMembers = resolved.types.filter((member) => {
+      const stripped = stripNullish(member);
+      return !(
+        stripped.kind === "primitiveType" &&
+        (stripped.name === "null" || stripped.name === "undefined")
+      );
+    });
+    return (
+      nonNullishMembers.length > 0 &&
+      nonNullishMembers.every((member) =>
+        typeHasClosedMember(member, memberName, context, new Set(seen))
+      )
+    );
+  }
+
+  if (resolved.kind === "objectType") {
+    return resolved.members.some((member) => member.name === memberName);
+  }
+
+  if (resolved.kind === "referenceType") {
+    const structuralMembers = resolved.structuralMembers ?? [];
+    if (structuralMembers.some((member) => member.name === memberName)) {
+      return true;
+    }
+
+    const local = context.localTypes?.get(resolved.name);
+    if (local?.kind === "class" || local?.kind === "interface") {
+      return local.members.some(
+        (member) => "name" in member && member.name === memberName
+      );
+    }
+    if (local?.kind === "typeAlias") {
+      return typeHasClosedMember(local.type, memberName, context, seen);
+    }
+    return false;
+  }
+
+  return false;
+};
+
+const emitInOperator = (
+  expr: Extract<IrExpression, { kind: "binary" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const key = getStaticInOperatorKey(expr.left);
+  if (!key) {
+    throw new Error(
+      "ICE: non-literal in-operator key reached emitter - validation missed TSN2001"
+    );
+  }
+
+  const rightType = expr.right.inferredType;
+  const resolvedRightType = rightType
+    ? resolveTypeAlias(stripNullish(rightType), context)
+    : undefined;
+  const [rightAst, nextContext] = emitExpressionAst(
+    expr.right,
+    context,
+    undefined
+  );
+
+  if (resolvedRightType?.kind === "dictionaryType") {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: rightAst,
+          memberName: "ContainsKey",
+        },
+        arguments: [stringLiteral(key)],
+      },
+      nextContext,
+    ];
+  }
+
+  if (typeHasClosedMember(rightType, key, context)) {
+    return [booleanLiteral(true), nextContext];
+  }
+
+  throw new Error(
+    "ICE: unsupported in-operator receiver reached emitter - validation missed TSN2001"
+  );
+};
 
 const isJsBitwiseNumberishType = (
   type: IrType | undefined,
@@ -126,9 +236,7 @@ export const emitBinary = (
   const op = operatorMap[expr.operator] ?? expr.operator;
 
   if (expr.operator === "in") {
-    throw new Error(
-      "ICE: in operator reached emitter - validation missed TSN2001"
-    );
+    return emitInOperator(expr, context);
   }
 
   const typeofComparison = emitTypeofComparison(expr, context);

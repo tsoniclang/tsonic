@@ -60,9 +60,10 @@ Validation enforces:
 - generic/runtime-shape determinism
 - object-literal runtime constraints
 - package-manifest correctness
-- rejection of runtime dynamic constructs such as `typeof`, `Array.isArray`,
-  dynamic `import()`, `import.meta`, `globalThis`, `delete`, `for...in`, and
-  JavaScript `in`
+- rejection of runtime dynamic constructs such as dynamic `import()`,
+  `import.meta`, `globalThis`, `delete`, and `for...in`
+- guarded use of `typeof`, `Array.isArray`, and JavaScript `in` only when the
+  frontend has a TypeScript flow fact and Tsonic has closed-carrier proof
 
 ## Stage 5: IR
 

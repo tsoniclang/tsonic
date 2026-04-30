@@ -5594,5 +5594,20 @@ describe("End-to-End Integration", () => {
         "Cannot materialize runtime union arrayType to arrayType"
       );
     });
+
+    it("emits in-operator checks only for closed carriers", () => {
+      const csharp = compileToCSharp(`
+        export function hasName(value: { name?: string }): boolean {
+          return "name" in value;
+        }
+
+        export function hasKey(values: Record<string, number>): boolean {
+          return "total" in values;
+        }
+      `);
+
+      expect(csharp).to.include("return true;");
+      expect(csharp).to.include('return values.ContainsKey("total");');
+    });
   });
 });
