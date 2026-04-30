@@ -69,6 +69,7 @@ export type {
   IrUpdateExpression,
   IrUnaryExpression,
   IrBinaryExpression,
+  IrInOperatorPlan,
   IrLogicalExpression,
   IrConditionalExpression,
   IrAssignmentExpression,

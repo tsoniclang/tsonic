@@ -24,6 +24,7 @@ This checkpoint completed the closed-carrier `in` operator repair and NativeAOT 
 - Closed structural carriers can prove a static key without runtime discovery.
 - String-indexed carriers lower to typed key operations.
 - Non-stable closed structural receivers are rejected until the IR can explicitly preserve evaluation semantics.
+- The frontend now records an explicit `in` materialization plan in IR; the emitter consumes that plan and no longer redoes member/carrier discovery for this operator.
 - NativeAOT preflight discovers versioned linker libraries through the run-all harness instead of requiring manual system symlinks.
 
 ## Drift-First Block
@@ -55,7 +56,7 @@ This checkpoint completed the closed-carrier `in` operator repair and NativeAOT 
 | SA8 | Truthiness is proven before emission | TODO | broad runtime truthiness helpers are removed or gated behind closed carriers |
 | SA9 | Assignment flow facts are frontend-owned | TODO | emitter write adaptation does not mutate semantic narrowed types |
 | SA10 | `unknown` has closed carrier semantics | TODO | opaque storage/pass-through works; structural use requires closed carrier or diagnostic |
-| SA11 | `in` uses flow fact plus carrier proof | IN PROGRESS | Static closed-carrier and string-indexed carrier cases are proven without reflection/object probing; broader branch-flow integration remains pending |
+| SA11 | `in` uses flow fact plus carrier proof | DONE | Static closed-carrier and string-indexed carrier cases are proven in frontend IR and emitted without reflection/object probing |
 | SA12 | Runtime-union guards consume discriminant proof | TODO | `IsN`/`AsN` emitted only from explicit union arm proof |
 | SA13 | Expression-tree anonymous object proof | TODO | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
 | SA14 | JSON broad cases become diagnostics | TODO | typed serializers remain; untyped/broad dynamic JSON fails before emitter |
@@ -66,10 +67,10 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 
 | ID | Task | Status | Acceptance |
 | --- | --- | --- | --- |
-| CA1 | Centralize flow/narrowing facts | TODO | Frontend records branch facts; emitter does not parse `typeof`, `in`, `Array.isArray`, predicates, or `instanceof` for semantic narrowing |
+| CA1 | Centralize flow/narrowing facts | IN PROGRESS | `in` operator materialization now starts in frontend IR; remaining guard families still require centralization |
 | CA2 | Centralize type identity/equivalence/stable keys | TODO | Nominal/CLR/reference comparison uses one identity API; no semantic raw string comparison of emitted C# names |
 | CA3 | Centralize surface API availability and lowering | TODO | Surface metadata resolves JS/CLR/API members; no hardcoded source-name lowering in emitter |
-| CA4 | Centralize member/property/indexer lookup | TODO | TypeSystem returns member/indexer access plans; no duplicate numeric-key/member lookup tables |
+| CA4 | Centralize member/property/indexer lookup | IN PROGRESS | `in` operator no longer performs emitter-side member/carrier lookup; broader member/indexer access still requires centralization |
 | CA5 | Centralize call/overload/signature/argument resolution | TODO | IR carries resolved call and argument adaptation plan; emitter does not select overloads or infer lambda context |
 | CA6 | Centralize object literal target/materialization | TODO | IR carries nominal/anonymous/dictionary/structural materialization plan; emitter has no object-shape fallback |
 | CA7 | Centralize `unknown`/`object`/`JsValue` broad-carrier policy | TODO | Opaque storage is distinct from structural use; property/method access requires frontend proof and closed NativeAOT-safe carrier |
@@ -179,3 +180,4 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 
 - 2026-04-29 13:55 IST: completed the recursive alias carrier checkpoint. The failing source shape was `const mountedAt = isPathSpec(first) ? first : "/"` where `first` narrows to the source-owned `PathSpec` runtime-union alias and the conditional target is `string | PathSpec`. The fix preserves exact alias identity before scalar/surface expansion, so `PathSpec` materializes as the `PathSpec` arm instead of being expanded to its inner `string` arm. Focused validation passed: `npm run build`, targeted emitter tests, targeted frontend tests, targeted CLI source-package test, and `npm run typecheck`.
 - 2026-04-30 23:59 IST: completed the closed-carrier `in` and NativeAOT preflight checkpoint on `apr30-complete-cleanup-plan`. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers|preserves readable array surfaces after setter writes before length reads' --reporter spec` with 2 passing. Full upstream gate passed with run id `20260430-222604-302148de`: 3088 passed, 0 failed.
+- 2026-05-01 00:12 IST: centralized `in` materialization by adding a frontend-authored IR plan. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers' --reporter spec` with 1 passing.
