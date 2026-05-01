@@ -48,7 +48,7 @@ This checkpoint completed the closed-carrier `in` operator repair and NativeAOT 
 | --- | --- | --- | --- |
 | SA1 | Frontend owns branch narrowing | TODO | `if`/`else` facts come from frontend IR; emitter does not parse arbitrary branch guards for source type decisions |
 | SA2 | Ternary uses same flow facts as branches | TODO | `?:` consumes the same proof model as `if`; no ternary-only semantic matcher |
-| SA3 | Branch merge uses stable IDs | TODO | no `JSON.stringify` emitted-AST equality for carrier/flow identity |
+| SA3 | Branch merge uses stable IDs | DONE | branch carrier merge uses deterministic carrier expression keys and refuses unkeyable carrier expressions |
 | SA4 | Remove broad `object[]` synthesis | TODO | `Array.isArray` over broad `unknown/object` requires closed carrier proof or diagnostic |
 | SA5 | Scope emitter type compatibility to materialization | TODO | source acceptance decisions move frontend; emitter helpers cannot choose overloads/union arms |
 | SA6 | Move object-literal union selection frontend | TODO | selected arm is IR metadata; ambiguous object literal unions are diagnostics before emitter |
@@ -81,7 +81,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA12 | Centralize async wrapper semantics | TODO | Promise/Task/ValueTask/Awaited identity and return normalization come from one async type service |
 | CA13 | Centralize direct storage/carrier selection | TODO | Variable, return, conditional, and argument adaptation consume one storage/carrier plan |
 | CA14 | Centralize diagnostics vs ICE policy | TODO | User-facing unsupported cases are caught by validation/soundness gate; emitter ICEs are unreachable invariant checks only |
-| CA15 | Centralize stable serialization/dedup ordering | TODO | Type/member/object-shape/backend-AST stable keys come from one deterministic key service |
+| CA15 | Centralize stable serialization/dedup ordering | IN PROGRESS | branch carrier merge no longer uses `JSON.stringify` emitted-AST equality; broader stable-key centralization remains |
 | CA16 | Centralize config/manifest schema parsing | TODO | CLI/frontend/package loaders share schema validators and path-aware diagnostics |
 | CA17 | Centralize package/source/path identity | TODO | Resolver/CLI/package manifest code share one canonical package identity model |
 | CA18 | Centralize test fixture/generated artifact policy | IN PROGRESS | NativeAOT linker-library discovery is centralized in the run-all harness; broader fixture/generated-artifact policy remains pending |
@@ -128,7 +128,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C19 | Tsonic numeric proof remains authoritative | TODO | `typeof x === "number"` never proves `int` |
 | C20 | Ambiguous overloads hard-error | TODO | No first-candidate overload selection |
 | C21 | Ambiguous union arm selection hard-errors | TODO | No broad/cast/runtime-throw fallback |
-| C22 | Emitter guard parsing becomes materialization-only | TODO | Emitter consumes frontend facts, does not invent semantic narrowing |
+| C22 | Emitter guard parsing becomes materialization-only | IN PROGRESS | `in` is frontend-planned; branch carrier merge now refuses unkeyable emitted carriers instead of serialized-AST equality |
 | C23 | Storage cast fallback removed by default | TODO | Direct casts only for explicit/proven conversions |
 | C24 | Emitter semantic analyzers audited and retired | TODO | every `narrowedBindings`/guard parser path is classified as frontend proof, materialization, or removal |
 | C25 | Branch flow fact model normalized | TODO | branch, ternary, logical, assignment, and truthiness facts have one representation |
@@ -182,3 +182,4 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 - 2026-04-30 23:59 IST: completed the closed-carrier `in` and NativeAOT preflight checkpoint on `apr30-complete-cleanup-plan`. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers|preserves readable array surfaces after setter writes before length reads' --reporter spec` with 2 passing. Full upstream gate passed with run id `20260430-222604-302148de`: 3088 passed, 0 failed.
 - 2026-05-01 00:12 IST: centralized `in` materialization by adding a frontend-authored IR plan. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers' --reporter spec` with 1 passing.
 - 2026-05-01 10:45 IST: verified the Jotster P0 proof slice. Focused validation passed: `npm run test:emitter -- --grep 'preserves override on methods generated from overload family bodies|emits expression-tree object literal bodies as anonymous objects' --reporter spec` with 2 passing. The overload-family case proves generated members preserve `override`; the expression-tree case proves object literals in expression-tree lambda bodies emit C# anonymous object projections and do not emit dictionary initializers.
+- 2026-05-01 10:55 IST: removed serialized emitted-AST equality from branch carrier merging. The branch flow merge now compares only deterministic carrier expression keys (`identifier`, member chain, or transparent cast/parentheses) and refuses to merge unkeyable carrier expressions instead of treating printed emitted shapes as semantic identity.

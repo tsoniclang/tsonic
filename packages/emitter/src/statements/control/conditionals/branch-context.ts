@@ -137,10 +137,44 @@ const getBindingStorageType = (
   }
 };
 
+const carrierAstKey = (
+  ast: CSharpExpressionAst | undefined
+): string | undefined => {
+  if (!ast) {
+    return undefined;
+  }
+
+  switch (ast.kind) {
+    case "identifierExpression":
+      return `id:${ast.identifier}`;
+    case "memberAccessExpression": {
+      const receiverKey = carrierAstKey(ast.expression);
+      return receiverKey
+        ? `member:${receiverKey}.${ast.memberName}`
+        : undefined;
+    }
+    case "parenthesizedExpression":
+      return carrierAstKey(ast.expression);
+    case "castExpression":
+    case "asExpression":
+      return carrierAstKey(ast.expression);
+    default:
+      return undefined;
+  }
+};
+
 const sameCarrierAst = (
   left: CSharpExpressionAst | undefined,
   right: CSharpExpressionAst | undefined
-): boolean => !left || !right || JSON.stringify(left) === JSON.stringify(right);
+): boolean => {
+  if (!left || !right) {
+    return true;
+  }
+
+  const leftKey = carrierAstKey(left);
+  const rightKey = carrierAstKey(right);
+  return leftKey !== undefined && leftKey === rightKey;
+};
 
 const mergeJoinedBinding = (
   baseBinding: NarrowedBinding | undefined,
