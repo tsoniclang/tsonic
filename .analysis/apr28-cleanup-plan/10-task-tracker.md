@@ -68,7 +68,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | ID | Task | Status | Acceptance |
 | --- | --- | --- | --- |
 | CA1 | Centralize flow/narrowing facts | IN PROGRESS | `in` operator materialization now starts in frontend IR; remaining guard families still require centralization |
-| CA2 | Centralize type identity/equivalence/stable keys | TODO | Nominal/CLR/reference comparison uses one identity API; no semantic raw string comparison of emitted C# names |
+| CA2 | Centralize type identity/equivalence/stable keys | IN PROGRESS | Heritage dedup/sort now uses stable IR type keys instead of JSON-serialized type arguments; broader semantic comparison audit remains |
 | CA3 | Centralize surface API availability and lowering | TODO | Surface metadata resolves JS/CLR/API members; no hardcoded source-name lowering in emitter |
 | CA4 | Centralize member/property/indexer lookup | IN PROGRESS | `in` operator no longer performs emitter-side member/carrier lookup; broader member/indexer access still requires centralization |
 | CA5 | Centralize call/overload/signature/argument resolution | IN PROGRESS | call-site argument passing no longer scores CLR overloads by parsed display signatures; remaining call/lambda context paths still require audit |
@@ -81,7 +81,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA12 | Centralize async wrapper semantics | TODO | Promise/Task/ValueTask/Awaited identity and return normalization come from one async type service |
 | CA13 | Centralize direct storage/carrier selection | TODO | Variable, return, conditional, and argument adaptation consume one storage/carrier plan |
 | CA14 | Centralize diagnostics vs ICE policy | TODO | User-facing unsupported cases are caught by validation/soundness gate; emitter ICEs are unreachable invariant checks only |
-| CA15 | Centralize stable serialization/dedup ordering | IN PROGRESS | branch carrier merge no longer uses `JSON.stringify` emitted-AST equality; broader stable-key centralization remains |
+| CA15 | Centralize stable serialization/dedup ordering | IN PROGRESS | branch carrier merge no longer uses emitted-AST JSON equality; CLR heritage dedup/sort now uses stable IR type keys; broader stable-key audit remains |
 | CA16 | Centralize config/manifest schema parsing | TODO | CLI/frontend/package loaders share schema validators and path-aware diagnostics |
 | CA17 | Centralize package/source/path identity | TODO | Resolver/CLI/package manifest code share one canonical package identity model |
 | CA18 | Centralize test fixture/generated artifact policy | IN PROGRESS | NativeAOT linker-library discovery is centralized in the run-all harness; broader fixture/generated-artifact policy remains pending |
