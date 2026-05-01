@@ -81,7 +81,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA12 | Centralize async wrapper semantics | TODO | Promise/Task/ValueTask/Awaited identity and return normalization come from one async type service |
 | CA13 | Centralize direct storage/carrier selection | TODO | Variable, return, conditional, and argument adaptation consume one storage/carrier plan |
 | CA14 | Centralize diagnostics vs ICE policy | TODO | User-facing unsupported cases are caught by validation/soundness gate; emitter ICEs are unreachable invariant checks only |
-| CA15 | Centralize stable serialization/dedup ordering | IN PROGRESS | branch carrier merge no longer uses emitted-AST JSON equality; CLR heritage dedup/sort now uses stable IR type keys; broader stable-key audit remains |
+| CA15 | Centralize stable serialization/dedup ordering | IN PROGRESS | branch carrier merge no longer uses emitted-AST JSON equality; CLR heritage dedup/sort now uses stable IR type keys; nullish-guard carrier comparison now uses explicit carrier keys |
 | CA16 | Centralize config/manifest schema parsing | TODO | CLI/frontend/package loaders share schema validators and path-aware diagnostics |
 | CA17 | Centralize package/source/path identity | TODO | Resolver/CLI/package manifest code share one canonical package identity model |
 | CA18 | Centralize test fixture/generated artifact policy | IN PROGRESS | NativeAOT linker-library discovery is centralized in the run-all harness; broader fixture/generated-artifact policy remains pending |
@@ -128,7 +128,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C19 | Tsonic numeric proof remains authoritative | TODO | `typeof x === "number"` never proves `int` |
 | C20 | Ambiguous overloads hard-error | IN PROGRESS | ref/out/in argument passing now comes only from resolved signatures or proven member bindings; remaining overload-selection paths need audit |
 | C21 | Ambiguous union arm selection hard-errors | TODO | No broad/cast/runtime-throw fallback |
-| C22 | Emitter guard parsing becomes materialization-only | IN PROGRESS | `in` is frontend-planned; branch carrier merge now refuses unkeyable emitted carriers instead of serialized-AST equality |
+| C22 | Emitter guard parsing becomes materialization-only | IN PROGRESS | `in` is frontend-planned; branch carrier merge and nullish-guard stripping use explicit carrier keys instead of serialized AST equality |
 | C23 | Storage cast fallback removed by default | TODO | Direct casts only for explicit/proven conversions |
 | C24 | Emitter semantic analyzers audited and retired | TODO | every `narrowedBindings`/guard parser path is classified as frontend proof, materialization, or removal |
 | C25 | Branch flow fact model normalized | TODO | branch, ternary, logical, assignment, and truthiness facts have one representation |

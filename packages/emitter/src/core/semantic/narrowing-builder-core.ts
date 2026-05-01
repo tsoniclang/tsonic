@@ -92,6 +92,47 @@ const tryReadRuntimeUnionFactoryMemberN = (
   return match?.[1] ? Number.parseInt(match[1], 10) : undefined;
 };
 
+const unwrapParenthesizedAst = (
+  ast: CSharpExpressionAst
+): CSharpExpressionAst => {
+  let current = ast;
+  while (current.kind === "parenthesizedExpression") {
+    current = current.expression;
+  }
+  return current;
+};
+
+const stableCarrierExpressionKey = (
+  ast: CSharpExpressionAst
+): string | undefined => {
+  const current = unwrapParenthesizedAst(ast);
+  switch (current.kind) {
+    case "identifierExpression":
+      return `id:${current.identifier}`;
+    case "memberAccessExpression": {
+      const receiverKey = stableCarrierExpressionKey(current.expression);
+      return receiverKey
+        ? `member:${receiverKey}.${current.memberName}`
+        : undefined;
+    }
+    case "elementAccessExpression": {
+      const receiverKey = stableCarrierExpressionKey(current.expression);
+      const argumentKeys = current.arguments.map(stableCarrierExpressionKey);
+      return receiverKey &&
+        argumentKeys.every((key): key is string => key !== undefined)
+        ? `element:${receiverKey}[${argumentKeys.join(",")}]`
+        : undefined;
+    }
+    case "castExpression":
+    case "asExpression":
+      return stableCarrierExpressionKey(current.expression);
+    case "suppressNullableWarningExpression":
+      return stableCarrierExpressionKey(current.expression);
+    default:
+      return undefined;
+  }
+};
+
 export const tryMapProjectedRuntimeMemberN = (
   receiver: string | CSharpExpressionAst,
   sourceMemberN: number
@@ -326,16 +367,6 @@ export const buildConditionalNullishGuardAst = (
 export const tryStripConditionalNullishGuardAst = (
   exprAst: CSharpExpressionAst
 ): CSharpExpressionAst | undefined => {
-  const unwrapParenthesizedAst = (
-    ast: CSharpExpressionAst
-  ): CSharpExpressionAst => {
-    let current = ast;
-    while (current.kind === "parenthesizedExpression") {
-      current = current.expression;
-    }
-    return current;
-  };
-
   const unwrapObjectCastAst = (
     ast: CSharpExpressionAst
   ): CSharpExpressionAst => {
@@ -379,9 +410,12 @@ export const tryStripConditionalNullishGuardAst = (
   }
 
   const returnedExpression = unwrapParenthesizedAst(current.whenFalse);
+  const checkedExpressionKey = stableCarrierExpressionKey(checkedExpression);
+  const returnedExpressionKey = stableCarrierExpressionKey(returnedExpression);
   if (
-    JSON.stringify(unwrapParenthesizedAst(checkedExpression)) !==
-    JSON.stringify(returnedExpression)
+    !checkedExpressionKey ||
+    !returnedExpressionKey ||
+    checkedExpressionKey !== returnedExpressionKey
   ) {
     const originalCheckedExpression = unwrapParenthesizedAst(condition.left);
     if (
