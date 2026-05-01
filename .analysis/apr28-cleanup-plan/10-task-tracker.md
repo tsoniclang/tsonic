@@ -37,7 +37,7 @@ This checkpoint completed the closed-carrier `in` operator repair and NativeAOT 
 | DF3 | Move semantic guard authority to frontend | TODO | Emitter materializes proven facts and does not rediscover arbitrary TypeScript guard semantics |
 | DF4 | Keep JS builtin name sets diagnostic-only | TODO | JS APIs lower only through active surface metadata or declared receiver members |
 | DF5 | Convert user-reachable ICEs to diagnostics | TODO | Untyped JSON and broad object-literal cases fail before emitter |
-| DF6 | Prove Jotster P0 fixes in emitter/golden tests | TODO | `override` family and expression-tree anonymous object examples both have emitted C# proof |
+| DF6 | Prove Jotster P0 fixes in emitter/golden tests | DONE | `override` family and expression-tree anonymous object examples both have emitted C# proof |
 | DF7 | Reconcile docs with drift rules | IN PROGRESS | Docs now cover closed-carrier `in` and NativeAOT-safe dictionary lowering; broader unknown/flow docs remain pending |
 | DF8 | Incorporate semantic authority super-review | DONE | `11-semantic-authority-super-review.md` records SA1-SA14 with examples and acceptance criteria |
 | DF9 | Incorporate centralization audit | DONE | `13-centralization-audit.md` records CA1-CA18 with examples, current repeated authority, central owner, and acceptance criteria |
@@ -58,7 +58,7 @@ This checkpoint completed the closed-carrier `in` operator repair and NativeAOT 
 | SA10 | `unknown` has closed carrier semantics | TODO | opaque storage/pass-through works; structural use requires closed carrier or diagnostic |
 | SA11 | `in` uses flow fact plus carrier proof | DONE | Static closed-carrier and string-indexed carrier cases are proven in frontend IR and emitted without reflection/object probing |
 | SA12 | Runtime-union guards consume discriminant proof | TODO | `IsN`/`AsN` emitted only from explicit union arm proof |
-| SA13 | Expression-tree anonymous object proof | TODO | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
+| SA13 | Expression-tree anonymous object proof | DONE | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
 | SA14 | JSON broad cases become diagnostics | TODO | typed serializers remain; untyped/broad dynamic JSON fails before emitter |
 
 ## Centralization Block
@@ -97,8 +97,8 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | T5 | Finish runtime dynamic helper removal | IN PROGRESS | Need repo-wide reference audit |
 | T6 | Finalize typed JSON diagnostics | IN PROGRESS | Emitter ICEs should become validation diagnostics where possible |
 | T7 | Implement `unknown` safe carrier and flow proof | DECIDED | Policy decided: TS flow facts plus Tsonic carrier proof; implementation pending |
-| T8 | Implement expression-tree anonymous object lowering | TODO | Generic expression-tree fix for Jotster EF lambdas |
-| T9 | Verify overload-family override emission | IN PROGRESS | Frontend test exists; emitter proof pending |
+| T8 | Implement expression-tree anonymous object lowering | DONE | Generic expression-tree fix for Jotster EF lambdas has emitted C# proof |
+| T9 | Verify overload-family override emission | DONE | Overload-family real bodies preserve public signature `override` with emitted C# proof |
 | T10 | Clean downstream invalid JS-surface assumptions | BLOCKED | Deferred for this branch; upstream Tsonic run-all is the current PR scope |
 | T11 | Centralize narrowing authority | TODO | Replace duplicate frontend/emitter semantic guard decisions |
 | T12 | Remove uncertainty fallbacks | TODO | Ambiguous/unsupported must become diagnostics |
@@ -120,8 +120,8 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C11 | Runtime union alias storage emission fixed | DONE | Exact alias carrier identity wins before scalar/surface expansion; focused emitter/frontend/CLI/typecheck validation passed |
 | C12 | Runtime union narrowed member returns re-wrap | IN PROGRESS | FromN emitted for narrowed temp return |
 | C13 | CLR type identity uses deterministic type id | IN PROGRESS | No raw generic display string compare for semantic decisions |
-| C14 | Overload family copies `override` | IN PROGRESS | IR + emitted C# proof |
-| C15 | Expression-tree object literal anonymous projection | TODO | `Expression<Func<T,...>>` fixture |
+| C14 | Overload family copies `override` | DONE | IR + emitted C# proof |
+| C15 | Expression-tree object literal anonymous projection | DONE | `Expression<Func<T,...>>` fixture |
 | C16 | TS-only runtime syntax rejected | IN PROGRESS | `public`, class `readonly`, parameter property tests |
 | C17 | Type-only readonly remains allowed | IN PROGRESS | Interface/type tests |
 | C18 | TypeScript-flow facts feed narrowing | TODO | `unknown` narrows only where TS proves source type |
@@ -181,3 +181,4 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 - 2026-04-29 13:55 IST: completed the recursive alias carrier checkpoint. The failing source shape was `const mountedAt = isPathSpec(first) ? first : "/"` where `first` narrows to the source-owned `PathSpec` runtime-union alias and the conditional target is `string | PathSpec`. The fix preserves exact alias identity before scalar/surface expansion, so `PathSpec` materializes as the `PathSpec` arm instead of being expanded to its inner `string` arm. Focused validation passed: `npm run build`, targeted emitter tests, targeted frontend tests, targeted CLI source-package test, and `npm run typecheck`.
 - 2026-04-30 23:59 IST: completed the closed-carrier `in` and NativeAOT preflight checkpoint on `apr30-complete-cleanup-plan`. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers|preserves readable array surfaces after setter writes before length reads' --reporter spec` with 2 passing. Full upstream gate passed with run id `20260430-222604-302148de`: 3088 passed, 0 failed.
 - 2026-05-01 00:12 IST: centralized `in` materialization by adding a frontend-authored IR plan. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers' --reporter spec` with 1 passing.
+- 2026-05-01 10:45 IST: verified the Jotster P0 proof slice. Focused validation passed: `npm run test:emitter -- --grep 'preserves override on methods generated from overload family bodies|emits expression-tree object literal bodies as anonymous objects' --reporter spec` with 2 passing. The overload-family case proves generated members preserve `override`; the expression-tree case proves object literals in expression-tree lambda bodies emit C# anonymous object projections and do not emit dictionary initializers.
