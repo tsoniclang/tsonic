@@ -71,7 +71,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA2 | Centralize type identity/equivalence/stable keys | TODO | Nominal/CLR/reference comparison uses one identity API; no semantic raw string comparison of emitted C# names |
 | CA3 | Centralize surface API availability and lowering | TODO | Surface metadata resolves JS/CLR/API members; no hardcoded source-name lowering in emitter |
 | CA4 | Centralize member/property/indexer lookup | IN PROGRESS | `in` operator no longer performs emitter-side member/carrier lookup; broader member/indexer access still requires centralization |
-| CA5 | Centralize call/overload/signature/argument resolution | TODO | IR carries resolved call and argument adaptation plan; emitter does not select overloads or infer lambda context |
+| CA5 | Centralize call/overload/signature/argument resolution | IN PROGRESS | call-site argument passing no longer scores CLR overloads by parsed display signatures; remaining call/lambda context paths still require audit |
 | CA6 | Centralize object literal target/materialization | TODO | IR carries nominal/anonymous/dictionary/structural materialization plan; emitter has no object-shape fallback |
 | CA7 | Centralize `unknown`/`object`/`JsValue` broad-carrier policy | TODO | Opaque storage is distinct from structural use; property/method access requires frontend proof and closed NativeAOT-safe carrier |
 | CA8 | Centralize numeric proof/conversion authority | TODO | Numeric conversions/indexing require proof tokens or type-system relation; no emitter-only numeric compatibility fallback |
@@ -126,7 +126,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C17 | Type-only readonly remains allowed | IN PROGRESS | Interface/type tests |
 | C18 | TypeScript-flow facts feed narrowing | TODO | `unknown` narrows only where TS proves source type |
 | C19 | Tsonic numeric proof remains authoritative | TODO | `typeof x === "number"` never proves `int` |
-| C20 | Ambiguous overloads hard-error | TODO | No first-candidate overload selection |
+| C20 | Ambiguous overloads hard-error | IN PROGRESS | ref/out/in argument passing now comes only from resolved signatures or proven member bindings; remaining overload-selection paths need audit |
 | C21 | Ambiguous union arm selection hard-errors | TODO | No broad/cast/runtime-throw fallback |
 | C22 | Emitter guard parsing becomes materialization-only | IN PROGRESS | `in` is frontend-planned; branch carrier merge now refuses unkeyable emitted carriers instead of serialized-AST equality |
 | C23 | Storage cast fallback removed by default | TODO | Direct casts only for explicit/proven conversions |

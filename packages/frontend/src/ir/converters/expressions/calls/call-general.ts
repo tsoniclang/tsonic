@@ -3658,10 +3658,7 @@ export const convertCallExpression = (
   })();
   const argumentPassingFromBinding = extractArgumentPassingFromBinding(
     callee,
-    node.arguments.length,
-    ctx,
-    parameterTypes,
-    finalizedArgTypes
+    node.arguments.length
   );
   const argumentPassing =
     argumentPassingFromBinding ??
