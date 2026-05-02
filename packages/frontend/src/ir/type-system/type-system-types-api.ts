@@ -1,7 +1,7 @@
 /**
  * TypeAuthority — Interface & Config Definitions
  *
- * Contains the TypeAuthority interface (Alice's exact API) and
+ * Contains the TypeAuthority interface and
  * TypeSystemConfig for factory construction. Split from type-system.ts
  * for file-size compliance.
  *
@@ -34,11 +34,11 @@ import type {
 } from "./type-system-state.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ALICE'S EXACT API — TypeAuthority Interface
+// TypeAuthority Interface
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * TypeAuthority interface — Alice's exact specification.
+ * TypeAuthority interface.
  *
  * Key method: resolveCall(query) — single entry point for all call resolution.
  */
@@ -53,7 +53,7 @@ export type TypeAuthority = {
    * This is the correct way for converters to convert inline type syntax
    * (as X, satisfies Y, generic args) that was captured via Binding.captureTypeSyntax().
    *
-   * ALICE'S SPEC (Phase 4): TypeSystem receives opaque handles, not ts.TypeNode.
+   * TypeSystem receives opaque handles, not ts.TypeNode.
    * This keeps the TypeSystem public API free of TypeScript types.
    *
    * All converters use captureTypeSyntax() + typeFromSyntax().
@@ -326,7 +326,7 @@ export type TypeAuthority = {
    * Variadic patterns like `T extends unknown[]` require specialization.
    * This encapsulates the AST inspection inside TypeSystem.
    *
-   * ALICE'S SPEC (Phase 5): Semantic method replaces getSignatureInfo.
+   * Semantic method replaces direct signature-info access.
    */
   signatureHasVariadicTypeParams(sigId: SignatureId): boolean;
 
@@ -336,7 +336,7 @@ export type TypeAuthority = {
    * Used for deterministic typing checks (e.g., spread sources must have types).
    * Returns true if the declaration has a typeNode.
    *
-   * ALICE'S SPEC (Phase 5): Semantic method replaces getDeclInfo.typeNode check.
+   * Semantic method replaces direct declaration-info access.
    */
   declHasTypeAnnotation(declId: DeclId): boolean;
 
@@ -346,7 +346,7 @@ export type TypeAuthority = {
    * For TypeScript classes, checks if the base class has the given member.
    * In TypeScript, all methods can be overridden (no `final` keyword).
    *
-   * ALICE'S SPEC (Phase 5): Semantic method replaces getDeclInfo for override detection.
+   * Semantic method replaces direct declaration-info access for override detection.
    *
    * @param declId The declaration ID of the base class
    * @param memberName Name of the member to check
@@ -434,7 +434,7 @@ export type TypeSystemConfig = {
   /**
    * Alias table mapping surface names to canonical TypeIds.
    *
-   * This is required for Alice's invariant:
+   * This is required for the canonical identity invariant:
    * - "string" and "System.String" unify to the same TypeId (stableId)
    */
   readonly aliasTable: AliasTable;
@@ -442,7 +442,7 @@ export type TypeSystemConfig = {
   /**
    * Binding-powered symbol/signature resolution helpers (opaque boundary).
    *
-   * ALICE'S SPEC: TypeSystem may depend on Binding for symbol resolution,
+   * TypeSystem may depend on Binding for symbol resolution,
    * but must never use TypeScript computed type APIs directly.
    *
    * These accept `unknown` to keep the TypeSystem public surface TS-free.

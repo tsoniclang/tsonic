@@ -85,6 +85,24 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.false;
       expect(result.diagnostics[0]?.code).to.equal("TSN7414");
     });
+
+    it("should reject intersectionType as runtime storage", () => {
+      const module = createModuleWithType({
+        kind: "intersectionType",
+        types: [
+          { kind: "referenceType", name: "Foo" },
+          { kind: "referenceType", name: "Bar" },
+        ],
+      });
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN7414");
+      expect(result.diagnostics[0]?.message).to.include(
+        "cannot be emitted as a runtime storage type"
+      );
+    });
   });
 
   describe("Primitive Types", () => {

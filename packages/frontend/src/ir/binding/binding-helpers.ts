@@ -109,7 +109,7 @@ export const extractThisParameterTypeNode = (
 /**
  * Extract and normalize parameter nodes from a signature declaration.
  *
- * ALICE'S SPEC: Parameter mode detection happens HERE during signature registration.
+ * Parameter mode detection happens during signature registration.
  * If the parameter type is `ref<T>`, `out<T>`, or `in<T>`:
  * - Set `mode` to that keyword
  * - Set `typeNode` to the INNER T node (unwrapped)
@@ -231,7 +231,7 @@ export const extractTypeParameterNodes = (
 /**
  * Extract type predicate from a signature's return type.
  *
- * ALICE'S SPEC: This is PURE SYNTAX inspection at registration time.
+ * This is pure syntax inspection at registration time.
  * We check if the return TypeNode is a TypePredicateNode (x is T or this is T).
  * No TS type inference is used.
  *
@@ -408,7 +408,7 @@ export const extractDeclaringIdentity = (
 /**
  * Extract class member names from a ClassDeclaration.
  *
- * ALICE'S SPEC: This is PURE SYNTAX inspection at registration time.
+ * This is pure syntax inspection at registration time.
  * We iterate class members and collect method/property names.
  * This data is used by TypeSystem.checkTsClassMemberOverride without
  * needing to inspect TS AST nodes or use hardcoded SyntaxKind numbers.

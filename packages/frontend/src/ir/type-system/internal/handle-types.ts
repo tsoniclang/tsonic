@@ -1,7 +1,7 @@
 /**
  * Internal Handle Types — NOT FOR PUBLIC EXPORT
  *
- * ALICE'S SPEC: These types are INTERNAL ONLY.
+ * These types are internal only.
  * They may contain raw TypeNodes (as unknown) for internal use.
  * They must NOT be exported from type-system/index.ts.
  *

@@ -1,15 +1,15 @@
 /**
  * Binding Pattern Converter — TypeScript patterns to IR patterns
  *
- * ALICE'S SPEC: This is SYNTAX → IR conversion, NOT type logic.
- * It must NOT depend on TypeSystem, TypeRegistry, or NominalEnv.
+ * This is syntax-to-IR conversion, not type logic.
+ * It must not depend on TypeSystem, TypeRegistry, or NominalEnv.
  *
  * Converts:
  * - Identifier patterns: `x`
  * - Array patterns: `[a, b, ...rest]`
  * - Object patterns: `{ x, y: z, ...rest }`
  *
- * Phase 5 Step 4: Uses ProgramContext for expression conversion.
+ * Uses ProgramContext for expression conversion.
  */
 
 import * as ts from "typescript";

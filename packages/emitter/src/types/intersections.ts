@@ -7,14 +7,13 @@ import { EmitterContext } from "../types.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 /**
- * Emit intersection types as CSharpTypeAst (C# doesn't have intersection types)
+ * Reject intersection types that reached C# type emission.
  */
 export const emitIntersectionType = (
-  _type: Extract<IrType, { kind: "intersectionType" }>,
-  context: EmitterContext
+  type: Extract<IrType, { kind: "intersectionType" }>,
+  _context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  // C# doesn't have intersection types
-  // For MVP, we'll use object
-  // In a more complete implementation, we might generate an interface
-  return [{ kind: "predefinedType", keyword: "object" }, context];
+  throw new Error(
+    `ICE: Intersection type reached emitter after soundness validation: ${JSON.stringify(type)}`
+  );
 };

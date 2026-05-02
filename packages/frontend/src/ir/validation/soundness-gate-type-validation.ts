@@ -17,7 +17,10 @@ export const validateType = (
   type: IrType | undefined,
   ctx: ValidationContext,
   typeContext: string,
-  options: { readonly allowRootUnknownType?: boolean } = {}
+  options: {
+    readonly allowRootUnknownType?: boolean;
+    readonly allowRootIntersectionType?: boolean;
+  } = {}
 ): void => {
   if (!type) return;
   if (typeof type === "object" && type !== null) {
@@ -98,6 +101,17 @@ export const validateType = (
         break;
 
       case "intersectionType":
+        if (!options.allowRootIntersectionType) {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7414",
+              "error",
+              `Intersection type in ${typeContext} cannot be emitted as a runtime storage type.`,
+              moduleLocation(ctx),
+              "Use a named interface/class that represents the required runtime shape, or keep the intersection only as a generic constraint."
+            )
+          );
+        }
         type.types.forEach((member, index) =>
           validateType(
             member,
@@ -216,7 +230,8 @@ export const validateTypeParameter = (
   validateType(
     typeParameter.constraint,
     ctx,
-    `type parameter '${typeParameter.name}' constraint`
+    `type parameter '${typeParameter.name}' constraint`,
+    { allowRootIntersectionType: true }
   );
   validateType(
     typeParameter.default,

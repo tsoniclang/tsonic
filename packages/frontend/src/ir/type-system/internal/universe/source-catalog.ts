@@ -1,7 +1,7 @@
 /**
  * Source Catalog — Two-Pass Type Capture from Source Files
  *
- * ALICE'S SPEC (Phase 4): This is THE CORE ARCHITECTURAL FIX.
+ * Source catalog for canonical source declarations.
  *
  * "You cannot reliably convert everything in one walk because of forward
  * references and aliasing."

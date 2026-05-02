@@ -110,7 +110,7 @@ describe("Numeric Proof Invariants", () => {
   });
 
   /**
-   * ALICE'S REQUIRED TESTS: Proof propagation for array index expressions
+   * Required proof propagation for array index expressions.
    *
    * These tests verify that the proof pass correctly annotates array indices
    * with numericIntent:Int32, which the emitter relies on (without re-deriving proofs).

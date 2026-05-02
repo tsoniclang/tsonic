@@ -103,7 +103,7 @@ export const applyCallSiteArgumentModifiers = (
  * Extract argument passing modes from resolved signature.
  * Returns array aligned with arguments, indicating ref/out/in/value for each.
  *
- * ALICE'S SPEC: Uses TypeSystem to get parameter modes.
+ * Uses TypeSystem to get parameter modes.
  * Parameter modes were normalized in Binding at registration time.
  */
 export const extractArgumentPassing = (

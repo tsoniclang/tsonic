@@ -467,7 +467,7 @@ export const extractImportSpecifiers = (
 
 /**
  * Determine if an import specifier refers to a type (interface, class, type alias, enum).
- * ALICE'S SPEC: Uses TypeSystem.isTypeDecl() to check declaration kind.
+ * Uses TypeSystem.isTypeDecl() to check declaration kind.
  */
 const isTypeImport = (
   spec: ts.ImportSpecifier,
@@ -491,7 +491,7 @@ const isTypeImport = (
       return false;
     }
 
-    // ALICE'S SPEC: Use TypeSystem.isTypeDecl() to check if declaration is a type
+    // Use TypeSystem.isTypeDecl() to check if the declaration is a type.
     return typeSystem.isTypeDecl(declId);
   } catch {
     return false;

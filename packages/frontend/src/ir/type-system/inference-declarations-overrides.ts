@@ -96,7 +96,7 @@ export const signatureHasVariadicTypeParams = (
 /**
  * Check if a class member overrides a base class member.
  *
- * ALICE'S SPEC: Uses captured ClassMemberNames (pure data) from Binding.
+ * Uses captured ClassMemberNames from Binding.
  * No TS AST inspection, no SyntaxKind numbers. TS-version safe.
  */
 export const checkTsClassMemberOverride = (
@@ -267,7 +267,7 @@ const buildCapturedBaseClassSubstitution = (
  * This method takes a TypeSyntaxId handle (opaque to caller) and looks up
  * the captured TypeNode in the HandleRegistry, then converts it.
  *
- * ALICE'S SPEC (Phase 2): TypeSystem receives opaque handles, not ts.TypeNode.
+ * TypeSystem receives opaque handles, not ts.TypeNode.
  */
 export const typeFromSyntax = (
   state: TypeSystemState,

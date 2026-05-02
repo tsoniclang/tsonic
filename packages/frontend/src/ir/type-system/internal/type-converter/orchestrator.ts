@@ -372,8 +372,7 @@ export const convertType = (
     return convertTemplateLiteralType(typeNode, binding, convertType);
   }
 
-  // Type predicate return types: (x is T) has no direct C# type-level equivalent.
-  // MVP: lower to boolean so we can emit valid C# and avoid anyType/ICE.
+  // Type predicate return types `(x is T)` have boolean runtime values.
   if (ts.isTypePredicateNode(typeNode)) {
     return { kind: "primitiveType", name: "boolean" };
   }

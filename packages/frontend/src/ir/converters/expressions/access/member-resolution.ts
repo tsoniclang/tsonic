@@ -1,7 +1,7 @@
 /**
  * Member access property type resolution and name extraction helpers
  *
- * ALICE'S SPEC: All member type queries go through TypeSystem.typeOfMember().
+ * All member type queries go through TypeSystem.typeOfMember().
  */
 
 import * as ts from "typescript";
@@ -250,7 +250,7 @@ export const hasDeclaredMemberByName = (
 /**
  * Get the declared property type from a property access expression.
  *
- * ALICE'S SPEC: Uses explicit TypeSystem queries only.
+ * Uses explicit TypeSystem queries only.
  * Prefer exact member-handle typing when Binding resolved the property access to a
  * concrete declaration; otherwise use receiver+member TypeSystem lookup.
  *

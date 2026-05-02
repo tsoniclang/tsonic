@@ -1,7 +1,7 @@
 /**
  * Helper functions for expression conversion
  *
- * ALICE'S SPEC: All type resolution goes through TypeSystem.
+ * All type resolution goes through TypeSystem.
  * NO getHandleRegistry() calls allowed here.
  */
 
@@ -50,7 +50,7 @@ export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
 /**
  * Derive the return type of a call expression from its declaration.
  *
- * ALICE'S SPEC: Uses TypeSystem.resolveCall() exclusively.
+ * Uses TypeSystem.resolveCall() exclusively.
  * This is a simplified version for use in deriveIdentifierType to avoid
  * circular dependencies with calls.ts.
  */
@@ -216,7 +216,7 @@ export const deriveIdentifierType = (
   const declId = ctx.binding.resolveIdentifier(node);
   if (!declId) return undefined;
 
-  // ALICE'S SPEC: Use TypeSystem.typeOfDecl() exclusively
+  // Use TypeSystem.typeOfDecl() exclusively.
   const declType = typeSystem.typeOfValueRead(declId);
 
   // TypeSystem returns unknownType if it can't resolve - treat as unresolvable
@@ -275,10 +275,10 @@ export const checkIfRequiresSpecialization = (
       : ctx.binding.resolveConstructorSignature(node);
     if (!sigId) return false;
 
-    // ALICE'S SPEC: Use TypeSystem for all type checks
+    // Use TypeSystem for all type checks.
     const typeSystem = ctx.typeSystem;
 
-    // ALICE'S SPEC (Phase 5): Use semantic methods instead of getSignatureInfo
+    // Use semantic methods instead of direct signature-info access.
 
     // Check for conditional return types
     if (typeSystem.signatureHasConditionalReturn(sigId)) {
@@ -507,7 +507,7 @@ export const getContextualType = (
           ? ctx.binding.resolveCallSignature(parent)
           : ctx.binding.resolveConstructorSignature(parent);
         if (sigId) {
-          // ALICE'S SPEC: Use TypeSystem.resolveCall() for parameter types
+          // Use TypeSystem.resolveCall() for parameter types.
           const resolved = typeSystem.resolveCall({
             sigId,
             argumentCount: parent.arguments?.length ?? 0,

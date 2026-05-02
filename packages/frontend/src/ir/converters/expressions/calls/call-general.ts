@@ -2,7 +2,7 @@
  * General call expression converter
  *
  * Two-pass argument resolution with generic type inference.
- * ALICE'S SPEC: All call resolution goes through TypeSystem.resolveCall().
+ * All call resolution goes through TypeSystem.resolveCall().
  */
 
 import * as fs from "node:fs";

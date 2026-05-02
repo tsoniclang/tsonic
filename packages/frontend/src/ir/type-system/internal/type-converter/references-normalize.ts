@@ -18,8 +18,8 @@ import type { Binding } from "../../../binding/index.js";
  * - deterministic lambda typing can use `boolean`/`int` etc
  * - the IR soundness gate does not treat these as unresolved reference types
  *
- * This is NOT a workaround: it is the correct boundary translation from the
- * tsbindgen surface name to Tsonic's canonical IR type names.
+ * This is the boundary translation from the tsbindgen surface name to
+ * Tsonic's canonical IR type names.
  */
 export const normalizeSystemInternalQualifiedName = (
   typeName: string
