@@ -5,15 +5,45 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import { emitTypeAst } from "./emitter.js";
+
+const isTransparentIntersectionViewMarker = (type: IrType): boolean =>
+  type.kind === "referenceType" && type.name === "__Union$views";
+
+const collectRuntimeIntersectionMembers = (
+  type: Extract<IrType, { kind: "intersectionType" }>
+): readonly IrType[] => {
+  const members: IrType[] = [];
+
+  for (const member of type.types) {
+    if (isTransparentIntersectionViewMarker(member)) {
+      continue;
+    }
+
+    if (member.kind === "intersectionType") {
+      members.push(...collectRuntimeIntersectionMembers(member));
+      continue;
+    }
+
+    members.push(member);
+  }
+
+  return members;
+};
 
 /**
- * Reject intersection types that reached C# type emission.
+ * Emit compiler-internal transparent intersections through their runtime carrier.
  */
 export const emitIntersectionType = (
   type: Extract<IrType, { kind: "intersectionType" }>,
-  _context: EmitterContext
+  context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
+  const runtimeMembers = collectRuntimeIntersectionMembers(type);
+  if (runtimeMembers.length === 1) {
+    return emitTypeAst(runtimeMembers[0]!, context);
+  }
+
   throw new Error(
-    `ICE: Intersection type reached emitter after soundness validation: ${JSON.stringify(type)}`
+    `ICE: Non-transparent intersection type reached emitter after soundness validation (${runtimeMembers.length} runtime members)`
   );
 };

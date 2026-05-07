@@ -916,6 +916,9 @@ export const matchesEmittedStorageSurface = (
       if (
         err instanceof Error &&
         (err.message.startsWith("ICE: Unresolved reference type ") ||
+          err.message.startsWith(
+            "ICE: Non-transparent intersection type reached emitter"
+          ) ||
           err.message.startsWith("ICE: 'unknown' type reached emitter") ||
           err.message.startsWith("ICE: 'any' type reached emitter"))
       ) {
