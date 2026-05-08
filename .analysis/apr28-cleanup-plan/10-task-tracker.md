@@ -122,8 +122,8 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C13 | CLR type identity uses deterministic type id | IN PROGRESS | No raw generic display string compare for semantic decisions |
 | C14 | Overload family copies `override` | DONE | IR + emitted C# proof |
 | C15 | Expression-tree object literal anonymous projection | DONE | `Expression<Func<T,...>>` fixture |
-| C16 | TS-only runtime syntax rejected | IN PROGRESS | `public`, class `readonly`, parameter property tests |
-| C17 | Type-only readonly remains allowed | IN PROGRESS | Interface/type tests |
+| C16 | TS-only runtime syntax rejected | DONE | `public`, `private`, `protected`, `readonly` class fields, `abstract`, and constructor parameter properties all fail with TSN2001; ECMAScript `#private` remains valid |
+| C17 | Type-only readonly remains allowed | DONE | Interface/type-only `readonly` members are accepted and do not trigger runtime syntax diagnostics |
 | C18 | TypeScript-flow facts feed narrowing | TODO | `unknown` narrows only where TS proves source type |
 | C19 | Tsonic numeric proof remains authoritative | TODO | `typeof x === "number"` never proves `int` |
 | C20 | Ambiguous overloads hard-error | IN PROGRESS | ref/out/in argument passing now comes only from resolved signatures or proven member bindings; remaining overload-selection paths need audit |
