@@ -28,6 +28,7 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-narrowing.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { stableTypeKeyFromAst } from "../../core/format/backend-ast/utils.js";
 
 const NUMERIC_CLR_NAMES = new Set([
   "System.SByte",
@@ -199,6 +200,50 @@ export const emitConditional = (
       semanticBranchFitsExpected || semanticBranchIsWholeConditionalType
         ? semanticBranchType
         : branchExpectedType;
+    if (branchAstIsProjectedCarrier) {
+      const [storageAst, storageContext] = emitTypeAst(
+        storageType,
+        branchContext
+      );
+      const [targetAst, targetContext] = emitTypeAst(
+        materializationTargetType,
+        storageContext
+      );
+      if (stableTypeKeyFromAst(storageAst) === stableTypeKeyFromAst(targetAst)) {
+        return [
+          {
+            kind: "identifierExpression",
+            identifier: emittedIdentifier,
+          },
+          targetContext,
+        ];
+      }
+    }
+    const materializationSourceType = branchAstIsRawCarrier
+      ? storageType
+      : (semanticBranchType ?? storageType);
+    const [sourceStorageAst, sourceStorageContext] = emitTypeAst(
+      materializationSourceType,
+      branchContext
+    );
+    const [targetStorageAst, targetStorageContext] = emitTypeAst(
+      materializationTargetType,
+      sourceStorageContext
+    );
+    if (
+      stableTypeKeyFromAst(sourceStorageAst) ===
+      stableTypeKeyFromAst(targetStorageAst)
+    ) {
+      return [
+        branchAstIsRawCarrier
+          ? {
+              kind: "identifierExpression",
+              identifier: emittedIdentifier,
+            }
+          : branchAst,
+        targetStorageContext,
+      ];
+    }
 
     return materializeDirectNarrowingAst(
       branchAstIsRawCarrier
@@ -207,7 +252,7 @@ export const emitConditional = (
             identifier: emittedIdentifier,
           }
         : branchAst,
-      branchAstIsRawCarrier ? storageType : (semanticBranchType ?? storageType),
+      materializationSourceType,
       materializationTargetType,
       branchContext
     );

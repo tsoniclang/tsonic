@@ -145,4 +145,66 @@ describe("generated-files", () => {
     );
     expect(code).to.not.include("public static PathSpec From1(object[] value)");
   });
+
+  it("upgrades recursive source-owned callable members from storage-erased object members", () => {
+    const registry = createRuntimeUnionRegistry();
+    const metadata = {
+      familyKey: "runtime-union:alias:Test.RuntimeValue",
+      name: "RuntimeValue",
+      namespaceName: "Test",
+      typeParameters: [],
+      accessModifier: "public" as const,
+    };
+    const recursiveCallableMember = identifierType("global::System.Func", [
+      {
+        kind: "arrayType" as const,
+        rank: 1,
+        elementType: identifierType("global::Test.RuntimeValue"),
+      },
+      nullableType(identifierType("global::Test.RuntimeValue")),
+    ]);
+
+    getOrRegisterRuntimeUnionCarrier(
+      [
+        identifierType("bool"),
+        identifierType("string"),
+        identifierType("object"),
+        identifierType("RuntimeObject"),
+      ],
+      registry,
+      {
+        ...metadata,
+        definitionMemberTypeAsts: [
+          identifierType("bool"),
+          identifierType("string"),
+          identifierType("object"),
+          identifierType("RuntimeObject"),
+        ],
+      }
+    );
+    getOrRegisterRuntimeUnionCarrier(
+      [
+        identifierType("bool"),
+        identifierType("string"),
+        recursiveCallableMember,
+        identifierType("RuntimeObject"),
+      ],
+      registry,
+      {
+        ...metadata,
+        definitionMemberTypeAsts: [
+          identifierType("bool"),
+          identifierType("string"),
+          recursiveCallableMember,
+          identifierType("RuntimeObject"),
+        ],
+      }
+    );
+
+    const code = generateRuntimeUnionFile(registry);
+    expect(code).to.include(
+      "public static RuntimeValue From3(global::System.Func<global::Test.RuntimeValue[], global::Test.RuntimeValue?> value)"
+    );
+    expect(code).to.not.include("public static RuntimeValue From3(object value)");
+  });
 });

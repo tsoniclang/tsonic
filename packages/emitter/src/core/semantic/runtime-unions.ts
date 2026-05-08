@@ -150,9 +150,10 @@ export const buildRuntimeUnionLayout = (
         emitTypeAst
       )
     : [undefined, currentContext];
+  const layoutEntries = ordered;
 
   const carrier = getOrRegisterRuntimeUnionCarrier(
-    ordered.map((entry) => entry.typeAst),
+    layoutEntries.map((entry) => entry.typeAst),
     sourceAliasContext.options.runtimeUnionRegistry,
     carrierMetadata
       ? {
@@ -175,12 +176,14 @@ export const buildRuntimeUnionLayout = (
 
   return [
     {
-      members: ordered.map((entry) => entry.member),
-      memberTypeAsts: ordered.map((entry) => entry.typeAst),
+      members: layoutEntries.map((entry) => entry.member),
+      memberTypeAsts: layoutEntries.map((entry) => entry.typeAst),
       carrierTypeArgumentAsts:
-        sourceAliasMetadata?.typeArgumentAsts ??
-        ordered.map((entry) => entry.typeAst),
-      runtimeUnionArity: ordered.length,
+        carrier.typeParameters.length === 0
+          ? []
+          : (sourceAliasMetadata?.typeArgumentAsts ??
+            layoutEntries.map((entry) => entry.typeAst)),
+      runtimeUnionArity: layoutEntries.length,
       carrierName: carrier.name,
       carrierFullName: carrier.fullName,
     },
@@ -198,6 +201,7 @@ const buildSourceAliasCarrierMetadata = (
     | {
         readonly typeParameters: readonly string[];
         readonly typeArgumentAsts: readonly CSharpTypeAst[];
+        readonly definitionMembers: readonly IrType[];
         readonly definitionMemberTypeAsts: readonly CSharpTypeAst[];
         readonly accessModifier: "public" | "internal";
       }
@@ -319,6 +323,7 @@ const buildSourceAliasCarrierMetadata = (
     {
       typeParameters,
       typeArgumentAsts,
+      definitionMembers: definitionFrame.members,
       definitionMemberTypeAsts,
       accessModifier,
     },

@@ -285,4 +285,76 @@ describe("Module Generation", () => {
     const result = emitModule(module);
     expect(result).to.include("internal static readonly string[] items");
   });
+
+  it("suffixes module containers that collide with runtime union alias carriers", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/runtime-value.ts",
+      namespace: "MyApp",
+      className: "RuntimeValue",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "typeAliasDeclaration",
+          name: "RuntimeValue",
+          type: {
+            kind: "unionType",
+            preserveRuntimeLayout: true,
+            runtimeCarrierFamilyKey: "runtime-union:alias:MyApp.RuntimeValue",
+            runtimeCarrierName: "RuntimeValue",
+            runtimeCarrierNamespace: "MyApp",
+            types: [
+              { kind: "primitiveType", name: "string" },
+              { kind: "primitiveType", name: "number" },
+            ],
+          },
+          isExported: true,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "fromString",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: {
+            kind: "referenceType",
+            name: "RuntimeValue",
+            resolvedClrType: "MyApp.RuntimeValue",
+          },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: { kind: "identifier", name: "value" },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitCSharpFiles([module], { rootNamespace: "MyApp" });
+    expect(result.ok).to.equal(true);
+    if (!result.ok) return;
+
+    const moduleFile = result.files.get("runtime-value.cs");
+    const unionsFile = result.files.get("__tsonic_unions.g.cs");
+    expect(moduleFile).to.include("public static class RuntimeValue__Module");
+    expect(moduleFile).to.not.include("public static class RuntimeValue\n");
+    expect(unionsFile).to.include("public sealed class RuntimeValue");
+  });
 });

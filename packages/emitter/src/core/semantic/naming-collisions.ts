@@ -1,5 +1,6 @@
 import type { Diagnostic, IrModule, IrStatement } from "@tsonic/frontend";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { moduleBodyEmitsNamespaceTypeNamed } from "./module-type-collisions.js";
 
 type CollisionItem = {
   readonly original: string;
@@ -68,10 +69,9 @@ const collectInlineTypeNames = (
 const collectContainerNameItem = (
   module: IrModule
 ): CollisionItem | undefined => {
-  const hasTypeCollision = module.body.some(
-    (s) =>
-      (s.kind === "classDeclaration" || s.kind === "interfaceDeclaration") &&
-      s.name === module.className
+  const hasTypeCollision = moduleBodyEmitsNamespaceTypeNamed(
+    module.body,
+    module.className
   );
 
   // The container is only emitted when there are static members.
@@ -152,6 +152,19 @@ export const validateNamingPolicyCollisions = (
           kind: "interface",
         });
         namespaceTypeItems.push(...collectInlineTypeNames(stmt));
+        continue;
+      }
+
+      if (
+        stmt.kind === "typeAliasDeclaration" &&
+        stmt.type.kind === "unionType" &&
+        stmt.type.runtimeCarrierName
+      ) {
+        namespaceTypeItems.push({
+          original: stmt.name,
+          csharp: escapeCSharpIdentifier(stmt.type.runtimeCarrierName),
+          kind: "runtimeUnionCarrier",
+        });
       }
     }
 

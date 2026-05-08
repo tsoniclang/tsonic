@@ -250,7 +250,14 @@ const carrierDefinitionMembersMatch = (
       )
   );
 
-const isRecursiveCarrierSelfArrayKey = (
+const isStorageErasedObjectArrayKey = (key: string): boolean =>
+  key === "array:1:predefined:object" ||
+  key === "array:1:nullable:predefined:object";
+
+const isStorageErasedObjectKey = (key: string): boolean =>
+  key === "predefined:object" || isStorageErasedObjectArrayKey(key);
+
+const isRecursiveCarrierSelfKey = (
   key: string,
   carrierName: string | undefined
 ): boolean => {
@@ -259,19 +266,14 @@ const isRecursiveCarrierSelfArrayKey = (
   }
 
   const escapedCarrierName = escapeCSharpIdentifier(carrierName);
-  const selfPrefix = `array:1:identifier:${escapedCarrierName}`;
-  const nullableSelfPrefix = `array:1:nullable:identifier:${escapedCarrierName}`;
   return (
-    key === selfPrefix ||
-    key.startsWith(`${selfPrefix}<`) ||
-    key === nullableSelfPrefix ||
-    key.startsWith(`${nullableSelfPrefix}<`)
+    key === `identifier:${escapedCarrierName}` ||
+    key.startsWith(`identifier:${escapedCarrierName}<`) ||
+    key.includes(`:identifier:${escapedCarrierName}`) ||
+    key.includes(`<identifier:${escapedCarrierName}`) ||
+    key.includes(`,identifier:${escapedCarrierName}`)
   );
 };
-
-const isStorageErasedObjectArrayKey = (key: string): boolean =>
-  key === "array:1:predefined:object" ||
-  key === "array:1:nullable:predefined:object";
 
 const reconcileCarrierDefinitionMembers = (
   existingMembers: readonly CSharpTypeAst[],
@@ -305,16 +307,16 @@ const reconcileCarrierDefinitionMembers = (
     }
 
     if (
-      isStorageErasedObjectArrayKey(existingKey) &&
-      isRecursiveCarrierSelfArrayKey(nextKey, carrierName)
+      isStorageErasedObjectKey(existingKey) &&
+      isRecursiveCarrierSelfKey(nextKey, carrierName)
     ) {
       reconciled.push(nextMember);
       continue;
     }
 
     if (
-      isRecursiveCarrierSelfArrayKey(existingKey, carrierName) &&
-      isStorageErasedObjectArrayKey(nextKey)
+      isRecursiveCarrierSelfKey(existingKey, carrierName) &&
+      isStorageErasedObjectKey(nextKey)
     ) {
       reconciled.push(existingMember);
       continue;
