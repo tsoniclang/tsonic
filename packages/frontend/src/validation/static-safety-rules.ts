@@ -96,6 +96,20 @@ const isJsonParseCall = (node: ts.Node): node is ts.CallExpression => {
   );
 };
 
+const isJsonStringifyCall = (node: ts.Node): node is ts.CallExpression => {
+  if (!ts.isCallExpression(node)) {
+    return false;
+  }
+
+  const expression = node.expression;
+  return (
+    ts.isPropertyAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "JSON" &&
+    expression.name.text === "stringify"
+  );
+};
+
 const unwrapContextualJsonParseParent = (node: ts.Node): ts.Node => {
   let current = node;
   while (
@@ -173,6 +187,79 @@ const getJsonParseTargetTypeNode = (
 ): ts.TypeNode | undefined =>
   node.typeArguments?.[0] ?? getJsonParseContextualTargetTypeNode(node);
 
+const isBroadJsonSourceType = (
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+): boolean => {
+  if (seen.has(type)) {
+    return false;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+
+  if (
+    (type.flags &
+      (ts.TypeFlags.Any |
+        ts.TypeFlags.Unknown |
+        ts.TypeFlags.Void |
+        ts.TypeFlags.Never |
+        ts.TypeFlags.TypeParameter)) !==
+    0
+  ) {
+    return true;
+  }
+
+  if (
+    (type.flags &
+      (ts.TypeFlags.StringLike |
+        ts.TypeFlags.NumberLike |
+        ts.TypeFlags.BooleanLike |
+        ts.TypeFlags.BigIntLike |
+        ts.TypeFlags.Null |
+        ts.TypeFlags.Undefined)) !==
+    0
+  ) {
+    return false;
+  }
+
+  if (type.isUnionOrIntersection()) {
+    return true;
+  }
+
+  if (checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0) {
+    return true;
+  }
+
+  if (checker.isArrayType(type) || checker.isTupleType(type)) {
+    const typeArguments = checker.getTypeArguments(type as ts.TypeReference);
+    return typeArguments.some((typeArgument) =>
+      isBroadJsonSourceType(typeArgument, checker, nextSeen)
+    );
+  }
+
+  if (checker.typeToString(type) === "object") {
+    return true;
+  }
+
+  if (type.getStringIndexType() || type.getNumberIndexType()) {
+    return true;
+  }
+
+  return type.getProperties().some((property) => {
+    const declaration = property.valueDeclaration ?? property.declarations?.[0];
+    if (!declaration) {
+      return true;
+    }
+    const propertyType = checker.getTypeOfSymbolAtLocation(
+      property,
+      declaration
+    );
+    return isBroadJsonSourceType(propertyType, checker, nextSeen);
+  });
+};
+
 /**
  * Validate a source file for static safety violations.
  */
@@ -208,6 +295,29 @@ export const validateStaticSafety = (
             "JSON.parse requires a closed compile-time target type for NativeAOT-safe code.",
             getNodeLocation(sourceFile, node),
             "Use JSON.parse<T>(json), assign to a concrete typed variable, or use generated typed serializer code. Broad targets such as unknown, any, object, and unions are not supported for untyped JSON parsing."
+          )
+        );
+      }
+    }
+
+    if (isJsonStringifyCall(node)) {
+      const sourceExpression = node.arguments[0];
+      if (
+        !sourceExpression ||
+        ts.isSpreadElement(sourceExpression) ||
+        isBroadJsonSourceType(
+          program.checker.getTypeAtLocation(sourceExpression),
+          program.checker
+        )
+      ) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN5001",
+            "error",
+            "JSON.stringify requires a closed compile-time source type for NativeAOT-safe code.",
+            getNodeLocation(sourceFile, node),
+            "Pass a concrete DTO, primitive, array of concrete values, or object literal with fully known property types. Broad sources such as unknown, any, object, unions, dictionaries, and generic type parameters are not supported for global JSON.stringify."
           )
         );
       }

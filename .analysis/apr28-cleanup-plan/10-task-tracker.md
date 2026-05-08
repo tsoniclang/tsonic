@@ -115,8 +115,8 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C6 | Dynamic import fully rejected | DONE | Dynamic `import()` has no converter/emitter/resolver/source-package path; TSN2001 validation proof covers value, awaited, side-effect, non-literal, and package-specifier forms |
 | C7 | `import.meta` fully rejected | DONE | `import.meta` has no emitted-code path; TSN2001 validation proof covers property and bare-object forms |
 | C8 | Object literal broad target rejected before emitter | DONE | Negative fixture and frontend/emitter focused proofs show broad object targets fail with `TSN7403`; expression-tree and closed contextual object literals remain supported |
-| C9 | JSON.parse requires closed target or approved unknown carrier | IN PROGRESS | Typed parse fixtures pass; untyped parse diagnostics |
-| C10 | JSON.stringify requires closed source | IN PROGRESS | DTO/object literal contextual type passes |
+| C9 | JSON.parse requires closed target or approved unknown carrier | IN PROGRESS | Typed parse and contextual target validation is proven; untyped, unknown, broad, and union parse diagnostics are proven; closed unknown carrier remains pending |
+| C10 | JSON.stringify requires closed source | DONE | Validation rejects unknown/object/dictionary/generic sources before emitter; DTO, closed object literal, and NativeAOT JSON fixtures pass |
 | C11 | Runtime union alias storage emission fixed | DONE | Exact alias carrier identity wins before scalar/surface expansion; focused emitter/frontend/CLI/typecheck validation passed |
 | C12 | Runtime union narrowed member returns re-wrap | IN PROGRESS | FromN emitted for narrowed temp return |
 | C13 | CLR type identity uses deterministic type id | IN PROGRESS | No raw generic display string compare for semantic decisions |
