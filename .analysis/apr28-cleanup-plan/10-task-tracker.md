@@ -114,7 +114,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C5 | Dictionary dot-property fallback removed | DONE | `dict.foo` now remains unknown unless a declared member exists; focused frontend proof covers `Record<string, unknown>` writes and dictionary computed access remains separate |
 | C6 | Dynamic import fully rejected | DONE | Dynamic `import()` has no converter/emitter/resolver/source-package path; TSN2001 validation proof covers value, awaited, side-effect, non-literal, and package-specifier forms |
 | C7 | `import.meta` fully rejected | DONE | `import.meta` has no emitted-code path; TSN2001 validation proof covers property and bare-object forms |
-| C8 | Object literal broad target rejected before emitter | IN PROGRESS | `TSN7403` not ICE in normal invalid source |
+| C8 | Object literal broad target rejected before emitter | DONE | Negative fixture and frontend/emitter focused proofs show broad object targets fail with `TSN7403`; expression-tree and closed contextual object literals remain supported |
 | C9 | JSON.parse requires closed target or approved unknown carrier | IN PROGRESS | Typed parse fixtures pass; untyped parse diagnostics |
 | C10 | JSON.stringify requires closed source | IN PROGRESS | DTO/object literal contextual type passes |
 | C11 | Runtime union alias storage emission fixed | DONE | Exact alias carrier identity wins before scalar/surface expansion; focused emitter/frontend/CLI/typecheck validation passed |
