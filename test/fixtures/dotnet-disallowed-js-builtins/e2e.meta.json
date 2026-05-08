@@ -5,6 +5,8 @@
   "description": "Verifies that JS built-ins (.length, .some, .map, .filter) fail to compile in dotnet mode. Run with scripts/harness/run-negative-tests.sh",
   "expectedErrors": [
     "does not contain a definition for 'length'",
+    "JavaScript surface member 'length' is not available in the active surface",
+    "JavaScript surface member 'slice' is not available in the active surface",
     "does not contain a definition for 'some'",
     "does not contain a definition for 'map'",
     "does not contain a definition for 'filter'"

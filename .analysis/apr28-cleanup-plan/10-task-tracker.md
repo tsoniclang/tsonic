@@ -107,10 +107,10 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 
 | ID | Work Item | Status | Acceptance |
 | --- | --- | --- | --- |
-| C1 | Default-surface `.length` rejects | IN PROGRESS | Unit + fixture proving `xs.length` rejects without JS surface |
-| C2 | Default-surface CLR array members come from carrier metadata | IN PROGRESS | `xs.Length` succeeds because `arrayType(T)` has CLR carrier metadata |
-| C3 | JS-surface `.length` succeeds | IN PROGRESS | JS surface fixture |
-| C4 | JS array methods gated to JS surface | IN PROGRESS | `.slice` rejects default, succeeds JS |
+| C1 | Default-surface `.length` rejects | DONE | Unit + fixture proving `xs.length` rejects without JS surface |
+| C2 | Default-surface CLR array members come from carrier metadata | DONE | `xs.Length` succeeds because `arrayType(T)` has CLR carrier metadata |
+| C3 | JS-surface `.length` succeeds | DONE | JS surface fixture |
+| C4 | JS array methods gated to JS surface | DONE | `.slice` rejects default, succeeds JS |
 | C5 | Dictionary dot-property fallback removed | IN PROGRESS | `dict.foo` rejects unless declared member |
 | C6 | Dynamic import fully rejected | IN PROGRESS | No converter/emitter/resolver path remains |
 | C7 | `import.meta` fully rejected | IN PROGRESS | Validation and fixture updates |
@@ -186,3 +186,4 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 - 2026-05-02 11:37 IST: full upstream gate passed on branch `apr30-complete-cleanup-plan` before the runtime-intersection cleanup slice. Run id `20260502-100446-3b3acd2f`: 3091 passed, 0 failed. Log: `.tests/run-all-20260502-100446-3b3acd2f.log`; trace: `.tests/run-all-20260502-100446-3b3acd2f.trace.jsonl`.
 - 2026-05-02 12:08 IST: removed the remaining broad runtime-intersection fallback. Runtime `intersectionType` now receives a frontend soundness diagnostic instead of emitter lowering to `object`; type-parameter constraints still allow root intersections because they lower as C# generic constraints, not runtime storage. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'anyType Detection|Type Parameter Handling' --reporter spec` with 6 passing; `npm run test:emitter -- --grep 'Intersection|intersection' --reporter spec` with 1 passing.
 - 2026-05-08 01:50 IST: repaired the transparent compiler-owned union-view intersection regression introduced by rejecting runtime intersections. Source-backed runtime union surfaces can appear internally as `Union_2<Ok, Err> & __Union$views`; this is not a user/runtime intersection and now emits through its single real carrier member while preserving the hard error for non-transparent intersections. Focused validation passed: `npm run test:emitter -- --grep 'truthy/falsy property guards' --reporter spec` with 2 passing; `npm run test:emitter -- --grep 'uses source-backed call surfaces through asinterface structural views|truthy/falsy property guards|wraps recursive middleware rest arrays through nested alias-owned union arms' --reporter spec` with 4 passing; full emitter rerun `emitter-rerun-20260507-122327` with 1199 passed, 0 failed. Full upstream gate passed with run id `20260508-001819-181fdafe`: 3092 passed, 0 failed. Log: `.tests/run-all-20260508-001819-181fdafe.log`; trace: `.tests/run-all-20260508-001819-181fdafe.trace.jsonl`.
+- 2026-05-08 01:59 IST: closed the default-vs-JS surface proof gap for member syntax by extending the default-surface negative fixture to cover TS arrays, strings, and `slice()` in addition to CLR `List<T>` JS-style calls. Focused validation passed: `bash test/scripts/run-all/e2e-worker.sh negative test/fixtures/dotnet-disallowed-js-builtins .tests/probe-negative`; `bash test/scripts/typecheck-fixtures.sh --filter array-spread --filter js-surface-runtime-builtins --filter js-string-array-returns` with 3 passed, 0 failed.

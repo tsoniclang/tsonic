@@ -9,12 +9,21 @@ export function main(): void {
   numbers.Add(1);
   numbers.Add(2);
   numbers.Add(3);
+  const arrayNumbers: number[] = [1, 2, 3];
+  const text = "abc";
 
   // ERROR: .length is a JS array property, not available on List<T> in noLib mode
   const len = numbers.length;
 
+  // ERROR: .length is also unavailable on TS arrays and strings without a JS surface
+  const arrayLen = arrayNumbers.length;
+  const stringLen = text.length;
+
   // ERROR: .some() is a JS array method, not available in dotnet mode
   const hasPositive = numbers.some((x: number) => x > 0);
+
+  // ERROR: .slice() is a JS array method, not available in dotnet mode
+  const sliced = arrayNumbers.slice(1);
 
   // ERROR: .map() is a JS array method, not available in dotnet mode
   const doubled = numbers.map((x: number) => x * 2);
