@@ -18,8 +18,9 @@ import {
   stripNullish,
 } from "../core/semantic/type-resolution.js";
 import {
+  clrTypeNameToTypeAst,
   extractCalleeNameFromAst,
-  getIdentifierTypeName,
+  sameConcreteTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
@@ -61,6 +62,8 @@ const isRuntimeUnionMemberProjectionAst = (
     /^As\d+$/.test(target.expression.memberName)
   );
 };
+
+const SYSTEM_ARRAY_TYPE_AST = clrTypeNameToTypeAst("System.Array");
 
 const buildSafeJsStringIndexAst = (
   objectAst: CSharpExpressionAst,
@@ -391,12 +394,9 @@ export const emitComputedAccess = (
       receiverTypeContext
     );
   }
-  const receiverTypeName = concreteReceiverTypeAst
-    ? getIdentifierTypeName(concreteReceiverTypeAst)
-    : undefined;
   if (
-    receiverTypeName === "global::System.Array" ||
-    receiverTypeName === "System.Array"
+    concreteReceiverTypeAst &&
+    sameConcreteTypeAstSurface(concreteReceiverTypeAst, SYSTEM_ARRAY_TYPE_AST)
   ) {
     return adaptBroadArrayElementRead(
       {
