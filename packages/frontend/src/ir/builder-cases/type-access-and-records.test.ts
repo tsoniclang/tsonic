@@ -5,7 +5,12 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
-import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
+import {
+  IrExpressionStatement,
+  IrFunctionDeclaration,
+  IrVariableDeclaration,
+} from "../types.js";
+import { validateIrSoundness } from "../validation/soundness-gate.js";
 import { createTestProgram } from "./_test-helpers.js";
 
 describe("IR Builder", function () {
@@ -100,7 +105,7 @@ describe("IR Builder", function () {
       expect(valuesInit.inferredType).to.deep.equal({ kind: "unknownType" });
     });
 
-    it("allows arbitrary property access on Record<string, unknown> without unknown poison", () => {
+    it("does not treat dictionary indexers as declared dot-properties", () => {
       const source = `
         export function fill(): Record<string, unknown> {
           const state: Record<string, unknown> = {};
@@ -116,7 +121,37 @@ describe("IR Builder", function () {
 
       const result = buildIrModule(sourceFile, testProgram, options, ctx);
       expect(result.ok).to.equal(true);
-      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "fill"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const assignments = fn.body.statements.filter(
+        (stmt): stmt is IrExpressionStatement =>
+          stmt.kind === "expressionStatement" &&
+          stmt.expression.kind === "assignment" &&
+          stmt.expression.left.kind === "memberAccess"
+      );
+      expect(assignments).to.have.length(2);
+      expect(
+        assignments.every((stmt) => {
+          const expression = stmt.expression;
+          return (
+            expression.kind === "assignment" &&
+            expression.left.kind === "memberAccess" &&
+            expression.left.inferredType?.kind === "unknownType"
+          );
+        })
+      ).to.equal(true);
+
+      const soundness = validateIrSoundness([result.value]);
+      expect(soundness.diagnostics.some((d) => d.code === "TSN5203")).to.equal(
+        true
+      );
     });
 
     it("allows declared unknown members on structural callback parameters", () => {

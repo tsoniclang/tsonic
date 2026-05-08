@@ -219,7 +219,7 @@ const shouldPreferConcreteStructuralMemberType = (
 export const hasDeclaredMemberByName = (
   receiverIrType: IrType | undefined,
   propertyName: string,
-  ctx: ProgramContext
+  _ctx: ProgramContext
 ): boolean => {
   if (!receiverIrType || receiverIrType.kind === "unknownType") return false;
 
@@ -237,11 +237,6 @@ export const hasDeclaredMemberByName = (
     return receiverIrType.structuralMembers.some(
       (member) => member.name === propertyName
     );
-  }
-
-  if (receiverIrType.kind === "referenceType") {
-    const indexer = ctx.typeSystem.getIndexerInfo(receiverIrType);
-    return indexer !== undefined && isDictionaryKeyTypeName(indexer.keyClrType);
   }
 
   return false;
@@ -434,15 +429,6 @@ const isNumericIndexerKeyTypeName = (keyTypeName: string): boolean =>
     "System.Single",
     "System.Double",
     "System.Decimal",
-  ]).has(keyTypeName);
-
-const isDictionaryKeyTypeName = (keyTypeName: string): boolean =>
-  new Set([
-    "string",
-    "object",
-    "unknown",
-    "System.String",
-    "System.Object",
   ]).has(keyTypeName);
 
 const INT_IR_TYPE: IrType = { kind: "primitiveType", name: "int" };

@@ -70,7 +70,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA1 | Centralize flow/narrowing facts | IN PROGRESS | `in` operator materialization now starts in frontend IR; remaining guard families still require centralization |
 | CA2 | Centralize type identity/equivalence/stable keys | IN PROGRESS | Heritage dedup/sort now uses stable IR type keys instead of JSON-serialized type arguments; broader semantic comparison audit remains |
 | CA3 | Centralize surface API availability and lowering | TODO | Surface metadata resolves JS/CLR/API members; no hardcoded source-name lowering in emitter |
-| CA4 | Centralize member/property/indexer lookup | IN PROGRESS | `in` operator no longer performs emitter-side member/carrier lookup; broader member/indexer access still requires centralization |
+| CA4 | Centralize member/property/indexer lookup | IN PROGRESS | `in` operator materialization is frontend-owned; dictionary indexers no longer masquerade as declared dot-properties; broader member/indexer access still requires centralization |
 | CA5 | Centralize call/overload/signature/argument resolution | IN PROGRESS | call-site argument passing no longer scores CLR overloads by parsed display signatures; remaining call/lambda context paths still require audit |
 | CA6 | Centralize object literal target/materialization | TODO | IR carries nominal/anonymous/dictionary/structural materialization plan; emitter has no object-shape fallback |
 | CA7 | Centralize `unknown`/`object`/`JsValue` broad-carrier policy | TODO | Opaque storage is distinct from structural use; property/method access requires frontend proof and closed NativeAOT-safe carrier |
@@ -111,7 +111,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C2 | Default-surface CLR array members come from carrier metadata | DONE | `xs.Length` succeeds because `arrayType(T)` has CLR carrier metadata |
 | C3 | JS-surface `.length` succeeds | DONE | JS surface fixture |
 | C4 | JS array methods gated to JS surface | DONE | `.slice` rejects default, succeeds JS |
-| C5 | Dictionary dot-property fallback removed | IN PROGRESS | `dict.foo` rejects unless declared member |
+| C5 | Dictionary dot-property fallback removed | DONE | `dict.foo` now remains unknown unless a declared member exists; focused frontend proof covers `Record<string, unknown>` writes and dictionary computed access remains separate |
 | C6 | Dynamic import fully rejected | IN PROGRESS | No converter/emitter/resolver path remains |
 | C7 | `import.meta` fully rejected | IN PROGRESS | Validation and fixture updates |
 | C8 | Object literal broad target rejected before emitter | IN PROGRESS | `TSN7403` not ICE in normal invalid source |
