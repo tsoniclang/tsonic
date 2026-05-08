@@ -118,7 +118,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C9 | JSON.parse requires closed target or approved unknown carrier | IN PROGRESS | Typed parse and contextual target validation is proven; untyped, unknown, broad, and union parse diagnostics are proven; closed unknown carrier remains pending |
 | C10 | JSON.stringify requires closed source | DONE | Validation rejects unknown/object/dictionary/generic sources before emitter; DTO, closed object literal, and NativeAOT JSON fixtures pass |
 | C11 | Runtime union alias storage emission fixed | DONE | Exact alias carrier identity wins before scalar/surface expansion; focused emitter/frontend/CLI/typecheck validation passed |
-| C12 | Runtime union narrowed member returns re-wrap | IN PROGRESS | FromN emitted for narrowed temp return |
+| C12 | Runtime union narrowed member returns re-wrap | DONE | Narrowed source-owned union arms re-wrap through the carrier alias with `FromN` when returned or assigned to the full carrier |
 | C13 | CLR type identity uses deterministic type id | IN PROGRESS | No raw generic display string compare for semantic decisions |
 | C14 | Overload family copies `override` | DONE | IR + emitted C# proof |
 | C15 | Expression-tree object literal anonymous projection | DONE | `Expression<Func<T,...>>` fixture |
