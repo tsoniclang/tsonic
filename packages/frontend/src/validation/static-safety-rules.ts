@@ -6,6 +6,7 @@
  * - TSN7402: JsValue usage in emitted source code
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
+ * - TSN5001: NativeAOT-safe JSON and broad Array.isArray limitations
  * - TSN7413: Dictionary key must be string, number, or symbol
  * - TSN7419: 'never' cannot be used as a generic type argument
  * - TSN7430: Arrow function requires explicit types (escape hatch)
@@ -107,6 +108,20 @@ const isJsonStringifyCall = (node: ts.Node): node is ts.CallExpression => {
     ts.isIdentifier(expression.expression) &&
     expression.expression.text === "JSON" &&
     expression.name.text === "stringify"
+  );
+};
+
+const isArrayIsArrayCall = (node: ts.Node): node is ts.CallExpression => {
+  if (!ts.isCallExpression(node)) {
+    return false;
+  }
+
+  const expression = node.expression;
+  return (
+    ts.isPropertyAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "Array" &&
+    expression.name.text === "isArray"
   );
 };
 
@@ -260,6 +275,41 @@ const isBroadJsonSourceType = (
   });
 };
 
+const isBroadArrayIsArraySourceType = (
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+): boolean => {
+  if (seen.has(type)) {
+    return false;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+
+  if (
+    (type.flags &
+      (ts.TypeFlags.Any |
+        ts.TypeFlags.Unknown |
+        ts.TypeFlags.TypeParameter)) !==
+    0
+  ) {
+    return true;
+  }
+
+  if (checker.typeToString(type) === "object") {
+    return true;
+  }
+
+  if (type.isUnionOrIntersection()) {
+    return type.types.some((member) =>
+      isBroadArrayIsArraySourceType(member, checker, nextSeen)
+    );
+  }
+
+  return false;
+};
+
 /**
  * Validate a source file for static safety violations.
  */
@@ -318,6 +368,29 @@ export const validateStaticSafety = (
             "JSON.stringify requires a closed compile-time source type for NativeAOT-safe code.",
             getNodeLocation(sourceFile, node),
             "Pass a concrete DTO, primitive, array of concrete values, or object literal with fully known property types. Broad sources such as unknown, any, object, unions, dictionaries, and generic type parameters are not supported for global JSON.stringify."
+          )
+        );
+      }
+    }
+
+    if (isArrayIsArrayCall(node)) {
+      const sourceExpression = node.arguments[0];
+      if (
+        !sourceExpression ||
+        ts.isSpreadElement(sourceExpression) ||
+        isBroadArrayIsArraySourceType(
+          program.checker.getTypeAtLocation(sourceExpression),
+          program.checker
+        )
+      ) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN5001",
+            "error",
+            "Array.isArray cannot narrow a broad runtime value without a closed carrier.",
+            getNodeLocation(sourceFile, node),
+            "Use Array.isArray only on values whose possible runtime carriers are known at compile time, such as concrete arrays or unions with concrete array arms. Broad unknown, any, object, and unconstrained generic values cannot be materialized as arrays in NativeAOT-safe code."
           )
         );
       }

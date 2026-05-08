@@ -113,11 +113,6 @@ const buildCandidateUnion = (
   return normalizedUnionType(candidates);
 };
 
-const UNKNOWN_ARRAY_TYPE: IrType = {
-  kind: "arrayType",
-  elementType: { kind: "unknownType", explicit: true },
-};
-
 const TYPEOF_NUMBER_PRIMITIVES = new Set([
   "number",
   "int",
@@ -335,13 +330,11 @@ const narrowTypeByArrayIsArray = (
   }
 
   if (currentType.kind === "unknownType") {
-    return wantArray && currentType.explicit === true
-      ? UNKNOWN_ARRAY_TYPE
-      : undefined;
+    return undefined;
   }
 
   if (currentType.kind === "anyType") {
-    return wantArray ? UNKNOWN_ARRAY_TYPE : undefined;
+    return undefined;
   }
 
   return filterTypeByResolvedCandidates(
