@@ -20,7 +20,6 @@ import {
 import {
   getIdentifierTypeName,
   normalizeClrQualifiedName,
-  stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
@@ -44,6 +43,16 @@ import {
 } from "./access-length.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
+import { getClrIdentityKey } from "../core/semantic/clr-type-identity.js";
+
+const clrBindingTypeHasIdentity = (
+  bindingTypeName: string,
+  expectedClrName: string
+): boolean =>
+  getClrIdentityKey(bindingTypeName) === getClrIdentityKey(expectedClrName);
+
+const isSystemArrayBindingType = (bindingTypeName: string): boolean =>
+  clrBindingTypeHasIdentity(bindingTypeName, "System.Array");
 
 /**
  * Emit a member access that has a resolved memberBinding from the
@@ -90,7 +99,7 @@ export const tryEmitMemberBindingAccess = (
   const hasArrayLikeBindingHint =
     bindingTypeLeaf === "Array" ||
     bindingTypeLeaf === "ReadonlyArray" ||
-    type.includes("System.Array");
+    isSystemArrayBindingType(type);
   const hasSourceDeclaredReceiverMember = hasSourceDeclaredMember(
     declaredReceiverType ?? receiverType,
     sourcePropertyName,
@@ -108,43 +117,11 @@ export const tryEmitMemberBindingAccess = (
     (bindingTypeLeaf === "String" ||
       normalizedBindingTypeWithoutArity === "global::js.String" ||
       normalizedBindingTypeWithoutArity === "js.String");
-  const targetsLengthLikeProperty =
-    usage === "value" &&
-    typeof expr.property === "string" &&
-    isLengthPropertyName(expr.property);
-  const [emittedReceiverTypeAst] = targetsLengthLikeProperty
-    ? resolveEmittedReceiverTypeAst(expr.object, context)
-    : [undefined, context];
-  const emittedReceiverTypeName = emittedReceiverTypeAst
-    ? getIdentifierTypeName(stripNullableTypeAst(emittedReceiverTypeAst))
-    : undefined;
-  const emittedReceiverLeafName = emittedReceiverTypeAst
-    ? getIdentifierTypeName(stripNullableTypeAst(emittedReceiverTypeAst))
-        ?.split(".")
-        .pop()
-    : undefined;
-  const emittedReceiverIsConcreteNonString =
-    !!emittedReceiverTypeName &&
-    emittedReceiverTypeName !== "global::System.String" &&
-    emittedReceiverTypeName !== "System.String" &&
-    emittedReceiverTypeName !== "global::js.String" &&
-    emittedReceiverTypeName !== "js.String";
-  const emittedReceiverPrefersDirectLength =
-    !!emittedReceiverTypeName &&
-    emittedReceiverTypeName !== "global::System.Array" &&
-    emittedReceiverTypeName !== "System.Array" &&
-    emittedReceiverTypeName !== "global::js.Array" &&
-    emittedReceiverTypeName !== "js.Array" &&
-    emittedReceiverLeafName !== "Array" &&
-    emittedReceiverLeafName !== "ICollection" &&
-    emittedReceiverLeafName !== "IReadOnlyCollection" &&
-    emittedReceiverIsConcreteNonString;
   if (
     bindingTargetsStringLength &&
     ((receiverHasDeterministicMember &&
       !isStringReceiverType(receiverType, context)) ||
-      directArrayLikeReceiver ||
-      emittedReceiverIsConcreteNonString)
+      directArrayLikeReceiver)
   ) {
     return undefined;
   }
@@ -168,8 +145,7 @@ export const tryEmitMemberBindingAccess = (
     typeof expr.property === "string" &&
     isLengthPropertyName(expr.property) &&
     (hasSourceDeclaredReceiverMember ||
-      receiverHasDeterministicMember ||
-      emittedReceiverPrefersDirectLength)
+      receiverHasDeterministicMember)
   ) {
     return undefined;
   }
@@ -225,12 +201,7 @@ export const tryEmitMemberBindingAccess = (
     usage === "value" &&
     arrayLikeReceiver &&
     !expr.memberBinding.isExtensionMethod &&
-    !(
-      type === "System.Array" ||
-      type === "global::System.Array" ||
-      type.startsWith("System.Array`") ||
-      type.startsWith("global::System.Array`")
-    )
+    !isSystemArrayBindingType(type)
   ) {
     const arityText = type.match(/`(\d+)$/)?.[1];
     const genericArity = arityText ? Number.parseInt(arityText, 10) : 0;

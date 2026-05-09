@@ -158,13 +158,6 @@ const addReferencedModuleSpecifiers = (
       ts.isStringLiteral(node.argument.literal)
     ) {
       specifiers.add(node.argument.literal.text);
-    } else if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      node.arguments.length === 1 &&
-      ts.isStringLiteral(node.arguments[0]!)
-    ) {
-      specifiers.add(node.arguments[0]!.text);
     }
 
     ts.forEachChild(node, visit);

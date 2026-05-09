@@ -128,11 +128,13 @@ describe("End-to-End Integration", () => {
 
     it("passes broad object call expectations through narrowed record locals without storage casts", () => {
       const source = `
-        const isObject = (value: unknown): value is Record<string, string | number> => {
-          return value !== null && typeof value === "object" && !Array.isArray(value);
+        type Root = Record<string, string | number> | string[] | null | undefined;
+
+        const isObject = (value: Root): value is Record<string, string | number> => {
+          return value !== null && value !== undefined && !Array.isArray(value);
         };
 
-        declare function loadRoot(): Record<string, string | number>;
+        declare function loadRoot(): Root;
 
         export function main(): void {
           const root = loadRoot();
@@ -151,7 +153,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source, "/test/test.ts", {
         surface: "@tsonic/js",
       });
-      expect(csharp).to.include("global::js.Object.entries(root)");
+      expect(csharp).to.include("global::js.Object.entries((root.As2()))");
       expect(csharp).not.to.include(
         "(global::System.Collections.Generic.Dictionary<string, object?>)root"
       );

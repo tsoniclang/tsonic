@@ -30,14 +30,38 @@ This affects how you should read and write Tsonic code:
 - JSON APIs require concrete compile-time types so generated serializers can be
   rooted for NativeAOT
 
-## Unsupported runtime-dynamic constructs
+## Flow facts versus runtime dynamic probing
 
-These constructs are rejected in emitted Tsonic code:
+Tsonic accepts TypeScript flow facts only when the compiler can also prove a
+deterministic NativeAOT-safe carrier operation.
+
+Accepted examples:
 
 ```ts
-typeof value;
-Array.isArray(value);
-"name" in value;
+export function read(value: string | undefined): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return "";
+}
+
+export function hasName(value: { name?: string }): boolean {
+  return "name" in value;
+}
+```
+
+The first example narrows a closed primitive union. The second example uses a
+string-literal key against a stable closed structural carrier, so the generated
+code does not perform runtime member discovery. For declared closed members,
+the check lowers to the proven boolean result. For dictionary carriers, it
+lowers to the typed dictionary key operation.
+
+Rejected examples:
+
+```ts
+const kind = typeof value;
+"name" in (value as object);
 delete value.name;
 for (const key in value) {}
 await import("./module.js");
@@ -45,8 +69,9 @@ import.meta.url;
 globalThis;
 ```
 
-Use concrete domain types, static imports, explicit discriminant fields, nominal
-guards, `for...of` over typed collections, and typed JSON APIs.
+Use concrete domain types, static imports, explicit discriminant fields,
+compiler-recognized guards, `for...of` over typed collections, and typed JSON
+APIs.
 
 ## Use the right docs
 

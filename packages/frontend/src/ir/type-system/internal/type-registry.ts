@@ -1,7 +1,7 @@
 /**
  * TypeRegistry - Pure IR source of truth for type declarations
  *
- * ALICE'S SPEC (Step 3): This registry stores IrType (pure IR), NOT ts.TypeNode.
+ * This registry stores IrType, not ts.TypeNode.
  * Types are converted at registration time, making queries deterministic.
  *
  * CANONICAL CLR IDENTITY: Well-known runtime types from compiler core globals,

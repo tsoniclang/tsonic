@@ -26,6 +26,7 @@ import type {
 } from "./types.js";
 import { makeTypeId, parseStableId, resolveRawTypeStableId } from "./types.js";
 import { parseClrTypeString, splitTypeArguments } from "./clr-type-parser.js";
+import { compareHeritageEdges, heritageEdgeKey } from "./heritage-edge-key.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // NORMALIZED SIGNATURE PARSING
@@ -412,26 +413,15 @@ export const convertRawType = (
     });
   }
 
-  // Dedup + stable sort (airplane-grade determinism)
   const heritageSeen = new Set<string>();
   const heritageDeduped: HeritageEdge[] = [];
   for (const edge of heritage) {
-    const key = `${edge.kind}|${edge.targetStableId}|${JSON.stringify(edge.typeArguments)}`;
+    const key = heritageEdgeKey(edge);
     if (heritageSeen.has(key)) continue;
     heritageSeen.add(key);
     heritageDeduped.push(edge);
   }
-  heritageDeduped.sort((a, b) => {
-    const rank = (k: HeritageEdge["kind"]) => (k === "extends" ? 0 : 1);
-    const ra = rank(a.kind);
-    const rb = rank(b.kind);
-    if (ra !== rb) return ra - rb;
-    const stable = a.targetStableId.localeCompare(b.targetStableId);
-    if (stable !== 0) return stable;
-    return JSON.stringify(a.typeArguments).localeCompare(
-      JSON.stringify(b.typeArguments)
-    );
-  });
+  heritageDeduped.sort(compareHeritageEdges);
 
   // Convert accessibility
   const accessibilityMap: Record<

@@ -5,16 +5,45 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import { emitTypeAst } from "./emitter.js";
+
+const isTransparentIntersectionViewMarker = (type: IrType): boolean =>
+  type.kind === "referenceType" && type.name === "__Union$views";
+
+const collectRuntimeIntersectionMembers = (
+  type: Extract<IrType, { kind: "intersectionType" }>
+): readonly IrType[] => {
+  const members: IrType[] = [];
+
+  for (const member of type.types) {
+    if (isTransparentIntersectionViewMarker(member)) {
+      continue;
+    }
+
+    if (member.kind === "intersectionType") {
+      members.push(...collectRuntimeIntersectionMembers(member));
+      continue;
+    }
+
+    members.push(member);
+  }
+
+  return members;
+};
 
 /**
- * Emit intersection types as CSharpTypeAst (C# doesn't have intersection types)
+ * Emit compiler-internal transparent intersections through their runtime carrier.
  */
 export const emitIntersectionType = (
-  _type: Extract<IrType, { kind: "intersectionType" }>,
+  type: Extract<IrType, { kind: "intersectionType" }>,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  // C# doesn't have intersection types
-  // For MVP, we'll use object
-  // In a more complete implementation, we might generate an interface
-  return [{ kind: "predefinedType", keyword: "object" }, context];
+  const runtimeMembers = collectRuntimeIntersectionMembers(type);
+  if (runtimeMembers.length === 1) {
+    return emitTypeAst(runtimeMembers[0]!, context);
+  }
+
+  throw new Error(
+    `ICE: Non-transparent intersection type reached emitter after soundness validation (${runtimeMembers.length} runtime members)`
+  );
 };

@@ -189,10 +189,32 @@ describe("validateUnsupportedFeatures", () => {
       ).to.equal(true);
     });
 
-    it("rejects the JavaScript in operator", () => {
+    it("rejects the JavaScript in operator over broad object", () => {
+      const result = runValidation(`
+        export function hasName(value: object): boolean {
+          return "name" in value;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "'in' operator")).to.equal(true);
+    });
+
+    it("allows the JavaScript in operator over closed carriers", () => {
       const result = runValidation(`
         export function hasName(value: { name?: string }): boolean {
           return "name" in value;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "'in' operator")).to.equal(false);
+    });
+
+    it("rejects the JavaScript in operator over non-stable closed-carrier expressions", () => {
+      const result = runValidation(`
+        declare function getValue(): { name?: string };
+
+        export function hasName(): boolean {
+          return "name" in getValue();
         }
       `);
 

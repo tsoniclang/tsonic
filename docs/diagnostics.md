@@ -43,8 +43,19 @@ const value = typeof input;
 ```
 
 This fails because runtime shape inspection is not a NativeAOT-compatible
-language operation. Use concrete types, explicit discriminants, or
-compiler-recognized nominal guards.
+language operation when the result is used as an open-ended dynamic value. Use
+concrete types, explicit discriminants, or compiler-recognized guards.
+
+Guard usage is different:
+
+```ts
+if (typeof input === "string") {
+  return input;
+}
+```
+
+That shape is accepted only when TypeScript proves the branch fact and Tsonic can
+emit a closed carrier check.
 
 ### Overload or generic ambiguity
 

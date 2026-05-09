@@ -19,6 +19,10 @@ import {
   hasDirectNativeArrayLikeInteropShape,
   nativeArrayReturningInteropMembers,
 } from "./call-array-mutation.js";
+import { getClrIdentityKey } from "../../core/semantic/clr-type-identity.js";
+
+const isSystemArrayBindingType = (bindingTypeName: string): boolean =>
+  getClrIdentityKey(bindingTypeName) === getClrIdentityKey("System.Array");
 
 const isArrayLikeIrType = (type: IrType | undefined): boolean => {
   if (!type) return false;
@@ -117,12 +121,7 @@ export const emitArrayWrapperInteropCall = (
     return undefined;
   }
 
-  if (
-    binding.type === "System.Array" ||
-    binding.type === "global::System.Array" ||
-    binding.type.startsWith("System.Array`") ||
-    binding.type.startsWith("global::System.Array`")
-  ) {
+  if (isSystemArrayBindingType(binding.type)) {
     return undefined;
   }
 

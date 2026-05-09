@@ -10,11 +10,22 @@ Status meanings:
 
 ## Current Priority Override
 
-The first implementation block is now P0 centralization from `13-centralization-audit.md`.
+The first implementation block remains P0 centralization from `13-centralization-audit.md`.
 
 The interrupted task was the interim diff review. That review is complete enough to drive the next implementation phase and is captured under `.analysis/interim-review-apr28-A`.
 
-Nothing downstream, package-related, publish-related, or broad full-gate-related should proceed until the P0 centralization block and drift block below are complete.
+Downstream and package/publish work remains out of scope for this checkpoint. The upstream Tsonic gate is the only validation target for this branch until the P0 centralization and drift blocks are complete.
+
+## Current Upstream Checkpoint
+
+This checkpoint completed the closed-carrier `in` operator repair and NativeAOT preflight harness repair without weakening the language:
+
+- Broad `object`/dynamic shape probing still fails before emission.
+- Closed structural carriers can prove a static key without runtime discovery.
+- String-indexed carriers lower to typed key operations.
+- Non-stable closed structural receivers are rejected until the IR can explicitly preserve evaluation semantics.
+- The frontend now records an explicit `in` materialization plan in IR; the emitter consumes that plan and no longer redoes member/carrier discovery for this operator.
+- NativeAOT preflight discovers versioned linker libraries through the run-all harness instead of requiring manual system symlinks.
 
 ## Drift-First Block
 
@@ -26,8 +37,8 @@ Nothing downstream, package-related, publish-related, or broad full-gate-related
 | DF3 | Move semantic guard authority to frontend | TODO | Emitter materializes proven facts and does not rediscover arbitrary TypeScript guard semantics |
 | DF4 | Keep JS builtin name sets diagnostic-only | TODO | JS APIs lower only through active surface metadata or declared receiver members |
 | DF5 | Convert user-reachable ICEs to diagnostics | TODO | Untyped JSON and broad object-literal cases fail before emitter |
-| DF6 | Prove Jotster P0 fixes in emitter/golden tests | TODO | `override` family and expression-tree anonymous object examples both have emitted C# proof |
-| DF7 | Reconcile docs with drift rules | TODO | Docs distinguish flow facts from runtime dynamic probing |
+| DF6 | Prove Jotster P0 fixes in emitter/golden tests | DONE | `override` family and expression-tree anonymous object examples both have emitted C# proof |
+| DF7 | Reconcile docs with drift rules | IN PROGRESS | Docs now cover closed-carrier `in` and NativeAOT-safe dictionary lowering; broader unknown/flow docs remain pending |
 | DF8 | Incorporate semantic authority super-review | DONE | `11-semantic-authority-super-review.md` records SA1-SA14 with examples and acceptance criteria |
 | DF9 | Incorporate centralization audit | DONE | `13-centralization-audit.md` records CA1-CA18 with examples, current repeated authority, central owner, and acceptance criteria |
 
@@ -37,17 +48,17 @@ Nothing downstream, package-related, publish-related, or broad full-gate-related
 | --- | --- | --- | --- |
 | SA1 | Frontend owns branch narrowing | TODO | `if`/`else` facts come from frontend IR; emitter does not parse arbitrary branch guards for source type decisions |
 | SA2 | Ternary uses same flow facts as branches | TODO | `?:` consumes the same proof model as `if`; no ternary-only semantic matcher |
-| SA3 | Branch merge uses stable IDs | TODO | no `JSON.stringify` emitted-AST equality for carrier/flow identity |
-| SA4 | Remove broad `object[]` synthesis | TODO | `Array.isArray` over broad `unknown/object` requires closed carrier proof or diagnostic |
+| SA3 | Branch merge uses stable IDs | DONE | branch carrier merge uses deterministic carrier expression keys and refuses unkeyable carrier expressions |
+| SA4 | Remove broad `object[]` synthesis | DONE | `Array.isArray` over broad `unknown/object` now requires known array carriers or fails with `TSN5001`; emitter broad array fallback synthesis was removed |
 | SA5 | Scope emitter type compatibility to materialization | TODO | source acceptance decisions move frontend; emitter helpers cannot choose overloads/union arms |
 | SA6 | Move object-literal union selection frontend | TODO | selected arm is IR metadata; ambiguous object literal unions are diagnostics before emitter |
 | SA7 | Surface member bindings are frontend-owned | TODO | emitter lowers resolved member bindings; no source-name bridge semantics for `length`, `slice`, `push`, `map` |
 | SA8 | Truthiness is proven before emission | TODO | broad runtime truthiness helpers are removed or gated behind closed carriers |
 | SA9 | Assignment flow facts are frontend-owned | TODO | emitter write adaptation does not mutate semantic narrowed types |
 | SA10 | `unknown` has closed carrier semantics | TODO | opaque storage/pass-through works; structural use requires closed carrier or diagnostic |
-| SA11 | `in` uses flow fact plus carrier proof | TODO | no CLR reflection/object probing for property existence |
+| SA11 | `in` uses flow fact plus carrier proof | DONE | Static closed-carrier and string-indexed carrier cases are proven in frontend IR and emitted without reflection/object probing |
 | SA12 | Runtime-union guards consume discriminant proof | TODO | `IsN`/`AsN` emitted only from explicit union arm proof |
-| SA13 | Expression-tree anonymous object proof | TODO | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
+| SA13 | Expression-tree anonymous object proof | DONE | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
 | SA14 | JSON broad cases become diagnostics | TODO | typed serializers remain; untyped/broad dynamic JSON fails before emitter |
 
 ## Centralization Block
@@ -56,11 +67,11 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 
 | ID | Task | Status | Acceptance |
 | --- | --- | --- | --- |
-| CA1 | Centralize flow/narrowing facts | TODO | Frontend records branch facts; emitter does not parse `typeof`, `in`, `Array.isArray`, predicates, or `instanceof` for semantic narrowing |
-| CA2 | Centralize type identity/equivalence/stable keys | TODO | Nominal/CLR/reference comparison uses one identity API; no semantic raw string comparison of emitted C# names |
+| CA1 | Centralize flow/narrowing facts | IN PROGRESS | `in` operator materialization now starts in frontend IR; remaining guard families still require centralization |
+| CA2 | Centralize type identity/equivalence/stable keys | IN PROGRESS | Heritage dedup/sort now uses stable IR type keys instead of JSON-serialized type arguments; broader semantic comparison audit remains |
 | CA3 | Centralize surface API availability and lowering | TODO | Surface metadata resolves JS/CLR/API members; no hardcoded source-name lowering in emitter |
-| CA4 | Centralize member/property/indexer lookup | TODO | TypeSystem returns member/indexer access plans; no duplicate numeric-key/member lookup tables |
-| CA5 | Centralize call/overload/signature/argument resolution | TODO | IR carries resolved call and argument adaptation plan; emitter does not select overloads or infer lambda context |
+| CA4 | Centralize member/property/indexer lookup | IN PROGRESS | `in` operator materialization is frontend-owned; dictionary indexers no longer masquerade as declared dot-properties; broader member/indexer access still requires centralization |
+| CA5 | Centralize call/overload/signature/argument resolution | IN PROGRESS | call-site argument passing no longer scores CLR overloads by parsed display signatures; remaining call/lambda context paths still require audit |
 | CA6 | Centralize object literal target/materialization | TODO | IR carries nominal/anonymous/dictionary/structural materialization plan; emitter has no object-shape fallback |
 | CA7 | Centralize `unknown`/`object`/`JsValue` broad-carrier policy | TODO | Opaque storage is distinct from structural use; property/method access requires frontend proof and closed NativeAOT-safe carrier |
 | CA8 | Centralize numeric proof/conversion authority | TODO | Numeric conversions/indexing require proof tokens or type-system relation; no emitter-only numeric compatibility fallback |
@@ -70,10 +81,10 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA12 | Centralize async wrapper semantics | TODO | Promise/Task/ValueTask/Awaited identity and return normalization come from one async type service |
 | CA13 | Centralize direct storage/carrier selection | TODO | Variable, return, conditional, and argument adaptation consume one storage/carrier plan |
 | CA14 | Centralize diagnostics vs ICE policy | TODO | User-facing unsupported cases are caught by validation/soundness gate; emitter ICEs are unreachable invariant checks only |
-| CA15 | Centralize stable serialization/dedup ordering | TODO | Type/member/object-shape/backend-AST stable keys come from one deterministic key service |
+| CA15 | Centralize stable serialization/dedup ordering | IN PROGRESS | branch carrier merge no longer uses emitted-AST JSON equality; CLR heritage dedup/sort now uses stable IR type keys; nullish-guard carrier comparison now uses explicit carrier keys |
 | CA16 | Centralize config/manifest schema parsing | TODO | CLI/frontend/package loaders share schema validators and path-aware diagnostics |
 | CA17 | Centralize package/source/path identity | TODO | Resolver/CLI/package manifest code share one canonical package identity model |
-| CA18 | Centralize test fixture/generated artifact policy | TODO | Test scripts, hygiene, fixtures, and cleanup agree on checked-in vs generated artifacts |
+| CA18 | Centralize test fixture/generated artifact policy | IN PROGRESS | NativeAOT linker-library discovery is centralized in the run-all harness; broader fixture/generated-artifact policy remains pending |
 
 ## Current Checkpoint Tasks
 
@@ -86,8 +97,8 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | T5 | Finish runtime dynamic helper removal | IN PROGRESS | Need repo-wide reference audit |
 | T6 | Finalize typed JSON diagnostics | IN PROGRESS | Emitter ICEs should become validation diagnostics where possible |
 | T7 | Implement `unknown` safe carrier and flow proof | DECIDED | Policy decided: TS flow facts plus Tsonic carrier proof; implementation pending |
-| T8 | Implement expression-tree anonymous object lowering | TODO | Generic expression-tree fix for Jotster EF lambdas |
-| T9 | Verify overload-family override emission | IN PROGRESS | Frontend test exists; emitter proof pending |
+| T8 | Implement expression-tree anonymous object lowering | DONE | Generic expression-tree fix for Jotster EF lambdas has emitted C# proof |
+| T9 | Verify overload-family override emission | DONE | Overload-family real bodies preserve public signature `override` with emitted C# proof |
 | T10 | Clean downstream invalid JS-surface assumptions | BLOCKED | Deferred for this branch; upstream Tsonic run-all is the current PR scope |
 | T11 | Centralize narrowing authority | TODO | Replace duplicate frontend/emitter semantic guard decisions |
 | T12 | Remove uncertainty fallbacks | TODO | Ambiguous/unsupported must become diagnostics |
@@ -96,28 +107,28 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 
 | ID | Work Item | Status | Acceptance |
 | --- | --- | --- | --- |
-| C1 | Default-surface `.length` rejects | IN PROGRESS | Unit + fixture proving `xs.length` rejects without JS surface |
-| C2 | Default-surface CLR array members come from carrier metadata | IN PROGRESS | `xs.Length` succeeds because `arrayType(T)` has CLR carrier metadata |
-| C3 | JS-surface `.length` succeeds | IN PROGRESS | JS surface fixture |
-| C4 | JS array methods gated to JS surface | IN PROGRESS | `.slice` rejects default, succeeds JS |
-| C5 | Dictionary dot-property fallback removed | IN PROGRESS | `dict.foo` rejects unless declared member |
-| C6 | Dynamic import fully rejected | IN PROGRESS | No converter/emitter/resolver path remains |
-| C7 | `import.meta` fully rejected | IN PROGRESS | Validation and fixture updates |
-| C8 | Object literal broad target rejected before emitter | IN PROGRESS | `TSN7403` not ICE in normal invalid source |
-| C9 | JSON.parse requires closed target or approved unknown carrier | IN PROGRESS | Typed parse fixtures pass; untyped parse diagnostics |
-| C10 | JSON.stringify requires closed source | IN PROGRESS | DTO/object literal contextual type passes |
+| C1 | Default-surface `.length` rejects | DONE | Unit + fixture proving `xs.length` rejects without JS surface |
+| C2 | Default-surface CLR array members come from carrier metadata | DONE | `xs.Length` succeeds because `arrayType(T)` has CLR carrier metadata |
+| C3 | JS-surface `.length` succeeds | DONE | JS surface fixture |
+| C4 | JS array methods gated to JS surface | DONE | `.slice` rejects default, succeeds JS |
+| C5 | Dictionary dot-property fallback removed | DONE | `dict.foo` now remains unknown unless a declared member exists; focused frontend proof covers `Record<string, unknown>` writes and dictionary computed access remains separate |
+| C6 | Dynamic import fully rejected | DONE | Dynamic `import()` has no converter/emitter/resolver/source-package path; TSN2001 validation proof covers value, awaited, side-effect, non-literal, and package-specifier forms |
+| C7 | `import.meta` fully rejected | DONE | `import.meta` has no emitted-code path; TSN2001 validation proof covers property and bare-object forms |
+| C8 | Object literal broad target rejected before emitter | DONE | Negative fixture and frontend/emitter focused proofs show broad object targets fail with `TSN7403`; expression-tree and closed contextual object literals remain supported |
+| C9 | JSON.parse requires closed target or approved unknown carrier | IN PROGRESS | Typed parse and contextual target validation is proven; untyped, unknown, broad, and union parse diagnostics are proven; closed unknown carrier remains pending |
+| C10 | JSON.stringify requires closed source | DONE | Validation rejects unknown/object/dictionary/generic sources before emitter; DTO, closed object literal, and NativeAOT JSON fixtures pass |
 | C11 | Runtime union alias storage emission fixed | DONE | Exact alias carrier identity wins before scalar/surface expansion; focused emitter/frontend/CLI/typecheck validation passed |
-| C12 | Runtime union narrowed member returns re-wrap | IN PROGRESS | FromN emitted for narrowed temp return |
-| C13 | CLR type identity uses deterministic type id | IN PROGRESS | No raw generic display string compare for semantic decisions |
-| C14 | Overload family copies `override` | IN PROGRESS | IR + emitted C# proof |
-| C15 | Expression-tree object literal anonymous projection | TODO | `Expression<Func<T,...>>` fixture |
-| C16 | TS-only runtime syntax rejected | IN PROGRESS | `public`, class `readonly`, parameter property tests |
-| C17 | Type-only readonly remains allowed | IN PROGRESS | Interface/type tests |
-| C18 | TypeScript-flow facts feed narrowing | TODO | `unknown` narrows only where TS proves source type |
+| C12 | Runtime union narrowed member returns re-wrap | DONE | Narrowed source-owned union arms re-wrap through the carrier alias with `FromN` when returned or assigned to the full carrier |
+| C13 | CLR type identity uses deterministic type id | DONE | Emitter CLR identity now delegates metadata/surface generic canonicalization to the frontend identity API; member-binding array checks use identity keys or backend-AST stable type surfaces instead of raw generic display strings |
+| C14 | Overload family copies `override` | DONE | IR + emitted C# proof |
+| C15 | Expression-tree object literal anonymous projection | DONE | `Expression<Func<T,...>>` fixture |
+| C16 | TS-only runtime syntax rejected | DONE | `public`, `private`, `protected`, `readonly` class fields, `abstract`, and constructor parameter properties all fail with TSN2001; ECMAScript `#private` remains valid |
+| C17 | Type-only readonly remains allowed | DONE | Interface/type-only `readonly` members are accepted and do not trigger runtime syntax diagnostics |
+| C18 | TypeScript-flow facts feed narrowing | IN PROGRESS | `Array.isArray` no longer fabricates array facts for broad `unknown`/`object`; remaining guard families still require the centralized frontend proof model |
 | C19 | Tsonic numeric proof remains authoritative | TODO | `typeof x === "number"` never proves `int` |
-| C20 | Ambiguous overloads hard-error | TODO | No first-candidate overload selection |
+| C20 | Ambiguous overloads hard-error | IN PROGRESS | ref/out/in argument passing now comes only from resolved signatures or proven member bindings; remaining overload-selection paths need audit |
 | C21 | Ambiguous union arm selection hard-errors | TODO | No broad/cast/runtime-throw fallback |
-| C22 | Emitter guard parsing becomes materialization-only | TODO | Emitter consumes frontend facts, does not invent semantic narrowing |
+| C22 | Emitter guard parsing becomes materialization-only | IN PROGRESS | `in` is frontend-planned; branch carrier merge and nullish-guard stripping use explicit carrier keys instead of serialized AST equality |
 | C23 | Storage cast fallback removed by default | TODO | Direct casts only for explicit/proven conversions |
 | C24 | Emitter semantic analyzers audited and retired | TODO | every `narrowedBindings`/guard parser path is classified as frontend proof, materialization, or removal |
 | C25 | Branch flow fact model normalized | TODO | branch, ternary, logical, assignment, and truthiness facts have one representation |
@@ -148,7 +159,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | ID | Task | Status |
 | --- | --- | --- |
 | P1 | Produce current diff report before resuming code edits | DONE |
-| P2 | Commit/PR tsonic cleanup | TODO |
+| P2 | Commit/PR tsonic cleanup | IN PROGRESS |
 | P3 | Commit/PR upstream package changes | TODO |
 | P4 | Commit/PR downstream changes | TODO |
 | P5 | Publish wave after merge and full validation | TODO |
@@ -162,9 +173,19 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 5. Finish tsonic compiler uncertainty cleanup.
 6. Rerun focused tests and group failures by root cause.
 7. Run the full upstream Tsonic gate with `./test/scripts/run-all.sh`.
-8. Commit and push each completed step on `apr28-refactor`.
+8. Commit and push each completed step on `apr30-complete-cleanup-plan`.
 9. Open one PR after the full upstream gate is green.
 
 ## Validation Notes
 
 - 2026-04-29 13:55 IST: completed the recursive alias carrier checkpoint. The failing source shape was `const mountedAt = isPathSpec(first) ? first : "/"` where `first` narrows to the source-owned `PathSpec` runtime-union alias and the conditional target is `string | PathSpec`. The fix preserves exact alias identity before scalar/surface expansion, so `PathSpec` materializes as the `PathSpec` arm instead of being expanded to its inner `string` arm. Focused validation passed: `npm run build`, targeted emitter tests, targeted frontend tests, targeted CLI source-package test, and `npm run typecheck`.
+- 2026-04-30 23:59 IST: completed the closed-carrier `in` and NativeAOT preflight checkpoint on `apr30-complete-cleanup-plan`. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers|preserves readable array surfaces after setter writes before length reads' --reporter spec` with 2 passing. Full upstream gate passed with run id `20260430-222604-302148de`: 3088 passed, 0 failed.
+- 2026-05-01 00:12 IST: centralized `in` materialization by adding a frontend-authored IR plan. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers' --reporter spec` with 1 passing.
+- 2026-05-01 10:45 IST: verified the Jotster P0 proof slice. Focused validation passed: `npm run test:emitter -- --grep 'preserves override on methods generated from overload family bodies|emits expression-tree object literal bodies as anonymous objects' --reporter spec` with 2 passing. The overload-family case proves generated members preserve `override`; the expression-tree case proves object literals in expression-tree lambda bodies emit C# anonymous object projections and do not emit dictionary initializers.
+- 2026-05-01 10:55 IST: removed serialized emitted-AST equality from branch carrier merging. The branch flow merge now compares only deterministic carrier expression keys (`identifier`, member chain, or transparent cast/parentheses) and refuses to merge unkeyable carrier expressions instead of treating printed emitted shapes as semantic identity.
+- 2026-05-02 11:37 IST: full upstream gate passed on branch `apr30-complete-cleanup-plan` before the runtime-intersection cleanup slice. Run id `20260502-100446-3b3acd2f`: 3091 passed, 0 failed. Log: `.tests/run-all-20260502-100446-3b3acd2f.log`; trace: `.tests/run-all-20260502-100446-3b3acd2f.trace.jsonl`.
+- 2026-05-02 12:08 IST: removed the remaining broad runtime-intersection fallback. Runtime `intersectionType` now receives a frontend soundness diagnostic instead of emitter lowering to `object`; type-parameter constraints still allow root intersections because they lower as C# generic constraints, not runtime storage. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'anyType Detection|Type Parameter Handling' --reporter spec` with 6 passing; `npm run test:emitter -- --grep 'Intersection|intersection' --reporter spec` with 1 passing.
+- 2026-05-08 01:50 IST: repaired the transparent compiler-owned union-view intersection regression introduced by rejecting runtime intersections. Source-backed runtime union surfaces can appear internally as `Union_2<Ok, Err> & __Union$views`; this is not a user/runtime intersection and now emits through its single real carrier member while preserving the hard error for non-transparent intersections. Focused validation passed: `npm run test:emitter -- --grep 'truthy/falsy property guards' --reporter spec` with 2 passing; `npm run test:emitter -- --grep 'uses source-backed call surfaces through asinterface structural views|truthy/falsy property guards|wraps recursive middleware rest arrays through nested alias-owned union arms' --reporter spec` with 4 passing; full emitter rerun `emitter-rerun-20260507-122327` with 1199 passed, 0 failed. Full upstream gate passed with run id `20260508-001819-181fdafe`: 3092 passed, 0 failed. Log: `.tests/run-all-20260508-001819-181fdafe.log`; trace: `.tests/run-all-20260508-001819-181fdafe.trace.jsonl`.
+- 2026-05-08 01:59 IST: closed the default-vs-JS surface proof gap for member syntax by extending the default-surface negative fixture to cover TS arrays, strings, and `slice()` in addition to CLR `List<T>` JS-style calls. Focused validation passed: `bash test/scripts/run-all/e2e-worker.sh negative test/fixtures/dotnet-disallowed-js-builtins .tests/probe-negative`; `bash test/scripts/typecheck-fixtures.sh --filter array-spread --filter js-surface-runtime-builtins --filter js-string-array-returns` with 3 passed, 0 failed.
+- 2026-05-08 13:28 IST: completed the CLR identity centralization slice. The emitter no longer owns a duplicate CLR generic-name parser; its identity helper delegates `getClrIdentityKey` to the frontend canonical identity API. Binding-backed array checks no longer compare raw `System.Array`/`global::System.Array` display strings or generic prefixes; they use canonical CLR identity keys or backend-AST stable type-surface keys. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'Span_1|CLR metadata|canonical|type identity' --reporter spec` with 19 passing; `npm run test:emitter -- --grep 'backend-ast utils|type-equivalence|Reference Type Emission|access-length|call-array-wrapper|array length|computed' --reporter spec` with 82 passing; broader identity/surface emitter grep run completed with 114 passing.
+- 2026-05-08 13:56 IST: removed broad `object[]`/`System.Array` synthesis from `Array.isArray` narrowing. The frontend no longer narrows `unknown`/`any` to `unknown[]`, emitter guard extraction no longer invents `object[]`, nullable typeof refinements no longer append broad array fallbacks, and validation rejects broad `Array.isArray` sources with `TSN5001` before emission. Concrete array unions and runtime-union array arms remain supported. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'Array.isArray|unknown|feature gating|TSN5203|TSN7402' --reporter spec` with 42 passing; `npm run test:emitter -- --grep 'broad unknown Array.isArray|broad unknown typeof-object|Array.isArray-narrowed unknown|broad array assertions|Array.isArray|concrete union Array.isArray|boolean alias gates' --reporter spec` with 18 passing.

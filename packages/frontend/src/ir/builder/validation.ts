@@ -1,7 +1,7 @@
 /**
  * IR builder validation - checks for unsupported patterns
  *
- * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
+ * Uses ProgramContext instead of global singletons.
  */
 
 import * as ts from "typescript";
@@ -14,7 +14,7 @@ import type { Binding } from "../binding/index.js";
 /**
  * Check if a type reference is the struct marker
  * (used to mark types as C# value types)
- * ALICE'S SPEC: Uses TypeSystem for symbol resolution.
+ * Uses TypeSystem for symbol resolution.
  */
 const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
@@ -36,7 +36,7 @@ const isStructMarker = (
 /**
  * Check if a declaration represents a TypeScript interface
  * (which Tsonic nominalizes to a C# class)
- * ALICE'S SPEC: Uses TypeSystem.isInterfaceDecl()
+ * Uses TypeSystem.isInterfaceDecl().
  */
 const isNominalizedInterface = (
   declId: DeclId | undefined,
@@ -49,7 +49,7 @@ const isNominalizedInterface = (
 /**
  * Check if a declaration represents a type alias for an object type
  * (which Tsonic nominalizes to a C# class)
- * ALICE'S SPEC: Uses TypeSystem.isTypeAliasToObjectLiteral()
+ * Uses TypeSystem.isTypeAliasToObjectLiteral().
  */
 const isNominalizedTypeAlias = (
   declId: DeclId | undefined,

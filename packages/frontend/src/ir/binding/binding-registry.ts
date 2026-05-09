@@ -304,7 +304,7 @@ export const getOrCreateSignatureId = (
     return undefined;
   })();
 
-  // Extract type predicate from return type (ALICE'S SPEC: pure syntax inspection)
+  // Extract type predicate from return type using syntax inspection only.
   const returnTypeNode = getReturnTypeNode(decl);
   const typePredicate = extractTypePredicate(returnTypeNode, decl);
   const parameters = extractParameterNodes(decl);

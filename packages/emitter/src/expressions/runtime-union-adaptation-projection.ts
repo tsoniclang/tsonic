@@ -21,6 +21,7 @@ import {
   normalizeBroadObjectSinkType,
 } from "../core/semantic/broad-object-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   valueAst: CSharpExpressionAst
@@ -189,6 +190,25 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     return undefined;
   }
 
+  const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
+    projectionExpectedType,
+    actualLayoutContext,
+    emitTypeAst
+  );
+  if (
+    expectedLayout &&
+    actualLayout.carrierFullName === expectedLayout.carrierFullName &&
+    actualLayout.carrierTypeArgumentAsts.length ===
+      expectedLayout.carrierTypeArgumentAsts.length &&
+    actualLayout.carrierTypeArgumentAsts.every(
+      (typeArgument, index) =>
+        stableTypeKeyFromAst(typeArgument) ===
+        stableTypeKeyFromAst(expectedLayout.carrierTypeArgumentAsts[index]!)
+    )
+  ) {
+    return [ast, expectedLayoutContext];
+  }
+
   const restrictedIndices = tryResolveRuntimeUnionCastSourceIndices(
     ast,
     actualLayout.memberTypeAsts
@@ -203,7 +223,7 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
 
   const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
     projectionExpectedType,
-    actualLayoutContext
+    expectedLayoutContext
   );
 
   const actualTypeContext = expectedTypeContext;

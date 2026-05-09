@@ -23,6 +23,8 @@ import {
   identifierType,
 } from "../core/format/backend-ast/builders.js";
 import {
+  clrTypeNameToTypeAst,
+  sameConcreteTypeAstSurface,
   sameTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
@@ -43,6 +45,8 @@ import type {
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+
+const SYSTEM_ARRAY_TYPE_AST = clrTypeNameToTypeAst("System.Array");
 import { tryEmitExactComparisonTargetAst } from "./exact-comparison.js";
 import {
   isObjectTypeAst,
@@ -180,8 +184,10 @@ export const emitStorageCompatibleArrayWrapperElementTypeAst = (
 
   if (
     concreteStorageReceiverTypeAst?.kind === "identifierType" &&
-    (concreteStorageReceiverTypeAst.name === "global::System.Array" ||
-      concreteStorageReceiverTypeAst.name === "System.Array") &&
+    sameConcreteTypeAstSurface(
+      concreteStorageReceiverTypeAst,
+      SYSTEM_ARRAY_TYPE_AST
+    ) &&
     concreteStorageReceiverTypeAst.typeArguments?.length === 1
   ) {
     const [elementTypeAst] = concreteStorageReceiverTypeAst.typeArguments;

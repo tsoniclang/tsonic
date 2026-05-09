@@ -131,6 +131,52 @@ describe("Static Safety Validation", () => {
       );
       expect(unknownDiag).to.equal(undefined);
     });
+
+    it("should reject Array.isArray narrowing over broad unknown values", () => {
+      const source = `
+        declare function parseJsonValueText(value: string): unknown;
+
+        export function count(value: string): number {
+          const parsed = parseJsonValueText(value);
+          if (!Array.isArray(parsed)) {
+            return -1;
+          }
+
+          return parsed.length;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const nativeAotDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5001"
+      );
+      expect(nativeAotDiag).not.to.equal(undefined);
+      expect(nativeAotDiag?.message).to.include(
+        "Array.isArray cannot narrow a broad runtime value"
+      );
+    });
+
+    it("should allow Array.isArray narrowing over unions with concrete array arms", () => {
+      const source = `
+        export function count(value: string | string[]): number {
+          if (!Array.isArray(value)) {
+            return -1;
+          }
+
+          return value.length;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const nativeAotDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5001"
+      );
+      expect(nativeAotDiag).to.equal(undefined);
+    });
   });
 
   describe("TSN7403 - Object literal requires nominal type", () => {

@@ -334,10 +334,8 @@ export const extractStructuralMembersFromDeclarations = (
  *   interface MetricsTotals { [metric: string]: int }
  *   type MetricsTotals = { [metric: string]: int }
  *
- * Without this, computed access `totals["pageviews"]` is misclassified as
- * a CLR indexer and fails numeric proof (TSN5107). This is not a workaround:
- * index-signature-only shapes are structural dictionaries and should compile
- * to `Dictionary<K, V>` / `Record<K, V>` behavior.
+ * Index-signature-only shapes are structural dictionaries and compile to
+ * `Dictionary<K, V>` / `Record<K, V>` behavior.
  */
 export const tryConvertPureIndexSignatureToDictionary = (
   decl: ts.Declaration,

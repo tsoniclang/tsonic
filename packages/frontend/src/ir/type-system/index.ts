@@ -1,7 +1,7 @@
 /**
  * TypeAuthority — Single Source of Truth for All Type Queries
  *
- * ALICE'S SPEC (Phase 5): This is the ONLY public API for type operations.
+ * This is the only public API for type operations.
  * The public module is structurally incapable of supporting a parallel type system.
  *
  * INVARIANT: No ts.Type, ts.Symbol, or computed type APIs appear in this layer.
@@ -33,7 +33,7 @@ import type {
 
 export type { DeclId, SignatureId, MemberId, TypeSyntaxId };
 
-// ALICE'S SPEC (B.1): All nominal types resolved by TypeId, not string name matching
+// All nominal types resolve by TypeId, not string name matching.
 export type { TypeId } from "./internal/universe/types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -51,7 +51,7 @@ export type {
   ParameterMode,
 };
 
-// Re-export semantic result types from Alice's TypeSystem
+// Re-export semantic result types from the TypeSystem.
 export type {
   TypeAuthority,
   MemberRef,
@@ -105,6 +105,6 @@ export {
 // - type-system implementation
 // - binding implementation
 //
-// ALICE'S SPEC: The public module is structurally incapable of supporting
+// The public module is structurally incapable of supporting
 // a parallel type system. No raw structures. No escape hatches.
 // ═══════════════════════════════════════════════════════════════════════════════

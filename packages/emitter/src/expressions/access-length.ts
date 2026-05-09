@@ -15,8 +15,8 @@ import {
 } from "../core/semantic/type-resolution.js";
 import { nullLiteral, nullableType } from "../core/format/backend-ast/builders.js";
 import {
-  getIdentifierTypeLeafName,
-  getIdentifierTypeName,
+  clrTypeNameToTypeAst,
+  sameConcreteTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
@@ -33,6 +33,7 @@ const SYSTEM_STRING_CLR_NAMES = new Set([
   "System.String",
   "global::System.String",
 ]);
+const SYSTEM_ARRAY_TYPE_AST = clrTypeNameToTypeAst("System.Array");
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst
@@ -233,16 +234,9 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
     ];
   }
 
-  const receiverTypeName = concreteReceiverTypeAst
-    ? getIdentifierTypeName(concreteReceiverTypeAst)
-    : undefined;
-  const receiverLeafName = concreteReceiverTypeAst
-    ? getIdentifierTypeLeafName(concreteReceiverTypeAst)
-    : undefined;
   if (
-    receiverTypeName === "global::System.Array" ||
-    receiverTypeName === "System.Array" ||
-    receiverLeafName === "Array"
+    concreteReceiverTypeAst &&
+    sameConcreteTypeAstSurface(concreteReceiverTypeAst, SYSTEM_ARRAY_TYPE_AST)
   ) {
     return [
       expr.isOptional

@@ -14,6 +14,7 @@ import {
   computeDeclarationRuntimeOmittableCallArities,
   computeFunctionValueRuntimeOmittableCallArities,
 } from "./runtime-call-arities.js";
+import { moduleBodyEmitsNamespaceTypeNamed } from "./module-type-collisions.js";
 
 // Re-export types from barrel
 export type { ModuleIdentity, ModuleMap, ExportSource, ExportMap };
@@ -120,12 +121,9 @@ export const buildModuleMap = (
 
     // Check if module has a type declaration (class/interface) with same name as className
     // This determines whether value imports need to use __Module suffix
-    const hasTypeCollision = module.body.some(
-      (stmt) =>
-        (stmt.kind === "classDeclaration" ||
-          stmt.kind === "interfaceDeclaration" ||
-          stmt.kind === "enumDeclaration") &&
-        stmt.name === module.className
+    const hasTypeCollision = moduleBodyEmitsNamespaceTypeNamed(
+      module.body,
+      module.className
     );
 
     const exportedValueKinds = (() => {

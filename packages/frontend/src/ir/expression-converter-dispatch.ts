@@ -559,7 +559,7 @@ export const convertExpression = (
       contextualGenericFunctionType ?? identifierStorageType;
 
     // Check if this identifier is an aliased import (e.g., import { String as ClrString })
-    // ALICE'S SPEC: Use TypeSystem.getFQNameOfDecl() to get the original name
+    // Use TypeSystem.getFQNameOfDecl() to get the original name.
     let originalName: string | undefined;
     if (declId) {
       const fqName = ctx.typeSystem.getFQNameOfDecl(declId);

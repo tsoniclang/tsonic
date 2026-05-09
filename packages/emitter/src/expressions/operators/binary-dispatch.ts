@@ -30,11 +30,13 @@ import {
   getDictionaryComputedAccess,
 } from "./helpers.js";
 import {
+  booleanLiteral,
   charLiteral,
   decimalIntegerLiteral,
   identifierExpression,
   identifierType,
   nullLiteral,
+  stringLiteral,
 } from "../../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
@@ -59,6 +61,46 @@ const JS_BITWISE_NUMBERISH_CLR_NAMES = new Set([
   "System.Double",
   "global::System.Double",
 ]);
+
+const emitInOperator = (
+  expr: Extract<IrExpression, { kind: "binary" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const plan = expr.inOperatorPlan;
+  if (!plan) {
+    throw new Error(
+      "ICE: in-operator reached emitter without frontend materialization plan"
+    );
+  }
+
+  if (plan.kind === "closedMember") {
+    return [booleanLiteral(true), context];
+  }
+
+  const [rightAst, nextContext] = emitExpressionAst(
+    expr.right,
+    context,
+    undefined
+  );
+
+  if (plan.kind === "dictionaryKey") {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: rightAst,
+          memberName: "ContainsKey",
+        },
+        arguments: [stringLiteral(plan.key)],
+      },
+      nextContext,
+    ];
+  }
+
+  const exhaustive: never = plan;
+  throw new Error(`ICE: unknown in-operator plan ${JSON.stringify(exhaustive)}`);
+};
 
 const isJsBitwiseNumberishType = (
   type: IrType | undefined,
@@ -126,9 +168,7 @@ export const emitBinary = (
   const op = operatorMap[expr.operator] ?? expr.operator;
 
   if (expr.operator === "in") {
-    throw new Error(
-      "ICE: in operator reached emitter - validation missed TSN2001"
-    );
+    return emitInOperator(expr, context);
   }
 
   const typeofComparison = emitTypeofComparison(expr, context);

@@ -274,8 +274,8 @@ const addCoreClrCarrierEntries = (
 /**
  * Load all assembly types from explicitly participating CLR packages.
  *
- * @param _nodeModulesPath - Unused legacy slot preserved for call-site stability
- * until callers are fully migrated to the explicit-roots-only model.
+ * @param _nodeModulesPath - Reserved for call-site stability while catalog
+ * loading is driven by explicit package roots.
  * @param extraPackageRoots - Explicit CLR package roots participating in this build
  * @returns AssemblyTypeCatalog with all loaded types
  */

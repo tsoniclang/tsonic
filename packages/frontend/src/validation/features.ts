@@ -75,6 +75,111 @@ const isDynamicImportCall = (node: ts.CallExpression): boolean =>
 const isGlobalThisIdentifier = (node: ts.Node): node is ts.Identifier =>
   ts.isIdentifier(node) && node.text === "globalThis";
 
+const getStaticInOperatorKey = (node: ts.Expression): string | undefined => {
+  if (ts.isStringLiteralLike(node)) {
+    return node.text;
+  }
+
+  return undefined;
+};
+
+const isStableInOperatorReceiver = (node: ts.Expression): boolean => {
+  let unwrapped = node;
+  while (
+    ts.isParenthesizedExpression(unwrapped) ||
+    ts.isAsExpression(unwrapped) ||
+    ts.isTypeAssertionExpression(unwrapped) ||
+    ts.isNonNullExpression(unwrapped)
+  ) {
+    unwrapped = unwrapped.expression;
+  }
+  return ts.isIdentifier(unwrapped) || unwrapped.kind === ts.SyntaxKind.ThisKeyword;
+};
+
+const typeHasStringIndex = (
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+): boolean => {
+  if (seen.has(type)) {
+    return false;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+
+  if (type.isUnion()) {
+    return type.types
+      .filter(
+        (member) =>
+          (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0
+      )
+      .every((member) => typeHasStringIndex(member, checker, new Set(nextSeen)));
+  }
+
+  const apparent = checker.getApparentType(type);
+  return (
+    checker.getIndexInfoOfType(type, ts.IndexKind.String) !== undefined ||
+    checker.getIndexInfoOfType(apparent, ts.IndexKind.String) !== undefined
+  );
+};
+
+const typeHasClosedProperty = (
+  type: ts.Type,
+  key: string,
+  checker: ts.TypeChecker,
+  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+): boolean => {
+  if (seen.has(type)) {
+    return false;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+
+  if (type.isUnion()) {
+    return type.types
+      .filter(
+        (member) =>
+          (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0
+      )
+      .every((member) =>
+        typeHasClosedProperty(member, key, checker, new Set(nextSeen))
+      );
+  }
+
+  if (checker.getPropertyOfType(type, key)) {
+    return true;
+  }
+
+  const apparent = checker.getApparentType(type);
+  if (apparent !== type && checker.getPropertyOfType(apparent, key)) {
+    return true;
+  }
+
+  return false;
+};
+
+const isClosedInOperatorExpression = (
+  node: ts.BinaryExpression,
+  checker: ts.TypeChecker
+): boolean => {
+  const key = getStaticInOperatorKey(node.left);
+  if (!key) {
+    return false;
+  }
+
+  const rightType = checker.getTypeAtLocation(node.right);
+  if (typeHasStringIndex(rightType, checker)) {
+    return true;
+  }
+
+  return (
+    isStableInOperatorReceiver(node.right) &&
+    typeHasClosedProperty(rightType, key, checker)
+  );
+};
+
 const normalizeFileName = (fileName: string): string =>
   fileName.replace(/\\/g, "/");
 
@@ -500,11 +605,13 @@ export const validateUnsupportedFeatures = (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.InKeyword
     ) {
-      addUnsupported(
-        node,
-        "The JavaScript 'in' operator is not supported in emitted Tsonic code.",
-        "Use a concrete discriminant field, dictionary.ContainsKey, or a typed domain API."
-      );
+      if (!isClosedInOperatorExpression(node, checker)) {
+        addUnsupported(
+          node,
+          "The JavaScript 'in' operator is only supported for statically proven closed carriers.",
+          "Use a string-literal key and a receiver with a declared property or string dictionary index."
+        );
+      }
     }
 
     if (ts.isMetaProperty(node)) {

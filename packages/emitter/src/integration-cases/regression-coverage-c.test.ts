@@ -161,7 +161,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include('payload.email = payloadObject["email"];');
     });
 
-    it("materializes broad unknown Array.isArray narrows for length and index reads", () => {
+    it("rejects broad unknown Array.isArray narrowing before emission", () => {
       const source = `
 
         declare function parseJsonValueText(value: string): unknown;
@@ -183,13 +183,11 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source, "/test/test.ts", {
-        surface: "@tsonic/js",
-      });
-      expect(csharp).to.include("((global::System.Array)parsed).Length");
-      expect(csharp).to.include("((global::System.Array)parsed).GetValue(i)");
-      expect(csharp).not.to.include("((object)parsed).Length");
-      expect(csharp).not.to.include("((object)parsed)[i]");
+      expect(() =>
+        compileToCSharp(source, "/test/test.ts", {
+          surface: "@tsonic/js",
+        })
+      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
     });
 
     it("compares optional runtime-union member reads to literals without Match projections", () => {
@@ -2943,11 +2941,32 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("return leftValue == rightValue;");
     });
 
-    it("casts Array.isArray-narrowed broad storage directly for concrete array assertions", () => {
+    it("rejects concrete array assertions after broad Array.isArray guards", () => {
+      expect(() =>
+        compileToCSharp(
+          `
+
+            export function run(value: unknown): string[] | undefined {
+              if (Array.isArray(value)) {
+                const list = value as string[];
+                list.push("x");
+                return list;
+              }
+
+              return undefined;
+            }
+          `,
+          "/test/test.ts",
+          { surface: "@tsonic/js" }
+        )
+      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+    });
+
+    it("casts concrete union Array.isArray-narrowed storage directly for concrete array assertions", () => {
       const csharp = compileToCSharp(
         `
 
-          export function run(value: unknown): string[] | undefined {
+          export function run(value: string | string[]): string[] | undefined {
             if (Array.isArray(value)) {
               const list = value as string[];
               list.push("x");
@@ -2961,7 +2980,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("string[] list = (string[])value;");
+      expect(csharp).to.include("string[] list = (value.As1());");
       expect(csharp).not.to.include("(global::js.Array)value");
       expect(csharp).not.to.match(
         /global::System\.Linq\.Enumerable\.Select<object\?, string>\(\(global::js\.Array\)value/
@@ -5593,6 +5612,21 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "Cannot materialize runtime union arrayType to arrayType"
       );
+    });
+
+    it("emits in-operator checks only for closed carriers", () => {
+      const csharp = compileToCSharp(`
+        export function hasName(value: { name?: string }): boolean {
+          return "name" in value;
+        }
+
+        export function hasKey(values: Record<string, number>): boolean {
+          return "total" in values;
+        }
+      `);
+
+      expect(csharp).to.include("return true;");
+      expect(csharp).to.include('return values.ContainsKey("total");');
     });
   });
 });

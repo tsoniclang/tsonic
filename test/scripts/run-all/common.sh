@@ -278,6 +278,74 @@ matches_filter() {
     return 1
 }
 
+find_linker_library() {
+    local base="$1"
+    local path
+
+    for path in \
+        "/usr/lib/x86_64-linux-gnu/$base" \
+        "/usr/lib64/$base" \
+        "/usr/lib/$base"; do
+        if [ -e "$path" ]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done
+
+    for path in \
+        "/usr/lib/x86_64-linux-gnu/$base".* \
+        "/usr/lib64/$base".* \
+        "/usr/lib/$base".*; do
+        if [ -e "$path" ]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done
+
+    if command -v ldconfig >/dev/null 2>&1; then
+        path="$(ldconfig -p 2>/dev/null | awk -v base="$base" '$1 ~ "^" base "\\." { print $NF; exit }')"
+        if [ -n "$path" ] && [ -e "$path" ]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+prepare_nativeaot_linker_library_path() {
+    local root="$1"
+    local link_dir="$root/.tests/native-aot-linker-libs"
+    local created=0
+    local missing=0
+    local lib
+    local found
+
+    mkdir -p "$link_dir"
+
+    for lib in libssl.so libcrypto.so libz.so libbrotlienc.so libbrotlidec.so libbrotlicommon.so; do
+        found="$(find_linker_library "$lib" || true)"
+        if [ -z "$found" ]; then
+            missing=1
+            continue
+        fi
+
+        if [ "$found" != "$link_dir/$lib" ]; then
+            ln -sfn "$found" "$link_dir/$lib"
+            created=1
+        fi
+    done
+
+    if [ "$created" -eq 1 ]; then
+        case ":${LIBRARY_PATH:-}:" in
+            *":$link_dir:"*) ;;
+            *) export LIBRARY_PATH="$link_dir${LIBRARY_PATH:+:$LIBRARY_PATH}" ;;
+        esac
+    fi
+
+    [ "$missing" -eq 0 ]
+}
+
 nativeaot_preflight_check() {
     local log_file="$1"
     local rid
@@ -290,6 +358,7 @@ nativeaot_preflight_check() {
     local preflight_root
     preflight_root="${ROOT_DIR:-$(cd "$RUN_ALL_LIB_DIR/../../.." && pwd)}"
     mkdir -p "$preflight_root/.tests"
+    prepare_nativeaot_linker_library_path "$preflight_root" || true
     tmp_dir="$(mktemp -d "$preflight_root/.tests/native-aot-preflight-XXXXXX")"
     local probe_dir="$tmp_dir/AotPreflight"
     local probe_log="$tmp_dir/preflight.log"

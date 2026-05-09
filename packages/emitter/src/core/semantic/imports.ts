@@ -328,7 +328,7 @@ export const processImports = (
       return ctx;
     }
 
-    // External packages not supported in MVP
+    // External packages without CLR/source-package metadata do not create import bindings.
     return ctx;
   }, context);
 

@@ -1,7 +1,7 @@
 /**
  * Member access property type resolution and name extraction helpers
  *
- * ALICE'S SPEC: All member type queries go through TypeSystem.typeOfMember().
+ * All member type queries go through TypeSystem.typeOfMember().
  */
 
 import * as ts from "typescript";
@@ -219,7 +219,7 @@ const shouldPreferConcreteStructuralMemberType = (
 export const hasDeclaredMemberByName = (
   receiverIrType: IrType | undefined,
   propertyName: string,
-  ctx: ProgramContext
+  _ctx: ProgramContext
 ): boolean => {
   if (!receiverIrType || receiverIrType.kind === "unknownType") return false;
 
@@ -239,18 +239,13 @@ export const hasDeclaredMemberByName = (
     );
   }
 
-  if (receiverIrType.kind === "referenceType") {
-    const indexer = ctx.typeSystem.getIndexerInfo(receiverIrType);
-    return indexer !== undefined && isDictionaryKeyTypeName(indexer.keyClrType);
-  }
-
   return false;
 };
 
 /**
  * Get the declared property type from a property access expression.
  *
- * ALICE'S SPEC: Uses explicit TypeSystem queries only.
+ * Uses explicit TypeSystem queries only.
  * Prefer exact member-handle typing when Binding resolved the property access to a
  * concrete declaration; otherwise use receiver+member TypeSystem lookup.
  *
@@ -434,15 +429,6 @@ const isNumericIndexerKeyTypeName = (keyTypeName: string): boolean =>
     "System.Single",
     "System.Double",
     "System.Decimal",
-  ]).has(keyTypeName);
-
-const isDictionaryKeyTypeName = (keyTypeName: string): boolean =>
-  new Set([
-    "string",
-    "object",
-    "unknown",
-    "System.String",
-    "System.Object",
   ]).has(keyTypeName);
 
 const INT_IR_TYPE: IrType = { kind: "primitiveType", name: "int" };

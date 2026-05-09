@@ -30,6 +30,7 @@ import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { statementUsesPointer } from "../../semantic/unsafe.js";
 import { getCSharpName } from "../../../naming-policy.js";
 import { identifierType } from "../backend-ast/builders.js";
+import { moduleBodyEmitsNamespaceTypeNamed } from "../../semantic/module-type-collisions.js";
 import type {
   CSharpClassDeclarationAst,
   CSharpMemberAst,
@@ -125,13 +126,7 @@ export const hasMatchingClassName = (
   declarations: readonly IrStatement[],
   className: string
 ): boolean => {
-  return declarations.some(
-    (decl) =>
-      (decl.kind === "classDeclaration" ||
-        decl.kind === "interfaceDeclaration" ||
-        decl.kind === "enumDeclaration") &&
-      decl.name === className
-  );
+  return moduleBodyEmitsNamespaceTypeNamed(declarations, className);
 };
 
 /**

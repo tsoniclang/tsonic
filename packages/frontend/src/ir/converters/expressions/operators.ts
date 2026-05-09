@@ -9,6 +9,7 @@ import {
   IrUpdateExpression,
   IrBinaryOperator,
   IrAssignmentOperator,
+  IrInOperatorPlan,
   IrType,
 } from "../../types.js";
 import { normalizedUnionType } from "../../types/type-ops.js";
@@ -100,6 +101,114 @@ const stripNullishFromUnion = (type: IrType): IrType | undefined => {
 
 const makeUnionType = (types: readonly IrType[]): IrType => {
   return normalizedUnionType(types);
+};
+
+const getStaticInOperatorKey = (expr: IrExpression): string | undefined =>
+  expr.kind === "literal" && typeof expr.value === "string"
+    ? expr.value
+    : undefined;
+
+const hasStringKeyCarrier = (
+  type: IrType | undefined,
+  ctx: ProgramContext,
+  seen = new Set<IrType>()
+): boolean => {
+  if (!type || seen.has(type)) {
+    return false;
+  }
+
+  seen.add(type);
+  const nonNullishType = stripNullishFromUnion(type);
+  if (!nonNullishType) {
+    return false;
+  }
+
+  if (nonNullishType.kind === "dictionaryType") {
+    return true;
+  }
+
+  if (nonNullishType.kind === "unionType") {
+    return (
+      nonNullishType.types.length > 0 &&
+      nonNullishType.types.every((member) =>
+        hasStringKeyCarrier(member, ctx, new Set(seen))
+      )
+    );
+  }
+
+  const indexer = ctx.typeSystem.getIndexerInfo(nonNullishType);
+  return (
+    indexer?.keyClrType === "string" ||
+    indexer?.keyClrType === "System.String" ||
+    indexer?.keyClrType === "global::System.String"
+  );
+};
+
+const hasClosedMemberCarrier = (
+  type: IrType | undefined,
+  memberName: string,
+  ctx: ProgramContext,
+  seen = new Set<IrType>()
+): boolean => {
+  if (!type || seen.has(type)) {
+    return false;
+  }
+
+  seen.add(type);
+  const nonNullishType = stripNullishFromUnion(type);
+  if (!nonNullishType) {
+    return false;
+  }
+
+  if (nonNullishType.kind === "unionType") {
+    return (
+      nonNullishType.types.length > 0 &&
+      nonNullishType.types.every((member) =>
+        hasClosedMemberCarrier(member, memberName, ctx, new Set(seen))
+      )
+    );
+  }
+
+  if (nonNullishType.kind === "objectType") {
+    return nonNullishType.members.some((member) => member.name === memberName);
+  }
+
+  if (nonNullishType.kind === "referenceType") {
+    if (
+      nonNullishType.structuralMembers?.some(
+        (member) => member.name === memberName
+      )
+    ) {
+      return true;
+    }
+  }
+
+  const memberType = ctx.typeSystem.tryTypeOfMember(nonNullishType, {
+    kind: "byName",
+    name: memberName,
+  });
+  return memberType !== undefined && memberType.kind !== "unknownType";
+};
+
+const deriveInOperatorPlan = (
+  left: IrExpression,
+  right: IrExpression,
+  ctx: ProgramContext
+): IrInOperatorPlan | undefined => {
+  const key = getStaticInOperatorKey(left);
+  if (!key) {
+    return undefined;
+  }
+
+  if (hasStringKeyCarrier(right.inferredType, ctx)) {
+    return { kind: "dictionaryKey", key };
+  }
+
+  if (hasClosedMemberCarrier(right.inferredType, key, ctx)) {
+    return { kind: "closedMember", key };
+  }
+
+  return undefined;
 };
 
 const withoutExactAssignmentTargetReadNarrowing = (
@@ -267,12 +376,6 @@ export const convertBinaryExpression = (
   const operator = convertBinaryOperator(node.operatorToken);
   const sourceSpan = getSourceSpan(node);
 
-  if (operator === "in") {
-    throw new Error(
-      "ICE: in operator reached IR conversion - validation missed TSN2001"
-    );
-  }
-
   // Handle assignment separately
   // Thread LHS type to RHS for deterministic typing (e.g., x = 10 where x: int)
   if (isAssignmentOperator(node.operatorToken)) {
@@ -359,6 +462,9 @@ export const convertBinaryExpression = (
     operator: operator as IrBinaryOperator,
     left: leftExpr,
     right: rightExpr,
+    ...(operator === "in"
+      ? { inOperatorPlan: deriveInOperatorPlan(leftExpr, rightExpr, ctx) }
+      : {}),
     inferredType: deriveBinaryResultType(
       operator,
       leftExpr.inferredType,

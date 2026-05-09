@@ -308,7 +308,7 @@ export const resolveSourceReferenceFQName = (
  *
  * Phase 6: Returns TypeId + typeArgs for TypeId-based NominalEnv.
  *
- * ALICE'S RULE R3: Primitive-to-nominal bridging is part of TypeSystem.
+ * Primitive-to-nominal bridging is part of TypeSystem.
  */
 export const normalizeToNominal = (
   state: TypeSystemState,

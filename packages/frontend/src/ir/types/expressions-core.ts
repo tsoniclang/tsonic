@@ -345,11 +345,22 @@ export type IrUnaryExpression = {
   readonly sourceSpan?: SourceLocation;
 };
 
+export type IrInOperatorPlan =
+  | {
+      readonly kind: "dictionaryKey";
+      readonly key: string;
+    }
+  | {
+      readonly kind: "closedMember";
+      readonly key: string;
+    };
+
 export type IrBinaryExpression = {
   readonly kind: "binary";
   readonly operator: IrBinaryOperator;
   readonly left: IrExpression;
   readonly right: IrExpression;
+  readonly inOperatorPlan?: IrInOperatorPlan;
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
 };

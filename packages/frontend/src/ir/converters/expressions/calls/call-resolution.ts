@@ -4,7 +4,7 @@
  * Contains callable-candidate resolution, overload scoring, and
  * getDeclaredReturnType for call/new expressions.
  *
- * ALICE'S SPEC: All call resolution goes through TypeSystem.resolveCall().
+ * All call resolution goes through TypeSystem.resolveCall().
  * NO FALLBACKS ALLOWED. If TypeSystem can't resolve, return unknownType.
  */
 
@@ -309,7 +309,7 @@ export const unwrapExpr = (expr: ts.Expression): ts.Expression => {
 /**
  * Get the declared return type from a call or new expression's signature.
  *
- * ALICE'S SPEC: Uses TypeSystem.resolveCall() EXCLUSIVELY.
+ * Uses TypeSystem.resolveCall() exclusively.
  * NO FALLBACKS. If TypeSystem can't resolve, return unknownType.
  * This ensures any missing TypeSystem functionality surfaces as test failures.
  */

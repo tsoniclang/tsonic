@@ -40,10 +40,10 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "in operator",
+        name: "in operator over broad object",
         code: "TSN2001",
         source: `
-          export function hasName(value: { name?: string }): boolean {
+          export function hasName(value: object): boolean {
             return "name" in value;
           }
         `,
@@ -61,6 +61,14 @@ describe("Maximus Validation Coverage", () => {
       readonly name: string;
       readonly source: string;
     }> = [
+      {
+        name: "closed-carrier in operator",
+        source: `
+          export function hasName(value: { name?: string }): boolean {
+            return "name" in value;
+          }
+        `,
+      },
       {
         name: "class method named then",
         source: `

@@ -22,6 +22,7 @@ import {
   stripTsBindgenViewsWrapper,
   getRightmostPropertyAccessText,
 } from "./clr-type-parser.js";
+import { compareHeritageEdges, heritageEdgeKey } from "./heritage-edge-key.js";
 
 export type TsBindgenDtsTypeInfo = {
   readonly typeParametersByTsName: ReadonlyMap<string, readonly string[]>;
@@ -467,28 +468,17 @@ export const extractHeritageFromTsBindgenDts = (
     }
   }
 
-  // Dedup + stable sort per type (determinism)
   const dedupedHeritageByTsName = new Map<string, readonly HeritageEdge[]>();
   for (const [tsName, edges] of heritageByTsName) {
     const seen = new Set<string>();
     const unique: HeritageEdge[] = [];
     for (const e of edges) {
-      const key = `${e.kind}|${e.targetStableId}|${JSON.stringify(e.typeArguments)}`;
+      const key = heritageEdgeKey(e);
       if (seen.has(key)) continue;
       seen.add(key);
       unique.push(e);
     }
-    unique.sort((a, b) => {
-      const rank = (k: HeritageEdge["kind"]) => (k === "extends" ? 0 : 1);
-      const ra = rank(a.kind);
-      const rb = rank(b.kind);
-      if (ra !== rb) return ra - rb;
-      const stable = a.targetStableId.localeCompare(b.targetStableId);
-      if (stable !== 0) return stable;
-      return JSON.stringify(a.typeArguments).localeCompare(
-        JSON.stringify(b.typeArguments)
-      );
-    });
+    unique.sort(compareHeritageEdges);
     dedupedHeritageByTsName.set(tsName, unique);
   }
 

@@ -1,7 +1,7 @@
 /**
  * Override detection for class members
  *
- * ALICE'S SPEC: Uses TypeSystem exclusively for declaration queries.
+ * Uses TypeSystem exclusively for declaration queries.
  */
 
 import * as ts from "typescript";

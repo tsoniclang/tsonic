@@ -38,17 +38,7 @@ import {
   SYSTEM_ARRAY_STORAGE_TYPE,
 } from "./broad-array-storage.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
-import { isBroadObjectSlotType } from "./broad-object-types.js";
 import { willCarryAsRuntimeUnion } from "./union-semantics.js";
-
-const BROAD_OBJECT_ARRAY_TYPE: IrType = {
-  kind: "arrayType",
-  elementType: {
-    kind: "referenceType",
-    name: "object",
-    resolvedClrType: "global::System.Object",
-  },
-};
 
 const stripNullishForRefinement = (
   type: IrType,
@@ -97,20 +87,6 @@ const narrowTypeByArrayShape = (
 
   const resolved = resolveTypeAlias(stripNullish(currentType), context);
   if (resolved.kind === "unionType") {
-    const hasBroadArrayFallback =
-      wantArray &&
-      resolved.types.some((member) => {
-        if (!member) {
-          return false;
-        }
-        const resolvedMember = resolveTypeAlias(stripNullish(member), context);
-        return (
-          resolvedMember.kind === "unknownType" ||
-          resolvedMember.kind === "anyType" ||
-          resolvedMember.kind === "objectType" ||
-          isBroadObjectSlotType(resolvedMember, context)
-        );
-      });
     const kept = resolved.types.filter((member): member is IrType => {
       if (!member) {
         return false;
@@ -118,9 +94,7 @@ const narrowTypeByArrayShape = (
       const isArrayLike = isArrayLikeNarrowingCandidate(member, context);
       return wantArray ? isArrayLike : !isArrayLike;
     });
-    const narrowed = hasBroadArrayFallback
-      ? [...kept, BROAD_OBJECT_ARRAY_TYPE]
-      : kept;
+    const narrowed = kept;
     if (narrowed.length === 0) {
       return undefined;
     }
@@ -128,15 +102,6 @@ const narrowTypeByArrayShape = (
   }
 
   const isArrayLike = isArrayLikeNarrowingCandidate(resolved, context);
-  if (
-    wantArray &&
-    (resolved.kind === "unknownType" ||
-      resolved.kind === "anyType" ||
-      resolved.kind === "objectType" ||
-      isBroadObjectSlotType(resolved, context))
-  ) {
-    return BROAD_OBJECT_ARRAY_TYPE;
-  }
   return wantArray === isArrayLike ? resolved : undefined;
 };
 
