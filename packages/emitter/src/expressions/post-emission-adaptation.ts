@@ -546,6 +546,29 @@ export const isNumericSourceIrType = (
   );
 };
 
+const isIntegralNumericSourceIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "typeParameterType") {
+    return (
+      (context.typeParamConstraints?.get(resolved.name) ?? "unconstrained") ===
+      "numeric"
+    );
+  }
+  return (
+    (resolved.kind === "primitiveType" && resolved.name === "int") ||
+    (resolved.kind === "literalType" &&
+      typeof resolved.value === "number" &&
+      Number.isInteger(resolved.value)) ||
+    (resolved.kind === "referenceType" &&
+      (INTEGRAL_EXPECTED_TYPE_NAMES.has(resolved.name) ||
+        referenceTypeHasClrIdentity(resolved, INTEGRAL_EXPECTED_CLR_NAMES)))
+  );
+};
+
 const resolveNumericFactoryTypeName = (
   type: IrType | undefined,
   context: EmitterContext
@@ -1109,10 +1132,16 @@ export const maybeCastNumericToExpectedIntegralAst = (
   ) {
     return [unboxedAst, context];
   }
-  if (
-    isImplicitIntegralLiteralForExpectedType(unboxedAst, expectedType, context)
-  ) {
+  const isImplicitIntegralLiteral = isImplicitIntegralLiteralForExpectedType(
+    unboxedAst,
+    expectedType,
+    context
+  );
+  if (isImplicitIntegralLiteral) {
     return [unboxedAst, context];
+  }
+  if (!isIntegralNumericSourceIrType(actualType, context)) {
+    return [ast, context];
   }
   if (isAssignable(actualType, expectedType)) return [unboxedAst, context];
 

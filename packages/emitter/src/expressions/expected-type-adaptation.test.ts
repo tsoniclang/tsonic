@@ -1321,7 +1321,7 @@ describe("expected-type-adaptation", () => {
         left: identifierExpression("end"),
         right: identifierExpression("start"),
       },
-      actualType: { kind: "primitiveType", name: "number" },
+      actualType: { kind: "primitiveType", name: "int" },
       context,
       expectedType,
       allowUnionNarrowing: false,
@@ -1329,7 +1329,7 @@ describe("expected-type-adaptation", () => {
 
     expect(binaryResult).to.not.equal(undefined);
     expect(printExpression(binaryResult![0])).to.equal(
-      "global::js.TypedArrayConstructorInput<byte>.From1((int)(end - start))"
+      "global::js.TypedArrayConstructorInput<byte>.From1(end - start)"
     );
 
     const assertedIntResult = adaptValueToExpectedTypeAst({
@@ -1365,7 +1365,7 @@ describe("expected-type-adaptation", () => {
         whenTrue: parseNumericLiteral("1"),
         whenFalse: identifierExpression("totalLength"),
       },
-      actualType: { kind: "primitiveType", name: "number" },
+      actualType: { kind: "primitiveType", name: "int" },
       context,
       expectedType,
       allowUnionNarrowing: false,
@@ -1373,11 +1373,11 @@ describe("expected-type-adaptation", () => {
 
     expect(conditionalResult).to.not.equal(undefined);
     expect(printExpression(conditionalResult![0])).to.equal(
-      "global::js.TypedArrayConstructorInput<byte>.From1((int)(totalLength == 0 ? 1 : totalLength))"
+      "global::js.TypedArrayConstructorInput<byte>.From1(totalLength == 0 ? 1 : totalLength)"
     );
   });
 
-  it("casts JS numeric expressions into integral expected slots", () => {
+  it("does not cast unproven JS numeric expressions into integral expected slots", () => {
     const context = createContext({
       rootNamespace: "Test",
       surface: "@tsonic/js",
@@ -1390,7 +1390,7 @@ describe("expected-type-adaptation", () => {
       { kind: "primitiveType", name: "int" }
     );
 
-    expect(printExpression(castAst)).to.equal("(int)value");
+    expect(printExpression(castAst)).to.equal("value");
   });
 
   it("does not cast representable integral literals into byte expected slots", () => {

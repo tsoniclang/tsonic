@@ -582,6 +582,25 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("toNumberArg((object?)(double)arg0)");
     });
 
+    it("rejects typeof-number narrowing as proof for int storage", () => {
+      expect(() =>
+        compileToCSharp(
+          `
+            import type { int } from "@tsonic/core/types.js";
+
+            export function readInt(value: unknown): int {
+              if (typeof value === "number") {
+                return value;
+              }
+              return 0;
+            }
+          `,
+          "/test/test.ts",
+          { surface: "@tsonic/js" }
+        )
+      ).to.throw("Numeric coercion validation failed");
+    });
+
     it("keeps broad unknown typeof-object guards on the runtime typeof helper instead of union member checks", () => {
       const csharp = compileToCSharp(
         `
@@ -4719,7 +4738,7 @@ describe("End-to-End Integration", () => {
         declare function consume(listener: EventListener): void;
 
         export function main(): void {
-          let received = 0;
+          let received: number = 0;
           consume((value: RuntimeValue) => {
             if (typeof value === "number") {
               received = value;

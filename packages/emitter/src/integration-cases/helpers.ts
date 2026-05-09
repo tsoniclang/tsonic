@@ -11,6 +11,7 @@ import {
   runAnonymousTypeLoweringPass,
   runAttributeCollectionPass,
   runCallResolutionRefreshPass,
+  runNumericCoercionPass,
   runNumericProofPass,
   runOverloadCollectionPass,
   runOverloadFamilyConsistencyPass,
@@ -514,8 +515,15 @@ export const compileProjectToCSharp = (
       );
     }
 
+    const coercionResult = runNumericCoercionPass(proofResult.modules);
+    if (!coercionResult.ok) {
+      throw new Error(
+        `Numeric coercion validation failed: ${coercionResult.diagnostics.map((d) => d.message).join("; ")}`
+      );
+    }
+
     const refreshedCallResolutionResult = runCallResolutionRefreshPass(
-      proofResult.modules,
+      coercionResult.modules,
       ctx
     );
     const reloweredAfterRefreshModules = runAnonymousTypeLoweringPass(

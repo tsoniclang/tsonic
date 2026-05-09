@@ -57,6 +57,7 @@ Validation enforces:
 - strict-AOT feature boundaries
 - surface compatibility
 - numeric proof constraints
+- numeric coercion constraints
 - generic/runtime-shape determinism
 - object-literal runtime constraints
 - package-manifest correctness
