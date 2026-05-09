@@ -9,6 +9,7 @@ import {
   createProgram,
   createProgramContext,
   runAnonymousTypeLoweringPass,
+  runArrowReturnFinalizationPass,
   runAttributeCollectionPass,
   runCallResolutionRefreshPass,
   runNumericCoercionPass,
@@ -515,22 +516,26 @@ export const compileProjectToCSharp = (
       );
     }
 
-    const coercionResult = runNumericCoercionPass(proofResult.modules);
-    if (!coercionResult.ok) {
-      throw new Error(
-        `Numeric coercion validation failed: ${coercionResult.diagnostics.map((d) => d.message).join("; ")}`
-      );
-    }
-
     const refreshedCallResolutionResult = runCallResolutionRefreshPass(
-      coercionResult.modules,
+      proofResult.modules,
       ctx
     );
     const reloweredAfterRefreshModules = runAnonymousTypeLoweringPass(
       refreshedCallResolutionResult.modules
     ).modules;
 
-    const emitResult = emitCSharpFiles(reloweredAfterRefreshModules, {
+    const arrowResult = runArrowReturnFinalizationPass(
+      reloweredAfterRefreshModules
+    );
+
+    const coercionResult = runNumericCoercionPass(arrowResult.modules);
+    if (!coercionResult.ok) {
+      throw new Error(
+        `Numeric coercion validation failed: ${coercionResult.diagnostics.map((d) => d.message).join("; ")}`
+      );
+    }
+
+    const emitResult = emitCSharpFiles(coercionResult.modules, {
       rootNamespace,
       bindingRegistry: program.bindings,
       surfaceCapabilities: program.surfaceCapabilities,
