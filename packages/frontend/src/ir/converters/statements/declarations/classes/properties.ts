@@ -152,7 +152,7 @@ export const convertProperty = (
   }
 
   // Get explicit type annotation (if present) for contextual typing
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // Convert property declaration syntax through the TypeSystem.
   const explicitType = actualTypeNode
     ? ctx.typeSystem.typeFromSyntax(
         ctx.binding.captureTypeSyntax(actualTypeNode)

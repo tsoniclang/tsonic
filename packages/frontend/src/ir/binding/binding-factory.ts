@@ -194,12 +194,12 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         thisTypeNode: entry.thisTypeNode,
         returnTypeNode: entry.returnTypeNode,
         typeParameters: entry.typeParameters,
-        // CRITICAL for Alice's spec: declaring identity for resolveCall()
-        // Uses simple TS name, resolved via UnifiedTypeCatalog.resolveTsName()
+        // Declaring identity lets resolveCall apply inheritance substitution.
+        // Uses simple TS name, resolved via UnifiedTypeCatalog.resolveTsName().
         declaringTypeTsName: entry.declaringTypeTsName,
         declaringTypeParameterNames: entry.declaringTypeParameterNames,
         declaringMemberName: entry.declaringMemberName,
-        // Type predicate extracted at registration time (Alice's spec)
+        // Type predicates are extracted at registration time.
         typePredicate: entry.typePredicate,
       };
     },
@@ -227,7 +227,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TYPE SYNTAX CAPTURE (Phase 2: TypeSyntaxId)
+  // TYPE SYNTAX CAPTURE
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
@@ -281,7 +281,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     getTypePredicateOfSignature,
     getThisTypeNodeOfSignature,
     getDeclaringTypeNameOfSignature,
-    // Type syntax capture (Phase 2: TypeSyntaxId)
+    // Type syntax capture.
     captureTypeSyntax,
     captureTypeArgs,
     // Internal method for TypeSystem construction only

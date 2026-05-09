@@ -85,8 +85,7 @@ export const buildSourceCatalog = (
   // NOTE: We don't actually need the skeleton registry result since
   // buildTypeRegistry uses module-level state for name registration.
   // However, we call it to trigger the name registration walk.
-  // In a future refactor (Phase 7), this will be replaced with explicit
-  // name-only registration without creating a full registry.
+  // Name-only registration should not require creating a full registry.
   buildTypeRegistry(
     config.sourceFiles,
     config.checker,

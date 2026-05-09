@@ -304,11 +304,11 @@ export const isReadonlyMember = (decl: ts.Declaration | undefined): boolean => {
 /**
  * Extract declaring identity from a signature declaration.
  *
- * CRITICAL for Alice's spec: Without this, resolveCall() cannot compute
- * inheritance substitution. It would have to "guess" the method name
- * from the signature, which breaks on overloads, aliases, etc.
+ * Without declaring identity, resolveCall() cannot compute inheritance
+ * substitution and would have to infer the method name from the signature.
+ * That is not deterministic for overloads, aliases, or inherited members.
  *
- * DESIGN (Phase 5 Step 4): Store the declaring type as a **simple TS name**
+ * Store the declaring type as a **simple TS name**
  * (identifier text like "Box"), NOT a TS "fully qualified name". TypeSystem
  * uses UnifiedTypeCatalog.resolveTsName() to resolve this to the proper
  * CLR FQ name for inheritance substitution.

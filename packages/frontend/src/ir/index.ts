@@ -1,7 +1,7 @@
 /**
  * IR module exports
  *
- * Phase 5 Step 4: Singleton registries removed.
+ * IR public API.
  * Each compilation creates a fresh ProgramContext via buildIr().
  */
 

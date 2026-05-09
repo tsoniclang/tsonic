@@ -1,7 +1,7 @@
 /**
  * Exception handling converters (try, catch)
  *
- * Phase 5 Step 4: Uses ProgramContext instead of Binding.
+ * Uses ProgramContext for exception conversion.
  */
 
 import * as ts from "typescript";

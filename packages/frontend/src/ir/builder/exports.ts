@@ -1,7 +1,7 @@
 /**
  * Export extraction from TypeScript source
  *
- * Phase 5 Step 4: Uses ProgramContext for statement/expression conversion.
+ * Uses ProgramContext for statement/expression conversion.
  */
 
 import * as ts from "typescript";

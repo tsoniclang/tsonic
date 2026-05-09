@@ -1,7 +1,7 @@
 /**
  * Import resolution with ESM rules enforcement
  *
- * Phase 5 Step 4: No more singleton access. Module bindings are passed explicitly.
+ * Module bindings are passed explicitly.
  */
 
 import * as path from "node:path";

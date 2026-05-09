@@ -1,7 +1,7 @@
 /**
  * NominalEnv - Inheritance instantiation environment
  *
- * Phase 6 (Alice's spec): TypeId-based, Universe-driven.
+ * TypeId-based nominal environment backed by the unified universe.
  *
  * Computes type parameter substitution through inheritance chains
  * deterministically, using only the UnifiedTypeCatalog (no TypeNodes).
@@ -41,7 +41,7 @@ export type SubstitutionResult = {
 };
 
 /**
- * NominalEnv API - Phase 6: TypeId-based
+ * NominalEnv API: TypeId-based
  */
 export type NominalEnv = {
   /**
@@ -92,7 +92,7 @@ export const substituteIrType = (
 /**
  * Build a NominalEnv from a UnifiedTypeCatalog.
  *
- * Phase 6: Uses ONLY the catalog for all lookups. No TypeRegistry, no TypeNodes.
+ * Uses only the catalog for lookups. No TypeRegistry or TypeNodes.
  *
  * @param catalog The UnifiedTypeCatalog to use for lookups
  */
@@ -117,7 +117,7 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
    * Get the inheritance chain for a nominal type.
    * Returns TypeIds in order from child to parent.
    *
-   * Phase 6 (Alice's spec): This must be sufficient for nominal assignability and
+   * This must be sufficient for nominal assignability and
    * member lookup across both class inheritance and implemented interfaces.
    */
   const getInheritanceChain = (typeId: TypeId): readonly TypeId[] => {

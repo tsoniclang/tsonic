@@ -104,7 +104,6 @@ export const createProgramContext = (
   // Build TypeRegistry from all source files INCLUDING declaration files from typeRoots
   // Declaration files contain globals (String, Array, etc.) needed for method resolution
   //
-  // PHASE 4 (Alice's spec): Use buildSourceCatalog with two-pass build.
   // Pass A: Register all type names (skeleton)
   // Pass B: Convert all type annotations (with stable resolution)
   const packageRootCache = new Map<string, string | undefined>();
@@ -218,11 +217,10 @@ export const createProgramContext = (
     assemblyCatalog,
     program.options.rootNamespace
   );
-  // Phase 6: Build NominalEnv from UnifiedTypeCatalog (TypeId-based)
-  // No longer requires TypeRegistry, convertType, or binding
+  // Build NominalEnv from UnifiedTypeCatalog with TypeId-based lookup.
   const nominalEnv = buildNominalEnv(unifiedCatalog);
 
-  // Build TypeSystem — the single source of truth for all type queries (Alice's spec)
+  // Build TypeSystem as the single source of truth for type queries.
   // TypeSystem encapsulates HandleRegistry, TypeRegistry, NominalEnv and type conversion
   const bindingInternal = program.binding as BindingInternal;
   const typeSystem = createTypeSystem({
@@ -232,7 +230,7 @@ export const createProgramContext = (
     handleRegistry: bindingInternal._getHandleRegistry(),
     typeRegistry,
     nominalEnv,
-    // Phase 5: Use convertCapturedTypeNode to encapsulate cast in internal module
+    // Keep TypeScript type-node conversion encapsulated in the type-system module.
     convertTypeNode: (node: unknown) =>
       convertCapturedTypeNode(node, program.binding),
     // Unified catalog for CLR assembly type lookups

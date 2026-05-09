@@ -80,8 +80,8 @@ const deriveCallReturnType = (
 /**
  * Derive the constructed type from a new expression.
  *
- * Phase 15 (Alice's spec): Uses constructor-signature-based logic with resolveCall.
- * This enables deterministic generic inference from argument types.
+ * Uses constructor-signature-based logic with resolveCall for deterministic
+ * generic inference from argument types.
  */
 const deriveNewExpressionType = (
   node: ts.NewExpression,
@@ -243,7 +243,7 @@ export const extractTypeArguments = (
     // Only return explicitly specified type arguments
     // DETERMINISTIC: No typeToTypeNode for inferred type args
     if (node.typeArguments && node.typeArguments.length > 0) {
-      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+      // Convert explicit syntax through the TypeSystem.
       const typeSystem = ctx.typeSystem;
       return node.typeArguments.map((typeArg) =>
         typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeArg))
@@ -427,7 +427,7 @@ export const getContextualType = (
   ctx: ProgramContext
 ): IrType | undefined => {
   try {
-    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+    // Convert contextual syntax through the TypeSystem.
     const typeSystem = ctx.typeSystem;
 
     const parent = node.parent;

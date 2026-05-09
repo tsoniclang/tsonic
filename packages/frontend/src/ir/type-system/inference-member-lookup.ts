@@ -500,7 +500,7 @@ export const resolveMemberTypeNoDiag = (
   const cached = state.memberDeclaredTypeCache.get(cacheKey);
   if (cached) return cached;
 
-  // 3. Use NominalEnv to find declaring type + substitution (Phase 6: TypeId-based)
+  // 3. Use NominalEnv to find declaring type and TypeId-based substitution.
   const lookupResult = state.nominalEnv.findMemberDeclaringType(
     normalized.typeId,
     normalized.typeArgs,

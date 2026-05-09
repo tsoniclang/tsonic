@@ -1,7 +1,7 @@
 /**
  * Statement extraction from TypeScript source
  *
- * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
+ * Uses ProgramContext for statement conversion.
  */
 
 import * as ts from "typescript";

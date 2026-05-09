@@ -4,7 +4,7 @@
  * This is a lightweight semantic index used by a few compiler passes
  * (e.g., override/shadow detection against CLR base classes).
  *
- * NOTE: tsbindgen no longer emits `.metadata.json`. All CLR semantics needed
+ * CLR semantics are loaded from binding metadata and source-package manifests.
  * by the compiler live in `bindings.json`.
  */
 

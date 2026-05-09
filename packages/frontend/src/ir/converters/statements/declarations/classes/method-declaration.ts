@@ -54,7 +54,7 @@ export const convertMethod = (
   })();
 
   // Get return type from declared annotation for contextual typing
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // Convert method declaration syntax through the TypeSystem.
   const returnType = node.type
     ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;

@@ -96,7 +96,7 @@ export type ProgramContext = {
   readonly binding: Binding;
 
   /**
-   * TypeSystem for all type queries (Alice's spec).
+   * TypeSystem for all type queries.
    *
    * This is the ONLY source for type information. Converters should use
    * TypeSystem methods instead of accessing TypeRegistry/NominalEnv directly.

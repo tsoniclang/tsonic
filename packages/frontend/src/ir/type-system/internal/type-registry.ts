@@ -9,8 +9,6 @@
  * with canonical CLR FQ names
  * (e.g., String → System.String, String$instance → System.String$instance).
  *
- * Part of Alice's specification for deterministic IR typing.
- *
  * FACADE: This module re-exports from registry-helpers.ts and registry-builder.ts.
  * Type declarations are kept here so that all consumers can import from one path.
  */
@@ -19,7 +17,7 @@ import * as ts from "typescript";
 import type { IrType, IrMethodSignature } from "../../types/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PURE IR TYPES (Alice's Spec)
+// PURE IR TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**

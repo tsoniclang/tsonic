@@ -57,7 +57,7 @@ export const convertTypeParameters = (
     return undefined;
   }
 
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // Convert type parameter syntax through the TypeSystem.
   const typeSystem = ctx.typeSystem;
 
   return typeParameters.map((tp) => {
@@ -141,8 +141,7 @@ export const convertParameters = (
       break;
     }
 
-    // Get parameter type for contextual typing of default value
-    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+    // Get parameter type for contextual typing of default value.
     const typeSystem = ctx.typeSystem;
     const paramType = actualType
       ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(actualType))
@@ -175,7 +174,7 @@ export const convertVariableDeclarationList = (
   const isLet = !!(node.flags & ts.NodeFlags.Let);
   const declarationKind = isConst ? "const" : isLet ? "let" : "var";
 
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // Convert declaration syntax through the TypeSystem.
   const typeSystem = ctx.typeSystem;
 
   let currentCtx = ctx;

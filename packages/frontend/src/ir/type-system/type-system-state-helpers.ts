@@ -306,7 +306,7 @@ export const resolveSourceReferenceFQName = (
 /**
  * Normalize a receiver type to nominal form for member lookup.
  *
- * Phase 6: Returns TypeId + typeArgs for TypeId-based NominalEnv.
+ * Returns TypeId + typeArgs for TypeId-based NominalEnv.
  *
  * Primitive-to-nominal bridging is part of TypeSystem.
  */

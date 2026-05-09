@@ -2,7 +2,7 @@
  * Declaration converters (variables, functions, classes, interfaces, enums, type aliases)
  * Main dispatcher - re-exports from declarations/ subdirectory
  *
- * Phase 5 Step 4: Registry singletons removed.
+ * Uses ProgramContext for declaration conversion.
  * All context now flows through ProgramContext.
  */
 

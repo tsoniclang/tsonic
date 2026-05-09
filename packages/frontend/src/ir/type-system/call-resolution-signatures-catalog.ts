@@ -129,7 +129,7 @@ const resolveDeclaringTypeParameterNames = (
  * Given a receiver type (e.g., Array<string>) and a declaring type's TS name,
  * computes the substitution map for class type parameters.
  *
- * Phase 6: Uses TypeId-based NominalEnv.getInstantiation().
+ * Uses TypeId-based NominalEnv.getInstantiation().
  */
 export const computeReceiverSubstitution = (
   state: TypeSystemState,

@@ -1,7 +1,7 @@
 /**
  * Conditional statement converters (if, switch)
  *
- * Phase 5 Step 4: Uses ProgramContext instead of Binding.
+ * Uses ProgramContext for conditional conversion.
  */
 
 import * as ts from "typescript";

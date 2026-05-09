@@ -6,12 +6,10 @@
  * 2. Emits fatal diagnostics for missing stdlib types
  * 3. Emits error diagnostics for missing third-party types
  *
- * INVARIANT (from Phase 1): Missing stdlib type → fatal
- * INVARIANT (from Phase 1): Missing third-party metadata → error + unknownType
+ * INVARIANT: Missing stdlib type → fatal
+ * INVARIANT: Missing third-party metadata → error + unknownType
  *
- * This is the implementation of diagnostic stratification that was
- * deferred from Phase 1 to Phase 3 when UnifiedUniverse can detect
- * missing types.
+ * This is the implementation of diagnostic stratification for missing types.
  */
 
 import type { TypeId, UnifiedTypeCatalog } from "./types.js";

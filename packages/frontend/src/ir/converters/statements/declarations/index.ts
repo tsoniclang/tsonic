@@ -1,7 +1,7 @@
 /**
  * Declaration converters - Public API
  *
- * Phase 5 Step 4: Registry singletons removed.
+ * Declaration converter facade.
  * All context now flows through ProgramContext.
  */
 

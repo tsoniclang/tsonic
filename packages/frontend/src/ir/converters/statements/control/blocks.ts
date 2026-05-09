@@ -1,7 +1,7 @@
 /**
  * Block statement converter
  *
- * Phase 5 Step 4: Uses ProgramContext instead of Binding.
+ * Uses ProgramContext for block conversion.
  */
 
 import * as ts from "typescript";

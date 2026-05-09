@@ -1,7 +1,7 @@
 /**
  * Object/interface type conversion
  *
- * Phase 5 Step 4: Uses local parameter helper (no ProgramContext dependency).
+ * Uses local helpers without ProgramContext dependency.
  * Type conversion should NOT depend on statement conversion.
  */
 

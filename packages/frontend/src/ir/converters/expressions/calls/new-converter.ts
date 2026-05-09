@@ -1,7 +1,7 @@
 /**
  * New expression converter
  *
- * Phase 15 (Alice's spec): Two-pass resolution for deterministic constructor typing.
+ * Two-pass resolution for deterministic constructor typing.
  */
 
 import * as ts from "typescript";
@@ -57,12 +57,10 @@ const attachConstructorCalleeIdentity = (
   };
 };
 
-// DELETED: getConstructedType - Phase 15 uses resolveCall.returnType instead
-
 /**
  * Convert new expression
  *
- * Phase 15 (Alice's spec): Two-pass resolution for deterministic constructor typing.
+ * Two-pass resolution for deterministic constructor typing.
  * 1) Resolve once (without argTypes) to get parameter types for expected-type threading.
  * 2) Convert non-lambda arguments first, collecting argTypes for inference.
  * 3) Re-resolve with argTypes to infer constructor type parameters.
@@ -245,7 +243,7 @@ export const convertNewExpression = (
     callee.inferredType
   );
 
-  // Phase 15: inferredType MUST be finalResolved.returnType
+  // Constructor inferredType must be the final resolved return type.
   // If sigId is missing, use unknownType (do not fabricate a nominal type)
   const sourceBackedConstructorParameterTypes =
     buildSourceBackedConstructorParameterTypes({
@@ -316,7 +314,7 @@ export const convertNewExpression = (
     node
   );
 
-  // Phase 18: IrNewExpression.typeArguments must include inferred type arguments.
+  // IrNewExpression.typeArguments includes inferred type arguments.
   // The emitter relies on this field to emit generic constructor calls (e.g., new Box<int>(...)).
   const inferredTypeArguments =
     inferredType.kind === "referenceType"
