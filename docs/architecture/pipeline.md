@@ -62,8 +62,9 @@ Validation enforces:
 - package-manifest correctness
 - rejection of runtime dynamic constructs such as dynamic `import()`,
   `import.meta`, `globalThis`, `delete`, and `for...in`
-- guarded use of `typeof`, `Array.isArray`, and JavaScript `in` only when the
-  frontend has a TypeScript flow fact and Tsonic has closed-carrier proof
+- guarded use of `typeof` and `Array.isArray` only when the frontend has a
+  TypeScript flow fact and Tsonic has closed-carrier proof
+- JavaScript `in` only for statically proven string-key carriers
 
 ## Stage 5: IR
 

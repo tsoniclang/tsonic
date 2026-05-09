@@ -46,22 +46,21 @@ export function read(value: string | undefined): string {
   return "";
 }
 
-export function hasName(value: { name?: string }): boolean {
-  return "name" in value;
+export function hasKey(value: Record<string, number>): boolean {
+  return "total" in value;
 }
 ```
 
 The first example narrows a closed primitive union. The second example uses a
-string-literal key against a stable closed structural carrier, so the generated
-code does not perform runtime member discovery. For declared closed members,
-the check lowers to the proven boolean result. For dictionary carriers, it
-lowers to the typed dictionary key operation.
+string-literal key against a statically proven dictionary carrier, so the
+generated code lowers to the typed dictionary key operation.
 
 Rejected examples:
 
 ```ts
 const kind = typeof value;
 "name" in (value as object);
+"name" in ({ name: "x" } as { name?: string });
 delete value.name;
 for (const key in value) {}
 await import("./module.js");

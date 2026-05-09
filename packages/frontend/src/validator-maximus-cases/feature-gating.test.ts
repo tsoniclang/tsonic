@@ -48,6 +48,15 @@ describe("Maximus Validation Coverage", () => {
           }
         `,
       },
+      {
+        name: "in operator over declared object property",
+        code: "TSN2001",
+        source: `
+          export function hasName(value: { name?: string }): boolean {
+            return "name" in value;
+          }
+        `,
+      },
     ];
 
     for (const scenario of shouldReject) {
@@ -61,14 +70,6 @@ describe("Maximus Validation Coverage", () => {
       readonly name: string;
       readonly source: string;
     }> = [
-      {
-        name: "closed-carrier in operator",
-        source: `
-          export function hasName(value: { name?: string }): boolean {
-            return "name" in value;
-          }
-        `,
-      },
       {
         name: "class method named then",
         source: `

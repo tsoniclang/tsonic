@@ -30,7 +30,6 @@ import {
   getDictionaryComputedAccess,
 } from "./helpers.js";
 import {
-  booleanLiteral,
   charLiteral,
   decimalIntegerLiteral,
   identifierExpression,
@@ -73,10 +72,6 @@ const emitInOperator = (
     );
   }
 
-  if (plan.kind === "closedMember") {
-    return [booleanLiteral(true), context];
-  }
-
   const [rightAst, nextContext] = emitExpressionAst(
     expr.right,
     context,
@@ -98,8 +93,7 @@ const emitInOperator = (
     ];
   }
 
-  const exhaustive: never = plan;
-  throw new Error(`ICE: unknown in-operator plan ${JSON.stringify(exhaustive)}`);
+  throw new Error(`ICE: unknown in-operator plan ${JSON.stringify(plan)}`);
 };
 
 const isJsBitwiseNumberishType = (

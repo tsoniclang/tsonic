@@ -18,12 +18,11 @@ Downstream and package/publish work remains out of scope for this checkpoint. Th
 
 ## Current Upstream Checkpoint
 
-This checkpoint completed the closed-carrier `in` operator repair and NativeAOT preflight harness repair without weakening the language:
+This checkpoint completed the string-key `in` operator repair and NativeAOT preflight harness repair without weakening the language:
 
 - Broad `object`/dynamic shape probing still fails before emission.
-- Closed structural carriers can prove a static key without runtime discovery.
 - String-indexed carriers lower to typed key operations.
-- Non-stable closed structural receivers are rejected until the IR can explicitly preserve evaluation semantics.
+- Declared object properties do not lower as JavaScript own-property existence checks.
 - The frontend now records an explicit `in` materialization plan in IR; the emitter consumes that plan and no longer redoes member/carrier discovery for this operator.
 - NativeAOT preflight discovers versioned linker libraries through the run-all harness instead of requiring manual system symlinks.
 
@@ -38,7 +37,7 @@ This checkpoint completed the closed-carrier `in` operator repair and NativeAOT 
 | DF4 | Keep JS builtin name sets diagnostic-only | TODO | JS APIs lower only through active surface metadata or declared receiver members |
 | DF5 | Convert user-reachable ICEs to diagnostics | TODO | Untyped JSON and broad object-literal cases fail before emitter |
 | DF6 | Prove Jotster P0 fixes in emitter/golden tests | DONE | `override` family and expression-tree anonymous object examples both have emitted C# proof |
-| DF7 | Reconcile docs with drift rules | IN PROGRESS | Docs now cover closed-carrier `in` and NativeAOT-safe dictionary lowering; broader unknown/flow docs remain pending |
+| DF7 | Reconcile docs with drift rules | IN PROGRESS | Docs now cover string-key `in` and NativeAOT-safe dictionary lowering; broader unknown/flow docs remain pending |
 | DF8 | Incorporate semantic authority super-review | DONE | `11-semantic-authority-super-review.md` records SA1-SA14 with examples and acceptance criteria |
 | DF9 | Incorporate centralization audit | DONE | `13-centralization-audit.md` records CA1-CA18 with examples, current repeated authority, central owner, and acceptance criteria |
 
@@ -56,7 +55,7 @@ This checkpoint completed the closed-carrier `in` operator repair and NativeAOT 
 | SA8 | Truthiness is proven before emission | TODO | broad runtime truthiness helpers are removed or gated behind closed carriers |
 | SA9 | Assignment flow facts are frontend-owned | TODO | emitter write adaptation does not mutate semantic narrowed types |
 | SA10 | `unknown` has closed carrier semantics | TODO | opaque storage/pass-through works; structural use requires closed carrier or diagnostic |
-| SA11 | `in` uses flow fact plus carrier proof | DONE | Static closed-carrier and string-indexed carrier cases are proven in frontend IR and emitted without reflection/object probing |
+| SA11 | `in` uses string-key carrier proof | DONE | String-indexed carrier cases are proven in frontend IR and emitted without reflection/object probing; declared object properties are rejected because they do not preserve JavaScript own-property semantics |
 | SA12 | Runtime-union guards consume discriminant proof | TODO | `IsN`/`AsN` emitted only from explicit union arm proof |
 | SA13 | Expression-tree anonymous object proof | DONE | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
 | SA14 | JSON broad cases become diagnostics | TODO | typed serializers remain; untyped/broad dynamic JSON fails before emitter |
@@ -173,13 +172,13 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 5. Finish tsonic compiler uncertainty cleanup.
 6. Rerun focused tests and group failures by root cause.
 7. Run the full upstream Tsonic gate with `./test/scripts/run-all.sh`.
-8. Commit and push each completed step on `apr30-complete-cleanup-plan`.
+8. Commit and push each completed step on `may09-complete-cleanup-plan`.
 9. Open one PR after the full upstream gate is green.
 
 ## Validation Notes
 
 - 2026-04-29 13:55 IST: completed the recursive alias carrier checkpoint. The failing source shape was `const mountedAt = isPathSpec(first) ? first : "/"` where `first` narrows to the source-owned `PathSpec` runtime-union alias and the conditional target is `string | PathSpec`. The fix preserves exact alias identity before scalar/surface expansion, so `PathSpec` materializes as the `PathSpec` arm instead of being expanded to its inner `string` arm. Focused validation passed: `npm run build`, targeted emitter tests, targeted frontend tests, targeted CLI source-package test, and `npm run typecheck`.
-- 2026-04-30 23:59 IST: completed the closed-carrier `in` and NativeAOT preflight checkpoint on `apr30-complete-cleanup-plan`. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers|preserves readable array surfaces after setter writes before length reads' --reporter spec` with 2 passing. Full upstream gate passed with run id `20260430-222604-302148de`: 3088 passed, 0 failed.
+- 2026-04-30 23:59 IST: completed the initial `in` and NativeAOT preflight checkpoint on `apr30-complete-cleanup-plan`. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers|preserves readable array surfaces after setter writes before length reads' --reporter spec` with 2 passing. Full upstream gate passed with run id `20260430-222604-302148de`: 3088 passed, 0 failed.
 - 2026-05-01 00:12 IST: centralized `in` materialization by adding a frontend-authored IR plan. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks only for closed carriers' --reporter spec` with 1 passing.
 - 2026-05-01 10:45 IST: verified the Jotster P0 proof slice. Focused validation passed: `npm run test:emitter -- --grep 'preserves override on methods generated from overload family bodies|emits expression-tree object literal bodies as anonymous objects' --reporter spec` with 2 passing. The overload-family case proves generated members preserve `override`; the expression-tree case proves object literals in expression-tree lambda bodies emit C# anonymous object projections and do not emit dictionary initializers.
 - 2026-05-01 10:55 IST: removed serialized emitted-AST equality from branch carrier merging. The branch flow merge now compares only deterministic carrier expression keys (`identifier`, member chain, or transparent cast/parentheses) and refuses to merge unkeyable carrier expressions instead of treating printed emitted shapes as semantic identity.
@@ -189,3 +188,4 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 - 2026-05-08 01:59 IST: closed the default-vs-JS surface proof gap for member syntax by extending the default-surface negative fixture to cover TS arrays, strings, and `slice()` in addition to CLR `List<T>` JS-style calls. Focused validation passed: `bash test/scripts/run-all/e2e-worker.sh negative test/fixtures/dotnet-disallowed-js-builtins .tests/probe-negative`; `bash test/scripts/typecheck-fixtures.sh --filter array-spread --filter js-surface-runtime-builtins --filter js-string-array-returns` with 3 passed, 0 failed.
 - 2026-05-08 13:28 IST: completed the CLR identity centralization slice. The emitter no longer owns a duplicate CLR generic-name parser; its identity helper delegates `getClrIdentityKey` to the frontend canonical identity API. Binding-backed array checks no longer compare raw `System.Array`/`global::System.Array` display strings or generic prefixes; they use canonical CLR identity keys or backend-AST stable type-surface keys. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'Span_1|CLR metadata|canonical|type identity' --reporter spec` with 19 passing; `npm run test:emitter -- --grep 'backend-ast utils|type-equivalence|Reference Type Emission|access-length|call-array-wrapper|array length|computed' --reporter spec` with 82 passing; broader identity/surface emitter grep run completed with 114 passing.
 - 2026-05-08 13:56 IST: removed broad `object[]`/`System.Array` synthesis from `Array.isArray` narrowing. The frontend no longer narrows `unknown`/`any` to `unknown[]`, emitter guard extraction no longer invents `object[]`, nullable typeof refinements no longer append broad array fallbacks, and validation rejects broad `Array.isArray` sources with `TSN5001` before emission. Concrete array unions and runtime-union array arms remain supported. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'Array.isArray|unknown|feature gating|TSN5203|TSN7402' --reporter spec` with 42 passing; `npm run test:emitter -- --grep 'broad unknown Array.isArray|broad unknown typeof-object|Array.isArray-narrowed unknown|broad array assertions|Array.isArray|concrete union Array.isArray|boolean alias gates' --reporter spec` with 18 passing.
+- 2026-05-09 14:25 IST: tightened JavaScript `in` after the PR review identified declared-member proof as policy-sensitive. The frontend now permits `in` only for string-indexed dictionary carriers; declared object properties are rejected because Tsonic does not preserve JavaScript own-property existence metadata for closed structural objects. The IR plan now has only the `dictionaryKey` form, and emitter support for `closedMember -> true` was removed. Focused validation passed: `npm run build`; `npm run test:frontend -- --grep 'feature gating|TSN2001' --reporter spec` with 44 passing; `npm run test:emitter -- --grep 'in-operator checks|declared object properties' --reporter spec` with 2 passing.

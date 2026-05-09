@@ -5614,19 +5614,24 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("emits in-operator checks only for closed carriers", () => {
+    it("emits in-operator checks only for string-key dictionary carriers", () => {
       const csharp = compileToCSharp(`
-        export function hasName(value: { name?: string }): boolean {
-          return "name" in value;
-        }
-
         export function hasKey(values: Record<string, number>): boolean {
           return "total" in values;
         }
       `);
 
-      expect(csharp).to.include("return true;");
       expect(csharp).to.include('return values.ContainsKey("total");');
+    });
+
+    it("rejects in-operator checks over declared object properties", () => {
+      expect(() =>
+        compileToCSharp(`
+          export function hasName(value: { name?: string }): boolean {
+            return "name" in value;
+          }
+        `)
+      ).to.throw(/'in' operator is only supported/);
     });
   });
 });
