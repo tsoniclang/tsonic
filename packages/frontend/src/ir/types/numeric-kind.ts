@@ -26,7 +26,14 @@ export type NumericKind =
 
 export type NumericTypeFact = {
   readonly kind: "numeric";
-  readonly numericKind: NumericKind | "Half" | "Decimal" | "IntPtr" | "UIntPtr";
+  readonly numericKind:
+    | NumericKind
+    | "Half"
+    | "Decimal"
+    | "IntPtr"
+    | "UIntPtr"
+    | "Int128"
+    | "UInt128";
   readonly integral: boolean;
   readonly jsTypeof: "number";
 };
@@ -83,394 +90,52 @@ const normalizeClrNumericName = (name: string): string => {
   return arityIndex >= 0 ? withoutGlobal.slice(0, arityIndex) : withoutGlobal;
 };
 
+const numericFact = (
+  numericKind: NumericTypeFact["numericKind"],
+  integral: boolean
+): NumericTypeFact => ({
+  kind: "numeric",
+  numericKind,
+  integral,
+  jsTypeof: "number",
+});
+
+const numericFactEntries = (
+  names: readonly string[],
+  numericKind: NumericTypeFact["numericKind"],
+  integral: boolean
+): readonly (readonly [string, NumericTypeFact])[] =>
+  names.map((name) => [name, numericFact(numericKind, integral)] as const);
+
 const NUMERIC_NAME_FACTS: ReadonlyMap<string, NumericTypeFact> = new Map([
-  [
-    "sbyte",
-    {
-      kind: "numeric",
-      numericKind: "SByte",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "SByte",
-    {
-      kind: "numeric",
-      numericKind: "SByte",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.SByte",
-    {
-      kind: "numeric",
-      numericKind: "SByte",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "byte",
-    {
-      kind: "numeric",
-      numericKind: "Byte",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "Byte",
-    {
-      kind: "numeric",
-      numericKind: "Byte",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.Byte",
-    {
-      kind: "numeric",
-      numericKind: "Byte",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "short",
-    {
-      kind: "numeric",
-      numericKind: "Int16",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "Int16",
-    {
-      kind: "numeric",
-      numericKind: "Int16",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.Int16",
-    {
-      kind: "numeric",
-      numericKind: "Int16",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "ushort",
-    {
-      kind: "numeric",
-      numericKind: "UInt16",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "UInt16",
-    {
-      kind: "numeric",
-      numericKind: "UInt16",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.UInt16",
-    {
-      kind: "numeric",
-      numericKind: "UInt16",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "int",
-    {
-      kind: "numeric",
-      numericKind: "Int32",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "Int32",
-    {
-      kind: "numeric",
-      numericKind: "Int32",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.Int32",
-    {
-      kind: "numeric",
-      numericKind: "Int32",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "uint",
-    {
-      kind: "numeric",
-      numericKind: "UInt32",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "UInt32",
-    {
-      kind: "numeric",
-      numericKind: "UInt32",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.UInt32",
-    {
-      kind: "numeric",
-      numericKind: "UInt32",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "long",
-    {
-      kind: "numeric",
-      numericKind: "Int64",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "Int64",
-    {
-      kind: "numeric",
-      numericKind: "Int64",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.Int64",
-    {
-      kind: "numeric",
-      numericKind: "Int64",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "ulong",
-    {
-      kind: "numeric",
-      numericKind: "UInt64",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "UInt64",
-    {
-      kind: "numeric",
-      numericKind: "UInt64",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.UInt64",
-    {
-      kind: "numeric",
-      numericKind: "UInt64",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "nint",
-    {
-      kind: "numeric",
-      numericKind: "IntPtr",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "IntPtr",
-    {
-      kind: "numeric",
-      numericKind: "IntPtr",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.IntPtr",
-    {
-      kind: "numeric",
-      numericKind: "IntPtr",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "nuint",
-    {
-      kind: "numeric",
-      numericKind: "UIntPtr",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
+  ...numericFactEntries(["sbyte", "SByte", "System.SByte"], "SByte", true),
+  ...numericFactEntries(["byte", "Byte", "System.Byte"], "Byte", true),
+  ...numericFactEntries(["short", "Int16", "System.Int16"], "Int16", true),
+  ...numericFactEntries(["ushort", "UInt16", "System.UInt16"], "UInt16", true),
+  ...numericFactEntries(["int", "Int32", "System.Int32"], "Int32", true),
+  ...numericFactEntries(["uint", "UInt32", "System.UInt32"], "UInt32", true),
+  ...numericFactEntries(["long", "Int64", "System.Int64"], "Int64", true),
+  ...numericFactEntries(["ulong", "UInt64", "System.UInt64"], "UInt64", true),
+  ...numericFactEntries(["nint", "IntPtr", "System.IntPtr"], "IntPtr", true),
+  ...numericFactEntries(
+    ["nuint", "UIntPtr", "System.UIntPtr"],
     "UIntPtr",
-    {
-      kind: "numeric",
-      numericKind: "UIntPtr",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.UIntPtr",
-    {
-      kind: "numeric",
-      numericKind: "UIntPtr",
-      integral: true,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "half",
-    {
-      kind: "numeric",
-      numericKind: "Half",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "Half",
-    {
-      kind: "numeric",
-      numericKind: "Half",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.Half",
-    {
-      kind: "numeric",
-      numericKind: "Half",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "float",
-    {
-      kind: "numeric",
-      numericKind: "Single",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "Single",
-    {
-      kind: "numeric",
-      numericKind: "Single",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.Single",
-    {
-      kind: "numeric",
-      numericKind: "Single",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "number",
-    {
-      kind: "numeric",
-      numericKind: "Double",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "double",
-    {
-      kind: "numeric",
-      numericKind: "Double",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
+    true
+  ),
+  ...numericFactEntries(["Int128", "System.Int128"], "Int128", true),
+  ...numericFactEntries(["UInt128", "System.UInt128"], "UInt128", true),
+  ...numericFactEntries(["half", "Half", "System.Half"], "Half", false),
+  ...numericFactEntries(["float", "Single", "System.Single"], "Single", false),
+  ...numericFactEntries(
+    ["number", "double", "Double", "System.Double"],
     "Double",
-    {
-      kind: "numeric",
-      numericKind: "Double",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.Double",
-    {
-      kind: "numeric",
-      numericKind: "Double",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "decimal",
-    {
-      kind: "numeric",
-      numericKind: "Decimal",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
+    false
+  ),
+  ...numericFactEntries(
+    ["decimal", "Decimal", "System.Decimal"],
     "Decimal",
-    {
-      kind: "numeric",
-      numericKind: "Decimal",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
-  [
-    "System.Decimal",
-    {
-      kind: "numeric",
-      numericKind: "Decimal",
-      integral: false,
-      jsTypeof: "number",
-    },
-  ],
+    false
+  ),
 ]);
 
 const BOOLEAN_NAME_FACTS: ReadonlyMap<string, PrimitiveTypeFact> = new Map([
