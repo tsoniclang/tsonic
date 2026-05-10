@@ -16,6 +16,8 @@ The interrupted task was the interim diff review. That review is complete enough
 
 Downstream and package/publish work remains out of scope for this checkpoint. The upstream Tsonic gate is the only validation target for this branch until the P0 centralization and drift blocks are complete.
 
+The merged `may09-finish-cleanup-plan` PR has been reviewed in `.analysis/merged-pr-review-may10`. That review found no product-specific hacks in the merged checkpoint, but it carried forward centralization gaps around numeric type facts, `typeof` guard proof, test helper pipeline boundaries, closed `unknown` carriers, and object-literal/union-arm materialization.
+
 ## Current Upstream Checkpoint
 
 This checkpoint completed the string-key `in` operator repair and NativeAOT preflight harness repair without weakening the language:
@@ -40,12 +42,13 @@ This checkpoint completed the string-key `in` operator repair and NativeAOT pref
 | DF7 | Reconcile docs with drift rules | IN PROGRESS | Docs now cover string-key `in` and NativeAOT-safe dictionary lowering; broader unknown/flow docs remain pending |
 | DF8 | Incorporate semantic authority super-review | DONE | `11-semantic-authority-super-review.md` records SA1-SA14 with examples and acceptance criteria |
 | DF9 | Incorporate centralization audit | DONE | `13-centralization-audit.md` records CA1-CA18 with examples, current repeated authority, central owner, and acceptance criteria |
+| DF10 | Incorporate merged PR review gaps | DONE | `.analysis/merged-pr-review-may10` clusters the merged checkpoint by issue type and feeds remaining gaps back into this tracker |
 
 ## Semantic Authority Block
 
 | ID | Task | Status | Acceptance |
 | --- | --- | --- | --- |
-| SA1 | Frontend owns branch narrowing | TODO | `if`/`else` facts come from frontend IR; emitter does not parse arbitrary branch guards for source type decisions |
+| SA1 | Frontend owns branch narrowing | TODO | `if`/`else` facts come from frontend IR; emitter does not parse arbitrary branch guards for source type decisions; merged PR review confirms `typeof` guard proof still has emitter-side authority to remove |
 | SA2 | Ternary uses same flow facts as branches | TODO | `?:` consumes the same proof model as `if`; no ternary-only semantic matcher |
 | SA3 | Branch merge uses stable IDs | DONE | branch carrier merge uses deterministic carrier expression keys and refuses unkeyable carrier expressions |
 | SA4 | Remove broad `object[]` synthesis | DONE | `Array.isArray` over broad `unknown/object` now requires known array carriers or fails with `TSN5001`; emitter broad array fallback synthesis was removed |
@@ -56,7 +59,7 @@ This checkpoint completed the string-key `in` operator repair and NativeAOT pref
 | SA9 | Assignment flow facts are frontend-owned | TODO | emitter write adaptation does not mutate semantic narrowed types |
 | SA10 | `unknown` has closed carrier semantics | TODO | opaque storage/pass-through works; structural use requires closed carrier or diagnostic |
 | SA11 | `in` uses string-key carrier proof | DONE | String-indexed carrier cases are proven in frontend IR and emitted without reflection/object probing; declared object properties are rejected because they do not preserve JavaScript own-property semantics |
-| SA12 | Runtime-union guards consume discriminant proof | TODO | `IsN`/`AsN` emitted only from explicit union arm proof |
+| SA12 | Runtime-union guards consume discriminant proof | TODO | `IsN`/`AsN` emitted only from explicit union arm proof; merged PR fixed aligned/nullish materialization but frontend proof ownership is still pending |
 | SA13 | Expression-tree anonymous object proof | DONE | expression-tree object literal emits anonymous projection; dictionaries remain dictionary-only |
 | SA14 | JSON broad cases become diagnostics | TODO | typed serializers remain; untyped/broad dynamic JSON fails before emitter |
 
@@ -66,14 +69,14 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 
 | ID | Task | Status | Acceptance |
 | --- | --- | --- | --- |
-| CA1 | Centralize flow/narrowing facts | IN PROGRESS | `in` operator materialization now starts in frontend IR; remaining guard families still require centralization |
+| CA1 | Centralize flow/narrowing facts | IN PROGRESS | `in` operator materialization now starts in frontend IR; merged PR review adds `typeof` runtime-union proof as the next high-priority guard family to centralize |
 | CA2 | Centralize type identity/equivalence/stable keys | IN PROGRESS | Heritage dedup/sort now uses stable IR type keys instead of JSON-serialized type arguments; broader semantic comparison audit remains |
 | CA3 | Centralize surface API availability and lowering | TODO | Surface metadata resolves JS/CLR/API members; no hardcoded source-name lowering in emitter |
 | CA4 | Centralize member/property/indexer lookup | IN PROGRESS | `in` operator materialization is frontend-owned; dictionary indexers no longer masquerade as declared dot-properties; broader member/indexer access still requires centralization |
 | CA5 | Centralize call/overload/signature/argument resolution | IN PROGRESS | call-site argument passing no longer scores CLR overloads by parsed display signatures; remaining call/lambda context paths still require audit |
 | CA6 | Centralize object literal target/materialization | TODO | IR carries nominal/anonymous/dictionary/structural materialization plan; emitter has no object-shape fallback |
 | CA7 | Centralize `unknown`/`object`/`JsValue` broad-carrier policy | TODO | Opaque storage is distinct from structural use; property/method access requires frontend proof and closed NativeAOT-safe carrier |
-| CA8 | Centralize numeric proof/conversion authority | IN PROGRESS | Numeric conversions/indexing require proof tokens or type-system relation; emitter integral casts no longer treat `number` as proof for `int`; remaining numeric call-resolution paths still require audit |
+| CA8 | Centralize numeric proof/conversion authority | IN PROGRESS | Numeric conversions/indexing require proof tokens or type-system relation; emitter integral casts no longer treat `number` as proof for `int`; merged PR review found duplicated numeric type facts in validation, post-emission adaptation, and `typeof` matching |
 | CA9 | Centralize JSON parse/stringify policy | TODO | JSON operations carry typed/unknown-with-validation/invalid plan; emitter does not independently decide closedness |
 | CA10 | Centralize truthiness/nullish boolean policy | TODO | Branch condition facts are normalized once and consumed by branch, ternary, logical, and coalesce lowering |
 | CA11 | Centralize intrinsics/provenance/reserved names | TODO | Intrinsic registry owns name, arity, provenance, target eligibility, and emitted IR kind |
@@ -84,6 +87,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA16 | Centralize config/manifest schema parsing | TODO | CLI/frontend/package loaders share schema validators and path-aware diagnostics |
 | CA17 | Centralize package/source/path identity | TODO | Resolver/CLI/package manifest code share one canonical package identity model |
 | CA18 | Centralize test fixture/generated artifact policy | IN PROGRESS | NativeAOT linker-library discovery is centralized in the run-all harness; broader fixture/generated-artifact policy remains pending |
+| CA19 | Centralize test helper pipeline boundaries | TODO | Full-pipeline helpers must run product validation; lower-layer helpers must be explicitly named as lower-layer-only and cannot imply product source acceptance |
 
 ## Current Checkpoint Tasks
 
@@ -132,6 +136,8 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C24 | Emitter semantic analyzers audited and retired | TODO | every `narrowedBindings`/guard parser path is classified as frontend proof, materialization, or removal |
 | C25 | Branch flow fact model normalized | TODO | branch, ternary, logical, assignment, and truthiness facts have one representation |
 | C26 | Closed `unknown`/JSON carrier diagnostics | TODO | unsupported structural `unknown` cases fail deterministically without reflection/dynamic helpers |
+| C27 | Central numeric type-fact service | TODO | `typeof` matching, validation, and emitter materialization consume one numeric/boolean carrier fact source instead of maintaining local name sets |
+| C28 | Full-pipeline test helper audit | TODO | emitter/frontend/CLI test helpers are classified by pipeline boundary and full source helpers run validation before emission |
 
 ## Upstream Package Items
 
@@ -158,7 +164,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | ID | Task | Status |
 | --- | --- | --- |
 | P1 | Produce current diff report before resuming code edits | DONE |
-| P2 | Commit/PR tsonic cleanup | IN PROGRESS |
+| P2 | Commit/PR tsonic cleanup | DONE |
 | P3 | Commit/PR upstream package changes | TODO |
 | P4 | Commit/PR downstream changes | TODO |
 | P5 | Publish wave after merge and full validation | TODO |
@@ -172,7 +178,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 5. Finish tsonic compiler uncertainty cleanup.
 6. Rerun focused tests and group failures by root cause.
 7. Run the full upstream Tsonic gate with `./test/scripts/run-all.sh`.
-8. Commit and push each completed step on `may09-complete-cleanup-plan`.
+8. Commit and push each completed step on `may10-complete-cleanup-plan`.
 9. Open one PR after the full upstream gate is green.
 
 ## Validation Notes
