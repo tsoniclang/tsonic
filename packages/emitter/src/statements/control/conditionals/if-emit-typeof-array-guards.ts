@@ -21,6 +21,7 @@ import {
   resolveDirectStorageExpressionType,
   resolveIdentifierRuntimeCarrierType,
 } from "../../../expressions/direct-storage-types.js";
+import { resolveAlignedRuntimeUnionMembers } from "../../../core/semantic/narrowed-union-resolution.js";
 import {
   isDefinitelyTerminating,
   resolveRuntimeUnionFrame,
@@ -202,20 +203,46 @@ const tryEmitDirectTypeofConditionAst = (
   const directStorageType = resolveDirectStorageExpressionType(
     guard.targetExpr,
     targetAst,
-    runtimeFrameContext
+    targetContext
   );
+  const runtimeCarrierType =
+    (guard.targetExpr.kind === "identifier"
+      ? resolveIdentifierRuntimeCarrierType(
+          guard.targetExpr,
+          targetContext
+        )
+      : undefined) ?? directStorageType;
   const directStorageIsBroad =
     directStorageType !== undefined &&
-    isBroadObjectSlotType(directStorageType, runtimeFrameContext);
+    isBroadObjectSlotType(directStorageType, targetContext);
+  const alignedRuntimeMembers =
+    !directStorageIsBroad &&
+    guard.bindingKey !== undefined &&
+    currentType !== undefined
+      ? resolveAlignedRuntimeUnionMembers(
+          guard.bindingKey,
+          currentType,
+          runtimeCarrierType,
+          runtimeFrameContext
+        )
+      : undefined;
   const runtimeUnionFrame =
-    currentType &&
-    resolveRuntimeUnionFrame(
-      guard.bindingKey,
-      currentType,
-      runtimeFrameContext
-    );
+    alignedRuntimeMembers === undefined && currentType !== undefined
+      ? resolveRuntimeUnionFrame(
+          guard.bindingKey,
+          currentType,
+          runtimeFrameContext
+        )
+      : undefined;
 
   const matchingRuntimeMemberNs =
+    alignedRuntimeMembers?.members.flatMap((member, index) => {
+      if (!member || !matchesTypeofTag(member, guard.tag, runtimeFrameContext)) {
+        return [];
+      }
+      const runtimeMemberN = alignedRuntimeMembers.candidateMemberNs[index];
+      return runtimeMemberN ? [runtimeMemberN] : [];
+    }) ??
     runtimeUnionFrame?.members.flatMap((member, index) => {
       if (!member || !matchesTypeofTag(member, guard.tag, runtimeFrameContext)) {
         return [];
@@ -224,14 +251,15 @@ const tryEmitDirectTypeofConditionAst = (
       return runtimeMemberN ? [runtimeMemberN] : [];
     }) ?? [];
   const guardRuntimeNullish =
-    runtimeUnionFrame !== undefined &&
+    (runtimeUnionFrame !== undefined || alignedRuntimeMembers !== undefined) &&
     (currentType
       ? (splitRuntimeNullishUnionMembers(currentType)?.hasRuntimeNullish ??
         false)
       : false);
 
   const positiveCondition =
-    runtimeUnionFrame && matchingRuntimeMemberNs.length > 0
+    (runtimeUnionFrame ?? alignedRuntimeMembers) &&
+    matchingRuntimeMemberNs.length > 0
       ? buildAnyIsNCondition(
           resolveRuntimeCarrierExpressionAst(
             guard.targetExpr,

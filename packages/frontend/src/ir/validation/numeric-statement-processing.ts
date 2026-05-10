@@ -64,23 +64,7 @@ export const processStatement = (
     }
 
     case "expressionStatement": {
-      // Check call expressions for parameter coercion
-      if (stmt.expression.kind === "call") {
-        const call = stmt.expression;
-        // Check each argument against expected parameter type
-        if (call.parameterTypes) {
-          call.arguments.forEach((arg, i) => {
-            if (arg.kind !== "spread" && call.parameterTypes?.[i]) {
-              validateExpression(
-                arg,
-                call.parameterTypes[i],
-                ctx,
-                `in argument ${i + 1}`
-              );
-            }
-          });
-        }
-      }
+      scanExpressionForCalls(stmt.expression, ctx);
       break;
     }
 
@@ -132,14 +116,25 @@ export const processStatement = (
               scanExpressionForCalls(param.initializer, ctx);
             }
           }
+          if (member.body) {
+            processStatement(member.body, ctx);
+          }
         }
-        if (member.kind === "propertyDeclaration" && member.initializer) {
-          validateExpression(
-            member.initializer,
-            member.type,
-            ctx,
-            "in property initialization"
-          );
+        if (member.kind === "propertyDeclaration") {
+          if (member.initializer) {
+            validateExpression(
+              member.initializer,
+              member.type,
+              ctx,
+              "in property initialization"
+            );
+          }
+          if (member.getterBody) {
+            processStatementWithReturnType(member.getterBody, member.type, ctx);
+          }
+          if (member.setterBody) {
+            processStatement(member.setterBody, ctx);
+          }
         }
       }
       break;
@@ -160,9 +155,37 @@ export const processStatement = (
       break;
     }
 
-    case "whileStatement":
+    case "whileStatement": {
+      scanExpressionForCalls(stmt.condition, ctx);
+      processStatement(stmt.body, ctx);
+      break;
+    }
+
     case "forStatement":
+      if (stmt.initializer) {
+        if (stmt.initializer.kind === "variableDeclaration") {
+          processStatement(stmt.initializer, ctx);
+        } else {
+          scanExpressionForCalls(stmt.initializer, ctx);
+        }
+      }
+      if (stmt.condition) {
+        scanExpressionForCalls(stmt.condition, ctx);
+      }
+      if (stmt.update) {
+        scanExpressionForCalls(stmt.update, ctx);
+      }
+      processStatement(stmt.body, ctx);
+      break;
+
     case "forOfStatement": {
+      scanExpressionForCalls(stmt.expression, ctx);
+      processStatement(stmt.body, ctx);
+      break;
+    }
+
+    case "forInStatement": {
+      scanExpressionForCalls(stmt.expression, ctx);
       processStatement(stmt.body, ctx);
       break;
     }
@@ -265,16 +288,19 @@ const processModule = (module: IrModule): NumericCoercionResult => {
     filePath: module.filePath,
     diagnostics: [],
   };
+  const processed = new Set<IrStatement>();
 
   // Process module body
   for (const stmt of module.body) {
     processStatement(stmt, ctx);
+    processed.add(stmt);
   }
 
   // Process exports
   for (const exp of module.exports) {
-    if (exp.kind === "declaration") {
+    if (exp.kind === "declaration" && !processed.has(exp.declaration)) {
       processStatement(exp.declaration, ctx);
+      processed.add(exp.declaration);
     }
   }
 

@@ -2046,8 +2046,9 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("casts broad JS numbers to imported CLR integral overload parameters", () => {
-      const csharp = compileToCSharp(`
+    it("rejects broad JS numbers flowing to imported CLR integral overload parameters", () => {
+      expect(() =>
+        compileToCSharp(`
         import type { int } from "@tsonic/core/types.js";
         import { Process } from "@tsonic/dotnet/System.Diagnostics.js";
 
@@ -2061,10 +2062,8 @@ describe("End-to-End Integration", () => {
           const timeout = options?.timeout ?? 0;
           return process.WaitForExit(timeout);
         }
-      `);
-
-      expect(csharp).to.include("return process.WaitForExit((int)timeout);");
-      expect(csharp).not.to.include("return process.WaitForExit(timeout);");
+      `)
+      ).to.throw("Implicit narrowing not allowed");
     });
 
     it("null-checks optional Array.isArray runtime-union guards before member tests", () => {
@@ -3419,8 +3418,10 @@ describe("End-to-End Integration", () => {
     it("preserves narrowed runtime-union members when coercing Uint8Array byte elements", () => {
       const csharp = compileToCSharp(
         `
+          import type { byte } from "@tsonic/core/types.js";
+
           export function create(
-            generatorOrEncoding: number | Uint8Array | string
+            generatorOrEncoding: byte | Uint8Array | string
           ): Uint8Array {
             if (typeof generatorOrEncoding === "number") {
               return new Uint8Array([generatorOrEncoding]);
@@ -3436,7 +3437,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From2(global::js.TypedArrayInput<byte>.From1(new byte[] { (byte)(generatorOrEncoding.As2()) })))"
+        "new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From2(global::js.TypedArrayInput<byte>.From1(new byte[] { (generatorOrEncoding.As3()) })))"
       );
       expect(csharp).not.to.include(
         "new global::js.Uint8Array(new byte[] { (byte)generatorOrEncoding })"
@@ -3547,12 +3548,12 @@ describe("End-to-End Integration", () => {
     it("preserves narrowed runtime-union members in typed byte array literals", () => {
       const csharp = compileToCSharp(
         `
-          import type { byte, int } from "@tsonic/core/types.js";
+          import type { byte } from "@tsonic/core/types.js";
 
           declare function takesBytes(values: byte[]): void;
 
           export function create(
-            generatorOrEncoding: number | Uint8Array | string
+            generatorOrEncoding: byte | Uint8Array | string
           ): void {
             if (typeof generatorOrEncoding === "number") {
               takesBytes([generatorOrEncoding]);
@@ -3566,7 +3567,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "takesBytes(new byte[] { (byte)(generatorOrEncoding.As2()) })"
+        "takesBytes(new byte[] { (generatorOrEncoding.As3()) })"
       );
       expect(csharp).not.to.include(
         "takesBytes(new byte[] { (byte)generatorOrEncoding })"
@@ -3658,10 +3659,12 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("(int)(object)shadow__1 is BoolValue");
     });
 
-    it("casts numeric Uint8Array length constructors to int", () => {
+    it("keeps exact-int Uint8Array length constructors on the numeric arm", () => {
       const csharp = compileToCSharp(
         `
-          export function run(start: number, end: number): Uint8Array {
+          import type { int } from "@tsonic/core/types.js";
+
+          export function run(start: int, end: int): Uint8Array {
             return new Uint8Array(end - start);
           }
         `,
@@ -3672,7 +3675,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1((int)(end - start)))"
+        "new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1(end - start))"
       );
       expect(csharp).not.to.include(
         "new global::js.Uint8Array((int)global::js.TypedArrayConstructorInput"
@@ -3727,7 +3730,9 @@ describe("End-to-End Integration", () => {
     it("keeps conditional Uint8Array length constructors on the numeric arm", () => {
       const csharp = compileToCSharp(
         `
-          export function run(totalLength: number): Uint8Array {
+          import type { int } from "@tsonic/core/types.js";
+
+          export function run(totalLength: int): Uint8Array {
             return new Uint8Array(totalLength === 0 ? 1 : totalLength);
           }
         `,
@@ -3738,7 +3743,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1(totalLength == 0 ? 1 : (int)totalLength));"
+        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From1(totalLength == 0 ? 1 : totalLength));"
       );
       expect(csharp).not.to.include(
         "return new global::js.Uint8Array(totalLength == 0 ? global::js.TypedArrayConstructorInput<byte>.From2("
@@ -3886,23 +3891,21 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("casts non-byte typed-array numeric length constructors to int", () => {
-      const csharp = compileToCSharp(
-        `
+    it("rejects broad numeric lengths for non-byte typed-array constructors", () => {
+      expect(() =>
+        compileToCSharp(
+          `
           export function run(start: number, end: number): void {
             const view = new Int16Array(end - start);
             void view;
           }
         `,
-        "/test/test.ts",
-        {
-          surface: "@tsonic/js",
-        }
-      );
-
-      expect(csharp).to.include(
-        "new global::js.Int16Array(global::js.TypedArrayConstructorInput<short>.From1((int)(end - start)))"
-      );
+          "/test/test.ts",
+          {
+            surface: "@tsonic/js",
+          }
+        )
+      ).to.throw("Implicit narrowing not allowed");
     });
 
     it("casts Uint8Array element assignments to byte", () => {
@@ -3925,9 +3928,10 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("data[i] = 255;");
     });
 
-    it("casts JS numeric expressions when assigning into int slots", () => {
-      const csharp = compileToCSharp(
-        `
+    it("rejects JS numeric expressions when assigning into int slots", () => {
+      expect(() =>
+        compileToCSharp(
+          `
           import type { int } from "@tsonic/core/types.js";
 
           class CursorPosition {
@@ -3940,6 +3944,29 @@ describe("End-to-End Integration", () => {
             return pos;
           }
         `,
+          "/test/test.ts",
+          {
+            surface: "@tsonic/js",
+          }
+        )
+      ).to.throw("Implicit narrowing not allowed");
+    });
+
+    it("emits explicit numeric narrowings when assigning into int slots", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          class CursorPosition {
+            rows: int = 0;
+          }
+
+          export function run(totalLength: int): CursorPosition {
+            const pos = new CursorPosition();
+            pos.rows = (totalLength + 1) as int;
+            return pos;
+          }
+        `,
         "/test/test.ts",
         {
           surface: "@tsonic/js",
@@ -3947,13 +3974,14 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "pos.rows = (int)global::js.Math.floor(totalLength / 80);"
+        "pos.rows = (int)(totalLength + 1);"
       );
     });
 
-    it("casts JS numeric expressions when assigning through exact int property slots", () => {
-      const csharp = compileToCSharp(
-        `
+    it("rejects JS numeric expressions when assigning through exact int property slots", () => {
+      expect(() =>
+        compileToCSharp(
+          `
           import type { int } from "@tsonic/core/types.js";
 
           class Counter {
@@ -3966,6 +3994,33 @@ describe("End-to-End Integration", () => {
           }
 
           export function run(value: number): void {
+            const counter = new Counter();
+            counter.value = value;
+          }
+        `,
+          "/test/test.ts",
+          {
+            surface: "@tsonic/js",
+          }
+        )
+      ).to.throw("Implicit narrowing not allowed");
+    });
+
+    it("emits explicit numeric narrowings when assigning through exact int property slots", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          class Counter {
+            #value: int = 0;
+
+            set value(v: int) {
+              const offset: int = 123;
+              this.#value = (v + offset) as int;
+            }
+          }
+
+          export function run(value: int): void {
             const counter = new Counter();
             counter.value = value;
           }
