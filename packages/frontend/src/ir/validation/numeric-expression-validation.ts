@@ -36,7 +36,14 @@ export const emitCoercionError = (
   const expectedKind = getExpectedNumericKind(expectedType);
 
   // Build descriptive type names
-  const actualName = actualKind === "Int32" ? "int" : "double";
+  const actualName =
+    actualKind === "Unknown"
+      ? "unknown numeric"
+      : actualKind === "Double"
+        ? "double"
+        : actualKind === "Single"
+          ? "float"
+          : actualKind.toLowerCase();
   const expectedName =
     expectedKind === "Double"
       ? "number"

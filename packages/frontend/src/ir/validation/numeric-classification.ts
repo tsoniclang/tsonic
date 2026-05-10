@@ -37,11 +37,10 @@ const MAX_FLOAT_ABS = 3.4028235e38;
 
 /**
  * Result of numeric expression classification.
- * - "Int32": Expression definitely produces an Int32 value
- * - "Double": Expression definitely produces a Double value
+ * - NumericKind: Expression definitely produces that CLR numeric value
  * - "Unknown": Cannot determine at compile time (e.g., untyped identifier, complex call)
  */
-export type NumericExprKind = "Int32" | "Double" | "Unknown";
+export type NumericExprKind = NumericKind | "Unknown";
 
 /**
  * Arithmetic operators that produce numeric results.
@@ -49,11 +48,35 @@ export type NumericExprKind = "Int32" | "Double" | "Unknown";
  */
 const ARITHMETIC_OPERATORS = new Set(["+", "-", "*", "/", "%"]);
 
+const numericKindFromFact = (
+  fact: ReturnType<typeof numericTypeFactFromName> | undefined
+): NumericKind | undefined => {
+  switch (fact?.numericKind) {
+    case "SByte":
+    case "Byte":
+    case "Int16":
+    case "UInt16":
+    case "Int32":
+    case "UInt32":
+    case "Int64":
+    case "UInt64":
+    case "Single":
+    case "Double":
+      return fact.numericKind;
+    case "Half":
+      return "Single";
+    case "Decimal":
+      return "Double";
+    default:
+      return undefined;
+  }
+};
+
 const classifyNumericType = (type: IrType | undefined): NumericExprKind => {
   if (type?.kind === "primitiveType") {
     const fact = numericTypeFactFromName(type.name);
     if (fact?.kind === "numeric") {
-      return fact.integral ? "Int32" : "Double";
+      return numericKindFromFact(fact) ?? "Unknown";
     }
   }
 
@@ -62,7 +85,11 @@ const classifyNumericType = (type: IrType | undefined): NumericExprKind => {
       type.typeId?.clrName ?? type.resolvedClrType ?? type.name
     );
     if (fact?.kind === "numeric") {
-      return fact.integral ? "Int32" : "Double";
+      const exactKind =
+        TSONIC_TO_NUMERIC_KIND.get(type.name) ??
+        TSONIC_TO_NUMERIC_KIND.get(type.name.toLowerCase());
+      if (exactKind) return exactKind;
+      return numericKindFromFact(fact) ?? "Unknown";
     }
   }
 
@@ -123,16 +150,10 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
         return "Unknown";
       }
 
-      // Use C# binary promotion rules
-      // Note: getBinaryResultKind returns NumericKind, we map to our simplified type
-      const resultKind = getBinaryResultKind(
-        leftKind === "Int32" ? "Int32" : "Double",
-        rightKind === "Int32" ? "Int32" : "Double"
-      );
+      // Use C# binary promotion rules.
+      const resultKind = getBinaryResultKind(leftKind, rightKind);
 
-      // Map back to our simplified kind
-      if (resultKind === "Double" || resultKind === "Single") return "Double";
-      return "Int32"; // All integer promotions end up as at least Int32
+      return resultKind;
     }
 
     case "conditional": {
@@ -150,8 +171,7 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
       // numericNarrowing has explicit targetKind
       if (expr.targetKind === "Int32") return "Int32";
       if (expr.targetKind === "Double") return "Double";
-      // Other numeric kinds (Byte, Int64, etc.) - treat as Unknown for this pass
-      return "Unknown";
+      return expr.targetKind;
     }
 
     case "call": {
@@ -350,17 +370,13 @@ export const needsCoercion = (
     return false;
   }
 
-  // Map actualKind to NumericKind (classifyNumericExpr returns "Int32" | "Double" | "Unknown")
-  const actualNumericKind: NumericKind =
-    actualKind === "Int32" ? "Int32" : "Double";
-
   // Same kind → OK
-  if (actualNumericKind === expectedKind) {
+  if (actualKind === expectedKind) {
     return false;
   }
 
   // Widening conversion → OK (e.g., Int32 → Double)
-  if (isWideningConversion(actualNumericKind, expectedKind)) {
+  if (isWideningConversion(actualKind, expectedKind)) {
     return false;
   }
 
