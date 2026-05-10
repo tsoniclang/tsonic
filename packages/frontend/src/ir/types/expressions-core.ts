@@ -346,14 +346,10 @@ export type IrUnaryExpression = {
 };
 
 export type IrInOperatorPlan =
-  | {
-      readonly kind: "dictionaryKey";
-      readonly key: string;
-    }
-  | {
-      readonly kind: "closedMember";
-      readonly key: string;
-    };
+  {
+    readonly kind: "dictionaryKey";
+    readonly key: string;
+  };
 
 export type IrBinaryExpression = {
   readonly kind: "binary";

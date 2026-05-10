@@ -2,7 +2,7 @@
  * Type converter - TypeScript types to IR types
  * Main dispatcher - re-exports from type-system/internal/type-converter/
  *
- * NOTE: type-converter is now part of type-system internals per Alice's spec.
+ * Type converter internals are owned by the TypeSystem.
  * These files are allowed to use HandleRegistry since they're inside type-system.
  */
 

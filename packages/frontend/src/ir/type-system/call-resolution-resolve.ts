@@ -218,7 +218,7 @@ export const resolveCall = (
   // 1. Load raw signature (cached)
   const rawSig = getRawSignature(state, sigId);
   if (!rawSig) {
-    // BINDING CONTRACT VIOLATION (Alice's spec): If Binding returned a
+    // Binding contract violation: if Binding returned a
     // SignatureId, HandleRegistry.getSignature(sigId) MUST succeed.
     // This indicates a bug in Binding, not a normal runtime condition.
     //

@@ -1,7 +1,7 @@
 /**
  * Loop statement converters (while, for, for-of)
  *
- * Phase 5 Step 4: Uses ProgramContext instead of Binding.
+ * Uses ProgramContext for loop conversion.
  */
 
 import * as ts from "typescript";

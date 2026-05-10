@@ -1,7 +1,7 @@
 /**
  * IR Builder orchestration - Main module building logic
  *
- * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
+ * Uses ProgramContext for IR orchestration.
  */
 
 import * as ts from "typescript";

@@ -24,7 +24,7 @@ export const convertFunctionDeclaration = (
   if (!node.name) return null;
 
   // Get return type from declared annotation for contextual typing
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // Convert function declaration syntax through the TypeSystem.
   const returnType = node.type
     ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;

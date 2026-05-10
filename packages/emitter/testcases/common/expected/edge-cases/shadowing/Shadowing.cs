@@ -2,7 +2,7 @@ namespace TestCases.common.edgecases.shadowing
 {
     public class SetterValueShadowing
     {
-        private int __private_x = 0;
+        private double __private_x = 0;
 
         public double x
             {
@@ -10,7 +10,7 @@ namespace TestCases.common.edgecases.shadowing
                 {
                     var v = value;
                     var value__1 = 123;
-                    this.__private_x = (int)(v + value__1);
+                    this.__private_x = v + value__1;
                 }
             }
     }

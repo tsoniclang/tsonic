@@ -8,7 +8,7 @@
  */
 
 import { createDiagnostic } from "../../types/diagnostic.js";
-import { IrExpression, IrParameter, IrType } from "../types.js";
+import { IrExpression, IrParameter, IrPattern, IrType } from "../types.js";
 import {
   classifyNumericExpr,
   getExpectedNumericKind,
@@ -199,6 +199,11 @@ export const scanExpressionForCalls = (
   expr: IrExpression,
   ctx: CoercionContext
 ): void => {
+  const inferredTypeOf = (
+    value: IrExpression | IrPattern
+  ): IrType | undefined =>
+    "inferredType" in value ? value.inferredType : undefined;
+
   const scanParameterInitializers = (
     parameters: readonly IrParameter[]
   ): void => {
@@ -300,7 +305,12 @@ export const scanExpressionForCalls = (
       scanParameterInitializers(expr.parameters);
       // Arrow function body can be expression or block
       if ("kind" in expr.body && expr.body.kind !== "blockStatement") {
-        scanExpressionForCalls(expr.body as IrExpression, ctx);
+        validateExpression(
+          expr.body as IrExpression,
+          expr.returnType,
+          ctx,
+          "in arrow function return"
+        );
       }
       break;
 
@@ -309,6 +319,18 @@ export const scanExpressionForCalls = (
       break;
 
     case "new":
+      if (expr.parameterTypes) {
+        expr.arguments.forEach((arg, i) => {
+          if (arg.kind !== "spread" && expr.parameterTypes?.[i]) {
+            validateExpression(
+              arg,
+              expr.parameterTypes[i],
+              ctx,
+              `in constructor argument ${i + 1}`
+            );
+          }
+        });
+      }
       expr.arguments.forEach((arg) => {
         if (arg.kind !== "spread") {
           scanExpressionForCalls(arg, ctx);
@@ -321,6 +343,15 @@ export const scanExpressionForCalls = (
       break;
 
     case "assignment":
+      validateExpression(
+        expr.right,
+        inferredTypeOf(expr.left),
+        ctx,
+        "in assignment"
+      );
+      if ("kind" in expr.left && expr.left.kind === "memberAccess") {
+        scanExpressionForCalls(expr.left, ctx);
+      }
       scanExpressionForCalls(expr.right, ctx);
       break;
 

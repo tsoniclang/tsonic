@@ -689,7 +689,7 @@ export const buildModuleDependencyGraph = (
   }
 
   // Third pass: Build IR for all discovered modules
-  // Phase 5 Step 4: Use buildIr() which creates a single ProgramContext for the entire program
+  // buildIr() creates a single ProgramContext for the entire program.
   // This ensures no global singleton state and enables parallel compilation safety
   let irResult: ReturnType<typeof buildIr>;
   try {

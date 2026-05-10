@@ -48,6 +48,25 @@ export type NumericExprKind = "Int32" | "Double" | "Unknown";
  */
 const ARITHMETIC_OPERATORS = new Set(["+", "-", "*", "/", "%"]);
 
+const classifyNumericType = (type: IrType | undefined): NumericExprKind => {
+  if (type?.kind === "primitiveType") {
+    if (type.name === "int") return "Int32";
+    if (type.name === "number") return "Double";
+  }
+
+  if (type?.kind === "referenceType") {
+    const name = type.typeId?.clrName ?? type.resolvedClrType ?? type.name;
+    if (name === "Int32" || name === "int" || name === "System.Int32") {
+      return "Int32";
+    }
+    if (name === "Double" || name === "double" || name === "System.Double") {
+      return "Double";
+    }
+  }
+
+  return "Unknown";
+};
+
 /**
  * Classify an expression's numeric kind.
  *
@@ -74,18 +93,7 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
     }
 
     case "identifier": {
-      // Check inferredType on identifiers
-      if (expr.inferredType?.kind === "primitiveType") {
-        if (expr.inferredType.name === "int") return "Int32";
-        if (expr.inferredType.name === "number") return "Double";
-      }
-      // Also check for CLR numeric reference types
-      if (expr.inferredType?.kind === "referenceType") {
-        const name = expr.inferredType.name;
-        if (name === "Int32" || name === "int") return "Int32";
-        if (name === "Double" || name === "double") return "Double";
-      }
-      return "Unknown";
+      return classifyNumericType(expr.inferredType);
     }
 
     case "unary": {
@@ -145,21 +153,11 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
     }
 
     case "call": {
-      // Check return type
-      if (expr.inferredType?.kind === "primitiveType") {
-        if (expr.inferredType.name === "int") return "Int32";
-        if (expr.inferredType.name === "number") return "Double";
-      }
-      return "Unknown";
+      return classifyNumericType(expr.inferredType);
     }
 
     case "memberAccess": {
-      // Check inferredType for member access results
-      if (expr.inferredType?.kind === "primitiveType") {
-        if (expr.inferredType.name === "int") return "Int32";
-        if (expr.inferredType.name === "number") return "Double";
-      }
-      return "Unknown";
+      return classifyNumericType(expr.inferredType);
     }
 
     case "update": {

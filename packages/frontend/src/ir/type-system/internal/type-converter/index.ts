@@ -1,10 +1,10 @@
 /**
  * Type converter - Public API
  *
- * NOTE: convertBindingName was moved to ir/syntax/binding-patterns.ts
- * per Alice's spec (it's syntax→IR conversion, not type logic).
+ * Syntax binding-pattern conversion lives outside the type converter; this
+ * module only exposes type syntax to IR conversion.
  *
- * Phase 5 Step 4: Added convertCapturedTypeNode for cast encapsulation.
+ * Captured TypeScript type nodes are converted through convertCapturedTypeNode.
  */
 
 export {

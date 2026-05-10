@@ -308,7 +308,7 @@ export const tryConvertIntrinsicCall = (
         "ICE: trycast requires exactly 1 type argument and 1 argument"
       );
     }
-    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+    // Convert explicit intrinsic type syntax through the TypeSystem.
     const typeSystem = ctx.typeSystem;
     const targetType = typeSystem.typeFromSyntax(
       ctx.binding.captureTypeSyntax(targetTypeNode)

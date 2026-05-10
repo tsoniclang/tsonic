@@ -112,8 +112,8 @@ export const isIntegerType = (type: IrType | undefined): boolean => {
 /**
  * Check if a source type is assignable to a target type without requiring a cast.
  *
- * This implements Alice's invariant: "No cosmetic casts" - we only emit casts
- * when the types are genuinely incompatible, not when they happen to match.
+ * Casts are emitted only when the source and target are genuinely
+ * incompatible, not when their emitted surfaces already match.
  *
  * @param fromType - The source type (what we have)
  * @param toType - The target type (what we need)

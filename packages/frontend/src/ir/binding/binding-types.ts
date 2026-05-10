@@ -174,7 +174,7 @@ export type Binding = {
   getDeclaringTypeNameOfSignature(sig: SignatureId): string | undefined;
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // TYPE SYNTAX CAPTURE (Phase 2: TypeSyntaxId)
+  // TYPE SYNTAX CAPTURE
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
@@ -201,7 +201,7 @@ export type Binding = {
 /**
  * BindingInternal — extended interface for TypeSystem construction only.
  *
- * INVARIANT (Alice's spec): Only createTypeSystem() should access
+ * INVARIANT: Only createTypeSystem() should access
  * _getHandleRegistry(). All other code uses the TypeSystem API.
  */
 export type BindingInternal = Binding & {
@@ -271,7 +271,7 @@ export type MemberEntry = {
 };
 
 /**
- * Entry for captured type syntax (Phase 2: TypeSyntaxId).
+ * Entry for captured type syntax.
  */
 export type TypeSyntaxEntry = {
   readonly typeNode: ts.TypeNode;

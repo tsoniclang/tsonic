@@ -63,3 +63,34 @@ const bytes = new Uint8Array([1 as byte, 2 as byte]);
 ## Rule
 
 Tsonic prefers explicit numeric intent over permissive conversion.
+
+`typeof value === "number"` narrows `unknown` or union values to TypeScript
+`number`. It does not prove any CLR integral width.
+
+```ts
+import type { int } from "@tsonic/core/types.js";
+
+export function readInt(value: unknown): int {
+  if (typeof value === "number") {
+    return value; // error: number is not proven int
+  }
+  return 0;
+}
+```
+
+Use a Tsonic numeric proof when a CLR integral type is required.
+
+```ts
+import type { int } from "@tsonic/core/types.js";
+
+export function readInt(value: number): int {
+  if (
+    Number.isInteger(value) &&
+    value >= -2147483648 &&
+    value <= 2147483647
+  ) {
+    return value as int;
+  }
+  return 0;
+}
+```

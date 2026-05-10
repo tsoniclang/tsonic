@@ -489,9 +489,10 @@ describe("End-to-End Integration", () => {
         import type { int } from "@tsonic/core/types.js";
 
         declare function takeInt(value: int): int;
+        declare function takeNumber(value: number): number;
 
         export const exact = (position: int = 0 as int): int => takeInt(position);
-        export const numeric = (minimumLength: number = 0): int => takeInt(minimumLength);
+        export const numeric = (minimumLength: number = 0): number => takeNumber(minimumLength);
       `;
 
       const csharp = compileToCSharp(source, "/test/test.ts", {
@@ -503,9 +504,9 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("return takeInt(position);");
       expect(csharp).to.include(
-        "private static int numeric__Impl(double minimumLength = 0)"
+        "private static double numeric__Impl(double minimumLength = 0)"
       );
-      expect(csharp).to.include("return takeInt((int)minimumLength);");
+      expect(csharp).to.include("return takeNumber(minimumLength);");
     });
 
     it("omits non-constant defaults from static arrow signatures and synthesizes omitted call arguments", () => {

@@ -1,7 +1,7 @@
 /**
  * Generic validation - detect truly unsupported generic patterns
  *
- * NOTE: Many previously-blocked constructs are now handled via:
+ * Generic validation recognizes these runtime-safe constructs:
  * - Monomorphisation for finite specializations
  * - CRTP pattern for `this` typing
  * - Tuple specialisations for variadic parameters

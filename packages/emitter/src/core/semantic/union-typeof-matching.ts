@@ -13,6 +13,93 @@ import { resolveTypeAlias } from "./nullish-value-helpers.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
 
+const TYPEOF_NUMBER_PRIMITIVES = new Set([
+  "number",
+  "int",
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+  "uint",
+  "long",
+  "ulong",
+  "float",
+  "double",
+  "decimal",
+]);
+
+const TYPEOF_NUMBER_REFERENCE_NAMES = new Set([
+  "sbyte",
+  "byte",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "nint",
+  "nuint",
+  "half",
+  "float",
+  "double",
+  "decimal",
+  "SByte",
+  "Byte",
+  "Int16",
+  "UInt16",
+  "Int32",
+  "UInt32",
+  "Int64",
+  "UInt64",
+  "IntPtr",
+  "UIntPtr",
+  "Half",
+  "Single",
+  "Double",
+  "Decimal",
+  "System.SByte",
+  "System.Byte",
+  "System.Int16",
+  "System.UInt16",
+  "System.Int32",
+  "System.UInt32",
+  "System.Int64",
+  "System.UInt64",
+  "System.IntPtr",
+  "System.UIntPtr",
+  "System.Half",
+  "System.Single",
+  "System.Double",
+  "System.Decimal",
+]);
+
+const TYPEOF_BOOLEAN_REFERENCE_NAMES = new Set([
+  "bool",
+  "boolean",
+  "Boolean",
+  "System.Boolean",
+]);
+
+const isTypeofNumberReference = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): boolean => {
+  const clrName = type.typeId?.clrName ?? type.resolvedClrType;
+  return (
+    TYPEOF_NUMBER_REFERENCE_NAMES.has(type.name) ||
+    (clrName !== undefined && TYPEOF_NUMBER_REFERENCE_NAMES.has(clrName))
+  );
+};
+
+const isTypeofBooleanReference = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): boolean => {
+  const clrName = type.typeId?.clrName ?? type.resolvedClrType;
+  return (
+    TYPEOF_BOOLEAN_REFERENCE_NAMES.has(type.name) ||
+    (clrName !== undefined && TYPEOF_BOOLEAN_REFERENCE_NAMES.has(clrName))
+  );
+};
+
 const genericTypeofTarget = (tag: string): IrType | undefined => {
   switch (tag) {
     case "string":
@@ -103,12 +190,24 @@ export const matchesTypeofTag = (
   }
 
   if (resolved.kind === "referenceType") {
+    if (tag === "number") {
+      return isTypeofNumberReference(resolved);
+    }
+
+    if (tag === "boolean") {
+      return isTypeofBooleanReference(resolved);
+    }
+
     if (tag === "function") {
       return false;
     }
 
     if (tag === "object") {
-      return resolved.name !== "Function";
+      return (
+        resolved.name !== "Function" &&
+        !isTypeofNumberReference(resolved) &&
+        !isTypeofBooleanReference(resolved)
+      );
     }
 
     return false;
@@ -122,7 +221,7 @@ export const matchesTypeofTag = (
     case "string":
       return resolved.name === "string";
     case "number":
-      return resolved.name === "number" || resolved.name === "int";
+      return TYPEOF_NUMBER_PRIMITIVES.has(resolved.name);
     case "boolean":
       return resolved.name === "boolean";
     case "undefined":

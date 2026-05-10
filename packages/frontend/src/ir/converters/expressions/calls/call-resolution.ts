@@ -14,10 +14,6 @@ import { IrType } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { ResolvedCall } from "../../../type-system/type-system.js";
 
-// DELETED: getReturnTypeFromFunctionType - Was part of fallback path
-// DELETED: getCalleesDeclaredType - Was part of fallback path
-// Alice's spec: TypeSystem.resolveCall() is the single source of truth.
-
 export const flattenCallableCandidates = (
   type: IrType | undefined,
   ctx: ProgramContext
@@ -299,11 +295,6 @@ export const unwrapExpr = (expr: ts.Expression): ts.Expression => {
   return current;
 };
 
-// DELETED: getDeclaredReturnTypeFallback - Alice's spec: no fallbacks allowed
-// TypeSystem.resolveCall() is the single source of truth.
-
-// DELETED: normalizeReceiverToNominal - No longer needed without NominalEnv fallback
-// DELETED: getDeclaredReturnTypeNominalEnvFallback - Alice's spec: no fallbacks allowed
 // TypeSystem.resolveCall() is the single source of truth.
 
 /**
@@ -390,8 +381,7 @@ export const getDeclaredReturnType = (
   // Get argument count for totality
   const argumentCount = node.arguments.length;
 
-  // Extract explicit type arguments from call site if any
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // Extract explicit type arguments from call syntax through the TypeSystem.
   const explicitTypeArgs = node.typeArguments
     ? node.typeArguments.map((ta) =>
         typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))

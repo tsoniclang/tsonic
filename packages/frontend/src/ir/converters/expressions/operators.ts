@@ -144,52 +144,6 @@ const hasStringKeyCarrier = (
   );
 };
 
-const hasClosedMemberCarrier = (
-  type: IrType | undefined,
-  memberName: string,
-  ctx: ProgramContext,
-  seen = new Set<IrType>()
-): boolean => {
-  if (!type || seen.has(type)) {
-    return false;
-  }
-
-  seen.add(type);
-  const nonNullishType = stripNullishFromUnion(type);
-  if (!nonNullishType) {
-    return false;
-  }
-
-  if (nonNullishType.kind === "unionType") {
-    return (
-      nonNullishType.types.length > 0 &&
-      nonNullishType.types.every((member) =>
-        hasClosedMemberCarrier(member, memberName, ctx, new Set(seen))
-      )
-    );
-  }
-
-  if (nonNullishType.kind === "objectType") {
-    return nonNullishType.members.some((member) => member.name === memberName);
-  }
-
-  if (nonNullishType.kind === "referenceType") {
-    if (
-      nonNullishType.structuralMembers?.some(
-        (member) => member.name === memberName
-      )
-    ) {
-      return true;
-    }
-  }
-
-  const memberType = ctx.typeSystem.tryTypeOfMember(nonNullishType, {
-    kind: "byName",
-    name: memberName,
-  });
-  return memberType !== undefined && memberType.kind !== "unknownType";
-};
-
 const deriveInOperatorPlan = (
   left: IrExpression,
   right: IrExpression,
@@ -202,10 +156,6 @@ const deriveInOperatorPlan = (
 
   if (hasStringKeyCarrier(right.inferredType, ctx)) {
     return { kind: "dictionaryKey", key };
-  }
-
-  if (hasClosedMemberCarrier(right.inferredType, key, ctx)) {
-    return { kind: "closedMember", key };
   }
 
   return undefined;

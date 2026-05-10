@@ -289,7 +289,7 @@ export const getOrCreateSignatureId = (
   // Extract signature info from declaration
   const decl = signature.getDeclaration();
 
-  // Extract declaring identity (CRITICAL for Alice's spec: resolveCall needs this)
+  // Extract declaring identity so resolveCall can apply inheritance substitution.
   const declaringIdentity = extractDeclaringIdentity(decl);
   const declaringTypeParameterNames = (() => {
     if (!decl) return undefined;

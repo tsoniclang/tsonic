@@ -2,7 +2,7 @@
  * Statement converter - TypeScript AST to IR statements
  * Main dispatcher - delegates to specialized modules
  *
- * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
+ * Uses ProgramContext for statement conversion.
  */
 
 import * as ts from "typescript";

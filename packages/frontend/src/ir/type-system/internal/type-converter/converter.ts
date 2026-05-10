@@ -2,7 +2,7 @@
  * Type converter - TypeScript types to IR types
  * Main dispatcher - re-exports from orchestrator
  *
- * Phase 5 Step 4: Added convertCapturedTypeNode for cast encapsulation.
+ * Captured TypeScript type nodes are converted inside the TypeSystem.
  */
 
 import * as ts from "typescript";
@@ -17,7 +17,7 @@ export { convertObjectType } from "./objects.js";
  * Convert a captured type node (unknown) to IrType.
  *
  * This function encapsulates the ts.TypeNode cast in one place.
- * Per Alice's spec: all TypeNode casts should be inside type-system/internal.
+ * All TypeNode casts stay inside type-system/internal.
  */
 export const convertCapturedTypeNode = (
   node: unknown,

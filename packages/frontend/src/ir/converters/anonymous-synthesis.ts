@@ -239,7 +239,7 @@ export type EligibilityResult =
  * - No getters/setters
  * - No computed keys with non-literal expressions
  *
- * Phase 5 Step 4: Uses ProgramContext for unified semantic access.
+ * Uses ProgramContext for unified semantic access.
  */
 export const checkSynthesisEligibility = (
   node: ts.ObjectLiteralExpression,

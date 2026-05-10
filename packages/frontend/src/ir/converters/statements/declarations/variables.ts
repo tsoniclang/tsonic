@@ -89,7 +89,7 @@ const getExpectedTypeForInitializer = (
   // Only use explicit type annotation as expectedType
   // Inferred types should NOT influence literal typing
   if (decl.type) {
-    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+    // Convert variable declaration syntax through the TypeSystem.
     return ctx.typeSystem.typeFromSyntax(
       ctx.binding.captureTypeSyntax(decl.type)
     );

@@ -781,8 +781,7 @@ export const convertExpression = (
     return narrowed ? { ...inner, inferredType: narrowed } : inner;
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-    // Get the asserted type
-    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+    // Convert the asserted type through the TypeSystem.
     const assertedTypeNode = node.type;
     const assertedType = ctx.typeSystem.typeFromSyntax(
       ctx.binding.captureTypeSyntax(assertedTypeNode)

@@ -83,19 +83,6 @@ const getStaticInOperatorKey = (node: ts.Expression): string | undefined => {
   return undefined;
 };
 
-const isStableInOperatorReceiver = (node: ts.Expression): boolean => {
-  let unwrapped = node;
-  while (
-    ts.isParenthesizedExpression(unwrapped) ||
-    ts.isAsExpression(unwrapped) ||
-    ts.isTypeAssertionExpression(unwrapped) ||
-    ts.isNonNullExpression(unwrapped)
-  ) {
-    unwrapped = unwrapped.expression;
-  }
-  return ts.isIdentifier(unwrapped) || unwrapped.kind === ts.SyntaxKind.ThisKeyword;
-};
-
 const typeHasStringIndex = (
   type: ts.Type,
   checker: ts.TypeChecker,
@@ -124,42 +111,6 @@ const typeHasStringIndex = (
   );
 };
 
-const typeHasClosedProperty = (
-  type: ts.Type,
-  key: string,
-  checker: ts.TypeChecker,
-  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
-): boolean => {
-  if (seen.has(type)) {
-    return false;
-  }
-
-  const nextSeen = new Set(seen);
-  nextSeen.add(type);
-
-  if (type.isUnion()) {
-    return type.types
-      .filter(
-        (member) =>
-          (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0
-      )
-      .every((member) =>
-        typeHasClosedProperty(member, key, checker, new Set(nextSeen))
-      );
-  }
-
-  if (checker.getPropertyOfType(type, key)) {
-    return true;
-  }
-
-  const apparent = checker.getApparentType(type);
-  if (apparent !== type && checker.getPropertyOfType(apparent, key)) {
-    return true;
-  }
-
-  return false;
-};
-
 const isClosedInOperatorExpression = (
   node: ts.BinaryExpression,
   checker: ts.TypeChecker
@@ -169,15 +120,7 @@ const isClosedInOperatorExpression = (
     return false;
   }
 
-  const rightType = checker.getTypeAtLocation(node.right);
-  if (typeHasStringIndex(rightType, checker)) {
-    return true;
-  }
-
-  return (
-    isStableInOperatorReceiver(node.right) &&
-    typeHasClosedProperty(rightType, key, checker)
-  );
+  return typeHasStringIndex(checker.getTypeAtLocation(node.right), checker);
 };
 
 const normalizeFileName = (fileName: string): string =>
@@ -608,8 +551,8 @@ export const validateUnsupportedFeatures = (
       if (!isClosedInOperatorExpression(node, checker)) {
         addUnsupported(
           node,
-          "The JavaScript 'in' operator is only supported for statically proven closed carriers.",
-          "Use a string-literal key and a receiver with a declared property or string dictionary index."
+          "The JavaScript 'in' operator is only supported for statically proven string-key carriers.",
+          "Use a string-literal key with a string-indexed dictionary carrier. Declared object properties do not provide JavaScript own-property existence semantics in emitted NativeAOT code."
         );
       }
     }

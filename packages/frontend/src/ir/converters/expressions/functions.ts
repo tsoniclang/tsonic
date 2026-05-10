@@ -209,8 +209,7 @@ const convertLambdaParameters = (
     // DETERMINISTIC Priority: 1. Explicit annotation, 2. expectedType from call site
     let irType: IrType | undefined;
     if (actualType) {
-      // Explicit type annotation
-      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+      // Convert explicit parameter syntax through the TypeSystem.
       const typeSystem = ctx.typeSystem;
       irType = typeSystem.typeFromSyntax(
         ctx.binding.captureTypeSyntax(actualType)
@@ -249,7 +248,7 @@ export const convertFunctionExpression = (
   ctx: ProgramContext,
   expectedType?: IrType
 ): IrFunctionExpression => {
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // Convert function syntax through the TypeSystem.
   const typeSystem = ctx.typeSystem;
   const expectedFnType = normalizeExpectedFunctionType(expectedType, ctx);
 
@@ -320,7 +319,7 @@ export const convertArrowFunction = (
   ctx: ProgramContext,
   expectedType?: IrType
 ): IrArrowFunctionExpression => {
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // Convert arrow syntax through the TypeSystem.
   const typeSystem = ctx.typeSystem;
   const expectedFnType = normalizeExpectedFunctionType(expectedType, ctx);
 

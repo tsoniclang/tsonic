@@ -109,7 +109,7 @@ export const tryInferTypeFromInitializer = (
     return fallback;
   }
 
-  // Phase 15: NewExpression branch - use constructor signature with argTypes
+  // NewExpression branch: use constructor signature with argTypes.
   if (ts.isNewExpression(init)) {
     const sigId = state.resolveConstructorSignature(init);
     if (!sigId) return undefined;
