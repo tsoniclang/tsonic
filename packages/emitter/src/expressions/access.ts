@@ -9,7 +9,7 @@
  */
 
 import { IrExpression, type IrType } from "@tsonic/frontend";
-import { contextSurfaceIncludesJs, EmitterContext } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
@@ -47,10 +47,7 @@ import {
   resolveEmittedReceiverTypeAst,
   emitMemberName,
 } from "./access-resolution.js";
-import {
-  isStringReceiverType,
-  tryEmitJsSurfaceArrayLikeLengthAccess,
-} from "./access-length.js";
+import { tryEmitJsSurfaceArrayLikeLengthAccess } from "./access-length.js";
 import { tryEmitMemberBindingAccess } from "./access-binding.js";
 import { emitComputedAccess } from "./access-computed.js";
 import { emitPropertyAccess } from "./access-property.js";
@@ -153,30 +150,6 @@ export const emitMemberAccess = (
         newContext,
       ];
     }
-  }
-
-  if (
-    !expr.isComputed &&
-    usage === "value" &&
-    contextSurfaceIncludesJs(context) &&
-    isStringReceiverType(objectType, context) &&
-    ((expr.property as string) === "length" ||
-      (expr.property as string) === "Length")
-  ) {
-    const [stringObjectAst, stringContext] = emitExpressionAst(
-      expr.object,
-      context
-    );
-    return [
-      {
-        kind: expr.isOptional
-          ? "conditionalMemberAccessExpression"
-          : "memberAccessExpression",
-        expression: stringObjectAst,
-        memberName: "Length",
-      },
-      stringContext,
-    ];
   }
 
   // Property access that targets a CLR runtime union
