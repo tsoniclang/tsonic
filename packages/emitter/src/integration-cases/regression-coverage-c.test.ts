@@ -598,7 +598,7 @@ describe("End-to-End Integration", () => {
           "/test/test.ts",
           { surface: "@tsonic/js" }
         )
-      ).to.throw("Numeric coercion validation failed");
+      ).to.throw("Implicit narrowing not allowed");
     });
 
     it("keeps broad unknown typeof-object guards on the runtime typeof helper instead of union member checks", () => {

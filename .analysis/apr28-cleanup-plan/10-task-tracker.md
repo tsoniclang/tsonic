@@ -82,12 +82,12 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA11 | Centralize intrinsics/provenance/reserved names | TODO | Intrinsic registry owns name, arity, provenance, target eligibility, and emitted IR kind |
 | CA12 | Centralize async wrapper semantics | TODO | Promise/Task/ValueTask/Awaited identity and return normalization come from one async type service |
 | CA13 | Centralize direct storage/carrier selection | TODO | Variable, return, conditional, and argument adaptation consume one storage/carrier plan |
-| CA14 | Centralize diagnostics vs ICE policy | TODO | User-facing unsupported cases are caught by validation/soundness gate; emitter ICEs are unreachable invariant checks only |
+| CA14 | Centralize diagnostics vs ICE policy | IN PROGRESS | The product IR processing pipeline is now shared by dependency-graph builds and emitter full-pipeline integration helpers, including both soundness gates; remaining direct emitter unit helpers must stay lower-layer-only |
 | CA15 | Centralize stable serialization/dedup ordering | IN PROGRESS | branch carrier merge no longer uses emitted-AST JSON equality; CLR heritage dedup/sort now uses stable IR type keys; nullish-guard carrier comparison now uses explicit carrier keys |
 | CA16 | Centralize config/manifest schema parsing | TODO | CLI/frontend/package loaders share schema validators and path-aware diagnostics |
 | CA17 | Centralize package/source/path identity | TODO | Resolver/CLI/package manifest code share one canonical package identity model |
 | CA18 | Centralize test fixture/generated artifact policy | IN PROGRESS | NativeAOT linker-library discovery is centralized in the run-all harness; broader fixture/generated-artifact policy remains pending |
-| CA19 | Centralize test helper pipeline boundaries | TODO | Full-pipeline helpers must run product validation; lower-layer helpers must be explicitly named as lower-layer-only and cannot imply product source acceptance |
+| CA19 | Centralize test helper pipeline boundaries | IN PROGRESS | Emitter `compileProjectToCSharp` now calls the shared frontend IR processing pipeline instead of maintaining a partial duplicate pass list; remaining helper entrypoints need boundary classification |
 
 ## Current Checkpoint Tasks
 
@@ -137,7 +137,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C25 | Branch flow fact model normalized | TODO | branch, ternary, logical, assignment, and truthiness facts have one representation |
 | C26 | Closed `unknown`/JSON carrier diagnostics | TODO | unsupported structural `unknown` cases fail deterministically without reflection/dynamic helpers |
 | C27 | Central numeric type-fact service | DONE | `typeof` matching, validation, and emitter materialization consume one numeric/boolean carrier fact source instead of maintaining local name sets; exact numeric carriers such as `byte`, `ulong`, and `float` stay exact through coercion validation; validated by build, focused frontend numeric/typeof/source-package suites, targeted emitter materialization/union guard suites, and filtered node E2E |
-| C28 | Full-pipeline test helper audit | TODO | emitter/frontend/CLI test helpers are classified by pipeline boundary and full source helpers run validation before emission |
+| C28 | Full-pipeline test helper audit | IN PROGRESS | The source-to-C# emitter integration helper now uses the same IR processing pipeline as dependency-graph builds, including rest synthesis, marker collection, soundness gates, numeric proof/coercion, char validation, yield lowering, and virtual marking |
 
 ## Upstream Package Items
 

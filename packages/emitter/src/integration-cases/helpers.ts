@@ -8,14 +8,7 @@ import {
   buildIrModule,
   createProgram,
   createProgramContext,
-  runAnonymousTypeLoweringPass,
-  runArrowReturnFinalizationPass,
-  runAttributeCollectionPass,
-  runCallResolutionRefreshPass,
-  runNumericCoercionPass,
-  runNumericProofPass,
-  runOverloadCollectionPass,
-  runOverloadFamilyConsistencyPass,
+  runIrProcessingPipeline,
   validateProgram,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
@@ -483,59 +476,17 @@ export const compileProjectToCSharp = (
       return result.ok ? [result.value] : [];
     });
 
-    const loweredModules = runAnonymousTypeLoweringPass(modules).modules;
-    const overloadResult = runOverloadCollectionPass(loweredModules);
-    if (!overloadResult.ok) {
+    const processedResult = runIrProcessingPipeline(modules, program, {
+      sourceRoot,
+      rootNamespace,
+    });
+    if (!processedResult.ok) {
       throw new Error(
-        `Overload collection failed: ${overloadResult.diagnostics.map((d) => d.message).join("; ")}`
+        `IR processing failed: ${processedResult.error.map((d) => d.message).join("; ")}`
       );
     }
 
-    const overloadConsistencyResult = runOverloadFamilyConsistencyPass(
-      overloadResult.modules
-    );
-    if (!overloadConsistencyResult.ok) {
-      throw new Error(
-        `Overload family consistency failed: ${overloadConsistencyResult.diagnostics.map((d) => d.message).join("; ")}`
-      );
-    }
-
-    const attributeResult = runAttributeCollectionPass(
-      overloadConsistencyResult.modules
-    );
-    if (!attributeResult.ok) {
-      throw new Error(
-        `Attribute collection failed: ${attributeResult.diagnostics.map((d) => d.message).join("; ")}`
-      );
-    }
-
-    const proofResult = runNumericProofPass(attributeResult.modules);
-    if (!proofResult.ok) {
-      throw new Error(
-        `Numeric proof validation failed: ${proofResult.diagnostics.map((d) => d.message).join("; ")}`
-      );
-    }
-
-    const refreshedCallResolutionResult = runCallResolutionRefreshPass(
-      proofResult.modules,
-      ctx
-    );
-    const reloweredAfterRefreshModules = runAnonymousTypeLoweringPass(
-      refreshedCallResolutionResult.modules
-    ).modules;
-
-    const arrowResult = runArrowReturnFinalizationPass(
-      reloweredAfterRefreshModules
-    );
-
-    const coercionResult = runNumericCoercionPass(arrowResult.modules);
-    if (!coercionResult.ok) {
-      throw new Error(
-        `Numeric coercion validation failed: ${coercionResult.diagnostics.map((d) => d.message).join("; ")}`
-      );
-    }
-
-    const emitResult = emitCSharpFiles(coercionResult.modules, {
+    const emitResult = emitCSharpFiles(processedResult.value.modules, {
       rootNamespace,
       bindingRegistry: program.bindings,
       surfaceCapabilities: program.surfaceCapabilities,

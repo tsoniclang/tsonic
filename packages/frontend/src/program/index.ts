@@ -22,3 +22,9 @@ export {
   buildModuleDependencyGraph,
   type ModuleDependencyGraphResult,
 } from "./dependency-graph.js";
+export {
+  collectSynthesizedTypeNames,
+  runIrProcessingPipeline,
+  type IrProcessingPipelineOptions,
+  type IrProcessingPipelineResult,
+} from "./ir-processing-pipeline.js";

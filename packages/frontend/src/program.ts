@@ -12,4 +12,6 @@ export {
   BindingRegistry,
   loadBindings,
   buildModuleDependencyGraph,
+  collectSynthesizedTypeNames,
+  runIrProcessingPipeline,
 } from "./program/index.js";

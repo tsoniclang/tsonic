@@ -7,26 +7,12 @@ import * as ts from "typescript";
 import { dirname, isAbsolute, relative, resolve } from "path";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
-import { IrModule, IrStatement } from "../ir/types.js";
+import { IrModule } from "../ir/types.js";
 import { buildIr } from "../ir/builder/orchestrator.js";
-import { createProgramContext } from "../ir/program-context.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import type { CompilerOptions } from "./types.js";
 import type { BindingRegistry, TypeBinding } from "./bindings.js";
 import { discoverAndLoadClrBindings } from "./clr-bindings-discovery.js";
-import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
-import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
-import { runCallResolutionRefreshPass } from "../ir/validation/call-resolution-refresh-pass.js";
-import { runArrowReturnFinalizationPass } from "../ir/validation/arrow-return-finalization-pass.js";
-import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
-import { runCharValidationPass } from "../ir/validation/char-validation-pass.js";
-import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
-import { runOverloadCollectionPass } from "../ir/validation/overload-collection-pass.js";
-import { runOverloadFamilyConsistencyPass } from "../ir/validation/overload-family-consistency-pass.js";
-import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
-import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lowering-pass.js";
-import { runRestTypeSynthesisPass } from "../ir/validation/rest-type-synthesis-pass.js";
-import { runVirtualMarkingPass } from "../ir/validation/virtual-marking-pass.js";
 import { validateProgram } from "../validation/orchestrator.js";
 import {
   getLocalResolutionBoundary,
@@ -48,6 +34,7 @@ import {
   type DeclarationModuleAlias,
 } from "./declaration-module-aliases.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
+import { runIrProcessingPipeline } from "./ir-processing-pipeline.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -123,51 +110,6 @@ const tryConvertProgramBuildExceptionToDiagnostics = (
   }
 
   return undefined;
-};
-
-/**
- * Collect compiler-synthesized type names that may be referenced across IR modules.
- *
- * These types are not present in user-authored TypeScript, so they cannot be
- * imported via normal ESM syntax. However, they are emitted as top-level C# types
- * within the same assembly, so cross-module references are valid.
- *
- * Example: two files in a project may both lower to (or re-use) a synthesized
- * `__Anon_*` shape type. The second file will reference the type name in IR, but
- * (correctly) has no TS import for it.
- */
-const collectSynthesizedTypeNames = (
-  modules: readonly IrModule[]
-): ReadonlySet<string> => {
-  const names = new Set<string>();
-
-  const isTypeDecl = (
-    stmt: IrStatement
-  ): stmt is Extract<
-    IrStatement,
-    {
-      kind:
-        | "classDeclaration"
-        | "interfaceDeclaration"
-        | "typeAliasDeclaration"
-        | "enumDeclaration";
-    }
-  > =>
-    stmt.kind === "classDeclaration" ||
-    stmt.kind === "interfaceDeclaration" ||
-    stmt.kind === "typeAliasDeclaration" ||
-    stmt.kind === "enumDeclaration";
-
-  for (const module of modules) {
-    for (const stmt of module.body) {
-      if (!isTypeDecl(stmt)) continue;
-      if (stmt.name.startsWith("__Anon_") || stmt.name.startsWith("__Rest_")) {
-        names.add(stmt.name);
-      }
-    }
-  }
-
-  return names;
 };
 
 /**
@@ -709,130 +651,15 @@ export const buildModuleDependencyGraph = (
     return error(irResult.error);
   }
 
-  const modules: IrModule[] = [...irResult.value];
-  // Run rest type synthesis pass - attaches rest shape info for object rest destructuring
-  // and generates synthetic types for rest objects.
-  //
-  // IMPORTANT: This must run BEFORE anonymous type lowering. Anonymous lowering
-  // replaces objectType shapes with synthesized named types, which would otherwise
-  // erase the member information needed to compute rest shapes.
-  const restResult = runRestTypeSynthesisPass(modules);
-
-  // Run anonymous type lowering pass - transforms objectType to generated named types
-  // This must run before soundness validation so the emitter never sees objectType
-  const anonTypeResult = runAnonymousTypeLoweringPass(restResult.modules);
-  // Note: This pass always succeeds (no diagnostics), but we use the lowered modules
-  const loweredModules = anonTypeResult.modules;
-
-  // Run overload collection pass - extracts O<T>().method(...).family(...)
-  // and O(fn).family(...) marker calls
-  // and attaches overload-family metadata to declarations.
-  //
-  // IMPORTANT: This must run BEFORE the IR soundness gate. Overload markers are
-  // compiler-only and must be removed before the normal validation/emission pipeline.
-  const overloadResult = runOverloadCollectionPass(loweredModules);
-  if (!overloadResult.ok) {
-    return error(overloadResult.diagnostics);
-  }
-
-  const overloadConsistencyResult = runOverloadFamilyConsistencyPass(
-    overloadResult.modules
-  );
-  if (!overloadConsistencyResult.ok) {
-    return error(overloadConsistencyResult.diagnostics);
-  }
-
-  // Run attribute collection pass - extracts A<T>().add(...) / A(fn).add(...) marker calls
-  // and attaches them as attributes to declarations.
-  //
-  // IMPORTANT: This must run BEFORE the IR soundness gate. Attribute markers are
-  // compiler-only and may introduce types that are not representable in the runtime
-  // subset (e.g., AttributeDescriptor<>). The pass removes all recognized marker
-  // statements so the emitter/soundness gate never see them.
-  const attributeResult = runAttributeCollectionPass(
-    overloadConsistencyResult.modules
-  );
-  if (!attributeResult.ok) {
-    return error(attributeResult.diagnostics);
-  }
-
-  // Run an initial IR soundness gate on the pre-proof lowered IR.
-  // A second soundness gate runs after later normalization passes.
-  const soundnessResult = validateIrSoundness(attributeResult.modules, {
-    knownReferenceTypes: new Set([
-      ...tsonicProgram.bindings.getEmitterTypeMap().keys(),
-      ...collectSynthesizedTypeNames(attributeResult.modules),
-    ]),
-  });
-  if (!soundnessResult.ok) {
-    return error(soundnessResult.diagnostics);
-  }
-
-  // Run numeric proof pass - validates all numeric narrowings are provable
-  // and attaches proofs to expressions for the emitter
-  const numericResult = runNumericProofPass(attributeResult.modules);
-  if (!numericResult.ok) {
-    return error(numericResult.diagnostics);
-  }
-
-  const refreshContext = createProgramContext(tsonicProgram, {
+  const processedResult = runIrProcessingPipeline([...irResult.value], tsonicProgram, {
     sourceRoot: sourceRootAbs,
     rootNamespace: options.rootNamespace,
   });
-  const refreshedCallResolutionResult = runCallResolutionRefreshPass(
-    numericResult.modules,
-    refreshContext
-  );
-  const reloweredAfterRefreshResult = runAnonymousTypeLoweringPass(
-    refreshedCallResolutionResult.modules
-  );
-
-  // Run arrow return finalization pass - infers return types for expression-bodied
-  // arrows from their body's inferredType (after numeric proof has run)
-  const arrowResult = runArrowReturnFinalizationPass(
-    reloweredAfterRefreshResult.modules
-  );
-
-  // Run numeric coercion pass - validates no implicit int→double conversions
-  // This enforces the strict contract: integer literals require explicit widening
-  const coercionResult = runNumericCoercionPass(arrowResult.modules);
-  if (!coercionResult.ok) {
-    return error(coercionResult.diagnostics);
+  if (!processedResult.ok) {
+    return error(processedResult.error);
   }
 
-  // Run char validation pass - validates char literals and char-typed positions.
-  // This prevents emitter ICEs for invalid char literals (length != 1).
-  const charResult = runCharValidationPass(coercionResult.modules);
-  if (!charResult.ok) {
-    return error(charResult.diagnostics);
-  }
-
-  // Run yield lowering pass - transforms yield expressions in generators
-  // into IrYieldStatement nodes for the emitter
-  const yieldResult = runYieldLoweringPass(charResult.modules);
-  if (!yieldResult.ok) {
-    return error(yieldResult.diagnostics);
-  }
-
-  // Run virtual marking pass - marks base class methods as virtual when overridden
-  const virtualResult = runVirtualMarkingPass(yieldResult.modules);
-  // Note: This pass always succeeds
-
-  // Run a final IR soundness gate on the fully processed modules.
-  // This catches any unsupported type metadata reintroduced by later passes
-  // (for example call-resolution refresh) before the emitter sees the IR.
-  const finalSoundnessResult = validateIrSoundness(virtualResult.modules, {
-    knownReferenceTypes: new Set([
-      ...tsonicProgram.bindings.getEmitterTypeMap().keys(),
-      ...collectSynthesizedTypeNames(virtualResult.modules),
-    ]),
-  });
-  if (!finalSoundnessResult.ok) {
-    return error(finalSoundnessResult.diagnostics);
-  }
-
-  // Use the processed modules with proofs, lowered yields, attributes, and virtual marks
-  const processedModules = [...virtualResult.modules];
+  const processedModules = [...processedResult.value.modules];
 
   // Sort modules by relative path for deterministic output
   processedModules.sort((a, b) => a.filePath.localeCompare(b.filePath));
