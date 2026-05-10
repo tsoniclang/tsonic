@@ -5,9 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  buildIrModule,
+  buildIr,
   createProgram,
-  createProgramContext,
   runIrProcessingPipeline,
   validateProgram,
 } from "@tsonic/frontend";
@@ -459,24 +458,17 @@ export const compileProjectToCSharp = (
         `Program validation failed: ${validationDiagnostics.diagnostics.map((diagnostic) => diagnostic.message).join("; ")}`
       );
     }
-    const ctx = createProgramContext(program, {
+    const buildResult = buildIr(program, {
       sourceRoot,
       rootNamespace,
     });
-    const modules = program.sourceFiles.flatMap((sourceFile) => {
-      const result = buildIrModule(
-        sourceFile,
-        program,
-        {
-          sourceRoot,
-          rootNamespace,
-        },
-        ctx
+    if (!buildResult.ok) {
+      throw new Error(
+        `IR build failed: ${buildResult.error.map((d) => d.message).join("; ")}`
       );
-      return result.ok ? [result.value] : [];
-    });
+    }
 
-    const processedResult = runIrProcessingPipeline(modules, program, {
+    const processedResult = runIrProcessingPipeline(buildResult.value, program, {
       sourceRoot,
       rootNamespace,
     });
