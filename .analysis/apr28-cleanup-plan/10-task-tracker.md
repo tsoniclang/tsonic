@@ -76,7 +76,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | CA5 | Centralize call/overload/signature/argument resolution | IN PROGRESS | call-site argument passing no longer scores CLR overloads by parsed display signatures; remaining call/lambda context paths still require audit |
 | CA6 | Centralize object literal target/materialization | TODO | IR carries nominal/anonymous/dictionary/structural materialization plan; emitter has no object-shape fallback |
 | CA7 | Centralize `unknown`/`object`/`JsValue` broad-carrier policy | TODO | Opaque storage is distinct from structural use; property/method access requires frontend proof and closed NativeAOT-safe carrier |
-| CA8 | Centralize numeric proof/conversion authority | IN PROGRESS | Numeric conversions/indexing require proof tokens or type-system relation; emitter integral casts no longer treat `number` as proof for `int`; merged PR review found duplicated numeric type facts in validation, post-emission adaptation, and `typeof` matching |
+| CA8 | Centralize numeric proof/conversion authority | IN PROGRESS | Numeric conversions/indexing require proof tokens or type-system relation; emitter integral casts no longer treat `number` as proof for `int`; numeric/boolean carrier facts are centralized for validation, post-emission adaptation, and `typeof` matching |
 | CA9 | Centralize JSON parse/stringify policy | TODO | JSON operations carry typed/unknown-with-validation/invalid plan; emitter does not independently decide closedness |
 | CA10 | Centralize truthiness/nullish boolean policy | TODO | Branch condition facts are normalized once and consumed by branch, ternary, logical, and coalesce lowering |
 | CA11 | Centralize intrinsics/provenance/reserved names | TODO | Intrinsic registry owns name, arity, provenance, target eligibility, and emitted IR kind |
@@ -136,7 +136,7 @@ These tasks come from `13-centralization-audit.md`. P0 centralization is the fir
 | C24 | Emitter semantic analyzers audited and retired | TODO | every `narrowedBindings`/guard parser path is classified as frontend proof, materialization, or removal |
 | C25 | Branch flow fact model normalized | TODO | branch, ternary, logical, assignment, and truthiness facts have one representation |
 | C26 | Closed `unknown`/JSON carrier diagnostics | TODO | unsupported structural `unknown` cases fail deterministically without reflection/dynamic helpers |
-| C27 | Central numeric type-fact service | TODO | `typeof` matching, validation, and emitter materialization consume one numeric/boolean carrier fact source instead of maintaining local name sets |
+| C27 | Central numeric type-fact service | DONE | `typeof` matching, validation, and emitter materialization consume one numeric/boolean carrier fact source instead of maintaining local name sets; validated by build, focused frontend numeric/typeof suite, and targeted emitter materialization/union guard suite |
 | C28 | Full-pipeline test helper audit | TODO | emitter/frontend/CLI test helpers are classified by pipeline boundary and full source helpers run validation before emission |
 
 ## Upstream Package Items

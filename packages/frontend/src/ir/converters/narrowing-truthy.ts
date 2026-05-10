@@ -9,6 +9,7 @@
 import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
 import { normalizedUnionType } from "../types/type-ops.js";
+import { primitiveTypeFactFromName } from "../types/numeric-kind.js";
 import type { IrType } from "../types.js";
 import { narrowTypeByAssignableTarget } from "./reference-type-guards.js";
 import {
@@ -113,21 +114,6 @@ const buildCandidateUnion = (
   return normalizedUnionType(candidates);
 };
 
-const TYPEOF_NUMBER_PRIMITIVES = new Set([
-  "number",
-  "int",
-  "byte",
-  "sbyte",
-  "short",
-  "ushort",
-  "uint",
-  "long",
-  "ulong",
-  "float",
-  "double",
-  "decimal",
-]);
-
 const typeofGenericTarget = (tag: string): IrType | undefined => {
   switch (tag) {
     case "string":
@@ -179,16 +165,23 @@ const matchesTypeofTag = (type: IrType, tag: string): boolean => {
     case "objectType":
     case "dictionaryType":
       return tag === "object";
-    case "referenceType":
-      return tag === "object" && type.name !== "Function";
+    case "referenceType": {
+      const fact = primitiveTypeFactFromName(
+        type.typeId?.clrName ?? type.resolvedClrType ?? type.name
+      );
+      if (tag === "number" || tag === "boolean") {
+        return fact?.jsTypeof === tag;
+      }
+      return tag === "object" && type.name !== "Function" && fact === undefined;
+    }
     case "primitiveType":
       switch (tag) {
         case "string":
           return type.name === "string";
         case "number":
-          return TYPEOF_NUMBER_PRIMITIVES.has(type.name);
+          return primitiveTypeFactFromName(type.name)?.jsTypeof === "number";
         case "boolean":
-          return type.name === "boolean";
+          return primitiveTypeFactFromName(type.name)?.jsTypeof === "boolean";
         case "undefined":
           return type.name === "undefined";
         case "object":

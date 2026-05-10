@@ -26,6 +26,7 @@ import {
   isWideningConversion,
   TSONIC_TO_NUMERIC_KIND,
   literalFitsInKind,
+  numericTypeFactFromName,
 } from "../types/numeric-kind.js";
 
 /**
@@ -50,17 +51,18 @@ const ARITHMETIC_OPERATORS = new Set(["+", "-", "*", "/", "%"]);
 
 const classifyNumericType = (type: IrType | undefined): NumericExprKind => {
   if (type?.kind === "primitiveType") {
-    if (type.name === "int") return "Int32";
-    if (type.name === "number") return "Double";
+    const fact = numericTypeFactFromName(type.name);
+    if (fact?.kind === "numeric") {
+      return fact.integral ? "Int32" : "Double";
+    }
   }
 
   if (type?.kind === "referenceType") {
-    const name = type.typeId?.clrName ?? type.resolvedClrType ?? type.name;
-    if (name === "Int32" || name === "int" || name === "System.Int32") {
-      return "Int32";
-    }
-    if (name === "Double" || name === "double" || name === "System.Double") {
-      return "Double";
+    const fact = numericTypeFactFromName(
+      type.typeId?.clrName ?? type.resolvedClrType ?? type.name
+    );
+    if (fact?.kind === "numeric") {
+      return fact.integral ? "Int32" : "Double";
     }
   }
 

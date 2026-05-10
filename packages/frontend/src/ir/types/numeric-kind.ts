@@ -24,6 +24,20 @@ export type NumericKind =
   | "Single" // System.Single, float
   | "Double"; // System.Double, double
 
+export type NumericTypeFact = {
+  readonly kind: "numeric";
+  readonly numericKind: NumericKind | "Half" | "Decimal" | "IntPtr" | "UIntPtr";
+  readonly integral: boolean;
+  readonly jsTypeof: "number";
+};
+
+export type PrimitiveTypeFact =
+  | NumericTypeFact
+  | {
+      readonly kind: "boolean";
+      readonly jsTypeof: "boolean";
+    };
+
 /**
  * Maps Tsonic type alias names to CLR numeric kinds.
  * Used to recognize numeric intent from TypeScript annotations.
@@ -60,6 +74,426 @@ export const NUMERIC_KIND_TO_CSHARP: ReadonlyMap<NumericKind, string> = new Map(
     ["Double", "double"],
   ]
 );
+
+const normalizeClrNumericName = (name: string): string => {
+  const withoutGlobal = name.startsWith("global::")
+    ? name.slice("global::".length)
+    : name;
+  const arityIndex = withoutGlobal.indexOf("/");
+  return arityIndex >= 0 ? withoutGlobal.slice(0, arityIndex) : withoutGlobal;
+};
+
+const NUMERIC_NAME_FACTS: ReadonlyMap<string, NumericTypeFact> = new Map([
+  [
+    "sbyte",
+    {
+      kind: "numeric",
+      numericKind: "SByte",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "SByte",
+    {
+      kind: "numeric",
+      numericKind: "SByte",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.SByte",
+    {
+      kind: "numeric",
+      numericKind: "SByte",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "byte",
+    {
+      kind: "numeric",
+      numericKind: "Byte",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "Byte",
+    {
+      kind: "numeric",
+      numericKind: "Byte",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.Byte",
+    {
+      kind: "numeric",
+      numericKind: "Byte",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "short",
+    {
+      kind: "numeric",
+      numericKind: "Int16",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "Int16",
+    {
+      kind: "numeric",
+      numericKind: "Int16",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.Int16",
+    {
+      kind: "numeric",
+      numericKind: "Int16",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "ushort",
+    {
+      kind: "numeric",
+      numericKind: "UInt16",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "UInt16",
+    {
+      kind: "numeric",
+      numericKind: "UInt16",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.UInt16",
+    {
+      kind: "numeric",
+      numericKind: "UInt16",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "int",
+    {
+      kind: "numeric",
+      numericKind: "Int32",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "Int32",
+    {
+      kind: "numeric",
+      numericKind: "Int32",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.Int32",
+    {
+      kind: "numeric",
+      numericKind: "Int32",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "uint",
+    {
+      kind: "numeric",
+      numericKind: "UInt32",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "UInt32",
+    {
+      kind: "numeric",
+      numericKind: "UInt32",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.UInt32",
+    {
+      kind: "numeric",
+      numericKind: "UInt32",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "long",
+    {
+      kind: "numeric",
+      numericKind: "Int64",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "Int64",
+    {
+      kind: "numeric",
+      numericKind: "Int64",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.Int64",
+    {
+      kind: "numeric",
+      numericKind: "Int64",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "ulong",
+    {
+      kind: "numeric",
+      numericKind: "UInt64",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "UInt64",
+    {
+      kind: "numeric",
+      numericKind: "UInt64",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.UInt64",
+    {
+      kind: "numeric",
+      numericKind: "UInt64",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "nint",
+    {
+      kind: "numeric",
+      numericKind: "IntPtr",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "IntPtr",
+    {
+      kind: "numeric",
+      numericKind: "IntPtr",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.IntPtr",
+    {
+      kind: "numeric",
+      numericKind: "IntPtr",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "nuint",
+    {
+      kind: "numeric",
+      numericKind: "UIntPtr",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "UIntPtr",
+    {
+      kind: "numeric",
+      numericKind: "UIntPtr",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.UIntPtr",
+    {
+      kind: "numeric",
+      numericKind: "UIntPtr",
+      integral: true,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "half",
+    {
+      kind: "numeric",
+      numericKind: "Half",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "Half",
+    {
+      kind: "numeric",
+      numericKind: "Half",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.Half",
+    {
+      kind: "numeric",
+      numericKind: "Half",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "float",
+    {
+      kind: "numeric",
+      numericKind: "Single",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "Single",
+    {
+      kind: "numeric",
+      numericKind: "Single",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.Single",
+    {
+      kind: "numeric",
+      numericKind: "Single",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "number",
+    {
+      kind: "numeric",
+      numericKind: "Double",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "double",
+    {
+      kind: "numeric",
+      numericKind: "Double",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "Double",
+    {
+      kind: "numeric",
+      numericKind: "Double",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.Double",
+    {
+      kind: "numeric",
+      numericKind: "Double",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "decimal",
+    {
+      kind: "numeric",
+      numericKind: "Decimal",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "Decimal",
+    {
+      kind: "numeric",
+      numericKind: "Decimal",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+  [
+    "System.Decimal",
+    {
+      kind: "numeric",
+      numericKind: "Decimal",
+      integral: false,
+      jsTypeof: "number",
+    },
+  ],
+]);
+
+const BOOLEAN_NAME_FACTS: ReadonlyMap<string, PrimitiveTypeFact> = new Map([
+  ["boolean", { kind: "boolean", jsTypeof: "boolean" }],
+  ["bool", { kind: "boolean", jsTypeof: "boolean" }],
+  ["Boolean", { kind: "boolean", jsTypeof: "boolean" }],
+  ["System.Boolean", { kind: "boolean", jsTypeof: "boolean" }],
+]);
+
+export const numericTypeFactFromName = (
+  name: string
+): NumericTypeFact | undefined =>
+  NUMERIC_NAME_FACTS.get(normalizeClrNumericName(name));
+
+export const booleanTypeFactFromName = (
+  name: string
+): PrimitiveTypeFact | undefined =>
+  BOOLEAN_NAME_FACTS.get(normalizeClrNumericName(name));
+
+export const primitiveTypeFactFromName = (
+  name: string
+): PrimitiveTypeFact | undefined =>
+  numericTypeFactFromName(name) ?? booleanTypeFactFromName(name);
 
 /**
  * Range bounds for compile-time literal validation.
