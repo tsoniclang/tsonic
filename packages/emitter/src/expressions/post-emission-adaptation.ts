@@ -3,7 +3,11 @@
  * nullable value-type unwrapping, and char-to-string conversion.
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import {
+  type IrExpression,
+  type IrType,
+  numericTypeFactFromName,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
@@ -28,10 +32,7 @@ import {
   identifierExpression,
   nullLiteral,
 } from "../core/format/backend-ast/builders.js";
-import {
-  getReferenceClrIdentityKey,
-  referenceTypeHasClrIdentity,
-} from "../core/semantic/clr-type-identity.js";
+import { getReferenceClrIdentityKey } from "../core/semantic/clr-type-identity.js";
 import { referenceTypesShareNominalIdentity } from "../core/semantic/reference-type-identity.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 
@@ -427,79 +428,12 @@ export const maybeConvertCharToStringAst = (
 // Numeric integral adaptation
 // ---------------------------------------------------------------------------
 
-const INTEGRAL_EXPECTED_TYPE_NAMES = new Set([
-  "int",
-  "Int32",
-  "System.Int32",
-  "long",
-  "Int64",
-  "System.Int64",
-  "short",
-  "Int16",
-  "System.Int16",
-  "byte",
-  "Byte",
-  "System.Byte",
-  "sbyte",
-  "SByte",
-  "System.SByte",
-  "uint",
-  "UInt32",
-  "System.UInt32",
-  "ulong",
-  "UInt64",
-  "System.UInt64",
-  "ushort",
-  "UInt16",
-  "System.UInt16",
-  "nint",
-  "IntPtr",
-  "System.IntPtr",
-  "nuint",
-  "UIntPtr",
-  "System.UIntPtr",
-]);
-
-const INTEGRAL_EXPECTED_CLR_NAMES = new Set([
-  "System.Int32",
-  "global::System.Int32",
-  "System.Int64",
-  "global::System.Int64",
-  "System.Int16",
-  "global::System.Int16",
-  "System.Byte",
-  "global::System.Byte",
-  "System.SByte",
-  "global::System.SByte",
-  "System.UInt32",
-  "global::System.UInt32",
-  "System.UInt64",
-  "global::System.UInt64",
-  "System.UInt16",
-  "global::System.UInt16",
-  "System.IntPtr",
-  "global::System.IntPtr",
-  "System.UIntPtr",
-  "global::System.UIntPtr",
-]);
-
-const NON_INTEGRAL_NUMERIC_CLR_NAMES = new Set([
-  "System.Double",
-  "global::System.Double",
-  "System.Single",
-  "global::System.Single",
-  "System.Decimal",
-  "global::System.Decimal",
-  "System.Half",
-  "global::System.Half",
-]);
-
-const JS_NUMBER_CLR_NAMES = new Set([
-  "System.Int32",
-  "global::System.Int32",
-  "System.Double",
-  "global::System.Double",
-]);
+const referenceNumericFact = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): ReturnType<typeof numericTypeFactFromName> =>
+  numericTypeFactFromName(
+    type.typeId?.clrName ?? type.resolvedClrType ?? type.name
+  );
 
 export const isExpectedIntegralIrType = (
   type: IrType | undefined,
@@ -508,13 +442,10 @@ export const isExpectedIntegralIrType = (
   if (!type) return false;
   const resolved = resolveTypeAlias(stripNullish(type), context);
   if (resolved.kind === "primitiveType") {
-    return resolved.name === "int";
+    return numericTypeFactFromName(resolved.name)?.integral === true;
   }
   if (resolved.kind === "referenceType") {
-    return (
-      INTEGRAL_EXPECTED_TYPE_NAMES.has(resolved.name) ||
-      referenceTypeHasClrIdentity(resolved, INTEGRAL_EXPECTED_CLR_NAMES)
-    );
+    return referenceNumericFact(resolved)?.integral === true;
   }
   return false;
 };
@@ -533,16 +464,10 @@ export const isNumericSourceIrType = (
   }
   return (
     (resolved.kind === "primitiveType" &&
-      (resolved.name === "number" || resolved.name === "int")) ||
+      numericTypeFactFromName(resolved.name)?.kind === "numeric") ||
     (resolved.kind === "literalType" && typeof resolved.value === "number") ||
     (resolved.kind === "referenceType" &&
-      (INTEGRAL_EXPECTED_TYPE_NAMES.has(resolved.name) ||
-        resolved.name === "double" ||
-        resolved.name === "float" ||
-        resolved.name === "decimal" ||
-        resolved.name === "Half" ||
-        referenceTypeHasClrIdentity(resolved, INTEGRAL_EXPECTED_CLR_NAMES) ||
-        referenceTypeHasClrIdentity(resolved, NON_INTEGRAL_NUMERIC_CLR_NAMES)))
+      referenceNumericFact(resolved)?.kind === "numeric")
   );
 };
 
@@ -564,8 +489,7 @@ const isIntegralNumericSourceIrType = (
       typeof resolved.value === "number" &&
       Number.isInteger(resolved.value)) ||
     (resolved.kind === "referenceType" &&
-      (INTEGRAL_EXPECTED_TYPE_NAMES.has(resolved.name) ||
-        referenceTypeHasClrIdentity(resolved, INTEGRAL_EXPECTED_CLR_NAMES)))
+      referenceNumericFact(resolved)?.integral === true)
   );
 };
 
@@ -1175,11 +1099,9 @@ const isJsNumberIrType = (
   const resolved = resolveTypeAlias(stripNullish(type), context);
   return (
     (resolved.kind === "primitiveType" &&
-      (resolved.name === "number" || resolved.name === "int")) ||
+      numericTypeFactFromName(resolved.name)?.kind === "numeric") ||
     (resolved.kind === "referenceType" &&
-      (resolved.name === "int" ||
-        resolved.name === "double" ||
-        referenceTypeHasClrIdentity(resolved, JS_NUMBER_CLR_NAMES)))
+      referenceNumericFact(resolved)?.kind === "numeric")
   );
 };
 
@@ -1189,14 +1111,14 @@ export const isExpectedJsNumberIrType = (
 ): boolean => {
   if (!type) return false;
   const resolved = resolveTypeAlias(stripNullish(type), context);
+  const isDoubleLike = (
+    fact: ReturnType<typeof numericTypeFactFromName>
+  ): boolean => fact?.kind === "numeric" && fact.numericKind === "Double";
   return (
-    (resolved.kind === "primitiveType" && resolved.name === "number") ||
+    (resolved.kind === "primitiveType" &&
+      isDoubleLike(numericTypeFactFromName(resolved.name))) ||
     (resolved.kind === "referenceType" &&
-      (resolved.name === "double" ||
-        referenceTypeHasClrIdentity(resolved, [
-          "System.Double",
-          "global::System.Double",
-        ])))
+      isDoubleLike(referenceNumericFact(resolved)))
   );
 };
 

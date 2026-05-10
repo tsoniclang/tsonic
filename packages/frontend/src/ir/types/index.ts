@@ -138,11 +138,18 @@ export type {
 export { isStatement, isExpression } from "./guards.js";
 
 // Numeric types
-export type { NumericKind } from "./numeric-kind.js";
+export type {
+  NumericKind,
+  NumericTypeFact,
+  PrimitiveTypeFact,
+} from "./numeric-kind.js";
 export {
   TSONIC_TO_NUMERIC_KIND,
   NUMERIC_KIND_TO_CSHARP,
   NUMERIC_RANGES,
+  numericTypeFactFromName,
+  booleanTypeFactFromName,
+  primitiveTypeFactFromName,
   isIntegerKind,
   isSignedKind,
   getBinaryResultKind,

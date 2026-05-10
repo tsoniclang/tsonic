@@ -117,6 +117,8 @@ export type {
   IrAssignmentOperator,
   // Numeric types
   NumericKind,
+  NumericTypeFact,
+  PrimitiveTypeFact,
 } from "./types/index.js";
 
 // Re-export type guards
@@ -127,6 +129,9 @@ export {
   TSONIC_TO_NUMERIC_KIND,
   NUMERIC_KIND_TO_CSHARP,
   NUMERIC_RANGES,
+  numericTypeFactFromName,
+  booleanTypeFactFromName,
+  primitiveTypeFactFromName,
   getAwaitedIrType,
   getSpreadTupleShape,
   isIntegerKind,

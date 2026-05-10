@@ -9,6 +9,7 @@ import {
   IrType,
   ComputedAccessKind,
   ComputedAccessProtocol,
+  numericTypeFactFromName,
 } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { BindingInternal } from "../../../binding/index.js";
@@ -400,36 +401,7 @@ export const normalizeForComputedAccess = (
 };
 
 const isNumericIndexerKeyTypeName = (keyTypeName: string): boolean =>
-  new Set([
-    "number",
-    "int",
-    "byte",
-    "sbyte",
-    "short",
-    "ushort",
-    "uint",
-    "long",
-    "ulong",
-    "float",
-    "double",
-    "decimal",
-    "System.SByte",
-    "System.Byte",
-    "System.Int16",
-    "System.UInt16",
-    "System.Int32",
-    "System.UInt32",
-    "System.Int64",
-    "System.UInt64",
-    "System.IntPtr",
-    "System.UIntPtr",
-    "System.Int128",
-    "System.UInt128",
-    "System.Half",
-    "System.Single",
-    "System.Double",
-    "System.Decimal",
-  ]).has(keyTypeName);
+  numericTypeFactFromName(keyTypeName) !== undefined;
 
 const INT_IR_TYPE: IrType = { kind: "primitiveType", name: "int" };
 

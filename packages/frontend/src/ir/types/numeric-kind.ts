@@ -24,6 +24,27 @@ export type NumericKind =
   | "Single" // System.Single, float
   | "Double"; // System.Double, double
 
+export type NumericTypeFact = {
+  readonly kind: "numeric";
+  readonly numericKind:
+    | NumericKind
+    | "Half"
+    | "Decimal"
+    | "IntPtr"
+    | "UIntPtr"
+    | "Int128"
+    | "UInt128";
+  readonly integral: boolean;
+  readonly jsTypeof: "number";
+};
+
+export type PrimitiveTypeFact =
+  | NumericTypeFact
+  | {
+      readonly kind: "boolean";
+      readonly jsTypeof: "boolean";
+    };
+
 /**
  * Maps Tsonic type alias names to CLR numeric kinds.
  * Used to recognize numeric intent from TypeScript annotations.
@@ -60,6 +81,84 @@ export const NUMERIC_KIND_TO_CSHARP: ReadonlyMap<NumericKind, string> = new Map(
     ["Double", "double"],
   ]
 );
+
+const normalizeClrNumericName = (name: string): string => {
+  const withoutGlobal = name.startsWith("global::")
+    ? name.slice("global::".length)
+    : name;
+  const arityIndex = withoutGlobal.indexOf("/");
+  return arityIndex >= 0 ? withoutGlobal.slice(0, arityIndex) : withoutGlobal;
+};
+
+const numericFact = (
+  numericKind: NumericTypeFact["numericKind"],
+  integral: boolean
+): NumericTypeFact => ({
+  kind: "numeric",
+  numericKind,
+  integral,
+  jsTypeof: "number",
+});
+
+const numericFactEntries = (
+  names: readonly string[],
+  numericKind: NumericTypeFact["numericKind"],
+  integral: boolean
+): readonly (readonly [string, NumericTypeFact])[] =>
+  names.map((name) => [name, numericFact(numericKind, integral)] as const);
+
+const NUMERIC_NAME_FACTS: ReadonlyMap<string, NumericTypeFact> = new Map([
+  ...numericFactEntries(["sbyte", "SByte", "System.SByte"], "SByte", true),
+  ...numericFactEntries(["byte", "Byte", "System.Byte"], "Byte", true),
+  ...numericFactEntries(["short", "Int16", "System.Int16"], "Int16", true),
+  ...numericFactEntries(["ushort", "UInt16", "System.UInt16"], "UInt16", true),
+  ...numericFactEntries(["int", "Int32", "System.Int32"], "Int32", true),
+  ...numericFactEntries(["uint", "UInt32", "System.UInt32"], "UInt32", true),
+  ...numericFactEntries(["long", "Int64", "System.Int64"], "Int64", true),
+  ...numericFactEntries(["ulong", "UInt64", "System.UInt64"], "UInt64", true),
+  ...numericFactEntries(["nint", "IntPtr", "System.IntPtr"], "IntPtr", true),
+  ...numericFactEntries(
+    ["nuint", "UIntPtr", "System.UIntPtr"],
+    "UIntPtr",
+    true
+  ),
+  ...numericFactEntries(["Int128", "System.Int128"], "Int128", true),
+  ...numericFactEntries(["UInt128", "System.UInt128"], "UInt128", true),
+  ...numericFactEntries(["half", "Half", "System.Half"], "Half", false),
+  ...numericFactEntries(["float", "Single", "System.Single"], "Single", false),
+  ...numericFactEntries(
+    ["number", "double", "Double", "System.Double"],
+    "Double",
+    false
+  ),
+  ...numericFactEntries(
+    ["decimal", "Decimal", "System.Decimal"],
+    "Decimal",
+    false
+  ),
+]);
+
+const BOOLEAN_NAME_FACTS: ReadonlyMap<string, PrimitiveTypeFact> = new Map([
+  ["boolean", { kind: "boolean", jsTypeof: "boolean" }],
+  ["bool", { kind: "boolean", jsTypeof: "boolean" }],
+  ["Boolean", { kind: "boolean", jsTypeof: "boolean" }],
+  ["System.Boolean", { kind: "boolean", jsTypeof: "boolean" }],
+]);
+
+export const numericTypeFactFromName = (
+  name: string
+): NumericTypeFact | undefined =>
+  NUMERIC_NAME_FACTS.get(normalizeClrNumericName(name));
+
+export const booleanTypeFactFromName = (
+  name: string
+): PrimitiveTypeFact | undefined =>
+  BOOLEAN_NAME_FACTS.get(normalizeClrNumericName(name));
+
+export const primitiveTypeFactFromName = (
+  name: string
+): PrimitiveTypeFact | undefined =>
+  numericTypeFactFromName(name) ?? booleanTypeFactFromName(name);
 
 /**
  * Range bounds for compile-time literal validation.
