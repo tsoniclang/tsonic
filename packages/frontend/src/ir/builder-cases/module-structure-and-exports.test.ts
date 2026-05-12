@@ -51,6 +51,29 @@ describe("IR Builder", function () {
         expect(result.value.isStaticContainer).to.equal(false);
       }
     });
+
+    it("allows static module exports with the same name as the source file", () => {
+      const source = `
+        export function render(): string {
+          return "ok";
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(
+        source,
+        "/test/render.ts"
+      );
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.className).to.equal("render");
+        expect(result.value.isStaticContainer).to.equal(true);
+      }
+    });
   });
 
   describe("Export Handling", () => {

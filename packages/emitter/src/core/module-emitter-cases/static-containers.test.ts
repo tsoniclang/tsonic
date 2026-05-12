@@ -154,6 +154,44 @@ describe("Module Generation", () => {
     expect(marker).to.include("ModuleContainerAttribute");
   });
 
+  it("suffixes module containers that collide with static value members", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/render.ts",
+      namespace: "MyApp",
+      className: "render",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "render",
+          parameters: [],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: { kind: "literal", value: "ok", raw: "\"ok\"" },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("public static class render__Module");
+    expect(result).to.include("public static string render()");
+    expect(result).not.to.include("public static class render\n");
+  });
+
   it("does not emit readonly for mutable top-level array const bindings", () => {
     const module: IrModule = {
       kind: "module",

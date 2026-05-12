@@ -435,7 +435,8 @@ const createImportBinding = (
   context: EmitterContext
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
-  // Value exports live in ClassName__Module when there's a type collision, otherwise in ClassName
+  // Value exports live in ClassName__Module when the target module's static
+  // container needs a suffix, otherwise in ClassName.
   const valueContainerName = hasTypeCollision
     ? `${containerClassName}__Module`
     : containerClassName;

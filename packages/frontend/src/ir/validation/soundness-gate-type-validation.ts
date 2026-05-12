@@ -123,7 +123,16 @@ export const validateType = (
 
       case "referenceType": {
         const { name, resolvedClrType, typeId } = type;
-        const candidateNames = getReferenceResolutionCandidates(name);
+        const sameNamespaceName =
+          ctx.namespace.length > 0 && name.startsWith(`${ctx.namespace}.`)
+            ? name.slice(ctx.namespace.length + 1)
+            : undefined;
+        const candidateNames = [
+          ...getReferenceResolutionCandidates(name),
+          ...(sameNamespaceName
+            ? getReferenceResolutionCandidates(sameNamespaceName)
+            : []),
+        ];
         const isResolvable =
           typeId !== undefined ||
           resolvedClrType !== undefined ||

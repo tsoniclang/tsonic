@@ -191,7 +191,10 @@ export const emitPropertyAccess = (
   }
 
   if (resolvedObjectType?.kind === "dictionaryType") {
-    if (prop === "Count" || prop === "Keys" || prop === "Values") {
+    if (
+      expr.accessKind !== "dictionary" &&
+      (prop === "Count" || prop === "Keys" || prop === "Values")
+    ) {
       return [
         {
           kind: expr.isOptional

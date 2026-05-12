@@ -58,6 +58,13 @@ const getAmbientInterfaceLookupTarget = (
     };
   }
 
+  if (receiver.kind === "primitiveType" && receiver.name === "string") {
+    return {
+      interfaceNames: ["String"],
+      typeArguments: [],
+    };
+  }
+
   if (receiver.kind !== "referenceType") {
     return undefined;
   }
@@ -136,6 +143,9 @@ const resolveStructuralMemberType = (
   );
   return buildStructuralMethodFamilyType(methodMembers);
 };
+
+const isStringDictionaryKeyType = (type: IrType): boolean =>
+  type.kind === "primitiveType" && type.name === "string";
 
 const collectAmbientInterfaceDeclarations = (
   statements: readonly ts.Statement[],
@@ -447,6 +457,13 @@ export const resolveMemberTypeNoDiag = (
   receiver: IrType,
   memberName: string
 ): IrType | undefined => {
+  if (
+    receiver.kind === "dictionaryType" &&
+    isStringDictionaryKeyType(receiver.keyType)
+  ) {
+    return receiver.valueType;
+  }
+
   if (
     receiver.kind === "referenceType" &&
     receiver.structuralMembers &&

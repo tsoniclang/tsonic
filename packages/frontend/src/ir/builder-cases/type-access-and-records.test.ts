@@ -17,14 +17,10 @@ describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("Type access and Records", () => {
-    it("does not synthesize CLR dictionary Keys as an array", () => {
+    it("treats dictionary Keys dot access as a string-key dictionary read", () => {
       const source = `
-        export function firstKey(settings: Record<string, unknown>): string | undefined {
-          const settingsKeys = settings.Keys;
-          if (settingsKeys.Length === 0) {
-            return undefined;
-          }
-          return settingsKeys[0];
+        export function readKey(settings: Record<string, unknown>): unknown {
+          return settings.Keys;
         }
       `;
 
@@ -37,37 +33,32 @@ describe("IR Builder", function () {
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
       expect(ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203"))
-        .to.equal(true);
+        .to.equal(false);
       if (!result.ok) return;
 
       const fn = result.value.body.find(
         (stmt): stmt is IrFunctionDeclaration =>
-          stmt.kind === "functionDeclaration" && stmt.name === "firstKey"
+          stmt.kind === "functionDeclaration" && stmt.name === "readKey"
       );
       expect(fn).to.not.equal(undefined);
       if (!fn) return;
 
-      const keyDecl = fn.body.statements.find(
-        (stmt): stmt is IrVariableDeclaration =>
-          stmt.kind === "variableDeclaration" &&
-          stmt.declarations.some(
-            (d) =>
-              d.name.kind === "identifierPattern" &&
-              d.name.name === "settingsKeys"
-          )
+      const returnStmt = fn.body.statements.find(
+        (stmt) => stmt.kind === "returnStatement"
       );
-      expect(keyDecl).to.not.equal(undefined);
-      const keyInit = keyDecl?.declarations[0]?.initializer;
-      expect(keyInit?.kind).to.equal("memberAccess");
-      if (!keyInit || keyInit.kind !== "memberAccess") return;
-      expect(keyInit.inferredType).to.deep.equal({ kind: "unknownType" });
+      const expression =
+        returnStmt?.kind === "returnStatement" ? returnStmt.expression : undefined;
+      expect(expression?.kind).to.equal("memberAccess");
+      if (!expression || expression.kind !== "memberAccess") return;
+      expect(expression.accessKind).to.equal("dictionary");
+      expect(expression.inferredType).to.deep.equal({ kind: "unknownType" });
+      expect(expression.allowUnknownInferredType).to.equal(true);
     });
 
-    it("does not synthesize CLR dictionary Values as an array", () => {
+    it("treats dictionary Values dot access as a string-key dictionary read", () => {
       const source = `
-        export function firstValue(settings: Record<string, unknown>): unknown | undefined {
-          const values = settings.Values;
-          return values.Length > 0 ? values[0] : undefined;
+        export function readValue(settings: Record<string, unknown>): unknown {
+          return settings.Values;
         }
       `;
 
@@ -80,32 +71,29 @@ describe("IR Builder", function () {
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
       expect(ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203"))
-        .to.equal(true);
+        .to.equal(false);
       if (!result.ok) return;
 
       const fn = result.value.body.find(
         (stmt): stmt is IrFunctionDeclaration =>
-          stmt.kind === "functionDeclaration" && stmt.name === "firstValue"
+          stmt.kind === "functionDeclaration" && stmt.name === "readValue"
       );
       expect(fn).to.not.equal(undefined);
       if (!fn) return;
 
-      const valuesDecl = fn.body.statements.find(
-        (stmt): stmt is IrVariableDeclaration =>
-          stmt.kind === "variableDeclaration" &&
-          stmt.declarations.some(
-            (d) =>
-              d.name.kind === "identifierPattern" && d.name.name === "values"
-          )
+      const returnStmt = fn.body.statements.find(
+        (stmt) => stmt.kind === "returnStatement"
       );
-      expect(valuesDecl).to.not.equal(undefined);
-      const valuesInit = valuesDecl?.declarations[0]?.initializer;
-      expect(valuesInit?.kind).to.equal("memberAccess");
-      if (!valuesInit || valuesInit.kind !== "memberAccess") return;
-      expect(valuesInit.inferredType).to.deep.equal({ kind: "unknownType" });
+      const expression =
+        returnStmt?.kind === "returnStatement" ? returnStmt.expression : undefined;
+      expect(expression?.kind).to.equal("memberAccess");
+      if (!expression || expression.kind !== "memberAccess") return;
+      expect(expression.accessKind).to.equal("dictionary");
+      expect(expression.inferredType).to.deep.equal({ kind: "unknownType" });
+      expect(expression.allowUnknownInferredType).to.equal(true);
     });
 
-    it("does not treat dictionary indexers as declared dot-properties", () => {
+    it("treats string-key dictionary dot properties as dictionary accesses", () => {
       const source = `
         export function fill(): Record<string, unknown> {
           const state: Record<string, unknown> = {};
@@ -142,15 +130,17 @@ describe("IR Builder", function () {
           const expression = stmt.expression;
           return (
             expression.kind === "assignment" &&
-            expression.left.kind === "memberAccess" &&
-            expression.left.inferredType?.kind === "unknownType"
+              expression.left.kind === "memberAccess" &&
+              expression.left.accessKind === "dictionary" &&
+              expression.left.inferredType?.kind === "unknownType" &&
+              expression.left.allowUnknownInferredType === true
           );
         })
       ).to.equal(true);
 
       const soundness = validateIrSoundness([result.value]);
       expect(soundness.diagnostics.some((d) => d.code === "TSN5203")).to.equal(
-        true
+        false
       );
     });
 
