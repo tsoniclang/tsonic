@@ -564,8 +564,8 @@ describe("End-to-End Integration", () => {
     it("single-evaluates generic nullish fallbacks instead of emitting raw ??", () => {
       const source = `
         export class Box<T> {
-          stringify(value: T): string {
-            return String(value ?? "");
+          coalesce(value: T): string | T {
+            return value ?? "";
           }
         }
       `;
