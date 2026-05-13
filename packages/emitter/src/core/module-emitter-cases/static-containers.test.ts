@@ -338,7 +338,7 @@ describe("Module Generation", () => {
           name: "RuntimeValue",
           type: {
             kind: "unionType",
-            preserveRuntimeLayout: true,
+            runtimeUnionLayout: "carrierSlotOrder",
             runtimeCarrierFamilyKey: "runtime-union:alias:MyApp.RuntimeValue",
             runtimeCarrierName: "RuntimeValue",
             runtimeCarrierNamespace: "MyApp",

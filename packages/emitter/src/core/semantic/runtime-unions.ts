@@ -89,12 +89,12 @@ export const buildRuntimeUnionLayout = (
     return [undefined, context];
   }
   const semanticMembers = frame.members;
-  const preserveRuntimeLayout =
+  const hasCarrierSlotLayout =
     layoutSourceType.kind === "unionType" &&
-    layoutSourceType.preserveRuntimeLayout === true;
+    layoutSourceType.runtimeUnionLayout === "carrierSlotOrder";
 
   const orderedMembers: { member: IrType; typeAst: CSharpTypeAst }[] = [];
-  const byAstKey = preserveRuntimeLayout
+  const byAstKey = hasCarrierSlotLayout
     ? undefined
     : new Map<string, { member: IrType; typeAst: CSharpTypeAst }>();
   let currentContext = guardedContext;
@@ -114,7 +114,7 @@ export const buildRuntimeUnionLayout = (
             preferResolvedLocalClrIdentity:
               currentContext.preferResolvedLocalClrIdentity,
           };
-    if (preserveRuntimeLayout) {
+    if (hasCarrierSlotLayout) {
       orderedMembers.push({ member, typeAst });
       continue;
     }
@@ -124,7 +124,7 @@ export const buildRuntimeUnionLayout = (
     }
   }
 
-  const ordered = preserveRuntimeLayout
+  const ordered = hasCarrierSlotLayout
     ? orderedMembers
     : Array.from(byAstKey?.values() ?? []);
 
@@ -422,22 +422,22 @@ export const getCanonicalRuntimeUnionMembers = (
 ): readonly IrType[] | undefined => {
   const canonicalSourceType =
     type.kind === "referenceType" ? resolveTypeAlias(type, context) : type;
-  const preserveRuntimeLayout =
+  const hasCarrierSlotLayout =
     canonicalSourceType.kind === "unionType" &&
-    canonicalSourceType.preserveRuntimeLayout === true;
+    canonicalSourceType.runtimeUnionLayout === "carrierSlotOrder";
   const activeAliases =
     canonicalSourceType.kind === "unionType" &&
     canonicalSourceType.runtimeCarrierFamilyKey
       ? new Set<string>([canonicalSourceType.runtimeCarrierFamilyKey])
       : new Set<string>();
-  const semanticMembers = preserveRuntimeLayout
+  const semanticMembers = hasCarrierSlotLayout
     ? collectRuntimeUnionRawMembers(canonicalSourceType, context, activeAliases)
     : expandRuntimeUnionMembers(canonicalSourceType, context, activeAliases);
   if (semanticMembers.length < 2) {
     return undefined;
   }
 
-  if (preserveRuntimeLayout) {
+  if (hasCarrierSlotLayout) {
     return semanticMembers;
   }
 

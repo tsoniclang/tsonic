@@ -433,7 +433,8 @@ const contextualTypeIdentityKey = (
           break;
         }
         const orderedKeys =
-          type.kind === "unionType" && type.preserveRuntimeLayout
+          type.kind === "unionType" &&
+          type.runtimeUnionLayout === "carrierSlotOrder"
             ? memberKeys
             : [...memberKeys].sort();
         key = compactContextualKey(

@@ -107,4 +107,23 @@ describe("expression architecture invariants", () => {
       "resolveDirectStorageExpressionType"
     );
   });
+
+  it("keeps permissive architecture names out of emitter product code", () => {
+    const hits: string[] = [];
+    const forbiddenNames = [
+      "isBroadObjectPassThroughType",
+      "preserveRuntimeLayout",
+    ];
+    for (const file of walkTsFiles(emitterRoot)) {
+      if (file.endsWith(".test.ts")) continue;
+      const text = readFileSync(file, "utf8");
+      for (const forbiddenName of forbiddenNames) {
+        if (text.includes(forbiddenName)) {
+          hits.push(`${relative(emitterRoot, file)}:${forbiddenName}`);
+        }
+      }
+    }
+
+    expect(hits).to.deep.equal([]);
+  });
 });

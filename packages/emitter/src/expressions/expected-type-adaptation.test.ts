@@ -543,7 +543,6 @@ describe("expected-type-adaptation", () => {
         ],
         isOptional: false,
         inferredType: exactArrayReturnType,
-        allowUnknownInferredType: true,
       },
       valueAst: {
         kind: "invocationExpression",

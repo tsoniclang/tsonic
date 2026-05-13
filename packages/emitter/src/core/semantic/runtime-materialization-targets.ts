@@ -75,7 +75,7 @@ export const resolveRuntimeMaterializationTargetType = (
 
   if (target.kind === "unionType") {
     const expandedMembers =
-      target.preserveRuntimeLayout === true
+      target.runtimeUnionLayout === "carrierSlotOrder"
         ? collectRuntimeUnionRawMembers(target, context)
         : expandRuntimeUnionMembers(target, context);
     if (expandedMembers.length === 0) {

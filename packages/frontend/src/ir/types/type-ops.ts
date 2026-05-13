@@ -264,7 +264,7 @@ const collectCanonicalRuntimeUnionFamilyMembers = (
     visit(member);
   }
 
-  if (type.preserveRuntimeLayout) {
+  if (type.runtimeUnionLayout === "carrierSlotOrder") {
     return flattened;
   }
 
@@ -946,8 +946,8 @@ export const runtimeUnionCarrierFamilyKey = (
 
   const canonicalMembers = collectCanonicalRuntimeUnionFamilyMembers(type);
 
-  if (type.preserveRuntimeLayout) {
-    return `runtime-union:preserve:${canonicalMembers
+  if (type.runtimeUnionLayout === "carrierSlotOrder") {
+    return `runtime-union:carrier-slots:${canonicalMembers
       .map((member) => stableIrTypeKey(member))
       .join("|")}`;
   }
@@ -969,7 +969,7 @@ export const irTypesEqual = (left: IrType, right: IrType): boolean => {
 };
 
 export type NormalizedUnionTypeOptions = {
-  readonly preserveRuntimeLayout?: true;
+  readonly runtimeUnionLayout?: "carrierSlotOrder";
   readonly runtimeCarrierFamilyKey?: string;
   readonly runtimeCarrierName?: string;
   readonly runtimeCarrierNamespace?: string;
@@ -1030,7 +1030,10 @@ export const hasRuntimeUnionCarrierShape = (type: IrType): boolean => {
 
   const runtimeKeys = new Set<string>();
   const visit = (candidate: IrType): void => {
-    if (candidate.kind === "unionType" && !candidate.preserveRuntimeLayout) {
+    if (
+      candidate.kind === "unionType" &&
+      candidate.runtimeUnionLayout !== "carrierSlotOrder"
+    ) {
       for (const member of candidate.types) {
         visit(member);
       }
@@ -1060,7 +1063,7 @@ export const stampRuntimeUnionAliasCarrier = (
 
   return {
     ...type,
-    preserveRuntimeLayout: true,
+    runtimeUnionLayout: "carrierSlotOrder",
     runtimeCarrierFamilyKey: runtimeUnionAliasCarrierFamilyKey(
       options.fullyQualifiedName
     ),
@@ -1106,7 +1109,7 @@ export const normalizedUnionType = (
   );
 
   const normalized = (() => {
-    if (options.preserveRuntimeLayout === true) {
+    if (options.runtimeUnionLayout === "carrierSlotOrder") {
       const seenDeterministic = new Set<string>();
       const sourceOrderedMembers: IrType[] = [];
       for (const type of canonicalized) {
@@ -1149,8 +1152,8 @@ export const normalizedUnionType = (
   const unionType: Extract<IrType, { kind: "unionType" }> = {
     kind: "unionType",
     types: normalized,
-    ...(options.preserveRuntimeLayout === true
-      ? { preserveRuntimeLayout: true as const }
+    ...(options.runtimeUnionLayout === "carrierSlotOrder"
+      ? { runtimeUnionLayout: "carrierSlotOrder" as const }
       : {}),
     ...(options.runtimeCarrierFamilyKey !== undefined
       ? { runtimeCarrierFamilyKey: options.runtimeCarrierFamilyKey }

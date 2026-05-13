@@ -120,7 +120,6 @@ const expectNoDeterministicTypingDiagnostics = (
     const expression = value as {
       readonly kind?: string;
       readonly inferredType?: { readonly kind?: string };
-      readonly allowUnknownInferredType?: boolean;
       readonly sourceSpan?: {
         readonly file?: string;
         readonly line?: number;

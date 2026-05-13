@@ -450,10 +450,10 @@ describe("type-ops", () => {
     );
   });
 
-  it("preserves duplicate runtime slots in preserve-layout family keys", () => {
+  it("preserves duplicate runtime slots in carrier-slot family keys", () => {
     const duplicated: Extract<IrType, { kind: "unionType" }> = {
       kind: "unionType",
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
       types: [
         { kind: "primitiveType", name: "string" },
         { kind: "primitiveType", name: "null" },
@@ -462,7 +462,7 @@ describe("type-ops", () => {
     };
 
     expect(runtimeUnionCarrierFamilyKey(duplicated)).to.equal(
-      "runtime-union:preserve:prim:string|prim:string"
+      "runtime-union:carrier-slots:prim:string|prim:string"
     );
   });
 

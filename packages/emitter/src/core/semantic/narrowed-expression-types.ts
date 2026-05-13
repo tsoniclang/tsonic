@@ -159,10 +159,14 @@ const runtimeCarrierFamilyForType = (
     return undefined;
   }
 
-  const orderedKeys = resolved.preserveRuntimeLayout
+  const orderedKeys = resolved.runtimeUnionLayout === "carrierSlotOrder"
     ? memberKeys
     : [...memberKeys].sort();
-  return `runtime-union:${resolved.preserveRuntimeLayout ? "preserve" : "canonical"}:${orderedKeys.join(
+  return `runtime-union:${
+    resolved.runtimeUnionLayout === "carrierSlotOrder"
+      ? "carrier-slots"
+      : "canonical"
+  }:${orderedKeys.join(
     "|"
   )}`;
 };

@@ -7,7 +7,7 @@ import type {
 import { allocateLocalName } from "../format/local-names.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
 import {
-  getIdentifierTypeName,
+  astTypeMatchesClrIdentity,
   sameConcreteTypeAstSurface,
   stripNullableTypeAst,
 } from "../format/backend-ast/utils.js";
@@ -395,16 +395,7 @@ const isAlreadyMaterializedNullableValueRead = (
   ast.memberName === "Value";
 
 const isObjectTypeAst = (typeAst: CSharpTypeAst): boolean => {
-  const concreteTypeAst = stripNullableTypeAst(typeAst);
-  if (concreteTypeAst.kind === "predefinedType") {
-    return concreteTypeAst.keyword === "object";
-  }
-
-  const identifierName = getIdentifierTypeName(concreteTypeAst);
-  return (
-    identifierName === "System.Object" ||
-    identifierName === "global::System.Object"
-  );
+  return astTypeMatchesClrIdentity(typeAst, ["System.Object"]);
 };
 
 const stripObjectBoxForConcreteMaterializationAst = (

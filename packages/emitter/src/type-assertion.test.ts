@@ -278,7 +278,7 @@ describe("Type Assertion Emission", () => {
     const memberType: IrType = { kind: "typeParameterType", name: "T" };
     const duplicatedCarrier: IrType = {
       kind: "unionType",
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
       types: [memberType, memberType],
     };
     const context = createContext({ rootNamespace: "Test" });
@@ -307,7 +307,7 @@ describe("Type Assertion Emission", () => {
     const memberType: IrType = { kind: "typeParameterType", name: "T" };
     const duplicatedCarrier: IrType = {
       kind: "unionType",
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
       types: [memberType, memberType],
     };
     const context = createContext({ rootNamespace: "Test" });

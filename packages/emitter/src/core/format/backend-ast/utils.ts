@@ -339,6 +339,64 @@ export const stableTypeKeyFromAst = (type: CSharpTypeAst): string => {
 export const stableConcreteTypeKeyFromAst = (type: CSharpTypeAst): string =>
   stableTypeKeyFromAst(stripNullableTypeAst(type));
 
+export const stableClrIdentityKeyFromName = (
+  clrName: string,
+  typeArgumentArity = 0
+): string => {
+  const normalized = normalizeClrQualifiedName(clrName);
+  const body = normalized.startsWith("global::")
+    ? normalized.slice("global::".length)
+    : normalized;
+  const arityMatch = /^(.*)`([0-9]+)$/.exec(body);
+  const baseName = arityMatch?.[1] ?? body;
+  const metadataArity =
+    arityMatch?.[2] !== undefined ? Number(arityMatch[2]) : undefined;
+  const arity = metadataArity ?? typeArgumentArity;
+
+  if (arity === 0) {
+    const systemAlias = SYSTEM_CLR_TYPE_ALIASES.get(baseName);
+    if (systemAlias) {
+      return `clr:${systemAlias}`;
+    }
+  }
+
+  return `named:${baseName}/${arity}<>`;
+};
+
+export const astTypeMatchesClrIdentity = (
+  type: CSharpTypeAst,
+  clrNames: Iterable<string>,
+  typeArgumentArity = 0
+): boolean => {
+  const astKey = stableConcreteTypeKeyFromAst(type);
+  for (const clrName of clrNames) {
+    if (astKey === stableClrIdentityKeyFromName(clrName, typeArgumentArity)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+export const clrNameMatchesClrIdentity = (
+  clrName: string | undefined,
+  expectedClrNames: Iterable<string>,
+  typeArgumentArity = 0
+): boolean => {
+  if (!clrName) {
+    return false;
+  }
+
+  const clrKey = stableClrIdentityKeyFromName(clrName, typeArgumentArity);
+  for (const expectedClrName of expectedClrNames) {
+    if (
+      clrKey === stableClrIdentityKeyFromName(expectedClrName, typeArgumentArity)
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const sameTypeAstSurface = (
   left: CSharpTypeAst,
   right: CSharpTypeAst

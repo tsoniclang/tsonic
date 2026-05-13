@@ -171,7 +171,7 @@ export const substituteIrType = (
               name: typeParameter,
             })
           );
-        if (currentType.preserveRuntimeLayout) {
+        if (currentType.runtimeUnionLayout === "carrierSlotOrder") {
           (
             draft as {
               types: readonly IrType[];

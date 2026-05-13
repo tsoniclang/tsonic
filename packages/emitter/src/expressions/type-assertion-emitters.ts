@@ -76,7 +76,7 @@ import {
   resolveBroadArrayAssertionStorageType,
 } from "../core/semantic/broad-array-storage.js";
 import {
-  isBroadObjectPassThroughType,
+  isStorageErasedBroadObjectPassThroughType,
   isBroadObjectSlotType,
 } from "../core/semantic/broad-object-types.js";
 
@@ -816,7 +816,10 @@ export const emitTypeAssertion = (
     isBroadObjectSlotType(runtimeAssertionTarget, context) &&
     !mustPreserveExplicitRuntimeAssertion &&
     !!broadObjectPassThroughSourceType &&
-    isBroadObjectPassThroughType(broadObjectPassThroughSourceType, context);
+    isStorageErasedBroadObjectPassThroughType(
+      broadObjectPassThroughSourceType,
+      context
+    );
 
   if (
     preservesBroadObjectAssertionCarrier &&

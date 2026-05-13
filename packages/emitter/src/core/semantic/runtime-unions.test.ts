@@ -400,7 +400,7 @@ describe("runtime-unions", () => {
   it("preserves explicit duplicate runtime carrier slots when requested", () => {
     const duplicatedCarrier: IrType = {
       kind: "unionType",
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
       types: [
         {
           kind: "arrayType",

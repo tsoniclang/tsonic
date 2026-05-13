@@ -110,7 +110,7 @@ const hasExplicitRuntimeCarrierIdentity = (
   return (
     resolved.kind === "unionType" &&
     (resolved.runtimeCarrierFamilyKey !== undefined ||
-      resolved.preserveRuntimeLayout === true)
+      resolved.runtimeUnionLayout === "carrierSlotOrder")
   );
 };
 
@@ -277,7 +277,7 @@ const tryResolveRuntimeUnionSurfaceTypeAst = (
     return {
       kind: "unionType",
       types: members as readonly IrType[],
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
     };
   }
 

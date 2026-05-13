@@ -95,7 +95,7 @@ export const splitRuntimeNullishUnionMembers = (
     return !isRuntimeNullishType(member);
   });
 
-  if (type.preserveRuntimeLayout === true) {
+  if (type.runtimeUnionLayout === "carrierSlotOrder") {
     return {
       hasRuntimeNullish: nonNullishMembers.length !== type.types.length,
       nonNullishMembers,

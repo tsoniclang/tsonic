@@ -388,7 +388,9 @@ export const buildSubsetUnionType = (
 ): IrType | undefined => {
   if (members.length === 0) return undefined;
   if (members.length === 1) return members[0];
-  return normalizedUnionType(members, { preserveRuntimeLayout: true });
+  return normalizedUnionType(members, {
+    runtimeUnionLayout: "carrierSlotOrder",
+  });
 };
 
 export const buildComplementNarrowedBinding = (

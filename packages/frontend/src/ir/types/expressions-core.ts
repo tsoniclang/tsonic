@@ -192,11 +192,6 @@ export type IrMemberExpression = {
   readonly isComputed: boolean; // true for obj[prop], false for obj.prop
   readonly isOptional: boolean; // true for obj?.prop
   readonly inferredType?: IrType;
-  /**
-   * True when `unknown` is the declared/resulting type (for example `unknown[]`
-   * element access) rather than an unrecovered/poisoned type.
-   */
-  readonly allowUnknownInferredType?: boolean;
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the member declaration (from Binding layer)
   readonly memberId?: MemberId;
@@ -234,11 +229,6 @@ export type IrCallExpression = {
   readonly isOptional: boolean; // true for func?.()
   readonly intrinsicKind?: "globalSymbol";
   readonly inferredType?: IrType;
-  /**
-   * True when `unknown` is the declared return type (for example JSON.parse())
-   * rather than a failed recovery from an unannotated signature.
-   */
-  readonly allowUnknownInferredType?: boolean;
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the resolved signature (from Binding layer)
   readonly signatureId?: SignatureId;
