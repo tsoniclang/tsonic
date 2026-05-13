@@ -14,6 +14,7 @@ import {
   isDefinitelyValueType,
   isTypeOnlyStructuralTarget,
   findUnionMemberIndex,
+  narrowTypeByTypeofTag,
 } from "../type-resolution.js";
 import {
   type IrInterfaceMember,
@@ -43,6 +44,7 @@ export {
   isDefinitelyValueType,
   isTypeOnlyStructuralTarget,
   findUnionMemberIndex,
+  narrowTypeByTypeofTag,
 };
 export type {
   EmitterContext,

@@ -78,6 +78,7 @@ export const resolveNarrowedUnionMembers = (
       return undefined;
     }
 
+    const coveredEffectiveMemberIndices = new Set<number>();
     const alignedMembers = sourceMembers.flatMap((member, index) => {
       const exactMatches = findExactRuntimeUnionMemberIndices(
         effectiveMembers,
@@ -85,6 +86,9 @@ export const resolveNarrowedUnionMembers = (
         context
       );
       if (exactMatches.length > 0) {
+        for (const match of exactMatches) {
+          coveredEffectiveMemberIndices.add(match);
+        }
         return [{ member, memberN: index + 1 }];
       }
 
@@ -93,10 +97,20 @@ export const resolveNarrowedUnionMembers = (
         member,
         context
       );
-      return semanticMatches.length > 0 ? [{ member, memberN: index + 1 }] : [];
+      if (semanticMatches.length > 0) {
+        for (const match of semanticMatches) {
+          coveredEffectiveMemberIndices.add(match);
+        }
+        return [{ member, memberN: index + 1 }];
+      }
+
+      return [];
     });
 
-    if (alignedMembers.length !== effectiveMembers.length) {
+    if (
+      alignedMembers.length === 0 ||
+      coveredEffectiveMemberIndices.size !== effectiveMembers.length
+    ) {
       return undefined;
     }
 

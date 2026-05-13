@@ -155,8 +155,12 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source, "/test/test.ts", {
         surface: "@tsonic/js",
       });
-      expect(csharp).to.match(/exp\s*=\s*\(double\??\)/);
-      expect(csharp).to.match(/payload\.email\s*=\s*\(string\??\)/);
+      expect(csharp).to.match(
+        /exp\s*=\s*\(\(\(global::System\.Func<object\?>\)[\s\S]*?\)\)\(\) switch \{ int __tsonic_number_int_/
+      );
+      expect(csharp).to.match(
+        /payload\.email\s*=\s*\(string\)\(\(global::System\.Func<object\?>\)[\s\S]*?\)\)\(\);/
+      );
       expect(csharp).not.to.include('exp = payloadObject["exp"];');
       expect(csharp).not.to.include('payload.email = payloadObject["email"];');
     });
@@ -1550,7 +1554,11 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("if (value is bool)");
       expect(csharp).to.include("if ((value is double || value is int))");
-      expect(csharp).to.include("return (double)value != 0");
+      expect(csharp).to.include("return (value switch { int ");
+      expect(csharp).to.include("=> (double)__tsonic_number_int_");
+      expect(csharp).to.include("double __tsonic_number_double_");
+      expect(csharp).to.include("var __tsonic_number_value_");
+      expect(csharp).to.not.include("return (double)value != 0");
       expect(csharp).to.not.include("if (false)");
       expect(csharp).to.not.include(
         "global::System.Object.Equals((double)value, 0)"
@@ -4806,6 +4814,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("object? value = __unused_args[0];");
       expect(csharp).to.include("if ((value is double || value is int))");
+      expect(csharp).to.include("received = (double)(value switch { int ");
       expect(csharp).to.not.include("if (false)");
     });
 

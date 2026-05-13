@@ -20,6 +20,9 @@ import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { extractRawDotnetBindingsPayload } from "../../../../program/dotnet-binding-payload.js";
 import { extractTypeName } from "./member-resolution.js";
 
+const nearestBindingsJsonCache = new Map<string, string | undefined>();
+const bindingsJsonPayloadCache = new Map<string, Record<string, unknown> | undefined>();
+
 const stripTsonicExtensionWrapperType = (
   type: IrExpression["inferredType"]
 ): IrExpression["inferredType"] => {
@@ -120,22 +123,48 @@ const getPreferredInstanceOwnerClrType = (
   return descriptor?.type;
 };
 
+const readBindingsJsonPayload = (
+  bindingsPath: string
+): Record<string, unknown> | undefined => {
+  if (bindingsJsonPayloadCache.has(bindingsPath)) {
+    return bindingsJsonPayloadCache.get(bindingsPath);
+  }
+
+  const payload = (() => {
+    try {
+      const raw = JSON.parse(readFileSync(bindingsPath, "utf8")) as unknown;
+      return raw && typeof raw === "object"
+        ? (raw as Record<string, unknown>)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  bindingsJsonPayloadCache.set(bindingsPath, payload);
+  return payload;
+};
+
 const findNearestBindingsJson = (filePath: string): string | undefined => {
+  if (nearestBindingsJsonCache.has(filePath)) {
+    return nearestBindingsJsonCache.get(filePath);
+  }
+
   let currentDir = dirname(filePath);
   while (true) {
     const candidate = join(currentDir, "bindings.json");
     if (existsSync(candidate)) {
-      try {
-        const raw = JSON.parse(readFileSync(candidate, "utf8")) as unknown;
-        if (extractRawDotnetBindingsPayload(raw)) {
-          return candidate;
-        }
-      } catch {
-        // Ignore unreadable/invalid candidates here. Loader diagnostics happen elsewhere.
+      const raw = readBindingsJsonPayload(candidate);
+      if (raw && extractRawDotnetBindingsPayload(raw)) {
+        nearestBindingsJsonCache.set(filePath, candidate);
+        return candidate;
       }
     }
     const parentDir = dirname(currentDir);
-    if (parentDir === currentDir) return undefined;
+    if (parentDir === currentDir) {
+      nearestBindingsJsonCache.set(filePath, undefined);
+      return undefined;
+    }
     currentDir = parentDir;
   }
 };
@@ -152,18 +181,11 @@ const disambiguateOverloadsByDeclaringType = (
   const bindingsPath = findNearestBindingsJson(declSourceFilePath);
   if (!bindingsPath) return undefined;
 
-  const raw = (() => {
-    try {
-      return JSON.parse(readFileSync(bindingsPath, "utf8")) as unknown;
-    } catch {
-      return undefined;
-    }
-  })();
-
-  if (!raw || typeof raw !== "object") return undefined;
+  const raw = readBindingsJsonPayload(bindingsPath);
+  if (!raw) return undefined;
 
   const expectedClrType = resolveExpectedClrTypeFromBindings(
-    raw as Record<string, unknown>,
+    raw,
     declaringTypeTsName
   );
   if (!expectedClrType) return undefined;
@@ -216,17 +238,8 @@ export const resolveHierarchicalBindingFromMemberId = (
       return undefined;
     }
 
-    try {
-      const raw = JSON.parse(readFileSync(bindingsPath, "utf8")) as unknown;
-      return raw && typeof raw === "object"
-        ? resolveExpectedClrTypeFromBindings(
-            raw as Record<string, unknown>,
-            typeAlias
-          )
-        : undefined;
-    } catch {
-      return undefined;
-    }
+    const raw = readBindingsJsonPayload(bindingsPath);
+    return raw ? resolveExpectedClrTypeFromBindings(raw, typeAlias) : undefined;
   })();
   const staticOverloads = (() => {
     if (!ts.isIdentifier(node.expression)) return undefined;

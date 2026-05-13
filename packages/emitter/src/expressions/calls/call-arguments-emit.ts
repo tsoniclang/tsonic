@@ -2341,14 +2341,23 @@ const emitFunctionValueCallArguments = (
                 finalExpectedType: adaptationExpectedType,
                 context: currentContext,
               }));
+      const contextualRawEmitExpectedTypeCandidate =
+        arg.kind === "arrowFunction" || arg.kind === "functionExpression"
+          ? (selectedParameterType ??
+            rawEmitExpectedTypeCandidate ??
+            contextualExpectedType ??
+            adaptationExpectedType ??
+            finalExpectedType ??
+            selectedExpectedType)
+          : rawEmitExpectedTypeCandidate;
       const rawEmitExpectedType =
         shouldDeferStructuralObjectArgumentMaterialization({
           arg,
-          rawExpectedType: rawEmitExpectedTypeCandidate,
+          rawExpectedType: contextualRawEmitExpectedTypeCandidate,
           context: currentContext,
         })
           ? undefined
-          : rawEmitExpectedTypeCandidate;
+          : contextualRawEmitExpectedTypeCandidate;
       const carrierPassThroughArgument = tryEmitCarrierPreservingExpressionAst({
         expr: arg,
         expectedType: adaptationExpectedType,
@@ -3037,7 +3046,6 @@ const emitCallArguments = (
             selectedParameterTypes[i],
             currentContext
           ));
-
     const runtimeRestElementType =
       runtimeRestParameter && i >= runtimeRestParameter.index
         ? runtimeRestParameter.elementType
@@ -3149,14 +3157,23 @@ const emitCallArguments = (
               finalExpectedType: adaptationExpectedType,
               context: currentContext,
             }));
+    const contextualRawEmitExpectedTypeCandidate =
+      arg.kind === "arrowFunction" || arg.kind === "functionExpression"
+        ? (selectedParameterTypes[i] ??
+          rawEmitExpectedTypeCandidate ??
+          contextualExpectedType ??
+          adaptationExpectedType ??
+          finalExpectedType ??
+          expectedType)
+        : rawEmitExpectedTypeCandidate;
     const rawEmitExpectedType =
       shouldDeferStructuralObjectArgumentMaterialization({
         arg,
-        rawExpectedType: rawEmitExpectedTypeCandidate,
+        rawExpectedType: contextualRawEmitExpectedTypeCandidate,
         context: currentContext,
       })
         ? undefined
-        : rawEmitExpectedTypeCandidate;
+        : contextualRawEmitExpectedTypeCandidate;
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
         arg.expression,

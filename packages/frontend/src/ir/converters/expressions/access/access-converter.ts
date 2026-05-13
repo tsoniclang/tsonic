@@ -154,12 +154,14 @@ export const convertMemberExpression = (
       currentReceiverType ?? object.inferredType,
       ctx
     );
-    const dictionaryPropertyAccessKind =
-      memberBinding === undefined &&
-      propertyAccessKind === "dictionary"
-        ? propertyAccessKind
+    const dictionaryPropertyType =
+      declaredType === undefined &&
+      propertyAccessKind === "dictionary" &&
+      propertyName !== "Count" &&
+      propertyName !== "Keys" &&
+      propertyName !== "Values"
+        ? deriveElementType(currentReceiverType ?? object.inferredType, ctx)
         : undefined;
-
     // Hierarchical bindings: namespace.type is a static type reference, not a runtime
     // value. When this pattern is present in the binding manifest, avoid poisoning the
     // receiver with unknownType; the emitter uses "no inferredType" to classify the
@@ -186,6 +188,8 @@ export const convertMemberExpression = (
     // Users must add explicit types like `count: int = 0` instead of `count = 0`.
     const propertyInferredType = declaredType
       ? declaredType
+      : dictionaryPropertyType
+        ? dictionaryPropertyType
       : isNamespaceTypeReference
         ? undefined
         : memberBinding
@@ -201,12 +205,13 @@ export const convertMemberExpression = (
       inferredType: declaredType ?? propertyInferredType,
       sourceSpan,
       memberBinding,
-      ...(dictionaryPropertyAccessKind
-        ? { accessKind: dictionaryPropertyAccessKind }
-        : {}),
-      ...(dictionaryPropertyAccessKind &&
-      (declaredType ?? propertyInferredType)?.kind === "unknownType"
-        ? { allowUnknownInferredType: true }
+      ...(dictionaryPropertyType
+        ? {
+            accessKind: "dictionary" as const,
+            ...(dictionaryPropertyType.kind === "unknownType"
+              ? { allowUnknownInferredType: true }
+              : {}),
+          }
         : {}),
     };
     if (

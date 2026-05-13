@@ -3,6 +3,7 @@ import { expect } from "chai";
 import type { IrType } from "@tsonic/frontend";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import type { EmitterContext } from "../../emitter-types/core.js";
+import { printExpression } from "../format/backend-ast/printer-expressions.js";
 
 const context: EmitterContext = {
   indentLevel: 0,
@@ -89,18 +90,17 @@ describe("materialized narrowing", () => {
       ],
     };
 
-    const [ast] = materializeDirectNarrowingAst(
+    const [ast, nextContext] = materializeDirectNarrowingAst(
       sourceAst,
       broadObjectSlotUnion,
       nullableNumberType,
       context
     );
 
-    expect(ast).to.deep.equal({
-      kind: "castExpression",
-      type: { kind: "predefinedType", keyword: "double" },
-      expression: sourceAst,
-    });
+    expect(printExpression(ast)).to.equal(
+      "(value switch { int __tsonic_number_int_1 => (double)__tsonic_number_int_1, double __tsonic_number_double_1 => __tsonic_number_double_1, var __tsonic_number_value_1 => (double)__tsonic_number_value_1 })"
+    );
+    expect(nextContext.tempVarId).to.equal(1);
   });
 
   it("produces .Value unwrap for ref-wrapped nullable value types", () => {

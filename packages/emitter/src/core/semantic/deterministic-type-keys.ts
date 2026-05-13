@@ -1,5 +1,6 @@
 import type { IrInterfaceMember, IrParameter, IrType } from "@tsonic/frontend";
 import { stableIrTypeKey } from "@tsonic/frontend";
+import { createHash } from "node:crypto";
 import type { EmitterContext } from "../../types.js";
 import { resolveTypeAlias, stripNullish } from "./nullish-value-helpers.js";
 import { getReferenceNominalIdentityKey } from "./reference-type-identity.js";
@@ -24,6 +25,39 @@ const createContextualKeyState = (): ContextualKeyState => ({
 
 const opaqueVisitKeys = new WeakMap<object, number>();
 let nextOpaqueVisitKey = 0;
+const maxContextualKeyLength = 8192;
+const noContextualKey = Symbol("noContextualKey");
+const contextualKeyCache = new WeakMap<
+  object,
+  WeakMap<object, string | typeof noContextualKey>
+>();
+
+const hashContextualKey = (text: string): string =>
+  `hash:${createHash("sha256").update(text).digest("hex")}`;
+
+const compactContextualKey = (key: string): string =>
+  key.length <= maxContextualKeyLength ? key : hashContextualKey(key);
+
+const joinContextualKeyParts = (
+  parts: readonly string[],
+  separator: string
+): string => {
+  const estimatedLength =
+    parts.reduce((sum, part) => sum + part.length, 0) +
+    Math.max(0, parts.length - 1) * separator.length;
+  if (estimatedLength <= maxContextualKeyLength) {
+    return parts.join(separator);
+  }
+
+  const hash = createHash("sha256");
+  parts.forEach((part, index) => {
+    if (index > 0) {
+      hash.update(separator);
+    }
+    hash.update(part);
+  });
+  return `hash:${hash.digest("hex")}`;
+};
 
 const getOpaqueVisitKey = (type: IrType): string => {
   if (typeof type !== "object" || type === null) {
@@ -149,9 +183,12 @@ const contextualMemberKey = (
     return undefined;
   }
 
-  return `method:${member.name}:${member.typeParameters?.length ?? 0}:${parameterKeys.join(
-    "|"
-  )}:${returnTypeKey}`;
+  return compactContextualKey(
+    `method:${member.name}:${member.typeParameters?.length ?? 0}:${joinContextualKeyParts(
+      parameterKeys,
+      "|"
+    )}:${returnTypeKey}`
+  );
 };
 
 const contextualReferenceTypeIdentityKey = (
@@ -182,7 +219,9 @@ const contextualReferenceTypeIdentityKey = (
     }
 
     if (identity) {
-      return `ref:${identity}<${argumentKeys.join(",")}>`;
+      return compactContextualKey(
+        `ref:${identity}<${joinContextualKeyParts(argumentKeys, ",")}>`
+      );
     }
 
     const resolved = resolveTypeAlias(stripNullish(type), context);
@@ -206,9 +245,12 @@ const contextualReferenceTypeIdentityKey = (
       memberKeys.push(memberKey);
     }
 
-    return `ref:structural<${argumentKeys.join(",")}>{${memberKeys
-      .sort()
-      .join("|")}}`;
+    return compactContextualKey(
+      `ref:structural<${joinContextualKeyParts(
+        argumentKeys,
+        ","
+      )}>{${joinContextualKeyParts([...memberKeys].sort(), "|")}}`
+    );
   } finally {
     state.activeReferenceKeys.delete(rawReferenceKey);
   }
@@ -280,7 +322,12 @@ const contextualTypeIdentityKey = (
           ? contextualTypeIdentityKey(type.tupleRestElementType, context, state)
           : "none";
         key = restKey
-          ? `arr:${elementKey}:tuple:${tuplePrefixKeys.join(",")}:rest:${restKey}`
+          ? compactContextualKey(
+              `arr:${elementKey}:tuple:${joinContextualKeyParts(
+                tuplePrefixKeys,
+                ","
+              )}:rest:${restKey}`
+            )
           : undefined;
         break;
       }
@@ -302,7 +349,9 @@ const contextualTypeIdentityKey = (
         key =
           key === undefined && elementKeys.length !== type.elementTypes.length
             ? undefined
-            : `tuple:${elementKeys.join(",")}`;
+            : compactContextualKey(
+                `tuple:${joinContextualKeyParts(elementKeys, ",")}`
+              );
         break;
       }
 
@@ -343,7 +392,9 @@ const contextualTypeIdentityKey = (
           state
         );
         key = returnKey
-          ? `fn:${parameterKeys.join("|")}=>${returnKey}`
+          ? compactContextualKey(
+              `fn:${joinContextualKeyParts(parameterKeys, "|")}=>${returnKey}`
+            )
           : undefined;
         break;
       }
@@ -361,7 +412,9 @@ const contextualTypeIdentityKey = (
         key =
           key === undefined && memberKeys.length !== type.members.length
             ? undefined
-            : `obj:${memberKeys.sort().join("|")}`;
+            : compactContextualKey(
+                `obj:${joinContextualKeyParts([...memberKeys].sort(), "|")}`
+              );
         break;
       }
 
@@ -383,9 +436,12 @@ const contextualTypeIdentityKey = (
           type.kind === "unionType" && type.preserveRuntimeLayout
             ? memberKeys
             : [...memberKeys].sort();
-        key = `${type.kind === "unionType" ? "union" : "inter"}:${orderedKeys.join(
-          "|"
-        )}`;
+        key = compactContextualKey(
+          `${type.kind === "unionType" ? "union" : "inter"}:${joinContextualKeyParts(
+            orderedKeys,
+            "|"
+          )}`
+        );
         break;
       }
     }
@@ -402,8 +458,30 @@ const contextualTypeIdentityKey = (
 export const tryContextualTypeIdentityKey = (
   type: IrType,
   context: EmitterContext
-): string | undefined =>
-  contextualTypeIdentityKey(type, context, createContextualKeyState());
+): string | undefined => {
+  if (typeof type !== "object" || type === null) {
+    return undefined;
+  }
+
+  const contextObject = context as object;
+  const cachedByContext = contextualKeyCache.get(type);
+  const cached = cachedByContext?.get(contextObject);
+  if (cached !== undefined) {
+    return cached === noContextualKey ? undefined : cached;
+  }
+
+  const key = contextualTypeIdentityKey(
+    type,
+    context,
+    createContextualKeyState()
+  );
+  const nextByContext = cachedByContext ?? new WeakMap();
+  nextByContext.set(contextObject, key ?? noContextualKey);
+  if (!cachedByContext) {
+    contextualKeyCache.set(type, nextByContext);
+  }
+  return key;
+};
 
 export const getContextualTypeVisitKey = (
   type: IrType,

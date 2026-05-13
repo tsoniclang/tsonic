@@ -7,3 +7,4 @@ import "./type-resolution-cases/object-literal-member-selection.test.js";
 import "./type-resolution-cases/nullish-and-value-type.test.js";
 import "./type-resolution-cases/structural-target.test.js";
 import "./type-resolution-cases/union-member-index.test.js";
+import "./type-resolution-cases/typeof-narrowing.test.js";

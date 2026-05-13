@@ -422,7 +422,7 @@ describe("Expression Emission", () => {
     );
   });
 
-  it("should lower direct dictionary property reads to safe lookups on the JS surface", () => {
+  it("should reject undeclared direct dictionary property reads before emission", () => {
     const dictType: IrType = {
       kind: "dictionaryType",
       keyType: { kind: "primitiveType", name: "string" },
@@ -464,9 +464,8 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module, { surface: "@tsonic/js" });
-    expect(result).to.include(
-      "__tsonic_dict.ContainsKey(__tsonic_key) ? __tsonic_dict[__tsonic_key] : default"
+    expect(() => emitModule(module, { surface: "@tsonic/js" })).to.throw(
+      "Non-computed dictionary member 'set-cookie' reached emitter without a declared CLR member"
     );
   });
 

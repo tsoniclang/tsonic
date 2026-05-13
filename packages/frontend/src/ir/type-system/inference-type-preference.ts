@@ -5,116 +5,150 @@ type TypeRelations = {
   readonly isAssignableTo: (source: IrType, target: IrType) => boolean;
 };
 
+type TypeIdentityScoreState = {
+  readonly typeScores: WeakMap<object, number>;
+  readonly memberScores: WeakMap<object, number>;
+  readonly activeTypes: WeakSet<object>;
+};
+
+const maxIdentityScore = 1_000_000;
+
+const createTypeIdentityScoreState = (): TypeIdentityScoreState => ({
+  typeScores: new WeakMap<object, number>(),
+  memberScores: new WeakMap<object, number>(),
+  activeTypes: new WeakSet<object>(),
+});
+
+const addIdentityScores = (
+  initial: number,
+  values: readonly number[]
+): number =>
+  values.reduce(
+    (total, value) => Math.min(maxIdentityScore, total + value),
+    initial
+  );
+
 const scoreMemberIdentity = (
   member: IrInterfaceMember,
-  seen: WeakSet<object>
+  state: TypeIdentityScoreState
 ): number => {
-  if (member.kind === "propertySignature") {
-    return 2 + scoreTypeIdentity(member.type, seen);
+  const cached = state.memberScores.get(member);
+  if (cached !== undefined) {
+    return cached;
   }
 
-  return (
-    3 +
-    member.parameters.reduce(
-      (total, parameter) =>
-        total + scoreOptionalTypeIdentity(parameter.type, seen),
-      scoreOptionalTypeIdentity(member.returnType, seen)
-    )
-  );
+  const score =
+    member.kind === "propertySignature"
+      ? addIdentityScores(2, [scoreTypeIdentity(member.type, state)])
+      : addIdentityScores(3, [
+          scoreOptionalTypeIdentity(member.returnType, state),
+          ...member.parameters.map((parameter) =>
+            scoreOptionalTypeIdentity(parameter.type, state)
+          ),
+        ]);
+
+  state.memberScores.set(member, score);
+  return score;
 };
 
 const scoreOptionalTypeIdentity = (
   type: IrType | undefined,
-  seen: WeakSet<object> = new WeakSet<object>()
-): number => (type ? scoreTypeIdentity(type, seen) : 0);
+  state: TypeIdentityScoreState = createTypeIdentityScoreState()
+): number => (type ? scoreTypeIdentity(type, state) : 0);
 
 const scoreTypeIdentity = (
   type: IrType,
-  seen: WeakSet<object> = new WeakSet<object>()
+  state: TypeIdentityScoreState = createTypeIdentityScoreState()
 ): number => {
-  if (seen.has(type)) {
+  const cached = state.typeScores.get(type);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  if (state.activeTypes.has(type)) {
     return 0;
   }
 
-  seen.add(type);
+  state.activeTypes.add(type);
 
   try {
+    let score: number;
     switch (type.kind) {
-      case "referenceType":
-        return (
-          100 +
+      case "referenceType": {
+        score = addIdentityScores(100, [
           (type.typeId ? 40 : 0) +
-          (type.resolvedClrType ? 20 : 0) +
-          (type.typeArguments?.reduce(
-            (total, member) => total + scoreTypeIdentity(member, seen),
-            0
-          ) ?? 0) +
-          (type.structuralMembers?.reduce(
-            (total, member) => total + scoreMemberIdentity(member, seen),
-            0
-          ) ?? 0)
-        );
+            (type.resolvedClrType ? 20 : 0),
+          ...(type.typeArguments ?? []).map((member) =>
+            scoreTypeIdentity(member, state)
+          ),
+          ...(type.structuralMembers ?? []).map((member) =>
+            scoreMemberIdentity(member, state)
+          ),
+        ]);
+        break;
+      }
       case "functionType":
-        return (
-          70 +
-          type.parameters.reduce(
-            (total, parameter) =>
-              total + scoreOptionalTypeIdentity(parameter.type, seen),
-            scoreOptionalTypeIdentity(type.returnType, seen)
-          )
-        );
+        score = addIdentityScores(70, [
+          scoreOptionalTypeIdentity(type.returnType, state),
+          ...type.parameters.map((parameter) =>
+            scoreOptionalTypeIdentity(parameter.type, state)
+          ),
+        ]);
+        break;
       case "tupleType":
-        return (
-          60 +
-          type.elementTypes.reduce(
-            (total, elementType) =>
-              total + scoreTypeIdentity(elementType, seen),
-            0
+        score = addIdentityScores(
+          60,
+          type.elementTypes.map((elementType) =>
+            scoreTypeIdentity(elementType, state)
           )
         );
+        break;
       case "arrayType":
-        return 55 + scoreTypeIdentity(type.elementType, seen);
+        score = addIdentityScores(55, [
+          scoreTypeIdentity(type.elementType, state),
+        ]);
+        break;
       case "dictionaryType":
-        return (
-          55 +
-          scoreTypeIdentity(type.keyType, seen) +
-          scoreTypeIdentity(type.valueType, seen)
-        );
+        score = addIdentityScores(55, [
+          scoreTypeIdentity(type.keyType, state),
+          scoreTypeIdentity(type.valueType, state),
+        ]);
+        break;
       case "intersectionType":
-        return (
-          50 +
-          type.types.reduce(
-            (total, member) => total + scoreTypeIdentity(member, seen),
-            0
-          )
+        score = addIdentityScores(
+          50,
+          type.types.map((member) => scoreTypeIdentity(member, state))
         );
+        break;
       case "unionType":
-        return (
-          45 +
-          type.types.reduce(
-            (total, member) => total + scoreTypeIdentity(member, seen),
-            0
-          )
+        score = addIdentityScores(
+          45,
+          type.types.map((member) => scoreTypeIdentity(member, state))
         );
+        break;
       case "objectType":
-        return (
-          40 +
-          type.members.reduce(
-            (total, member) => total + scoreMemberIdentity(member, seen),
-            0
-          )
+        score = addIdentityScores(
+          40,
+          type.members.map((member) => scoreMemberIdentity(member, state))
         );
+        break;
       case "typeParameterType":
-        return 20;
+        score = 20;
+        break;
       case "literalType":
-        return 15;
+        score = 15;
+        break;
       case "primitiveType":
-        return 10;
+        score = 10;
+        break;
       default:
-        return 5;
+        score = 5;
+        break;
     }
+    state.typeScores.set(type, score);
+    return score;
   } finally {
-    seen.delete(type);
+    state.activeTypes.delete(type);
   }
 };
 

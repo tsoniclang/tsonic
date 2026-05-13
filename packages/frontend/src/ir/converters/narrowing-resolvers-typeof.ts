@@ -24,11 +24,15 @@ export type TypeNarrowing =
   | {
       readonly kind: "decl";
       readonly declId: number;
+      readonly bindingKey?: string;
+      readonly targetNode?: ts.Expression;
       readonly targetType: IrType;
     }
   | {
       readonly kind: "accessPath";
       readonly key: string;
+      readonly bindingKey?: string;
+      readonly targetNode?: ts.Expression;
       readonly targetType: IrType;
     };
 
@@ -61,13 +65,64 @@ export const isInequalityOperator = (kind: ts.SyntaxKind): boolean =>
   kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
   kind === ts.SyntaxKind.ExclamationEqualsToken;
 
+const getAccessPathRootName = (expr: ts.Expression): string | undefined => {
+  const candidate = unwrapExpr(expr);
+  if (ts.isIdentifier(candidate)) {
+    return candidate.text;
+  }
+
+  if (candidate.kind === ts.SyntaxKind.ThisKeyword) {
+    return "this";
+  }
+
+  if (
+    ts.isPropertyAccessExpression(candidate) ||
+    ts.isPropertyAccessChain(candidate) ||
+    ts.isElementAccessExpression(candidate) ||
+    ts.isElementAccessChain(candidate)
+  ) {
+    return getAccessPathRootName(candidate.expression);
+  }
+
+  return undefined;
+};
+
+const getEmitterNarrowingBindingKey = (
+  target: AccessPathTarget
+): string | undefined => {
+  const rootName =
+    target.kind === "this" ? "this" : getAccessPathRootName(target.anchor);
+  if (!rootName) {
+    return undefined;
+  }
+
+  return target.segments.length === 0
+    ? rootName
+    : `${rootName}.${target.segments.join(".")}`;
+};
+
 export const makeTypeNarrowing = (
   target: AccessPathTarget,
   targetType: IrType
-): TypeNarrowing =>
-  target.kind === "decl" && target.segments.length === 0
-    ? { kind: "decl", declId: target.declId.id, targetType }
-    : { kind: "accessPath", key: getAccessPathKey(target), targetType };
+): TypeNarrowing => {
+  const bindingKey = getEmitterNarrowingBindingKey(target);
+  const targetNode = target.anchor;
+  return target.kind === "decl" && target.segments.length === 0
+    ? {
+        kind: "decl",
+        declId: target.declId.id,
+        bindingKey,
+        targetNode,
+        targetType,
+      }
+    : {
+        kind: "accessPath",
+        key: getAccessPathKey(target),
+        bindingKey,
+        targetNode,
+        targetType,
+      };
+};
 
 export const tryResolveCallPredicateNarrowing = (
   expr: ts.Expression,

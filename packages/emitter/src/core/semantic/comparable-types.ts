@@ -176,25 +176,27 @@ const normalizeComparableType = (
   state: ComparableNormalizeState
 ): IrType => {
   const comparable = unwrapComparableType(type);
+  const comparableObject = comparable as object;
+  const cached = state.cache.get(comparableObject);
+  if (cached) {
+    return cached;
+  }
+
+  if (state.active.has(comparableObject)) {
+    return comparable;
+  }
+
   const comparableKey = getContextualTypeVisitKey(comparable, context);
   const keyCached = state.keyCache.get(comparableKey);
   if (keyCached) {
     return keyCached;
   }
 
-  const cached = state.cache.get(comparable as object);
-  if (cached) {
-    return cached;
-  }
-
-  if (
-    state.active.has(comparable as object) ||
-    state.activeKeys.has(comparableKey)
-  ) {
+  if (state.activeKeys.has(comparableKey)) {
     return comparable;
   }
 
-  state.active.add(comparable as object);
+  state.active.add(comparableObject);
   state.activeKeys.add(comparableKey);
   try {
     const resolved = resolveTypeAlias(comparable, context);
@@ -209,18 +211,18 @@ const normalizeComparableType = (
         context,
         state
       );
-      state.cache.set(comparable as object, normalized);
+      state.cache.set(comparableObject, normalized);
       state.keyCache.set(comparableKey, normalized);
       return normalized;
     }
     const normalized = normalizeResolvedComparableType(resolved, context, state);
-    state.cache.set(comparable as object, normalized);
+    state.cache.set(comparableObject, normalized);
     state.cache.set(resolved as object, normalized);
     state.keyCache.set(comparableKey, normalized);
     state.keyCache.set(getContextualTypeVisitKey(resolved, context), normalized);
     return normalized;
   } finally {
-    state.active.delete(comparable as object);
+    state.active.delete(comparableObject);
     state.activeKeys.delete(comparableKey);
   }
 };

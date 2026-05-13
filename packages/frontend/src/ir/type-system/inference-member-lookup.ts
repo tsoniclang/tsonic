@@ -38,6 +38,33 @@ import {
 } from "./type-system-call-resolution.js";
 import { surfaceIncludesJs } from "../../surface/profiles.js";
 
+const buildGenericCollectionType = (elementType: IrType): IrType => ({
+  kind: "referenceType",
+  name: "ICollection_1",
+  resolvedClrType: "System.Collections.Generic.ICollection",
+  typeArguments: [elementType],
+});
+
+const resolveDictionaryDeclaredMemberType = (
+  receiver: IrType,
+  memberName: string
+): IrType | undefined => {
+  if (receiver.kind !== "dictionaryType") {
+    return undefined;
+  }
+
+  switch (memberName) {
+    case "Count":
+      return { kind: "primitiveType", name: "int" };
+    case "Keys":
+      return buildGenericCollectionType(receiver.keyType);
+    case "Values":
+      return buildGenericCollectionType(receiver.valueType);
+    default:
+      return undefined;
+  }
+};
+
 const getAmbientInterfaceLookupTarget = (
   state: TypeSystemState,
   receiver: IrType
@@ -143,9 +170,6 @@ const resolveStructuralMemberType = (
   );
   return buildStructuralMethodFamilyType(methodMembers);
 };
-
-const isStringDictionaryKeyType = (type: IrType): boolean =>
-  type.kind === "primitiveType" && type.name === "string";
 
 const collectAmbientInterfaceDeclarations = (
   statements: readonly ts.Statement[],
@@ -457,11 +481,12 @@ export const resolveMemberTypeNoDiag = (
   receiver: IrType,
   memberName: string
 ): IrType | undefined => {
-  if (
-    receiver.kind === "dictionaryType" &&
-    isStringDictionaryKeyType(receiver.keyType)
-  ) {
-    return receiver.valueType;
+  const dictionaryDeclaredMemberType = resolveDictionaryDeclaredMemberType(
+    receiver,
+    memberName
+  );
+  if (dictionaryDeclaredMemberType) {
+    return dictionaryDeclaredMemberType;
   }
 
   if (

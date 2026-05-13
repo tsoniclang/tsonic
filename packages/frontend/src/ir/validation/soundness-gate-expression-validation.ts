@@ -138,13 +138,12 @@ export const validateExpression = (
       if (typeof expr.property !== "string") {
         validateExpression(expr.property, ctx);
       }
-      const allowComputedDictionaryUnknown =
-        expr.isComputed && expr.accessKind === "dictionary";
+      const allowDeclaredDictionaryUnknown = expr.accessKind === "dictionary";
       if (
         expr.inferredType?.kind === "unknownType" &&
         expr.inferredType.explicit !== true &&
         !expr.allowUnknownInferredType &&
-        !allowComputedDictionaryUnknown
+        !allowDeclaredDictionaryUnknown
       ) {
         const propName =
           typeof expr.property === "string" ? expr.property : "<computed>";

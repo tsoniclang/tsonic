@@ -127,6 +127,49 @@ const tryResolveWorkspaceInstalledPackageRoot = (
 export const resolveTsbindgenDllPath = (
   projectRoot: string
 ): Result<string, string> => {
+  const explicitDllPath = process.env.TSONIC_TSBINDGEN_DLL?.trim();
+  if (explicitDllPath) {
+    const absoluteExplicitDllPath = resolve(explicitDllPath);
+    if (!existsSync(absoluteExplicitDllPath)) {
+      return {
+        ok: false,
+        error: `TSONIC_TSBINDGEN_DLL points to a missing file: ${absoluteExplicitDllPath}`,
+      };
+    }
+    return { ok: true, value: absoluteExplicitDllPath };
+  }
+
+  const tryResolveSiblingDll = (): string | null => {
+    const siblingRoot = tryResolveSiblingTsonicPackageRoot("@tsonic/tsbindgen");
+    if (!siblingRoot) return null;
+
+    const siblingDllCandidates = [
+      join(siblingRoot, "lib", "tsbindgen.dll"),
+      join(
+        siblingRoot,
+        "artifacts",
+        "bin",
+        "tsbindgen",
+        "Release",
+        "net10.0",
+        "tsbindgen.dll"
+      ),
+      join(
+        siblingRoot,
+        "artifacts",
+        "bin",
+        "tsbindgen",
+        "Debug",
+        "net10.0",
+        "tsbindgen.dll"
+      ),
+    ];
+    const siblingDll = siblingDllCandidates.find((candidate) =>
+      existsSync(candidate)
+    );
+    return siblingDll ?? null;
+  };
+
   const tryResolve = (req: ReturnType<typeof createRequire>): string | null => {
     try {
       const entryPath = req.resolve("@tsonic/tsbindgen");
@@ -159,6 +202,9 @@ export const resolveTsbindgenDllPath = (
     selfBundled ??
     tryResolve(selfReq);
   if (direct) return { ok: true, value: direct };
+
+  const siblingDll = tryResolveSiblingDll();
+  if (siblingDll) return { ok: true, value: siblingDll };
 
   return {
     ok: false,
