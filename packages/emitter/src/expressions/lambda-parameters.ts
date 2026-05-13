@@ -17,6 +17,7 @@ import {
   resolveTypeAlias,
   stripNullish,
   getArrayLikeElementType,
+  substituteTypeArgs,
 } from "../core/semantic/type-resolution.js";
 import { unwrapParameterModifierType } from "../core/semantic/parameter-modifier-types.js";
 import { registerParameterTypes } from "../core/semantic/symbol-types.js";
@@ -84,21 +85,120 @@ export const resolveContextualFunctionType = (
   expectedType: IrType | undefined,
   context: EmitterContext
 ): ContextualFunctionType | undefined => {
+  const inferredFunctionType =
+    expr.inferredType?.kind === "functionType" ? expr.inferredType : undefined;
+
   if (expectedType) {
     const resolvedExpected = resolveTypeAlias(
       stripNullish(expectedType),
       context
     );
     if (resolvedExpected.kind === "functionType") {
-      return resolvedExpected;
+      return (
+        specializeContextualFunctionTypeFromReference(
+          resolvedExpected,
+          expectedType
+        ) ?? resolvedExpected
+      );
+    }
+
+    if (inferredFunctionType) {
+      const specialized = specializeContextualFunctionTypeFromReference(
+        inferredFunctionType,
+        expectedType
+      );
+      if (specialized) {
+        return specialized;
+      }
     }
   }
 
-  if (expr.inferredType?.kind === "functionType") {
-    return expr.inferredType;
+  if (inferredFunctionType) {
+    return inferredFunctionType;
   }
 
   return undefined;
+};
+
+const collectFunctionTypeParameterNames = (
+  functionType: ContextualFunctionType
+): readonly string[] => {
+  if (functionType.typeParameters && functionType.typeParameters.length > 0) {
+    return functionType.typeParameters.map((parameter) => parameter.name);
+  }
+
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const visit = (type: IrType | undefined): void => {
+    if (!type) return;
+    if (type.kind === "typeParameterType") {
+      if (!seen.has(type.name)) {
+        seen.add(type.name);
+        names.push(type.name);
+      }
+      return;
+    }
+    if (type.kind === "referenceType") {
+      for (const argument of type.typeArguments ?? []) {
+        visit(argument);
+      }
+      return;
+    }
+    if (type.kind === "arrayType") {
+      visit(type.elementType);
+      return;
+    }
+    if (type.kind === "tupleType") {
+      for (const elementType of type.elementTypes) {
+        visit(elementType);
+      }
+      return;
+    }
+    if (type.kind === "unionType" || type.kind === "intersectionType") {
+      for (const member of type.types) {
+        visit(member);
+      }
+      return;
+    }
+    if (type.kind === "functionType") {
+      for (const parameter of type.parameters) {
+        visit(parameter.type);
+      }
+      visit(type.returnType);
+    }
+  };
+
+  for (const parameter of functionType.parameters) {
+    visit(parameter.type);
+  }
+  visit(functionType.returnType);
+  return names;
+};
+
+const specializeContextualFunctionTypeFromReference = (
+  functionType: ContextualFunctionType,
+  expectedType: IrType
+): ContextualFunctionType | undefined => {
+  const strippedExpected = stripNullish(expectedType);
+  if (
+    strippedExpected.kind !== "referenceType" ||
+    !strippedExpected.typeArguments ||
+    strippedExpected.typeArguments.length === 0
+  ) {
+    return undefined;
+  }
+
+  const typeParameterNames = collectFunctionTypeParameterNames(functionType);
+  if (typeParameterNames.length !== strippedExpected.typeArguments.length) {
+    return undefined;
+  }
+
+  const substituted = substituteTypeArgs(
+    functionType,
+    typeParameterNames,
+    strippedExpected.typeArguments
+  );
+  return substituted.kind === "functionType" ? substituted : undefined;
 };
 
 const isTypeParameterLike = (
@@ -237,11 +337,15 @@ export const emitLambdaParametersAst = (
     const effectiveParameterType =
       param.type === undefined && contextualParam?.type !== undefined
         ? contextualParam.type
+        : param.type !== undefined &&
+            contextualParam?.type !== undefined &&
+            isTypeParameterLike(param.type, currentContext) &&
+            !isTypeParameterLike(contextualParam.type, currentContext)
+          ? contextualParam.type
         : param.type?.kind === "functionType" &&
             contextualParam?.type?.kind === "functionType"
           ? contextualParam.type
           : param.type;
-
     if (shouldLowerFromContextualRest(param, index)) {
       const contextualElementType =
         param.isRest && index === contextualRestIndex

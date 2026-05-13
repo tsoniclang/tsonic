@@ -26,6 +26,7 @@ export type {
   IrTypeAliasDeclaration,
   IrExpressionStatement,
   IrReturnStatement,
+  IrBranchNarrowing,
   IrIfStatement,
   IrWhileStatement,
   IrForStatement,

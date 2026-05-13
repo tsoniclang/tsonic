@@ -4,6 +4,8 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../format/backend-ast/types.js";
+import { allocateLocalName } from "../format/local-names.js";
+import { identifierExpression } from "../format/backend-ast/builders.js";
 import {
   getIdentifierTypeName,
   sameConcreteTypeAstSurface,
@@ -416,6 +418,83 @@ const stripObjectBoxForConcreteMaterializationAst = (
   return shouldStripObjectBox ? ast.expression : ast;
 };
 
+const isJsNumberMaterializationTarget = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return resolved.kind === "primitiveType" && resolved.name === "number";
+};
+
+const buildBroadSourceJsNumberMaterializationAst = (
+  sourceAst: CSharpExpressionAst,
+  targetTypeAst: CSharpTypeAst,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const nextId = (context.tempVarId ?? 0) + 1;
+  const contextWithId: EmitterContext = { ...context, tempVarId: nextId };
+  const intTypeAst: CSharpTypeAst = {
+    kind: "predefinedType",
+    keyword: "int",
+  };
+  const intAllocation = allocateLocalName(
+    `__tsonic_number_int_${nextId}`,
+    contextWithId
+  );
+  const doubleAllocation = allocateLocalName(
+    `__tsonic_number_double_${nextId}`,
+    intAllocation.context
+  );
+  const valueAllocation = allocateLocalName(
+    `__tsonic_number_value_${nextId}`,
+    doubleAllocation.context
+  );
+
+  return [
+    {
+      kind: "parenthesizedExpression",
+      expression: {
+        kind: "switchExpression",
+        governingExpression: sourceAst,
+        arms: [
+          {
+            pattern: {
+              kind: "declarationPattern",
+              type: intTypeAst,
+              designation: intAllocation.emittedName,
+            },
+            expression: {
+              kind: "castExpression",
+              type: targetTypeAst,
+              expression: identifierExpression(intAllocation.emittedName),
+            },
+          },
+          {
+            pattern: {
+              kind: "declarationPattern",
+              type: targetTypeAst,
+              designation: doubleAllocation.emittedName,
+            },
+            expression: identifierExpression(doubleAllocation.emittedName),
+          },
+          {
+            pattern: {
+              kind: "varPattern",
+              designation: valueAllocation.emittedName,
+            },
+            expression: {
+              kind: "castExpression",
+              type: targetTypeAst,
+              expression: identifierExpression(valueAllocation.emittedName),
+            },
+          },
+        ],
+      },
+    },
+    valueAllocation.context,
+  ];
+};
+
 const canDeterministicallyMaterializeSourceType = (
   sourceType: IrType,
   targetType: IrType,
@@ -618,19 +697,30 @@ export const materializeDirectNarrowingAst = (
       context
     );
     const concreteTargetTypeAst = stripNullableTypeAst(targetTypeAst);
-    return isExactExpressionToType(sourceAst, concreteTargetTypeAst)
-      ? [sourceAst, nextContext]
-      : [
-          {
-            kind: "castExpression",
-            type: targetTypeAst,
-            expression: stripObjectBoxForConcreteMaterializationAst(
-              sourceAst,
-              resolvedTarget
-            ),
-          },
-          nextContext,
-        ];
+    if (isExactExpressionToType(sourceAst, concreteTargetTypeAst)) {
+      return [sourceAst, nextContext];
+    }
+
+    const materializationSourceAst = stripObjectBoxForConcreteMaterializationAst(
+      sourceAst,
+      resolvedTarget
+    );
+    if (isJsNumberMaterializationTarget(resolvedTarget, context)) {
+      return buildBroadSourceJsNumberMaterializationAst(
+        materializationSourceAst,
+        concreteTargetTypeAst,
+        nextContext
+      );
+    }
+
+    return [
+      {
+        kind: "castExpression",
+        type: targetTypeAst,
+        expression: materializationSourceAst,
+      },
+      nextContext,
+    ];
   }
 
   const [sourceTypeAst, sourceTypeContext] = emitTypeAst(

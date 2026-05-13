@@ -9,29 +9,13 @@ import {
   normalizedUnionType,
 } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
-import { emitTypeAst } from "../../../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
-  narrowTypeByTypeofTag,
-  narrowTypeByNotTypeofTag,
-  matchesTypeofTag,
 } from "../../../core/semantic/type-resolution.js";
 import { isAssignable } from "../../../core/semantic/index.js";
 import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../../core/semantic/narrowing-keys.js";
-import { emitExpressionAst } from "../../../expression-emitter.js";
-import { resolveRuntimeUnionFrame } from "./guard-analysis.js";
-import {
-  buildProjectedExprBinding,
-  buildUnionNarrowAst,
-  withoutNarrowedBinding,
-} from "./branch-context.js";
-import {
-  buildRuntimeUnionComplementBinding,
-  resolveRuntimeSubsetSourceInfo,
-} from "../../../core/semantic/narrowing-builders.js";
-import { getContextualTypeVisitKey } from "../../../core/semantic/deterministic-type-keys.js";
 
 export const isArrayLikeNarrowingCandidate = (
   type: IrType,
@@ -174,16 +158,6 @@ export const tryExtractArrayIsArrayGuard = (
   return undefined;
 };
 
-export type TypeofGuardRefinement = {
-  readonly bindingKey: string;
-  readonly targetExpr: Extract<
-    IrExpression,
-    { kind: "identifier" | "memberAccess" }
-  >;
-  readonly tag: string;
-  readonly matchTag: boolean;
-};
-
 export const tryExtractDirectTypeofGuard = (
   expr: Extract<IrStatement, { kind: "ifStatement" }>["condition"]
 ):
@@ -246,188 +220,4 @@ export const tryExtractDirectTypeofGuard = (
     ...directGuard,
     matchesInTruthyBranch: expr.operator === "===" || expr.operator === "==",
   };
-};
-
-export const collectTypeofGuardRefinements = (
-  condition: Extract<IrStatement, { kind: "ifStatement" }>["condition"],
-  branch: "truthy" | "falsy"
-): readonly TypeofGuardRefinement[] => {
-  const direct = tryExtractDirectTypeofGuard(condition);
-  if (direct) {
-    return [
-      {
-        bindingKey: direct.bindingKey,
-        targetExpr: direct.targetExpr,
-        tag: direct.tag,
-        matchTag:
-          branch === "truthy"
-            ? direct.matchesInTruthyBranch
-            : !direct.matchesInTruthyBranch,
-      },
-    ];
-  }
-
-  if (condition.kind !== "logical") {
-    return [];
-  }
-
-  if (branch === "truthy" && condition.operator === "&&") {
-    return [
-      ...collectTypeofGuardRefinements(condition.left, branch),
-      ...collectTypeofGuardRefinements(condition.right, branch),
-    ];
-  }
-
-  if (branch === "falsy" && condition.operator === "||") {
-    return [
-      ...collectTypeofGuardRefinements(condition.left, branch),
-      ...collectTypeofGuardRefinements(condition.right, branch),
-    ];
-  }
-
-  return [];
-};
-
-export const applyTypeofGuardRefinements = (
-  baseContext: EmitterContext,
-  refinements: readonly TypeofGuardRefinement[]
-): EmitterContext => {
-  let currentContext = baseContext;
-
-  for (const refinement of refinements) {
-    const currentType =
-      currentContext.narrowedBindings?.get(refinement.bindingKey)?.type ??
-      refinement.targetExpr.inferredType;
-    const narrowedType = refinement.matchTag
-      ? narrowTypeByTypeofTag(currentType, refinement.tag, currentContext)
-      : narrowTypeByNotTypeofTag(currentType, refinement.tag, currentContext);
-    if (!narrowedType) {
-      continue;
-    }
-    if (
-      currentType &&
-      getContextualTypeVisitKey(currentType, currentContext) ===
-        getContextualTypeVisitKey(narrowedType, currentContext)
-    ) {
-      continue;
-    }
-
-    const [rawTargetAst, rawTargetContext] = emitExpressionAst(
-      refinement.targetExpr,
-      withoutNarrowedBinding(currentContext, refinement.bindingKey)
-    );
-
-    const runtimeFrameContext = {
-      ...rawTargetContext,
-      narrowedBindings: currentContext.narrowedBindings,
-    };
-    const runtimeUnionFrame =
-      currentType &&
-      resolveRuntimeUnionFrame(
-        refinement.bindingKey,
-        currentType,
-        runtimeFrameContext
-      );
-    const matchingRuntimeMemberIndex =
-      runtimeUnionFrame?.members.findIndex((member) =>
-        matchesTypeofTag(member, refinement.tag, rawTargetContext)
-      ) ?? -1;
-
-    const nextBindings = new Map(rawTargetContext.narrowedBindings ?? []);
-
-    if (
-      runtimeUnionFrame &&
-      matchingRuntimeMemberIndex >= 0 &&
-      runtimeUnionFrame.members.filter((member) =>
-        matchesTypeofTag(member, refinement.tag, rawTargetContext)
-      ).length === 1
-    ) {
-      const memberN =
-        runtimeUnionFrame.candidateMemberNs[matchingRuntimeMemberIndex] ??
-        matchingRuntimeMemberIndex + 1;
-      const memberType =
-        runtimeUnionFrame.members[matchingRuntimeMemberIndex] ?? narrowedType;
-
-      if (refinement.matchTag) {
-        const existingBinding = currentContext.narrowedBindings?.get(
-          refinement.bindingKey
-        );
-        const sourceInfo =
-          currentType && runtimeUnionFrame
-            ? resolveRuntimeSubsetSourceInfo(
-                refinement.bindingKey,
-                currentType,
-                runtimeUnionFrame,
-                currentContext
-              )
-            : undefined;
-        nextBindings.set(
-          refinement.bindingKey,
-          buildProjectedExprBinding(
-            buildUnionNarrowAst(rawTargetAst, memberN),
-            memberType,
-            sourceInfo?.sourceType ??
-              existingBinding?.sourceType ??
-              existingBinding?.type ??
-              currentType,
-            rawTargetAst
-          )
-        );
-        currentContext = {
-          ...rawTargetContext,
-          narrowedBindings: nextBindings,
-        };
-        continue;
-      }
-
-      const complementBinding = buildRuntimeUnionComplementBinding(
-        rawTargetAst,
-        runtimeUnionFrame,
-        currentType ?? narrowedType,
-        narrowedType,
-        memberN,
-        rawTargetContext,
-        currentType
-          ? resolveRuntimeSubsetSourceInfo(
-              refinement.bindingKey,
-              currentType,
-              runtimeUnionFrame,
-              currentContext
-            )
-          : undefined
-      );
-      if (complementBinding) {
-        nextBindings.set(refinement.bindingKey, complementBinding);
-        currentContext = {
-          ...rawTargetContext,
-          narrowedBindings: nextBindings,
-        };
-        continue;
-      }
-    }
-
-    const [narrowedTypeAst, nextContext] = emitTypeAst(
-      narrowedType,
-      rawTargetContext
-    );
-    nextBindings.set(
-      refinement.bindingKey,
-      buildProjectedExprBinding(
-        {
-          kind: "castExpression",
-          type: narrowedTypeAst,
-          expression: rawTargetAst,
-        },
-        narrowedType,
-        currentType,
-        rawTargetAst
-      )
-    );
-    currentContext = {
-      ...nextContext,
-      narrowedBindings: nextBindings,
-    };
-  }
-
-  return currentContext;
 };

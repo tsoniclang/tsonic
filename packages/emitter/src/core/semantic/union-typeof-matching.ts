@@ -15,6 +15,14 @@ import type { EmitterContext } from "../../types.js";
 import { resolveTypeAlias } from "./nullish-value-helpers.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
+import { referenceTypeHasClrIdentity } from "./clr-type-identity.js";
+
+const BROAD_OBJECT_CLR_NAMES = new Set([
+  "System.Object",
+  "global::System.Object",
+  "Tsonic.Runtime.JsValue",
+  "global::Tsonic.Runtime.JsValue",
+]);
 
 const referenceTypeofFact = (
   type: Extract<IrType, { kind: "referenceType" }>
@@ -50,6 +58,12 @@ const genericTypeofTarget = (tag: string): IrType | undefined => {
   }
 };
 
+const isBroadObjectCarrierReference = (type: IrType): boolean =>
+  type.kind === "referenceType" &&
+  (type.name === "object" ||
+    type.name === "JsValue" ||
+    referenceTypeHasClrIdentity(type, BROAD_OBJECT_CLR_NAMES));
+
 const containsBroadTypeofBoundary = (
   type: IrType,
   context: EmitterContext,
@@ -66,7 +80,8 @@ const containsBroadTypeofBoundary = (
   if (
     resolved.kind === "unknownType" ||
     resolved.kind === "anyType" ||
-    resolved.kind === "typeParameterType"
+    resolved.kind === "typeParameterType" ||
+    isBroadObjectCarrierReference(resolved)
   ) {
     return true;
   }

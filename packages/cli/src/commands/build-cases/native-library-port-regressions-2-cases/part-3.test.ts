@@ -193,7 +193,7 @@ describe("build command (native library port regressions)", function () {
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.include("title = (string)value;");
       expect(tree).to.include("enabled = (bool)value;");
-      expect(tree).to.include("weight = (double)value;");
+      expect(tree).to.include("weight = (double)(value switch { int");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

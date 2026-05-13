@@ -20,6 +20,7 @@ import {
 import {
   normalizeToNominal,
   stripTsonicExtensionWrappers,
+  emitDiagnostic,
 } from "./type-system-state-helpers.js";
 import {
   getIterableShape,
@@ -773,6 +774,19 @@ export const selectBestCallCandidate = (
   const definedArgTypes =
     query.argTypes?.filter((type): type is IrType => type !== undefined) ?? [];
   if (definedArgTypes.length === 0) {
+    if (!fallbackSigId && orderedCandidates.length > 1) {
+      emitDiagnostic(
+        state,
+        "TSN5202",
+        "Cannot select overload without argument type facts; call is ambiguous",
+        query.site
+      );
+      return {
+        sigId: undefined,
+        resolved: undefined,
+      };
+    }
+
     const chosenSigId = fallbackSigId ?? orderedCandidates[0];
     if (!chosenSigId) {
       return {

@@ -17,7 +17,7 @@ describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("Type access and Records", () => {
-    it("treats dictionary Keys dot access as a string-key dictionary read", () => {
+    it("treats dictionary Keys dot access as a declared CLR member", () => {
       const source = `
         export function readKey(settings: Record<string, unknown>): unknown {
           return settings.Keys;
@@ -50,12 +50,17 @@ describe("IR Builder", function () {
         returnStmt?.kind === "returnStatement" ? returnStmt.expression : undefined;
       expect(expression?.kind).to.equal("memberAccess");
       if (!expression || expression.kind !== "memberAccess") return;
-      expect(expression.accessKind).to.equal("dictionary");
-      expect(expression.inferredType).to.deep.equal({ kind: "unknownType" });
-      expect(expression.allowUnknownInferredType).to.equal(true);
+      expect(expression.accessKind).to.equal(undefined);
+      expect(expression.allowUnknownInferredType).to.equal(undefined);
+      expect(expression.inferredType).to.deep.equal({
+        kind: "referenceType",
+        name: "ICollection_1",
+        resolvedClrType: "System.Collections.Generic.ICollection",
+        typeArguments: [{ kind: "primitiveType", name: "string" }],
+      });
     });
 
-    it("treats dictionary Values dot access as a string-key dictionary read", () => {
+    it("treats dictionary Values dot access as a declared CLR member", () => {
       const source = `
         export function readValue(settings: Record<string, unknown>): unknown {
           return settings.Values;
@@ -88,12 +93,17 @@ describe("IR Builder", function () {
         returnStmt?.kind === "returnStatement" ? returnStmt.expression : undefined;
       expect(expression?.kind).to.equal("memberAccess");
       if (!expression || expression.kind !== "memberAccess") return;
-      expect(expression.accessKind).to.equal("dictionary");
-      expect(expression.inferredType).to.deep.equal({ kind: "unknownType" });
-      expect(expression.allowUnknownInferredType).to.equal(true);
+      expect(expression.accessKind).to.equal(undefined);
+      expect(expression.allowUnknownInferredType).to.equal(undefined);
+      expect(expression.inferredType).to.deep.equal({
+        kind: "referenceType",
+        name: "ICollection_1",
+        resolvedClrType: "System.Collections.Generic.ICollection",
+        typeArguments: [{ kind: "unknownType", explicit: true }],
+      });
     });
 
-    it("treats string-key dictionary dot properties as dictionary accesses", () => {
+    it("treats string-key dictionary dot properties as dictionary keys", () => {
       const source = `
         export function fill(): Record<string, unknown> {
           const state: Record<string, unknown> = {};
@@ -139,9 +149,11 @@ describe("IR Builder", function () {
       ).to.equal(true);
 
       const soundness = validateIrSoundness([result.value]);
-      expect(soundness.diagnostics.some((d) => d.code === "TSN5203")).to.equal(
-        false
-      );
+      expect(
+        soundness.diagnostics.some(
+          (diagnostic) => diagnostic.code === "TSN5203"
+        )
+      ).to.equal(false);
     });
 
     it("allows declared unknown members on structural callback parameters", () => {

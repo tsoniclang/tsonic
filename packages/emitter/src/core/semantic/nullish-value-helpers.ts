@@ -448,9 +448,31 @@ export const resolveTypeAlias = (
   ]
     .filter((candidate): candidate is string => !!candidate)
     .map(stripGlobalPrefix);
-  const aliasEntry = qualifiedAliasCandidates
+  const directAliasEntry = qualifiedAliasCandidates
     .map((candidate) => aliasIndex.byFqn.get(candidate))
     .find((entry) => entry !== undefined);
+  const aliasEntry =
+    directAliasEntry ??
+    (() => {
+      const hasQualifiedCandidate = qualifiedAliasCandidates.some((candidate) =>
+        candidate.includes(".")
+      );
+      if (hasQualifiedCandidate) {
+        return undefined;
+      }
+
+      const simpleMatches = lookupCandidates.flatMap((candidate) =>
+        [...aliasIndex.byFqn.values()].filter(
+          (entry) =>
+            entry.name === candidate.name ||
+            entry.fqn.split(".").at(-1) === candidate.name
+        )
+      );
+      const uniqueMatches = [
+        ...new Map(simpleMatches.map((entry) => [entry.fqn, entry])).values(),
+      ];
+      return uniqueMatches.length === 1 ? uniqueMatches[0] : undefined;
+    })();
 
   if (!aliasEntry) {
     return type;

@@ -104,6 +104,18 @@ const selectIdentifierSemanticType = (
 
   const registeredBase = stripNullish(registeredType);
   const inferredBase = stripNullish(inferredType);
+  const isTypeParameterLike = (type: IrType): boolean =>
+    type.kind === "typeParameterType" ||
+    (type.kind === "referenceType" &&
+      (context.typeParameters?.has(type.name) ?? false) &&
+      (!type.typeArguments || type.typeArguments.length === 0));
+  if (
+    isTypeParameterLike(inferredBase) &&
+    !isTypeParameterLike(registeredBase)
+  ) {
+    return registeredType;
+  }
+
   const equivalent =
     areIrTypesEquivalent(inferredBase, registeredBase, context) ||
     areIrTypesEquivalent(

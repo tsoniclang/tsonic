@@ -3,7 +3,7 @@
  *
  * Handles non-computed property access:
  * - Explicit interface view properties (As_IInterface)
- * - JS-surface dictionary property reads
+ * - Declared dictionary CLR members and explicit dictionary-key IR
  * - Regular property access with member name resolution
  */
 
@@ -205,6 +205,15 @@ export const emitPropertyAccess = (
         },
         receiverContext,
       ];
+    }
+
+    if (expr.accessKind !== "dictionary") {
+      const sourceInfo = expr.sourceSpan
+        ? ` at ${expr.sourceSpan.file}:${String(expr.sourceSpan.line)}:${String(expr.sourceSpan.column)}`
+        : "";
+      throw new Error(
+        `Internal Compiler Error: Non-computed dictionary member '${prop}' reached emitter without a declared CLR member${sourceInfo}. Use computed access for dictionary keys.`
+      );
     }
 
     const keyAst = createStringLiteralExpression(prop);

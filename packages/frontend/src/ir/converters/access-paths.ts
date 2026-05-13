@@ -8,12 +8,12 @@ export type AccessPathTarget =
       readonly kind: "decl";
       readonly declId: DeclId;
       readonly segments: readonly string[];
-      readonly anchor: ts.Node;
+      readonly anchor: ts.Expression;
     }
   | {
       readonly kind: "this";
       readonly segments: readonly string[];
-      readonly anchor: ts.Node;
+      readonly anchor: ts.Expression;
     };
 
 const unwrapExpr = (expr: ts.Expression): ts.Expression => {

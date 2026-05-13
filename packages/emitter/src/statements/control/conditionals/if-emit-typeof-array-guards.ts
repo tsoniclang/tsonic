@@ -28,9 +28,7 @@ import {
 } from "./guard-analysis.js";
 import {
   tryExtractArrayIsArrayGuard,
-  collectTypeofGuardRefinements,
   tryExtractDirectTypeofGuard,
-  applyTypeofGuardRefinements,
   narrowTypeByArrayShape,
   isArrayLikeNarrowingCandidate,
 } from "./guard-extraction.js";
@@ -61,10 +59,12 @@ import {
 } from "../../../core/semantic/type-resolution.js";
 import { isBroadObjectSlotType } from "../../../core/semantic/broad-object-types.js";
 import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
+import { buildRuntimeUnionLayout } from "../../../core/semantic/runtime-unions.js";
 import {
   booleanLiteral,
   nullLiteral,
 } from "../../../core/format/backend-ast/builders.js";
+import { applyIrBranchNarrowings } from "./ir-branch-narrowings.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
 type GuardResult = [readonly CSharpStatementAst[], EmitterContext] | undefined;
@@ -356,21 +356,26 @@ const emitTypeofAwareBooleanConditionAst = (
   return emitBooleanConditionAst(condition, emitExprAstCb, context);
 };
 
-const applyTypeofAwareConditionBranchNarrowing = (
-  condition: IrExpression,
-  branch: "truthy" | "falsy",
-  context: EmitterContext
-): EmitterContext => {
-  const branchContext = applyConditionBranchNarrowing(
-    condition,
-    branch,
-    context,
-    emitExprAstCb
-  );
-  const refinements = collectTypeofGuardRefinements(condition, branch);
-  return refinements.length > 0
-    ? applyTypeofGuardRefinements(branchContext, refinements)
-    : branchContext;
+const hasTypeofGuardCondition = (condition: IrExpression): boolean => {
+  if (tryExtractDirectTypeofGuard(condition)) {
+    return true;
+  }
+
+  if (condition.kind === "unary" && condition.operator === "!") {
+    return hasTypeofGuardCondition(condition.expression);
+  }
+
+  if (
+    condition.kind === "logical" &&
+    (condition.operator === "&&" || condition.operator === "||")
+  ) {
+    return (
+      hasTypeofGuardCondition(condition.left) ||
+      hasTypeofGuardCondition(condition.right)
+    );
+  }
+
+  return false;
 };
 
 /**
@@ -437,13 +442,36 @@ export const tryEmitArrayIsArrayGuard = (
             willCarryAsRuntimeUnion(effectiveTargetType, condCtxAfterCond)
           ? effectiveTargetType
           : undefined;
-  const runtimeUnionFrame =
+  const semanticRuntimeUnionFrame =
     runtimeCarrierType &&
     resolveRuntimeUnionFrame(
       arrayIsArrayGuard.originalName,
       runtimeCarrierType,
       condCtxAfterCond
     );
+  const [runtimeCarrierLayout] = runtimeCarrierType
+    ? buildRuntimeUnionLayout(runtimeCarrierType, condCtxAfterCond, emitTypeAst)
+    : [undefined, condCtxAfterCond];
+  const runtimeUnionFrame =
+    semanticRuntimeUnionFrame && runtimeCarrierLayout
+      ? (() => {
+          const exactMembers: IrType[] = [];
+          const exactMemberNs: number[] = [];
+          for (const memberN of semanticRuntimeUnionFrame.candidateMemberNs) {
+            const member = runtimeCarrierLayout.members[memberN - 1];
+            if (!member) {
+              return undefined;
+            }
+            exactMembers.push(member);
+            exactMemberNs.push(memberN);
+          }
+          return {
+            members: exactMembers,
+            candidateMemberNs: exactMemberNs,
+            runtimeUnionArity: runtimeCarrierLayout.runtimeUnionArity,
+          };
+        })()
+      : semanticRuntimeUnionFrame;
   const runtimeArrayPairs =
     runtimeUnionFrame?.members.flatMap((member, index) => {
       if (!member || !isArrayLikeNarrowingCandidate(member, condCtxAfterCond)) {
@@ -560,7 +588,6 @@ export const tryEmitArrayIsArrayGuard = (
       runtimeArrayPair.runtimeMemberN,
       !arrayIsArrayGuard.narrowsInThen
     );
-
     return [
       [
         {
@@ -696,18 +723,7 @@ export const tryEmitTypeofGuard = (
   stmt: IfStatement,
   context: EmitterContext
 ): GuardResult => {
-  const truthyTypeofRefinements = collectTypeofGuardRefinements(
-    stmt.condition,
-    "truthy"
-  );
-  const falsyTypeofRefinements = collectTypeofGuardRefinements(
-    stmt.condition,
-    "falsy"
-  );
-  if (
-    truthyTypeofRefinements.length === 0 &&
-    falsyTypeofRefinements.length === 0
-  ) {
+  if (!hasTypeofGuardCondition(stmt.condition)) {
     return undefined;
   }
 
@@ -721,14 +737,17 @@ export const tryEmitTypeofGuard = (
     narrowedBindings: preservedNarrowedBindings,
   };
 
-  const thenCtx =
-    truthyTypeofRefinements.length > 0
-      ? applyTypeofAwareConditionBranchNarrowing(
-          stmt.condition,
-          "truthy",
-          semanticCondContext
-        )
-      : semanticCondContext;
+  const thenSemanticContext = applyConditionBranchNarrowing(
+    stmt.condition,
+    "truthy",
+    semanticCondContext,
+    emitExprAstCb
+  );
+  const thenCtx = applyIrBranchNarrowings(
+    thenSemanticContext,
+    stmt.thenNarrowings,
+    emitExprAstCb
+  );
   const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
     stmt.thenStatement,
     thenCtx
@@ -745,14 +764,17 @@ export const tryEmitTypeofGuard = (
     usedLocalNames: basePostConditionContext.usedLocalNames,
     narrowedBindings: preservedNarrowedBindings,
   };
-  const falsyFallthroughContext =
-    falsyTypeofRefinements.length > 0
-      ? (applyTypeofAwareConditionBranchNarrowing(
-          stmt.condition,
-          "falsy",
-          elseBaseContext
-        ) ?? elseBaseContext)
-      : elseBaseContext;
+  const falsySemanticContext = applyConditionBranchNarrowing(
+    stmt.condition,
+    "falsy",
+    elseBaseContext,
+    emitExprAstCb
+  );
+  const falsyFallthroughContext = applyIrBranchNarrowings(
+    falsySemanticContext,
+    stmt.elseNarrowings,
+    emitExprAstCb
+  );
   let finalContext: EmitterContext = thenTerminates
     ? falsyFallthroughContext
     : mergeBranchExitContext(
@@ -763,14 +785,17 @@ export const tryEmitTypeofGuard = (
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
-    const elseCtx =
-      falsyTypeofRefinements.length > 0
-        ? applyTypeofAwareConditionBranchNarrowing(
-            stmt.condition,
-            "falsy",
-            elseBaseContext
-          )
-        : elseBaseContext;
+    const elseSemanticContext = applyConditionBranchNarrowing(
+      stmt.condition,
+      "falsy",
+      elseBaseContext,
+      emitExprAstCb
+    );
+    const elseCtx = applyIrBranchNarrowings(
+      elseSemanticContext,
+      stmt.elseNarrowings,
+      emitExprAstCb
+    );
     const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
       stmt.elseStatement,
       elseCtx
@@ -794,18 +819,25 @@ export const tryEmitTypeofGuard = (
   if (
     !stmt.elseStatement &&
     thenTerminates &&
-    falsyTypeofRefinements.length > 0
+    (stmt.elseNarrowings?.length ?? 0) > 0
   ) {
-    finalContext = applyTypeofAwareConditionBranchNarrowing(
-      stmt.condition,
-      "falsy",
-      {
+    const postElseBaseContext: EmitterContext = {
         ...semanticCondContext,
         tempVarId: finalContext.tempVarId,
         usings: finalContext.usings,
         usedLocalNames: finalContext.usedLocalNames,
         narrowedBindings: preservedNarrowedBindings,
-      }
+      };
+    const postElseSemanticContext = applyConditionBranchNarrowing(
+      stmt.condition,
+      "falsy",
+      postElseBaseContext,
+      emitExprAstCb
+    );
+    finalContext = applyIrBranchNarrowings(
+      postElseSemanticContext,
+      stmt.elseNarrowings,
+      emitExprAstCb
     );
   }
 

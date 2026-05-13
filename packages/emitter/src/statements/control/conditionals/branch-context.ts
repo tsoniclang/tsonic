@@ -28,6 +28,7 @@ import {
   buildMappedUnionNarrowAst,
   buildUnionNarrowAst,
 } from "../../../core/semantic/narrowing-builders.js";
+import { buildRuntimeUnionLayout } from "../../../core/semantic/runtime-unions.js";
 import {
   identifierType,
   nullLiteral,
@@ -668,22 +669,31 @@ export const withRuntimeUnionMemberNarrowing = (
   baseContext: EmitterContext,
   storageType?: IrType
 ): EmitterContext => {
-  const narrowedBindings = new Map(baseContext.narrowedBindings ?? []);
   const narrowedAst = buildUnionNarrowAst(receiver, memberN);
+  const [sourceLayout, sourceLayoutContext] =
+    sourceType && willCarryAsRuntimeUnion(sourceType, baseContext)
+      ? buildRuntimeUnionLayout(sourceType, baseContext, emitTypeAst)
+      : [undefined, baseContext];
+  const narrowedBindings = new Map(sourceLayoutContext.narrowedBindings ?? []);
+  const sourceMemberType = sourceLayout?.members[memberN - 1];
+  const narrowedType = sourceMemberType ?? memberType;
   narrowedBindings.set(
     originalName,
     buildExprBinding(
       narrowedAst,
-      memberType,
+      narrowedType,
       sourceType,
       narrowedAst,
-      storageType ??
-        normalizeRuntimeStorageType(memberType, baseContext) ??
-        memberType,
+      sourceMemberType
+        ? (normalizeRuntimeStorageType(sourceMemberType, sourceLayoutContext) ??
+          sourceMemberType)
+        : (storageType ??
+          normalizeRuntimeStorageType(memberType, sourceLayoutContext) ??
+          memberType),
       toReceiverAst(receiver)
     )
   );
-  return { ...baseContext, narrowedBindings };
+  return { ...sourceLayoutContext, narrowedBindings };
 };
 
 /** Wrap an array of statements in a single statement (block if >1). */

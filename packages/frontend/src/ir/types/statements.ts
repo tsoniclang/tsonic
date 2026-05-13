@@ -221,11 +221,22 @@ export type IrReturnStatement = {
   readonly expression?: IrExpression;
 };
 
+export type IrBranchNarrowing = {
+  readonly bindingKey: string;
+  readonly targetExpr: Extract<
+    IrExpression,
+    { kind: "identifier" | "memberAccess" }
+  >;
+  readonly targetType: IrType;
+};
+
 export type IrIfStatement = {
   readonly kind: "ifStatement";
   readonly condition: IrExpression;
   readonly thenStatement: IrStatement;
   readonly elseStatement?: IrStatement;
+  readonly thenNarrowings?: readonly IrBranchNarrowing[];
+  readonly elseNarrowings?: readonly IrBranchNarrowing[];
 };
 
 export type IrWhileStatement = {

@@ -448,7 +448,13 @@ const tryResolveTruthyNarrowing = (
     const narrowedDeclId = ctx.binding.resolveIdentifier(valueArg);
     if (!narrowedDeclId) return undefined;
 
-    return { kind: "decl", declId: narrowedDeclId.id, targetType };
+    return {
+      kind: "decl",
+      declId: narrowedDeclId.id,
+      bindingKey: valueArg.text,
+      targetNode: valueArg,
+      targetType,
+    };
   }
 
   // x instanceof T

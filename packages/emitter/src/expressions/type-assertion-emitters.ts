@@ -617,13 +617,12 @@ export const emitTypeAssertion = (
 
   if (
     narrowedArrayCarrierAssertion &&
-    preservesStorageSurfaceAtEntry &&
     !involvesDegenerateDuplicateUnion
   ) {
     return emitExpressionAst(
       transparentSourceExpression,
       context,
-      expectedType
+      runtimeAssertionTarget
     );
   }
 

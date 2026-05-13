@@ -300,6 +300,67 @@ describe("IR Builder", function () {
       }
     });
 
+    it("records frontend branch proof facts for typeof fallthrough", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export function classify(value: string | number | undefined): int {",
+            '  if (typeof value === "string") {',
+            "    return 1;",
+            "  }",
+            "  return 0;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const classifyFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "classify"
+        );
+        expect(classifyFn).to.not.equal(undefined);
+        if (!classifyFn) return;
+
+        const branch = classifyFn.body.statements.find(
+          (stmt): stmt is IrIfStatement => stmt.kind === "ifStatement"
+        );
+        expect(branch).to.not.equal(undefined);
+        if (!branch) return;
+
+        expect(branch.thenNarrowings?.[0]?.bindingKey).to.equal("value");
+        expect(branch.thenNarrowings?.[0]?.targetType).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(branch.elseNarrowings?.[0]?.bindingKey).to.equal("value");
+        expect(branch.elseNarrowings?.[0]?.targetType.kind).to.equal(
+          "unionType"
+        );
+        if (branch.elseNarrowings?.[0]?.targetType.kind !== "unionType") {
+          return;
+        }
+        expect(
+          branch.elseNarrowings[0].targetType.types.some(
+            (type) => type.kind === "primitiveType" && type.name === "string"
+          )
+        ).to.equal(false);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("prefers the assignable common nominal supertype for conditional expressions", () => {
       const fixture = createFilesystemTestProgram(
         {

@@ -6,6 +6,7 @@
 
 import * as ts from "typescript";
 import {
+  IrBranchNarrowing,
   IrStatement,
   IrIfStatement,
   IrSwitchStatement,
@@ -25,7 +26,33 @@ import {
   collectTypeNarrowingsInFalsyExpr,
   withAppliedNarrowings,
 } from "../../flow-narrowing.js";
+import type { TypeNarrowing } from "../../flow-narrowing.js";
 import { withVariableTypeEnv } from "../../type-env.js";
+
+const convertBranchNarrowings = (
+  narrowings: readonly TypeNarrowing[],
+  ctx: ProgramContext
+): readonly IrBranchNarrowing[] => {
+  const converted: IrBranchNarrowing[] = [];
+  for (const narrowing of narrowings) {
+    if (!narrowing.bindingKey || !narrowing.targetNode) {
+      continue;
+    }
+
+    const targetExpr = convertExpression(narrowing.targetNode, ctx, undefined);
+    if (targetExpr.kind !== "identifier" && targetExpr.kind !== "memberAccess") {
+      continue;
+    }
+
+    converted.push({
+      bindingKey: narrowing.bindingKey,
+      targetExpr,
+      targetType: narrowing.targetType,
+    });
+  }
+
+  return converted;
+};
 
 /**
  * Convert if statement
@@ -38,17 +65,19 @@ export const convertIfStatement = (
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrIfStatement => {
+  const truthyNarrowings = collectTypeNarrowingsInTruthyExpr(node.expression, ctx);
   const thenCtx = withAppliedNarrowings(
     ctx,
-    collectTypeNarrowingsInTruthyExpr(node.expression, ctx)
+    truthyNarrowings
   );
 
+  const falsyNarrowings = collectTypeNarrowingsInFalsyExpr(
+    node.expression,
+    ctx
+  );
   const elseCtx = (() => {
     if (!node.elseStatement) return ctx;
-    return withAppliedNarrowings(
-      ctx,
-      collectTypeNarrowingsInFalsyExpr(node.expression, ctx)
-    );
+    return withAppliedNarrowings(ctx, falsyNarrowings);
   })();
 
   const thenStmt = convertStatementSingle(
@@ -65,6 +94,12 @@ export const convertIfStatement = (
     condition: convertExpression(node.expression, ctx, undefined),
     thenStatement: thenStmt ?? { kind: "emptyStatement" },
     elseStatement: elseStmt ?? undefined,
+    ...(truthyNarrowings.length > 0
+      ? { thenNarrowings: convertBranchNarrowings(truthyNarrowings, ctx) }
+      : {}),
+    ...(falsyNarrowings.length > 0
+      ? { elseNarrowings: convertBranchNarrowings(falsyNarrowings, ctx) }
+      : {}),
   };
 };
 
