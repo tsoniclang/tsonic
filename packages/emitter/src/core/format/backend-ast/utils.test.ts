@@ -4,6 +4,8 @@ import type { CSharpTypeAst } from "./types.js";
 import { identifierType } from "./builders.js";
 import {
   CSHARP_PREDEFINED_TYPE_KEYWORDS,
+  astTypeMatchesClrIdentity,
+  clrNameMatchesClrIdentity,
   clrTypeNameToTypeAst,
   extractCalleeNameFromAst,
   getIdentifierTypeLeafName,
@@ -13,6 +15,7 @@ import {
   sameConcreteTypeAstSurface,
   sameTypeAstSurface,
   stableIdentifierSuffixFromTypeAst,
+  stableClrIdentityKeyFromName,
   stableConcreteTypeKeyFromAst,
   stableTypeKeyFromAst,
   stripNullableTypeAst,
@@ -189,6 +192,44 @@ describe("backend-ast utils", () => {
           identifierType("global::System.Int32"),
         ])
       )
+    ).to.equal(true);
+  });
+
+  it("matches emitted AST types against CLR identities without spelling-specific checks", () => {
+    const clrIntSpellings = ["System.Int32", "global::System.Int32"];
+
+    expect(
+      astTypeMatchesClrIdentity(
+        { kind: "predefinedType", keyword: "int" },
+        clrIntSpellings
+      )
+    ).to.equal(true);
+    expect(
+      astTypeMatchesClrIdentity(
+        identifierType("global::System.Int32"),
+        clrIntSpellings
+      )
+    ).to.equal(true);
+    expect(
+      astTypeMatchesClrIdentity(
+        {
+          kind: "nullableType",
+          underlyingType: identifierType("System.Int32"),
+        },
+        clrIntSpellings
+      )
+    ).to.equal(true);
+    expect(
+      astTypeMatchesClrIdentity(
+        identifierType("global::System.String"),
+        clrIntSpellings
+      )
+    ).to.equal(false);
+    expect(stableClrIdentityKeyFromName("global::System.Int32")).to.equal(
+      "clr:System.Int32/0"
+    );
+    expect(
+      clrNameMatchesClrIdentity("global::System.Object", ["System.Object"])
     ).to.equal(true);
   });
 

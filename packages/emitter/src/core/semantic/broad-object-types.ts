@@ -86,7 +86,7 @@ export const isBroadObjectSlotType = (
   );
 };
 
-export const isBroadObjectPassThroughType = (
+export const isStorageErasedBroadObjectPassThroughType = (
   type: IrType | undefined,
   context: EmitterContext,
   seen = new Set<IrType>()
@@ -133,7 +133,7 @@ export const isBroadObjectPassThroughType = (
           (comparableMember.kind === "primitiveType" &&
             (comparableMember.name === "null" ||
               comparableMember.name === "undefined")) ||
-          isBroadObjectPassThroughType(member, context, seen)
+          isStorageErasedBroadObjectPassThroughType(member, context, seen)
         );
       });
     default:

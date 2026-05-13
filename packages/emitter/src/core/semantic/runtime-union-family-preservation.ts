@@ -9,7 +9,7 @@ export const rebuildUnionTypePreservingCarrierFamily = (
     return nextTypes[0] ?? sourceUnion;
   }
 
-  if (sourceUnion.preserveRuntimeLayout === true) {
+  if (sourceUnion.runtimeUnionLayout === "carrierSlotOrder") {
     return {
       ...sourceUnion,
       types: [...nextTypes],

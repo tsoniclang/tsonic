@@ -51,9 +51,15 @@ import {
 } from "../core/semantic/runtime-unions.js";
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import {
-  isBroadObjectPassThroughType,
+  isStorageErasedBroadObjectPassThroughType,
   isBroadObjectSlotType,
 } from "../core/semantic/broad-object-types.js";
+import {
+  adaptMatch,
+  adaptNoMatch,
+  adaptValueOrUndefined,
+  type AdaptResult,
+} from "../core/semantic/adapt-result.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import {
   getRuntimeUnionAliasReferenceKey,
@@ -1175,7 +1181,7 @@ const trySelectExactRuntimeUnionMembers = (
   };
 };
 
-export const adaptValueToExpectedTypeAst = (opts: {
+const adaptValueToExpectedTypeAstResult = (opts: {
   readonly valueAst: CSharpExpressionAst;
   readonly actualType: IrType | undefined;
   readonly context: EmitterContext;
@@ -1183,7 +1189,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
   readonly visited?: ReadonlySet<string>;
   readonly allowUnionNarrowing?: boolean;
   readonly selectedSourceMemberNs?: ReadonlySet<number>;
-}): [CSharpExpressionAst, EmitterContext] | undefined => {
+}): AdaptResult<[CSharpExpressionAst, EmitterContext]> => {
   const {
     valueAst,
     actualType,
@@ -1195,11 +1201,11 @@ export const adaptValueToExpectedTypeAst = (opts: {
   } = opts;
 
   if (!actualType || !expectedType) {
-    return undefined;
+    return adaptNoMatch();
   }
 
   if (runtimeUnionAliasReferencesMatch(actualType, expectedType, context)) {
-    return [valueAst, context];
+    return adaptMatch([valueAst, context]);
   }
 
   const exactExpectedSurface = tryEmitExactComparisonTargetAst(
@@ -1211,7 +1217,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
     (isExactExpressionToType(valueAst, exactExpectedSurface[0]) ||
       isExactArrayCreationToType(valueAst, exactExpectedSurface[0]))
   ) {
-    return [valueAst, exactExpectedSurface[1]];
+    return adaptMatch([valueAst, exactExpectedSurface[1]]);
   }
 
   const [exactRuntimeUnionLayout, exactRuntimeUnionContext] =
@@ -1224,7 +1230,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
       isExactExpressionToType(valueAst, exactRuntimeUnionTypeAst) ||
       isExactArrayCreationToType(valueAst, exactRuntimeUnionTypeAst)
     ) {
-      return [valueAst, exactRuntimeUnionContext];
+      return adaptMatch([valueAst, exactRuntimeUnionContext]);
     }
   }
 
@@ -1263,7 +1269,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
         })()
       : undefined;
   if (narrowedCarrierSourceType) {
-    return [valueAst, context];
+    return adaptMatch([valueAst, context]);
   }
 
   const directValueSurfaceType = resolveDirectValueSurfaceType(
@@ -1294,14 +1300,14 @@ export const adaptValueToExpectedTypeAst = (opts: {
         context
       ))
   ) {
-    return [valueAst, context];
+    return adaptMatch([valueAst, context]);
   }
 
   if (
     isBroadCarrierPreservingTarget(expectedType, context) &&
-    isBroadObjectPassThroughType(actualType, context)
+    isStorageErasedBroadObjectPassThroughType(actualType, context)
   ) {
-    return [stripDeadRuntimeNullishFallbackAst(valueAst), context];
+    return adaptMatch([stripDeadRuntimeNullishFallbackAst(valueAst), context]);
   }
 
   if (
@@ -1311,7 +1317,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
     !requiresValueTypeMaterialization(actualType, expectedType, context) &&
     !willCarryAsRuntimeUnion(actualType, context)
   ) {
-    return [valueAst, context];
+    return adaptMatch([valueAst, context]);
   }
 
   if (
@@ -1323,7 +1329,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
       context
     )
   ) {
-    return [valueAst, context];
+    return adaptMatch([valueAst, context]);
   }
 
   const unionAdjusted = maybeAdaptRuntimeUnionExpressionAst(
@@ -1347,16 +1353,16 @@ export const adaptValueToExpectedTypeAst = (opts: {
     maybeAdaptRuntimeUnionExpressionAst
   );
   if (structuralAdjusted) {
-    return structuralAdjusted;
+    return adaptMatch(structuralAdjusted);
   }
   if (unionAdjusted) {
-    return unionAdjusted;
+    return adaptMatch(unionAdjusted);
   }
   if (!allowUnionNarrowing) {
-    return undefined;
+    return adaptNoMatch();
   }
 
-  return maybeNarrowRuntimeUnionExpressionAst(
+  const narrowedUnion = maybeNarrowRuntimeUnionExpressionAst(
     valueAst,
     actualType,
     context,
@@ -1364,7 +1370,19 @@ export const adaptValueToExpectedTypeAst = (opts: {
     visited,
     selectedSourceMemberNs
   );
+  return narrowedUnion ? adaptMatch(narrowedUnion) : adaptNoMatch();
 };
+
+export const adaptValueToExpectedTypeAst = (opts: {
+  readonly valueAst: CSharpExpressionAst;
+  readonly actualType: IrType | undefined;
+  readonly context: EmitterContext;
+  readonly expectedType: IrType | undefined;
+  readonly visited?: ReadonlySet<string>;
+  readonly allowUnionNarrowing?: boolean;
+  readonly selectedSourceMemberNs?: ReadonlySet<number>;
+}): [CSharpExpressionAst, EmitterContext] | undefined =>
+  adaptValueOrUndefined(adaptValueToExpectedTypeAstResult(opts));
 
 export const adaptEmittedExpressionAst = (opts: {
   readonly expr: IrExpression;
@@ -1486,7 +1504,10 @@ export const adaptEmittedExpressionAst = (opts: {
         expectedType,
         castedContext
       ) &&
-      !isBroadObjectPassThroughType(originalCarrierType, castedContext)
+      !isStorageErasedBroadObjectPassThroughType(
+        originalCarrierType,
+        castedContext
+      )
     ) {
       return undefined;
     }
@@ -1595,7 +1616,10 @@ export const adaptEmittedExpressionAst = (opts: {
         expectedType,
         castedContext
       ) &&
-      !isBroadObjectPassThroughType(originalCarrierType, castedContext)
+      !isStorageErasedBroadObjectPassThroughType(
+        originalCarrierType,
+        castedContext
+      )
     ) {
       return undefined;
     }
@@ -1734,7 +1758,10 @@ export const adaptEmittedExpressionAst = (opts: {
     expectedType &&
     directStorageExpressionType &&
     isBroadCarrierPreservingTarget(expectedType, castedContext) &&
-    isBroadObjectPassThroughType(directStorageExpressionType, castedContext) &&
+    isStorageErasedBroadObjectPassThroughType(
+      directStorageExpressionType,
+      castedContext
+    ) &&
     !requiresJsNumberBoxingAdaptation(
       directStorageExpressionType,
       expectedType,
@@ -1789,7 +1816,7 @@ export const adaptEmittedExpressionAst = (opts: {
     expectedType &&
     actualType &&
     isBroadCarrierPreservingTarget(expectedType, castedContext) &&
-    isBroadObjectPassThroughType(actualType, castedContext) &&
+    isStorageErasedBroadObjectPassThroughType(actualType, castedContext) &&
     !requiresJsNumberBoxingAdaptation(
       actualType,
       expectedType,

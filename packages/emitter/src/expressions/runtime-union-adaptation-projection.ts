@@ -16,7 +16,7 @@ import {
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import {
-  isBroadObjectPassThroughType,
+  isStorageErasedBroadObjectPassThroughType,
   isBroadObjectSlotType,
   normalizeBroadObjectSinkType,
 } from "../core/semantic/broad-object-types.js";
@@ -200,11 +200,15 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     actualLayout.carrierFullName === expectedLayout.carrierFullName &&
     actualLayout.carrierTypeArgumentAsts.length ===
       expectedLayout.carrierTypeArgumentAsts.length &&
-    actualLayout.carrierTypeArgumentAsts.every(
-      (typeArgument, index) =>
+    actualLayout.carrierTypeArgumentAsts.every((typeArgument, index) => {
+      const expectedTypeArgument =
+        expectedLayout.carrierTypeArgumentAsts[index];
+      return (
+        expectedTypeArgument !== undefined &&
         stableTypeKeyFromAst(typeArgument) ===
-        stableTypeKeyFromAst(expectedLayout.carrierTypeArgumentAsts[index]!)
-    )
+          stableTypeKeyFromAst(expectedTypeArgument)
+      );
+    })
   ) {
     return [ast, expectedLayoutContext];
   }
@@ -276,7 +280,7 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       sawMatch = true;
     } else if (
       isBroadObjectSlotType(projectionExpectedType, currentContext) &&
-      isBroadObjectPassThroughType(actualMember, currentContext)
+      isStorageErasedBroadObjectPassThroughType(actualMember, currentContext)
     ) {
       body = parameterExpr;
       sawMatch = true;

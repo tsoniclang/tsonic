@@ -51,7 +51,6 @@ describe("IR Builder", function () {
       expect(expression?.kind).to.equal("memberAccess");
       if (!expression || expression.kind !== "memberAccess") return;
       expect(expression.accessKind).to.equal(undefined);
-      expect(expression.allowUnknownInferredType).to.equal(undefined);
       expect(expression.inferredType).to.deep.equal({
         kind: "referenceType",
         name: "ICollection_1",
@@ -94,7 +93,6 @@ describe("IR Builder", function () {
       expect(expression?.kind).to.equal("memberAccess");
       if (!expression || expression.kind !== "memberAccess") return;
       expect(expression.accessKind).to.equal(undefined);
-      expect(expression.allowUnknownInferredType).to.equal(undefined);
       expect(expression.inferredType).to.deep.equal({
         kind: "referenceType",
         name: "ICollection_1",
@@ -142,8 +140,7 @@ describe("IR Builder", function () {
             expression.kind === "assignment" &&
               expression.left.kind === "memberAccess" &&
               expression.left.accessKind === "dictionary" &&
-              expression.left.inferredType?.kind === "unknownType" &&
-              expression.left.allowUnknownInferredType === true
+              expression.left.inferredType?.kind === "unknownType"
           );
         })
       ).to.equal(true);

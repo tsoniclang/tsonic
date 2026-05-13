@@ -73,7 +73,7 @@ const getAwaitTaskResultCarrierType = (
   }
 
   return resultType.kind === "unionType" &&
-    resultType.preserveRuntimeLayout === true
+    resultType.runtimeUnionLayout === "carrierSlotOrder"
     ? {
         ...resultType,
         types: nonNullishMembers,

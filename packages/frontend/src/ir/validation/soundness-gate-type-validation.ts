@@ -13,13 +13,16 @@ import {
 } from "./soundness-gate-shared.js";
 import { validateExpression } from "./soundness-gate-expression-validation.js";
 
+type UnknownRootKind = "expressionInferredType";
+type IntersectionRootKind = "runtimeStorage" | "typeParameterConstraint";
+
 export const validateType = (
   type: IrType | undefined,
   ctx: ValidationContext,
   typeContext: string,
   options: {
-    readonly allowRootUnknownType?: boolean;
-    readonly allowRootIntersectionType?: boolean;
+    readonly unknownRootKind?: UnknownRootKind;
+    readonly intersectionRootKind?: IntersectionRootKind;
   } = {}
 ): void => {
   if (!type) return;
@@ -101,7 +104,10 @@ export const validateType = (
         break;
 
       case "intersectionType":
-        if (!options.allowRootIntersectionType) {
+        if (
+          (options.intersectionRootKind ?? "runtimeStorage") ===
+          "runtimeStorage"
+        ) {
           ctx.diagnostics.push(
             createDiagnostic(
               "TSN7414",
@@ -196,7 +202,10 @@ export const validateType = (
         break;
 
       case "unknownType":
-        if (type.explicit === true || options.allowRootUnknownType) {
+        if (
+          type.explicit === true ||
+          options.unknownRootKind === "expressionInferredType"
+        ) {
           break;
         }
         ctx.diagnostics.push(
@@ -240,7 +249,7 @@ export const validateTypeParameter = (
     typeParameter.constraint,
     ctx,
     `type parameter '${typeParameter.name}' constraint`,
-    { allowRootIntersectionType: true }
+    { intersectionRootKind: "typeParameterConstraint" }
   );
   validateType(
     typeParameter.default,

@@ -40,7 +40,10 @@ export const emitIntersectionType = (
 ): [CSharpTypeAst, EmitterContext] => {
   const runtimeMembers = collectRuntimeIntersectionMembers(type);
   if (runtimeMembers.length === 1) {
-    return emitTypeAst(runtimeMembers[0]!, context);
+    const runtimeMember = runtimeMembers[0];
+    if (runtimeMember) {
+      return emitTypeAst(runtimeMember, context);
+    }
   }
 
   throw new Error(

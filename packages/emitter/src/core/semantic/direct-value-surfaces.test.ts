@@ -90,7 +90,7 @@ describe("direct-value-surfaces", () => {
       kind: "unionType",
       types: [uint8ArrayType, stringType],
       runtimeCarrierFamilyKey: "Uint8Array|string",
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
     };
     const context = {
       ...createContext({ rootNamespace: "Test" }),
@@ -185,7 +185,7 @@ describe("direct-value-surfaces", () => {
     const expectedCarrier: IrType = {
       kind: "unionType",
       types: [middlewareParamType, routerType],
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
     };
 
     expect(resolveDirectValueSurfaceType(castAst, context)).to.deep.equal(
@@ -228,7 +228,7 @@ describe("direct-value-surfaces", () => {
     const expectedCarrier: IrType = {
       kind: "unionType",
       types: [middlewareParamType, routerType],
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
     };
 
     expect(resolveDirectValueSurfaceType(matchAst, context)).to.deep.equal(

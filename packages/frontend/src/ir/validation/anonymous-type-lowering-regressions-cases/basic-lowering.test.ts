@@ -349,7 +349,6 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
                   ],
                   isOptional: false,
                   inferredType: { kind: "voidType" },
-                  allowUnknownInferredType: true,
                   requiresSpecialization: false,
                   argumentPassing: ["value", "value"],
                   parameterTypes: [

@@ -377,8 +377,8 @@ const attachTypeIdsImpl = (
       );
       if (type.kind === "unionType") {
         const normalized = normalizedUnionType(attached.types, {
-          ...(type.preserveRuntimeLayout === true
-            ? { preserveRuntimeLayout: true as const }
+          ...(type.runtimeUnionLayout === "carrierSlotOrder"
+            ? { runtimeUnionLayout: "carrierSlotOrder" as const }
             : {}),
           ...(type.runtimeCarrierFamilyKey !== undefined
             ? { runtimeCarrierFamilyKey: type.runtimeCarrierFamilyKey }

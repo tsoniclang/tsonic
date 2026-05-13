@@ -80,8 +80,8 @@ const stripRuntimeCarrierFamilyForSubset = (type: IrType): IrType => {
     types: type.types.map(stripRuntimeCarrierFamilyForSubset),
   } as const satisfies Extract<IrType, { kind: "unionType" }>;
 
-  return type.preserveRuntimeLayout === true
-    ? { ...stripped, preserveRuntimeLayout: true }
+  return type.runtimeUnionLayout === "carrierSlotOrder"
+    ? { ...stripped, runtimeUnionLayout: "carrierSlotOrder" }
     : stripped;
 };
 

@@ -422,7 +422,7 @@ describe("type-equivalence", () => {
         { kind: "primitiveType", name: "string" },
         { kind: "primitiveType", name: "number" },
       ],
-      preserveRuntimeLayout: true,
+      runtimeUnionLayout: "carrierSlotOrder",
       runtimeCarrierFamilyKey: "Test.Result",
       runtimeCarrierName: "Result",
       runtimeCarrierNamespace: "Test",

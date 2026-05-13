@@ -22,6 +22,7 @@ import {
   withTypeArguments,
 } from "../core/format/backend-ast/builders.js";
 import {
+  clrNameMatchesClrIdentity,
   clrTypeNameToTypeAst,
   isCSharpPredefinedTypeKeyword,
 } from "../core/format/backend-ast/utils.js";
@@ -95,7 +96,7 @@ const isQualifiedClrIdentity = (name: string | undefined): boolean => {
 };
 
 const isSystemObjectClrIdentity = (name: string | undefined): boolean =>
-  name === "System.Object" || name === "global::System.Object";
+  clrNameMatchesClrIdentity(name, ["System.Object"]);
 
 const getDeclaringTypeParameterAsts = (
   context: EmitterContext

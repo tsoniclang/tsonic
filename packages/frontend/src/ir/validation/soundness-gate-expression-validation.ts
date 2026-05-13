@@ -138,12 +138,11 @@ export const validateExpression = (
       if (typeof expr.property !== "string") {
         validateExpression(expr.property, ctx);
       }
-      const allowDeclaredDictionaryUnknown = expr.accessKind === "dictionary";
+      const isDeclaredDictionaryAccess = expr.accessKind === "dictionary";
       if (
         expr.inferredType?.kind === "unknownType" &&
         expr.inferredType.explicit !== true &&
-        !expr.allowUnknownInferredType &&
-        !allowDeclaredDictionaryUnknown
+        !isDeclaredDictionaryAccess
       ) {
         const propName =
           typeof expr.property === "string" ? expr.property : "<computed>";
@@ -204,8 +203,7 @@ export const validateExpression = (
       }
       if (
         expr.inferredType?.kind === "unknownType" &&
-        expr.inferredType.explicit !== true &&
-        !expr.allowUnknownInferredType
+        expr.inferredType.explicit !== true
       ) {
         ctx.diagnostics.push(
           createDiagnostic(
@@ -307,7 +305,7 @@ export const validateExpression = (
       }
       if (expr.inferredType) {
         validateType(expr.inferredType, ctx, `${expr.kind} inferred type`, {
-          allowRootUnknownType: true,
+          unknownRootKind: "expressionInferredType",
         });
       }
       break;

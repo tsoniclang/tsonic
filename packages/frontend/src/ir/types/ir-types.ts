@@ -162,13 +162,12 @@ export type IrUnionType = {
   readonly kind: "unionType";
   readonly types: readonly IrType[];
   /**
-   * Preserve explicit member order and duplicate carrier slots when this union
-   * is used as a runtime-union carrier.
+   * Marks explicit member order as runtime-union carrier slot order.
    *
    * This is for compiler-authored runtime carrier layout only. It does not
    * change semantic type equality.
    */
-  readonly preserveRuntimeLayout?: true;
+  readonly runtimeUnionLayout?: "carrierSlotOrder";
   /**
    * Compiler-owned runtime carrier family identity.
    *

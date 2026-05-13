@@ -2,7 +2,7 @@ import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import {
-  getIdentifierTypeName,
+  astTypeMatchesClrIdentity,
   sameTypeAstSurface,
   stripNullableTypeAst,
 } from "../format/backend-ast/utils.js";
@@ -62,18 +62,7 @@ const requiresRuntimeUnionArrayElementMaterialization = (
 
 const isObjectTypeAst = (
   typeAst: Parameters<typeof stripNullableTypeAst>[0]
-): boolean => {
-  const concreteTypeAst = stripNullableTypeAst(typeAst);
-  if (concreteTypeAst.kind === "predefinedType") {
-    return concreteTypeAst.keyword === "object";
-  }
-
-  const identifierName = getIdentifierTypeName(concreteTypeAst);
-  return (
-    identifierName === "System.Object" ||
-    identifierName === "global::System.Object"
-  );
-};
+): boolean => astTypeMatchesClrIdentity(typeAst, ["System.Object"]);
 
 const isBroadStorageType = (type: IrType, context: EmitterContext): boolean => {
   const resolved = resolveTypeAlias(stripNullish(type), context, {

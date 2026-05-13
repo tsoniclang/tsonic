@@ -109,8 +109,8 @@ export const normalizeNamespaceAliasQualifiedName = (
 export const normalizeExpandedAliasType = (type: IrType): IrType =>
   type.kind === "unionType"
     ? normalizedUnionType(type.types, {
-        ...(type.preserveRuntimeLayout === true
-          ? { preserveRuntimeLayout: true as const }
+        ...(type.runtimeUnionLayout === "carrierSlotOrder"
+          ? { runtimeUnionLayout: "carrierSlotOrder" as const }
           : {}),
         ...(type.runtimeCarrierFamilyKey !== undefined
           ? { runtimeCarrierFamilyKey: type.runtimeCarrierFamilyKey }

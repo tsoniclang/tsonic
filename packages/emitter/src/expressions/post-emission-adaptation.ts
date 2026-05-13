@@ -23,8 +23,8 @@ import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import { isBroadObjectSlotType } from "../core/semantic/broad-object-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
+  astTypeMatchesClrIdentity,
   extractCalleeNameFromAst,
-  getIdentifierTypeName,
   sameTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
@@ -80,6 +80,22 @@ const getUnconstrainedNullishTypeParamName = (
     context.typeParamConstraints?.get(typeParamName) ?? "unconstrained";
   return constraintKind === "unconstrained" ? typeParamName : undefined;
 };
+
+const CONCRETE_VALUE_TYPE_CLR_IDENTITIES = [
+  "System.Int32",
+  "System.Int64",
+  "System.Int16",
+  "System.Byte",
+  "System.SByte",
+  "System.UInt32",
+  "System.UInt64",
+  "System.UInt16",
+  "System.Single",
+  "System.Double",
+  "System.Decimal",
+  "System.Boolean",
+  "System.Char",
+] as const;
 
 export const maybeCastNullishTypeParamAst = (
   expr: IrExpression,
@@ -227,55 +243,8 @@ const astAlreadyCastsToConcreteValueType = (
 
   const isConcreteValueTypeAst = (
     targetAst: ReturnType<typeof stripNullableTypeAst>
-  ): boolean => {
-    if (targetAst.kind === "predefinedType") {
-      return (
-        targetAst.keyword === "int" ||
-        targetAst.keyword === "long" ||
-        targetAst.keyword === "short" ||
-        targetAst.keyword === "byte" ||
-        targetAst.keyword === "sbyte" ||
-        targetAst.keyword === "uint" ||
-        targetAst.keyword === "ulong" ||
-        targetAst.keyword === "ushort" ||
-        targetAst.keyword === "float" ||
-        targetAst.keyword === "double" ||
-        targetAst.keyword === "decimal" ||
-        targetAst.keyword === "bool" ||
-        targetAst.keyword === "char"
-      );
-    }
-
-    const identifierName = getIdentifierTypeName(targetAst);
-    return (
-      identifierName === "System.Int32" ||
-      identifierName === "global::System.Int32" ||
-      identifierName === "System.Int64" ||
-      identifierName === "global::System.Int64" ||
-      identifierName === "System.Int16" ||
-      identifierName === "global::System.Int16" ||
-      identifierName === "System.Byte" ||
-      identifierName === "global::System.Byte" ||
-      identifierName === "System.SByte" ||
-      identifierName === "global::System.SByte" ||
-      identifierName === "System.UInt32" ||
-      identifierName === "global::System.UInt32" ||
-      identifierName === "System.UInt64" ||
-      identifierName === "global::System.UInt64" ||
-      identifierName === "System.UInt16" ||
-      identifierName === "global::System.UInt16" ||
-      identifierName === "System.Single" ||
-      identifierName === "global::System.Single" ||
-      identifierName === "System.Double" ||
-      identifierName === "global::System.Double" ||
-      identifierName === "System.Decimal" ||
-      identifierName === "global::System.Decimal" ||
-      identifierName === "System.Boolean" ||
-      identifierName === "global::System.Boolean" ||
-      identifierName === "System.Char" ||
-      identifierName === "global::System.Char"
-    );
-  };
+  ): boolean =>
+    astTypeMatchesClrIdentity(targetAst, CONCRETE_VALUE_TYPE_CLR_IDENTITIES);
 
   switch (ast.kind) {
     case "castExpression":
@@ -878,18 +847,7 @@ const isImplicitIntegralLiteralForExpectedType = (
 
 const isObjectTypeAst = (
   typeAst: Parameters<typeof stripNullableTypeAst>[0]
-): boolean => {
-  const concreteTypeAst = stripNullableTypeAst(typeAst);
-  if (concreteTypeAst.kind === "predefinedType") {
-    return concreteTypeAst.keyword === "object";
-  }
-
-  const identifierName = getIdentifierTypeName(concreteTypeAst);
-  return (
-    identifierName === "System.Object" ||
-    identifierName === "global::System.Object"
-  );
-};
+): boolean => astTypeMatchesClrIdentity(typeAst, ["System.Object"]);
 
 const isDefinitelyValueIrType = (
   type: IrType | undefined,

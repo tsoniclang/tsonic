@@ -36,7 +36,7 @@ import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adap
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
-import { isBroadObjectPassThroughType } from "../core/semantic/broad-object-types.js";
+import { isStorageErasedBroadObjectPassThroughType } from "../core/semantic/broad-object-types.js";
 import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
 import { referenceTypeHasClrIdentity } from "../core/semantic/clr-type-identity.js";
 import {
@@ -613,7 +613,10 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
         expectedType,
         context
       ) ||
-        isBroadObjectPassThroughType(originalSourceCarrierType, context))
+        isStorageErasedBroadObjectPassThroughType(
+          originalSourceCarrierType,
+          context
+        ))
     ) {
       return [
         identifierExpression(

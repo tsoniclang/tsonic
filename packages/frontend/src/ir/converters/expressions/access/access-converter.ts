@@ -208,9 +208,6 @@ export const convertMemberExpression = (
       ...(dictionaryPropertyType
         ? {
             accessKind: "dictionary" as const,
-            ...(dictionaryPropertyType.kind === "unknownType"
-              ? { allowUnknownInferredType: true }
-              : {}),
           }
         : {}),
     };
