@@ -150,6 +150,15 @@ export const convertMemberExpression = (
       currentReceiverType ?? object.inferredType,
       ctx
     );
+    const propertyAccessKind = classifyComputedAccess(
+      currentReceiverType ?? object.inferredType,
+      ctx
+    );
+    const dictionaryPropertyAccessKind =
+      memberBinding === undefined &&
+      propertyAccessKind === "dictionary"
+        ? propertyAccessKind
+        : undefined;
 
     // Hierarchical bindings: namespace.type is a static type reference, not a runtime
     // value. When this pattern is present in the binding manifest, avoid poisoning the
@@ -192,6 +201,13 @@ export const convertMemberExpression = (
       inferredType: declaredType ?? propertyInferredType,
       sourceSpan,
       memberBinding,
+      ...(dictionaryPropertyAccessKind
+        ? { accessKind: dictionaryPropertyAccessKind }
+        : {}),
+      ...(dictionaryPropertyAccessKind &&
+      (declaredType ?? propertyInferredType)?.kind === "unknownType"
+        ? { allowUnknownInferredType: true }
+        : {}),
     };
     if (
       narrowedAccessType &&

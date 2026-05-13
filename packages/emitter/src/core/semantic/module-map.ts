@@ -14,7 +14,7 @@ import {
   computeDeclarationRuntimeOmittableCallArities,
   computeFunctionValueRuntimeOmittableCallArities,
 } from "./runtime-call-arities.js";
-import { moduleBodyEmitsNamespaceTypeNamed } from "./module-type-collisions.js";
+import { moduleBodyRequiresStaticContainerSuffix } from "./module-type-collisions.js";
 
 // Re-export types from barrel
 export type { ModuleIdentity, ModuleMap, ExportSource, ExportMap };
@@ -119,9 +119,9 @@ export const buildModuleMap = (
         )
     );
 
-    // Check if module has a type declaration (class/interface) with same name as className
-    // This determines whether value imports need to use __Module suffix
-    const hasTypeCollision = moduleBodyEmitsNamespaceTypeNamed(
+    // Check if the emitted static module container needs the __Module suffix.
+    // This determines whether value imports target ClassName or ClassName__Module.
+    const hasTypeCollision = moduleBodyRequiresStaticContainerSuffix(
       module.body,
       module.className
     );

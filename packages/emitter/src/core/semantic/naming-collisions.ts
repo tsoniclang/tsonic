@@ -1,6 +1,6 @@
 import type { Diagnostic, IrModule, IrStatement } from "@tsonic/frontend";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { moduleBodyEmitsNamespaceTypeNamed } from "./module-type-collisions.js";
+import { moduleBodyRequiresStaticContainerSuffix } from "./module-type-collisions.js";
 
 type CollisionItem = {
   readonly original: string;
@@ -69,7 +69,7 @@ const collectInlineTypeNames = (
 const collectContainerNameItem = (
   module: IrModule
 ): CollisionItem | undefined => {
-  const hasTypeCollision = moduleBodyEmitsNamespaceTypeNamed(
+  const hasContainerCollision = moduleBodyRequiresStaticContainerSuffix(
     module.body,
     module.className
   );
@@ -81,7 +81,7 @@ const collectContainerNameItem = (
   if (!hasStaticMembers) return undefined;
 
   const base = escapeCSharpIdentifier(module.className);
-  const csharp = hasTypeCollision ? `${base}__Module` : base;
+  const csharp = hasContainerCollision ? `${base}__Module` : base;
 
   return {
     original: module.className,

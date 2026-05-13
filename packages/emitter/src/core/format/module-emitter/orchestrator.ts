@@ -28,7 +28,7 @@ import {
 } from "./static-container.js";
 import { assembleOutput, type AssemblyParts } from "./assembly.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
-import { moduleBodyEmitsNamespaceTypeNamed } from "../../semantic/module-type-collisions.js";
+import { moduleBodyRequiresStaticContainerSuffix } from "../../semantic/module-type-collisions.js";
 
 const isSuppressibleTypeDeclaration = (
   stmt: IrStatement
@@ -123,7 +123,7 @@ export const emitModule = (
   const hasCollision =
     staticContainerMembers.length > 0 &&
     (hasMatchingClassName(filteredNamespaceLevelDecls, module.className) ||
-      moduleBodyEmitsNamespaceTypeNamed(module.body, module.className));
+      moduleBodyRequiresStaticContainerSuffix(module.body, module.className));
   const escapedModuleClassName = escapeCSharpIdentifier(module.className);
   const moduleStaticClassName =
     staticContainerMembers.length > 0

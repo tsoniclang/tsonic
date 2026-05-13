@@ -30,7 +30,7 @@ export type ModuleIdentity = {
   /** True when this module emits a static module container class. */
   readonly hasRuntimeContainer: boolean;
   /**
-   * True if the module has a type declaration (class/interface) with the same name as className.
+   * True if the module's static container needs the __Module suffix.
    * When true, value imports should target ClassName__Module instead of ClassName.
    */
   readonly hasTypeCollision: boolean;

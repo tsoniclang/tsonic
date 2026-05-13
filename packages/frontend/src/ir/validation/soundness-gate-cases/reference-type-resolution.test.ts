@@ -174,6 +174,55 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.true;
     });
 
+    it("should allow namespace-qualified local class type in the current namespace", () => {
+      const module = createModuleWithType(
+        { kind: "referenceType", name: "Test.TypedArrayBase" },
+        {
+          additionalBody: [
+            {
+              kind: "classDeclaration",
+              name: "TypedArrayBase",
+              isExported: false,
+              isStruct: false,
+              typeParameters: [],
+              implements: [],
+              members: [],
+            },
+          ],
+        }
+      );
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
+    it("should reject namespace-qualified local class type outside the current namespace", () => {
+      const module = createModuleWithType(
+        { kind: "referenceType", name: "Other.TypedArrayBase" },
+        {
+          additionalBody: [
+            {
+              kind: "classDeclaration",
+              name: "TypedArrayBase",
+              isExported: false,
+              isStruct: false,
+              typeParameters: [],
+              implements: [],
+              members: [],
+            },
+          ],
+        }
+      );
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN7414")).to.equal(
+        true
+      );
+    });
+
     it("should allow local interface type", () => {
       const module = createModuleWithType(
         { kind: "referenceType", name: "IUser" },

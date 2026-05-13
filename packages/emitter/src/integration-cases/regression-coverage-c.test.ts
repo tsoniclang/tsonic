@@ -209,7 +209,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include(
         "options?.sameSite is global::Tsonic.Internal.Union<bool, string> __tsonic_union_compare_1"
       );
@@ -598,7 +600,7 @@ describe("End-to-End Integration", () => {
           "/test/test.ts",
           { surface: "@tsonic/js" }
         )
-      ).to.throw("Numeric coercion validation failed");
+      ).to.throw("Implicit narrowing not allowed");
     });
 
     it("keeps broad unknown typeof-object guards on the runtime typeof helper instead of union member checks", () => {
@@ -3147,7 +3149,7 @@ describe("End-to-End Integration", () => {
         O<Application>().method(x => x.get_path).family(x => x.get);
       `);
 
-      expect(csharp).to.include("public object? get(string name)");
+      expect(csharp).to.include("public new object? get(string name)");
       expect(csharp).to.include("return name;");
       expect(csharp).to.not.include("name.Is");
       expect(csharp).not.to.include("get_name");
@@ -5384,7 +5386,7 @@ describe("End-to-End Integration", () => {
         "public static Result<T, E> From1(Err__Alias<E> value)"
       );
       expect(csharp).to.include(
-        "var result = await global::System.Threading.Tasks.Task.FromResult(render());"
+        "var result = await global::System.Threading.Tasks.Task.FromResult(global::Test.render__Module.render());"
       );
       expect(csharp).to.include(
         "if (!result.Match<bool>(__tsonic_union_member_1 => __tsonic_union_member_1.success, __tsonic_union_member_2 => __tsonic_union_member_2.success))"
