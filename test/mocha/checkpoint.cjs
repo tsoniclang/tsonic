@@ -18,6 +18,7 @@ if (!CHECKPOINT_ROOT) {
 const RESUME_MODE = process.env.TSONIC_TEST_RESUME === "1";
 const TRACE_FILE = process.env.TSONIC_TEST_TRACE_FILE;
 const RUN_ID = process.env.TSONIC_TEST_RUN_ID;
+const TEST_TIMEOUT_MS = Number(process.env.TSONIC_TEST_TIMEOUT_MS ?? 0);
 const PROGRESS_ENABLED =
   process.env.TSONIC_TEST_PROGRESS === "1" &&
   process.env.TSONIC_MOCHA_PROGRESS_REPORTER !== "1";
@@ -395,10 +396,26 @@ function logStart(test) {
   progressLine("start", { kind, file, title });
 }
 
+function applyConfiguredTimeout(test) {
+  if (!Number.isFinite(TEST_TIMEOUT_MS) || TEST_TIMEOUT_MS <= 0) return;
+  if (!test || typeof test.timeout !== "function") return;
+
+  try {
+    const current = Number(test.timeout());
+    if (!Number.isFinite(current) || current === 0 || current < TEST_TIMEOUT_MS) {
+      test.timeout(TEST_TIMEOUT_MS);
+    }
+  } catch {
+    // Timeout tuning is a harness guardrail and must not affect test semantics.
+  }
+}
+
 exports.mochaHooks = {
   beforeEach() {
     const t = this.currentTest;
     if (!t) return;
+
+    applyConfiguredTimeout(t);
 
     const id = testId(t);
     const title =

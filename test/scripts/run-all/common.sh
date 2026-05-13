@@ -2,7 +2,7 @@ RUN_ALL_LIB_DIR="${RUN_ALL_LIB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
 
 print_help() {
     cat <<EOF
-Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--no-cli] [--no-fixtures] [--fast] [--filter <pattern>] [--resume]
+Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--no-cli] [--no-fixtures] [--fast] [--serial-unit] [--filter <pattern>] [--resume]
 
 Options:
   --quick                Skip E2E tests (unit + golden + fixture typecheck only).
@@ -10,6 +10,8 @@ Options:
   --no-cli               Skip CLI tests only. Intended for iteration.
   --no-fixtures          Skip fixture typecheck and all fixture execution phases.
   --fast                 Shorthand for --no-cli --no-fixtures.
+  --serial-unit          Run unit/golden tests through the legacy package-by-package path.
+  --parallel-unit        Explicitly select the default global leaf/per-title shard pool.
   --filter <pattern>     Only run E2E fixtures whose directory name contains <pattern>.
                          Can be repeated, or comma-separated (e.g. --filter linq,efcore).
   --resume               Resume from a previous (aborted) run for the same commit+args.
@@ -20,7 +22,14 @@ Notes:
   - --filter is intended for iteration. Final verification must run without --filter.
   - --no-unit is intended for iteration. Final verification must include unit + golden tests.
   - --no-cli, --no-fixtures, and --fast are intended for iteration.
-  - Concurrency is controlled via TEST_CONCURRENCY (default: 4).
+  - E2E concurrency is controlled via TEST_CONCURRENCY
+    (default: 75% of available CPU count).
+  - Parallel unit/golden concurrency is controlled via TSONIC_UNIT_CONCURRENCY
+    (default: 75% of available CPU count).
+  - Parallel unit/golden per-title splitting is controlled via
+    TSONIC_UNIT_TEST_SHARD_THRESHOLD and TSONIC_UNIT_FILE_SHARD_MS.
+  - Heavy/compiler shard timeout guardrails are controlled via
+    TSONIC_UNIT_HEAVY_TIMEOUT_MS and TSONIC_UNIT_HEAVY_TIMEOUT_SHARD_MS.
   - E2E fixture runs share NUGET_PACKAGES via TSONIC_E2E_NUGET_PACKAGES_DIR
     (default: .tests/nuget/packages) and clean per-fixture build artifacts.
   - Set TSONIC_E2E_KEEP_ARTIFACTS=1 for a focused debug rerun when artifacts
