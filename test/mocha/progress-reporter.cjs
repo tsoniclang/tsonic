@@ -84,6 +84,37 @@ function writeProgress(status, test, extraFields = {}) {
   process.stdout.write(`${pieces.join(" ")}\n`);
 }
 
+function writeFailureDetails(test, error) {
+  if (process.env.TSONIC_TEST_FAILURE_DETAILS === "0" || !error) {
+    return;
+  }
+
+  const pieces = [
+    "[mocha:failure]",
+    `package=${safeSegment(getPackageName())}`,
+  ];
+
+  const file = testFile(test);
+  if (file) {
+    pieces.push(`file=${oneLine(file)}`);
+  }
+
+  const title = testTitle(test);
+  if (title) {
+    pieces.push(`title=${oneLine(title)}`);
+  }
+
+  const message = oneLine(error.message ?? error);
+  if (message) {
+    pieces.push(`message=${message}`);
+  }
+
+  process.stdout.write(`${pieces.join(" ")}\n`);
+  if (typeof error.stack === "string" && error.stack.length > 0) {
+    process.stdout.write(`${error.stack}\n`);
+  }
+}
+
 module.exports = class TsonicProgressReporter {
   constructor(runner) {
     runner.once("start", () => {
@@ -114,8 +145,9 @@ module.exports = class TsonicProgressReporter {
       writeProgress("pass", test);
     });
 
-    runner.on("fail", (test) => {
+    runner.on("fail", (test, error) => {
       writeProgress("fail", test);
+      writeFailureDetails(test, error);
     });
 
     runner.on("pending", (test) => {
