@@ -6,7 +6,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFiles, emitModule } from "../../emitter.js";
-import { IrModule } from "@tsonic/frontend";
+import { assumeEmittableIrModule, IrModule } from "@tsonic/frontend";
 import { createJsSurfaceBindingRegistry } from "../../expressions/index-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
@@ -143,7 +143,9 @@ describe("Module Generation", () => {
       exports: [],
     };
 
-    const result = emitCSharpFiles([module], { rootNamespace: "MyApp" });
+    const result = emitCSharpFiles([assumeEmittableIrModule(module)], {
+      rootNamespace: "MyApp",
+    });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;
 
@@ -173,7 +175,7 @@ describe("Module Generation", () => {
             statements: [
               {
                 kind: "returnStatement",
-                expression: { kind: "literal", value: "ok", raw: "\"ok\"" },
+                expression: { kind: "literal", value: "ok", raw: '"ok"' },
               },
             ],
           },
@@ -385,7 +387,9 @@ describe("Module Generation", () => {
       exports: [],
     };
 
-    const result = emitCSharpFiles([module], { rootNamespace: "MyApp" });
+    const result = emitCSharpFiles([assumeEmittableIrModule(module)], {
+      rootNamespace: "MyApp",
+    });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;
 

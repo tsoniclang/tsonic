@@ -7,8 +7,10 @@
 import {
   IrStatement,
   IrBlockStatement,
+  IrExpression,
   IrVariableDeclarator,
 } from "../types.js";
+import { createIfBranchPlans } from "../converters/statements/control/if-branch-plan.js";
 import {
   type LoweringContext,
   containsYield,
@@ -201,17 +203,21 @@ export const processForStatement = (
         expression: loweredUpdate.expression,
       });
     }
+    const updateGateCondition: IrExpression = {
+      kind: "unary",
+      operator: "!",
+      expression: { kind: "identifier", name: updateFirstFlagName },
+    };
+    const updateGatePlans = createIfBranchPlans(updateGateCondition);
     bodyStatements.push({
       kind: "ifStatement",
-      condition: {
-        kind: "unary",
-        operator: "!",
-        expression: { kind: "identifier", name: updateFirstFlagName },
-      },
+      condition: updateGateCondition,
       thenStatement: {
         kind: "blockStatement",
         statements: updateBodyStatements,
       },
+      thenPlan: updateGatePlans.thenPlan,
+      elsePlan: updateGatePlans.elsePlan,
     });
     bodyStatements.push({
       kind: "expressionStatement",
@@ -225,25 +231,33 @@ export const processForStatement = (
   }
 
   if (loweredCondition) {
+    const breakCondition: IrExpression = {
+      kind: "unary",
+      operator: "!",
+      expression: loweredCondition.expression,
+    };
+    const breakPlans = createIfBranchPlans(breakCondition);
     bodyStatements.push(...loweredCondition.prelude);
     bodyStatements.push({
       kind: "ifStatement",
-      condition: {
-        kind: "unary",
-        operator: "!",
-        expression: loweredCondition.expression,
-      },
+      condition: breakCondition,
       thenStatement: { kind: "breakStatement" },
+      thenPlan: breakPlans.thenPlan,
+      elsePlan: breakPlans.elsePlan,
     });
   } else if (loweredUpdate && stmt.condition) {
+    const breakCondition: IrExpression = {
+      kind: "unary",
+      operator: "!",
+      expression: stmt.condition,
+    };
+    const breakPlans = createIfBranchPlans(breakCondition);
     bodyStatements.push({
       kind: "ifStatement",
-      condition: {
-        kind: "unary",
-        operator: "!",
-        expression: stmt.condition,
-      },
+      condition: breakCondition,
       thenStatement: { kind: "breakStatement" },
+      thenPlan: breakPlans.thenPlan,
+      elsePlan: breakPlans.elsePlan,
     });
   }
 

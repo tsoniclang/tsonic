@@ -24,6 +24,10 @@ export type {
   ValueSymbolKind,
   ValueSymbolInfo,
 } from "./emitter-types/index.js";
+export type {
+  SemanticType,
+  StorageCarrier,
+} from "./core/semantic/type-domains.js";
 export {
   createContext,
   indent,
@@ -39,3 +43,11 @@ export {
   renderFQN,
   FQN,
 } from "./emitter-types/index.js";
+export {
+  semanticType,
+  storageCarrier,
+  semanticTypeOrUndefined,
+  storageCarrierOrUndefined,
+  semanticTypeMap,
+  storageCarrierMap,
+} from "./core/semantic/type-domains.js";

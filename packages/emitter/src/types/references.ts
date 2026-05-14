@@ -147,7 +147,10 @@ export const emitReferenceType = (
             typeArgumentTypes,
             context
           );
-          return [identifierTypeWithArgs(carrierFullName, typeArgAsts), nextContext];
+          return [
+            identifierTypeWithArgs(carrierFullName, typeArgAsts),
+            nextContext,
+          ];
         }
         return [identifierType(carrierFullName), context];
       }

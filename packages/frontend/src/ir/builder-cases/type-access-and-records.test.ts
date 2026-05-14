@@ -32,8 +32,9 @@ describe("IR Builder", function () {
       expect(result.ok).to.equal(true);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
-      expect(ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203"))
-        .to.equal(false);
+      expect(
+        ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203")
+      ).to.equal(false);
       if (!result.ok) return;
 
       const fn = result.value.body.find(
@@ -47,7 +48,9 @@ describe("IR Builder", function () {
         (stmt) => stmt.kind === "returnStatement"
       );
       const expression =
-        returnStmt?.kind === "returnStatement" ? returnStmt.expression : undefined;
+        returnStmt?.kind === "returnStatement"
+          ? returnStmt.expression
+          : undefined;
       expect(expression?.kind).to.equal("memberAccess");
       if (!expression || expression.kind !== "memberAccess") return;
       expect(expression.accessKind).to.equal(undefined);
@@ -74,8 +77,9 @@ describe("IR Builder", function () {
       expect(result.ok).to.equal(true);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
-      expect(ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203"))
-        .to.equal(false);
+      expect(
+        ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203")
+      ).to.equal(false);
       if (!result.ok) return;
 
       const fn = result.value.body.find(
@@ -89,7 +93,9 @@ describe("IR Builder", function () {
         (stmt) => stmt.kind === "returnStatement"
       );
       const expression =
-        returnStmt?.kind === "returnStatement" ? returnStmt.expression : undefined;
+        returnStmt?.kind === "returnStatement"
+          ? returnStmt.expression
+          : undefined;
       expect(expression?.kind).to.equal("memberAccess");
       if (!expression || expression.kind !== "memberAccess") return;
       expect(expression.accessKind).to.equal(undefined);
@@ -138,9 +144,9 @@ describe("IR Builder", function () {
           const expression = stmt.expression;
           return (
             expression.kind === "assignment" &&
-              expression.left.kind === "memberAccess" &&
-              expression.left.accessKind === "dictionary" &&
-              expression.left.inferredType?.kind === "unknownType"
+            expression.left.kind === "memberAccess" &&
+            expression.left.accessKind === "dictionary" &&
+            expression.left.inferredType?.kind === "unknownType"
           );
         })
       ).to.equal(true);
@@ -509,8 +515,9 @@ describe("IR Builder", function () {
       const result = buildIrModule(sourceFile, testProgram, options, ctx);
       expect(result.ok).to.equal(true);
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
-      expect(ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203"))
-        .to.equal(true);
+      expect(
+        ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203")
+      ).to.equal(true);
       if (!result.ok) return;
 
       const fn = result.value.body.find(

@@ -20,7 +20,11 @@ import { createContext } from "../../emitter-types/context.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
 import { printType } from "../format/backend-ast/printer-precedence.js";
 import type { TypeAliasIndex } from "../../emitter-types/core.js";
-import type { LocalTypeInfo } from "../../types.js";
+import {
+  semanticTypeMap,
+  storageCarrierMap,
+  type LocalTypeInfo,
+} from "../../types.js";
 import { substituteTypeArgs } from "./type-resolution.js";
 import { createRuntimeUnionRegistry } from "./runtime-union-registry.js";
 
@@ -554,8 +558,8 @@ describe("runtime-unions", () => {
 
     const context = {
       ...createContext({ rootNamespace: "Test" }),
-      localSemanticTypes: new Map<string, IrType>([["value", effectiveType]]),
-      localValueTypes: new Map<string, IrType>([["value", sourceCarrier]]),
+      localSemanticTypes: semanticTypeMap([["value", effectiveType]]),
+      localValueTypes: storageCarrierMap([["value", sourceCarrier]]),
     };
 
     const narrowedMembers = resolveNarrowedUnionMembers(
@@ -639,8 +643,8 @@ describe("runtime-unions", () => {
           },
         ],
       ]),
-      localSemanticTypes: new Map<string, IrType>([["value", effectiveType]]),
-      localValueTypes: new Map<string, IrType>([["value", carrierReference]]),
+      localSemanticTypes: semanticTypeMap([["value", effectiveType]]),
+      localValueTypes: storageCarrierMap([["value", carrierReference]]),
     };
 
     const narrowedMembers = resolveNarrowedUnionMembers(

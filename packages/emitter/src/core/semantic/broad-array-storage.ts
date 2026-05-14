@@ -85,10 +85,7 @@ export const isBroadValueCarrierType = (
     return false;
   }
 
-  if (
-    type.kind === "referenceType" &&
-    isBroadObjectSlotType(type, context)
-  ) {
+  if (type.kind === "referenceType" && isBroadObjectSlotType(type, context)) {
     return true;
   }
 

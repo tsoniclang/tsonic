@@ -389,7 +389,8 @@ export const clrNameMatchesClrIdentity = (
   const clrKey = stableClrIdentityKeyFromName(clrName, typeArgumentArity);
   for (const expectedClrName of expectedClrNames) {
     if (
-      clrKey === stableClrIdentityKeyFromName(expectedClrName, typeArgumentArity)
+      clrKey ===
+      stableClrIdentityKeyFromName(expectedClrName, typeArgumentArity)
     ) {
       return true;
     }

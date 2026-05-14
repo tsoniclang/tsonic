@@ -1,3 +1,5 @@
+import type { IrType } from "./ir-types.js";
+
 /**
  * Canonical overload-family metadata shared across lowered declarations and
  * serialized public surfaces.
@@ -30,6 +32,24 @@ export type IrOverloadFamilyMember = {
   readonly isStatic: boolean;
   readonly publicSignatureCount: number;
   readonly publicSignatureIndex: number;
+};
+
+export type IrOverloadFamily = {
+  readonly familyId: string;
+  readonly ownerKind: IrOverloadOwnerKind;
+  readonly publicName: string;
+  readonly publicMembers: readonly IrOverloadFamilyMember[];
+  readonly hiddenImplementation?: IrOverloadFamilyMember;
+  readonly modifiers?: readonly (
+    | "override"
+    | "abstract"
+    | "virtual"
+    | "static"
+  )[];
+  readonly resolutionMetadata: {
+    readonly resolutionOrder: readonly string[];
+    readonly genericConstraints?: Readonly<Record<string, IrType>>;
+  };
 };
 
 export const getIrMemberPublicName = (member: {

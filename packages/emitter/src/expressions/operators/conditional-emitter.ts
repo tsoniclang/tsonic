@@ -209,7 +209,9 @@ export const emitConditional = (
         materializationTargetType,
         storageContext
       );
-      if (stableTypeKeyFromAst(storageAst) === stableTypeKeyFromAst(targetAst)) {
+      if (
+        stableTypeKeyFromAst(storageAst) === stableTypeKeyFromAst(targetAst)
+      ) {
         return [
           {
             kind: "identifierExpression",
@@ -582,7 +584,9 @@ const resolveEffectiveBranchType = (
   context: EmitterContext
 ): IrType | undefined => {
   if (expr.kind === "typeAssertion" || expr.kind === "asinterface") {
-    return resolveEffectiveBranchType(expr.expression, context) ?? expr.targetType;
+    return (
+      resolveEffectiveBranchType(expr.expression, context) ?? expr.targetType
+    );
   }
 
   if (expr.kind === "identifier") {

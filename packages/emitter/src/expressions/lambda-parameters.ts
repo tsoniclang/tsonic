@@ -342,10 +342,10 @@ export const emitLambdaParametersAst = (
             isTypeParameterLike(param.type, currentContext) &&
             !isTypeParameterLike(contextualParam.type, currentContext)
           ? contextualParam.type
-        : param.type?.kind === "functionType" &&
-            contextualParam?.type?.kind === "functionType"
-          ? contextualParam.type
-          : param.type;
+          : param.type?.kind === "functionType" &&
+              contextualParam?.type?.kind === "functionType"
+            ? contextualParam.type
+            : param.type;
     if (shouldLowerFromContextualRest(param, index)) {
       const contextualElementType =
         param.isRest && index === contextualRestIndex

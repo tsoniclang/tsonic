@@ -76,8 +76,7 @@ const scoreTypeIdentity = (
     switch (type.kind) {
       case "referenceType": {
         score = addIdentityScores(100, [
-          (type.typeId ? 40 : 0) +
-            (type.resolvedClrType ? 20 : 0),
+          (type.typeId ? 40 : 0) + (type.resolvedClrType ? 20 : 0),
           ...(type.typeArguments ?? []).map((member) =>
             scoreTypeIdentity(member, state)
           ),

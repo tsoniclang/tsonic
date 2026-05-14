@@ -147,6 +147,7 @@ export const convertTypeReference = (
       kind: "referenceType",
       name: typeName,
       typeArguments: [convertType(innerTypeArg, binding)],
+      structuralOrigin: "namedReference",
     };
   }
 
@@ -283,6 +284,7 @@ export const convertTypeReference = (
         name: resolvedName,
         typeArguments: convertedTypeArguments,
         structuralMembers,
+        structuralOrigin: "namedReference",
       },
       substitution
     );
@@ -315,6 +317,7 @@ export const convertTypeReference = (
     name: resolvedName,
     typeArguments: convertedTypeArguments,
     resolvedClrType,
+    structuralOrigin: "namedReference",
     ...(substitutedStructuralMembers
       ? { structuralMembers: substitutedStructuralMembers }
       : {}),

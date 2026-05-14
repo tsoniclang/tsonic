@@ -16,9 +16,7 @@ import {
   allocateLocalName,
   registerLocalName,
 } from "../../core/format/local-names.js";
-import {
-  registerForOfElementSymbolTypes,
-} from "../../core/semantic/symbol-types.js";
+import { registerForOfElementSymbolTypes } from "../../core/semantic/symbol-types.js";
 import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
@@ -373,7 +371,5 @@ export const emitForInStatementAst = (
   _stmt: Extract<IrStatement, { kind: "forInStatement" }>,
   _context: EmitterContext
 ): never => {
-  throw new Error(
-    "ICE: for...in reached emitter - validation missed TSN2001"
-  );
+  throw new Error("ICE: for...in reached emitter - validation missed TSN2001");
 };

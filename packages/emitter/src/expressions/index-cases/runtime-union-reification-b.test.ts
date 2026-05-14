@@ -5,6 +5,8 @@ import {
   emitModule,
   emitExpressionAst,
   printExpression,
+  semanticTypeMap,
+  storageCarrierMap,
   type IrExpression,
   type IrModule,
   type IrType,
@@ -211,8 +213,12 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["rest", "rest"]]),
-        localSemanticTypes: new Map([["rest", middlewareEntryArrayType]]),
-        localValueTypes: new Map([["rest", middlewareEntryArrayType]]),
+        localSemanticTypes: semanticTypeMap([
+          ["rest", middlewareEntryArrayType],
+        ]),
+        localValueTypes: storageCarrierMap([
+          ["rest", middlewareEntryArrayType],
+        ]),
       },
       {
         kind: "arrayType",
@@ -295,7 +301,7 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["e", "e"]]),
-        localValueTypes: new Map([
+        localValueTypes: storageCarrierMap([
           [
             "e",
             {
@@ -362,7 +368,9 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["bytes", "bytes"]]),
-        localValueTypes: new Map([["bytes", unresolvedTypedArrayType]]),
+        localValueTypes: storageCarrierMap([
+          ["bytes", unresolvedTypedArrayType],
+        ]),
       }
     );
 
@@ -417,7 +425,7 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["args", "args"]]),
-        localSemanticTypes: new Map([
+        localSemanticTypes: semanticTypeMap([
           [
             "args",
             {
@@ -431,7 +439,7 @@ describe("Expression Emission", () => {
             },
           ],
         ]),
-        localValueTypes: new Map([
+        localValueTypes: storageCarrierMap([
           [
             "args",
             {
@@ -500,7 +508,7 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["result", "result"]]),
-        localSemanticTypes: new Map([
+        localSemanticTypes: semanticTypeMap([
           [
             "result",
             {
@@ -516,7 +524,7 @@ describe("Expression Emission", () => {
             },
           ],
         ]),
-        localValueTypes: new Map([
+        localValueTypes: storageCarrierMap([
           [
             "result",
             {
@@ -579,8 +587,8 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["key", "key"]]),
-        localSemanticTypes: new Map([["key", keyObjectType]]),
-        localValueTypes: new Map([["key", keyObjectType]]),
+        localSemanticTypes: semanticTypeMap([["key", keyObjectType]]),
+        localValueTypes: storageCarrierMap([["key", keyObjectType]]),
         narrowedBindings: new Map([
           [
             "key",
@@ -669,7 +677,7 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["pathSpec", "pathSpec"]]),
-        localValueTypes: new Map([["pathSpec", pathSpecCarrierType]]),
+        localValueTypes: storageCarrierMap([["pathSpec", pathSpecCarrierType]]),
         narrowedBindings: new Map([
           [
             "pathSpec",
@@ -745,7 +753,7 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["pathSpec", "pathSpec"]]),
-        localValueTypes: new Map([["pathSpec", pathSpecCarrierType]]),
+        localValueTypes: storageCarrierMap([["pathSpec", pathSpecCarrierType]]),
         narrowedBindings: new Map([
           [
             "pathSpec",

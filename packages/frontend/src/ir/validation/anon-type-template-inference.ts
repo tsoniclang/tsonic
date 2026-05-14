@@ -347,6 +347,8 @@ export const tryInstantiateReusableStructuralCarrier = (
       typeArguments:
         instantiatedTypeArgs.length > 0 ? instantiatedTypeArgs : undefined,
       structuralMembers: objectType.members,
+      structuralOrigin:
+        templateRef.structuralOrigin ?? "compilerOwnedStructural",
     };
   }
 
@@ -390,6 +392,8 @@ export const getOrCreateObjectTypeReference = (
               )
             : undefined,
       structuralMembers: objectType.members,
+      structuralOrigin:
+        existingReference.structuralOrigin ?? "compilerOwnedStructural",
     };
   }
 
@@ -416,5 +420,6 @@ export const getOrCreateObjectTypeReference = (
         : undefined,
     resolvedClrType: undefined,
     structuralMembers: objectType.members,
+    structuralOrigin: "compilerOwnedStructural",
   };
 };

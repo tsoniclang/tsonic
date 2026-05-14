@@ -35,6 +35,7 @@ import {
   tryGetObjectLiteralMethodArgumentCapture,
   tryGetObjectLiteralMethodArgumentsLength,
 } from "../../../../object-literal-method-runtime.js";
+import { selectUnionArm } from "../../union-arm-selection.js";
 
 const typeHasClrIdentity = (
   type: IrExpression["inferredType"] | undefined
@@ -190,11 +191,11 @@ export const convertMemberExpression = (
       ? declaredType
       : dictionaryPropertyType
         ? dictionaryPropertyType
-      : isNamespaceTypeReference
-        ? undefined
-        : memberBinding
+        : isNamespaceTypeReference
           ? undefined
-          : { kind: "unknownType" as const };
+          : memberBinding
+            ? undefined
+            : { kind: "unknownType" as const };
 
     const baseMemberAccess: IrExpression = {
       kind: "memberAccess",
@@ -204,6 +205,14 @@ export const convertMemberExpression = (
       isOptional,
       inferredType: declaredType ?? propertyInferredType,
       sourceSpan,
+      receiverArmSelection:
+        currentReceiverType && object.inferredType?.kind === "unionType"
+          ? selectUnionArm({
+              kind: "semanticProjection",
+              sourceType: currentReceiverType,
+              targetUnion: object.inferredType,
+            })
+          : undefined,
       memberBinding,
       ...(dictionaryPropertyType
         ? {
@@ -302,6 +311,14 @@ export const convertMemberExpression = (
           isOptional,
           inferredType: declaredType,
           sourceSpan,
+          receiverArmSelection:
+            currentAccessType && object.inferredType?.kind === "unionType"
+              ? selectUnionArm({
+                  kind: "semanticProjection",
+                  sourceType: currentAccessType,
+                  targetUnion: object.inferredType,
+                })
+              : undefined,
           memberBinding,
         };
         if (
@@ -354,6 +371,14 @@ export const convertMemberExpression = (
       isOptional,
       inferredType: deriveElementType(objectType, ctx, node.argumentExpression),
       sourceSpan,
+      receiverArmSelection:
+        currentReceiverType && object.inferredType?.kind === "unionType"
+          ? selectUnionArm({
+              kind: "semanticProjection",
+              sourceType: currentReceiverType,
+              targetUnion: object.inferredType,
+            })
+          : undefined,
       accessKind,
       accessProtocol,
     };

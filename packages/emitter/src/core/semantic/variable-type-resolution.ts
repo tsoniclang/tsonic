@@ -117,7 +117,10 @@ const runtimeUnionAliasExpandsToType = (
   context: EmitterContext
 ): boolean => {
   const resolvedAlias = resolveTypeAlias(stripNullish(aliasType), context);
-  const resolvedExpanded = resolveTypeAlias(stripNullish(expandedType), context);
+  const resolvedExpanded = resolveTypeAlias(
+    stripNullish(expandedType),
+    context
+  );
   if (
     resolvedAlias.kind !== "unionType" ||
     resolvedExpanded.kind !== "unionType" ||

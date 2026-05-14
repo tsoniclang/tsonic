@@ -254,7 +254,9 @@ const selectRuntimeUnionCarrierType = (
       getRuntimeUnionCarrierMembers(candidate, context) !== undefined
   );
 
-const parenthesize = (expression: CSharpExpressionAst): CSharpExpressionAst => ({
+const parenthesize = (
+  expression: CSharpExpressionAst
+): CSharpExpressionAst => ({
   kind: "parenthesizedExpression",
   expression,
 });
@@ -293,7 +295,9 @@ const buildBroadTypeofCheck = (
   negate: boolean
 ): CSharpExpressionAst | undefined => {
   const numericCheck = buildOrChain(
-    NUMERIC_TYPEOF_PATTERN_NAMES.map((name) => buildTypePatternCheck(value, name))
+    NUMERIC_TYPEOF_PATTERN_NAMES.map((name) =>
+      buildTypePatternCheck(value, name)
+    )
   );
   const stringCheck = buildTypePatternCheck(value, "string");
   const booleanCheck = buildTypePatternCheck(value, "bool");
@@ -404,7 +408,8 @@ const extractTypeofComparison = (
     };
   };
 
-  const direct = extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
+  const direct =
+    extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
   if (!direct) {
     return undefined;
   }

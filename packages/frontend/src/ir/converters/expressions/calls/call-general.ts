@@ -67,6 +67,7 @@ import {
   referenceTypeHasClrIdentity,
   referenceTypeIdentity,
 } from "../../../types/type-ops.js";
+import { selectUnionArm } from "../../union-arm-selection.js";
 
 const stripParentheses = (expr: ts.Expression): ts.Expression => {
   let current = expr;
@@ -1708,8 +1709,7 @@ const scoreSourceBackedSurfaceCandidate = (
         return true;
       case "referenceType":
         return (
-          type.name === "object" ||
-          containsAmbiguousSourceSurfaceType(type)
+          type.name === "object" || containsAmbiguousSourceSurfaceType(type)
         );
       case "unionType":
         return type.types.every((member) => isBroadSourceSurfaceType(member));
@@ -3693,6 +3693,18 @@ export const convertCallExpression = (
 
     return undefined;
   })();
+  const argumentArmSelections = finalizedArguments.map((_, index) =>
+    parameterTypes?.[index]?.kind === "unionType"
+      ? selectUnionArm({
+          kind: "semanticProjection",
+          sourceType: finalizedArgTypes[index],
+          targetUnion: parameterTypes[index],
+        })
+      : { kind: "unsupported" as const, reason: "Parameter is not a union." }
+  );
+  const hasArgumentArmSelection = argumentArmSelections.some(
+    (selection) => selection.kind !== "unsupported"
+  );
 
   return {
     kind: "call",
@@ -3709,6 +3721,9 @@ export const convertCallExpression = (
     requiresSpecialization,
     resolutionExpectedReturnType: expectedType,
     argumentPassing: argumentPassingWithOverrides,
+    argumentArmSelections: hasArgumentArmSelection
+      ? argumentArmSelections
+      : undefined,
     parameterTypes,
     surfaceParameterTypes,
     restParameter: boundGlobalCallParameterTypes

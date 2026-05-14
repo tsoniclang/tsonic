@@ -1,9 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
-  runValidation,
-  hasDiagnostic,
-} from "./test-helpers.js";
+import { runValidation, hasDiagnostic } from "./test-helpers.js";
 
 describe("validateUnsupportedFeatures", () => {
   describe("TSN2001", () => {
@@ -109,7 +106,9 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
     it("rejects await import() when module namespace is consumed", () => {
@@ -120,7 +119,9 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
     it("rejects dynamic import() in side-effect form", () => {
@@ -130,7 +131,9 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
     it("rejects awaited dynamic import() in side-effect form", () => {
@@ -140,7 +143,9 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
     it("rejects dynamic import() side-effect form with non-literal specifier", () => {
@@ -150,7 +155,9 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
     it("rejects awaited dynamic import() with bare package specifier", () => {

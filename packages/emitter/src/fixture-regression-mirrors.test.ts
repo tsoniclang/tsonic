@@ -307,9 +307,8 @@ describe("End-to-End Integration", () => {
       );
 
       expect(
-        csharp.match(
-          /bufferOrData\.Match<global::Test\.WritableFsBuffer>\(/g
-        )?.length
+        csharp.match(/bufferOrData\.Match<global::Test\.WritableFsBuffer>\(/g)
+          ?.length
       ).to.equal(2);
       expect(csharp).to.not.include(
         "return this.writeSync(fd, (global::Tsonic.Internal.Union<byte[], string, global::Test.Buffer>)bufferOrData"
@@ -439,9 +438,9 @@ describe("End-to-End Integration", () => {
             "  }",
             "",
             "  static isUint8Array(",
-          "    value: number[] | Buffer | Uint8Array,",
-          "  ): value is Uint8Array {",
-          "    return value instanceof Uint8Array;",
+            "    value: number[] | Buffer | Uint8Array,",
+            "  ): value is Uint8Array {",
+            "    return value instanceof Uint8Array;",
             "  }",
             "",
             "  static fromNonString(",

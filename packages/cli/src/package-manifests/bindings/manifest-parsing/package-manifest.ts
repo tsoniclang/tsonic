@@ -30,6 +30,7 @@ import {
   parseRuntimeNugetPackages,
   parseRuntimePackages,
 } from "./runtime.js";
+import { parseSemanticMetadata } from "./semantic-metadata.js";
 
 const parseRuntimeObject = (
   value: unknown,
@@ -101,7 +102,8 @@ const buildNormalizedManifest = (
   testDotnetParsed: ManifestDotnet | undefined,
   runtimeNuget: readonly PackageReferenceConfig[],
   runtimeFramework: readonly FrameworkReferenceConfig[],
-  runtimePackages: readonly string[]
+  runtimePackages: readonly string[],
+  semanticMetadata: NormalizedBindingsManifest["semanticMetadata"]
 ): Result<NormalizedBindingsManifest, string> => {
   const mergedDotnetPackages = mergePackageReferences(
     (dotnetParsed?.packageReferences ?? []) as PackageReferenceConfig[],
@@ -144,6 +146,7 @@ const buildNormalizedManifest = (
       ...(producer ? { producer } : {}),
       dotnet,
       testDotnet,
+      ...(semanticMetadata ? { semanticMetadata } : {}),
       nugetDependencies: collectNugetDependencies(dotnet, testDotnet),
     },
   };
@@ -207,6 +210,11 @@ export const resolveFromPackageManifest = (
     "runtime"
   );
   if (!runtimeParsed.ok) return runtimeParsed;
+  const semanticMetadata = parseSemanticMetadata(
+    manifest.semanticMetadata,
+    "semanticMetadata"
+  );
+  if (!semanticMetadata.ok) return semanticMetadata;
 
   const hasOverlayMetadata =
     requiredTypeRoots.value.length > 0 ||
@@ -214,7 +222,8 @@ export const resolveFromPackageManifest = (
     runtimeParsed.value.runtimeFramework.length > 0 ||
     runtimeParsed.value.runtimePackages.length > 0 ||
     dotnetParsed.value !== undefined ||
-    testDotnetParsed.value !== undefined;
+    testDotnetParsed.value !== undefined ||
+    semanticMetadata.value !== undefined;
   if (!hasOverlayMetadata) {
     return { ok: true, value: null };
   }
@@ -229,6 +238,7 @@ export const resolveFromPackageManifest = (
     testDotnetParsed.value,
     runtimeParsed.value.runtimeNuget,
     runtimeParsed.value.runtimeFramework,
-    runtimeParsed.value.runtimePackages
+    runtimeParsed.value.runtimePackages,
+    semanticMetadata.value
   );
 };

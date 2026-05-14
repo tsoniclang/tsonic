@@ -7,6 +7,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "./emitter.js";
 import { IrModule, IrType } from "@tsonic/frontend";
+import { semanticTypeMap, storageCarrierMap } from "./types.js";
 import { createContext } from "./emitter-types/context.js";
 import { emitAssignment } from "./expressions/operators/assignment-emitter.js";
 import { printExpression } from "./core/format/backend-ast/printer.js";
@@ -359,11 +360,11 @@ describe("Type Assertion Emission", () => {
 
     const context = {
       ...createContext({ rootNamespace: "Test" }),
-      localSemanticTypes: new Map<string, IrType>([
+      localSemanticTypes: semanticTypeMap([
         ["hostname", hostnameType],
         ["backlog", backlogType],
       ]),
-      localValueTypes: new Map<string, IrType>([
+      localValueTypes: storageCarrierMap([
         ["hostname", hostnameType],
         ["backlog", backlogType],
       ]),

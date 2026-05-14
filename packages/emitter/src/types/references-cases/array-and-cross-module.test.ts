@@ -3,6 +3,7 @@ import {
   emitCSharpFiles,
   emitModule,
   expect,
+  assumeEmittableIrModule,
   it,
 } from "./helpers.js";
 import type { IrModule } from "./helpers.js";
@@ -147,9 +148,10 @@ describe("Reference Type Emission", () => {
         exports: [],
       };
 
-      const result = emitCSharpFiles([apiModule, queryModule], {
-        rootNamespace: "Test",
-      });
+      const result = emitCSharpFiles(
+        [apiModule, queryModule].map(assumeEmittableIrModule),
+        { rootNamespace: "Test" }
+      );
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;

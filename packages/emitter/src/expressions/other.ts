@@ -118,12 +118,11 @@ export const emitTemplateLiteral = (
       );
       currentContext = newContext;
 
-      const interpolationExpr =
-        contextSurfaceIncludesJs(currentContext)
-          ? buildJsStringCoercionExpr(exprAst, currentContext)
-          : typeMayBeNullish(exprAtIndex.inferredType)
-            ? buildNullishSafeExpr(exprAst)
-            : exprAst;
+      const interpolationExpr = contextSurfaceIncludesJs(currentContext)
+        ? buildJsStringCoercionExpr(exprAst, currentContext)
+        : typeMayBeNullish(exprAtIndex.inferredType)
+          ? buildNullishSafeExpr(exprAst)
+          : exprAst;
 
       parts.push({ kind: "interpolation", expression: interpolationExpr });
     }

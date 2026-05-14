@@ -12,7 +12,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "@tsonic/frontend";
-import type { EmitterContext } from "../../types.js";
+import {
+  semanticTypeMap,
+  storageCarrierMap,
+  type EmitterContext,
+} from "../../types.js";
 import {
   registerLocalSymbolTypes,
   registerLocalFixedType,
@@ -254,8 +258,8 @@ describe("local-names semantic/storage channels", () => {
 
   describe("catch-scope non-leakage", () => {
     it("catch variable does not leak past catch block restoration", () => {
-      const outerSemantic = new Map<string, IrType>([["x", aliasedUnion]]);
-      const outerStorage = new Map<string, IrType>([["x", storageObject]]);
+      const outerSemantic = semanticTypeMap([["x", aliasedUnion]]);
+      const outerStorage = storageCarrierMap([["x", storageObject]]);
 
       const outerCtx: EmitterContext = {
         ...baseContext,
@@ -383,8 +387,8 @@ describe("local-names semantic/storage channels", () => {
 
       const ctx: EmitterContext = {
         ...baseContext,
-        localSemanticTypes: new Map([["x", semanticUnion]]),
-        localValueTypes: new Map([["x", normalizedStorage]]),
+        localSemanticTypes: semanticTypeMap([["x", semanticUnion]]),
+        localValueTypes: storageCarrierMap([["x", normalizedStorage]]),
       };
 
       const result = resolveEffectiveExpressionType(
@@ -422,7 +426,7 @@ describe("local-names semantic/storage channels", () => {
 
       const ctx: EmitterContext = {
         ...baseContext,
-        localSemanticTypes: new Map([["z", semanticType]]),
+        localSemanticTypes: semanticTypeMap([["z", semanticType]]),
       };
 
       // Registered semantic type takes precedence over inferredType
@@ -449,7 +453,7 @@ describe("local-names semantic/storage channels", () => {
       // Only storage is registered, no semantic entry
       const ctx: EmitterContext = {
         ...baseContext,
-        localValueTypes: new Map([["w", storageObject]]),
+        localValueTypes: storageCarrierMap([["w", storageObject]]),
       };
 
       // No inferredType, no localSemanticTypes entry — should return undefined

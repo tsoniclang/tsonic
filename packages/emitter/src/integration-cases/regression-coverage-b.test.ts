@@ -623,7 +623,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         'entry["email_address_visibility"] = setting?.EmailAddressVisibility ?? 1;'
       );
-      expect(csharp).not.to.include("(object)(double)(setting?.EmailAddressVisibility");
+      expect(csharp).not.to.include(
+        "(object)(double)(setting?.EmailAddressVisibility"
+      );
       expect(csharp).to.not.include("?? (object)(double)1");
     });
 

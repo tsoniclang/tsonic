@@ -1,11 +1,29 @@
 export { describe, it } from "mocha";
 export { expect } from "chai";
-export { emitCSharpFiles, emitModule } from "../../emitter.js";
+export { emitCSharpFiles } from "../../emitter.js";
+export {
+  emitModule,
+  normalizeTestIrModule,
+  type TestIrModule as IrModule,
+} from "../../test-ir-normalization.js";
 export type {
-  IrModule,
-  IrType,
+  EmittableIrModule,
   TypeBinding as FrontendTypeBinding,
+  IrType,
 } from "@tsonic/frontend";
+import {
+  assumeEmittableIrModule as assumeFrontendEmittableIrModule,
+  type EmittableIrModule,
+} from "@tsonic/frontend";
+import {
+  normalizeTestIrModule,
+  type TestIrModule,
+} from "../../test-ir-normalization.js";
+
+export const assumeEmittableIrModule = (
+  module: TestIrModule
+): EmittableIrModule =>
+  assumeFrontendEmittableIrModule(normalizeTestIrModule(module));
 export { emitReferenceType } from "../references.js";
 export { emitTypeAst } from "../emitter.js";
 export type { EmitterContext } from "../../types.js";

@@ -200,7 +200,11 @@ const normalizeRuntimeUnionEmissionType = (
                 (parameter, index) => parameter === member.parameters[index]
               )
               ? member
-              : { ...member, parameters, ...(returnType ? { returnType } : {}) };
+              : {
+                  ...member,
+                  parameters,
+                  ...(returnType ? { returnType } : {}),
+                };
           });
           return members.every(
             (member, index) => member === current.members[index]
@@ -210,17 +214,13 @@ const normalizeRuntimeUnionEmissionType = (
         }
         case "unionType": {
           const types = current.types.map(normalize);
-          return types.every(
-            (member, index) => member === current.types[index]
-          )
+          return types.every((member, index) => member === current.types[index])
             ? current
             : rebuildUnionTypePreservingCarrierFamily(current, types);
         }
         case "intersectionType": {
           const types = current.types.map(normalize);
-          return types.every(
-            (member, index) => member === current.types[index]
-          )
+          return types.every((member, index) => member === current.types[index])
             ? current
             : { ...current, types };
         }
@@ -446,7 +446,8 @@ const runtimeUnionCarrierSurfaceDiffers = (
 const unwrapComparableTypeForEmission = (
   type: IrType,
   context: EmitterContext
-): IrType => (willCarryAsRuntimeUnion(type, context) ? type : unwrapComparableType(type));
+): IrType =>
+  willCarryAsRuntimeUnion(type, context) ? type : unwrapComparableType(type);
 
 const referenceTypesHaveSameNominalIdentity = (
   actualType: IrType,
@@ -598,7 +599,9 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
     return undefined;
   }
 
-  if (resolveComparableType(emittableActualType, context).kind === "objectType") {
+  if (
+    resolveComparableType(emittableActualType, context).kind === "objectType"
+  ) {
     return undefined;
   }
 

@@ -102,7 +102,7 @@ export const convertObjectType = (
     }
   });
 
-  return { kind: "objectType", members };
+  return { kind: "objectType", members, structuralOrigin: "inlineStructural" };
 };
 
 /**

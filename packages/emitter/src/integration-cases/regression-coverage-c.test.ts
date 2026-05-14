@@ -225,7 +225,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("allocates distinct runtime-union comparison temps for sibling literal checks", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         interface CookieOptions {
           sameSite?: string | boolean;
         }
@@ -241,16 +242,20 @@ describe("End-to-End Integration", () => {
 
           return "other";
         }
-      `, "/test/test.ts", {
-        surface: "@tsonic/js",
-      });
+      `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
 
       expect(csharp).to.include("__tsonic_union_compare_1");
       expect(csharp).to.include("__tsonic_union_compare_2");
     });
 
     it("preserves final fallback runtime-union slots after chained typeof guards", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         type TcpSocketConnectOpts = {
           readonly port: number;
           readonly host?: string;
@@ -275,9 +280,12 @@ describe("End-to-End Integration", () => {
             portOrOptionsOrPath.host
           );
         }
-      `, "/test/test.ts", {
-        surface: "@tsonic/js",
-      });
+      `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
 
       expect(csharp).to.include("portOrOptionsOrPath.Is2()");
       expect(csharp).to.include("portOrOptionsOrPath.Is1()");
@@ -1110,7 +1118,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("resolves emitted structural alias storage names during CLR member materialization", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
         type NarrowFilter = {
@@ -1144,9 +1153,12 @@ describe("End-to-End Integration", () => {
           }
           return filters.ToArray();
         }
-      `, "/test/test.ts", {
-        surface: "@tsonic/js",
-      });
+      `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
 
       expect(csharp).to.include("class NarrowFilter__Alias");
       expect(csharp).to.include(
@@ -1526,7 +1538,9 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include("public static void log(params object?[] data)");
+      expect(csharp).to.include(
+        "public static void log(params object?[] data)"
+      );
       expect(csharp).to.not.include("ConsoleValue");
       expect(csharp).to.not.include("Tsonic.Internal.Union");
     });
@@ -1583,7 +1597,9 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include("return (double)((value.As1()) ? 1 : 0);");
-      expect(csharp).to.not.include("value.As1()) is global::Tsonic.Internal.Union");
+      expect(csharp).to.not.include(
+        "value.As1()) is global::Tsonic.Internal.Union"
+      );
     });
 
     it("directly specializes async void overloads when omitted parameters fold away", () => {
@@ -2077,13 +2093,17 @@ describe("End-to-End Integration", () => {
     });
 
     it("null-checks optional Array.isArray runtime-union guards before member tests", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         export function hasArray(values?: string[] | number): boolean {
           return Array.isArray(values);
         }
-      `, "/test/test.ts", {
-        surface: "@tsonic/js",
-      });
+      `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
 
       expect(csharp).to.include("((global::System.Object)(values)) != null");
       expect(csharp).to.include("values.Is1()");
@@ -2923,7 +2943,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("keeps broad unknown call arguments on their storage carrier after typeof narrowing", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         declare function toNumericValue(value: unknown): number;
 
         export function run(value?: unknown): number {
@@ -2941,9 +2962,12 @@ describe("End-to-End Integration", () => {
 
           return toNumericValue(value);
         }
-      `, "/test/test.ts", {
-        surface: "@tsonic/js",
-      });
+      `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
 
       expect(csharp).to.include("return toNumericValue(value);");
       expect(csharp).not.to.include("toNumericValue(value.Match<object?>");
@@ -3016,7 +3040,8 @@ describe("End-to-End Integration", () => {
     });
 
     it("keeps recursive Array.isArray fallthrough guards on the original runtime carrier", () => {
-      const csharp = compileToCSharp(`
+      const csharp = compileToCSharp(
+        `
         import { FileInfo } from "@tsonic/dotnet/System.IO.js";
 
         type PathSpec = string | FileInfo | readonly PathSpec[] | null | undefined;
@@ -3049,9 +3074,12 @@ describe("End-to-End Integration", () => {
 
           return false;
         }
-      `, "/test/test.ts", {
-        surface: "@tsonic/js",
-      });
+      `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
 
       expect(csharp).to.include("pathSpec.Is1()");
       expect(csharp).not.to.include("(pathSpec.As1()).Is1()");
@@ -3113,9 +3141,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include(
-        "var fallback = new global::js.Date(0);"
-      );
+      expect(csharp).to.include("var fallback = new global::js.Date(0);");
       expect(csharp).to.include("var selected = holder.date ?? fallback;");
       expect(csharp).to.include("return new Box(selected);");
       expect(csharp).not.to.include("Union2_");
@@ -3983,9 +4009,7 @@ describe("End-to-End Integration", () => {
         }
       );
 
-      expect(csharp).to.include(
-        "pos.rows = (int)(totalLength + 1);"
-      );
+      expect(csharp).to.include("pos.rows = (int)(totalLength + 1);");
     });
 
     it("rejects JS numeric expressions when assigning through exact int property slots", () => {

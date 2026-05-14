@@ -6,6 +6,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFile } from "../../index.js";
 import {
+  assumeEmittableIrModule,
   IrModule,
   IrClassDeclaration,
   IrInterfaceDeclaration,
@@ -52,7 +53,7 @@ describe("Struct Emission", () => {
       exports: [],
     };
 
-    const result = emitCSharpFile(module);
+    const result = emitCSharpFile(assumeEmittableIrModule(module));
     expect(result).to.include("public struct Point");
     expect(result).to.include("public required double x");
     expect(result).to.include("public required double y");
@@ -89,7 +90,7 @@ describe("Struct Emission", () => {
       exports: [],
     };
 
-    const result = emitCSharpFile(module);
+    const result = emitCSharpFile(assumeEmittableIrModule(module));
     expect(result).to.include("public class RegularClass");
     expect(result).not.to.include("struct RegularClass");
   });
@@ -137,7 +138,7 @@ describe("Struct Emission", () => {
       exports: [],
     };
 
-    const result = emitCSharpFile(module);
+    const result = emitCSharpFile(assumeEmittableIrModule(module));
     expect(result).to.include("public struct Vector3D");
     expect(result).to.include("public required double x");
     expect(result).to.include("public required double y");
@@ -177,7 +178,7 @@ describe("Struct Emission", () => {
       exports: [],
     };
 
-    const result = emitCSharpFile(module);
+    const result = emitCSharpFile(assumeEmittableIrModule(module));
     expect(result).to.include("public struct Coord");
     expect(result).not.to.include("__brand");
   });

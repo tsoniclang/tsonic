@@ -29,12 +29,43 @@ import type {
   IrBlockStatement,
   IrParameter,
 } from "../../types.js";
+import { createIfBranchPlans } from "../../converters/statements/control/if-branch-plan.js";
+
+const normalizeTestBlock = (block: IrBlockStatement): IrBlockStatement => ({
+  ...block,
+  statements: block.statements.map(normalizeTestStatement),
+});
+
+const normalizeTestStatement = (statement: unknown): IrStatement => {
+  const stmt = statement as IrStatement;
+
+  switch (stmt.kind) {
+    case "blockStatement":
+      return normalizeTestBlock(stmt);
+    case "ifStatement": {
+      const branchPlans =
+        stmt.thenPlan && stmt.elsePlan
+          ? { thenPlan: stmt.thenPlan, elsePlan: stmt.elsePlan }
+          : createIfBranchPlans(stmt.condition);
+      return {
+        ...stmt,
+        thenStatement: normalizeTestStatement(stmt.thenStatement),
+        ...(stmt.elseStatement
+          ? { elseStatement: normalizeTestStatement(stmt.elseStatement) }
+          : {}),
+        ...branchPlans,
+      };
+    }
+    default:
+      return stmt;
+  }
+};
 
 /**
  * Helper to create a minimal module with statements
  */
 export const createModule = (
-  body: IrStatement[],
+  body: readonly unknown[],
   filePath = "/src/test.ts"
 ): IrModule => ({
   kind: "module",
@@ -43,7 +74,7 @@ export const createModule = (
   className: "test",
   isStaticContainer: true,
   imports: [],
-  body,
+  body: body.map(normalizeTestStatement),
   exports: [],
 });
 
@@ -197,9 +228,9 @@ export const compareExpr = (
   inferredType: booleanType,
 });
 
-export const block = (statements: IrStatement[]): IrBlockStatement => ({
+export const block = (statements: readonly unknown[]): IrBlockStatement => ({
   kind: "blockStatement",
-  statements,
+  statements: statements.map(normalizeTestStatement),
 });
 
 export const parameter = (name: string, type: IrType): IrParameter => ({

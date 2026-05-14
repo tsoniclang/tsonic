@@ -9,6 +9,7 @@ import { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { Binding } from "../ir/binding/index.js";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
+import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
 
 export type SurfaceMode = string;
 
@@ -20,6 +21,7 @@ export type CompilerOptions = {
   readonly strict?: boolean;
   readonly typeRoots?: readonly string[];
   readonly verbose?: boolean;
+  readonly backendCapabilities?: BackendCapabilityManifest;
 };
 
 export type TsonicProgram = {

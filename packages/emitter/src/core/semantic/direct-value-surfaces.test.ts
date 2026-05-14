@@ -1,6 +1,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "@tsonic/frontend";
+import { storageCarrierMap } from "../../types.js";
 import { createContext } from "../../emitter-types/context.js";
 import {
   decimalIntegerLiteral,
@@ -23,7 +24,7 @@ describe("direct-value-surfaces", () => {
   it("returns direct local value types for emitted identifiers", () => {
     const context = {
       ...createContext({ rootNamespace: "Test" }),
-      localValueTypes: new Map([["value", stringType]]),
+      localValueTypes: storageCarrierMap([["value", stringType]]),
     };
 
     expect(
@@ -38,7 +39,7 @@ describe("direct-value-surfaces", () => {
     const context = {
       ...createContext({ rootNamespace: "Test" }),
       localNameMap: new Map([["source", "__source_1"]]),
-      localValueTypes: new Map([["source", numberType]]),
+      localValueTypes: storageCarrierMap([["source", numberType]]),
     };
 
     expect(
@@ -94,7 +95,7 @@ describe("direct-value-surfaces", () => {
     };
     const context = {
       ...createContext({ rootNamespace: "Test" }),
-      localValueTypes: new Map([["msg", unionCarrierType]]),
+      localValueTypes: storageCarrierMap([["msg", unionCarrierType]]),
       narrowedBindings: new Map([
         [
           "msg",
@@ -138,7 +139,7 @@ describe("direct-value-surfaces", () => {
     };
     const context = {
       ...createContext({ rootNamespace: "Test" }),
-      localValueTypes: new Map([["msg", unionCarrierType]]),
+      localValueTypes: storageCarrierMap([["msg", unionCarrierType]]),
     };
 
     const as1Ast = {

@@ -16,7 +16,10 @@ import {
   extractInterfaceNameFromView,
 } from "@tsonic/frontend/types/explicit-views.js";
 import { emitTypeAst } from "../type-emitter.js";
-import { resolveTypeAlias, stripNullish } from "../core/semantic/type-resolution.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../core/semantic/type-resolution.js";
 import { nullableType } from "../core/format/backend-ast/builders.js";
 import { emitCSharpName } from "../naming-policy.js";
 import {

@@ -1,16 +1,16 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { emitModule } from "../../emitter.js";
+import { emitModule, type TestIrModule } from "../../test-ir-normalization.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitMemberAccess } from "../access.js";
 import {
   BindingRegistry,
   type IrExpression,
-  type IrModule,
   type IrType,
   type SimpleBindingDescriptor,
 } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+export { semanticTypeMap, storageCarrierMap } from "../../types.js";
 import { printExpression } from "../../core/format/backend-ast/printer.js";
 
 export const createExactGlobalBindingRegistry = (
@@ -47,4 +47,4 @@ export {
   emitMemberAccess,
   printExpression,
 };
-export type { EmitterContext, IrExpression, IrModule, IrType };
+export type { EmitterContext, IrExpression, TestIrModule as IrModule, IrType };

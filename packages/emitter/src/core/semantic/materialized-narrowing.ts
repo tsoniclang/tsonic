@@ -692,10 +692,8 @@ export const materializeDirectNarrowingAst = (
       return [sourceAst, nextContext];
     }
 
-    const materializationSourceAst = stripObjectBoxForConcreteMaterializationAst(
-      sourceAst,
-      resolvedTarget
-    );
+    const materializationSourceAst =
+      stripObjectBoxForConcreteMaterializationAst(sourceAst, resolvedTarget);
     if (isJsNumberMaterializationTarget(resolvedTarget, context)) {
       return buildBroadSourceJsNumberMaterializationAst(
         materializationSourceAst,
@@ -755,10 +753,10 @@ export const materializeDirectNarrowingAst = (
 
   const runtimeSubsetMaterialized = !sourceWasParameterModifierWrapped
     ? tryBuildRuntimeUnionSubsetMaterializationAst(
-      sourceAst,
-      comparableSourceType,
-      comparableEmissionTargetType,
-      context
+        sourceAst,
+        comparableSourceType,
+        comparableEmissionTargetType,
+        context
       )
     : undefined;
   if (runtimeSubsetMaterialized) {
@@ -767,7 +765,11 @@ export const materializeDirectNarrowingAst = (
 
   const [targetRuntimeLayout, targetRuntimeLayoutContext] =
     !sourceWasParameterModifierWrapped
-      ? buildRuntimeUnionLayout(comparableEmissionTargetType, context, emitTypeAst)
+      ? buildRuntimeUnionLayout(
+          comparableEmissionTargetType,
+          context,
+          emitTypeAst
+        )
       : [undefined, context];
   if (
     targetRuntimeLayout &&

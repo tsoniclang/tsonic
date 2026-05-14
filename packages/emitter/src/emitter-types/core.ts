@@ -19,6 +19,10 @@ import type {
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
 import type { RuntimeUnionRegistry } from "../core/semantic/runtime-union-registry.js";
+import type {
+  SemanticType,
+  StorageCarrier,
+} from "../core/semantic/type-domains.js";
 
 /**
  * Module identity for import resolution
@@ -444,9 +448,9 @@ export type EmitterContext = {
    *  union structure, and type-parameter shapes preserved exactly as authored.
    *  Used for narrowing analysis, guard analysis, and effective-type resolution.
    *  Populated alongside localValueTypes by registerLocalSymbolTypes. */
-  readonly localSemanticTypes?: ReadonlyMap<string, IrType>;
+  readonly localSemanticTypes?: ReadonlyMap<string, SemanticType>;
   /** Scoped runtime storage types for locals/parameters when they differ from frontend IR narrowing. */
-  readonly localValueTypes?: ReadonlyMap<string, IrType>;
+  readonly localValueTypes?: ReadonlyMap<string, StorageCarrier>;
   /** Module-level bindings that require mutable storage because JS array writes reassign them. */
   readonly mutableModuleBindings?: ReadonlySet<string>;
   /** Local class/interface property slots that require mutable storage because JS array writes reassign them. */

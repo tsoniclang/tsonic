@@ -1,6 +1,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "@tsonic/frontend";
+import { storageCarrierMap } from "../types.js";
 import { createContext } from "../emitter-types/context.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import { printExpression } from "../core/format/backend-ast/printer.js";
@@ -51,7 +52,7 @@ describe("structural-type-shapes", () => {
     const context = {
       ...createContext({ rootNamespace: "Test" }),
       localNameMap: new Map([["bytes", "bytes"]]),
-      localValueTypes: new Map([["bytes", bytesType]]),
+      localValueTypes: storageCarrierMap([["bytes", bytesType]]),
     };
 
     const [adaptedAst] = adaptEmittedExpressionAst({

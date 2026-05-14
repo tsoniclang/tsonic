@@ -468,10 +468,14 @@ export const compileProjectToCSharp = (
       );
     }
 
-    const processedResult = runIrProcessingPipeline(buildResult.value, program, {
-      sourceRoot,
-      rootNamespace,
-    });
+    const processedResult = runIrProcessingPipeline(
+      buildResult.value,
+      program,
+      {
+        sourceRoot,
+        rootNamespace,
+      }
+    );
     if (!processedResult.ok) {
       throw new Error(
         `IR processing failed: ${processedResult.error.map((d) => d.message).join("; ")}`

@@ -156,7 +156,10 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
 
   const sourceMemberIndexBySlot = new Map<number, number>();
   for (let index = 0; index < opts.sourceLayout.members.length; index += 1) {
-    sourceMemberIndexBySlot.set(opts.candidateMemberNs?.[index] ?? index + 1, index);
+    sourceMemberIndexBySlot.set(
+      opts.candidateMemberNs?.[index] ?? index + 1,
+      index
+    );
   }
   const sourceArity = Math.max(
     opts.sourceLayout.runtimeUnionArity,

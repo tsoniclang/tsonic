@@ -588,7 +588,12 @@ const enrichSourceIrType = (
               ...type,
               ...(typeId ? { typeId } : {}),
               ...(typeArguments ? { typeArguments } : {}),
-              ...(structuralMembers ? { structuralMembers } : {}),
+              ...(structuralMembers
+                ? {
+                    structuralMembers,
+                    structuralOrigin: type.structuralOrigin ?? "namedReference",
+                  }
+                : {}),
             }
           : type;
       return setCachedEnrichedType(

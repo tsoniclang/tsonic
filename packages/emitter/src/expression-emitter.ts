@@ -186,8 +186,8 @@ export const emitExpressionAst = (
         ? (getAsyncWrapperSourceResultType(normalizedExpr.expression) ??
           getAsyncWrapperResultType(normalizedExpr.expression) ??
           normalizedExpr.inferredType)
-      : (resolveEffectiveExpressionType(normalizedExpr, adaptedContext) ??
-        normalizedExpr.inferredType);
+        : (resolveEffectiveExpressionType(normalizedExpr, adaptedContext) ??
+          normalizedExpr.inferredType);
 
   return [
     simplifyRedundantObjectBridgeCastsAst(

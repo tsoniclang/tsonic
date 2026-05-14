@@ -64,9 +64,9 @@ describe("loadClrCatalog", () => {
       const catalog = loadClrCatalog(nodeModulesRoot, [jsRoot]);
       expect(catalog.entries.size).to.equal(2);
       expect(catalog.entries.has("js:js.console")).to.equal(true);
-      expect(catalog.entries.has("System.Private.CoreLib:System.Array")).to.equal(
-        true
-      );
+      expect(
+        catalog.entries.has("System.Private.CoreLib:System.Array")
+      ).to.equal(true);
     } finally {
       fixture.cleanup();
     }

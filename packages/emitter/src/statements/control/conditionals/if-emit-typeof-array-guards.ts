@@ -83,7 +83,8 @@ const negateConditionAst = (
 const maybeNegateConditionAst = (
   expression: CSharpExpressionAst,
   negate: boolean
-): CSharpExpressionAst => (negate ? negateConditionAst(expression) : expression);
+): CSharpExpressionAst =>
+  negate ? negateConditionAst(expression) : expression;
 
 const buildTypePatternCondition = (
   expression: CSharpExpressionAst,
@@ -207,10 +208,7 @@ const tryEmitDirectTypeofConditionAst = (
   );
   const runtimeCarrierType =
     (guard.targetExpr.kind === "identifier"
-      ? resolveIdentifierRuntimeCarrierType(
-          guard.targetExpr,
-          targetContext
-        )
+      ? resolveIdentifierRuntimeCarrierType(guard.targetExpr, targetContext)
       : undefined) ?? directStorageType;
   const directStorageIsBroad =
     directStorageType !== undefined &&
@@ -237,19 +235,26 @@ const tryEmitDirectTypeofConditionAst = (
 
   const matchingRuntimeMemberNs =
     alignedRuntimeMembers?.members.flatMap((member, index) => {
-      if (!member || !matchesTypeofTag(member, guard.tag, runtimeFrameContext)) {
+      if (
+        !member ||
+        !matchesTypeofTag(member, guard.tag, runtimeFrameContext)
+      ) {
         return [];
       }
       const runtimeMemberN = alignedRuntimeMembers.candidateMemberNs[index];
       return runtimeMemberN ? [runtimeMemberN] : [];
     }) ??
     runtimeUnionFrame?.members.flatMap((member, index) => {
-      if (!member || !matchesTypeofTag(member, guard.tag, runtimeFrameContext)) {
+      if (
+        !member ||
+        !matchesTypeofTag(member, guard.tag, runtimeFrameContext)
+      ) {
         return [];
       }
       const runtimeMemberN = runtimeUnionFrame.candidateMemberNs[index];
       return runtimeMemberN ? [runtimeMemberN] : [];
-    }) ?? [];
+    }) ??
+    [];
   const guardRuntimeNullish =
     (runtimeUnionFrame !== undefined || alignedRuntimeMembers !== undefined) &&
     (currentType
@@ -272,15 +277,14 @@ const tryEmitDirectTypeofConditionAst = (
       : buildNonUnionTypeofCondition(
           targetAst,
           guard.tag,
-          directStorageIsBroad ? undefined : (resolvedCurrentType ?? currentType),
+          directStorageIsBroad
+            ? undefined
+            : (resolvedCurrentType ?? currentType),
           targetContext
         );
 
   return [
-    maybeNegateConditionAst(
-      positiveCondition,
-      !guard.matchesInTruthyBranch
-    ),
+    maybeNegateConditionAst(positiveCondition, !guard.matchesInTruthyBranch),
     targetContext,
   ];
 };
@@ -745,7 +749,7 @@ export const tryEmitTypeofGuard = (
   );
   const thenCtx = applyIrBranchNarrowings(
     thenSemanticContext,
-    stmt.thenNarrowings,
+    stmt.thenPlan.narrowedBindings,
     emitExprAstCb
   );
   const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
@@ -772,7 +776,7 @@ export const tryEmitTypeofGuard = (
   );
   const falsyFallthroughContext = applyIrBranchNarrowings(
     falsySemanticContext,
-    stmt.elseNarrowings,
+    stmt.elsePlan.narrowedBindings,
     emitExprAstCb
   );
   let finalContext: EmitterContext = thenTerminates
@@ -793,7 +797,7 @@ export const tryEmitTypeofGuard = (
     );
     const elseCtx = applyIrBranchNarrowings(
       elseSemanticContext,
-      stmt.elseNarrowings,
+      stmt.elsePlan.narrowedBindings,
       emitExprAstCb
     );
     const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
@@ -819,15 +823,15 @@ export const tryEmitTypeofGuard = (
   if (
     !stmt.elseStatement &&
     thenTerminates &&
-    (stmt.elseNarrowings?.length ?? 0) > 0
+    stmt.elsePlan.narrowedBindings.length > 0
   ) {
     const postElseBaseContext: EmitterContext = {
-        ...semanticCondContext,
-        tempVarId: finalContext.tempVarId,
-        usings: finalContext.usings,
-        usedLocalNames: finalContext.usedLocalNames,
-        narrowedBindings: preservedNarrowedBindings,
-      };
+      ...semanticCondContext,
+      tempVarId: finalContext.tempVarId,
+      usings: finalContext.usings,
+      usedLocalNames: finalContext.usedLocalNames,
+      narrowedBindings: preservedNarrowedBindings,
+    };
     const postElseSemanticContext = applyConditionBranchNarrowing(
       stmt.condition,
       "falsy",
@@ -836,7 +840,7 @@ export const tryEmitTypeofGuard = (
     );
     finalContext = applyIrBranchNarrowings(
       postElseSemanticContext,
-      stmt.elseNarrowings,
+      stmt.elsePlan.narrowedBindings,
       emitExprAstCb
     );
   }

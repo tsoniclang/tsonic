@@ -301,10 +301,7 @@ const collectSourceFileTopLevelExports = (
       continue;
     }
 
-    if (
-      ts.isVariableStatement(statement) &&
-      isExportedStatement(statement)
-    ) {
+    if (ts.isVariableStatement(statement) && isExportedStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
         if (ts.isIdentifier(declaration.name)) {
           pushExport(declaration.name.text, declaration.name.text);
@@ -580,11 +577,7 @@ export const convertExpression = (
       symbolDeclarations.every(isAmbientGlobalDeclaration);
     const importResolvedClrBinding =
       declId && hasImportLikeDeclaration
-        ? resolveImportedIdentifierClrBinding(
-            declId,
-            symbolDeclarations,
-            ctx
-          )
+        ? resolveImportedIdentifierClrBinding(declId, symbolDeclarations, ctx)
         : undefined;
     const suppressSyntheticFlowAssertion =
       isMemberAccessReceiverExpression(node);

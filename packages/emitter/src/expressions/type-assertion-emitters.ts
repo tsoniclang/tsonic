@@ -615,10 +615,7 @@ export const emitTypeAssertion = (
     return emitExpressionAst(expr.expression, context, resolvedAssertionTarget);
   }
 
-  if (
-    narrowedArrayCarrierAssertion &&
-    !involvesDegenerateDuplicateUnion
-  ) {
+  if (narrowedArrayCarrierAssertion && !involvesDegenerateDuplicateUnion) {
     return emitExpressionAst(
       transparentSourceExpression,
       context,
@@ -917,10 +914,10 @@ export const emitTypeAssertion = (
         sourceExpressionType)
       : sourceRuntimeUnionLayout && strippedSourceNarrowing
         ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
-      : resolveEffectiveExpressionType(
-          transparentSourceExpression,
-          sourceLayoutContext
-        );
+        : resolveEffectiveExpressionType(
+            transparentSourceExpression,
+            sourceLayoutContext
+          );
   const preservedBroadArrayStorageType = resolveBroadArrayAssertionStorageType(
     resolvedAssertionTarget,
     sourceStorageTypeAtEntry,

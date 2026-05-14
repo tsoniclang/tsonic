@@ -80,8 +80,7 @@ export const tryEmitMemberBindingAccess = (
   const receiverType = resolveEffectiveReceiverType(expr.object, context);
   const declaredReceiverType =
     expr.object.kind === "identifier"
-      ? (context.localSemanticTypes?.get(expr.object.name) ??
-        context.localValueTypes?.get(expr.object.name))
+      ? context.localSemanticTypes?.get(expr.object.name)
       : undefined;
   const sourcePropertyName =
     typeof expr.property === "string" ? expr.property : member;
@@ -144,8 +143,7 @@ export const tryEmitMemberBindingAccess = (
     usage === "value" &&
     typeof expr.property === "string" &&
     isLengthPropertyName(expr.property) &&
-    (hasSourceDeclaredReceiverMember ||
-      receiverHasDeterministicMember)
+    (hasSourceDeclaredReceiverMember || receiverHasDeterministicMember)
   ) {
     return undefined;
   }

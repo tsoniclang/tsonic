@@ -28,6 +28,7 @@ import {
 } from "../../flow-narrowing.js";
 import type { TypeNarrowing } from "../../flow-narrowing.js";
 import { withVariableTypeEnv } from "../../type-env.js";
+import { createIfBranchPlans } from "./if-branch-plan.js";
 
 const convertBranchNarrowings = (
   narrowings: readonly TypeNarrowing[],
@@ -40,7 +41,10 @@ const convertBranchNarrowings = (
     }
 
     const targetExpr = convertExpression(narrowing.targetNode, ctx, undefined);
-    if (targetExpr.kind !== "identifier" && targetExpr.kind !== "memberAccess") {
+    if (
+      targetExpr.kind !== "identifier" &&
+      targetExpr.kind !== "memberAccess"
+    ) {
       continue;
     }
 
@@ -65,11 +69,11 @@ export const convertIfStatement = (
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrIfStatement => {
-  const truthyNarrowings = collectTypeNarrowingsInTruthyExpr(node.expression, ctx);
-  const thenCtx = withAppliedNarrowings(
-    ctx,
-    truthyNarrowings
+  const truthyNarrowings = collectTypeNarrowingsInTruthyExpr(
+    node.expression,
+    ctx
   );
+  const thenCtx = withAppliedNarrowings(ctx, truthyNarrowings);
 
   const falsyNarrowings = collectTypeNarrowingsInFalsyExpr(
     node.expression,
@@ -88,18 +92,21 @@ export const convertIfStatement = (
   const elseStmt = node.elseStatement
     ? convertStatementSingle(node.elseStatement, elseCtx, expectedReturnType)
     : undefined;
+  const condition = convertExpression(node.expression, ctx, undefined);
+  const thenBindings = convertBranchNarrowings(truthyNarrowings, ctx);
+  const elseBindings = convertBranchNarrowings(falsyNarrowings, ctx);
+  const branchPlans = createIfBranchPlans(
+    condition,
+    thenBindings,
+    elseBindings
+  );
 
   return {
     kind: "ifStatement",
-    condition: convertExpression(node.expression, ctx, undefined),
+    condition,
     thenStatement: thenStmt ?? { kind: "emptyStatement" },
     elseStatement: elseStmt ?? undefined,
-    ...(truthyNarrowings.length > 0
-      ? { thenNarrowings: convertBranchNarrowings(truthyNarrowings, ctx) }
-      : {}),
-    ...(falsyNarrowings.length > 0
-      ? { elseNarrowings: convertBranchNarrowings(falsyNarrowings, ctx) }
-      : {}),
+    ...branchPlans,
   };
 };
 

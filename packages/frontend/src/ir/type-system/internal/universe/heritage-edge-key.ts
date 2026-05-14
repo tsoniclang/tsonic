@@ -121,57 +121,57 @@ const heritageTypeArgumentKey = (
   state.active.set(type, cycleId);
 
   try {
-  switch (type.kind) {
-    case "arrayType":
-      return `arr:${heritageTypeArgumentKey(type.elementType, state)}:tuple:${(
-        type.tuplePrefixElementTypes ?? []
-      )
-        .map((elementType) => heritageTypeArgumentKey(elementType, state))
-        .join(",")}:rest:${
-        type.tupleRestElementType
-          ? heritageTypeArgumentKey(type.tupleRestElementType, state)
-          : "none"
-      }`;
+    switch (type.kind) {
+      case "arrayType":
+        return `arr:${heritageTypeArgumentKey(type.elementType, state)}:tuple:${(
+          type.tuplePrefixElementTypes ?? []
+        )
+          .map((elementType) => heritageTypeArgumentKey(elementType, state))
+          .join(",")}:rest:${
+          type.tupleRestElementType
+            ? heritageTypeArgumentKey(type.tupleRestElementType, state)
+            : "none"
+        }`;
 
-    case "tupleType":
-      return `tuple:${type.elementTypes
-        .map((elementType) => heritageTypeArgumentKey(elementType, state))
-        .join(",")}`;
+      case "tupleType":
+        return `tuple:${type.elementTypes
+          .map((elementType) => heritageTypeArgumentKey(elementType, state))
+          .join(",")}`;
 
-    case "dictionaryType":
-      return `dict:${heritageTypeArgumentKey(type.keyType, state)}=>${heritageTypeArgumentKey(type.valueType, state)}`;
+      case "dictionaryType":
+        return `dict:${heritageTypeArgumentKey(type.keyType, state)}=>${heritageTypeArgumentKey(type.valueType, state)}`;
 
-    case "referenceType":
-      return fallbackReferenceTypeKey(type, state);
+      case "referenceType":
+        return fallbackReferenceTypeKey(type, state);
 
-    case "functionType":
-      return `fn:${type.parameters
-        .map((parameter) => parameterKey(parameter, state))
-        .join("|")}->${heritageTypeArgumentKey(type.returnType, state)}`;
+      case "functionType":
+        return `fn:${type.parameters
+          .map((parameter) => parameterKey(parameter, state))
+          .join("|")}->${heritageTypeArgumentKey(type.returnType, state)}`;
 
-    case "objectType":
-      return `obj:${type.members
-        .map((member) => interfaceMemberKey(member, state))
-        .sort()
-        .join("|")}`;
+      case "objectType":
+        return `obj:${type.members
+          .map((member) => interfaceMemberKey(member, state))
+          .sort()
+          .join("|")}`;
 
-    case "unionType":
-      return orderedTypeListKey("union", type.types, state);
+      case "unionType":
+        return orderedTypeListKey("union", type.types, state);
 
-    case "intersectionType":
-      return orderedTypeListKey("inter", type.types, state);
+      case "intersectionType":
+        return orderedTypeListKey("inter", type.types, state);
 
-    case "primitiveType":
-    case "literalType":
-    case "typeParameterType":
-    case "anyType":
-    case "unknownType":
-    case "voidType":
-    case "neverType":
-      throw new Error(
-        `Cannot build deterministic heritage edge key for stable type kind '${type.kind}'`
-      );
-  }
+      case "primitiveType":
+      case "literalType":
+      case "typeParameterType":
+      case "anyType":
+      case "unknownType":
+      case "voidType":
+      case "neverType":
+        throw new Error(
+          `Cannot build deterministic heritage edge key for stable type kind '${type.kind}'`
+        );
+    }
   } finally {
     state.active.delete(type);
   }

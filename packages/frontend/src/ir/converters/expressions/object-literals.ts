@@ -19,6 +19,7 @@ import type { ProgramContext } from "../../program-context.js";
 import { createDiagnostic } from "../../../types/diagnostic.js";
 import { convertAccessorProperty } from "../statements/declarations/classes/properties.js";
 import { createObjectLiteralMethodArgumentPrelude } from "../../../object-literal-method-runtime.js";
+import { selectUnionArm } from "../union-arm-selection.js";
 import {
   getPropertyExpectedType,
   selectObjectLiteralContextualType,
@@ -108,7 +109,8 @@ export const convertObjectLiteral = (
   // Contextual type priority:
   // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
-  const contextualCandidateFromParent = expectedType ?? getContextualType(node, ctx);
+  const contextualCandidateFromParent =
+    expectedType ?? getContextualType(node, ctx);
   const hasBroadObjectLiteralContext = isBroadObjectLiteralContext(
     contextualCandidateFromParent
   );
@@ -539,6 +541,14 @@ export const convertObjectLiteral = (
     inferredType: contextualType, // Use contextual type if available
     sourceSpan: getSourceSpan(node),
     contextualType,
+    armSelection:
+      contextualType && expectedType?.kind === "unionType"
+        ? selectUnionArm({
+            kind: "semanticProjection",
+            sourceType: contextualType,
+            targetUnion: expectedType,
+          })
+        : undefined,
     hasSpreads, // Add flag for emitter to know about spreads
     emitAsAnonymousObject: emitAsAnonymousObject || undefined,
   };

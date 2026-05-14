@@ -36,7 +36,7 @@ describe("Maximus Validation Coverage", () => {
       {
         name: "Array() call expression",
         source: `const a = Array(10);`,
-      }
+      },
     ];
 
     for (const c of rejectCases) {

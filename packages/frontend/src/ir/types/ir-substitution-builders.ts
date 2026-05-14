@@ -105,6 +105,14 @@ export const substituteIrType = (
               >;
             }
           ).structuralMembers = newStructuralMembers;
+          (
+            draft as {
+              structuralOrigin?: Extract<
+                IrType,
+                { kind: "referenceType" }
+              >["structuralOrigin"];
+            }
+          ).structuralOrigin = currentType.structuralOrigin ?? "namedReference";
         }
         return draft;
       }

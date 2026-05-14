@@ -5,8 +5,10 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { emitModule } from "./emitter.js";
-import { IrModule } from "@tsonic/frontend";
+import {
+  emitModule,
+  type TestIrModule as IrModule,
+} from "./test-ir-normalization.js";
 import { createJsSurfaceBindingRegistry } from "./expressions/index-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();

@@ -3,6 +3,7 @@ import {
   SourceLocation,
   createDiagnostic,
 } from "../../types/diagnostic.js";
+import type { BackendCapabilityManifest } from "../../capabilities/backend-capabilities.js";
 import type {
   IrModule,
   IrPattern,
@@ -12,6 +13,8 @@ import type {
   IrParameter,
   IrStatement,
   IrTypeParameter,
+  IrIfBranchPlan,
+  IrIfGuardShape,
 } from "../types.js";
 
 export type SoundnessValidationResult = {
@@ -21,6 +24,7 @@ export type SoundnessValidationResult = {
 
 export type SoundnessGateOptions = {
   readonly knownReferenceTypes?: ReadonlySet<string>;
+  readonly backendCapabilities?: BackendCapabilityManifest;
 };
 
 export const KNOWN_BUILTINS = new Set([
@@ -55,6 +59,7 @@ export type ValidationContext = {
   readonly namespaceLocalTypeNames: ReadonlySet<string>;
   readonly importedTypeNames: ReadonlySet<string>;
   readonly knownReferenceTypes: ReadonlySet<string>;
+  readonly backendCapabilities?: BackendCapabilityManifest;
   readonly typeParameterNames: ReadonlySet<string>;
   readonly activeTypeValidation: WeakSet<object>;
 };
@@ -96,5 +101,7 @@ export type {
   IrStatement,
   IrType,
   IrTypeParameter,
+  IrIfBranchPlan,
+  IrIfGuardShape,
 };
 export { createDiagnostic };

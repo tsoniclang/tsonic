@@ -6,6 +6,7 @@ import {
   emitExpressionAst,
   printExpression,
   createJsSurfaceBindingRegistry,
+  storageCarrierMap,
   type IrExpression,
   type IrModule,
   type IrType,
@@ -268,7 +269,7 @@ describe("Expression Emission", () => {
       isAsync: false,
       usings: new Set<string>(),
       bindingRegistry: jsSurfaceBindingRegistry,
-      localValueTypes: new Map([
+      localValueTypes: storageCarrierMap([
         [
           "entries",
           {
@@ -370,7 +371,7 @@ describe("Expression Emission", () => {
       isAsync: false,
       usings: new Set<string>(),
       bindingRegistry: jsSurfaceBindingRegistry,
-      localValueTypes: new Map([
+      localValueTypes: storageCarrierMap([
         [
           "result",
           {

@@ -205,6 +205,8 @@ describe("generated-files", () => {
     expect(code).to.include(
       "public static RuntimeValue From3(global::System.Func<global::Test.RuntimeValue[], global::Test.RuntimeValue?> value)"
     );
-    expect(code).to.not.include("public static RuntimeValue From3(object value)");
+    expect(code).to.not.include(
+      "public static RuntimeValue From3(object value)"
+    );
   });
 });

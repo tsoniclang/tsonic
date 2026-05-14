@@ -215,6 +215,7 @@ const registerExistingAnonymousReference = (
     typeArguments: type.typeArguments,
     resolvedClrType,
     structuralMembers: type.structuralMembers,
+    structuralOrigin: type.structuralOrigin ?? "compilerOwnedStructural",
   });
 };
 
@@ -521,6 +522,7 @@ export const runAnonymousTypeLoweringPass = (
                     ) ?? undefined,
                   resolvedClrType: `${module.namespace}.${stmt.name}`,
                   structuralMembers: members,
+                  structuralOrigin: "compilerOwnedStructural",
                 },
                 shapeToExistingReference
               );
@@ -543,6 +545,7 @@ export const runAnonymousTypeLoweringPass = (
                   ) ?? undefined,
                 resolvedClrType: `${module.namespace}.${stmt.name}`,
                 structuralMembers: stmt.members,
+                structuralOrigin: "compilerOwnedStructural",
               },
               shapeToExistingReference
             );

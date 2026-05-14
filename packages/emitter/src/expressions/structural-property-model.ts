@@ -280,9 +280,9 @@ export const parseBindingPropertyType = (
   return { kind: "unknownType" };
 };
 
-const isStaticBindingMember = (
-  member: { readonly signature?: string }
-): boolean => member.signature?.includes("|static=true") === true;
+const isStaticBindingMember = (member: {
+  readonly signature?: string;
+}): boolean => member.signature?.includes("|static=true") === true;
 
 const collectBindingStructuralProperties = (
   type: Extract<IrType, { kind: "referenceType" }>,

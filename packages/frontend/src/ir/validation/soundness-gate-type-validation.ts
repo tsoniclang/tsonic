@@ -1,6 +1,8 @@
 import { isKnownBuiltinReferenceType } from "./known-builtin-reference-types.js";
+import { capability } from "../../capabilities/backend-capabilities.js";
 import {
   createDiagnostic,
+  type Diagnostic,
   getReferenceResolutionCandidates,
   KNOWN_BUILTINS,
   moduleLocation,
@@ -15,6 +17,23 @@ import { validateExpression } from "./soundness-gate-expression-validation.js";
 
 type UnknownRootKind = "expressionInferredType";
 type IntersectionRootKind = "runtimeStorage" | "typeParameterConstraint";
+
+const unsupportedCapabilityDiagnostic = (
+  ctx: ValidationContext,
+  capabilityName: string,
+  fallbackCode: Diagnostic["code"],
+  fallbackMessage: string,
+  fallbackRemediation: string
+) => {
+  const backendCapability = capability(ctx.backendCapabilities, capabilityName);
+  return createDiagnostic(
+    backendCapability?.diagnosticCode ?? fallbackCode,
+    "error",
+    backendCapability?.diagnosticMessage ?? fallbackMessage,
+    moduleLocation(ctx),
+    backendCapability?.remediation ?? fallbackRemediation
+  );
+};
 
 export const validateType = (
   type: IrType | undefined,
@@ -109,11 +128,11 @@ export const validateType = (
           "runtimeStorage"
         ) {
           ctx.diagnostics.push(
-            createDiagnostic(
+            unsupportedCapabilityDiagnostic(
+              ctx,
+              "intersection-as-storage",
               "TSN7414",
-              "error",
               `Intersection type in ${typeContext} cannot be emitted as a runtime storage type.`,
-              moduleLocation(ctx),
               "Use a named interface/class that represents the required runtime shape, or keep the intersection only as a generic constraint."
             )
           );
@@ -129,6 +148,21 @@ export const validateType = (
 
       case "referenceType": {
         const { name, resolvedClrType, typeId } = type;
+        if (
+          type.structuralMembers !== undefined &&
+          type.structuralMembers.length > 0 &&
+          type.structuralOrigin === undefined
+        ) {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7414",
+              "error",
+              `Reference type '${name}' in ${typeContext} has structural members without structural-origin metadata.`,
+              moduleLocation(ctx),
+              "Preserve whether the source used a named reference or a compiler-owned structural carrier before the soundness gate."
+            )
+          );
+        }
         const sameNamespaceName =
           ctx.namespace.length > 0 && name.startsWith(`${ctx.namespace}.`)
             ? name.slice(ctx.namespace.length + 1)

@@ -11,9 +11,7 @@ import {
   findRuntimeUnionMemberIndices,
   getCanonicalRuntimeUnionMembers,
 } from "./runtime-unions.js";
-import {
-  isRuntimeUnionTypeAst,
-} from "./runtime-reification-helpers.js";
+import { isRuntimeUnionTypeAst } from "./runtime-reification-helpers.js";
 import { getPropertyType, resolveTypeAlias } from "./type-resolution.js";
 import { stripNullableTypeAst } from "../format/backend-ast/utils.js";
 
@@ -153,7 +151,8 @@ const tryResolveRuntimeUnionAsMemberType = (
     resolveProjectionReceiverRuntimeCarrierType(
       directAst.expression.expression,
       context
-    ) ?? resolveDirectValueSurfaceType(directAst.expression.expression, context);
+    ) ??
+    resolveDirectValueSurfaceType(directAst.expression.expression, context);
   if (!receiverCarrierType) {
     return undefined;
   }
@@ -292,7 +291,10 @@ const tryResolveExplicitRuntimeUnionSurfaceType = (
   context: EmitterContext
 ): IrType | undefined => {
   const directAst = unwrapTransparentValueAst(valueAst);
-  if (directAst.kind === "castExpression" || directAst.kind === "asExpression") {
+  if (
+    directAst.kind === "castExpression" ||
+    directAst.kind === "asExpression"
+  ) {
     return tryResolveRuntimeUnionSurfaceTypeAst(directAst.type, context);
   }
 
@@ -497,7 +499,9 @@ const resolveCanonicalNarrowedMemberType = (
   }
 
   const [memberIndex] = matches;
-  return memberIndex !== undefined ? (sourceMembers[memberIndex] ?? type) : type;
+  return memberIndex !== undefined
+    ? (sourceMembers[memberIndex] ?? type)
+    : type;
 };
 
 export const resolveDirectValueSurfaceType = (

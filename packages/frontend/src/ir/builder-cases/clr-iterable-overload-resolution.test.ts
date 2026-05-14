@@ -1,10 +1,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
-import {
-  IrExpressionStatement,
-  IrFunctionDeclaration,
-} from "../types.js";
+import { IrExpressionStatement, IrFunctionDeclaration } from "../types.js";
 import { createFilesystemTestProgram } from "./_test-helpers.js";
 import {
   runAnonymousTypeLoweringPass,

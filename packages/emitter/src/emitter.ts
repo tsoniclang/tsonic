@@ -8,7 +8,11 @@
  */
 
 import * as path from "node:path";
-import { IrModule, Diagnostic } from "@tsonic/frontend";
+import {
+  type Diagnostic,
+  type EmittableIrModule,
+  type IrModule,
+} from "@tsonic/frontend";
 import { EmitterOptions, JsonAotRegistry } from "./types.js";
 import { emitModule } from "./core/format/module-emitter.js";
 import { buildModuleMap } from "./core/semantic/module-map.js";
@@ -36,7 +40,7 @@ export type EmitResult =
  * Emit a complete C# file from an IR module
  */
 export const emitCSharpFile = (
-  module: IrModule,
+  module: EmittableIrModule,
   options: Partial<EmitterOptions> = {}
 ): string => {
   return emitModule(module, options);
@@ -47,7 +51,7 @@ export const emitCSharpFile = (
  * Returns an error if there are file name collisions after normalization.
  */
 export const emitCSharpFiles = (
-  modules: readonly IrModule[],
+  modules: readonly EmittableIrModule[],
   options: Partial<EmitterOptions> = {}
 ): EmitResult => {
   const referenceModules = options.referenceModules ?? modules;

@@ -124,9 +124,7 @@ const getFunctionValueSignature = (
   context: EmitterContext
 ): Extract<IrType, { kind: "functionType" }> | undefined => {
   if (expr.callee.kind === "identifier") {
-    const localType =
-      context.localSemanticTypes?.get(expr.callee.name) ??
-      context.localValueTypes?.get(expr.callee.name);
+    const localType = context.localSemanticTypes?.get(expr.callee.name);
     const resolvedLocalType = resolveFunctionType(localType, context);
     if (resolvedLocalType) {
       return resolvedLocalType;
@@ -1933,7 +1931,6 @@ const resolveActualFunctionTypeForArgument = (
     return trimToDeclaredArity(
       resolveFunctionType(
         context.localSemanticTypes?.get(arg.name) ??
-          context.localValueTypes?.get(arg.name) ??
           context.valueSymbols?.get(arg.name)?.type ??
           arg.inferredType,
         context
@@ -2390,11 +2387,11 @@ const emitFunctionValueCallArguments = (
               selectedCarrierSourceArgument.ast,
               selectedCarrierSourceArgument.context,
             ]
-        : emitExpressionAst(
-            arg,
-            currentContext,
-            concreteArrayLiteralRawExpectedType ?? rawEmitExpectedType
-          );
+          : emitExpressionAst(
+              arg,
+              currentContext,
+              concreteArrayLiteralRawExpectedType ?? rawEmitExpectedType
+            );
       const carrierPassThroughType = resolveCarrierPassThroughArgumentType(
         arg,
         rawArgAst,
@@ -2458,7 +2455,8 @@ const emitFunctionValueCallArguments = (
         });
       const skipRuntimeUnionArgumentMaterialization =
         shouldSkipRuntimeUnionArgumentMaterialization({
-          carrierPassThroughArgumentType: carrierPassThroughArgument?.actualType,
+          carrierPassThroughArgumentType:
+            carrierPassThroughArgument?.actualType,
           carrierPassThroughType,
           exactFinalExpectedArgumentType,
           materializationActualArgumentType,
@@ -3238,11 +3236,11 @@ const emitCallArguments = (
                 selectedCarrierSourceArgument.ast,
                 selectedCarrierSourceArgument.context,
               ]
-          : emitExpressionAst(
-              arg,
-              currentContext,
-              concreteArrayLiteralRawExpectedType ?? rawEmitExpectedType
-            );
+            : emitExpressionAst(
+                arg,
+                currentContext,
+                concreteArrayLiteralRawExpectedType ?? rawEmitExpectedType
+              );
         const carrierPassThroughType = resolveCarrierPassThroughArgumentType(
           arg,
           rawArgAst,
@@ -3308,7 +3306,7 @@ const emitCallArguments = (
         const skipRuntimeUnionArgumentMaterialization =
           shouldSkipRuntimeUnionArgumentMaterialization({
             carrierPassThroughArgumentType:
-            carrierPassThroughArgument?.actualType,
+              carrierPassThroughArgument?.actualType,
             carrierPassThroughType,
             exactFinalExpectedArgumentType,
             materializationActualArgumentType,

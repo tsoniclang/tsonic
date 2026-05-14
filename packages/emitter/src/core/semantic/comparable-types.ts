@@ -215,11 +215,18 @@ const normalizeComparableType = (
       state.keyCache.set(comparableKey, normalized);
       return normalized;
     }
-    const normalized = normalizeResolvedComparableType(resolved, context, state);
+    const normalized = normalizeResolvedComparableType(
+      resolved,
+      context,
+      state
+    );
     state.cache.set(comparableObject, normalized);
     state.cache.set(resolved as object, normalized);
     state.keyCache.set(comparableKey, normalized);
-    state.keyCache.set(getContextualTypeVisitKey(resolved, context), normalized);
+    state.keyCache.set(
+      getContextualTypeVisitKey(resolved, context),
+      normalized
+    );
     return normalized;
   } finally {
     state.active.delete(comparableObject);

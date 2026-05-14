@@ -15,9 +15,7 @@ import {
   IrNameOfExpression,
   IrSizeOfExpression,
 } from "../../../types.js";
-import {
-  getSourceSpan,
-} from "../helpers.js";
+import { getSourceSpan } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { IrType } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";

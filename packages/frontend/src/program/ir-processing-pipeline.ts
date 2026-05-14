@@ -1,4 +1,9 @@
-import type { IrModule, IrStatement } from "../ir/types.js";
+import {
+  assumeEmittableIrModules,
+  type EmittableIrModule,
+  type IrModule,
+  type IrStatement,
+} from "../ir/types.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
 import { runCallResolutionRefreshPass } from "../ir/validation/call-resolution-refresh-pass.js";
@@ -20,10 +25,11 @@ import { error, ok, type Result } from "../types/result.js";
 export type IrProcessingPipelineOptions = {
   readonly sourceRoot: string;
   readonly rootNamespace: string;
+  readonly backendCapabilities?: TsonicProgram["options"]["backendCapabilities"];
 };
 
 export type IrProcessingPipelineResult = {
-  readonly modules: readonly IrModule[];
+  readonly modules: readonly EmittableIrModule[];
 };
 
 export const collectSynthesizedTypeNames = (
@@ -75,7 +81,9 @@ export const runIrProcessingPipeline = (
   options: IrProcessingPipelineOptions
 ): Result<IrProcessingPipelineResult, readonly Diagnostic[]> => {
   const restResult = runRestTypeSynthesisPass(modules);
-  const loweredModules = runAnonymousTypeLoweringPass(restResult.modules).modules;
+  const loweredModules = runAnonymousTypeLoweringPass(
+    restResult.modules
+  ).modules;
 
   const overloadResult = runOverloadCollectionPass(loweredModules);
   if (!overloadResult.ok) {
@@ -97,7 +105,11 @@ export const runIrProcessingPipeline = (
   }
 
   const soundnessResult = validateIrSoundness(attributeResult.modules, {
-    knownReferenceTypes: knownReferenceTypesFor(program, attributeResult.modules),
+    knownReferenceTypes: knownReferenceTypesFor(
+      program,
+      attributeResult.modules
+    ),
+    backendCapabilities: options.backendCapabilities,
   });
   if (!soundnessResult.ok) {
     return error(soundnessResult.diagnostics);
@@ -143,12 +155,13 @@ export const runIrProcessingPipeline = (
 
   const finalSoundnessResult = validateIrSoundness(virtualResult.modules, {
     knownReferenceTypes: knownReferenceTypesFor(program, virtualResult.modules),
+    backendCapabilities: options.backendCapabilities,
   });
   if (!finalSoundnessResult.ok) {
     return error(finalSoundnessResult.diagnostics);
   }
 
   return ok({
-    modules: virtualResult.modules,
+    modules: assumeEmittableIrModules(virtualResult.modules),
   });
 };

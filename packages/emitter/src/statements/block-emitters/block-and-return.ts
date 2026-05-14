@@ -176,7 +176,8 @@ export const emitReturnStatementAst = (
       returnExpression.kind === "await" && context.returnType !== undefined
         ? getAwaitedIrType(context.returnType)
         : undefined;
-    const effectiveReturnExpectedType = asyncReturnResultType ?? context.returnType;
+    const effectiveReturnExpectedType =
+      asyncReturnResultType ?? context.returnType;
     const returnExpectedType =
       effectiveReturnExpectedType &&
       returnExpression.kind !== "conditional" &&

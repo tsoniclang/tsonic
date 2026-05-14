@@ -233,7 +233,9 @@ describe("IR Builder", function () {
         if (!arrayDecl) return;
 
         const impl = arrayDecl.members.find(
-          (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
+          (
+            member
+          ): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
             member.kind === "methodDeclaration" && member.name === "from"
         );
         expect(impl?.kind).to.equal("methodDeclaration");

@@ -27,6 +27,10 @@ export type {
   IrExpressionStatement,
   IrReturnStatement,
   IrBranchNarrowing,
+  IrUnionArmSelection,
+  IrGuardPolarity,
+  IrIfGuardShape,
+  IrIfBranchPlan,
   IrIfStatement,
   IrWhileStatement,
   IrForStatement,
@@ -45,6 +49,7 @@ export type {
   IrGeneratorReturnStatement,
   IrOverloadOwnerKind,
   IrOverloadFamilyMember,
+  IrOverloadFamily,
   // Expression types
   IrExpression,
   IrLiteralExpression,
@@ -81,6 +86,20 @@ export type {
   ProofSource,
   ComputedAccessKind,
   ComputedAccessProtocol,
+  IrPhase,
+  PhasedIrModule,
+  PhasedIrStatement,
+  PhasedIrExpression,
+  PhasedIrType,
+  NormalizedIrModule,
+  SoundnessValidatedIrModule,
+  NumericProvedIrModule,
+  CallResolutionRefreshedIrModule,
+  EmittableIrModule,
+  ValidatedIrExpression,
+  EmittableIrExpression,
+  ValidatedIrType,
+  EmittableIrType,
   // Type system types
   IrType,
   IrPrimitiveType,
@@ -120,6 +139,17 @@ export type {
   NumericKind,
   NumericTypeFact,
   PrimitiveTypeFact,
+} from "./types/index.js";
+
+export {
+  createOpaqueIfGuardShape,
+  createIfBranchPlan,
+  createOpaqueIfBranchPlan,
+  invertIfGuardShape,
+  assumeIrPhase,
+  assumeIrModulesPhase,
+  assumeEmittableIrModule,
+  assumeEmittableIrModules,
 } from "./types/index.js";
 
 // Re-export type guards

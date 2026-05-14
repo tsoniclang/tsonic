@@ -6,7 +6,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFiles, emitModule } from "../../emitter.js";
-import { IrModule, IrType } from "@tsonic/frontend";
+import { assumeEmittableIrModule, IrModule, IrType } from "@tsonic/frontend";
 
 describe("Module Generation", () => {
   it("should emit a regular class", () => {
@@ -276,7 +276,9 @@ describe("Module Generation", () => {
       exports: [],
     };
 
-    const result = emitCSharpFiles([module], { rootNamespace: "MyApp" });
+    const result = emitCSharpFiles([assumeEmittableIrModule(module)], {
+      rootNamespace: "MyApp",
+    });
     expect(result.ok).to.equal(true);
   });
 });

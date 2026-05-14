@@ -19,6 +19,7 @@ import {
   parseManifestDotnet,
   parseRequiredTypeRoots,
 } from "./dotnet.js";
+import { parseSemanticMetadata } from "./semantic-metadata.js";
 
 export const resolveFromBindingsManifest = (
   packageRoot: string,
@@ -92,6 +93,11 @@ export const resolveFromBindingsManifest = (
     "testDotnet"
   );
   if (!testDotnetParsed.ok) return testDotnetParsed;
+  const semanticMetadata = parseSemanticMetadata(
+    manifest.semanticMetadata,
+    "semanticMetadata"
+  );
+  if (!semanticMetadata.ok) return semanticMetadata;
 
   const dotnet = canonicalizeManifestDotnet(dotnetParsed.value);
   const testDotnet = canonicalizeManifestDotnet(testDotnetParsed.value);
@@ -131,6 +137,9 @@ export const resolveFromBindingsManifest = (
       ),
       dotnet,
       testDotnet,
+      ...(semanticMetadata.value
+        ? { semanticMetadata: semanticMetadata.value }
+        : {}),
       nugetDependencies: collectNugetDependencies(dotnet, testDotnet),
     },
   };
