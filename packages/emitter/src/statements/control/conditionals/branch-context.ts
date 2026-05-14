@@ -688,10 +688,10 @@ export const withRuntimeUnionMemberNarrowing = (
       narrowedAst,
       sourceMemberType
         ? (normalizeRuntimeStorageType(sourceMemberType, sourceLayoutContext) ??
-          sourceMemberType)
+            sourceMemberType)
         : (storageType ??
-          normalizeRuntimeStorageType(memberType, sourceLayoutContext) ??
-          memberType),
+            normalizeRuntimeStorageType(memberType, sourceLayoutContext) ??
+            memberType),
       toReceiverAst(receiver)
     )
   );

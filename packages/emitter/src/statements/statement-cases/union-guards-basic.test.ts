@@ -162,5 +162,4 @@ describe("Statement Emission", () => {
     expect(result).to.include("return result__2_1.error;");
     expect(result).to.include("return (result.As1()).data;");
   });
-
 });

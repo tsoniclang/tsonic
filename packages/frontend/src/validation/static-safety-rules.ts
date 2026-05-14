@@ -23,7 +23,9 @@ import {
   DiagnosticsCollector,
   addDiagnostic,
   createDiagnostic,
+  type Diagnostic,
 } from "../types/diagnostic.js";
+import { capability } from "../capabilities/backend-capabilities.js";
 import { getNodeLocation } from "./helpers.js";
 import {
   collectWrittenSymbols,
@@ -43,6 +45,23 @@ import {
 } from "./contextual-type-analysis.js";
 import { isAllowedKeyType } from "./static-safety-dictionary-keys.js";
 import { validateArrowEscapeHatch } from "./static-safety-arrow-rules.js";
+
+const createBackendCapabilityDiagnostic = (
+  program: TsonicProgram,
+  capabilityName: string,
+  fallback: Diagnostic
+): Diagnostic => {
+  const backendCapability = capability(
+    program.options.backendCapabilities,
+    capabilityName
+  );
+  return {
+    ...fallback,
+    code: backendCapability?.diagnosticCode ?? fallback.code,
+    message: backendCapability?.diagnosticMessage ?? fallback.message,
+    hint: backendCapability?.remediation ?? fallback.hint,
+  };
+};
 
 const nodeIsWithin = (node: ts.Node, container: ts.Node | undefined): boolean =>
   !!container && node.pos >= container.pos && node.end <= container.end;
@@ -339,12 +358,16 @@ export const validateStaticSafety = (
       if (!targetTypeNode || isBroadJsonTargetTypeNode(targetTypeNode)) {
         currentCollector = addDiagnostic(
           currentCollector,
-          createDiagnostic(
-            "TSN5001",
-            "error",
-            "JSON.parse requires a closed compile-time target type for NativeAOT-safe code.",
-            getNodeLocation(sourceFile, node),
-            "Use JSON.parse<T>(json), assign to a concrete typed variable, or use generated typed serializer code. Broad targets such as unknown, any, object, and unions are not supported for untyped JSON parsing."
+          createBackendCapabilityDiagnostic(
+            program,
+            "broad-json-parse-untyped",
+            createDiagnostic(
+              "TSN5001",
+              "error",
+              "JSON.parse requires a closed compile-time target type for NativeAOT-safe code.",
+              getNodeLocation(sourceFile, node),
+              "Use JSON.parse<T>(json), assign to a concrete typed variable, or use generated typed serializer code. Broad targets such as unknown, any, object, and unions are not supported for untyped JSON parsing."
+            )
           )
         );
       }
@@ -385,12 +408,16 @@ export const validateStaticSafety = (
       ) {
         currentCollector = addDiagnostic(
           currentCollector,
-          createDiagnostic(
-            "TSN5001",
-            "error",
-            "Array.isArray cannot narrow a broad runtime value without a closed carrier.",
-            getNodeLocation(sourceFile, node),
-            "Use Array.isArray only on values whose possible runtime carriers are known at compile time, such as concrete arrays or unions with concrete array arms. Broad unknown, any, object, and unconstrained generic values cannot be materialized as arrays in NativeAOT-safe code."
+          createBackendCapabilityDiagnostic(
+            program,
+            "array-isarray-broad",
+            createDiagnostic(
+              "TSN5001",
+              "error",
+              "Array.isArray cannot narrow a broad runtime value without a closed carrier.",
+              getNodeLocation(sourceFile, node),
+              "Use Array.isArray only on values whose possible runtime carriers are known at compile time, such as concrete arrays or unions with concrete array arms. Broad unknown, any, object, and unconstrained generic values cannot be materialized as arrays in NativeAOT-safe code."
+            )
           )
         );
       }

@@ -11,12 +11,14 @@ import {
   buildModuleDependencyGraph,
   type CompilerOptions,
   type Diagnostic,
+  type EmittableIrModule,
   type IrModule,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "@tsonic/emitter";
 import {
   generateCsproj,
   generateProgramCs,
+  NATIVE_AOT_CAPABILITIES,
   type BuildConfig,
   type ConsoleAppConfig,
   type ExecutableConfig,
@@ -50,14 +52,14 @@ const canonicalResolvedFilePath = (filePath: string): string => {
   return resolved.replace(/\\/g, "/");
 };
 
-const buildResolvedModuleIndex = (
-  modules: readonly IrModule[],
+const buildResolvedModuleIndex = <Module extends IrModule>(
+  modules: readonly Module[],
   absoluteSourceRoot: string,
   workspaceRoot: string
-): ReadonlyMap<string, IrModule> => {
-  const index = new Map<string, IrModule>();
+): ReadonlyMap<string, Module> => {
+  const index = new Map<string, Module>();
 
-  const register = (candidatePath: string, module: IrModule): void => {
+  const register = (candidatePath: string, module: Module): void => {
     if (!existsSync(candidatePath)) {
       return;
     }
@@ -89,16 +91,16 @@ const buildResolvedModuleIndex = (
   return index;
 };
 
-const buildLogicalModuleIndex = (
-  modules: readonly IrModule[]
-): ReadonlyMap<string, IrModule> =>
+const buildLogicalModuleIndex = <Module extends IrModule>(
+  modules: readonly Module[]
+): ReadonlyMap<string, Module> =>
   new Map(modules.map((module) => [module.filePath, module] as const));
 
-const resolveReexportTargetModule = (
-  currentModule: IrModule,
+const resolveReexportTargetModule = <Module extends IrModule>(
+  currentModule: Module,
   fromModule: string,
-  logicalModuleIndex: ReadonlyMap<string, IrModule>
-): IrModule | undefined => {
+  logicalModuleIndex: ReadonlyMap<string, Module>
+): Module | undefined => {
   if (!fromModule.startsWith(".")) {
     return undefined;
   }
@@ -126,11 +128,11 @@ const resolveReexportTargetModule = (
 };
 
 const collectEmittedSourceClosure = (
-  modules: readonly IrModule[],
+  modules: readonly EmittableIrModule[],
   absoluteSourceRoot: string,
   workspaceRoot: string,
   dllModePackageIds: ReadonlySet<string>
-): readonly IrModule[] => {
+): readonly EmittableIrModule[] => {
   if (dllModePackageIds.size === 0) {
     return modules;
   }
@@ -255,8 +257,8 @@ const collectReferencedAnonymousTypeNames = (
 };
 
 const pruneSyntheticAnonymousModules = (
-  modules: readonly IrModule[]
-): readonly IrModule[] => {
+  modules: readonly EmittableIrModule[]
+): readonly EmittableIrModule[] => {
   const syntheticModule = modules.find(
     (module) => module.filePath === SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH
   );
@@ -311,7 +313,7 @@ const pruneSyntheticAnonymousModules = (
     }
   }
 
-  const prunedSyntheticModule: IrModule = {
+  const prunedSyntheticModule: EmittableIrModule = {
     ...syntheticModule,
     body: syntheticModule.body.filter(
       (statement) =>
@@ -423,6 +425,7 @@ export const generateCommand = (
       typeRoots: allTypeRoots,
       surface: config.surface,
       verbose: config.verbose,
+      backendCapabilities: NATIVE_AOT_CAPABILITIES,
     };
     const graphResult = buildModuleDependencyGraph(
       absoluteEntryPoint,
@@ -499,7 +502,7 @@ export const generateCommand = (
       ).replace(/\\/g, "/");
       const foundEntryModule =
         prunedEmittedModules.find(
-          (module: IrModule) => module.filePath === entryRelative
+          (module: EmittableIrModule) => module.filePath === entryRelative
         ) ?? entryModule;
       if (foundEntryModule) {
         const hasTopLevelCode =

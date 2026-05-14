@@ -146,9 +146,7 @@ export const resolveWritableTargetStorageType = (
 ): IrExpression["inferredType"] => {
   if (targetExpr.kind === "identifier") {
     const declaredStorageType =
-      context.localValueTypes?.get(targetExpr.name) ??
-      context.localSemanticTypes?.get(targetExpr.name) ??
-      targetExpr.inferredType;
+      context.localValueTypes?.get(targetExpr.name) ?? targetExpr.inferredType;
     if (declaredStorageType) {
       return declaredStorageType;
     }

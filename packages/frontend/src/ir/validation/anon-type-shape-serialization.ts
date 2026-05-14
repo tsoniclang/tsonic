@@ -155,9 +155,10 @@ export const serializeType = (type: IrType, state?: SerializeState): string => {
         const members = type.types.map((member) =>
           serializeType(member, currentState)
         );
-        const orderedMembers = type.runtimeUnionLayout === "carrierSlotOrder"
-          ? members
-          : [...members].sort();
+        const orderedMembers =
+          type.runtimeUnionLayout === "carrierSlotOrder"
+            ? members
+            : [...members].sort();
         return `union:[${orderedMembers.join("|")}]`;
       } finally {
         endSerializeNode(currentState, type);

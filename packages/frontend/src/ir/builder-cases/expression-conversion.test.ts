@@ -77,9 +77,7 @@ describe("IR Builder", function () {
       const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
-      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(
-        false
-      );
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
     });
 
     it("contextually types awaited async return object literals against awaited return shapes", () => {
@@ -541,6 +539,5 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
-
   });
 });

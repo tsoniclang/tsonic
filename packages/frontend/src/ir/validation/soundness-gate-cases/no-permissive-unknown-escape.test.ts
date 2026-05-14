@@ -35,4 +35,17 @@ describe("IR Soundness Gate", () => {
       }
     });
   });
+
+  describe("if-statement branch plans", () => {
+    it("keeps branch plans required and legacy narrowing side channels out of the IR type", () => {
+      const statementsSource = readFrontendSource("ir/types/statements.ts");
+
+      expect(statementsSource).to.include("readonly thenPlan: IrIfBranchPlan");
+      expect(statementsSource).to.include("readonly elsePlan: IrIfBranchPlan");
+      expect(statementsSource).to.not.include("thenPlan?:");
+      expect(statementsSource).to.not.include("elsePlan?:");
+      expect(statementsSource).to.not.include("thenNarrowings");
+      expect(statementsSource).to.not.include("elseNarrowings");
+    });
+  });
 });

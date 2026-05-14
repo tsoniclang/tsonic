@@ -33,6 +33,7 @@ import {
   maybeCastNumericToExpectedIntegralAst,
   maybeUnwrapNullableValueTypeAst,
 } from "./post-emission-adaptation.js";
+import { semanticTypeMap, storageCarrierMap } from "../types.js";
 import { createRuntimeUnionRegistry } from "../core/semantic/runtime-union-registry.js";
 
 const jsValueType: IrType = {
@@ -592,7 +593,7 @@ describe("expected-type-adaptation", () => {
         rootNamespace: "Test",
         surface: "@tsonic/js",
       }),
-      localValueTypes: new Map<string, IrType>([
+      localValueTypes: storageCarrierMap([
         [
           "args",
           {
@@ -703,8 +704,8 @@ describe("expected-type-adaptation", () => {
       }),
       typeParameters: new Set<string>(["TResult"]),
       localNameMap: new Map<string, string>([["array", "array"]]),
-      localSemanticTypes: new Map<string, IrType>([["array", localArrayType]]),
-      localValueTypes: new Map<string, IrType>([["array", localArrayType]]),
+      localSemanticTypes: semanticTypeMap([["array", localArrayType]]),
+      localValueTypes: storageCarrierMap([["array", localArrayType]]),
       localTypes: new Map([
         [
           "Array",
@@ -869,8 +870,8 @@ describe("expected-type-adaptation", () => {
         surface: "@tsonic/js",
       }),
       localNameMap: new Map<string, string>([["parsed", "parsed"]]),
-      localValueTypes: new Map<string, IrType>([["parsed", stringArrayType]]),
-      localSemanticTypes: new Map<string, IrType>([
+      localValueTypes: storageCarrierMap([["parsed", stringArrayType]]),
+      localSemanticTypes: semanticTypeMap([
         [
           "parsed",
           {
@@ -964,12 +965,8 @@ describe("expected-type-adaptation", () => {
       localNameMap: new Map<string, string>([
         ["membershipResult", "membershipResult"],
       ]),
-      localValueTypes: new Map<string, IrType>([
-        ["membershipResult", resultType],
-      ]),
-      localSemanticTypes: new Map<string, IrType>([
-        ["membershipResult", resultType],
-      ]),
+      localValueTypes: storageCarrierMap([["membershipResult", resultType]]),
+      localSemanticTypes: semanticTypeMap([["membershipResult", resultType]]),
       returnType: resultType,
     };
 
@@ -1031,12 +1028,10 @@ describe("expected-type-adaptation", () => {
       localNameMap: new Map<string, string>([
         ["membershipResult", "membershipResult"],
       ]),
-      localValueTypes: new Map<string, IrType>([
+      localValueTypes: storageCarrierMap([
         ["membershipResult", rawCarrierType],
       ]),
-      localSemanticTypes: new Map<string, IrType>([
-        ["membershipResult", resultType],
-      ]),
+      localSemanticTypes: semanticTypeMap([["membershipResult", resultType]]),
       returnType: resultType,
     };
 
@@ -1221,8 +1216,8 @@ describe("expected-type-adaptation", () => {
       ]),
       publicLocalTypes: new Set(["MiddlewareLike"]),
       localNameMap: new Map([["app", "app"]]),
-      localValueTypes: new Map([["app", applicationType]]),
-      localSemanticTypes: new Map([["app", middlewareLikeType]]),
+      localValueTypes: storageCarrierMap([["app", applicationType]]),
+      localSemanticTypes: semanticTypeMap([["app", middlewareLikeType]]),
     };
 
     const [arrayAst] = emitExpressionAst(
@@ -1646,7 +1641,7 @@ describe("expected-type-adaptation", () => {
       ]),
       publicLocalTypes: new Set(["MiddlewareHandler"]),
       localNameMap: new Map([["handler", "handler"]]),
-      localValueTypes: new Map([["handler", broadObjectType]]),
+      localValueTypes: storageCarrierMap([["handler", broadObjectType]]),
       narrowedBindings: new Map([
         [
           "handler",

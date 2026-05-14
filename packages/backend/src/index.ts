@@ -25,3 +25,4 @@ export type {
 export { checkDotnetInstalled, detectRid } from "./dotnet.js";
 export { generateCsproj } from "./project-generator.js";
 export { generateProgramCs } from "./program-generator.js";
+export { NATIVE_AOT_CAPABILITIES } from "./capabilities.js";

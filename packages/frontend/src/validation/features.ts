@@ -4,13 +4,32 @@ import {
   DiagnosticsCollector,
   addDiagnostic,
   createDiagnostic,
+  type Diagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
+import { capability } from "../capabilities/backend-capabilities.js";
 import {
   resolveSurfaceCapabilities,
   surfaceIncludesJs,
 } from "../surface/profiles.js";
 import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-literal-method-runtime.js";
+
+const createBackendCapabilityDiagnostic = (
+  program: TsonicProgram,
+  capabilityName: string,
+  fallback: Diagnostic
+): Diagnostic => {
+  const backendCapability = capability(
+    program.options.backendCapabilities,
+    capabilityName
+  );
+  return {
+    ...fallback,
+    code: backendCapability?.diagnosticCode ?? fallback.code,
+    message: backendCapability?.diagnosticMessage ?? fallback.message,
+    hint: backendCapability?.remediation ?? fallback.hint,
+  };
+};
 
 const JS_BUILTIN_MEMBER_NAMES = new Set([
   "length",
@@ -101,7 +120,9 @@ const typeHasStringIndex = (
         (member) =>
           (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0
       )
-      .every((member) => typeHasStringIndex(member, checker, new Set(nextSeen)));
+      .every((member) =>
+        typeHasStringIndex(member, checker, new Set(nextSeen))
+      );
   }
 
   const apparent = checker.getApparentType(type);
@@ -180,7 +201,9 @@ const isProgramSourceDeclaration = (
       normalizeFileName(currentSourceFile.fileName)
     )
   );
-  return sourceNames.has(normalizeFileName(declaration.getSourceFile().fileName));
+  return sourceNames.has(
+    normalizeFileName(declaration.getSourceFile().fileName)
+  );
 };
 
 const isSourceOwnedMemberAccess = (
@@ -295,20 +318,14 @@ const getNonJsElementAccess = (
   node: ts.Node,
   checker: ts.TypeChecker
 ): { readonly name: string; readonly receiverText: string } | undefined => {
-  if (
-    !(
-      ts.isElementAccessExpression(node) ||
-      ts.isElementAccessChain(node)
-    )
-  ) {
+  if (!(ts.isElementAccessExpression(node) || ts.isElementAccessChain(node))) {
     return undefined;
   }
 
   const argument = node.argumentExpression;
   if (
     !argument ||
-    (!ts.isNumericLiteral(argument) &&
-      !ts.isPrefixUnaryExpression(argument))
+    (!ts.isNumericLiteral(argument) && !ts.isPrefixUnaryExpression(argument))
   ) {
     return undefined;
   }
@@ -678,12 +695,16 @@ export const validateUnsupportedFeatures = (
     if (isUnsupportedFunctionLengthAccess(node, checker)) {
       currentCollector = addDiagnostic(
         currentCollector,
-        createDiagnostic(
-          "TSN5001",
-          "error",
-          "JavaScript function.length is not supported in emitted Tsonic code.",
-          getNodeLocation(sourceFile, node),
-          "Model handler shape with explicit tagged types or separate APIs."
+        createBackendCapabilityDiagnostic(
+          program,
+          "function-length",
+          createDiagnostic(
+            "TSN5001",
+            "error",
+            "JavaScript function.length is not supported in emitted Tsonic code.",
+            getNodeLocation(sourceFile, node),
+            "Model handler shape with explicit tagged types or separate APIs."
+          )
         )
       );
     }

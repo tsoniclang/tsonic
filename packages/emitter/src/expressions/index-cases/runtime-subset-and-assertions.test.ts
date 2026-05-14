@@ -4,6 +4,7 @@ import {
   expect,
   emitExpressionAst,
   printExpression,
+  storageCarrierMap,
   type IrType,
 } from "./helpers.js";
 import { normalizeRuntimeUnionCarrierNames } from "../../runtime-union-cases/helpers.js";
@@ -379,7 +380,7 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["key", "key"]]),
-        localValueTypes: new Map([["key", broadType]]),
+        localValueTypes: storageCarrierMap([["key", broadType]]),
         narrowedBindings: new Map([
           [
             "key",
@@ -447,7 +448,7 @@ describe("Expression Emission", () => {
         isAsync: false,
         usings: new Set<string>(),
         localNameMap: new Map([["key", "key"]]),
-        localValueTypes: new Map([["key", broadType]]),
+        localValueTypes: storageCarrierMap([["key", broadType]]),
         narrowedBindings: new Map([
           [
             "key",

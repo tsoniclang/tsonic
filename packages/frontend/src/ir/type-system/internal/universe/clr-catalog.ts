@@ -181,7 +181,12 @@ const resolveExistingCompanionDtsFiles = (
 const CORELIB_ASSEMBLY = "System.Private.CoreLib";
 
 const coreTypeId = (clrName: string, tsName: string): TypeId =>
-  makeTypeId(`${CORELIB_ASSEMBLY}:${clrName}`, clrName, CORELIB_ASSEMBLY, tsName);
+  makeTypeId(
+    `${CORELIB_ASSEMBLY}:${clrName}`,
+    clrName,
+    CORELIB_ASSEMBLY,
+    tsName
+  );
 
 const coreProperty = (
   owner: TypeId,
@@ -229,8 +234,14 @@ const createCoreClrCarrierEntries = (): readonly NominalEntry[] => {
       members: new Map([
         ["Length", coreProperty(systemArray, "Length", intType, true)],
         ["Rank", coreProperty(systemArray, "Rank", intType, true)],
-        ["IsFixedSize", coreProperty(systemArray, "IsFixedSize", booleanType, true)],
-        ["IsReadOnly", coreProperty(systemArray, "IsReadOnly", booleanType, true)],
+        [
+          "IsFixedSize",
+          coreProperty(systemArray, "IsFixedSize", booleanType, true),
+        ],
+        [
+          "IsReadOnly",
+          coreProperty(systemArray, "IsReadOnly", booleanType, true),
+        ],
         [
           "IsSynchronized",
           coreProperty(systemArray, "IsSynchronized", booleanType, true),

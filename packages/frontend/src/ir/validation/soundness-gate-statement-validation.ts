@@ -1,7 +1,11 @@
 import {
   type IrModule,
+  type IrIfBranchPlan,
+  type IrIfGuardShape,
   type IrStatement,
   type ValidationContext,
+  createDiagnostic,
+  moduleLocation,
 } from "./soundness-gate-shared.js";
 import { validateExpression } from "./soundness-gate-expression-validation.js";
 import {
@@ -11,6 +15,82 @@ import {
   validateType,
   validateTypeParameter,
 } from "./soundness-gate-type-validation.js";
+import { classifyIfGuardShape } from "../converters/statements/control/if-branch-plan.js";
+import { invertIfGuardShape } from "../types.js";
+
+const validateGuardShape = (
+  guardShape: IrIfGuardShape,
+  ctx: ValidationContext
+): void => {
+  switch (guardShape.kind) {
+    case "typeofGuard":
+      validateExpression(guardShape.target, ctx);
+      break;
+    case "instanceofGuard":
+      validateExpression(guardShape.target, ctx);
+      validateExpression(guardShape.typeExpression, ctx);
+      break;
+    case "arrayIsArrayGuard":
+    case "propertyTruthiness":
+    case "nullableGuard":
+      validateExpression(guardShape.target, ctx);
+      break;
+    case "discriminantEquality":
+      validateExpression(guardShape.target, ctx);
+      break;
+    case "compound":
+      validateGuardShape(guardShape.left, ctx);
+      validateGuardShape(guardShape.right, ctx);
+      break;
+    case "opaqueBoolean":
+      break;
+  }
+};
+
+const validateIfBranchPlan = (
+  plan: IrIfBranchPlan | undefined,
+  condition: Extract<IrStatement, { kind: "ifStatement" }>["condition"],
+  label: string,
+  ctx: ValidationContext
+): void => {
+  if (!plan) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN7430",
+        "error",
+        `If-statement is missing authoritative ${label} branch plan.`,
+        moduleLocation(ctx),
+        "The frontend must attach IrIfBranchPlan before the soundness gate so the emitter consumes decisions instead of rediscovering them from source shape."
+      )
+    );
+    return;
+  }
+
+  const expectedShape =
+    label === "then"
+      ? classifyIfGuardShape(condition, "truthy")
+      : invertIfGuardShape(classifyIfGuardShape(condition, "truthy"));
+  if (
+    plan.guardShape.kind !== expectedShape.kind ||
+    plan.guardShape.polarity !== expectedShape.polarity
+  ) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN7430",
+        "error",
+        `If-statement ${label} branch plan does not match its condition.`,
+        moduleLocation(ctx),
+        "Recompute IrIfBranchPlan whenever the condition is transformed; the emitter must consume the plan as the authoritative branch decision."
+      )
+    );
+  }
+
+  validateGuardShape(plan.guardShape, ctx);
+  for (const narrowing of plan.narrowedBindings) {
+    validateExpression(narrowing.targetExpr, ctx);
+    validateType(narrowing.targetType, ctx, `${label} branch narrowing`);
+  }
+};
 
 export const validateStatement = (
   stmt: IrStatement,
@@ -123,6 +203,8 @@ export const validateStatement = (
 
     case "ifStatement":
       validateExpression(stmt.condition, ctx);
+      validateIfBranchPlan(stmt.thenPlan, stmt.condition, "then", ctx);
+      validateIfBranchPlan(stmt.elsePlan, stmt.condition, "else", ctx);
       validateStatement(stmt.thenStatement, ctx);
       if (stmt.elseStatement) {
         validateStatement(stmt.elseStatement, ctx);

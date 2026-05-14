@@ -22,6 +22,11 @@ export type IrType =
   | IrVoidType
   | IrNeverType;
 
+export type IrStructuralOrigin =
+  | "namedReference"
+  | "inlineStructural"
+  | "compilerOwnedStructural";
+
 /**
  * Primitive types in IR.
  *
@@ -65,6 +70,17 @@ export type IrReferenceType = {
    * Used by TSN5110 to validate object literal properties against expected types.
    */
   readonly structuralMembers?: readonly IrInterfaceMember[];
+  /**
+   * Structural identity policy for this reference.
+   *
+   * - namedReference: user-authored named type/alias reference.
+   * - compilerOwnedStructural: compiler-generated nominal carrier for an
+   *   inline structural shape.
+   */
+  readonly structuralOrigin?: Extract<
+    IrStructuralOrigin,
+    "namedReference" | "compilerOwnedStructural"
+  >;
 };
 
 /**
@@ -140,6 +156,16 @@ export type IrFunctionType = {
 export type IrObjectType = {
   readonly kind: "objectType";
   readonly members: readonly IrInterfaceMember[];
+  /**
+   * Structural identity policy for inline object shapes.
+   *
+   * Inline structural types must not be rebound to a same-shaped named alias by
+   * downstream adapters; compiler-owned carriers are emitted explicitly.
+   */
+  readonly structuralOrigin?: Extract<
+    IrStructuralOrigin,
+    "inlineStructural" | "compilerOwnedStructural"
+  >;
 };
 
 /**

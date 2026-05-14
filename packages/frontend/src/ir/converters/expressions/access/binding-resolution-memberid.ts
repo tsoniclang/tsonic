@@ -21,7 +21,10 @@ import { extractRawDotnetBindingsPayload } from "../../../../program/dotnet-bind
 import { extractTypeName } from "./member-resolution.js";
 
 const nearestBindingsJsonCache = new Map<string, string | undefined>();
-const bindingsJsonPayloadCache = new Map<string, Record<string, unknown> | undefined>();
+const bindingsJsonPayloadCache = new Map<
+  string,
+  Record<string, unknown> | undefined
+>();
 
 const stripTsonicExtensionWrapperType = (
   type: IrExpression["inferredType"]

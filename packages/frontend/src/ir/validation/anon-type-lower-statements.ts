@@ -5,8 +5,11 @@
  * both modules export const functions only used after module initialization.
  */
 import type {
+  IrBranchNarrowing,
   IrBlockStatement,
   IrClassMember,
+  IrIfBranchPlan,
+  IrIfGuardShape,
   IrInterfaceMember,
   IrStatement,
   IrVariableDeclaration,
@@ -45,6 +48,74 @@ export const lowerVariableDeclaration = (
       ? lowerExpression(declaration.initializer, ctx)
       : undefined,
   })),
+});
+
+const lowerBranchNarrowingTarget = (
+  expression: IrBranchNarrowing["targetExpr"],
+  ctx: LoweringContext
+): IrBranchNarrowing["targetExpr"] => {
+  const lowered = lowerExpression(expression, ctx);
+  if (lowered.kind === "identifier" || lowered.kind === "memberAccess") {
+    return lowered;
+  }
+
+  throw new Error(
+    `Anonymous type lowering changed branch narrowing target '${expression.kind}' into '${lowered.kind}'.`
+  );
+};
+
+const lowerBranchNarrowing = (
+  narrowing: IrBranchNarrowing,
+  ctx: LoweringContext
+): IrBranchNarrowing => ({
+  ...narrowing,
+  targetExpr: lowerBranchNarrowingTarget(narrowing.targetExpr, ctx),
+  targetType: lowerType(narrowing.targetType, ctx),
+});
+
+const lowerIfGuardShape = (
+  shape: IrIfGuardShape,
+  ctx: LoweringContext
+): IrIfGuardShape => {
+  switch (shape.kind) {
+    case "typeofGuard":
+    case "arrayIsArrayGuard":
+    case "discriminantEquality":
+    case "propertyTruthiness":
+    case "nullableGuard":
+      return {
+        ...shape,
+        target: lowerExpression(shape.target, ctx),
+      };
+
+    case "instanceofGuard":
+      return {
+        ...shape,
+        target: lowerExpression(shape.target, ctx),
+        typeExpression: lowerExpression(shape.typeExpression, ctx),
+      };
+
+    case "compound":
+      return {
+        ...shape,
+        left: lowerIfGuardShape(shape.left, ctx),
+        right: lowerIfGuardShape(shape.right, ctx),
+      };
+
+    case "opaqueBoolean":
+      return shape;
+  }
+};
+
+const lowerIfBranchPlan = (
+  plan: IrIfBranchPlan,
+  ctx: LoweringContext
+): IrIfBranchPlan => ({
+  ...plan,
+  guardShape: lowerIfGuardShape(plan.guardShape, ctx),
+  narrowedBindings: plan.narrowedBindings.map((narrowing) =>
+    lowerBranchNarrowing(narrowing, ctx)
+  ),
 });
 
 export const lowerClassMember = (
@@ -246,6 +317,8 @@ export const lowerStatement = (
         elseStatement: stmt.elseStatement
           ? lowerStatement(stmt.elseStatement, ctx)
           : undefined,
+        thenPlan: lowerIfBranchPlan(stmt.thenPlan, ctx),
+        elsePlan: lowerIfBranchPlan(stmt.elsePlan, ctx),
       };
 
     case "whileStatement":

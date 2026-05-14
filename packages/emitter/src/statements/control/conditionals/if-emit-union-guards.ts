@@ -6,9 +6,7 @@
  *   - if-emit-property-discriminant-guards.ts
  */
 
-export {
-  tryEmitPredicateGuard,
-} from "./if-emit-predicate-guards.js";
+export { tryEmitPredicateGuard } from "./if-emit-predicate-guards.js";
 
 export {
   tryEmitPropertyTruthinessGuard,

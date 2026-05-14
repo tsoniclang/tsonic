@@ -117,7 +117,10 @@ const substitutePolymorphicThisImpl = (
         ...type,
         ...(type.typeArguments ? { typeArguments: type.typeArguments } : {}),
         ...(type.structuralMembers
-          ? { structuralMembers: type.structuralMembers }
+          ? {
+              structuralMembers: type.structuralMembers,
+              structuralOrigin: type.structuralOrigin ?? "namedReference",
+            }
           : {}),
       };
       seen.set(type, substituted);
@@ -390,7 +393,9 @@ const attachTypeIdsImpl = (
             ? { runtimeCarrierNamespace: type.runtimeCarrierNamespace }
             : {}),
           ...(type.runtimeCarrierTypeParameters !== undefined
-            ? { runtimeCarrierTypeParameters: type.runtimeCarrierTypeParameters }
+            ? {
+                runtimeCarrierTypeParameters: type.runtimeCarrierTypeParameters,
+              }
             : {}),
           ...(type.runtimeCarrierTypeArguments !== undefined
             ? { runtimeCarrierTypeArguments: type.runtimeCarrierTypeArguments }

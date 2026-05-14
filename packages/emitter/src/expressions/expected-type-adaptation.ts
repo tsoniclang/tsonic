@@ -1490,7 +1490,6 @@ export const adaptEmittedExpressionAst = (opts: {
 
     const originalCarrierType =
       context.localValueTypes?.get(adaptationSourceExpr.name) ??
-      context.localSemanticTypes?.get(adaptationSourceExpr.name) ??
       adaptationSourceExpr.inferredType;
     if (
       !originalCarrierType ||

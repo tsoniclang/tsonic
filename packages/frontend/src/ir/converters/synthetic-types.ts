@@ -194,6 +194,7 @@ const createSyntheticReference = (
   kind: "referenceType",
   name,
   typeArguments: typeArgs,
+  structuralOrigin: "compilerOwnedStructural",
 });
 
 /**

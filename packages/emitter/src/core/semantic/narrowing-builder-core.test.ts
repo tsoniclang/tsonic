@@ -2,6 +2,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../emitter-types/core.js";
+import { semanticTypeMap, storageCarrierMap } from "../../types.js";
 import { applyBinding } from "./narrowing-builder-core.js";
 
 describe("narrowing builder core", () => {
@@ -22,8 +23,8 @@ describe("narrowing builder core", () => {
       isStatic: false,
       isAsync: false,
       usings: new Set<string>(),
-      localSemanticTypes: new Map([["cur", valueType]]),
-      localValueTypes: new Map([["cur", valueType]]),
+      localSemanticTypes: semanticTypeMap([["cur", valueType]]),
+      localValueTypes: storageCarrierMap([["cur", valueType]]),
     };
 
     const binding = {

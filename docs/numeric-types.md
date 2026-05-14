@@ -84,11 +84,7 @@ Use a Tsonic numeric proof when a CLR integral type is required.
 import type { int } from "@tsonic/core/types.js";
 
 export function readInt(value: number): int {
-  if (
-    Number.isInteger(value) &&
-    value >= -2147483648 &&
-    value <= 2147483647
-  ) {
+  if (Number.isInteger(value) && value >= -2147483648 && value <= 2147483647) {
     return value as int;
   }
   return 0;

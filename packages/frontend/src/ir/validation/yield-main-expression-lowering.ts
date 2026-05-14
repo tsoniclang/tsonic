@@ -8,6 +8,7 @@
  */
 
 import { IrStatement, IrExpression, IrPattern, IrType } from "../types.js";
+import { createIfBranchPlans } from "../converters/statements/control/if-branch-plan.js";
 
 import {
   type LoweringContext,
@@ -361,6 +362,7 @@ export const lowerExpressionWithYields = (
           },
         };
 
+        const branchPlans = createIfBranchPlans(loweredCondition.expression);
         return {
           prelude: [
             ...loweredCondition.prelude,
@@ -388,6 +390,8 @@ export const lowerExpressionWithYields = (
                 kind: "blockStatement",
                 statements: [...loweredWhenFalse.prelude, assignFalseStatement],
               },
+              thenPlan: branchPlans.thenPlan,
+              elsePlan: branchPlans.elsePlan,
             },
           ],
           expression: { kind: "identifier", name: tempName },

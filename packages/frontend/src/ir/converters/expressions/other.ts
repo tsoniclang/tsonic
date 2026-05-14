@@ -48,16 +48,8 @@ export const convertConditionalExpression = (
     collectTypeNarrowingsInFalsyExpr(node.condition, ctx)
   );
 
-  let whenTrue = convertExpression(
-    node.whenTrue,
-    truthyCtx,
-    expectedType
-  );
-  let whenFalse = convertExpression(
-    node.whenFalse,
-    falsyCtx,
-    expectedType
-  );
+  let whenTrue = convertExpression(node.whenTrue, truthyCtx, expectedType);
+  let whenFalse = convertExpression(node.whenFalse, falsyCtx, expectedType);
 
   if (isEmptyArrayLiteral(node.whenTrue) && whenFalse.inferredType) {
     const siblingArrayType = normalizeExpectedArrayType(

@@ -22,3 +22,8 @@ export {
   createProgramContext,
   type ProgramContext,
 } from "./program-context.js";
+export {
+  selectUnionArm,
+  type UnionArmSelectionInput,
+} from "./converters/union-arm-selection.js";
+export { createIfBranchPlans } from "./converters/statements/control/if-branch-plan.js";

@@ -46,6 +46,31 @@ import {
 } from "./if-emit-type-guards.js";
 import { applyIrBranchNarrowings } from "./ir-branch-narrowings.js";
 
+const tryEmitPlannedGuard = (
+  stmt: Extract<IrStatement, { kind: "ifStatement" }>,
+  context: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] | undefined => {
+  switch (stmt.thenPlan.guardShape.kind) {
+    case "propertyTruthiness":
+      return tryEmitPropertyTruthinessGuard(stmt, context);
+    case "discriminantEquality":
+      return tryEmitDiscriminantEqualityGuard(stmt, context);
+    case "instanceofGuard":
+      return stmt.thenPlan.guardShape.polarity === "falsy"
+        ? tryEmitNegatedInstanceofGuard(stmt, context)
+        : tryEmitInstanceofGuard(stmt, context);
+    case "arrayIsArrayGuard":
+      return tryEmitArrayIsArrayGuard(stmt, context);
+    case "nullableGuard":
+      return tryEmitNullableGuard(stmt, context);
+    case "typeofGuard":
+      return tryEmitTypeofGuard(stmt, context);
+    case "compound":
+    case "opaqueBoolean":
+      return undefined;
+  }
+};
+
 /**
  * Emit an if-statement with guard-based union/instanceof/nullable narrowing.
  */
@@ -53,34 +78,9 @@ export const emitIfStatementAst = (
   stmt: Extract<IrStatement, { kind: "ifStatement" }>,
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
-  // Case A3a: Property truthiness guard (result.success)
-  {
-    const result = tryEmitPropertyTruthinessGuard(stmt, context);
-    if (result) return result;
-  }
-
-  // Case A3b: Discriminant equality guard (shape.kind === "circle")
-  {
-    const result = tryEmitDiscriminantEqualityGuard(stmt, context);
-    if (result) return result;
-  }
-
-  // Case A4: Instanceof guard (x instanceof Foo)
-  {
-    const result = tryEmitInstanceofGuard(stmt, context);
-    if (result) return result;
-  }
-
-  // Case A5: Array.isArray guard
-  {
-    const result = tryEmitArrayIsArrayGuard(stmt, context);
-    if (result) return result;
-  }
-
-  // Case B2: Negated instanceof guard (!(x instanceof Foo))
-  {
-    const result = tryEmitNegatedInstanceofGuard(stmt, context);
-    if (result) return result;
+  const plannedGuard = tryEmitPlannedGuard(stmt, context);
+  if (plannedGuard) {
+    return plannedGuard;
   }
 
   // Case C: Logical AND with instanceof (x instanceof Foo && x.foo)
@@ -194,7 +194,7 @@ export const emitIfStatementAst = (
       semanticCondContext,
       emitExprAstCb
     ),
-    stmt.thenNarrowings,
+    stmt.thenPlan.narrowedBindings,
     emitExprAstCb
   );
   const [thenStmts, thenContext] = emitBranchScopedStatementAst(
@@ -219,7 +219,7 @@ export const emitIfStatementAst = (
       ...basePostConditionContext,
       narrowedBindings: semanticCondContext.narrowedBindings,
     },
-    stmt.elseNarrowings,
+    stmt.elsePlan.narrowedBindings,
     emitExprAstCb
   );
   let finalContext: EmitterContext = thenTerminates
@@ -244,7 +244,7 @@ export const emitIfStatementAst = (
         },
         emitExprAstCb
       ),
-      stmt.elseNarrowings,
+      stmt.elsePlan.narrowedBindings,
       emitExprAstCb
     );
     const [elseStmts, elseContext] = emitBranchScopedStatementAst(

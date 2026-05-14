@@ -762,6 +762,9 @@ const normalizeComparableType = (
         ...type,
         typeArguments: normalizedArguments,
         structuralMembers: normalizedMembers,
+        ...(normalizedMembers && normalizedMembers.length > 0
+          ? { structuralOrigin: type.structuralOrigin ?? "namedReference" }
+          : {}),
       };
     }
 

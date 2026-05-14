@@ -62,7 +62,8 @@ const kind = typeof value;
 "name" in (value as object);
 "name" in ({ name: "x" } as { name?: string });
 delete value.name;
-for (const key in value) {}
+for (const key in value) {
+}
 await import("./module.js");
 import.meta.url;
 globalThis;

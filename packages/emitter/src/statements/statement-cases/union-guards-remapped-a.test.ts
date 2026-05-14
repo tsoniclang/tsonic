@@ -1,7 +1,6 @@
 import { describe, it, expect, emitModule } from "./helpers.js";
 import type { IrModule } from "./helpers.js";
 describe("Statement Emission", () => {
-
   it("maps discriminant guards to original runtime union members after earlier narrowing", () => {
     const module: IrModule = {
       kind: "module",

@@ -9,7 +9,7 @@ import type {
   IrBinaryOperator,
   IrAssignmentOperator,
 } from "./helpers.js";
-import type { IrClassMember } from "./statements.js";
+import type { IrClassMember, IrUnionArmSelection } from "./statements.js";
 import { IrBlockStatement } from "./statements.js";
 import { NumericKind } from "./numeric-kind.js";
 import { SourceLocation } from "../../types/diagnostic.js";
@@ -120,6 +120,8 @@ export type IrObjectExpression = {
   readonly properties: readonly IrObjectProperty[];
   /** Synthesized behavioral members (currently accessors) for object literal lowering. */
   readonly behaviorMembers?: readonly IrClassMember[];
+  /** Authoritative frontend union-arm selection for contextual union targets. */
+  readonly armSelection?: IrUnionArmSelection;
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
   /** Contextual type for object literals in typed positions (return, assignment, etc.) */
@@ -193,6 +195,8 @@ export type IrMemberExpression = {
   readonly isOptional: boolean; // true for obj?.prop
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
+  /** Authoritative frontend union-arm selection for a narrowed receiver. */
+  readonly receiverArmSelection?: IrUnionArmSelection;
   // Opaque handle to the member declaration (from Binding layer)
   readonly memberId?: MemberId;
   // Hierarchical member binding (from bindings manifest)
@@ -239,6 +243,8 @@ export type IrCallExpression = {
   /** Contextual expected return type used during original overload selection. */
   readonly resolutionExpectedReturnType?: IrType;
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
+  /** Authoritative frontend union-arm selection for each argument-to-parameter edge. */
+  readonly argumentArmSelections?: readonly IrUnionArmSelection[];
   /** Parameter types from resolved signature (for expectedType threading to array literals etc.) */
   readonly parameterTypes?: readonly (IrType | undefined)[];
   /** Declared/public parameter surface types for emission; not narrowed per call-site argument. */
@@ -335,11 +341,10 @@ export type IrUnaryExpression = {
   readonly sourceSpan?: SourceLocation;
 };
 
-export type IrInOperatorPlan =
-  {
-    readonly kind: "dictionaryKey";
-    readonly key: string;
-  };
+export type IrInOperatorPlan = {
+  readonly kind: "dictionaryKey";
+  readonly key: string;
+};
 
 export type IrBinaryExpression = {
   readonly kind: "binary";

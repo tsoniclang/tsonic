@@ -27,7 +27,8 @@ import { validateExpression } from "./soundness-gate-expression-validation.js";
 const validateModule = (
   module: IrModule,
   knownReferenceTypes: ReadonlySet<string>,
-  namespaceLocalTypeNames: ReadonlySet<string>
+  namespaceLocalTypeNames: ReadonlySet<string>,
+  options: SoundnessGateOptions
 ): ValidationContext["diagnostics"] => {
   // Extract local and imported type names for reference type validation
   const localTypeNames = extractLocalTypeNames(module.body);
@@ -41,6 +42,7 @@ const validateModule = (
     namespaceLocalTypeNames,
     importedTypeNames,
     knownReferenceTypes,
+    backendCapabilities: options.backendCapabilities,
     typeParameterNames: new Set(), // Will be populated per-scope during validation
     activeTypeValidation: new WeakSet<object>(),
   };
@@ -87,7 +89,8 @@ export const validateIrSoundness = (
     const moduleDiagnostics = validateModule(
       module,
       knownReferenceTypes,
-      namespaceTypeNames.get(module.namespace) ?? new Set<string>()
+      namespaceTypeNames.get(module.namespace) ?? new Set<string>(),
+      options
     );
     allDiagnostics.push(...moduleDiagnostics);
   }

@@ -1,9 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  collectCodes,
-} from "./helpers.js";
+import { describe, it, expect, collectCodes } from "./helpers.js";
 
 describe("Maximus Validation Coverage", () => {
   describe("TSN2001 / TSN3011 end-to-end feature gating", () => {

@@ -339,20 +339,26 @@ describe("IR Builder", function () {
         expect(branch).to.not.equal(undefined);
         if (!branch) return;
 
-        expect(branch.thenNarrowings?.[0]?.bindingKey).to.equal("value");
-        expect(branch.thenNarrowings?.[0]?.targetType).to.deep.equal({
+        expect(branch.thenPlan.narrowedBindings[0]?.bindingKey).to.equal(
+          "value"
+        );
+        expect(branch.thenPlan.narrowedBindings[0]?.targetType).to.deep.equal({
           kind: "primitiveType",
           name: "string",
         });
-        expect(branch.elseNarrowings?.[0]?.bindingKey).to.equal("value");
-        expect(branch.elseNarrowings?.[0]?.targetType.kind).to.equal(
+        expect(branch.elsePlan.narrowedBindings[0]?.bindingKey).to.equal(
+          "value"
+        );
+        expect(branch.elsePlan.narrowedBindings[0]?.targetType.kind).to.equal(
           "unionType"
         );
-        if (branch.elseNarrowings?.[0]?.targetType.kind !== "unionType") {
+        if (
+          branch.elsePlan.narrowedBindings[0]?.targetType.kind !== "unionType"
+        ) {
           return;
         }
         expect(
-          branch.elseNarrowings[0].targetType.types.some(
+          branch.elsePlan.narrowedBindings[0].targetType.types.some(
             (type) => type.kind === "primitiveType" && type.name === "string"
           )
         ).to.equal(false);

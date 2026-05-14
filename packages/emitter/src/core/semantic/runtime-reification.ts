@@ -777,7 +777,11 @@ export const tryBuildRuntimeMaterializationAst = (
           concreteTargetTypeKey
         );
       })() ||
-      findRuntimeUnionMemberIndex([member], materializationTargetType, nextContext) === 0)
+      findRuntimeUnionMemberIndex(
+        [member],
+        materializationTargetType,
+        nextContext
+      ) === 0)
       ? [index]
       : []
   );

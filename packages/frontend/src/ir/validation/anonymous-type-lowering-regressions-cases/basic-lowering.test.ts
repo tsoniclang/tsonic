@@ -54,6 +54,35 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
     );
   });
 
+  it("lowers branch-plan narrowed binding types for inline object unions", () => {
+    const module = createTestModule(`
+      type TlsOptions = {
+        readonly allowHalfOpen?: boolean;
+      };
+
+      export function run(
+        optionsOrListener?: TlsOptions | (() => void),
+      ): boolean {
+        if (typeof optionsOrListener === "function") {
+          return false;
+        }
+
+        if (optionsOrListener !== undefined) {
+          return optionsOrListener.allowHalfOpen ?? false;
+        }
+
+        return false;
+      }
+    `);
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const soundness = validateIrSoundness(lowered.modules);
+
+    expect(soundness.diagnostics.some((d) => d.code === "TSN7421")).to.equal(
+      false
+    );
+  });
+
   it("retains anonymous carriers for object literals used only through inferred object metadata", () => {
     const module = createTestModule(`
       const doubledKey = "doubled";

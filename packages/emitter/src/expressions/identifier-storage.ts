@@ -321,7 +321,9 @@ export const tryEmitRuntimeSubsetMemberProjectionIdentifier = (
     expectedType,
     sourceMemberContext
   );
-  if (stableTypeKeyFromAst(sourceMemberAst) !== stableTypeKeyFromAst(expectedAst)) {
+  if (
+    stableTypeKeyFromAst(sourceMemberAst) !== stableTypeKeyFromAst(expectedAst)
+  ) {
     return undefined;
   }
 

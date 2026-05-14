@@ -2,6 +2,10 @@ import type { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { normalizeRuntimeStorageType } from "../semantic/storage-types.js";
+import {
+  semanticType as toSemanticType,
+  storageCarrier as toStorageCarrier,
+} from "../semantic/type-domains.js";
 
 export type AllocatedLocalName = {
   readonly originalName: string;
@@ -87,14 +91,14 @@ export const registerLocalSymbolTypes = (
   // outer binding for this name rather than letting it bleed through.
   const nextSemantic = new Map(context.localSemanticTypes ?? []);
   if (semanticType) {
-    nextSemantic.set(originalName, semanticType);
+    nextSemantic.set(originalName, toSemanticType(semanticType));
   } else {
     nextSemantic.delete(originalName);
   }
 
   const nextStorage = new Map(context.localValueTypes ?? []);
   if (storageType) {
-    nextStorage.set(originalName, storageType);
+    nextStorage.set(originalName, toStorageCarrier(storageType));
   } else {
     nextStorage.delete(originalName);
   }

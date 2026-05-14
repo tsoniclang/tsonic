@@ -13,7 +13,10 @@ import {
   stripNullish,
   resolveArrayLikeReceiverType,
 } from "../core/semantic/type-resolution.js";
-import { nullLiteral, nullableType } from "../core/format/backend-ast/builders.js";
+import {
+  nullLiteral,
+  nullableType,
+} from "../core/format/backend-ast/builders.js";
 import {
   clrTypeNameToTypeAst,
   sameConcreteTypeAstSurface,
@@ -133,8 +136,7 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
     : undefined;
   const declaredReceiverType =
     expr.object.kind === "identifier"
-      ? (context.localSemanticTypes?.get(expr.object.name) ??
-        context.localValueTypes?.get(expr.object.name))
+      ? context.localSemanticTypes?.get(expr.object.name)
       : undefined;
 
   if (

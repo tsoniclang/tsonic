@@ -45,10 +45,7 @@ import {
   chooseComparisonExpectedType,
   buildNullishComparisonContext,
 } from "./binary-helpers.js";
-import {
-  emitInstanceof,
-  emitTypeofComparison,
-} from "./binary-special-ops.js";
+import { emitInstanceof, emitTypeofComparison } from "./binary-special-ops.js";
 import { emitRuntimeUnionLiteralComparison } from "./binary-runtime-union-comparison.js";
 import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";

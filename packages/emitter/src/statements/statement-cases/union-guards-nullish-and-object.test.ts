@@ -1,7 +1,6 @@
 import { describe, it, expect, emitModule } from "./helpers.js";
 import type { IrModule, IrType } from "./helpers.js";
 describe("Statement Emission", () => {
-
   it("casts runtime unions to object for direct nullish comparisons", () => {
     const valueType: IrType = {
       kind: "unionType",

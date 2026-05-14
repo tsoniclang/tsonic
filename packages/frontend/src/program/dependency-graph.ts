@@ -7,7 +7,7 @@ import * as ts from "typescript";
 import { dirname, isAbsolute, relative, resolve } from "path";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
-import { IrModule } from "../ir/types.js";
+import type { EmittableIrModule } from "../ir/types.js";
 import { buildIr } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import type { CompilerOptions } from "./types.js";
@@ -37,8 +37,8 @@ import { readSourcePackageMetadata } from "./source-package-metadata.js";
 import { runIrProcessingPipeline } from "./ir-processing-pipeline.js";
 
 export type ModuleDependencyGraphResult = {
-  readonly modules: readonly IrModule[];
-  readonly entryModule: IrModule;
+  readonly modules: readonly EmittableIrModule[];
+  readonly entryModule: EmittableIrModule;
   readonly surfaceCapabilities: SurfaceCapabilities;
   /** Type bindings loaded from CLR packages (for emitter bindingsRegistry) */
   readonly bindings: ReadonlyMap<string, TypeBinding>;
@@ -505,19 +505,19 @@ export const buildModuleDependencyGraph = (
               )
             : declarationAlias.targetSpecifier === "." ||
                 declarationAlias.targetSpecifier.startsWith("./")
-            ? resolveSourcePackageAliasTarget(
-                declarationAlias.targetSpecifier,
-                dirname(declarationAlias.declarationFile),
-                options.surface,
-                options.projectRoot
-              )
-            : resolveSourcePackageImportWithAuthoritativeRoots(
-                declarationAlias.targetSpecifier,
-                currentFile,
-                options.surface,
-                options.projectRoot,
-                authoritativeSourcePackageRoots
-              );
+              ? resolveSourcePackageAliasTarget(
+                  declarationAlias.targetSpecifier,
+                  dirname(declarationAlias.declarationFile),
+                  options.surface,
+                  options.projectRoot
+                )
+              : resolveSourcePackageImportWithAuthoritativeRoots(
+                  declarationAlias.targetSpecifier,
+                  currentFile,
+                  options.surface,
+                  options.projectRoot,
+                  authoritativeSourcePackageRoots
+                );
         if (!redirectedSourcePackage.ok) {
           diagnostics.push({
             ...redirectedSourcePackage.error,
@@ -585,7 +585,6 @@ export const buildModuleDependencyGraph = (
         continue;
       }
     }
-
   }
   // If any diagnostics from discovery, fail the build
   if (diagnostics.length > 0) {
@@ -651,10 +650,15 @@ export const buildModuleDependencyGraph = (
     return error(irResult.error);
   }
 
-  const processedResult = runIrProcessingPipeline([...irResult.value], tsonicProgram, {
-    sourceRoot: sourceRootAbs,
-    rootNamespace: options.rootNamespace,
-  });
+  const processedResult = runIrProcessingPipeline(
+    [...irResult.value],
+    tsonicProgram,
+    {
+      sourceRoot: sourceRootAbs,
+      rootNamespace: options.rootNamespace,
+      backendCapabilities: options.backendCapabilities,
+    }
+  );
   if (!processedResult.ok) {
     return error(processedResult.error);
   }
@@ -685,7 +689,8 @@ export const buildModuleDependencyGraph = (
   return ok({
     modules: processedModules,
     entryModule,
-    surfaceCapabilities: tsonicProgram.surfaceCapabilities ?? surfaceCapabilities,
+    surfaceCapabilities:
+      tsonicProgram.surfaceCapabilities ?? surfaceCapabilities,
     bindings: tsonicProgram.bindings.getEmitterTypeMap(),
     bindingRegistry: tsonicProgram.bindings,
   });

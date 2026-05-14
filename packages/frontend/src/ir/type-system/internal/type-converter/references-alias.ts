@@ -166,6 +166,7 @@ const buildSourceObjectAliasReference = (
   return {
     ...referenceBase,
     structuralMembers: substitutedBody.members,
+    structuralOrigin: "namedReference",
   };
 };
 

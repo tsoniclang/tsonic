@@ -263,6 +263,14 @@ export const lowerType = (
       }
 
       if (hasStructuralMembers) {
+        if (enrichedLoweredReference.structuralOrigin === undefined) {
+          (
+            enrichedLoweredReference as IrReferenceType & {
+              structuralOrigin?: "namedReference" | "compilerOwnedStructural";
+            }
+          ).structuralOrigin =
+            type.structuralOrigin ?? "compilerOwnedStructural";
+        }
         (
           enrichedLoweredReference as IrReferenceType & {
             structuralMembers?: readonly IrInterfaceMember[];

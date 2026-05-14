@@ -1,7 +1,6 @@
 import { describe, it, expect, emitModule } from "./helpers.js";
 import type { IrModule, IrType } from "./helpers.js";
 describe("Statement Emission", () => {
-
   it("maps discriminant guards through transparent assertion wrappers after earlier narrowing", () => {
     const shape0: IrType = { kind: "referenceType", name: "Shape__0" };
     const shape1: IrType = { kind: "referenceType", name: "Shape__1" };

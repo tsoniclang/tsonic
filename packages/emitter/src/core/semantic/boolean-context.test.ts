@@ -3,7 +3,11 @@ import { expect } from "chai";
 import { toBooleanConditionAst } from "./boolean-context.js";
 import { printExpression } from "../format/backend-ast/printer.js";
 import type { IrExpression, IrType } from "@tsonic/frontend";
-import type { EmitterContext, EmitterOptions } from "../../types.js";
+import {
+  storageCarrierMap,
+  type EmitterContext,
+  type EmitterOptions,
+} from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 
 const defaultOptions: EmitterOptions = {
@@ -268,7 +272,7 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
 
       const ctx = createContext({
         tempVarId: 0,
-        localValueTypes: new Map([["dict", broadType]]),
+        localValueTypes: storageCarrierMap([["dict", broadType]]),
       });
       const expr = id("dict", broadType);
 

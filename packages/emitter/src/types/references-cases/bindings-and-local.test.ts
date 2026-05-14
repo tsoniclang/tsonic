@@ -4,6 +4,7 @@ import {
   emitCSharpFiles,
   emitModule,
   expect,
+  assumeEmittableIrModule,
   it,
 } from "./helpers.js";
 import type { FrontendTypeBinding, IrModule } from "./helpers.js";
@@ -213,9 +214,10 @@ describe("Reference Type Emission", () => {
         ],
       });
 
-      const result = emitCSharpFiles([externalModule, localModule], {
-        rootNamespace: "Test",
-      });
+      const result = emitCSharpFiles(
+        [externalModule, localModule].map(assumeEmittableIrModule),
+        { rootNamespace: "Test" }
+      );
 
       expect(result.ok).to.equal(true);
       if (!result.ok) {

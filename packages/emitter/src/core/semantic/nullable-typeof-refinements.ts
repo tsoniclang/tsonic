@@ -1,6 +1,10 @@
 /** Nullable and closed-carrier narrowing refinements. */
 
-import { IrExpression, normalizedUnionType, type IrType } from "@tsonic/frontend";
+import {
+  IrExpression,
+  normalizedUnionType,
+  type IrType,
+} from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
@@ -323,14 +327,14 @@ export const applyTruthinessNullishRefinement = (
 
   return applyBinding(
     bindingKey,
-      buildExprBinding(
-        tightenedExprAst,
-        strippedType,
-        bindingSourceType,
-        tightenedExprAst,
-        strippedType,
-        carrierExprAst,
-        carrierType
+    buildExprBinding(
+      tightenedExprAst,
+      strippedType,
+      bindingSourceType,
+      tightenedExprAst,
+      strippedType,
+      carrierExprAst,
+      carrierType
     ),
     projectedTargetContext
   );
@@ -515,13 +519,13 @@ export const applySimpleNullableRefinement = (
 
   return applyBinding(
     nullableGuard.key,
-      buildExprBinding(
-        materializedExprAst,
-        strippedType,
-        bindingSourceType,
-        storageCompatibleExprAst,
-        storageCompatibleType,
-        carrierExprAst,
+    buildExprBinding(
+      materializedExprAst,
+      strippedType,
+      bindingSourceType,
+      storageCompatibleExprAst,
+      storageCompatibleType,
+      carrierExprAst,
       carrierType
     ),
     materializedContext

@@ -29,6 +29,10 @@ export type {
   IrExpressionStatement,
   IrReturnStatement,
   IrBranchNarrowing,
+  IrUnionArmSelection,
+  IrGuardPolarity,
+  IrIfGuardShape,
+  IrIfBranchPlan,
   IrIfStatement,
   IrWhileStatement,
   IrForStatement,
@@ -46,10 +50,17 @@ export type {
   IrYieldStatement,
   IrGeneratorReturnStatement,
 } from "./statements.js";
+export {
+  createOpaqueIfGuardShape,
+  createIfBranchPlan,
+  createOpaqueIfBranchPlan,
+  invertIfGuardShape,
+} from "./if-branch-plan.js";
 
 export type {
   IrOverloadOwnerKind,
   IrOverloadFamilyMember,
+  IrOverloadFamily,
 } from "./overload-family.js";
 export { getIrMemberPublicName } from "./overload-family.js";
 
@@ -144,6 +155,28 @@ export type {
   NumericTypeFact,
   PrimitiveTypeFact,
 } from "./numeric-kind.js";
+export type {
+  IrPhase,
+  PhasedIrModule,
+  PhasedIrStatement,
+  PhasedIrExpression,
+  PhasedIrType,
+  NormalizedIrModule,
+  SoundnessValidatedIrModule,
+  NumericProvedIrModule,
+  CallResolutionRefreshedIrModule,
+  EmittableIrModule,
+  ValidatedIrExpression,
+  EmittableIrExpression,
+  ValidatedIrType,
+  EmittableIrType,
+} from "./phases.js";
+export {
+  assumeIrPhase,
+  assumeIrModulesPhase,
+  assumeEmittableIrModule,
+  assumeEmittableIrModules,
+} from "./phases.js";
 export {
   TSONIC_TO_NUMERIC_KIND,
   NUMERIC_KIND_TO_CSHARP,

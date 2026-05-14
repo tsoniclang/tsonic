@@ -230,13 +230,92 @@ export type IrBranchNarrowing = {
   readonly targetType: IrType;
 };
 
+export type IrUnionArmSelection =
+  | {
+      readonly kind: "exact";
+      readonly armIndex: number;
+    }
+  | {
+      readonly kind: "ambiguous";
+      readonly candidates: readonly number[];
+      readonly reason?: string;
+    }
+  | {
+      readonly kind: "noMatch";
+      readonly reason?: string;
+    }
+  | {
+      readonly kind: "unsupported";
+      readonly reason: string;
+    };
+
+export type IrGuardPolarity = "truthy" | "falsy";
+
+export type IrIfGuardShape =
+  | {
+      readonly kind: "typeofGuard";
+      readonly target: IrExpression;
+      readonly tag: string;
+      readonly polarity: IrGuardPolarity;
+      readonly armSelection?: IrUnionArmSelection;
+    }
+  | {
+      readonly kind: "instanceofGuard";
+      readonly target: IrExpression;
+      readonly typeExpression: IrExpression;
+      readonly polarity: IrGuardPolarity;
+      readonly armSelection?: IrUnionArmSelection;
+    }
+  | {
+      readonly kind: "arrayIsArrayGuard";
+      readonly target: IrExpression;
+      readonly polarity: IrGuardPolarity;
+      readonly armSelection?: IrUnionArmSelection;
+    }
+  | {
+      readonly kind: "discriminantEquality";
+      readonly target: IrExpression;
+      readonly property: string;
+      readonly value: string | number | boolean | null | undefined;
+      readonly polarity: IrGuardPolarity;
+      readonly armSelection?: IrUnionArmSelection;
+    }
+  | {
+      readonly kind: "propertyTruthiness";
+      readonly target: IrExpression;
+      readonly property: string;
+      readonly polarity: IrGuardPolarity;
+      readonly armSelection?: IrUnionArmSelection;
+    }
+  | {
+      readonly kind: "nullableGuard";
+      readonly target: IrExpression;
+      readonly polarity: IrGuardPolarity;
+    }
+  | {
+      readonly kind: "compound";
+      readonly operator: "&&" | "||";
+      readonly left: IrIfGuardShape;
+      readonly right: IrIfGuardShape;
+      readonly polarity: IrGuardPolarity;
+    }
+  | {
+      readonly kind: "opaqueBoolean";
+      readonly polarity: IrGuardPolarity;
+    };
+
+export type IrIfBranchPlan = {
+  readonly guardShape: IrIfGuardShape;
+  readonly narrowedBindings: readonly IrBranchNarrowing[];
+};
+
 export type IrIfStatement = {
   readonly kind: "ifStatement";
   readonly condition: IrExpression;
   readonly thenStatement: IrStatement;
   readonly elseStatement?: IrStatement;
-  readonly thenNarrowings?: readonly IrBranchNarrowing[];
-  readonly elseNarrowings?: readonly IrBranchNarrowing[];
+  readonly thenPlan: IrIfBranchPlan;
+  readonly elsePlan: IrIfBranchPlan;
 };
 
 export type IrWhileStatement = {

@@ -177,7 +177,7 @@ export const emitIdentifier = (
             identifierExpression(
               context.localNameMap?.get(expr.name) ??
                 escapeCSharpIdentifier(expr.name)
-          );
+            );
           return [originalCarrier, sourceCarrierContext];
         }
 

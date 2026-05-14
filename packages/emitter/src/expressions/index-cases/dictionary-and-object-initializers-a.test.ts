@@ -513,7 +513,9 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include("dict.Keys");
-    expect(result).not.to.include("new global::System.Collections.Generic.List");
+    expect(result).not.to.include(
+      "new global::System.Collections.Generic.List"
+    );
     expect(result).not.to.include(".ToArray()");
   });
 
@@ -561,7 +563,9 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include("dict.Values");
-    expect(result).not.to.include("new global::System.Collections.Generic.List");
+    expect(result).not.to.include(
+      "new global::System.Collections.Generic.List"
+    );
     expect(result).not.to.include(".ToArray()");
   });
 });

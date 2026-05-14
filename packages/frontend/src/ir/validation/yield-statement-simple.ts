@@ -5,6 +5,7 @@
  * block statements, if statements, and while statements.
  */
 import { IrStatement, IrExpression } from "../types.js";
+import { createIfBranchPlans } from "../converters/statements/control/if-branch-plan.js";
 import {
   type LoweringContext,
   containsYield,
@@ -326,6 +327,11 @@ export const processIfStatement = (
           : undefined,
       };
     }
+    const branchPlans = createIfBranchPlans(
+      loweredCondition.expression,
+      stmt.thenPlan.narrowedBindings,
+      stmt.elsePlan.narrowedBindings
+    );
     return [
       ...loweredCondition.prelude,
       {
@@ -337,6 +343,8 @@ export const processIfStatement = (
         elseStatement: stmt.elseStatement
           ? flattenStatement(processStatement(stmt.elseStatement, ctx))
           : undefined,
+        thenPlan: branchPlans.thenPlan,
+        elsePlan: branchPlans.elsePlan,
       },
     ];
   }
@@ -373,16 +381,20 @@ export const processWhileStatement = (
       };
     }
     const transformedBody = flattenStatement(processStatement(stmt.body, ctx));
+    const breakCondition: IrExpression = {
+      kind: "unary",
+      operator: "!",
+      expression: loweredCondition.expression,
+    };
+    const breakPlans = createIfBranchPlans(breakCondition);
     const bodyStatements: IrStatement[] = [
       ...loweredCondition.prelude,
       {
         kind: "ifStatement",
-        condition: {
-          kind: "unary",
-          operator: "!",
-          expression: loweredCondition.expression,
-        },
+        condition: breakCondition,
         thenStatement: { kind: "breakStatement" },
+        thenPlan: breakPlans.thenPlan,
+        elsePlan: breakPlans.elsePlan,
       },
     ];
     if (transformedBody.kind === "blockStatement") {

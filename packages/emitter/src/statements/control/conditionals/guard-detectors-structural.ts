@@ -29,10 +29,7 @@ import {
 import { normalizeInstanceofTargetType } from "../../../core/semantic/instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
 import { buildSubsetUnionType } from "./branch-context.js";
-import type {
-  GuardInfo,
-  InstanceofGuardInfo,
-} from "./guard-types.js";
+import type { GuardInfo, InstanceofGuardInfo } from "./guard-types.js";
 import {
   resolveGuardRuntimeUnionFrame,
   buildRenameNarrowedMap,
@@ -302,10 +299,7 @@ export const tryResolveInstanceofGuard = (
   if (rhsAst.kind === "typeReferenceExpression") {
     rhsTypeAst = rhsAst.type;
   } else if (inferredRhsType) {
-    const [emittedTypeAst, nextCtx] = emitTypeAst(
-      inferredRhsType,
-      ctxAfterRhs
-    );
+    const [emittedTypeAst, nextCtx] = emitTypeAst(inferredRhsType, ctxAfterRhs);
     rhsTypeAst = emittedTypeAst;
     ctxAfterRhs = preserveIncomingNarrowedBindings(context, nextCtx);
   }

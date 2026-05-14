@@ -66,19 +66,14 @@ const tryResolveIdentifierExpressionType = (
   identifier: string,
   context: EmitterContext
 ): IrType | undefined => {
-  const direct =
-    context.localSemanticTypes?.get(identifier) ??
-    context.localValueTypes?.get(identifier);
+  const direct = context.localSemanticTypes?.get(identifier);
   if (direct) {
     return direct;
   }
 
   for (const [sourceName, emittedName] of context.localNameMap ?? []) {
     if (emittedName === identifier) {
-      return (
-        context.localSemanticTypes?.get(sourceName) ??
-        context.localValueTypes?.get(sourceName)
-      );
+      return context.localSemanticTypes?.get(sourceName);
     }
   }
 
@@ -159,16 +154,15 @@ const runtimeCarrierFamilyForType = (
     return undefined;
   }
 
-  const orderedKeys = resolved.runtimeUnionLayout === "carrierSlotOrder"
-    ? memberKeys
-    : [...memberKeys].sort();
+  const orderedKeys =
+    resolved.runtimeUnionLayout === "carrierSlotOrder"
+      ? memberKeys
+      : [...memberKeys].sort();
   return `runtime-union:${
     resolved.runtimeUnionLayout === "carrierSlotOrder"
       ? "carrier-slots"
       : "canonical"
-  }:${orderedKeys.join(
-    "|"
-  )}`;
+  }:${orderedKeys.join("|")}`;
 };
 
 const projectionCarrierTypesMatch = (
@@ -241,10 +235,11 @@ const resolveSingleMatchingSourceMemberN = (
     return undefined;
   }
 
-  const matchingMemberNs = resolvedSource.types.flatMap((sourceMember, index) =>
-    sourceMemberMatchesNarrowedType(sourceMember, narrowedType, context)
-      ? [index + 1]
-      : []
+  const matchingMemberNs = resolvedSource.types.flatMap(
+    (sourceMember, index) =>
+      sourceMemberMatchesNarrowedType(sourceMember, narrowedType, context)
+        ? [index + 1]
+        : []
   );
 
   return matchingMemberNs.length === 1 ? matchingMemberNs[0] : undefined;
@@ -499,8 +494,7 @@ export const resolveRuntimeSubsetMemberNs = (
   const sourceType =
     narrowed.sourceType ??
     (expr.kind === "identifier"
-      ? context.localSemanticTypes?.get(expr.name) ??
-        context.localValueTypes?.get(expr.name)
+      ? context.localSemanticTypes?.get(expr.name)
       : undefined) ??
     expr.inferredType;
   const matchingSourceMemberN = resolveSingleMatchingSourceMemberN(
@@ -708,8 +702,5 @@ export const resolveEffectiveExpressionType = (
     }
   }
 
-  return maybeWrapOptionalMemberAccessType(
-    expr,
-    identifierSemanticType
-  );
+  return maybeWrapOptionalMemberAccessType(expr, identifierSemanticType);
 };

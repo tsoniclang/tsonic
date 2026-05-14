@@ -1,7 +1,7 @@
 /** Property-truthiness, discriminant-equality, and negated-predicate union-narrowing guard emission. */
 
 import { IrStatement } from "@tsonic/frontend";
-import { EmitterContext } from "../../../types.js";
+import { EmitterContext, storageCarrier } from "../../../types.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
@@ -547,9 +547,12 @@ export const tryEmitNegatedPredicateGuard = (
       otherMemberN
     );
     const thenLocalValueTypes = new Map(thenCtxWithId.localValueTypes ?? []);
-    thenLocalValueTypes.set(thenNarrowedName, otherMemberType);
+    thenLocalValueTypes.set(thenNarrowedName, storageCarrier(otherMemberType));
     if (escapedThenNarrow !== thenNarrowedName) {
-      thenLocalValueTypes.set(escapedThenNarrow, otherMemberType);
+      thenLocalValueTypes.set(
+        escapedThenNarrow,
+        storageCarrier(otherMemberType)
+      );
     }
 
     const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(

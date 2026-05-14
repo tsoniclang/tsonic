@@ -556,5 +556,4 @@ describe("Dependency Graph", function () {
       fixture.cleanup();
     }
   });
-
 });

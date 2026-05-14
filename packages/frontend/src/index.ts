@@ -25,6 +25,7 @@ export * from "./validator.js";
 export * from "./symbol-table.js";
 export * from "./dependency-graph.js";
 export * from "./surface/profiles.js";
+export * from "./capabilities/backend-capabilities.js";
 export * from "./ir/index.js";
 export * from "./ir/validation/index.js";
 export * from "./dotnet-metadata.js";

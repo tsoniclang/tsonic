@@ -213,7 +213,10 @@ export const emitObject = (
   const safeTypeAst: CSharpTypeAst =
     typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
-  if (safeTypeAst.kind === "predefinedType" && safeTypeAst.keyword === "object") {
+  if (
+    safeTypeAst.kind === "predefinedType" &&
+    safeTypeAst.keyword === "object"
+  ) {
     throw new Error(
       `ICE: Object literal reached emitter with broad object context at ${describeObjectLiteralSource(expr)} - validation missed TSN7403`
     );

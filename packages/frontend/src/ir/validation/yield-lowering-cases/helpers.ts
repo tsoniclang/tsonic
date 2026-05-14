@@ -13,6 +13,7 @@ import {
   IrBlockStatement,
   IrYieldStatement,
 } from "../../types.js";
+import { createIfBranchPlans } from "../../converters/statements/control/if-branch-plan.js";
 
 export { describe, it, expect, runYieldLoweringPass };
 export type {
@@ -37,11 +38,78 @@ export const assertDefined = <T>(
   return value;
 };
 
+const normalizeTestBlock = (block: IrBlockStatement): IrBlockStatement => ({
+  ...block,
+  statements: block.statements.map(normalizeTestStatement),
+});
+
+const normalizeTestStatement = (statement: unknown): IrStatement => {
+  const stmt = statement as IrStatement;
+
+  switch (stmt.kind) {
+    case "blockStatement":
+      return normalizeTestBlock(stmt);
+    case "ifStatement": {
+      const branchPlans =
+        stmt.thenPlan && stmt.elsePlan
+          ? { thenPlan: stmt.thenPlan, elsePlan: stmt.elsePlan }
+          : createIfBranchPlans(stmt.condition);
+      return {
+        ...stmt,
+        thenStatement: normalizeTestStatement(stmt.thenStatement),
+        ...(stmt.elseStatement
+          ? { elseStatement: normalizeTestStatement(stmt.elseStatement) }
+          : {}),
+        ...branchPlans,
+      };
+    }
+    case "whileStatement":
+      return { ...stmt, body: normalizeTestStatement(stmt.body) };
+    case "forStatement":
+      return { ...stmt, body: normalizeTestStatement(stmt.body) };
+    case "forOfStatement":
+    case "forInStatement":
+      return { ...stmt, body: normalizeTestStatement(stmt.body) };
+    case "switchStatement":
+      return {
+        ...stmt,
+        cases: stmt.cases.map((switchCase) => ({
+          ...switchCase,
+          statements: switchCase.statements.map(normalizeTestStatement),
+        })),
+      };
+    case "tryStatement":
+      return {
+        ...stmt,
+        tryBlock: normalizeTestStatement(stmt.tryBlock) as IrBlockStatement,
+        ...(stmt.catchClause
+          ? {
+              catchClause: {
+                ...stmt.catchClause,
+                body: normalizeTestStatement(
+                  stmt.catchClause.body
+                ) as IrBlockStatement,
+              },
+            }
+          : {}),
+        ...(stmt.finallyBlock
+          ? {
+              finallyBlock: normalizeTestStatement(
+                stmt.finallyBlock
+              ) as IrBlockStatement,
+            }
+          : {}),
+      };
+    default:
+      return stmt;
+  }
+};
+
 /**
  * Helper to create a minimal generator function module
  */
 export const createGeneratorModule = (
-  body: IrStatement[],
+  body: readonly unknown[],
   options: {
     isGenerator?: boolean;
     returnType?: IrModule["body"][0] extends { returnType?: infer R }
@@ -69,7 +137,10 @@ export const createGeneratorModule = (
           { kind: "primitiveType", name: "number" },
         ],
       },
-      body: { kind: "blockStatement", statements: body },
+      body: {
+        kind: "blockStatement",
+        statements: body.map(normalizeTestStatement),
+      },
       isAsync: false,
       isGenerator: options.isGenerator ?? true,
       isExported: true,

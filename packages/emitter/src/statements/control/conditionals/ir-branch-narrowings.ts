@@ -10,7 +10,9 @@ const shouldPreserveExistingNarrowing = (
   context: EmitterContext,
   narrowing: IrBranchNarrowing
 ): boolean => {
-  const existingType = context.narrowedBindings?.get(narrowing.bindingKey)?.type;
+  const existingType = context.narrowedBindings?.get(
+    narrowing.bindingKey
+  )?.type;
   return (
     existingType !== undefined &&
     isAssignableToType(existingType, narrowing.targetType, context)
