@@ -29,6 +29,7 @@ import {
 } from "../../../core/semantic/guard-primitives.js";
 import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
 import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
+import { areIrTypesEquivalent } from "../../../core/semantic/type-equivalence.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -138,6 +139,22 @@ export type PropertyTruthinessGuardInfo = {
   readonly narrowedMap: Map<string, NarrowedBinding>;
 };
 
+export type PropertyExistenceGuardInfo = {
+  readonly originalName: string;
+  readonly propertyName: string;
+  readonly wantPresent: boolean;
+  readonly memberN: number;
+  readonly unionArity: number;
+  readonly runtimeUnionArity: number;
+  readonly candidateMemberNs: readonly number[];
+  readonly candidateMembers: readonly IrType[];
+  readonly ctxWithId: EmitterContext;
+  readonly narrowedName: string;
+  readonly escapedOrig: string;
+  readonly escapedNarrow: string;
+  readonly narrowedMap: Map<string, NarrowedBinding>;
+};
+
 export type RuntimeUnionFrame = NarrowedUnionMembers;
 
 /**
@@ -150,6 +167,7 @@ export type NullableGuardInfo = {
     IrExpression,
     { kind: "identifier" | "memberAccess" }
   >;
+  readonly sourceType: IrType;
   readonly strippedType: IrType;
   readonly narrowsInThen: boolean; // true for !== null, false for === null
   readonly isValueType: boolean;
@@ -436,8 +454,31 @@ export const tryResolveSimpleNullableGuard = (
 
   if (!key) return undefined;
 
-  const idType =
+  const semanticType =
+    operand.kind === "identifier"
+      ? context.localSemanticTypes?.get(operand.name)
+      : undefined;
+  const storageType =
+    operand.kind === "identifier"
+      ? context.localValueTypes?.get(operand.name)
+      : undefined;
+  const effectiveType =
     resolveEffectiveExpressionType(operand, context) ?? operand.inferredType;
+  const idType = (() => {
+    const semanticOrStorageType = semanticType ?? storageType;
+    if (!semanticOrStorageType) {
+      return effectiveType;
+    }
+
+    const localStripped = stripNullish(semanticOrStorageType);
+    const effectiveStripped = effectiveType
+      ? stripNullish(effectiveType)
+      : undefined;
+    return !effectiveStripped ||
+      areIrTypesEquivalent(localStripped, effectiveStripped, context)
+      ? semanticOrStorageType
+      : effectiveType;
+  })();
   if (!idType) return undefined;
 
   // Check if type is nullable (has null or undefined in union)
@@ -450,6 +491,7 @@ export const tryResolveSimpleNullableGuard = (
   return {
     key,
     targetExpr: operand,
+    sourceType: idType,
     strippedType: stripped,
     narrowsInThen: isNotEqual,
     isValueType,

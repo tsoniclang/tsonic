@@ -199,7 +199,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("rejects broad JSON.parse values even when later narrowed by user guards", () => {
+  it("builds dynamic JSON.parse values when narrowed through JsValue guards", () => {
     const dir = mkdtempSync(
       join(tmpdir(), "tsonic-build-json-object-entries-")
     );
@@ -253,7 +253,9 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
-          "const isObject = (value: unknown): value is Record<string, unknown> => {",
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
+          "const isObject = (value: JsValue): value is Record<string, JsValue> => {",
           '  return value !== null && typeof value === "object" && !Array.isArray(value);',
           "};",
           "",
@@ -290,12 +292,14 @@ describe("build command (native library port regressions)", function () {
       );
 
       const result = buildCommand(config);
-      expect(result.ok).to.equal(false);
-      if (result.ok) {
-        throw new Error("Expected build to fail for broad JSON.parse");
+      if (!result.ok) {
+        throw new Error(result.error);
       }
-      expect(result.error).to.include("TSN5001");
-      expect(result.error).to.include("JSON.parse requires a closed");
+      expect(result.ok).to.equal(true);
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.include("global::Tsonic.Runtime.JSON.parse<object>");
+      expect(tree).to.not.include("JsonSerializer.Deserialize<object>");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

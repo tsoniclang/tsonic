@@ -130,6 +130,13 @@ export type ProgramContext = {
   readonly typeEnv?: ReadonlyMap<number, IrType>;
 
   /**
+   * Declaration ids for mutable numeric locals whose integer literal initializer
+   * must be widened to JavaScript `number` because later deterministic writes
+   * assign a non-integral number source.
+   */
+  readonly mutableNumericLiteralWideningDeclIds?: ReadonlySet<number>;
+
+  /**
    * Lexical flow environment for property / access-path narrowings.
    *
    * Keyed by a stable serialized access path (e.g. `decl:42.foo` or `this.bar`)

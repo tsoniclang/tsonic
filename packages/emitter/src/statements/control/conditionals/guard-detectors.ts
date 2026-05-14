@@ -9,6 +9,7 @@
 
 export {
   tryResolveDiscriminantEqualityGuard,
+  tryResolvePropertyExistenceGuard,
   tryResolvePropertyTruthinessGuard,
 } from "./guard-detectors-discriminant.js";
 

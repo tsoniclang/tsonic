@@ -425,6 +425,8 @@ export const isExactExpressionToType = (
   ast: CSharpExpressionAst,
   targetType: CSharpTypeAst
 ): boolean =>
+  (ast.kind === "parenthesizedExpression" &&
+    isExactExpressionToType(ast.expression, targetType)) ||
   isThrowExpressionToType(ast) ||
   isExactObjectCreationToType(ast, targetType) ||
   isExactCastToType(ast, targetType) ||

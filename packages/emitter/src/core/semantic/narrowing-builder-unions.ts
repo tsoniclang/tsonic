@@ -17,8 +17,10 @@ import { identifierExpression } from "../format/backend-ast/builders.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import {
+  isDefinitelyValueType,
   splitRuntimeNullishUnionMembers,
   resolveTypeAlias,
+  stripNullish,
   unionMemberMatchesTarget,
 } from "./type-resolution.js";
 import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
@@ -48,6 +50,47 @@ import {
   resolveRuntimeUnionFrame,
 } from "./narrowing-builder-core.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
+
+const getNullableValueStorageProjectionSourceType = (
+  targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
+  narrowedType: IrType,
+  context: EmitterContext
+): IrType | undefined => {
+  if (targetExpr.kind !== "identifier") {
+    return undefined;
+  }
+
+  const storageType =
+    context.localValueTypes?.get(targetExpr.name) ??
+    context.localSemanticTypes?.get(targetExpr.name);
+  const storageSplit = storageType
+    ? splitRuntimeNullishUnionMembers(storageType)
+    : undefined;
+  if (
+    !storageSplit?.hasRuntimeNullish ||
+    storageSplit.nonNullishMembers.length !== 1
+  ) {
+    return undefined;
+  }
+
+  const [storageBase] = storageSplit.nonNullishMembers;
+  if (!storageBase) {
+    return undefined;
+  }
+
+  const resolvedStorageBase = resolveTypeAlias(
+    stripNullish(storageBase),
+    context
+  );
+  const resolvedNarrowedType = resolveTypeAlias(
+    stripNullish(narrowedType),
+    context
+  );
+  return isDefinitelyValueType(resolvedNarrowedType) &&
+    areIrTypesEquivalent(resolvedStorageBase, resolvedNarrowedType, context)
+    ? storageType
+    : undefined;
+};
 
 export const buildRuntimeUnionComplementBinding = (
   receiver: CSharpExpressionAst,
@@ -387,13 +430,20 @@ export const applyDirectTypeNarrowing = (
   storageType?: IrType
 ): EmitterContext => {
   const existingBinding = context.narrowedBindings?.get(bindingKey);
+  const nullableValueStorageProjectionSourceType =
+    getNullableValueStorageProjectionSourceType(
+      targetExpr,
+      narrowedType,
+      context
+    );
   if (
     existingBinding?.type &&
     areIrTypesEquivalent(
       resolveTypeAlias(existingBinding.type, context),
       resolveTypeAlias(narrowedType, context),
       context
-    )
+    ) &&
+    !nullableValueStorageProjectionSourceType
   ) {
     return context;
   }
@@ -410,7 +460,8 @@ export const applyDirectTypeNarrowing = (
       resolveTypeAlias(currentType, context),
       resolveTypeAlias(narrowedType, context),
       context
-    )
+    ) &&
+    !nullableValueStorageProjectionSourceType
   ) {
     return context;
   }
@@ -428,6 +479,7 @@ export const applyDirectTypeNarrowing = (
       : undefined;
   const rawCarrierType =
     identifierCarrierType ??
+    nullableValueStorageProjectionSourceType ??
     currentType ??
     targetExpr.inferredType ??
     identifierStorageType;

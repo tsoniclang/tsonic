@@ -145,7 +145,10 @@ const tryBuildArrayElementMaterializationAst = (
     return undefined;
   }
 
-  if (isBroadObjectSlotType(targetElementType, targetTypeContext)) {
+  if (
+    isBroadObjectSlotType(targetElementType, targetTypeContext) ||
+    isObjectTypeAst(targetElementTypeAst)
+  ) {
     const itemName = "__tsonic_array_item";
     const itemExpr = identifierExpression(itemName);
     const materializedElement = tryBuildRuntimeMaterializationAst(
@@ -327,6 +330,33 @@ const canMaterializeArrayToBroadObjectArray = (
     !!sourceElementType &&
     !!targetElementType &&
     isBroadObjectSlotType(targetElementType, context)
+  );
+};
+
+const isObjectTypeAst = (type: CSharpTypeAst): boolean => {
+  const concrete = stripNullableTypeAst(type);
+  if (concrete.kind === "predefinedType") {
+    return concrete.keyword === "object";
+  }
+  if (concrete.kind === "identifierType") {
+    return concrete.name === "object" || concrete.name === "Object";
+  }
+  if (concrete.kind === "qualifiedIdentifierType") {
+    return concrete.name.segments.join(".") === "System.Object";
+  }
+  return false;
+};
+
+const canMaterializeArrayToObjectArrayAst = (
+  sourceType: IrType,
+  targetTypeAst: CSharpTypeAst,
+  context: EmitterContext
+): boolean => {
+  const sourceElementType = getArrayLikeElementType(sourceType, context);
+  return (
+    !!sourceElementType &&
+    targetTypeAst.kind === "arrayType" &&
+    isObjectTypeAst(targetTypeAst.elementType)
   );
 };
 
@@ -760,6 +790,11 @@ export const tryBuildRuntimeMaterializationAst = (
         effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1
       )) &&
     (isBroadObjectTarget ||
+      canMaterializeArrayToObjectArrayAst(
+        member,
+        concreteTargetTypeAst,
+        nextContext
+      ) ||
       canMaterializeArrayToBroadObjectArray(
         member,
         materializationTargetType,

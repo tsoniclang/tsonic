@@ -65,6 +65,15 @@ export const convertTypeReference = (
     return getClrPrimitiveType(typeName);
   }
 
+  if (typeName === "JsPrimitive" || typeName === "JsValue") {
+    return {
+      kind: "referenceType",
+      name: typeName,
+      resolvedClrType: "global::System.Object",
+      structuralOrigin: "namedReference",
+    };
+  }
+
   // Check for expandable conditional utility types (NonNullable, Exclude, Extract)
   if (
     isExpandableConditionalUtilityType(typeName) &&

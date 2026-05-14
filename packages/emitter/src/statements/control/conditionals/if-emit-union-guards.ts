@@ -10,6 +10,7 @@ export { tryEmitPredicateGuard } from "./if-emit-predicate-guards.js";
 
 export {
   tryEmitPropertyTruthinessGuard,
+  tryEmitPropertyExistenceGuard,
   tryEmitDiscriminantEqualityGuard,
   tryEmitNegatedPredicateGuard,
 } from "./if-emit-property-discriminant-guards.js";

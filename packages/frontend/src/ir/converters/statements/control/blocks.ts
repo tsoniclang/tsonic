@@ -29,6 +29,185 @@ import {
 } from "../../access-paths.js";
 import { getReadableMemberTypeForNarrowing } from "../../narrowing-property-helpers.js";
 
+const stripRuntimeNullish = (type: IrType | undefined): IrType | undefined => {
+  if (!type || type.kind !== "unionType") {
+    return type;
+  }
+
+  const nonNullish = type.types.filter(
+    (member) =>
+      !(
+        member.kind === "primitiveType" &&
+        (member.name === "null" || member.name === "undefined")
+      )
+  );
+
+  return nonNullish.length === 1 ? nonNullish[0] : type;
+};
+
+const isJsNumberType = (type: IrType | undefined): boolean => {
+  const stripped = stripRuntimeNullish(type);
+  return stripped?.kind === "primitiveType" && stripped.name === "number";
+};
+
+const intType: IrType = { kind: "primitiveType", name: "int" };
+const numberType: IrType = { kind: "primitiveType", name: "number" };
+
+const isIntType = (type: IrType | undefined): boolean => {
+  const stripped = stripRuntimeNullish(type);
+  return (
+    (stripped?.kind === "primitiveType" && stripped.name === "int") ||
+    (stripped?.kind === "referenceType" && stripped.name === "int")
+  );
+};
+
+const getArrayElementType = (type: IrType | undefined): IrType | undefined => {
+  const stripped = stripRuntimeNullish(type);
+  return stripped?.kind === "arrayType" ? stripped.elementType : undefined;
+};
+
+const resolveIdentifierReadType = (
+  identifier: ts.Identifier,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const declId = ctx.binding.resolveIdentifier(identifier);
+  if (!declId) {
+    return undefined;
+  }
+
+  return ctx.typeEnv?.get(declId.id) ?? ctx.typeSystem.typeOfValueRead(declId);
+};
+
+const resolveSimpleNumericAssignmentType = (
+  expression: ts.Expression,
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (ts.isNumericLiteral(expression)) {
+    return Number.isInteger(Number(expression.text)) ? intType : numberType;
+  }
+
+  if (ts.isIdentifier(expression)) {
+    return resolveIdentifierReadType(expression, ctx);
+  }
+
+  if (ts.isParenthesizedExpression(expression)) {
+    return resolveSimpleNumericAssignmentType(expression.expression, ctx);
+  }
+
+  if (ts.isNonNullExpression(expression)) {
+    return stripRuntimeNullish(
+      resolveSimpleNumericAssignmentType(expression.expression, ctx)
+    );
+  }
+
+  if (
+    ts.isElementAccessExpression(expression) &&
+    expression.argumentExpression
+  ) {
+    return getArrayElementType(
+      resolveSimpleNumericAssignmentType(expression.expression, ctx)
+    );
+  }
+
+  if (ts.isBinaryExpression(expression)) {
+    const operator = expression.operatorToken.kind;
+    if (
+      operator !== ts.SyntaxKind.PlusToken &&
+      operator !== ts.SyntaxKind.MinusToken &&
+      operator !== ts.SyntaxKind.AsteriskToken &&
+      operator !== ts.SyntaxKind.SlashToken &&
+      operator !== ts.SyntaxKind.PercentToken
+    ) {
+      return undefined;
+    }
+
+    const leftType = resolveSimpleNumericAssignmentType(expression.left, ctx);
+    const rightType = resolveSimpleNumericAssignmentType(expression.right, ctx);
+    if (isJsNumberType(leftType) || isJsNumberType(rightType)) {
+      return numberType;
+    }
+    if (isIntType(leftType) && isIntType(rightType)) {
+      return intType;
+    }
+  }
+
+  return undefined;
+};
+
+const isMutableIntegerLiteralDeclaration = (
+  decl: ts.VariableDeclaration,
+  declarationList: ts.VariableDeclarationList
+): decl is ts.VariableDeclaration & { name: ts.Identifier } =>
+  (!(declarationList.flags & ts.NodeFlags.Const) ||
+    !!(declarationList.flags & ts.NodeFlags.Let)) &&
+  ts.isIdentifier(decl.name) &&
+  decl.type === undefined &&
+  !!decl.initializer &&
+  ts.isNumericLiteral(decl.initializer) &&
+  Number.isInteger(Number(decl.initializer.text));
+
+const collectMutableNumericLiteralWideningDeclIds = (
+  block: ts.Block,
+  ctx: ProgramContext
+): ReadonlySet<number> | undefined => {
+  const candidates = new Map<string, number>();
+  const wideningDeclIds = new Set<number>();
+
+  const rememberDeclaration = (decl: ts.VariableDeclaration): void => {
+    const parent = decl.parent;
+    if (
+      !parent ||
+      !ts.isVariableDeclarationList(parent) ||
+      !isMutableIntegerLiteralDeclaration(decl, parent)
+    ) {
+      return;
+    }
+
+    const declId = ctx.binding.resolveIdentifier(decl.name);
+    if (declId) {
+      candidates.set(decl.name.text, declId.id);
+    }
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isFunctionLike(node) ||
+      ts.isClassLike(node) ||
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node)
+    ) {
+      return;
+    }
+
+    if (ts.isVariableDeclaration(node)) {
+      rememberDeclaration(node);
+      return;
+    }
+
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left)
+    ) {
+      const candidateDeclId = candidates.get(node.left.text);
+      if (
+        candidateDeclId !== undefined &&
+        isJsNumberType(resolveSimpleNumericAssignmentType(node.right, ctx))
+      ) {
+        wideningDeclIds.add(candidateDeclId);
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  for (const statement of block.statements) {
+    visit(statement);
+  }
+
+  return wideningDeclIds.size > 0 ? wideningDeclIds : undefined;
+};
+
 const tryResolveReadableAssignedAccessType = (
   expr: ts.Expression,
   ctx: ProgramContext
@@ -133,7 +312,17 @@ export const convertBlockStatement = (
   ctx: ProgramContext,
   expectedReturnType: IrType | undefined
 ): IrBlockStatement => {
-  let currentCtx = ctx;
+  const mutableNumericLiteralWideningDeclIds =
+    collectMutableNumericLiteralWideningDeclIds(node, ctx);
+  let currentCtx = mutableNumericLiteralWideningDeclIds
+    ? {
+        ...ctx,
+        mutableNumericLiteralWideningDeclIds: new Set([
+          ...(ctx.mutableNumericLiteralWideningDeclIds ?? []),
+          ...mutableNumericLiteralWideningDeclIds,
+        ]),
+      }
+    : ctx;
   const statements: IrStatement[] = [];
 
   for (let index = 0; index < node.statements.length; index++) {

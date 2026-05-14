@@ -19,7 +19,9 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import {
+  emitJsArrayNativeConstructor,
   emitListCollectionInitializer,
+  isJsArrayNativeConstructor,
   isListConstructorWithArrayLiteral,
 } from "./new-emitter-collections.js";
 import {
@@ -38,6 +40,10 @@ export const emitNew = (
   // Special case: new List<T>([...]) → new List<T> { ... }
   if (isListConstructorWithArrayLiteral(expr)) {
     return emitListCollectionInitializer(expr, context, emitNew);
+  }
+
+  if (isJsArrayNativeConstructor(expr)) {
+    return emitJsArrayNativeConstructor(expr, context);
   }
 
   // Promise constructor lowering

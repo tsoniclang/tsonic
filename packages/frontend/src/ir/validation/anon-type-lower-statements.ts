@@ -81,6 +81,7 @@ const lowerIfGuardShape = (
     case "typeofGuard":
     case "arrayIsArrayGuard":
     case "discriminantEquality":
+    case "propertyExistence":
     case "propertyTruthiness":
     case "nullableGuard":
       return {

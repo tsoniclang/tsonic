@@ -55,7 +55,7 @@ describe("End-to-End Integration", () => {
         "global::js.ConsoleModule.log(global::js.String.toUpperCase(root.title), global::js.Number.toString(root.count));"
       );
       expect(csharp).to.not.include("global::js.JSON.parse");
-      expect(csharp).to.not.include("Object.entries");
+      expect(csharp).to.not.match(/global::js\.Object\.entries(?:<[^>]+>)?\(/);
     });
 
     it("mirrors js-surface-runtime-builtins", () => {

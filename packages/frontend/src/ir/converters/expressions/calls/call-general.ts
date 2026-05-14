@@ -40,6 +40,7 @@ import {
   applyCallSiteArgumentModifiers,
   extractArgumentPassing,
   extractArgumentPassingFromBinding,
+  extractArgumentPassingFromClrMemberOverloads,
 } from "./call-site-analysis.js";
 import {
   collectResolutionArguments,
@@ -98,6 +99,36 @@ const isExpressionTreeContextType = (type: IrType | undefined): boolean => {
       "System.Linq.Expressions.Expression`1",
       "System.Linq.Expressions.Expression_1",
     ])
+  );
+};
+
+const createDynamicJsonValueType = (): IrType => ({
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "global::System.Object",
+  structuralOrigin: "namedReference",
+});
+
+const isGlobalJsonParseCall = (
+  callee: IrCallExpression["callee"],
+  ctx: ProgramContext
+): boolean => {
+  if (callee.kind !== "memberAccess" || callee.isComputed) {
+    return false;
+  }
+  if (callee.property !== "parse" || !callee.memberBinding) {
+    return false;
+  }
+
+  const descriptor = ctx.bindings.getExactBindingByKind("JSON", "global");
+  if (!descriptor) {
+    return false;
+  }
+
+  const expectedOwnerType = descriptor.staticType ?? descriptor.type;
+  return (
+    callee.memberBinding.type === expectedOwnerType &&
+    callee.memberBinding.member === "parse"
   );
 };
 
@@ -3633,6 +3664,15 @@ export const convertCallExpression = (
       return { kind: "unknownType" } as const;
     }
 
+    if (
+      isGlobalJsonParseCall(finalCallee, ctx) &&
+      !explicitTypeArgs?.length &&
+      !expectedType &&
+      resolvedReturnType.kind === "typeParameterType"
+    ) {
+      return createDynamicJsonValueType();
+    }
+
     const callableReturnType = finalFunctionType?.returnType;
     if (
       callableReturnType &&
@@ -3657,11 +3697,19 @@ export const convertCallExpression = (
     return resolvedReturnType;
   })();
   const argumentPassingFromBinding = extractArgumentPassingFromBinding(
-    callee,
+    finalCallee,
     node.arguments.length
   );
+  const argumentPassingFromClrOverloads =
+    extractArgumentPassingFromClrMemberOverloads(
+      finalCallee,
+      node.arguments.length,
+      ctx,
+      finalizedArgTypes
+    );
   const argumentPassing =
     argumentPassingFromBinding ??
+    argumentPassingFromClrOverloads ??
     (finalResolved
       ? finalResolved.parameterModes.slice(0, node.arguments.length)
       : extractArgumentPassing(node, ctx));

@@ -9,9 +9,12 @@
 import * as ts from "typescript";
 import { getSourceSpan } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
+import type { IrType } from "../../../types.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { CallSiteArgModifier } from "./call-site-analysis-unification.js";
+
+type PassingMode = "value" | "ref" | "out" | "in";
 
 /**
  * Unwrap call-site argument modifier markers.
@@ -61,17 +64,17 @@ export const unwrapCallSiteArgumentModifier = (
 };
 
 export const applyCallSiteArgumentModifiers = (
-  base: readonly ("value" | "ref" | "out" | "in")[] | undefined,
+  base: readonly PassingMode[] | undefined,
   overrides: readonly (CallSiteArgModifier | undefined)[],
   argCount: number,
   ctx: ProgramContext,
   node: ts.CallExpression | ts.NewExpression
-): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
+): readonly PassingMode[] | undefined => {
   const hasOverrides = overrides.some((m) => m !== undefined);
   if (!hasOverrides) return base;
 
-  const passing: ("value" | "ref" | "out" | "in")[] =
-    base?.slice(0, argCount) ?? Array(argCount).fill("value");
+  const passing: PassingMode[] =
+    base?.slice(0, argCount) ?? Array<PassingMode>(argCount).fill("value");
 
   for (let i = 0; i < argCount; i++) {
     const override = overrides[i];
@@ -109,7 +112,7 @@ export const applyCallSiteArgumentModifiers = (
 export const extractArgumentPassing = (
   node: ts.CallExpression | ts.NewExpression,
   ctx: ProgramContext
-): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
+): readonly PassingMode[] | undefined => {
   // Get the TypeSystem
   const typeSystem = ctx.typeSystem;
 
@@ -137,11 +140,10 @@ export const extractArgumentPassingFromParameterModifiers = (
     readonly modifier: "ref" | "out" | "in";
   }[],
   argCount: number
-): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
+): readonly PassingMode[] | undefined => {
   if (modifiers.length === 0) return undefined;
 
-  const passing: ("value" | "ref" | "out" | "in")[] =
-    Array(argCount).fill("value");
+  const passing: PassingMode[] = Array<PassingMode>(argCount).fill("value");
   for (const mod of modifiers) {
     if (mod.index >= 0 && mod.index < argCount) {
       passing[mod.index] = mod.modifier;
@@ -163,7 +165,7 @@ export const extractArgumentPassingFromParameterModifiers = (
 export const extractArgumentPassingFromBinding = (
   callee: ReturnType<typeof convertExpression>,
   argCount: number
-): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
+): readonly PassingMode[] | undefined => {
   if (callee.kind !== "memberAccess" || !callee.memberBinding) return undefined;
 
   const directMods = callee.memberBinding.parameterModifiers;
@@ -172,4 +174,176 @@ export const extractArgumentPassingFromBinding = (
   }
 
   return undefined;
+};
+
+const getVisibleParameterOffset = (candidate: {
+  readonly isExtensionMethod?: boolean;
+}): number => (candidate.isExtensionMethod ? 1 : 0);
+
+const candidateAcceptsArgumentCount = (
+  candidate: NonNullable<
+    ReturnType<ProgramContext["bindings"]["getClrMemberOverloads"]>
+  >[number],
+  argCount: number
+): boolean => {
+  const offset = getVisibleParameterOffset(candidate);
+  const parameters = candidate.semanticSignature?.parameters;
+  if (parameters) {
+    const visibleParameters = parameters.slice(offset);
+    const required = visibleParameters.filter(
+      (parameter) => !parameter.isOptional && !parameter.isRest
+    ).length;
+    const hasRest = visibleParameters.some((parameter) => parameter.isRest);
+    if (argCount < required) return false;
+    if (!hasRest && argCount > visibleParameters.length) return false;
+    return true;
+  }
+
+  if (typeof candidate.parameterCount !== "number") {
+    return false;
+  }
+
+  return candidate.parameterCount - offset === argCount;
+};
+
+const buildCandidatePassingModes = (
+  candidate: NonNullable<
+    ReturnType<ProgramContext["bindings"]["getClrMemberOverloads"]>
+  >[number],
+  argCount: number
+): readonly PassingMode[] => {
+  const offset = getVisibleParameterOffset(candidate);
+  const modes = Array<PassingMode>(argCount).fill("value");
+  const visibleParameters =
+    candidate.semanticSignature?.parameters.slice(offset) ?? [];
+
+  for (let index = 0; index < argCount; index += 1) {
+    const parameter = visibleParameters[index];
+    if (parameter) {
+      modes[index] = parameter.passing;
+    }
+  }
+
+  for (const modifier of candidate.parameterModifiers ?? []) {
+    const visibleIndex = modifier.index - offset;
+    if (visibleIndex >= 0 && visibleIndex < argCount) {
+      modes[visibleIndex] = modifier.modifier;
+    }
+  }
+
+  return modes;
+};
+
+const scoreCandidateArgumentTypes = (
+  candidate: NonNullable<
+    ReturnType<ProgramContext["bindings"]["getClrMemberOverloads"]>
+  >[number],
+  argTypes: readonly (IrType | undefined)[],
+  argCount: number,
+  ctx: ProgramContext
+): number | undefined => {
+  const offset = getVisibleParameterOffset(candidate);
+  const visibleParameters =
+    candidate.semanticSignature?.parameters.slice(offset);
+  if (!visibleParameters || visibleParameters.length === 0) {
+    return undefined;
+  }
+
+  let score = 0;
+  let compared = 0;
+  for (let index = 0; index < argCount; index += 1) {
+    const parameterType = visibleParameters[index]?.type;
+    const argumentType = argTypes[index];
+    if (!parameterType || !argumentType) {
+      continue;
+    }
+
+    compared += 1;
+    if (ctx.typeSystem.typesEqual(argumentType, parameterType)) {
+      score += 4;
+      continue;
+    }
+
+    if (ctx.typeSystem.isAssignableTo(argumentType, parameterType)) {
+      score += 3;
+      continue;
+    }
+
+    if (ctx.typeSystem.isAssignableTo(parameterType, argumentType)) {
+      score += 1;
+      continue;
+    }
+
+    score -= 8;
+  }
+
+  return compared > 0 ? score : undefined;
+};
+
+const modesKey = (modes: readonly PassingMode[]): string => modes.join(",");
+
+const uniqueModesFrom = (
+  entries: readonly { readonly modes: readonly PassingMode[] }[]
+): Map<string, readonly PassingMode[]> => {
+  const uniqueModes = new Map<string, readonly PassingMode[]>();
+  for (const entry of entries) {
+    uniqueModes.set(modesKey(entry.modes), entry.modes);
+  }
+  return uniqueModes;
+};
+
+export const extractArgumentPassingFromClrMemberOverloads = (
+  callee: ReturnType<typeof convertExpression>,
+  argCount: number,
+  ctx: ProgramContext,
+  argTypes?: readonly (IrType | undefined)[]
+): readonly PassingMode[] | undefined => {
+  if (callee.kind !== "memberAccess" || !callee.memberBinding) {
+    return undefined;
+  }
+
+  const overloads = ctx.bindings.getClrMemberOverloads(
+    callee.memberBinding.assembly,
+    callee.memberBinding.type,
+    callee.memberBinding.member
+  );
+  if (!overloads || overloads.length === 0) {
+    return undefined;
+  }
+
+  const supported = overloads
+    .filter((candidate) => candidateAcceptsArgumentCount(candidate, argCount))
+    .map((candidate) => ({
+      candidate,
+      modes: buildCandidatePassingModes(candidate, argCount),
+    }));
+  if (supported.length === 0) {
+    return undefined;
+  }
+
+  if (argTypes && argTypes.some((type) => type !== undefined)) {
+    const scored = supported.flatMap((entry) => {
+      const score = scoreCandidateArgumentTypes(
+        entry.candidate,
+        argTypes,
+        argCount,
+        ctx
+      );
+      return score === undefined ? [] : [{ ...entry, score }];
+    });
+
+    if (scored.length > 0) {
+      const bestScore = Math.max(...scored.map((entry) => entry.score));
+      const bestEntries = scored.filter((entry) => entry.score === bestScore);
+      const bestModes = uniqueModesFrom(bestEntries);
+      if (bestModes.size === 1) {
+        return bestEntries[0]?.modes;
+      }
+    }
+  }
+
+  const supportedModes = uniqueModesFrom(supported);
+  return supportedModes.size === 1
+    ? supportedModes.values().next().value
+    : undefined;
 };

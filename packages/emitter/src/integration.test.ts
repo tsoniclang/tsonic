@@ -7,3 +7,4 @@ import "./integration-cases/regression-coverage-a.test.js";
 import "./integration-cases/regression-coverage-b.test.js";
 import "./integration-cases/regression-coverage-c.test.js";
 import "./integration-cases/object-literals-and-channels.test.js";
+import "./integration-cases/may14-downstream-contracts.test.js";

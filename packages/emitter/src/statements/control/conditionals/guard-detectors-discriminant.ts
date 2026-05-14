@@ -11,10 +11,12 @@ import { makeNarrowedLocalName } from "../../../core/semantic/narrowing-keys.js"
 import { tryGetLiteralSet } from "../../../core/semantic/guard-primitives.js";
 import type {
   DiscriminantEqualityGuardInfo,
+  PropertyExistenceGuardInfo,
   PropertyTruthinessGuardInfo,
 } from "./guard-types.js";
 import {
   getGuardPropertyType,
+  extractTransparentIdentifierTarget,
   extractTransparentMemberAccessTarget,
   resolveGuardRuntimeUnionFrame,
   buildRenameNarrowedMap,
@@ -278,6 +280,115 @@ export const tryResolvePropertyTruthinessGuard = (
     originalName,
     propertyName,
     wantTruthy,
+    memberN,
+    unionArity,
+    runtimeUnionArity,
+    candidateMemberNs,
+    candidateMembers: members,
+    ctxWithId,
+    narrowedName,
+    escapedOrig,
+    escapedNarrow,
+    narrowedMap,
+  };
+};
+
+export const tryResolvePropertyExistenceGuard = (
+  condition: IrExpression,
+  context: EmitterContext
+): PropertyExistenceGuardInfo | undefined => {
+  const extract = (
+    expr: IrExpression
+  ):
+    | {
+        readonly receiver: Extract<IrExpression, { kind: "identifier" }>;
+        readonly propertyName: string;
+        readonly wantPresent: boolean;
+      }
+    | undefined => {
+    if (expr.kind === "unary" && expr.operator === "!") {
+      const inner = extract(expr.expression);
+      return inner ? { ...inner, wantPresent: !inner.wantPresent } : undefined;
+    }
+
+    if (expr.kind !== "binary" || expr.operator !== "in") {
+      return undefined;
+    }
+    if (expr.left.kind !== "literal" || typeof expr.left.value !== "string") {
+      return undefined;
+    }
+
+    const receiver = extractTransparentIdentifierTarget(expr.right);
+    if (!receiver) {
+      return undefined;
+    }
+
+    return {
+      receiver,
+      propertyName: expr.left.value,
+      wantPresent: true,
+    };
+  };
+
+  const match = extract(condition);
+  if (!match) return undefined;
+
+  const { receiver, propertyName, wantPresent } = match;
+  const originalName = receiver.name;
+  const unionSourceType = receiver.inferredType;
+  if (!unionSourceType) return undefined;
+
+  const frame = resolveGuardRuntimeUnionFrame(
+    originalName,
+    unionSourceType,
+    receiver,
+    context
+  );
+  if (!frame) return undefined;
+
+  const { members, candidateMemberNs, runtimeUnionArity } = frame;
+  const unionArity = members.length;
+  if (unionArity < 2) return undefined;
+
+  const matchingIndices: number[] = [];
+  const matchingMemberNs: number[] = [];
+  for (let i = 0; i < members.length; i++) {
+    const member = members[i];
+    if (!member) continue;
+    const hasProperty =
+      getGuardPropertyType(member, propertyName, context) !== undefined;
+    if (hasProperty === wantPresent) {
+      matchingIndices.push(i);
+      matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
+    }
+  }
+
+  if (matchingMemberNs.length !== 1) return undefined;
+
+  const memberN = matchingMemberNs[0];
+  if (!memberN) return undefined;
+  const matchingIndex = matchingIndices[0];
+  if (matchingIndex === undefined) return undefined;
+
+  const nextId = (context.tempVarId ?? 0) + 1;
+  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
+  const escapedOrig = emitRemappedLocalName(originalName, context);
+  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
+  const memberType = members[matchingIndex];
+  if (!memberType) return undefined;
+  const narrowedMap = buildRenameNarrowedMap(
+    originalName,
+    narrowedName,
+    memberType,
+    unionSourceType,
+    ctxWithId
+  );
+
+  return {
+    originalName,
+    propertyName,
+    wantPresent,
     memberN,
     unionArity,
     runtimeUnionArity,

@@ -24,6 +24,7 @@ import {
   isCompilerGeneratedStructuralReferenceType,
   isTypeOnlyStructuralTarget,
   resolveStructuralReferenceType,
+  stripNullish,
 } from "../core/semantic/type-resolution.js";
 import {
   isSemanticUnion,
@@ -45,11 +46,15 @@ import { unwrapTransparentExpression } from "../core/semantic/transparent-expres
 import { resolveRuntimeMaterializationTargetType } from "../core/semantic/runtime-materialization-targets.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
-import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 import {
   stripNullableTypeAst,
   getIdentifierTypeName,
   sameTypeAstSurface,
+  sameConcreteTypeAstSurface,
 } from "../core/format/backend-ast/utils.js";
 import {
   identifierType,
@@ -79,6 +84,7 @@ import {
   isStorageErasedBroadObjectPassThroughType,
   isBroadObjectSlotType,
 } from "../core/semantic/broad-object-types.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 
 // ---------------------------------------------------------------------------
 // Polymorphic-this helpers (used by orchestrator and emitTypeAssertion)
@@ -328,6 +334,28 @@ export const emitTypeAssertion = (
         return resolveLocalTypeAliases(substituted);
       }
     }
+    if (target.kind === "referenceType") {
+      const importBinding = context.importBindings?.get(target.name);
+      if (importBinding?.kind === "type" && importBinding.aliasType) {
+        const aliasType =
+          target.typeArguments && target.typeArguments.length > 0
+            ? substituteTypeArgs(
+                importBinding.aliasType,
+                importBinding.aliasTypeParameters ?? [],
+                target.typeArguments
+              )
+            : importBinding.aliasType;
+        if (aliasType.kind === "objectType") {
+          const clrName = getIdentifierTypeName(importBinding.typeAst);
+          return {
+            ...target,
+            ...(clrName ? { resolvedClrType: clrName } : {}),
+            structuralOrigin: target.structuralOrigin ?? "namedReference",
+            structuralMembers: target.structuralMembers ?? aliasType.members,
+          };
+        }
+      }
+    }
     if (target.kind === "arrayType") {
       const elementType = resolveLocalTypeAliases(target.elementType);
       return elementType === target.elementType
@@ -541,6 +569,30 @@ export const emitTypeAssertion = (
     (transparentSourceExpression.kind === "identifier"
       ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
       : undefined);
+  const strippedSourceExpressionTypeAtEntry = sourceExpressionTypeAtEntry
+    ? stripNullish(sourceExpressionTypeAtEntry)
+    : undefined;
+  const strippedExpectedType = expectedType
+    ? stripNullish(expectedType)
+    : undefined;
+  const sourceNamedStructuralAliasMatchesExpected =
+    !!expectedType &&
+    transparentSourceExpression.kind === "identifier" &&
+    strippedSourceExpressionTypeAtEntry?.kind === "referenceType" &&
+    strippedSourceExpressionTypeAtEntry.structuralOrigin === "namedReference" &&
+    (strippedSourceExpressionTypeAtEntry.structuralMembers?.length ?? 0) > 0 &&
+    ((strippedExpectedType?.kind === "referenceType" &&
+      strippedExpectedType.name === strippedSourceExpressionTypeAtEntry.name) ||
+      areIrTypesEquivalent(
+        strippedSourceExpressionTypeAtEntry,
+        expectedType,
+        context
+      ) ||
+      matchesExpectedEmissionType(
+        strippedSourceExpressionTypeAtEntry,
+        expectedType,
+        context
+      ));
   const preservesStorageSurfaceAtEntry =
     !sourceStorageTypeAtEntry ||
     areIrTypesEquivalent(
@@ -571,8 +623,64 @@ export const emitTypeAssertion = (
   const preservedSystemArrayStorageAtEntry =
     runtimeAssertionTarget.kind === "arrayType" &&
     isSystemArrayStorageType(sourceStorageTypeAtEntry, context);
+  const transparentStorageSurfaceType =
+    transparentSourceExpression.kind === "identifier"
+      ? context.localValueTypes?.get(transparentSourceExpression.name)
+      : sourceStorageTypeAtEntry;
+  const explicitAssertionNeedsStorageCast =
+    !!transparentStorageSurfaceType &&
+    hasConcreteRuntimeCastTarget(runtimeAssertionTarget) &&
+    !willCarryAsRuntimeUnion(runtimeAssertionTarget, context) &&
+    !matchesEmittedStorageSurface(
+      transparentStorageSurfaceType,
+      runtimeAssertionTarget,
+      context
+    )[0];
+  const explicitAssertionStaticSourceType =
+    sourceNarrowedBinding?.sourceType ??
+    (transparentSourceExpression.kind === "identifier"
+      ? (context.localValueTypes?.get(transparentSourceExpression.name) ??
+        transparentSourceExpression.inferredType)
+      : undefined) ??
+    sourceStorageTypeAtEntry ??
+    sourceExpressionTypeAtEntry ??
+    currentTransparentSourceType;
+  const explicitAssertionNeedsRuntimeCast =
+    !!explicitAssertionStaticSourceType &&
+    hasConcreteRuntimeCastTarget(runtimeAssertionTarget) &&
+    !willCarryAsRuntimeUnion(runtimeAssertionTarget, context) &&
+    !areIrTypesEquivalent(
+      stripNullish(explicitAssertionStaticSourceType),
+      stripNullish(runtimeAssertionTarget),
+      context
+    );
+  const isAuthoredTypeAssertion =
+    !!expr.sourceSpan && !isTransparentFlowAssertion;
+  const mustPreserveAuthoredAssertionCast =
+    isAuthoredTypeAssertion &&
+    (explicitAssertionNeedsStorageCast || explicitAssertionNeedsRuntimeCast);
 
-  if (isTransparentFlowAssertion && expectedType) {
+  if (
+    expectedType &&
+    runtimeAssertionTarget.kind === "referenceType" &&
+    isCompilerGeneratedStructuralReferenceType(runtimeAssertionTarget) &&
+    sourceNamedStructuralAliasMatchesExpected &&
+    !mustPreserveExplicitRuntimeAssertion &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      expectedType
+    );
+  }
+
+  if (
+    isTransparentFlowAssertion &&
+    expectedType &&
+    !explicitAssertionNeedsStorageCast &&
+    !explicitAssertionNeedsRuntimeCast
+  ) {
     return emitExpressionAst(
       transparentSourceExpression,
       context,
@@ -597,7 +705,9 @@ export const emitTypeAssertion = (
         currentTransparentSourceType,
         runtimeAssertionTarget,
         context
-      ))
+      )) &&
+    !explicitAssertionNeedsStorageCast &&
+    !explicitAssertionNeedsRuntimeCast
   ) {
     return emitExpressionAst(
       transparentSourceExpression,
@@ -627,7 +737,8 @@ export const emitTypeAssertion = (
     narrowedSourceAlreadyMatches &&
     (preservesStorageSurfaceAtEntry || canPreserveNarrowedProjectionAtEntry) &&
     !mustPreserveExplicitRuntimeAssertion &&
-    !involvesDegenerateDuplicateUnion
+    !involvesDegenerateDuplicateUnion &&
+    !mustPreserveAuthoredAssertionCast
   ) {
     return emitExpressionAst(
       transparentSourceExpression,
@@ -642,6 +753,8 @@ export const emitTypeAssertion = (
     preservesStorageSurfaceAtEntry &&
     !mustPreserveExplicitRuntimeAssertion &&
     !involvesDegenerateDuplicateUnion &&
+    !explicitAssertionNeedsStorageCast &&
+    !explicitAssertionNeedsRuntimeCast &&
     (areIrTypesEquivalent(
       currentTransparentSourceType,
       runtimeAssertionTarget,
@@ -714,6 +827,7 @@ export const emitTypeAssertion = (
     sourceAlreadyCarriesExpectedRuntimeUnion &&
     assertionTargetCollapsesIntoExpectedRuntimeUnion &&
     !mustPreserveExplicitRuntimeAssertion &&
+    !explicitAssertionNeedsRuntimeCast &&
     !involvesDegenerateDuplicateUnion
   ) {
     return emitExpressionAst(
@@ -773,7 +887,9 @@ export const emitTypeAssertion = (
       transparentAlreadyMatches &&
       preservesStorageSurfaceAtEntry &&
       !mustPreserveExplicitRuntimeAssertion &&
-      !involvesDegenerateDuplicateUnion
+      !involvesDegenerateDuplicateUnion &&
+      !explicitAssertionNeedsStorageCast &&
+      !explicitAssertionNeedsRuntimeCast
     ) {
       return emitExpressionAst(expr.expression, context, expectedType);
     }
@@ -795,6 +911,8 @@ export const emitTypeAssertion = (
     !mustPreserveExplicitRuntimeAssertion &&
     preservesStorageSurfaceAtEntry &&
     !involvesDegenerateDuplicateUnion &&
+    !explicitAssertionNeedsStorageCast &&
+    !explicitAssertionNeedsRuntimeCast &&
     (areIrTypesEquivalent(sourceExpressionTypeAtEntry, expectedType, context) ||
       matchesExpectedEmissionType(
         sourceExpressionTypeAtEntry,
@@ -960,11 +1078,66 @@ export const emitTypeAssertion = (
     sourceNarrowedBinding.storageExprAst
       ? sourceNarrowedBinding.storageExprAst
       : innerAst;
+  const isExactRuntimeUnionProjectionToTarget = (
+    ast: CSharpExpressionAst,
+    targetTypeAst: CSharpTypeAst
+  ): boolean => {
+    const concreteTargetTypeAst = stripNullableTypeAst(targetTypeAst);
+    switch (ast.kind) {
+      case "parenthesizedExpression":
+        return isExactRuntimeUnionProjectionToTarget(
+          ast.expression,
+          concreteTargetTypeAst
+        );
+      case "defaultExpression":
+        return (
+          ast.type !== undefined &&
+          sameConcreteTypeAstSurface(ast.type, concreteTargetTypeAst)
+        );
+      case "conditionalExpression":
+        return (
+          isExactRuntimeUnionProjectionToTarget(
+            ast.whenTrue,
+            concreteTargetTypeAst
+          ) &&
+          isExactRuntimeUnionProjectionToTarget(
+            ast.whenFalse,
+            concreteTargetTypeAst
+          )
+        );
+      case "invocationExpression": {
+        if (
+          ast.arguments.length !== 0 ||
+          ast.expression.kind !== "memberAccessExpression"
+        ) {
+          return false;
+        }
+        const projectionMatch =
+          ast.expression.memberName.match(/^As([1-9][0-9]*)$/);
+        if (!projectionMatch?.[1] || !sourceRuntimeUnionLayout) {
+          return false;
+        }
+        const memberIndex = Number(projectionMatch[1]) - 1;
+        const projectedMemberTypeAst =
+          sourceRuntimeUnionLayout.memberTypeAsts[memberIndex];
+        return (
+          projectedMemberTypeAst !== undefined &&
+          sameConcreteTypeAstSurface(
+            stripNullableTypeAst(projectedMemberTypeAst),
+            concreteTargetTypeAst
+          )
+        );
+      }
+      default:
+        return false;
+    }
+  };
   const expectedContextAlreadyAcceptsSource =
     expectedType &&
     actualExpressionType &&
     !mustPreserveNominalCast &&
     !mustPreserveDirectStorageCast &&
+    !explicitAssertionNeedsRuntimeCast &&
     !preservedBroadArrayStorageType &&
     !involvesDegenerateDuplicateUnion &&
     (areIrTypesEquivalent(
@@ -984,6 +1157,10 @@ export const emitTypeAssertion = (
     )[0];
 
   if (
+    isExactRuntimeUnionProjectionToTarget(
+      castSourceAst,
+      stripNullableTypeAst(runtimeTargetTypeAst)
+    ) ||
     isExactExpressionToType(
       castSourceAst,
       stripNullableTypeAst(runtimeTargetTypeAst)
@@ -1101,6 +1278,37 @@ export const emitTypeAssertion = (
       : undefined;
   if (assertedCollectionAdaptation) {
     return assertedCollectionAdaptation;
+  }
+
+  const storageMaterializationSourceCandidate =
+    sourceStorageTypeAtEntry ?? sourceExpressionTypeAtEntry;
+  const storageMaterializationSourceType =
+    !preservesStorageSurfaceAtEntry &&
+    !willCarryAsRuntimeUnion(runtimeTarget, sourceLayoutContext) &&
+    storageMaterializationSourceCandidate &&
+    (() => {
+      const resolvedSource = stripNullish(
+        storageMaterializationSourceCandidate
+      );
+      return (
+        resolvedSource.kind === "unknownType" ||
+        resolvedSource.kind === "anyType" ||
+        isBroadObjectSlotType(resolvedSource, sourceLayoutContext)
+      );
+    })()
+      ? storageMaterializationSourceCandidate
+      : undefined;
+  if (storageMaterializationSourceType) {
+    const [materializedStorageAst, materializedStorageContext] =
+      materializeDirectNarrowingAst(
+        castSourceAst,
+        storageMaterializationSourceType,
+        runtimeTarget,
+        sourceLayoutContext
+      );
+    if (materializedStorageAst !== castSourceAst) {
+      return [materializedStorageAst, materializedStorageContext];
+    }
   }
 
   if (mustPreserveFlowStorageCast) {

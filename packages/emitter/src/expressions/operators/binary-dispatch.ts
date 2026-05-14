@@ -90,6 +90,12 @@ const emitInOperator = (
     ];
   }
 
+  if (plan.kind === "unionProperty") {
+    throw new Error(
+      "ICE: union property-existence in-operator reached generic expression emission; conditional emission must consume the authoritative branch plan"
+    );
+  }
+
   throw new Error(`ICE: unknown in-operator plan ${JSON.stringify(plan)}`);
 };
 
@@ -122,6 +128,30 @@ const maybeCastBitwiseOperandToInt = (
         expression: ast,
       }
     : ast;
+
+const isNullableValueComparisonTarget = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const stripped = stripNullish(type);
+  return stripped !== type && isDefinitelyValueType(stripped);
+};
+
+const stripNullableValueReadForNullishComparison = (
+  ast: CSharpExpressionAst,
+  targetType: IrType | undefined
+): CSharpExpressionAst => {
+  if (
+    ast.kind === "memberAccessExpression" &&
+    ast.memberName === "Value" &&
+    isNullableValueComparisonTarget(targetType)
+  ) {
+    return ast.expression;
+  }
+
+  return ast;
+};
 
 /**
  * Emit a binary operator expression as CSharpExpressionAst
@@ -363,6 +393,10 @@ export const emitBinary = (
       nonNullishExpr,
       resultContext
     );
+    const nullableComparisonAst = stripNullableValueReadForNullishComparison(
+      nonNullishAst,
+      inferred ?? nonNullishTarget.inferredType
+    );
     const base = inferred ? stripNullish(inferred) : undefined;
     const sourceBase = nonNullishTarget.inferredType
       ? stripNullish(nonNullishTarget.inferredType)
@@ -398,7 +432,7 @@ export const emitBinary = (
       activeNarrowedBinding?.kind === "expr" &&
       activeNarrowedBinding.carrierExprAst !== undefined
         ? activeNarrowedBinding.carrierExprAst
-        : nonNullishAst;
+        : nullableComparisonAst;
     const bareTypeParamName = (() => {
       if (!base) return undefined;
       if (base.kind === "typeParameterType") return base.name;
@@ -447,7 +481,7 @@ export const emitBinary = (
           kind: "parenthesizedExpression",
           expression: needsObjectCastForRuntimeUnion
             ? runtimeCarrierAst
-            : nonNullishAst,
+            : nullableComparisonAst,
         },
       };
       return [
@@ -468,7 +502,7 @@ export const emitBinary = (
       {
         kind: "binaryExpression",
         operatorToken: nullOp,
-        left: nonNullishAst,
+        left: nullableComparisonAst,
         right: nullLiteralAst,
       },
       resultContext,

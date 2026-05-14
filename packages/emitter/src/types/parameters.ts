@@ -172,6 +172,36 @@ const isConstraintTypeNodeEmittable = (type: IrType): boolean => {
   return !NON_CONSTRAINT_REFERENCE_TYPES.has(type.name);
 };
 
+const isObjectTypeConstraintAst = (type: CSharpTypeAst): boolean => {
+  if (type.kind === "predefinedType") {
+    return type.keyword === "object";
+  }
+
+  if (type.kind === "identifierType") {
+    return type.name === "object" || type.name === "Object";
+  }
+
+  if (type.kind === "qualifiedIdentifierType") {
+    const joinedName = type.name.segments.join(".");
+    return joinedName === "System.Object" || joinedName === "Object";
+  }
+
+  if (type.kind === "nullableType") {
+    return isObjectTypeConstraintAst(type.underlyingType);
+  }
+
+  return false;
+};
+
+const addEmittableTypeConstraint = (
+  type: CSharpTypeAst,
+  constraints: CSharpTypeParameterConstraintNodeAst[]
+): void => {
+  if (!isObjectTypeConstraintAst(type)) {
+    constraints.push({ kind: "typeConstraint", type });
+  }
+};
+
 /**
  * Emit C# type parameters with constraints as AST nodes.
  * Example: <T, U extends Foo> → typeParams=[{name:"T"},{name:"U"}], constraints=[{...}]
@@ -275,7 +305,7 @@ export const emitTypeParametersAst = (
           } else if (isConstraintTypeNodeEmittable(member)) {
             const [cAst, newContext] = emitTypeAst(member, currentContext);
             currentContext = newContext;
-            constraintParts.push({ kind: "typeConstraint", type: cAst });
+            addEmittableTypeConstraint(cAst, constraintParts);
           }
         }
         if (constraintParts.length > 0) {
@@ -305,10 +335,14 @@ export const emitTypeParametersAst = (
       } else if (isConstraintTypeNodeEmittable(tp.constraint)) {
         const [cAst, newContext] = emitTypeAst(tp.constraint, currentContext);
         currentContext = newContext;
-        constraintAsts.push({
-          typeParameter: tpName,
-          constraints: [{ kind: "typeConstraint", type: cAst }],
-        });
+        const constraintParts: CSharpTypeParameterConstraintNodeAst[] = [];
+        addEmittableTypeConstraint(cAst, constraintParts);
+        if (constraintParts.length > 0) {
+          constraintAsts.push({
+            typeParameter: tpName,
+            constraints: constraintParts,
+          });
+        }
       } else if (isNumericConstraintType(tp.constraint)) {
         constraintAsts.push({
           typeParameter: tpName,

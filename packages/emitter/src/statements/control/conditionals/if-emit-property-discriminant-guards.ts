@@ -25,6 +25,7 @@ import {
 } from "./branch-context.js";
 import {
   tryResolvePredicateGuard,
+  tryResolvePropertyExistenceGuard,
   tryResolvePropertyTruthinessGuard,
   tryResolveDiscriminantEqualityGuard,
   isDefinitelyTerminating,
@@ -179,6 +180,129 @@ export const tryEmitPropertyTruthinessGuard = (
       narrowedBindings: ctxWithId.narrowedBindings,
     };
 
+    return [
+      [
+        {
+          kind: "ifStatement",
+          condition: condAst,
+          thenStatement: thenBlock,
+          elseStatement: elseStmt,
+        },
+      ],
+      finalContext,
+    ];
+  }
+
+  if (isDefinitelyTerminating(stmt.thenStatement)) {
+    finalContext = withComplementNarrowing(
+      originalName,
+      escapedOrig,
+      runtimeUnionArity,
+      candidateMemberNs,
+      candidateMembers,
+      memberN,
+      basePostConditionContext
+    );
+    return [
+      [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
+      finalContext,
+    ];
+  }
+
+  finalContext = {
+    ...finalContext,
+    narrowedBindings: ctxWithId.narrowedBindings,
+  };
+  return [
+    [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
+    finalContext,
+  ];
+};
+
+/** Try to emit a property-existence guard for `"error" in result`. */
+export const tryEmitPropertyExistenceGuard = (
+  stmt: IfStatement,
+  context: EmitterContext
+): GuardResult => {
+  const propertyExistenceGuard = tryResolvePropertyExistenceGuard(
+    stmt.condition,
+    context
+  );
+  if (!propertyExistenceGuard) return undefined;
+
+  const {
+    originalName,
+    memberN,
+    unionArity,
+    runtimeUnionArity,
+    candidateMemberNs,
+    candidateMembers,
+    ctxWithId,
+    escapedOrig,
+    escapedNarrow,
+    narrowedMap,
+  } = propertyExistenceGuard;
+
+  const condAst = buildIsNCondition(escapedOrig, memberN, false);
+  const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
+  const thenCtx: EmitterContext = {
+    ...ctxWithId,
+    narrowedBindings: narrowedMap,
+  };
+  const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
+    [castStmt],
+    stmt.thenStatement,
+    thenCtx
+  );
+  const basePostConditionContext = resetBranchFlowState(ctxWithId, thenBodyCtx);
+  let finalContext: EmitterContext = basePostConditionContext;
+  let elseStmt: CSharpStatementAst | undefined;
+
+  if (stmt.elseStatement) {
+    if (unionArity === 2) {
+      const elseCtx = withComplementNarrowing(
+        originalName,
+        escapedOrig,
+        runtimeUnionArity,
+        candidateMemberNs,
+        candidateMembers,
+        memberN,
+        basePostConditionContext
+      );
+      const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
+        stmt.elseStatement,
+        elseCtx
+      );
+      elseStmt = wrapInBlock(elseStmts);
+      finalContext = {
+        ...elseCtxAfter,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      };
+      return [
+        [
+          {
+            kind: "ifStatement",
+            condition: condAst,
+            thenStatement: thenBlock,
+            elseStatement: elseStmt,
+          },
+        ],
+        finalContext,
+      ];
+    }
+
+    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(
+      stmt.elseStatement,
+      {
+        ...basePostConditionContext,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      }
+    );
+    elseStmt = wrapInBlock(elseStmts);
+    finalContext = {
+      ...elseCtx,
+      narrowedBindings: ctxWithId.narrowedBindings,
+    };
     return [
       [
         {

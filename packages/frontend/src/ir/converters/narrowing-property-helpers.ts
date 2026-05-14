@@ -78,3 +78,31 @@ export const narrowTypeByPropertyTruthiness = (
   if (kept.length === 1) return kept[0];
   return normalizedUnionType(kept);
 };
+
+export const narrowTypeByPropertyExistence = (
+  currentType: IrType,
+  propertyName: string,
+  wantPresent: boolean,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const candidates = collectPropertyNarrowingCandidates(currentType, ctx);
+  if (candidates.length < 2) {
+    return undefined;
+  }
+
+  const kept = candidates.filter((member): member is IrType => {
+    if (!member) return false;
+    const memberType = getReadableMemberTypeForNarrowing(
+      member,
+      propertyName,
+      ctx
+    );
+    return wantPresent ? memberType !== undefined : memberType === undefined;
+  });
+
+  if (kept.length === 0 || kept.length === candidates.length) {
+    return undefined;
+  }
+  if (kept.length === 1) return kept[0];
+  return normalizedUnionType(kept);
+};

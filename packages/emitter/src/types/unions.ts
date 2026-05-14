@@ -12,9 +12,11 @@ import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolutio
 import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
+  getCanonicalRuntimeUnionMembers,
 } from "../core/semantic/runtime-unions.js";
 import { shouldUseBroadObjectForUnionStorage } from "../core/semantic/storage-types.js";
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
+import { rebuildUnionTypePreservingCarrierFamily } from "../core/semantic/runtime-union-family-preservation.js";
 
 const dedupeTypeAsts = (
   types: readonly CSharpTypeAst[]
@@ -78,6 +80,29 @@ export const emitUnionType = (
       context
     );
     return [hasNullish ? nullableType(baseTypeAst) : baseTypeAst, newContext];
+  }
+
+  const canonicalNonNullMembers =
+    nonNullTypes.length > 1
+      ? getCanonicalRuntimeUnionMembers(
+          rebuildUnionTypePreservingCarrierFamily(type, nonNullTypes),
+          context
+        )
+      : undefined;
+  if (canonicalNonNullMembers?.length === 1) {
+    const [canonicalMember] = canonicalNonNullMembers;
+    if (canonicalMember) {
+      const [canonicalMemberTypeAst, canonicalMemberContext] = emitTypeAst(
+        canonicalMember,
+        context
+      );
+      return [
+        hasNullish
+          ? nullableType(canonicalMemberTypeAst)
+          : canonicalMemberTypeAst,
+        canonicalMemberContext,
+      ];
+    }
   }
 
   const uniqueNonNullTypeAsts: CSharpTypeAst[] = [];

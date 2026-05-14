@@ -497,7 +497,11 @@ export const applySimpleNullableRefinement = (
       : undefined) ??
     sourceType ??
     storageType;
-  const bindingSourceType = carrierType ?? sourceType;
+  const isValueTypeNullishRefinement =
+    nullableGuard.isValueType || isDefinitelyValueType(strippedType);
+  const bindingSourceType = isValueTypeNullishRefinement
+    ? currentType
+    : (carrierType ?? sourceType);
   const projectedExprAst =
     existingBinding?.kind === "expr"
       ? existingBinding.exprAst
@@ -506,7 +510,7 @@ export const applySimpleNullableRefinement = (
     tryStripConditionalNullishGuardAst(projectedExprAst) ?? projectedExprAst;
 
   const [materializedExprAst, materializedContext] =
-    nullableGuard.isValueType || isDefinitelyValueType(strippedType)
+    isValueTypeNullishRefinement
       ? materializeDirectNarrowingAst(
           rawTargetAst,
           currentType,
@@ -514,8 +518,15 @@ export const applySimpleNullableRefinement = (
           rawTargetContext
         )
       : [strippedProjectedExprAst, projectedTargetContext];
-  const storageCompatibleExprAst = materializedExprAst;
-  const storageCompatibleType = strippedType;
+  const storageCompatibleExprAst = isValueTypeNullishRefinement
+    ? rawTargetAst
+    : materializedExprAst;
+  const storageCompatibleType = isValueTypeNullishRefinement
+    ? currentType
+    : strippedType;
+  const bindingCarrierType = isValueTypeNullishRefinement
+    ? currentType
+    : carrierType;
 
   return applyBinding(
     nullableGuard.key,
@@ -526,7 +537,7 @@ export const applySimpleNullableRefinement = (
       storageCompatibleExprAst,
       storageCompatibleType,
       carrierExprAst,
-      carrierType
+      bindingCarrierType
     ),
     materializedContext
   );
@@ -613,13 +624,21 @@ export const applyDirectTypeofRefinement = (
     ...rawTargetContext,
     narrowedBindings: context.narrowedBindings,
   };
-  const runtimeUnionFrame = currentType
-    ? resolveRuntimeUnionFrame(
-        directGuard.bindingKey,
-        currentType,
-        runtimeFrameContext
-      )
-    : undefined;
+  const rawIdentifierStorageType =
+    directGuard.targetExpr.kind === "identifier"
+      ? rawTargetContext.localValueTypes?.get(directGuard.targetExpr.name)
+      : undefined;
+  const storageCanUseRuntimeUnionCarrier =
+    !rawIdentifierStorageType ||
+    willCarryAsRuntimeUnion(rawIdentifierStorageType, rawTargetContext);
+  const runtimeUnionFrame =
+    storageCanUseRuntimeUnionCarrier && currentType
+      ? resolveRuntimeUnionFrame(
+          directGuard.bindingKey,
+          currentType,
+          runtimeFrameContext
+        )
+      : undefined;
   const matchingRuntimeMemberIndex =
     runtimeUnionFrame?.members.findIndex((member) =>
       matchesTypeofTag(member, directGuard.tag, rawTargetContext)

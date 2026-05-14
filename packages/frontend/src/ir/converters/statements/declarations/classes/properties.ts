@@ -17,6 +17,7 @@ import { convertBlockStatement } from "../../control.js";
 import {
   hasStaticModifier,
   getAccessibility,
+  hasReadonlyModifier,
   makeOptionalType,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
@@ -186,7 +187,7 @@ export const convertProperty = (
     initializer: convertedInitializer,
     emitAsField: emitAsField || undefined,
     isStatic: hasStaticModifier(node),
-    isReadonly: false,
+    isReadonly: hasReadonlyModifier(node),
     accessibility,
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,

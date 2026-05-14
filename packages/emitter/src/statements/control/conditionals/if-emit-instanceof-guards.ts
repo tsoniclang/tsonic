@@ -10,7 +10,6 @@ import { emitIdentifier } from "../../../expressions/identifiers.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import { emitBooleanConditionAst } from "../../../core/semantic/boolean-context.js";
 import { applyConditionBranchNarrowing } from "../../../core/semantic/condition-branch-narrowing.js";
-import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
 import {
   tryResolveInstanceofGuard,
   tryResolveSimpleNullableGuard,
@@ -20,7 +19,7 @@ import {
 } from "./guard-analysis.js";
 import { narrowTypeByNotAssignableTarget } from "../../../core/semantic/narrowing-builders.js";
 import {
-  buildProjectedExprBinding,
+  buildExprBinding,
   buildIsNCondition,
   buildIsPatternCondition,
   buildUnionNarrowAst,
@@ -354,10 +353,8 @@ export const tryEmitNullableGuard = (
     simpleNullableGuard ?? tryResolveNullableGuard(stmt.condition, context);
   if (!nullableGuard || !nullableGuard.isValueType) return undefined;
 
-  const { key, targetExpr, narrowsInThen, strippedType } = nullableGuard;
-  const effectiveTargetType =
-    resolveEffectiveExpressionType(targetExpr, context) ??
-    targetExpr.inferredType;
+  const { key, targetExpr, narrowsInThen, strippedType, sourceType } =
+    nullableGuard;
 
   // Avoid stacking `.Value` (see detailed comment in original text emitter)
   const [idAst] =
@@ -375,15 +372,18 @@ export const tryEmitNullableGuard = (
   const narrowedMap = new Map(context.narrowedBindings ?? []);
   narrowedMap.set(
     key,
-    buildProjectedExprBinding(
+    buildExprBinding(
       {
         kind: "memberAccessExpression",
         expression: idAst,
         memberName: "Value",
       },
       strippedType,
-      effectiveTargetType,
-      idAst
+      sourceType,
+      idAst,
+      sourceType,
+      idAst,
+      sourceType
     )
   );
 

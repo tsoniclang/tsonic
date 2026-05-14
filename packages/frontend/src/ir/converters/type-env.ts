@@ -51,6 +51,28 @@ export const deriveTypeFromExpression = (
   return undefined;
 };
 
+export const resolveMutableNumericLiteralDeclarationType = (
+  declarationKind: "const" | "let" | "var",
+  explicitType: IrType | undefined,
+  initializer: IrExpression | undefined,
+  shouldWiden: boolean
+): IrType | undefined => {
+  if (
+    declarationKind === "const" ||
+    explicitType ||
+    !initializer ||
+    !shouldWiden
+  ) {
+    return undefined;
+  }
+
+  if (initializer.kind !== "literal" || typeof initializer.value !== "number") {
+    return undefined;
+  }
+
+  return { kind: "primitiveType", name: "number" };
+};
+
 const normalizeEnvType = (type: IrType | undefined): IrType | undefined => {
   if (!type) return undefined;
   if (type.kind === "unknownType" && type.explicit !== true) return undefined;

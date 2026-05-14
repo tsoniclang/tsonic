@@ -36,6 +36,7 @@ export const invertIfGuardShape = (shape: IrIfGuardShape): IrIfGuardShape => {
     case "arrayIsArrayGuard":
     case "discriminantEquality":
     case "propertyTruthiness":
+    case "propertyExistence":
     case "nullableGuard":
     case "opaqueBoolean":
       return { ...shape, polarity };

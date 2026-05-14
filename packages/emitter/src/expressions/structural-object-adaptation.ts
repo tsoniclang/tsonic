@@ -59,6 +59,55 @@ const buildStructuralSourceAccess = (
   };
 };
 
+const resolveSourceLocalName = (
+  emittedIdentifier: string,
+  context: EmitterContext
+): string => {
+  for (const [sourceName, localName] of context.localNameMap ?? []) {
+    if (localName === emittedIdentifier) {
+      return sourceName;
+    }
+  }
+
+  return emittedIdentifier;
+};
+
+const localIdentifierAlreadyHasExpectedSurface = (
+  emittedAst: CSharpExpressionAst,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  if (emittedAst.kind !== "identifierExpression") {
+    return false;
+  }
+
+  const sourceName = resolveSourceLocalName(emittedAst.identifier, context);
+  const localType =
+    context.localValueTypes?.get(sourceName) ??
+    context.localSemanticTypes?.get(sourceName);
+  if (!localType) {
+    return false;
+  }
+
+  if (isSameNominalType(localType, expectedType, context)) {
+    return true;
+  }
+
+  try {
+    const [localTypeAst, localTypeContext] = emitTypeAst(
+      stripNullish(localType),
+      context
+    );
+    const [expectedTypeAst] = emitTypeAst(
+      stripNullish(expectedType),
+      localTypeContext
+    );
+    return sameTypeAstSurface(localTypeAst, expectedTypeAst);
+  } catch {
+    return false;
+  }
+};
+
 const isStructuralObjectTargetType = (
   type: IrType,
   resolvedType: IrType,
@@ -97,6 +146,11 @@ export const tryAdaptStructuralObjectExpressionAst = (
   if (!expectedType || !sourceType) return undefined;
   if (isSameNominalType(sourceType, expectedType, context)) {
     return undefined;
+  }
+  if (
+    localIdentifierAlreadyHasExpectedSurface(emittedAst, expectedType, context)
+  ) {
+    return [emittedAst, context];
   }
 
   const strippedExpectedType = stripNullish(expectedType);

@@ -34,6 +34,7 @@ import {
 } from "../../core/format/backend-ast/builders.js";
 import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
 import { resolveStructuralViewMethodSurface } from "../../core/semantic/structural-view-types.js";
+import { resolveTypeMemberKind } from "../../core/semantic/member-surfaces.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -110,6 +111,28 @@ const extractTransparentIdentifier = (
   }
 
   return current.kind === "identifier" ? current : undefined;
+};
+
+const unwrapCallableMemberAssertion = (
+  callee: IrExpression,
+  context: EmitterContext
+): Extract<IrExpression, { kind: "memberAccess" }> | undefined => {
+  if (
+    callee.kind !== "typeAssertion" ||
+    callee.targetType.kind !== "functionType" ||
+    callee.expression.kind !== "memberAccess" ||
+    callee.expression.isComputed ||
+    typeof callee.expression.property !== "string"
+  ) {
+    return undefined;
+  }
+
+  const memberKind = resolveTypeMemberKind(
+    callee.expression.object.inferredType,
+    callee.expression.property,
+    context
+  );
+  return memberKind === "method" ? callee.expression : undefined;
 };
 
 const normalizePromiseResolveCall = (
@@ -367,7 +390,11 @@ const emitObjectDictionaryStaticCall = (
   }
 
   const memberName = expr.callee.property;
-  if (memberName !== "keys" && memberName !== "values") {
+  if (
+    memberName !== "keys" &&
+    memberName !== "values" &&
+    memberName !== "entries"
+  ) {
     return undefined;
   }
 
@@ -393,6 +420,17 @@ const emitObjectDictionaryStaticCall = (
     currentContext
   );
   currentContext = dictionaryContext;
+
+  if (memberName === "entries") {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: identifierExpression("global::js.Object.entries"),
+        arguments: [dictionaryAst],
+      },
+      currentContext,
+    ];
+  }
 
   const elementType =
     memberName === "keys" ? argumentType.keyType : argumentType.valueType;
@@ -610,7 +648,9 @@ export const emitCall = (
   }
 
   // Regular function call
-  const calleeExprForEmission = normalizedExpr.callee;
+  const calleeExprForEmission =
+    unwrapCallableMemberAssertion(normalizedExpr.callee, context) ??
+    normalizedExpr.callee;
   const shouldPreferParameterExpectedType =
     transparentCalleeIdentifier !== undefined &&
     context.promiseResolveValueTypes?.has(transparentCalleeIdentifier.name) ===

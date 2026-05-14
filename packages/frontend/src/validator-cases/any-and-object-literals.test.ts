@@ -177,6 +177,113 @@ describe("Static Safety Validation", () => {
       );
       expect(nativeAotDiag).to.equal(undefined);
     });
+
+    it("should allow Array.isArray narrowing over JsValue dynamic JSON carriers", () => {
+      const source = `
+        import type { JsValue } from "@tsonic/core/types.js";
+
+        export function count(value: JsValue): number {
+          if (!Array.isArray(value)) {
+            return -1;
+          }
+
+          return value.length;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const nativeAotDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5001"
+      );
+      expect(nativeAotDiag).to.equal(undefined);
+    });
+
+    it("should allow broad Array.isArray when it is only returned as a boolean", () => {
+      const source = `
+        export function isArrayValue(value: unknown): boolean {
+          return Array.isArray(value);
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const nativeAotDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5001"
+      );
+      expect(nativeAotDiag).to.equal(undefined);
+    });
+
+    it("should allow Array.isArray after object narrowing on JsValue carriers", () => {
+      const source = `
+        import type { JsValue } from "@tsonic/core/types.js";
+
+        export function isObject(value: JsValue): boolean {
+          return value !== null && typeof value === "object" && !Array.isArray(value);
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const nativeAotDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5001"
+      );
+      expect(nativeAotDiag).to.equal(undefined);
+    });
+
+    it("should allow Array.isArray narrowing over Object.entries values from JsValue records", () => {
+      const source = `
+        import type { JsValue } from "@tsonic/core/types.js";
+
+        export function count(root: Record<string, JsValue>): number {
+          const entries = Object.entries(root);
+          for (let i = 0; i < entries.length; i++) {
+            const [key, value] = entries[i]!;
+            if (key === "items" && Array.isArray(value)) {
+              return value.length;
+            }
+          }
+          return 0;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const nativeAotDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5001"
+      );
+      expect(nativeAotDiag).to.equal(undefined);
+    });
+
+    it("should allow Object.entries array checks after object narrowing on JsValue carriers", () => {
+      const source = `
+        import type { JsValue } from "@tsonic/core/types.js";
+
+        export function count(root: JsValue): number {
+          if (root === null || typeof root !== "object" || Array.isArray(root)) return 0;
+          const entries = Object.entries(root);
+          for (let i = 0; i < entries.length; i++) {
+            const [key, value] = entries[i]!;
+            if (key === "items" && Array.isArray(value)) {
+              return value.length;
+            }
+          }
+          return 0;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const nativeAotDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5001"
+      );
+      expect(nativeAotDiag).to.equal(undefined);
+    });
   });
 
   describe("TSN7403 - Object literal requires nominal type", () => {

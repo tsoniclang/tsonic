@@ -348,6 +348,20 @@ export const normalizeRuntimeStorageType = (
       resolvedAlias.kind === "unionType" &&
       resolvedAlias.runtimeCarrierFamilyKey
     ) {
+      if (
+        shouldUseBroadObjectForUnionStorage(
+          resolvedAlias,
+          context,
+          activeArrayKeys
+        )
+      ) {
+        return normalizeRuntimeStorageType(
+          resolvedAlias,
+          context,
+          activeArrayKeys
+        );
+      }
+
       if (!type.typeArguments || type.typeArguments.length === 0) {
         return type;
       }

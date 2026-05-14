@@ -104,6 +104,14 @@ export const registerForOfElementSymbolTypes = (
   );
 };
 
+export const registerForInKeySymbolTypes = (
+  originalName: string,
+  context: EmitterContext
+): EmitterContext => {
+  const keyType: IrType = { kind: "primitiveType", name: "string" };
+  return registerLocalSymbolTypes(originalName, keyType, keyType, context);
+};
+
 /**
  * Register both semantic and storage types for a variable declaration.
  *

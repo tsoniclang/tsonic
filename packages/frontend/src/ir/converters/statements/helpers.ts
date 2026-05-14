@@ -16,7 +16,10 @@ import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertInterfaceMember } from "./declarations.js";
 import type { ProgramContext } from "../../program-context.js";
-import { withVariableDeclaratorTypeEnv } from "../type-env.js";
+import {
+  resolveMutableNumericLiteralDeclarationType,
+  withVariableDeclaratorTypeEnv,
+} from "../type-env.js";
 
 /**
  * Optional class fields (`foo?: T`) are semantically `T | undefined` in TS.
@@ -182,15 +185,23 @@ export const convertVariableDeclarationList = (
 
   // Convert sequentially so later declarators can refer to earlier ones.
   for (const decl of node.declarations) {
-    const declType = decl.type
+    const explicitDeclType = decl.type
       ? typeSystem.typeFromSyntax(
           currentCtx.binding.captureTypeSyntax(decl.type)
         )
       : undefined;
 
     const initializer = decl.initializer
-      ? convertExpression(decl.initializer, currentCtx, declType)
+      ? convertExpression(decl.initializer, currentCtx, explicitDeclType)
       : undefined;
+    const declType =
+      explicitDeclType ??
+      resolveMutableNumericLiteralDeclarationType(
+        declarationKind,
+        explicitDeclType,
+        initializer,
+        false
+      );
 
     const irDecl = {
       kind: "variableDeclarator" as const,
@@ -259,6 +270,14 @@ export const hasReadonlyModifier = (node: ts.Node): boolean => {
 };
 
 export const getAccessibility = (node: ts.Node): IrAccessibility => {
-  void node;
+  if (ts.canHaveModifiers(node)) {
+    const modifiers = ts.getModifiers(node);
+    if (modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword)) {
+      return "private";
+    }
+    if (modifiers?.some((m) => m.kind === ts.SyntaxKind.ProtectedKeyword)) {
+      return "protected";
+    }
+  }
   return "public";
 };

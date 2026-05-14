@@ -202,6 +202,19 @@ const wrapMaterializedTargetAst = (
   ];
 };
 
+const preservesMaterializedValueTypeNarrowing = (
+  narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
+  context: EmitterContext
+): boolean => {
+  const sourceType =
+    narrowed.sourceType ?? narrowed.storageType ?? narrowed.carrierType;
+  return (
+    !!sourceType &&
+    !!narrowed.type &&
+    requiresValueTypeMaterialization(sourceType, narrowed.type, context)
+  );
+};
+
 export const buildRuntimeSubsetExpressionAst = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   narrowed: Extract<NarrowedBinding, { kind: "runtimeSubset" }>,
@@ -366,16 +379,37 @@ export const tryEmitStorageCompatibleIdentifier = (
     return storageIdentifierAst;
   }
 
-  const effectiveType = resolveEffectiveExpressionType(expr, context);
+  const effectiveType =
+    context.localSemanticTypes?.get(expr.name) ??
+    resolveEffectiveExpressionType(expr, context);
+  const strippedEffectiveType = effectiveType
+    ? stripNullish(effectiveType)
+    : undefined;
+  const strippedExpectedType = stripNullish(expectedType);
+  const effectiveNamedStructuralAliasMatchesExpected =
+    strippedEffectiveType?.kind === "referenceType" &&
+    strippedExpectedType.kind === "referenceType" &&
+    strippedEffectiveType.structuralOrigin === "namedReference" &&
+    (strippedEffectiveType.structuralMembers?.length ?? 0) > 0 &&
+    strippedEffectiveType.name === strippedExpectedType.name;
   if (
     !isBroadStorageTarget(expectedType, context) &&
     !willCarryAsRuntimeUnion(expectedType, context) &&
     matchesExpectedEmissionType(effectiveType, expectedType, context)
   ) {
-    return undefined;
+    return effectiveNamedStructuralAliasMatchesExpected
+      ? storageIdentifierAst
+      : undefined;
   }
 
   if (!matchesExpectedEmissionType(storageType, expectedType, context)) {
+    return undefined;
+  }
+
+  if (
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    !willCarryAsRuntimeUnion(storageType, context)
+  ) {
     return undefined;
   }
 
@@ -571,10 +605,13 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     isBroadStorageTarget(expectedType, context) &&
     narrowed.carrierExprAst !== undefined &&
     narrowed.carrierExprAst !== narrowed.exprAst;
+  const shouldPreserveMaterializedValueNarrowing =
+    preservesMaterializedValueTypeNarrowing(narrowed, context);
   const shouldAvoidStorageReuse =
     shouldAvoidBroadStorageReuse ||
     shouldAvoidProjectedRuntimeUnionStorageReuse ||
-    shouldAvoidBroadCarrierReuseForProjectedNarrowing;
+    shouldAvoidBroadCarrierReuseForProjectedNarrowing ||
+    shouldPreserveMaterializedValueNarrowing;
   const originalRuntimeCarrierAst =
     narrowed.carrierExprAst ??
     narrowed.storageExprAst ??
@@ -596,8 +633,20 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     !!originalRuntimeCarrierType &&
     willCarryAsRuntimeUnion(expectedType, context) &&
     sameSourceCarrierSurface &&
+    !shouldAvoidStorageReuse &&
     (!narrowedProjectionType ||
       !willCarryAsRuntimeUnion(narrowedProjectionType, context));
+  const canReuseOriginalCarrierSurface =
+    !!expectedType &&
+    !!originalRuntimeCarrierAst &&
+    !!originalRuntimeCarrierType &&
+    sameSourceCarrierSurface &&
+    !shouldAvoidStorageReuse &&
+    !requiresValueTypeMaterialization(
+      originalRuntimeCarrierType,
+      expectedType,
+      carrierSurfaceContext
+    );
   if (
     expectedType &&
     isBroadStorageTarget(expectedType, context) &&
@@ -638,6 +687,9 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     }
   }
   if (canReuseOriginalRuntimeCarrier) {
+    return [originalRuntimeCarrierAst, carrierSurfaceContext];
+  }
+  if (canReuseOriginalCarrierSurface) {
     return [originalRuntimeCarrierAst, carrierSurfaceContext];
   }
 
@@ -704,11 +756,26 @@ export const tryEmitExactStorageCompatibleNarrowedIdentifier = (
           context
         )
       : [false, context];
+  if (preservesMaterializedValueTypeNarrowing(narrowed, context)) {
+    return undefined;
+  }
 
   if (
     originalRuntimeCarrierAst &&
     willCarryAsRuntimeUnion(expectedType, context) &&
     sameSourceCarrierSurface
+  ) {
+    return [originalRuntimeCarrierAst, carrierSurfaceContext];
+  }
+  if (
+    originalRuntimeCarrierAst &&
+    sameSourceCarrierSurface &&
+    originalRuntimeCarrierType &&
+    !requiresValueTypeMaterialization(
+      originalRuntimeCarrierType,
+      expectedType,
+      carrierSurfaceContext
+    )
   ) {
     return [originalRuntimeCarrierAst, carrierSurfaceContext];
   }

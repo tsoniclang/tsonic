@@ -67,6 +67,18 @@ const classifyBinaryGuard = (
     };
   }
 
+  if (expression.operator === "in") {
+    const property = literalStringValue(expression.left);
+    return property
+      ? {
+          kind: "propertyExistence",
+          target: expression.right,
+          property,
+          polarity: branchPolarity,
+        }
+      : undefined;
+  }
+
   if (!isEqualityOperator(expression.operator)) {
     return undefined;
   }
@@ -229,6 +241,7 @@ const attachArmSelection = (
     case "instanceofGuard":
     case "arrayIsArrayGuard":
     case "discriminantEquality":
+    case "propertyExistence":
     case "propertyTruthiness": {
       const bindingKey = expressionBindingKey(shape.target);
       const narrowing = bindingKey

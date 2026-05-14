@@ -228,7 +228,34 @@ describe("validateUnsupportedFeatures", () => {
       expect(hasDiagnostic(result, "TSN2001", "'in' operator")).to.equal(true);
     });
 
-    it("rejects TypeScript public class modifiers", () => {
+    it("allows the JavaScript in operator over closed structural unions", () => {
+      const result = runValidation(`
+        type Success = { property_id: string };
+        type Failure = { error: Promise<void> };
+
+        export function hasError(value: Success | Failure): boolean {
+          return "error" in value;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "'in' operator")).to.equal(false);
+    });
+
+    it("allows for...in over string-key records", () => {
+      const result = runValidation(`
+        export function count(values: Record<string, number>): number {
+          let total = 0;
+          for (const key in values) {
+            total = total + values[key];
+          }
+          return total;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "for...in")).to.equal(false);
+    });
+
+    it("allows TypeScript public class modifiers", () => {
       const result = runValidation(`
         export class User {
           public name: string = "";
@@ -237,10 +264,10 @@ describe("validateUnsupportedFeatures", () => {
 
       expect(
         hasDiagnostic(result, "TSN2001", "class modifier 'public'")
-      ).to.equal(true);
+      ).to.equal(false);
     });
 
-    it("rejects TypeScript private class modifiers", () => {
+    it("allows TypeScript private class modifiers", () => {
       const result = runValidation(`
         export class User {
           private name: string = "";
@@ -249,10 +276,10 @@ describe("validateUnsupportedFeatures", () => {
 
       expect(
         hasDiagnostic(result, "TSN2001", "class modifier 'private'")
-      ).to.equal(true);
+      ).to.equal(false);
     });
 
-    it("rejects TypeScript protected class modifiers", () => {
+    it("allows TypeScript protected class modifiers", () => {
       const result = runValidation(`
         export class User {
           protected getName(): string {
@@ -263,10 +290,10 @@ describe("validateUnsupportedFeatures", () => {
 
       expect(
         hasDiagnostic(result, "TSN2001", "class modifier 'protected'")
-      ).to.equal(true);
+      ).to.equal(false);
     });
 
-    it("rejects TypeScript readonly class field modifiers", () => {
+    it("allows TypeScript readonly class field modifiers", () => {
       const result = runValidation(`
         export class User {
           readonly id: string = "";
@@ -275,7 +302,7 @@ describe("validateUnsupportedFeatures", () => {
 
       expect(
         hasDiagnostic(result, "TSN2001", "class modifier 'readonly'")
-      ).to.equal(true);
+      ).to.equal(false);
     });
 
     it("rejects TypeScript abstract class modifiers", () => {

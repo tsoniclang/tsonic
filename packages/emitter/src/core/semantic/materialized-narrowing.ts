@@ -363,6 +363,8 @@ const isExactExpressionToType = (
     typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
   switch (ast.kind) {
+    case "parenthesizedExpression":
+      return isExactExpressionToType(ast.expression, concreteTarget);
     case "castExpression": {
       const castType =
         ast.type.kind === "nullableType" ? ast.type.underlyingType : ast.type;
@@ -415,6 +417,25 @@ const isJsNumberMaterializationTarget = (
 ): boolean => {
   const resolved = resolveTypeAlias(stripNullish(type), context);
   return resolved.kind === "primitiveType" && resolved.name === "number";
+};
+
+const isBroadSourceJsNumberMaterializationAst = (
+  sourceAst: CSharpExpressionAst,
+  targetTypeAst: CSharpTypeAst
+): boolean => {
+  const expression =
+    sourceAst.kind === "parenthesizedExpression"
+      ? sourceAst.expression
+      : sourceAst;
+  if (expression.kind !== "switchExpression") {
+    return false;
+  }
+
+  return expression.arms.some(
+    (arm) =>
+      arm.pattern.kind === "declarationPattern" &&
+      sameConcreteTypeAstSurface(arm.pattern.type, targetTypeAst)
+  );
 };
 
 const buildBroadSourceJsNumberMaterializationAst = (
@@ -695,6 +716,15 @@ export const materializeDirectNarrowingAst = (
     const materializationSourceAst =
       stripObjectBoxForConcreteMaterializationAst(sourceAst, resolvedTarget);
     if (isJsNumberMaterializationTarget(resolvedTarget, context)) {
+      if (
+        isBroadSourceJsNumberMaterializationAst(
+          materializationSourceAst,
+          concreteTargetTypeAst
+        )
+      ) {
+        return [materializationSourceAst, nextContext];
+      }
+
       return buildBroadSourceJsNumberMaterializationAst(
         materializationSourceAst,
         concreteTargetTypeAst,
@@ -843,18 +873,6 @@ export const materializeDirectNarrowingAst = (
       }
     }
   }
-  const canReuseAssignableSurface =
-    !sourceWasParameterModifierWrapped &&
-    !isBroadSource &&
-    matchesExpectedEmissionType(
-      comparableSourceType,
-      comparableNarrowedType,
-      context
-    );
-  if (canReuseAssignableSurface) {
-    return [sourceAst, nextContext];
-  }
-
   const splitSource = splitRuntimeNullishUnionMembers(comparableSourceType);
   if (
     splitSource?.hasRuntimeNullish &&
@@ -883,6 +901,18 @@ export const materializeDirectNarrowingAst = (
         nextContext,
       ];
     }
+  }
+
+  const canReuseAssignableSurface =
+    !sourceWasParameterModifierWrapped &&
+    !isBroadSource &&
+    matchesExpectedEmissionType(
+      comparableSourceType,
+      comparableNarrowedType,
+      context
+    );
+  if (canReuseAssignableSurface) {
+    return [sourceAst, nextContext];
   }
 
   return [

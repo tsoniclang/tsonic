@@ -288,6 +288,13 @@ export type IrIfGuardShape =
       readonly armSelection?: IrUnionArmSelection;
     }
   | {
+      readonly kind: "propertyExistence";
+      readonly target: IrExpression;
+      readonly property: string;
+      readonly polarity: IrGuardPolarity;
+      readonly armSelection?: IrUnionArmSelection;
+    }
+  | {
       readonly kind: "nullableGuard";
       readonly target: IrExpression;
       readonly polarity: IrGuardPolarity;

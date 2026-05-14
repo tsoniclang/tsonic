@@ -3,7 +3,7 @@
  * Returns CSharpStatementAst nodes.
  */
 
-import { IrStatement } from "@tsonic/frontend";
+import { IrStatement, type IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitStatementAst } from "../../statement-emitter.js";
@@ -16,7 +16,10 @@ import {
   allocateLocalName,
   registerLocalName,
 } from "../../core/format/local-names.js";
-import { registerForOfElementSymbolTypes } from "../../core/semantic/symbol-types.js";
+import {
+  registerForInKeySymbolTypes,
+  registerForOfElementSymbolTypes,
+} from "../../core/semantic/symbol-types.js";
 import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
@@ -24,6 +27,7 @@ import type {
   CSharpLocalDeclarationStatementAst,
 } from "../../core/format/backend-ast/types.js";
 import { getIterableSourceShape } from "../../expressions/structural-type-shapes.js";
+import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import {
   detectCanonicalIntLoop,
   wrapInBlock,
@@ -247,10 +251,13 @@ export const emitForOfStatementAst = (
   const iterableExpressionType =
     resolveEffectiveExpressionType(stmt.expression, context) ??
     stmt.expression.inferredType;
+  const iterableStorageType =
+    normalizeRuntimeStorageType(iterableExpressionType, context) ??
+    iterableExpressionType;
   const [exprAst, exprContext] = emitExpressionAst(
     stmt.expression,
     context,
-    iterableExpressionType
+    iterableStorageType
   );
   const outerNameMap = exprContext.localNameMap;
   const outerConditionAliases = exprContext.conditionAliases;
@@ -268,7 +275,7 @@ export const emitForOfStatementAst = (
   );
   const foreachSourceAst = buildForOfSourceAst(
     exprAst,
-    iterableExpressionType,
+    iterableStorageType,
     exprContext
   );
 
@@ -366,10 +373,98 @@ export const emitForOfStatementAst = (
   ];
 };
 
-/** Unsupported `for...in` emission guard. */
+const buildForInSourceAst = (
+  exprAst: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "memberAccessExpression",
+  expression: exprAst,
+  memberName: "Keys",
+});
+
+/** Emit a for-in statement over a statically proven string-key carrier. */
 export const emitForInStatementAst = (
-  _stmt: Extract<IrStatement, { kind: "forInStatement" }>,
-  _context: EmitterContext
-): never => {
-  throw new Error("ICE: for...in reached emitter - validation missed TSN2001");
+  stmt: Extract<IrStatement, { kind: "forInStatement" }>,
+  context: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  const [exprAst, exprContext] = emitExpressionAst(
+    stmt.expression,
+    context,
+    stmt.expression.inferredType
+  );
+  const outerNameMap = exprContext.localNameMap;
+  const outerConditionAliases = exprContext.conditionAliases;
+  const outerSemanticTypes = exprContext.localSemanticTypes;
+  const outerValueTypes = exprContext.localValueTypes;
+  let loopContext: EmitterContext = {
+    ...exprContext,
+    localNameMap: new Map(outerNameMap ?? []),
+    conditionAliases: new Map(outerConditionAliases ?? []),
+  };
+
+  if (stmt.variable.kind === "identifierPattern") {
+    const originalName = stmt.variable.name;
+    const alloc = allocateLocalName(originalName, loopContext);
+    loopContext = registerLocalName(
+      originalName,
+      alloc.emittedName,
+      alloc.context
+    );
+    loopContext = registerForInKeySymbolTypes(originalName, loopContext);
+    const [bodyStmts, bodyContext] = emitStatementAst(stmt.body, loopContext);
+    return [
+      [
+        {
+          kind: "foreachStatement",
+          isAwait: false,
+          type: { kind: "varType" },
+          identifier: alloc.emittedName,
+          expression: buildForInSourceAst(exprAst),
+          body: wrapInBlock(bodyStmts),
+        },
+      ],
+      {
+        ...bodyContext,
+        localNameMap: outerNameMap,
+        conditionAliases: outerConditionAliases,
+        localSemanticTypes: outerSemanticTypes,
+        localValueTypes: outerValueTypes,
+      },
+    ];
+  }
+
+  const tempAlloc = allocateLocalName("__key", loopContext);
+  const tempVar = tempAlloc.emittedName;
+  loopContext = tempAlloc.context;
+  const stringType: IrType = { kind: "primitiveType", name: "string" };
+  const lowerResult = lowerPatternAst(
+    stmt.variable,
+    { kind: "identifierExpression", identifier: tempVar },
+    stringType,
+    loopContext
+  );
+  const [bodyStmts, bodyContext] = emitStatementAst(
+    stmt.body,
+    lowerResult.context
+  );
+  const bodyAst = wrapInBlock([...lowerResult.statements, ...bodyStmts]);
+
+  return [
+    [
+      {
+        kind: "foreachStatement",
+        isAwait: false,
+        type: { kind: "varType" },
+        identifier: tempVar,
+        expression: buildForInSourceAst(exprAst),
+        body: bodyAst,
+      },
+    ],
+    {
+      ...bodyContext,
+      localNameMap: outerNameMap,
+      conditionAliases: outerConditionAliases,
+      localSemanticTypes: outerSemanticTypes,
+      localValueTypes: outerValueTypes,
+    },
+  ];
 };

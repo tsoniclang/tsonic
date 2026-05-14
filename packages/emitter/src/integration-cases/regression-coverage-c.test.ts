@@ -518,7 +518,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.match(
-        /resp\.end\(global::Tsonic\.Internal\.Union<[^>]+>\.From2\(text\)\);/
+        /resp\.end\(global::Tsonic\.Internal\.Union<[^>]+>\.From3\(text\)\);/
       );
       expect(csharp).to.include(
         'normalizeHeaderValue(resp.getHeader("x-test") == null ? default(global::Tsonic.Internal.Union<string[], string>?) : global::Tsonic.Internal.Union<string[], string>.From2(resp.getHeader("x-test")));'
@@ -3112,7 +3112,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("pathOrName.As1()");
     });
 
-    it("keeps js Date nullish constructor fallbacks direct in constructor arguments", () => {
+    it("materializes js Date constructor union arguments while preserving nullish selection", () => {
       const csharp = compileToCSharp(
         `
           class Holder {
@@ -3141,10 +3141,11 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("var fallback = new global::js.Date(0);");
+      expect(csharp).to.include(
+        "var fallback = new global::js.Date(global::Tsonic.Internal.Union<double, string>.From1(0));"
+      );
       expect(csharp).to.include("var selected = holder.date ?? fallback;");
       expect(csharp).to.include("return new Box(selected);");
-      expect(csharp).not.to.include("Union2_");
       expect(csharp).not.to.include(".From1(selected)");
     });
 
@@ -3861,7 +3862,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("if (nextCount > rule.maxCount.Value)");
-      expect(csharp).to.include("String(rule.maxCount)");
+      expect(csharp).to.include("String(rule.maxCount.Value)");
       expect(csharp).not.to.include("rule.maxCount.Value.Value");
     });
 
@@ -3883,13 +3884,14 @@ describe("End-to-End Integration", () => {
         }
       );
 
-      expect(csharp).to.include("if (chunk.Is3())");
+      expect(csharp).to.include("if (chunk.Is4())");
       expect(csharp).to.include(
         "return ServerResponse._copyUint8Array(chunk__is_1.buffer);"
       );
       expect(csharp).to.include(
         "return ServerResponse._copyUint8Array(chunk__is_2);"
       );
+      expect(csharp).to.include("if (chunk.Is2())");
       expect(csharp).to.include("for (int index = 0; index < source.length;");
       expect(csharp).to.include("source.at(index)");
       expect(csharp).not.to.include(
@@ -5715,9 +5717,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("result.Match<object?[]>");
-      expect(csharp).to.include(
-        "__tsonic_union_member_2 => (object?[])__tsonic_union_member_2"
-      );
+      expect(csharp).to.include("global::System.Linq.Enumerable.Select");
       expect(csharp).not.to.include(
         "Cannot materialize runtime union arrayType to arrayType"
       );

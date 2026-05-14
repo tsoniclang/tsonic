@@ -95,6 +95,60 @@ describe("Union Type Emission", () => {
     expect(code).not.to.include("Union<void");
   });
 
+  it("collapses equivalent runtime array union members to the canonical storage type", () => {
+    const stringType: IrType = { kind: "primitiveType", name: "string" };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/arrayUnion.ts",
+      namespace: "Test",
+      className: "arrayUnion",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "read",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "headers" },
+              type: {
+                kind: "unionType",
+                types: [
+                  {
+                    kind: "arrayType",
+                    elementType: {
+                      kind: "unionType",
+                      types: [
+                        stringType,
+                        { kind: "primitiveType", name: "null" },
+                      ],
+                    },
+                  },
+                  { kind: "arrayType", elementType: stringType },
+                ],
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isAsync: false,
+          isGenerator: false,
+          isExported: true,
+        },
+      ],
+    };
+
+    const code = emitModule(module);
+
+    expect(code).to.include("read(string[] headers)");
+    expect(code).not.to.include("read(object headers)");
+  });
+
   it("emits unconstrained generic nullish unions as T?", () => {
     const module: IrModule = {
       kind: "module",

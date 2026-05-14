@@ -206,13 +206,22 @@ const tryEmitDirectTypeofConditionAst = (
     targetAst,
     targetContext
   );
+  const identifierStorageType =
+    guard.targetExpr.kind === "identifier"
+      ? targetContext.localValueTypes?.get(guard.targetExpr.name)
+      : undefined;
+  const storageTypeofCandidate = identifierStorageType ?? directStorageType;
+  const storageCanUseRuntimeUnionCarrier =
+    !storageTypeofCandidate ||
+    willCarryAsRuntimeUnion(storageTypeofCandidate, targetContext);
   const runtimeCarrierType =
     (guard.targetExpr.kind === "identifier"
       ? resolveIdentifierRuntimeCarrierType(guard.targetExpr, targetContext)
       : undefined) ?? directStorageType;
   const directStorageIsBroad =
-    directStorageType !== undefined &&
-    isBroadObjectSlotType(directStorageType, targetContext);
+    storageTypeofCandidate !== undefined &&
+    !storageCanUseRuntimeUnionCarrier &&
+    isBroadObjectSlotType(storageTypeofCandidate, targetContext);
   const alignedRuntimeMembers =
     !directStorageIsBroad &&
     guard.bindingKey !== undefined &&
@@ -225,7 +234,10 @@ const tryEmitDirectTypeofConditionAst = (
         )
       : undefined;
   const runtimeUnionFrame =
-    alignedRuntimeMembers === undefined && currentType !== undefined
+    !directStorageIsBroad &&
+    storageCanUseRuntimeUnionCarrier &&
+    alignedRuntimeMembers === undefined &&
+    currentType !== undefined
       ? resolveRuntimeUnionFrame(
           guard.bindingKey,
           currentType,
