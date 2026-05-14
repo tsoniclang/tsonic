@@ -1,4 +1,10 @@
-import { describe, it, expect, emitModule } from "./helpers.js";
+import {
+  describe,
+  it,
+  expect,
+  emitModule,
+  testIfStatement,
+} from "./helpers.js";
 import type { IrModule, IrType } from "./helpers.js";
 describe("Statement Emission", () => {
   it("should emit if statements", () => {
@@ -27,7 +33,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -56,7 +62,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
             ],
           },
           isExported: true,
@@ -111,7 +117,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -137,7 +143,7 @@ describe("Statement Emission", () => {
                   ],
                 },
                 elseStatement: undefined,
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: { kind: "literal", value: false },
@@ -204,7 +210,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -244,7 +250,7 @@ describe("Statement Emission", () => {
                   ],
                 },
                 elseStatement: undefined,
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: { kind: "literal", value: false },
@@ -343,7 +349,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -438,7 +444,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
             ],
           },
           isExported: true,
@@ -494,7 +500,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -519,8 +525,8 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
-              {
+              }),
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "call",
@@ -550,7 +556,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: { kind: "literal", value: 3 },
@@ -621,7 +627,7 @@ describe("Statement Emission", () => {
                   },
                 ],
               },
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "logical",
@@ -673,7 +679,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: { kind: "literal", value: 0 },
@@ -742,7 +748,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -767,8 +773,8 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
-              {
+              }),
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -797,8 +803,8 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
-              {
+              }),
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "call",
@@ -828,7 +834,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: { kind: "literal", value: false },

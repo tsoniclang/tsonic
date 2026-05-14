@@ -3,6 +3,7 @@ import {
   it,
   expect,
   emitModule,
+  testIfStatement,
   type IrModule,
   type IrType,
 } from "./helpers.js";
@@ -335,7 +336,7 @@ describe("Expression Emission", () => {
       isStaticContainer: true,
       imports: [],
       body: [
-        {
+        testIfStatement({
           kind: "ifStatement",
           condition: {
             kind: "binary",
@@ -359,7 +360,7 @@ describe("Expression Emission", () => {
             kind: "blockStatement",
             statements: [],
           },
-        },
+        }),
       ],
       exports: [],
     };

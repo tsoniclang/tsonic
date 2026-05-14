@@ -5,6 +5,7 @@
  * going through the printer.
  */
 
+import { getClrIdentityKey as getFrontendClrIdentityKey } from "@tsonic/frontend";
 import type {
   CSharpExpressionAst,
   CSharpPredefinedTypeKeyword,
@@ -272,6 +273,14 @@ const SYSTEM_CLR_TYPE_ALIASES: ReadonlyMap<string, string> = new Map([
   ["System.Void", "System.Void/0"],
 ]);
 
+const normalizeClrIdentityInput = (rawName: string): string => {
+  const trimmed = rawName.trim();
+  const hasGlobal = trimmed.startsWith("global::");
+  const body = hasGlobal ? trimmed.slice("global::".length) : trimmed;
+  const normalizedBody = body.replace(/\+/g, ".");
+  return hasGlobal ? `global::${normalizedBody}` : normalizedBody;
+};
+
 const canonicalNamedTypeKey = (
   name: string,
   typeArguments: readonly CSharpTypeAst[] | undefined
@@ -291,6 +300,17 @@ const canonicalNamedTypeKey = (
     if (systemAlias) {
       return `clr:${systemAlias}`;
     }
+  }
+
+  const isClrShapedName =
+    name.startsWith("global::") ||
+    baseName.includes(".") ||
+    metadataArity !== undefined;
+  if (isClrShapedName) {
+    return `clr:${getFrontendClrIdentityKey(
+      normalizeClrIdentityInput(body),
+      arity
+    )}<${argumentKeys.join(",")}>`;
   }
 
   return `named:${baseName}/${arity}<${argumentKeys.join(",")}>`;
@@ -343,24 +363,10 @@ export const stableClrIdentityKeyFromName = (
   clrName: string,
   typeArgumentArity = 0
 ): string => {
-  const normalized = normalizeClrQualifiedName(clrName);
-  const body = normalized.startsWith("global::")
-    ? normalized.slice("global::".length)
-    : normalized;
-  const arityMatch = /^(.*)`([0-9]+)$/.exec(body);
-  const baseName = arityMatch?.[1] ?? body;
-  const metadataArity =
-    arityMatch?.[2] !== undefined ? Number(arityMatch[2]) : undefined;
-  const arity = metadataArity ?? typeArgumentArity;
-
-  if (arity === 0) {
-    const systemAlias = SYSTEM_CLR_TYPE_ALIASES.get(baseName);
-    if (systemAlias) {
-      return `clr:${systemAlias}`;
-    }
-  }
-
-  return `named:${baseName}/${arity}<>`;
+  return `clr:${getFrontendClrIdentityKey(
+    normalizeClrIdentityInput(clrName),
+    typeArgumentArity
+  )}`;
 };
 
 export const astTypeMatchesClrIdentity = (

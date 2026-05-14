@@ -2,8 +2,9 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
   emitModule,
+  testIfStatement,
   type TestIrModule as IrModule,
-} from "../test-ir-normalization.js";
+} from "../test-ir-strict.js";
 
 const makeModule = (body: IrModule["body"]): IrModule => ({
   kind: "module",
@@ -106,7 +107,7 @@ describe("Emitter precedence + parentheses", () => {
 
   it("preserves boolean-context grouping with parentheses in conditions", () => {
     const module = makeModule([
-      {
+      testIfStatement({
         kind: "ifStatement",
         condition: {
           kind: "logical",
@@ -133,7 +134,7 @@ describe("Emitter precedence + parentheses", () => {
         },
         thenStatement: { kind: "blockStatement", statements: [] },
         elseStatement: undefined,
-      },
+      }),
     ]);
 
     const result = emitModule(module);
@@ -142,7 +143,7 @@ describe("Emitter precedence + parentheses", () => {
 
   it("wraps low-precedence boolean-context expressions before appending comparisons", () => {
     const module = makeModule([
-      {
+      testIfStatement({
         kind: "ifStatement",
         condition: {
           kind: "logical",
@@ -167,7 +168,7 @@ describe("Emitter precedence + parentheses", () => {
         },
         thenStatement: { kind: "blockStatement", statements: [] },
         elseStatement: undefined,
-      },
+      }),
     ]);
 
     const result = emitModule(module);

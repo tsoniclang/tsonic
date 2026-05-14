@@ -64,8 +64,12 @@ export const createReadPackageRootNamespace = (
           packageRootNamespaceCache.set(packageRoot, parsed.namespace);
           return parsed.namespace;
         }
-      } catch {
-        // Ignore malformed/non-namespace CLR bindings candidates and continue.
+      } catch (error) {
+        throw new Error(
+          `Failed to read CLR bindings metadata '${candidate}': ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
     }
 
@@ -197,8 +201,12 @@ export const createResolveModuleFromPackageRoot = (
           (rawTarget as { readonly default?: unknown }).default
         );
       }
-    } catch {
-      return undefined;
+    } catch (error) {
+      throw new Error(
+        `Failed to read package manifest '${packageJsonPath}': ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
 
     return undefined;
@@ -230,8 +238,12 @@ export const createResolveModuleFromPackageRoot = (
 
       const exportKey = subpath && subpath.length > 0 ? `./${subpath}` : ".";
       return tryResolveExportTarget(packageRoot, exportsField[exportKey]);
-    } catch {
-      return undefined;
+    } catch (error) {
+      throw new Error(
+        `Failed to read source package manifest '${manifestPath}': ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   };
 

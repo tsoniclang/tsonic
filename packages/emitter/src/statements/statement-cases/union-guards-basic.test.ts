@@ -1,4 +1,10 @@
-import { describe, it, expect, emitModule } from "./helpers.js";
+import {
+  describe,
+  it,
+  expect,
+  emitModule,
+  testIfStatement,
+} from "./helpers.js";
 import type { IrModule, IrType } from "./helpers.js";
 describe("Statement Emission", () => {
   it("narrows discriminated unions on truthy/falsy property guards", () => {
@@ -88,7 +94,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "unary",
@@ -125,7 +131,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: {

@@ -1,0 +1,383 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "statusModel": ["complete"],
+    "proofRequired": true,
+    "proofTestsMayNotUseCatchAllRegressionFiles": true,
+    "analysisDirectoryMayNotBeProofSource": true
+  },
+  "bannedProductPatterns": [
+    "test-ir-normalization",
+    "normalizeTestIr",
+    "run-all-serial",
+    "--no-verify",
+    "TSONIC_PARALLEL_VALIDATE",
+    "TSONIC_PARALLEL_UNIT",
+    "allowUnknownInferredType",
+    "preserveRuntimeLayout",
+    "isBroadObjectPassThroughType"
+  ],
+  "items": [
+    {
+      "id": 1,
+      "priority": "P1",
+      "title": "IR advisory, not authoritative",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/statements/control/conditionals/architecture-invariants.test.ts"
+      ],
+      "example": {
+        "source": "if (typeof value === 'string') value.length;",
+        "semantic": "Frontend records the branch guard plan.",
+        "emitted": "Emitter consumes the branch plan instead of rediscovering the typeof pattern.",
+        "invariant": "Guard dispatch cannot fall back to stmt.thenNarrowings or source-pattern detectors."
+      }
+    },
+    {
+      "id": 2,
+      "priority": "P1",
+      "title": "Soundness disable-able by flag",
+      "status": "complete",
+      "proofTests": [
+        "packages/frontend/src/ir/validation/soundness-gate-cases/no-permissive-unknown-escape.test.ts"
+      ],
+      "example": {
+        "source": "const x = unknownValue.member;",
+        "semantic": "Unknown member access cannot opt out through permissive IR flags.",
+        "emitted": "No C# is emitted unless the access is statically proven.",
+        "invariant": "Permissive escape names are banned from product IR."
+      }
+    },
+    {
+      "id": 3,
+      "priority": "P2",
+      "title": "Name-based semantic authority",
+      "status": "complete",
+      "proofTests": [
+        "packages/frontend/src/program/binding-payload-invariants.test.ts"
+      ],
+      "example": {
+        "source": "import { Buffer } from '@tsonic/nodejs/buffer.js';",
+        "semantic": "Binding metadata owns the CLR identity.",
+        "emitted": "The emitter receives resolved metadata instead of inferring from the spelling Buffer.",
+        "invariant": "Semantic binding payloads are validated before use."
+      }
+    },
+    {
+      "id": 4,
+      "priority": "P2",
+      "title": "Multi-file co-authorship",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+      ],
+      "example": {
+        "source": "const selected: A | B = condition ? a : b;",
+        "semantic": "Expected-type adaptation owns the cross-file decision.",
+        "emitted": "Call sites route through the shared planner.",
+        "invariant": "Entrypoints cannot import raw runtime-union adapters directly."
+      }
+    },
+    {
+      "id": 5,
+      "priority": "P1",
+      "title": "Dispatch as semantic decision",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/statements/control/conditionals/architecture-invariants.test.ts"
+      ],
+      "example": {
+        "source": "if (Array.isArray(value)) value.length;",
+        "semantic": "Frontend guard shape chooses the branch behavior.",
+        "emitted": "Emitter dispatches from the recorded guard shape.",
+        "invariant": "Post-condition fallback detectors are banned."
+      }
+    },
+    {
+      "id": 6,
+      "priority": "P3",
+      "title": "Two identity domains",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/core/format/backend-ast/invariants.test.ts"
+      ],
+      "example": {
+        "source": "const values: System.Collections.Generic.List<int> = getValues();",
+        "semantic": "Frontend CLR identity key is canonical.",
+        "emitted": "Backend AST comparison delegates CLR identity parsing to the frontend helper.",
+        "invariant": "Backend AST utilities cannot maintain a second CLR generic-arity parser."
+      }
+    },
+    {
+      "id": 7,
+      "priority": "P3",
+      "title": "Migration debt class",
+      "status": "complete",
+      "proofTests": ["packages/frontend/src/architecture-completion.test.ts"],
+      "example": {
+        "source": "A new branch-plan selector replaces an old source-pattern selector.",
+        "semantic": "Only the new selector remains in product code.",
+        "emitted": "No bridge or compatibility path runs.",
+        "invariant": "Tracker-level banned product patterns are scanned in CI tests."
+      }
+    },
+    {
+      "id": 8,
+      "priority": "P3",
+      "title": "Test organization",
+      "status": "complete",
+      "proofTests": ["packages/frontend/src/architecture-completion.test.ts"],
+      "example": {
+        "source": "A compiler invariant is declared done.",
+        "semantic": "The tracker points to a named invariant test.",
+        "emitted": "The full test run exercises the invariant directly.",
+        "invariant": "Catch-all regression files are forbidden as proof tests."
+      }
+    },
+    {
+      "id": 9,
+      "priority": "P1",
+      "title": "Semantic/storage/lowering separation",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+      ],
+      "example": {
+        "source": "const value: Json | string = input;",
+        "semantic": "Semantic union identity and storage carrier identity are separate.",
+        "emitted": "Storage-compatible adaptation routes through the shared planner.",
+        "invariant": "Direct storage imports are confined to planner boundaries."
+      }
+    },
+    {
+      "id": 10,
+      "priority": "P2",
+      "title": "Premature lowering",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+      ],
+      "example": {
+        "source": "const carrier: A | B = value;",
+        "semantic": "Lowering is chosen after semantic shape is known.",
+        "emitted": "Runtime carrier adaptation is not invoked from arbitrary expression entrypoints.",
+        "invariant": "Raw lowering imports are confined."
+      }
+    },
+    {
+      "id": 11,
+      "priority": "P1",
+      "title": "Single union-arm selector",
+      "status": "complete",
+      "proofTests": [
+        "packages/frontend/src/ir/builder-cases/conditional-narrowing.test.ts"
+      ],
+      "example": {
+        "source": "if (value.kind === 'a') return value.x;",
+        "semantic": "Union arm selection is computed once in frontend IR.",
+        "emitted": "Emitter consumes the arm plan.",
+        "invariant": "Branch plan tests cover discriminator narrowing."
+      }
+    },
+    {
+      "id": 12,
+      "priority": "P2",
+      "title": "Phase-typed IR",
+      "status": "complete",
+      "proofTests": ["packages/frontend/src/architecture-completion.test.ts"],
+      "example": {
+        "source": "A test constructs an if statement.",
+        "semantic": "The test must construct emittable IR.",
+        "emitted": "The emitter receives strict IR, not normalized legacy test IR.",
+        "invariant": "The normalization shim is deleted."
+      }
+    },
+    {
+      "id": 13,
+      "priority": "P1",
+      "title": "Undefined-and-continue adaptation failure",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/expressions/expected-type-adaptation.test.ts"
+      ],
+      "example": {
+        "source": "const projected: Target = source;",
+        "semantic": "Adaptation reports explicit success, reject, unchanged, or unsupported.",
+        "emitted": "The emitter does not silently continue after unknown failure.",
+        "invariant": "Adapt-result model is a first-class module."
+      }
+    },
+    {
+      "id": 14,
+      "priority": "P2",
+      "title": "Isolated vs full-pipeline emission",
+      "status": "complete",
+      "proofTests": ["packages/frontend/src/architecture-completion.test.ts"],
+      "example": {
+        "source": "A unit test and CLI compile the same branch.",
+        "semantic": "Both use the same emittable branch-plan shape.",
+        "emitted": "No test-only normalization changes emitter input.",
+        "invariant": "Test IR is an alias of IrModule."
+      }
+    },
+    {
+      "id": 15,
+      "priority": "P2",
+      "title": "Permissive helper loopholes",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+      ],
+      "example": {
+        "source": "A helper name suggests broad pass-through.",
+        "semantic": "The helper must be renamed or removed before product use.",
+        "emitted": "No permissive helper enters codegen.",
+        "invariant": "Forbidden helper names are scanned."
+      }
+    },
+    {
+      "id": 16,
+      "priority": "P3",
+      "title": "Diagnostic name sets",
+      "status": "complete",
+      "proofTests": [
+        "packages/frontend/src/validation/features-cases/diagnostic-name-sets-private.test.ts"
+      ],
+      "example": {
+        "source": "array.map(x => x)",
+        "semantic": "The active surface decides whether JS APIs are present.",
+        "emitted": "On CLR-only surface, diagnostics are emitted from surface metadata.",
+        "invariant": "features.ts cannot own JavaScript name lists."
+      }
+    },
+    {
+      "id": 17,
+      "priority": "P3",
+      "title": "Plan tracker drift",
+      "status": "complete",
+      "proofTests": ["packages/frontend/src/architecture-completion.test.ts"],
+      "example": {
+        "source": "A report item is marked complete.",
+        "semantic": "The completion tracker names proof tests and examples.",
+        "emitted": "The test runner validates the tracker before merge.",
+        "invariant": "Every complete item has existing proof files."
+      }
+    },
+    {
+      "id": 18,
+      "priority": "P2",
+      "title": "Package boundary semantic compression",
+      "status": "complete",
+      "proofTests": [
+        "packages/frontend/src/program/binding-payload-invariants.test.ts"
+      ],
+      "example": {
+        "source": "import { PathSpec } from '@acme/routes';",
+        "semantic": "Package metadata preserves source semantic shape.",
+        "emitted": "Emitter does not reconstruct from compressed names.",
+        "invariant": "Binding payload invariants validate semantic metadata."
+      }
+    },
+    {
+      "id": 19,
+      "priority": "P1",
+      "title": "Frontend/backend capability contract",
+      "status": "complete",
+      "proofTests": [
+        "packages/frontend/src/validator-maximus-cases/feature-gating.test.ts"
+      ],
+      "example": {
+        "source": "handler.length",
+        "semantic": "Backend capability metadata declares support status.",
+        "emitted": "Unsupported capabilities become diagnostics, not ICEs.",
+        "invariant": "Feature-gating tests assert capability diagnostics."
+      }
+    },
+    {
+      "id": 20,
+      "priority": "P2",
+      "title": "Overload-family shape drift",
+      "status": "complete",
+      "proofTests": [
+        "packages/frontend/src/program/binding-payload-invariants.test.ts"
+      ],
+      "example": {
+        "source": "Console.WriteLine(value)",
+        "semantic": "Overload family metadata keeps one family shape.",
+        "emitted": "Call resolution consumes canonical overload metadata.",
+        "invariant": "Binding payload tests validate overload families."
+      }
+    },
+    {
+      "id": 21,
+      "priority": "P1",
+      "title": "Symbol/storage conflation",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+      ],
+      "example": {
+        "source": "const value: A | B = input;",
+        "semantic": "Symbol semantic type and runtime storage type are distinct.",
+        "emitted": "Storage adaptation is centralized.",
+        "invariant": "Direct storage lookups are confined to allowed boundaries."
+      }
+    },
+    {
+      "id": 22,
+      "priority": "P2",
+      "title": "Runtime-union as analyzer",
+      "status": "complete",
+      "proofTests": [
+        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+      ],
+      "example": {
+        "source": "if (value.kind === 'circle') area(value);",
+        "semantic": "Frontend selects the narrowed arm.",
+        "emitted": "Runtime-union modules materialize carriers, not semantic decisions.",
+        "invariant": "Raw runtime-union imports are confined."
+      }
+    },
+    {
+      "id": 23,
+      "priority": "P3",
+      "title": "Workspace graph and fingerprints",
+      "status": "complete",
+      "proofTests": ["packages/frontend/src/program/dependency-graph.test.ts"],
+      "example": {
+        "source": "app imports @acme/math.",
+        "semantic": "Workspace graph records source, package, and surface inputs.",
+        "emitted": "The graph root fingerprint changes when an input changes.",
+        "invariant": "Dependency graph tests assert deterministic fingerprints and edges."
+      }
+    },
+    {
+      "id": 24,
+      "priority": "P1",
+      "title": "Named-vs-inline structural policy",
+      "status": "complete",
+      "proofTests": [
+        "packages/frontend/src/ir/validation/anonymous-type-lowering-regressions.test.ts"
+      ],
+      "example": {
+        "source": "type Point = { x: number; y: number };",
+        "semantic": "Named structural types retain declared origin.",
+        "emitted": "Inline anonymous shapes and named shapes lower through distinct policy.",
+        "invariant": "Anonymous lowering tests preserve structural origin."
+      }
+    },
+    {
+      "id": 25,
+      "priority": "P4",
+      "title": "Modern compiler design principles",
+      "status": "complete",
+      "proofTests": ["packages/frontend/src/architecture-completion.test.ts"],
+      "example": {
+        "source": "The compiler pipeline processes source through named phases.",
+        "semantic": "Architecture score is derived from completed invariant items.",
+        "emitted": "No compatibility bridge is accepted as proof.",
+        "invariant": "The completion tracker requires all items complete with proof."
+      }
+    }
+  ]
+}

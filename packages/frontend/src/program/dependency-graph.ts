@@ -35,6 +35,11 @@ import {
 } from "./declaration-module-aliases.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
 import { runIrProcessingPipeline } from "./ir-processing-pipeline.js";
+import {
+  buildWorkspaceGraphSnapshot,
+  type WorkspaceGraphEdge,
+  type WorkspaceGraphSnapshot,
+} from "./workspace-fingerprint.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly EmittableIrModule[];
@@ -44,6 +49,8 @@ export type ModuleDependencyGraphResult = {
   readonly bindings: ReadonlyMap<string, TypeBinding>;
   /** Full binding registry for exact global/module/source binding lookups during emission. */
   readonly bindingRegistry: BindingRegistry;
+  /** Deterministic source/config/surface graph used for invalidation and cache keys. */
+  readonly workspaceGraph: WorkspaceGraphSnapshot;
 };
 
 const tryConvertProgramBuildExceptionToDiagnostics = (
@@ -227,7 +234,8 @@ const queueResolvedLocalDependency = (
   compilerOptions: ts.CompilerOptions,
   moduleResolutionCache: ts.ModuleResolutionCache,
   queue: string[],
-  diagnostics: Diagnostic[]
+  diagnostics: Diagnostic[],
+  dependencyEdges: WorkspaceGraphEdge[]
 ): void => {
   const resolved = ts.resolveModuleName(
     importSpecifier,
@@ -254,6 +262,11 @@ const queueResolvedLocalDependency = (
       !canonicalResolvedPath.endsWith(".d.ts")
     ) {
       queue.push(canonicalResolvedPath);
+      dependencyEdges.push({
+        from: currentFile,
+        to: canonicalResolvedPath,
+        specifier: importSpecifier,
+      });
     } else if (!canonicalResolvedPath.startsWith(canonicalLocalBoundary)) {
       diagnostics.push(
         createDiagnostic(
@@ -416,6 +429,7 @@ export const buildModuleDependencyGraph = (
   }
   // Track all discovered files for later type checking
   const allDiscoveredFiles: string[] = [...ambientSupportFiles];
+  const dependencyEdges: WorkspaceGraphEdge[] = [];
 
   // BFS to discover all local imports
   const visited = new Set<string>();
@@ -484,7 +498,8 @@ export const buildModuleDependencyGraph = (
           compilerOptions,
           moduleResolutionCache,
           queue,
-          diagnostics
+          diagnostics,
+          dependencyEdges
         );
         continue;
       }
@@ -532,6 +547,11 @@ export const buildModuleDependencyGraph = (
         }
         if (redirectedSourcePackage.value) {
           queue.push(redirectedSourcePackage.value.resolvedPath);
+          dependencyEdges.push({
+            from: currentFile,
+            to: redirectedSourcePackage.value.resolvedPath,
+            specifier: importSpecifier,
+          });
           continue;
         }
       }
@@ -557,6 +577,11 @@ export const buildModuleDependencyGraph = (
       }
       if (sourcePackage.value) {
         queue.push(sourcePackage.value.resolvedPath);
+        dependencyEdges.push({
+          from: currentFile,
+          to: sourcePackage.value.resolvedPath,
+          specifier: importSpecifier,
+        });
         continue;
       }
 
@@ -581,6 +606,11 @@ export const buildModuleDependencyGraph = (
           isQueueableTsSourceDependency(installedPackage.value.resolvedPath)
         ) {
           queue.push(installedPackage.value.resolvedPath);
+          dependencyEdges.push({
+            from: currentFile,
+            to: installedPackage.value.resolvedPath,
+            specifier: importSpecifier,
+          });
         }
         continue;
       }
@@ -693,5 +723,16 @@ export const buildModuleDependencyGraph = (
       tsonicProgram.surfaceCapabilities ?? surfaceCapabilities,
     bindings: tsonicProgram.bindings.getEmitterTypeMap(),
     bindingRegistry: tsonicProgram.bindings,
+    workspaceGraph: buildWorkspaceGraphSnapshot({
+      projectRoot: options.projectRoot,
+      sourceRoot: sourceRootAbs,
+      sourceFiles: allDiscoveredFiles,
+      ambientFiles: ambientSupportFiles,
+      typeRoots: discoveryTypeRoots,
+      edges: dependencyEdges,
+      options,
+      surfaceCapabilities:
+        tsonicProgram.surfaceCapabilities ?? surfaceCapabilities,
+    }),
   });
 };

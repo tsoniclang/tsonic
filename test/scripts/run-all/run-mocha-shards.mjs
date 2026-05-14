@@ -69,7 +69,6 @@ function printUsage() {
       "                       Estimated shard runtime that receives the heavy timeout.",
       "  --resume <0|1>        Reuse checkpoint pass records.",
       "  --validate-only       Validate manifests and exit before running shards.",
-      "  --no-verify           Skip serial-vs-expanded dry-run comparison.",
     ].join("\n")
   );
 }
@@ -81,14 +80,15 @@ function parseArgs(argv) {
     summaryShell: undefined,
     packages: packageCatalog.map((packageConfig) => packageConfig.key),
     concurrency: undefined,
-    testShardThreshold: Number(process.env.TSONIC_UNIT_TEST_SHARD_THRESHOLD ?? 50),
+    testShardThreshold: Number(
+      process.env.TSONIC_UNIT_TEST_SHARD_THRESHOLD ?? 50
+    ),
     fileShardMs: Number(process.env.TSONIC_UNIT_FILE_SHARD_MS ?? 30000),
     heavyTimeoutMs: Number(process.env.TSONIC_UNIT_HEAVY_TIMEOUT_MS ?? 300000),
     heavyTimeoutShardMs: Number(
       process.env.TSONIC_UNIT_HEAVY_TIMEOUT_SHARD_MS ?? 10000
     ),
     resume: false,
-    verify: true,
     validateOnly: false,
   };
 
@@ -130,9 +130,6 @@ function parseArgs(argv) {
         break;
       case "--validate-only":
         options.validateOnly = true;
-        break;
-      case "--no-verify":
-        options.verify = false;
         break;
       case "-h":
       case "--help":
@@ -524,8 +521,9 @@ function loadTimingEstimates(packageConfigs) {
 
 function timingEstimateMs(timingInfo, packageConfig, relativeFile, title) {
   return (
-    timingInfo.estimates.get(`${packageConfig.key}\0${relativeFile}\0${title}`) ??
-    0
+    timingInfo.estimates.get(
+      `${packageConfig.key}\0${relativeFile}\0${title}`
+    ) ?? 0
   );
 }
 
@@ -634,7 +632,11 @@ function buildShards(packageConfig, expandedFiles, expandedTests, timingInfo) {
         grepPattern: `^${escapeRegExp(title)}$`,
         testCount: titleTests.length,
         estimatedMs: estimatedMs || titleTests.length,
-        timeoutMs: heavyTimeoutForShard(packageConfig, relativeFile, estimatedMs),
+        timeoutMs: heavyTimeoutForShard(
+          packageConfig,
+          relativeFile,
+          estimatedMs
+        ),
         testTitles: titleTests.map((test) => testFullTitle(test)),
       });
     }
@@ -732,41 +734,6 @@ function packageManifest(packageConfig) {
   };
 }
 
-function unverifiedManifest(packageConfig) {
-  const expanded = expandedEntries(packageConfig);
-  const expandedDryRun = runMochaDryRun(packageConfig, expanded, "expanded");
-  const shards = buildShards(
-    packageConfig,
-    expanded,
-    expandedDryRun.tests ?? [],
-    timingInfo
-  );
-  const expandedCount = expandedDryRun.tests?.length ?? 0;
-  const shardCount = shards.reduce((sum, shard) => sum + shard.testCount, 0);
-  const shardDiff = compareMultiset(
-    multiset(testValidationKeys(expandedDryRun.tests ?? [], packageConfig)),
-    multiset(shardValidationKeys(shards))
-  );
-  const status =
-    expandedCount === shardCount &&
-    shardDiff.missing.length === 0 &&
-    shardDiff.extra.length === 0
-      ? "not-verified"
-      : "mismatch";
-  return {
-    packageConfig,
-    serial: serialEntries(packageConfig),
-    expanded,
-    shards,
-    serialCount: 0,
-    expandedCount,
-    shardCount,
-    titleDiff: { missing: [], extra: [] },
-    shardDiff,
-    status,
-  };
-}
-
 function printTable(title, columns, rows) {
   const widths = columns.map((column, columnIndex) =>
     Math.max(
@@ -814,6 +781,14 @@ function appendBoundedOutput(current, chunk, maxLength = 1024 * 1024) {
   return next.length > maxLength ? next.slice(next.length - maxLength) : next;
 }
 
+function hardTimeoutForShard(job) {
+  if (!job.timeoutMs || job.timeoutMs <= 0) {
+    return 15 * 60 * 1000;
+  }
+
+  return Math.max(job.timeoutMs * 4, job.timeoutMs + 5 * 60 * 1000);
+}
+
 function spawnShard(job, packageStates) {
   const packageConfig = job.packageConfig;
   const packageRoot = join(rootDir, packageConfig.dir);
@@ -821,6 +796,8 @@ function spawnShard(job, packageStates) {
   if (!packageState.startedAt) {
     packageState.startedAt = nowMs();
   }
+
+  const hardTimeoutMs = hardTimeoutForShard(job);
 
   appendTrace({
     event: "shard-start",
@@ -832,6 +809,8 @@ function spawnShard(job, packageStates) {
     title: job.fullTitle ?? "",
     testCount: String(job.testCount),
     estimatedMs: String(job.estimatedMs ?? 0),
+    timeoutMs: String(job.timeoutMs ?? 0),
+    hardTimeoutMs: String(hardTimeoutMs),
   });
 
   const args = [
@@ -864,6 +843,16 @@ function spawnShard(job, packageStates) {
 
   let stdout = "";
   let stderr = "";
+  let timedOut = false;
+  let killTimer;
+  const timeoutTimer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+    killTimer = setTimeout(() => {
+      child.kill("SIGKILL");
+    }, 10_000);
+  }, hardTimeoutMs);
+
   child.stdout.on("data", (chunk) => {
     stdout = appendBoundedOutput(stdout, chunk);
   });
@@ -873,7 +862,12 @@ function spawnShard(job, packageStates) {
 
   return new Promise((resolveJob) => {
     child.on("close", (code, signal) => {
-      const status = code === 0 ? "passed" : "failed";
+      clearTimeout(timeoutTimer);
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
+
+      const status = code === 0 && !timedOut ? "passed" : "failed";
       if (status === "failed") packageState.failedShards += 1;
       packageState.completedShards += 1;
       packageState.durationMs = nowMs() - packageState.startedAt;
@@ -888,12 +882,18 @@ function spawnShard(job, packageStates) {
         status,
         code: String(code ?? ""),
         signal: signal ?? "",
+        timedOut: timedOut ? "true" : "false",
         durationMs: String(packageState.durationMs),
       });
       if (status === "failed") {
         console.error(
           `[parallel-shard:failed] package=${packageConfig.packageName} file=${job.relativeFile} title=${job.fullTitle ?? ""}`
         );
+        if (timedOut) {
+          console.error(
+            `[parallel-shard:timeout] hardTimeoutMs=${hardTimeoutMs}`
+          );
+        }
         if (stdout.trim()) {
           console.error("--- shard stdout ---");
           process.stderr.write(stdout.endsWith("\n") ? stdout : `${stdout}\n`);
@@ -950,7 +950,7 @@ async function main() {
   }
 
   const manifests = selectedPackages.map((packageConfig) =>
-    options.verify ? packageManifest(packageConfig) : unverifiedManifest(packageConfig)
+    packageManifest(packageConfig)
   );
 
   printTable(
@@ -981,7 +981,9 @@ async function main() {
     ])
   );
 
-  const mismatches = manifests.filter((manifest) => manifest.status === "mismatch");
+  const mismatches = manifests.filter(
+    (manifest) => manifest.status === "mismatch"
+  );
   if (mismatches.length > 0) {
     const packageStates = new Map(
       selectedPackages.map((packageConfig) => [
@@ -1043,7 +1045,8 @@ async function main() {
     if ((right.estimatedMs ?? 0) !== (left.estimatedMs ?? 0)) {
       return (right.estimatedMs ?? 0) - (left.estimatedMs ?? 0);
     }
-    if (right.testCount !== left.testCount) return right.testCount - left.testCount;
+    if (right.testCount !== left.testCount)
+      return right.testCount - left.testCount;
     if (left.packageConfig.key !== right.packageConfig.key) {
       return left.packageConfig.key.localeCompare(right.packageConfig.key);
     }

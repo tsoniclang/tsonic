@@ -54,9 +54,12 @@ export const isTsonicSourcePackageFile = (fileName: string): boolean => {
         const isSourcePackage = parsed.kind === "tsonic-source-package";
         tsonicSourcePackageFileCache.set(normalized, isSourcePackage);
         return isSourcePackage;
-      } catch {
-        tsonicSourcePackageFileCache.set(normalized, false);
-        return false;
+      } catch (error) {
+        throw new Error(
+          `Failed to read source package manifest '${manifestPath}': ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
     }
 
@@ -134,8 +137,12 @@ const buildBindingAliasClrIdentityMap = (
         aliasToClr.set(`${namespace}.${tsAlias}`, clrName);
       }
     }
-  } catch {
-    // Fall through to the conservative fallback.
+  } catch (error) {
+    throw new Error(
+      `Failed to read bindings metadata '${bindingsPath}': ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
   }
 
   bindingAliasClrIdentityCache.set(bindingsPath, aliasToClr);

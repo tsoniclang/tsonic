@@ -104,4 +104,18 @@ describe("backend-ast architecture invariants", () => {
     );
     expect(typeDefinitionText).to.not.include("literalExpression");
   });
+
+  it("delegates CLR identity parsing to the frontend identity helper", () => {
+    const backendAstUtils = readFileSync(
+      join(emitterRoot, "core/format/backend-ast/utils.ts"),
+      "utf8"
+    );
+
+    expect(backendAstUtils).to.include(
+      "getClrIdentityKey as getFrontendClrIdentityKey"
+    );
+    expect(backendAstUtils).to.not.match(
+      /export const stableClrIdentityKeyFromName[\s\S]*?genericMatch/
+    );
+  });
 });

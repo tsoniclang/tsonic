@@ -2,7 +2,7 @@ RUN_ALL_LIB_DIR="${RUN_ALL_LIB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
 
 print_help() {
     cat <<EOF
-Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--no-cli] [--no-fixtures] [--fast] [--serial-unit] [--filter <pattern>] [--resume]
+Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--no-cli] [--no-fixtures] [--fast] [--filter <pattern>] [--resume]
 
 Options:
   --quick                Skip E2E tests (unit + golden + fixture typecheck only).
@@ -10,8 +10,6 @@ Options:
   --no-cli               Skip CLI tests only. Intended for iteration.
   --no-fixtures          Skip fixture typecheck and all fixture execution phases.
   --fast                 Shorthand for --no-cli --no-fixtures.
-  --serial-unit          Run unit/golden tests through the legacy package-by-package path.
-  --parallel-unit        Explicitly select the default global leaf/per-title shard pool.
   --filter <pattern>     Only run E2E fixtures whose directory name contains <pattern>.
                          Can be repeated, or comma-separated (e.g. --filter linq,efcore).
   --resume               Resume from a previous (aborted) run for the same commit+args.

@@ -7,8 +7,9 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
   emitModule,
+  testIfStatement,
   type TestIrModule as IrModule,
-} from "./test-ir-normalization.js";
+} from "./test-ir-strict.js";
 import { createJsSurfaceBindingRegistry } from "./expressions/index-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
@@ -451,7 +452,7 @@ describe("Array Emission", () => {
               body: {
                 kind: "blockStatement",
                 statements: [
-                  {
+                  testIfStatement({
                     kind: "ifStatement",
                     condition: {
                       kind: "unary",
@@ -536,7 +537,7 @@ describe("Array Emission", () => {
                       ],
                     },
                     elseStatement: undefined,
-                  },
+                  }),
                 ],
               },
               accessibility: "public",

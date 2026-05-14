@@ -291,9 +291,9 @@ export const synthesizePattern = (
 /**
  * Derive a structural object type from an object-literal expression.
  *
- * This is a fallback for cases where the IR has already lowered the expression
- * to a synthesized anonymous type reference (e.g. __Anon_*), which erases member
- * information from inferredType. Rest synthesis requires member shapes.
+ * This reconstructs member shape directly from the object expression when the
+ * IR has already lowered inferredType to a synthesized anonymous reference
+ * (e.g. __Anon_*). Rest synthesis requires member shapes.
  */
 export const deriveObjectTypeFromObjectExpression = (
   expr: IrObjectExpression

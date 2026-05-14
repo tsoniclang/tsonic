@@ -1,4 +1,11 @@
-import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
+import {
+  describe,
+  it,
+  expect,
+  emitModule,
+  testIfStatement,
+  type IrModule,
+} from "./helpers.js";
 
 describe("Expression Emission", () => {
   it("should preserve logical operator grouping with parentheses", () => {
@@ -95,7 +102,7 @@ describe("Expression Emission", () => {
       isStaticContainer: true,
       imports: [],
       body: [
-        {
+        testIfStatement({
           kind: "ifStatement",
           condition: {
             kind: "binary",
@@ -146,7 +153,7 @@ describe("Expression Emission", () => {
               },
             ],
           },
-        },
+        }),
       ],
       exports: [],
     };
@@ -166,7 +173,7 @@ describe("Expression Emission", () => {
       isStaticContainer: true,
       imports: [],
       body: [
-        {
+        testIfStatement({
           kind: "ifStatement",
           condition: {
             kind: "binary",
@@ -190,7 +197,7 @@ describe("Expression Emission", () => {
           thenStatement: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -247,10 +254,10 @@ describe("Expression Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
             ],
           },
-        },
+        }),
       ],
       exports: [],
     };
@@ -270,7 +277,7 @@ describe("Expression Emission", () => {
       isStaticContainer: true,
       imports: [],
       body: [
-        {
+        testIfStatement({
           kind: "ifStatement",
           condition: {
             kind: "binary",
@@ -313,7 +320,7 @@ describe("Expression Emission", () => {
               },
             ],
           },
-        },
+        }),
       ],
       exports: [],
     };
