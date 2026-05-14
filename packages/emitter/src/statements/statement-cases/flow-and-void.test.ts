@@ -1,4 +1,10 @@
-import { describe, it, expect, emitModule } from "./helpers.js";
+import {
+  describe,
+  it,
+  expect,
+  emitModule,
+  testIfStatement,
+} from "./helpers.js";
 import type { IrModule, IrType } from "./helpers.js";
 describe("Statement Emission", () => {
   it("keeps nullable update targets writable when flow narrowing wraps the operand in assertions", () => {
@@ -32,7 +38,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -77,7 +83,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: {

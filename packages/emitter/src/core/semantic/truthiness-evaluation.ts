@@ -344,7 +344,8 @@ export const emitRuntimeTruthinessConditionAst = (
 ): [CSharpExpressionAst, EmitterContext] => {
   // Use a pattern variable to evaluate the operand exactly once, then apply JS-like truthiness.
   //
-  // This is the airplane-grade fallback when we cannot trust inferredType:
+  // This is the deterministic runtime-truthiness path when inferredType is not
+  // specific enough for compile-time truthiness:
   // - Never emit `x != null` for unknowns (silently miscompiles boxed value types like bool/int).
   // - Use runtime type checks to preserve semantics deterministically.
   const nextId = (context.tempVarId ?? 0) + 1;

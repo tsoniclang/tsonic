@@ -204,6 +204,79 @@ describe("Dependency Graph", function () {
     }
   });
 
+  it("emits deterministic workspace graph fingerprints for source, package, and surface inputs", () => {
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/installed-source-package",
+    ]);
+
+    try {
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
+
+      const firstResult = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+      const secondResult = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+
+      expect(firstResult.ok).to.equal(true);
+      expect(secondResult.ok).to.equal(true);
+      if (!firstResult.ok || !secondResult.ok) return;
+
+      expect(firstResult.value.workspaceGraph.rootFingerprint).to.match(
+        /^[a-f0-9]{64}$/
+      );
+      expect(firstResult.value.workspaceGraph.rootFingerprint).to.equal(
+        secondResult.value.workspaceGraph.rootFingerprint
+      );
+      expect(
+        firstResult.value.workspaceGraph.nodes.some(
+          (node) => node.kind === "source" && node.id === "src/index.ts"
+        )
+      ).to.equal(true);
+      expect(
+        firstResult.value.workspaceGraph.nodes.some(
+          (node) =>
+            node.kind === "package" &&
+            node.id === "node_modules/@acme/math/tsonic.package.json"
+        )
+      ).to.equal(true);
+      expect(
+        firstResult.value.workspaceGraph.edges.some(
+          (edge) =>
+            edge.from === "src/index.ts" &&
+            edge.to === "node_modules/@acme/math/src/index.ts" &&
+            edge.specifier === "@acme/math"
+        )
+      ).to.equal(true);
+
+      fs.appendFileSync(entryPath, "\nexport const fingerprintChange = 1;\n");
+      const changedResult = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+
+      expect(changedResult.ok).to.equal(true);
+      if (!changedResult.ok) return;
+      expect(changedResult.value.workspaceGraph.rootFingerprint).to.not.equal(
+        firstResult.value.workspaceGraph.rootFingerprint
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("reports invalid native source package metadata as TSN1004 diagnostics", () => {
     const fixture = materializeFrontendFixture([
       "fragments/minimal-surfaces/tsonic-js",

@@ -12,6 +12,7 @@ import {
   resolveSurfaceCapabilities,
   surfaceIncludesJs,
 } from "../surface/profiles.js";
+import { getJsDiagnosticSurfaceMetadata } from "../surface/diagnostic-metadata.js";
 import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-literal-method-runtime.js";
 
 const createBackendCapabilityDiagnostic = (
@@ -31,62 +32,16 @@ const createBackendCapabilityDiagnostic = (
   };
 };
 
-const JS_BUILTIN_MEMBER_NAMES = new Set([
-  "length",
-  "slice",
-  "map",
-  "filter",
-  "some",
-  "every",
-  "reduce",
-  "reduceRight",
-  "find",
-  "findIndex",
-  "forEach",
-  "includes",
-  "indexOf",
-  "lastIndexOf",
-  "join",
-  "push",
-  "pop",
-  "shift",
-  "unshift",
-  "splice",
-  "sort",
-  "reverse",
-  "concat",
-  "flat",
-  "flatMap",
-  "charAt",
-  "charCodeAt",
-  "codePointAt",
-  "startsWith",
-  "endsWith",
-  "trim",
-  "trimStart",
-  "trimEnd",
-  "toLowerCase",
-  "toUpperCase",
-  "toLocaleLowerCase",
-  "toLocaleUpperCase",
-  "split",
-  "substring",
-  "substr",
-  "replace",
-  "replaceAll",
-  "match",
-  "matchAll",
-  "search",
-  "localeCompare",
-]);
-
-const JS_AMBIENT_GLOBAL_CALLS: Readonly<Record<string, readonly string[]>> = {
-  Array: ["isArray", "from", "of"],
-  JSON: ["parse", "stringify"],
-  Object: ["entries", "fromEntries", "keys", "values"],
-};
-
-const JS_AMBIENT_GLOBAL_FUNCTIONS = new Set(["Array", "Symbol"]);
+const JS_DIAGNOSTIC_SURFACE = getJsDiagnosticSurfaceMetadata();
+const JS_BUILTIN_MEMBER_NAME_SET = new Set(
+  JS_DIAGNOSTIC_SURFACE.builtinMemberNames
+);
+const JS_AMBIENT_GLOBAL_FUNCTION_SET = new Set(
+  JS_DIAGNOSTIC_SURFACE.ambientGlobalFunctions
+);
+const JS_TYPED_ARRAY_SYMBOL_NAME_SET = new Set(
+  JS_DIAGNOSTIC_SURFACE.typedArraySymbolNames
+);
 
 const isDynamicImportCall = (node: ts.CallExpression): boolean =>
   node.expression.kind === ts.SyntaxKind.ImportKeyword;
@@ -239,20 +194,6 @@ const isStringLikeType = (type: ts.Type): boolean =>
       ts.TypeFlags.StringLike)) !==
   0;
 
-const TYPED_ARRAY_SYMBOL_NAMES = new Set([
-  "Uint8Array",
-  "Int8Array",
-  "Uint16Array",
-  "Int16Array",
-  "Uint32Array",
-  "Int32Array",
-  "Float32Array",
-  "Float64Array",
-  "Uint8ClampedArray",
-  "BigInt64Array",
-  "BigUint64Array",
-]);
-
 const isJsBuiltinReceiverType = (
   type: ts.Type,
   checker: ts.TypeChecker,
@@ -278,7 +219,7 @@ const isJsBuiltinReceiverType = (
   }
 
   const symbolName = apparent.getSymbol()?.getName();
-  return symbolName ? TYPED_ARRAY_SYMBOL_NAMES.has(symbolName) : false;
+  return symbolName ? JS_TYPED_ARRAY_SYMBOL_NAME_SET.has(symbolName) : false;
 };
 
 const getNonJsMemberAccess = (
@@ -305,7 +246,7 @@ const getNonJsMemberAccess = (
   }
 
   if (!receiver || !nameNode || !memberName) return undefined;
-  if (!JS_BUILTIN_MEMBER_NAMES.has(memberName)) return undefined;
+  if (!JS_BUILTIN_MEMBER_NAME_SET.has(memberName)) return undefined;
   if (isSourceOwnedMemberAccess(nameNode, program)) return undefined;
   if (!isJsBuiltinReceiverType(checker.getTypeAtLocation(receiver), checker)) {
     return undefined;
@@ -386,7 +327,7 @@ const getNonJsGlobalApiCall = (
 ): string | undefined => {
   if (ts.isIdentifier(node.expression)) {
     if (
-      JS_AMBIENT_GLOBAL_FUNCTIONS.has(node.expression.text) &&
+      JS_AMBIENT_GLOBAL_FUNCTION_SET.has(node.expression.text) &&
       isAmbientIdentifier(node.expression, program)
     ) {
       return `${node.expression.text}(...)`;
@@ -404,7 +345,7 @@ const getNonJsGlobalApiCall = (
     return undefined;
   }
 
-  const allowedMembers = JS_AMBIENT_GLOBAL_CALLS[object.text];
+  const allowedMembers = JS_DIAGNOSTIC_SURFACE.ambientGlobalCalls[object.text];
   if (!allowedMembers?.includes(member)) {
     return undefined;
   }
@@ -420,7 +361,7 @@ const getNonJsGlobalConstructorCall = (
 ): string | undefined => {
   if (
     ts.isIdentifier(node.expression) &&
-    JS_AMBIENT_GLOBAL_FUNCTIONS.has(node.expression.text) &&
+    JS_AMBIENT_GLOBAL_FUNCTION_SET.has(node.expression.text) &&
     isAmbientIdentifier(node.expression, program)
   ) {
     return `new ${node.expression.text}(...)`;

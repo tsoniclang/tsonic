@@ -133,21 +133,14 @@ export const emitTemplateLiteral = (
 
 /**
  * Emit a spread expression as CSharpExpressionAst
- *
- * Note: Spread is not a standalone C# expression. This is a fallback
- * that preserves the current behavior. Array/call contexts handle spread
- * specially via their own emitters.
  */
 export const emitSpread = (
-  expr: Extract<IrExpression, { kind: "spread" }>,
-  context: EmitterContext
+  _expr: Extract<IrExpression, { kind: "spread" }>,
+  _context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const [exprAst, newContext] = emitExpressionAst(expr.expression, context);
-  // Use prefixUnaryExpression as a fallback for the ...expr pattern
-  return [
-    { kind: "prefixUnaryExpression", operatorToken: "...", operand: exprAst },
-    newContext,
-  ];
+  throw new Error(
+    "ICE: Spread expression reached generic expression emission; spread must be handled by array, object, call, or constructor emission"
+  );
 };
 
 /**

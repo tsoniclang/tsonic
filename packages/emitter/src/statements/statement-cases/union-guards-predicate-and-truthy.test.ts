@@ -1,4 +1,10 @@
-import { describe, it, expect, emitModule } from "./helpers.js";
+import {
+  describe,
+  it,
+  expect,
+  emitModule,
+  testIfStatement,
+} from "./helpers.js";
 import type { IrModule, IrType } from "./helpers.js";
 describe("Statement Emission", () => {
   it("maps predicate guards to original runtime union members after earlier narrowing", () => {
@@ -69,7 +75,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "call",
@@ -98,8 +104,8 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
-              {
+              }),
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "call",
@@ -131,7 +137,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
             ],
           },
           isExported: false,
@@ -215,7 +221,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "call",
@@ -244,8 +250,8 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
-              {
+              }),
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "call",
@@ -279,7 +285,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
             ],
           },
           isExported: false,
@@ -385,7 +391,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "call",
@@ -414,8 +420,8 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
-              {
+              }),
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "call",
@@ -447,7 +453,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: {
@@ -567,7 +573,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "unary",
@@ -609,7 +615,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
               {
                 kind: "returnStatement",
                 expression: {

@@ -1,14 +1,12 @@
 #!/bin/bash
 # Unified test runner: unit tests, golden tests, E2E tests, and summary report
 #
-# Usage: ./test/scripts/run-all.sh [--quick] [--no-cli] [--no-fixtures] [--fast] [--serial-unit] [--filter <pattern>]
+# Usage: ./test/scripts/run-all.sh [--quick] [--no-cli] [--no-fixtures] [--fast] [--filter <pattern>]
 #   --quick: Skip E2E tests, only run unit/golden tests
 #   --no-unit: Skip unit/golden tests (fixtures only). Intended for iteration.
 #   --no-cli: Skip CLI tests only. Intended for iteration.
 #   --no-fixtures: Skip fixture typecheck and all fixture execution phases.
 #   --fast: Shorthand for --no-cli --no-fixtures.
-#   --serial-unit: Run unit/golden Mocha tests with the legacy package-by-package path.
-#   --parallel-unit: Explicitly select the default global leaf/per-title shard pool.
 #   --filter: Run only matching E2E fixtures (substring match on fixture name).
 #             Can be repeated, or use comma-separated patterns.
 #   --resume: Resume from a previous (aborted) run for the same commit+args by
@@ -16,13 +14,11 @@
 #
 # Environment variables:
 #   TEST_CONCURRENCY: Number of parallel E2E tests (default: 75% of available CPU count)
-#   TSONIC_PARALLEL_UNIT=0: Disable global parallel unit/golden Mocha sharding.
 #   TSONIC_UNIT_CONCURRENCY: Number of parallel unit/golden shard processes (default: 75% of available CPU count).
 #   TSONIC_UNIT_TEST_SHARD_THRESHOLD: Split leaf files with at least this many tests (default: 50).
 #   TSONIC_UNIT_FILE_SHARD_MS: Split slower leaf files by historical runtime estimate (default: 30000).
 #   TSONIC_UNIT_HEAVY_TIMEOUT_MS: Minimum timeout for heavy/compiler shards (default: 300000).
 #   TSONIC_UNIT_HEAVY_TIMEOUT_SHARD_MS: Runtime estimate threshold for heavy timeout (default: 10000).
-#   TSONIC_PARALLEL_VALIDATE=0: Skip serial-vs-expanded unit manifest validation.
 #   TSONIC_BIN: Optional override for the tsonic CLI path.
 #   TSONIC_E2E_NUGET_PACKAGES_DIR: Shared E2E NuGet package cache.
 #   TSONIC_E2E_KEEP_ARTIFACTS=1: Preserve per-fixture generated/.tsonic/out artifacts.
@@ -145,17 +141,7 @@ SKIP_UNIT=false
 SKIP_CLI=false
 SKIP_FIXTURES=false
 RESUME_MODE=false
-PARALLEL_UNIT=true
 FILTER_PATTERNS=()
-
-case "${TSONIC_PARALLEL_UNIT:-}" in
-    0|false|FALSE|False)
-        PARALLEL_UNIT=false
-        ;;
-    1|true|TRUE|True)
-        PARALLEL_UNIT=true
-        ;;
-esac
 
 while [ $# -gt 0 ]; do
     case "${1:-}" in
@@ -182,14 +168,6 @@ while [ $# -gt 0 ]; do
             ;;
         --resume)
             RESUME_MODE=true
-            shift
-            ;;
-        --parallel-unit)
-            PARALLEL_UNIT=true
-            shift
-            ;;
-        --serial-unit)
-            PARALLEL_UNIT=false
             shift
             ;;
         --filter)
@@ -278,15 +256,14 @@ ARGS_HASH="$(
       const skipUnit = process.argv[2] === "1";
       const skipCli = process.argv[3] === "1";
       const skipFixtures = process.argv[4] === "1";
-      const parallelUnit = process.argv[5] === "1";
-      const unitShardThreshold = process.argv[6] ?? "";
-      const unitFileShardMs = process.argv[7] ?? "";
-      const unitHeavyTimeoutMs = process.argv[8] ?? "";
-      const unitHeavyTimeoutShardMs = process.argv[9] ?? "";
-      const filters = JSON.parse(process.argv[10] ?? "[]");
-      const args = { quick, skipUnit, skipCli, skipFixtures, parallelUnit, unitShardThreshold, unitFileShardMs, unitHeavyTimeoutMs, unitHeavyTimeoutShardMs, filters };
+      const unitShardThreshold = process.argv[5] ?? "";
+      const unitFileShardMs = process.argv[6] ?? "";
+      const unitHeavyTimeoutMs = process.argv[7] ?? "";
+      const unitHeavyTimeoutShardMs = process.argv[8] ?? "";
+      const filters = JSON.parse(process.argv[9] ?? "[]");
+      const args = { quick, skipUnit, skipCli, skipFixtures, unitShardThreshold, unitFileShardMs, unitHeavyTimeoutMs, unitHeavyTimeoutShardMs, filters };
       process.stdout.write(crypto.createHash("sha256").update(JSON.stringify(args)).digest("hex"));
-    ' "$([ "$QUICK_MODE" = true ] && echo 1 || echo 0)" "$([ "$SKIP_UNIT" = true ] && echo 1 || echo 0)" "$([ "$SKIP_CLI" = true ] && echo 1 || echo 0)" "$([ "$SKIP_FIXTURES" = true ] && echo 1 || echo 0)" "$([ "$PARALLEL_UNIT" = true ] && echo 1 || echo 0)" "$TSONIC_UNIT_TEST_SHARD_THRESHOLD" "$TSONIC_UNIT_FILE_SHARD_MS" "$TSONIC_UNIT_HEAVY_TIMEOUT_MS" "$TSONIC_UNIT_HEAVY_TIMEOUT_SHARD_MS" "$FILTERS_CANON_JSON" 2>/dev/null || echo ""
+    ' "$([ "$QUICK_MODE" = true ] && echo 1 || echo 0)" "$([ "$SKIP_UNIT" = true ] && echo 1 || echo 0)" "$([ "$SKIP_CLI" = true ] && echo 1 || echo 0)" "$([ "$SKIP_FIXTURES" = true ] && echo 1 || echo 0)" "$TSONIC_UNIT_TEST_SHARD_THRESHOLD" "$TSONIC_UNIT_FILE_SHARD_MS" "$TSONIC_UNIT_HEAVY_TIMEOUT_MS" "$TSONIC_UNIT_HEAVY_TIMEOUT_SHARD_MS" "$FILTERS_CANON_JSON" 2>/dev/null || echo ""
 )"
 
 if [ -n "$GIT_HEAD" ] && [ -n "$ARGS_HASH" ]; then
@@ -304,58 +281,6 @@ else
     rm -rf "$CACHE_DIR" 2>/dev/null || true
     mkdir -p "$CACHE_DIR"
 fi
-
-run_mocha_phase() {
-    local prefix="$1"
-    local label="$2"
-    local npm_script="$3"
-    local package_name="$4"
-
-    echo -e "${BLUE}--- Running $label ---${NC}" | tee -a "$LOG_FILE"
-    local started_ms
-    started_ms="$(now_ms)"
-    trace_event phase-start scope package package "$package_name" label "$label"
-
-    if TSONIC_TEST_CHECKPOINT_DIR="$CACHE_DIR" TSONIC_TEST_PROGRESS=1 TSONIC_MOCHA_PROGRESS_REPORTER=1 TSONIC_TEST_RESUME="$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)" npm run "$npm_script" -- --reporter "$ROOT_DIR/test/mocha/progress-reporter.cjs" 2>&1 | tee -a "$LOG_FILE"; then
-        eval "${prefix}_STATUS='passed'"
-    else
-        eval "${prefix}_STATUS='failed'"
-    fi
-
-    eval "${prefix}_DURATION_MS=$(( $(now_ms) - started_ms ))"
-    eval "$(load_mocha_stats "$package_name" "$prefix")"
-
-    if [ "$(eval "printf '%s' \"\${${prefix}_STATUS}\"")" = "failed" ] && [ "$(eval "printf '%s' \"\${${prefix}_ALL_FAILED}\"")" -eq 0 ]; then
-        eval "${prefix}_ALL_FAILED=1"
-    fi
-
-    local count executed_count passed failed skipped wall_ms test_sum_ms test_avg_ms
-    count="$(eval "printf '%s' \"\${${prefix}_ALL_COUNT}\"")"
-    executed_count="$(eval "printf '%s' \"\${${prefix}_ALL_EXECUTED_COUNT}\"")"
-    passed="$(eval "printf '%s' \"\${${prefix}_ALL_PASSED}\"")"
-    failed="$(eval "printf '%s' \"\${${prefix}_ALL_FAILED}\"")"
-    skipped="$(eval "printf '%s' \"\${${prefix}_ALL_SKIPPED}\"")"
-    wall_ms="$(eval "printf '%s' \"\${${prefix}_DURATION_MS}\"")"
-    test_sum_ms="$(eval "printf '%s' \"\${${prefix}_ALL_TEST_DURATION_SUM_MS}\"")"
-    test_avg_ms="$(eval "printf '%s' \"\${${prefix}_ALL_TEST_AVG_MS}\"")"
-
-    echo "Duration: $(format_duration_ms "$(eval "printf '%s' \"\${${prefix}_DURATION_MS}\"")")" | tee -a "$LOG_FILE"
-    echo "Count: $count (executed: $executed_count, skipped: $skipped)" | tee -a "$LOG_FILE"
-    echo "Pass/Fail: $passed/$failed" | tee -a "$LOG_FILE"
-    if [ "$executed_count" -gt 0 ]; then
-        echo "Avg wall / executed test: $(format_duration_ms "$(average_ms "$wall_ms" "$executed_count")")" | tee -a "$LOG_FILE"
-        echo "Measured test duration sum: $(format_duration_ms "$test_sum_ms")" | tee -a "$LOG_FILE"
-        echo "Measured avg test duration: $(format_duration_ms "$test_avg_ms")" | tee -a "$LOG_FILE"
-    fi
-    if [ "$prefix" = "EMITTER" ]; then
-        echo "Emitter regular count: $EMITTER_REGULAR_COUNT, golden count: $EMITTER_GOLDEN_COUNT" | tee -a "$LOG_FILE"
-        if [ "$EMITTER_GOLDEN_EXECUTED_COUNT" -gt 0 ]; then
-            echo "Emitter golden avg test duration: $(format_duration_ms "$EMITTER_GOLDEN_TEST_AVG_MS")" | tee -a "$LOG_FILE"
-        fi
-    fi
-    trace_event phase-done scope package package "$package_name" label "$label" status "$(eval "printf '%s' \"\${${prefix}_STATUS}\"")" wallMs "$wall_ms" executed "$executed_count" passed "$passed" failed "$failed" skipped "$skipped"
-    echo "" | tee -a "$LOG_FILE"
-}
 
 print_parallel_mocha_phase_metrics() {
     local prefix="$1"
@@ -436,10 +361,6 @@ run_parallel_mocha_phases() {
         --heavy-timeout-shard-ms "$TSONIC_UNIT_HEAVY_TIMEOUT_SHARD_MS"
         --resume "$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)"
     )
-    if [ "${TSONIC_PARALLEL_VALIDATE:-1}" = "0" ]; then
-        runner_args+=(--no-verify)
-    fi
-
     if "${runner_args[@]}" 2>&1 | tee -a "$LOG_FILE"; then
         :
     else
@@ -474,12 +395,8 @@ echo "Commit:  $(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo '
 echo "Trace:   $TRACE_FILE" | tee -a "$LOG_FILE"
 echo "NuGet:   $NUGET_PACKAGES" | tee -a "$LOG_FILE"
 echo "Started: $(date)" | tee -a "$LOG_FILE"
-trace_event run-start scope run quick "$QUICK_MODE" skipUnit "$SKIP_UNIT" skipCli "$SKIP_CLI" skipFixtures "$SKIP_FIXTURES" resume "$RESUME_MODE" parallelUnit "$PARALLEL_UNIT" testConcurrency "$TEST_CONCURRENCY" unitConcurrency "$TSONIC_UNIT_CONCURRENCY" filters "$FILTERS_CANON_JSON"
-if [ "$PARALLEL_UNIT" = true ]; then
-    echo -e "${YELLOW}NOTE: DEFAULT PARALLEL UNIT MODE. Unit/golden tests run as a global leaf/per-title shard pool.${NC}" | tee -a "$LOG_FILE"
-else
-    echo -e "${YELLOW}NOTE: SERIAL UNIT MODE. Unit/golden tests run through the legacy package-by-package path.${NC}" | tee -a "$LOG_FILE"
-fi
+trace_event run-start scope run quick "$QUICK_MODE" skipUnit "$SKIP_UNIT" skipCli "$SKIP_CLI" skipFixtures "$SKIP_FIXTURES" resume "$RESUME_MODE" testConcurrency "$TEST_CONCURRENCY" unitConcurrency "$TSONIC_UNIT_CONCURRENCY" filters "$FILTERS_CANON_JSON"
+echo -e "${YELLOW}NOTE: Unit/golden tests run as a verified global leaf/per-title shard pool.${NC}" | tee -a "$LOG_FILE"
 if [ "$RESUME_MODE" = true ]; then
     echo -e "${YELLOW}NOTE: RESUME MODE. Already-passed unit/golden tests and fixtures will be skipped.${NC}" | tee -a "$LOG_FILE"
 fi
@@ -606,28 +523,7 @@ if [ "$SKIP_UNIT" = true ]; then
     CLI_STATUS="skipped"
     echo "" | tee -a "$LOG_FILE"
 else
-    if [ "$PARALLEL_UNIT" = true ]; then
-        run_parallel_mocha_phases
-    else
-        run_mocha_phase "FRONTEND" "Frontend Tests" "test:frontend" "@tsonic/frontend"
-        run_mocha_phase "BACKEND" "Backend Tests" "test:backend" "@tsonic/backend"
-        run_mocha_phase "EMITTER" "Emitter Tests" "test:emitter" "@tsonic/emitter"
-        if [ "$SKIP_CLI" = true ]; then
-            echo -e "${YELLOW}SKIP: CLI tests (--no-cli/--fast)${NC}" | tee -a "$LOG_FILE"
-            CLI_STATUS="skipped"
-            trace_event phase-done scope package package "@tsonic/cli" label "CLI Tests" status skipped wallMs 0 executed 0 passed 0 failed 0 skipped 0
-            echo "" | tee -a "$LOG_FILE"
-        elif [ "$RUNTIME_SYNC_STATUS" = "failed" ]; then
-            echo -e "${RED}FAIL: CLI tests require core runtime DLL sync; skipping to avoid cascading build failures.${NC}" | tee -a "$LOG_FILE"
-            CLI_STATUS="failed"
-            CLI_ALL_FAILED=1
-            CLI_ALL_COUNT=1
-            trace_event phase-done scope package package "@tsonic/cli" label "CLI Tests" status failed wallMs 0 executed 0 passed 0 failed 1 skipped 0
-            echo "" | tee -a "$LOG_FILE"
-        else
-            run_mocha_phase "CLI" "CLI Tests" "test:cli" "@tsonic/cli"
-        fi
-    fi
+    run_parallel_mocha_phases
 
     UNIT_PASSED=$((FRONTEND_ALL_PASSED + BACKEND_ALL_PASSED + EMITTER_ALL_PASSED + CLI_ALL_PASSED))
     UNIT_FAILED=$((FRONTEND_ALL_FAILED + BACKEND_ALL_FAILED + EMITTER_ALL_FAILED + CLI_ALL_FAILED))

@@ -1,4 +1,10 @@
-import { describe, it, expect, emitModule } from "./helpers.js";
+import {
+  describe,
+  it,
+  expect,
+  emitModule,
+  testIfStatement,
+} from "./helpers.js";
 import type { IrModule } from "./helpers.js";
 describe("Statement Emission", () => {
   it("maps discriminant guards to original runtime union members after earlier narrowing", () => {
@@ -93,7 +99,7 @@ describe("Statement Emission", () => {
           body: {
             kind: "blockStatement",
             statements: [
-              {
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -120,8 +126,8 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
-              {
+              }),
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -154,8 +160,8 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
-              {
+              }),
+              testIfStatement({
                 kind: "ifStatement",
                 condition: {
                   kind: "binary",
@@ -182,7 +188,7 @@ describe("Statement Emission", () => {
                     },
                   ],
                 },
-              },
+              }),
             ],
           },
           isExported: false,

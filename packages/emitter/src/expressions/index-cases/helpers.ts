@@ -1,6 +1,10 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { emitModule, type TestIrModule } from "../../test-ir-normalization.js";
+import {
+  emitModule,
+  testIfStatement,
+  type TestIrModule,
+} from "../../test-ir-strict.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitMemberAccess } from "../access.js";
 import {
@@ -43,6 +47,7 @@ export {
   it,
   expect,
   emitModule,
+  testIfStatement,
   emitExpressionAst,
   emitMemberAccess,
   printExpression,
