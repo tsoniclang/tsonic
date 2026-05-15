@@ -489,6 +489,27 @@ export const emitTypeofComparison = (
     target.kind === "identifier"
       ? targetContext.localSemanticTypes?.get(target.name)
       : undefined;
+  const storageTypeofCandidate = identifierStorageType ?? directStorageType;
+  const resolvedStorageTypeofCandidate = storageTypeofCandidate
+    ? resolveTypeAlias(stripNullish(storageTypeofCandidate), targetContext)
+    : undefined;
+  const shouldUseBroadStorageTypeof =
+    storageTypeofCandidate !== undefined &&
+    getRuntimeUnionCarrierMembers(storageTypeofCandidate, targetContext) ===
+      undefined &&
+    resolvedStorageTypeofCandidate !== undefined &&
+    (resolvedStorageTypeofCandidate.kind === "unknownType" ||
+      resolvedStorageTypeofCandidate.kind === "anyType" ||
+      isBroadObjectSlotType(resolvedStorageTypeofCandidate, targetContext));
+  if (shouldUseBroadStorageTypeof) {
+    const check = buildBroadTypeofCheck(
+      parenthesize(targetAst),
+      comparison.tag,
+      comparison.negate
+    );
+    return check ? [check, targetContext] : undefined;
+  }
+
   const runtimeCarrierType =
     selectRuntimeUnionCarrierType(
       targetContext,

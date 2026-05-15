@@ -22,4 +22,5 @@ export {
   extractArgumentPassing,
   extractArgumentPassingFromParameterModifiers,
   extractArgumentPassingFromBinding,
+  extractArgumentPassingFromClrMemberOverloads,
 } from "./call-site-analysis-argument-passing.js";

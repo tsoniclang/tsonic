@@ -54,6 +54,7 @@ import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
 } from "../../core/semantic/runtime-unions.js";
+import { tryBuildRuntimeMaterializationAst } from "../../core/semantic/runtime-reification.js";
 import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-union-alias-identity.js";
 import { getPassingModifierFromCast, isLValue } from "./call-analysis.js";
 import {
@@ -837,7 +838,35 @@ const runtimeUnionCarrierSurfacesDiffer = (
   );
 };
 
+const hasErasedStructuralViewReceiver = (callee: IrExpression): boolean =>
+  callee.kind === "memberAccess" && callee.object.kind === "asinterface";
+
+const mustMaterializeSourceBackedStructuralSurface = (opts: {
+  readonly expr: Extract<IrExpression, { kind: "call" }>;
+  readonly surfaceExpectedType: IrType | undefined;
+  readonly context: EmitterContext;
+}): boolean => {
+  const { expr, surfaceExpectedType, context } = opts;
+  if (
+    !surfaceExpectedType ||
+    !expr.sourceBackedSurfaceParameterTypes ||
+    !hasErasedStructuralViewReceiver(expr.callee)
+  ) {
+    return false;
+  }
+
+  const resolvedSurface = resolveTypeAlias(
+    stripNullish(surfaceExpectedType),
+    context
+  );
+  return (
+    resolvedSurface.kind === "unionType" ||
+    willCarryAsRuntimeUnion(resolvedSurface, context)
+  );
+};
+
 const shouldSkipRuntimeUnionArgumentMaterialization = (opts: {
+  readonly forceRuntimeUnionArgumentMaterialization: boolean;
   readonly carrierPassThroughArgumentType: IrType | undefined;
   readonly carrierPassThroughType: IrType | undefined;
   readonly exactFinalExpectedArgumentType: IrType | undefined;
@@ -846,6 +875,7 @@ const shouldSkipRuntimeUnionArgumentMaterialization = (opts: {
   readonly context: EmitterContext;
 }): boolean => {
   const {
+    forceRuntimeUnionArgumentMaterialization,
     carrierPassThroughArgumentType,
     carrierPassThroughType,
     exactFinalExpectedArgumentType,
@@ -853,6 +883,10 @@ const shouldSkipRuntimeUnionArgumentMaterialization = (opts: {
     adaptationExpectedType,
     context,
   } = opts;
+  if (forceRuntimeUnionArgumentMaterialization) {
+    return false;
+  }
+
   if (exactFinalExpectedArgumentType) {
     return !runtimeUnionCarrierSurfacesDiffer(
       materializationActualArgumentType,
@@ -1209,6 +1243,7 @@ const selectAdaptationActualArgumentType = (opts: {
   readonly resolvedFunctionArgumentType: IrType | undefined;
   readonly effectiveArgumentType: IrType | undefined;
   readonly inferredArgumentType: IrType | undefined;
+  readonly expectedType: IrType | undefined;
   readonly selectedSourceMemberNs?: ReadonlySet<number>;
   readonly context: EmitterContext;
 }): IrType | undefined => {
@@ -1220,6 +1255,7 @@ const selectAdaptationActualArgumentType = (opts: {
     resolvedFunctionArgumentType,
     effectiveArgumentType,
     inferredArgumentType,
+    expectedType,
     selectedSourceMemberNs,
     context,
   } = opts;
@@ -1230,6 +1266,18 @@ const selectAdaptationActualArgumentType = (opts: {
 
   if (exactFinalExpectedArgumentType) {
     return exactFinalExpectedArgumentType;
+  }
+
+  if (
+    effectiveArgumentType &&
+    expectedType &&
+    areIrTypesEquivalent(
+      stripNullish(effectiveArgumentType),
+      stripNullish(expectedType),
+      context
+    )
+  ) {
+    return effectiveArgumentType;
   }
 
   if (
@@ -2442,6 +2490,7 @@ const emitFunctionValueCallArguments = (
           ),
           effectiveArgumentType,
           inferredArgumentType: arg.inferredType,
+          expectedType: adaptationExpectedType,
           selectedSourceMemberNs,
           context: rawArgCtx,
         });
@@ -2453,8 +2502,21 @@ const emitFunctionValueCallArguments = (
           expectedType: adaptationExpectedType,
           context: rawArgCtx,
         });
+      const forceRuntimeUnionArgumentMaterialization =
+        mustMaterializeSourceBackedStructuralSurface({
+          expr,
+          surfaceExpectedType: surfaceParameterType,
+          context: rawArgCtx,
+        });
+      const forcedRuntimeUnionSourceType =
+        effectiveArgumentType ??
+        preEmitStorageAwareArgumentType ??
+        preEmitActualArgumentType ??
+        arg.inferredType ??
+        materializationActualArgumentType;
       const skipRuntimeUnionArgumentMaterialization =
         shouldSkipRuntimeUnionArgumentMaterialization({
+          forceRuntimeUnionArgumentMaterialization,
           carrierPassThroughArgumentType:
             carrierPassThroughArgument?.actualType,
           carrierPassThroughType,
@@ -2463,8 +2525,30 @@ const emitFunctionValueCallArguments = (
           adaptationExpectedType,
           context: rawArgCtx,
         });
+      const forcedRuntimeUnionArgument =
+        forceRuntimeUnionArgumentMaterialization &&
+        adaptationExpectedType &&
+        forcedRuntimeUnionSourceType
+          ? tryBuildRuntimeMaterializationAst(
+              rawArgAst,
+              forcedRuntimeUnionSourceType,
+              adaptationExpectedType,
+              rawArgCtx,
+              emitTypeAst,
+              selectedSourceMemberNs
+            )
+          : undefined;
+      if (
+        forceRuntimeUnionArgumentMaterialization &&
+        !forcedRuntimeUnionArgument
+      ) {
+        throw new Error(
+          "Internal Compiler Error: source-backed structural call argument could not be materialized to its runtime surface."
+        );
+      }
       const [materializedArgAst, materializedArgCtx] =
-        skipRuntimeUnionArgumentMaterialization
+        forcedRuntimeUnionArgument ??
+        (skipRuntimeUnionArgumentMaterialization
           ? [rawArgAst, rawArgCtx]
           : (adaptValueToExpectedTypeAst({
               valueAst: rawArgAst,
@@ -2472,7 +2556,7 @@ const emitFunctionValueCallArguments = (
               context: rawArgCtx,
               expectedType: adaptationExpectedType,
               selectedSourceMemberNs,
-            }) ?? [rawArgAst, rawArgCtx]);
+            }) ?? [rawArgAst, rawArgCtx]));
       const numericActualArgumentType =
         selectPostMaterializationNumericCastArgumentType({
           rawArgAst,
@@ -3292,6 +3376,7 @@ const emitCallArguments = (
             ),
             effectiveArgumentType,
             inferredArgumentType: arg.inferredType,
+            expectedType: adaptationExpectedType,
             selectedSourceMemberNs,
             context: emittedContext,
           });
@@ -3303,8 +3388,21 @@ const emitCallArguments = (
             expectedType: adaptationExpectedType,
             context: emittedContext,
           });
+        const forceRuntimeUnionArgumentMaterialization =
+          mustMaterializeSourceBackedStructuralSurface({
+            expr,
+            surfaceExpectedType: surfaceParameterType,
+            context: emittedContext,
+          });
+        const forcedRuntimeUnionSourceType =
+          effectiveArgumentType ??
+          preEmitStorageAwareArgumentType ??
+          preEmitEffectiveArgumentType ??
+          arg.inferredType ??
+          materializationActualArgumentType;
         const skipRuntimeUnionArgumentMaterialization =
           shouldSkipRuntimeUnionArgumentMaterialization({
+            forceRuntimeUnionArgumentMaterialization,
             carrierPassThroughArgumentType:
               carrierPassThroughArgument?.actualType,
             carrierPassThroughType,
@@ -3313,8 +3411,30 @@ const emitCallArguments = (
             adaptationExpectedType,
             context: emittedContext,
           });
+        const forcedRuntimeUnionArgument =
+          forceRuntimeUnionArgumentMaterialization &&
+          adaptationExpectedType &&
+          forcedRuntimeUnionSourceType
+            ? tryBuildRuntimeMaterializationAst(
+                rawArgAst,
+                forcedRuntimeUnionSourceType,
+                adaptationExpectedType,
+                emittedContext,
+                emitTypeAst,
+                selectedSourceMemberNs
+              )
+            : undefined;
+        if (
+          forceRuntimeUnionArgumentMaterialization &&
+          !forcedRuntimeUnionArgument
+        ) {
+          throw new Error(
+            "Internal Compiler Error: source-backed structural call argument could not be materialized to its runtime surface."
+          );
+        }
         const [materializedArgAst, materializedContext] =
-          skipRuntimeUnionArgumentMaterialization
+          forcedRuntimeUnionArgument ??
+          (skipRuntimeUnionArgumentMaterialization
             ? [rawArgAst, emittedContext]
             : (adaptValueToExpectedTypeAst({
                 valueAst: rawArgAst,
@@ -3322,7 +3442,7 @@ const emitCallArguments = (
                 context: emittedContext,
                 expectedType: adaptationExpectedType,
                 selectedSourceMemberNs,
-              }) ?? [rawArgAst, emittedContext]);
+              }) ?? [rawArgAst, emittedContext]));
         const numericActualArgumentType =
           selectPostMaterializationNumericCastArgumentType({
             rawArgAst,

@@ -9,6 +9,7 @@ import { unwrapTransparentExpression } from "./transparent-expressions.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 import { getPropertyType } from "./property-lookup-resolution.js";
 import { isAssignable } from "./index.js";
+import { isRuntimeNullishType } from "./nullish-value-helpers.js";
 import {
   findExactRuntimeUnionMemberIndices,
   getCanonicalRuntimeUnionMembers,
@@ -69,6 +70,19 @@ const withoutNarrowedBinding = (
     narrowedBindings,
   };
 };
+
+const isRuntimeNullishExpression = (expr: IrExpression): boolean =>
+  (expr.kind === "literal" &&
+    (expr.value === null || expr.value === undefined)) ||
+  (expr.kind === "identifier" &&
+    (expr.name === "null" || expr.name === "undefined"));
+
+const shouldPreserveStorageForNullishAssignment = (
+  expr: IrExpression,
+  assignedType: IrExpression["inferredType"]
+): boolean =>
+  isRuntimeNullishExpression(expr) ||
+  (assignedType !== undefined && isRuntimeNullishType(assignedType));
 
 const tryResolveAssignmentBindingTarget = (
   expr: IrExpression
@@ -218,10 +232,36 @@ export const applyAssignmentStatementNarrowing = (
   const comparableStorageType =
     unwrapParameterModifierType(storageType) ?? storageType;
 
+  if (!comparableAssignedType) {
+    return context;
+  }
+
   const [targetExprAst, targetContext] = emitExprAst(
     bindingTarget.targetExpr,
     withoutNarrowedBinding(context, bindingTarget.bindingKey)
   );
+
+  if (
+    shouldPreserveStorageForNullishAssignment(
+      expr.right,
+      comparableAssignedType
+    )
+  ) {
+    const narrowedBindings = new Map(targetContext.narrowedBindings ?? []);
+    narrowedBindings.set(bindingTarget.bindingKey, {
+      kind: "expr",
+      exprAst: targetExprAst,
+      storageExprAst: targetExprAst,
+      storageType: comparableStorageType,
+      type: comparableAssignedType,
+      sourceType: comparableStorageType,
+    });
+
+    return {
+      ...targetContext,
+      narrowedBindings,
+    };
+  }
 
   const [materializedExprAst, materializedContext] =
     materializeDirectNarrowingAst(

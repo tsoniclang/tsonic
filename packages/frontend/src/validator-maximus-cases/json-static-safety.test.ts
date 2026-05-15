@@ -23,6 +23,29 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "untyped JSON.parse as dynamic JsValue carrier",
+        source: `
+          const value = JSON.parse("{}");
+          void value;
+        `,
+      },
+      {
+        name: "JSON.parse with explicit JsValue target",
+        source: `
+          import type { JsValue } from "@tsonic/core/types.js";
+          const value = JSON.parse<JsValue>("{}");
+          void value;
+        `,
+      },
+      {
+        name: "JSON.parse with JsValue contextual variable target",
+        source: `
+          import type { JsValue } from "@tsonic/core/types.js";
+          const value: JsValue = JSON.parse("{}");
+          void value;
+        `,
+      },
+      {
         name: "JSON.stringify with concrete DTO source",
         source: `
           type Payload = { ok: boolean; count: number };
@@ -50,13 +73,6 @@ describe("Maximus Validation Coverage", () => {
       readonly name: string;
       readonly source: string;
     }> = [
-      {
-        name: "untyped JSON.parse",
-        source: `
-          const value = JSON.parse("{}");
-          void value;
-        `,
-      },
       {
         name: "JSON.parse into unknown",
         source: `

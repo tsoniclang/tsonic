@@ -31,6 +31,7 @@ const validateGuardShape = (
       validateExpression(guardShape.typeExpression, ctx);
       break;
     case "arrayIsArrayGuard":
+    case "propertyExistence":
     case "propertyTruthiness":
     case "nullableGuard":
       validateExpression(guardShape.target, ctx);

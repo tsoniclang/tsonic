@@ -32,12 +32,12 @@ export const NATIVE_AOT_CAPABILITIES: BackendCapabilityManifest = new Map([
     ),
   ],
   [
-    "broad-json-parse-untyped",
+    "broad-json-parse-target",
     unsupported(
-      "broad-json-parse-untyped",
+      "broad-json-parse-target",
       "TSN5001",
-      "JSON.parse requires a closed compile-time target type for NativeAOT-safe code.",
-      "Provide a closed target type so generated serializers can be emitted."
+      "JSON.parse cannot target a broad compile-time type for NativeAOT-safe code.",
+      "Use untyped JSON.parse for the JsValue dynamic carrier, or provide a closed target type so generated serializers can be emitted."
     ),
   ],
   [
@@ -58,6 +58,7 @@ export const NATIVE_AOT_CAPABILITIES: BackendCapabilityManifest = new Map([
       "Use Array.isArray only on values whose possible runtime carriers are known at compile time."
     ),
   ],
+  ["dynamic-json-parse-jsvalue", supported("dynamic-json-parse-jsvalue")],
   ["closed-json-parse-typed", supported("closed-json-parse-typed")],
   ["array-isarray-closed", supported("array-isarray-closed")],
 ]);

@@ -342,7 +342,7 @@ export type IrUnaryExpression = {
 };
 
 export type IrInOperatorPlan = {
-  readonly kind: "dictionaryKey";
+  readonly kind: "dictionaryKey" | "unionProperty";
   readonly key: string;
 };
 

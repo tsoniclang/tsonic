@@ -22,6 +22,7 @@ import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
 import { unwrapTransparentExpression } from "./transparent-expressions.js";
 import { resolveTypeMemberKind } from "./member-surfaces.js";
 import { resolveStructuralViewMethodSurface } from "./structural-view-types.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 
 const withOptionalUndefined = (type: IrType): IrType =>
   type.kind === "unionType" &&
@@ -215,11 +216,21 @@ const resolveNarrowedCarrierType = (
   context: EmitterContext
 ): IrType | undefined => {
   if (!narrowed) {
-    return pickPreferredCarrierCandidate(
+    const preferred = pickPreferredCarrierCandidate(
       context,
       storageFallbackType,
       semanticFallbackType
     );
+    if (
+      preferred &&
+      storageFallbackType &&
+      willCarryAsRuntimeUnion(preferred, context) &&
+      !willCarryAsRuntimeUnion(storageFallbackType, context)
+    ) {
+      return storageFallbackType;
+    }
+
+    return preferred;
   }
 
   switch (narrowed.kind) {

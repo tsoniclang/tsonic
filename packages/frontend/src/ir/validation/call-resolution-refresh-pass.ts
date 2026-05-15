@@ -1,5 +1,13 @@
 import type { ProgramContext } from "../program-context.js";
-import { IrExpression, IrModule, IrStatement, IrType } from "../types.js";
+import {
+  IrExpression,
+  IrIfBranchPlan,
+  IrIfGuardShape,
+  IrModule,
+  IrParameter,
+  IrStatement,
+  IrType,
+} from "../types.js";
 import { getAwaitedIrType, referenceTypeIdentity } from "../types/type-ops.js";
 import {
   collectResolutionArguments,
@@ -192,13 +200,231 @@ const cohereAwaitedSourceBackedReturnType = (
     : awaitedInferredType;
 };
 
+const sameSourceSpan = (
+  left: IrExpression | undefined,
+  right: IrExpression | undefined
+): boolean => {
+  if (!left?.sourceSpan || !right?.sourceSpan) {
+    return false;
+  }
+
+  return (
+    left.sourceSpan.file === right.sourceSpan.file &&
+    left.sourceSpan.line === right.sourceSpan.line &&
+    left.sourceSpan.column === right.sourceSpan.column &&
+    left.sourceSpan.length === right.sourceSpan.length
+  );
+};
+
+const isTransparentFlowAssertion = (
+  expression: IrExpression
+): expression is Extract<IrExpression, { kind: "typeAssertion" }> =>
+  expression.kind === "typeAssertion" &&
+  (expression.expression.kind === "identifier" ||
+    expression.expression.kind === "memberAccess") &&
+  sameSourceSpan(expression, expression.expression);
+
+type SourceBackedLocalTypes = ReadonlyMap<string, IrType>;
+
+const EMPTY_SOURCE_BACKED_LOCAL_TYPES: SourceBackedLocalTypes = new Map();
+
+const isRuntimeNullishType = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "undefined" || type.name === "null");
+
+const containsRuntimeNullishType = (type: IrType): boolean =>
+  type.kind === "unionType" && type.types.some(isRuntimeNullishType);
+
+const stripRuntimeNullishType = (type: IrType): IrType => {
+  if (type.kind !== "unionType") {
+    return type;
+  }
+
+  const retainedTypes = type.types.filter(
+    (member) => !isRuntimeNullishType(member)
+  );
+  if (retainedTypes.length === 0) {
+    return type;
+  }
+  if (retainedTypes.length === 1) {
+    return retainedTypes[0]!;
+  }
+
+  return {
+    ...type,
+    types: retainedTypes,
+  };
+};
+
+const invocationTypesStructurallyEquivalent = (
+  left: IrType | undefined,
+  right: IrType | undefined,
+  ctx: ProgramContext
+): boolean =>
+  !!left &&
+  !!right &&
+  (ctx.typeSystem.typesEqual(left, right) ||
+    (ctx.typeSystem.isAssignableTo(left, right) &&
+      ctx.typeSystem.isAssignableTo(right, left)));
+
+const reconcileSourceBackedLocalType = (
+  currentType: IrType | undefined,
+  sourceBackedType: IrType | undefined,
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (!sourceBackedType) {
+    return currentType;
+  }
+
+  if (!currentType) {
+    return sourceBackedType;
+  }
+
+  if (ctx.typeSystem.typesEqual(currentType, sourceBackedType)) {
+    return sourceBackedType;
+  }
+
+  if (hasDeterministicIdentityConflict(currentType, sourceBackedType)) {
+    return currentType;
+  }
+
+  if (
+    invocationTypesStructurallyEquivalent(currentType, sourceBackedType, ctx)
+  ) {
+    return sourceBackedType;
+  }
+
+  const strippedCurrentType = stripRuntimeNullishType(currentType);
+  const strippedSourceBackedType = stripRuntimeNullishType(sourceBackedType);
+  if (
+    invocationTypesStructurallyEquivalent(
+      strippedCurrentType,
+      strippedSourceBackedType,
+      ctx
+    )
+  ) {
+    return containsRuntimeNullishType(currentType)
+      ? sourceBackedType
+      : strippedSourceBackedType;
+  }
+
+  return currentType;
+};
+
+const refreshIdentifierSourceBackedType = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  sourceBackedLocals: SourceBackedLocalTypes,
+  ctx: ProgramContext
+): IrExpression => {
+  const sourceBackedType = sourceBackedLocals.get(expr.name);
+  if (!sourceBackedType) {
+    return expr;
+  }
+
+  const inferredType = reconcileSourceBackedLocalType(
+    expr.inferredType,
+    sourceBackedType,
+    ctx
+  );
+  return inferredType === expr.inferredType ? expr : { ...expr, inferredType };
+};
+
+const refreshTransparentAssertionSourceBackedType = (
+  expr: Extract<IrExpression, { kind: "typeAssertion" }>,
+  expression: IrExpression,
+  ctx: ProgramContext
+): IrExpression => {
+  const refreshedAssertion = {
+    ...expr,
+    expression,
+  };
+  if (
+    !isTransparentFlowAssertion(refreshedAssertion) ||
+    !expression.inferredType
+  ) {
+    return refreshedAssertion;
+  }
+
+  const targetType = reconcileSourceBackedLocalType(
+    expr.targetType,
+    expression.inferredType,
+    ctx
+  );
+  const inferredType = reconcileSourceBackedLocalType(
+    expr.inferredType,
+    expression.inferredType,
+    ctx
+  );
+
+  return {
+    ...refreshedAssertion,
+    targetType: targetType ?? expr.targetType,
+    inferredType: inferredType ?? expr.inferredType,
+  };
+};
+
+const resolveSourceBackedExpressionType = (
+  expression: IrExpression
+): IrType | undefined => {
+  switch (expression.kind) {
+    case "call":
+    case "new":
+      return expression.sourceBackedReturnType;
+    case "await": {
+      const innerSourceBackedType = resolveSourceBackedExpressionType(
+        expression.expression
+      );
+      return innerSourceBackedType
+        ? (getAwaitedIrType(innerSourceBackedType) ?? innerSourceBackedType)
+        : undefined;
+    }
+    case "typeAssertion": {
+      const assertion = expression as Extract<
+        IrExpression,
+        { kind: "typeAssertion" }
+      >;
+      const transparent =
+        (assertion.expression.kind === "identifier" ||
+          assertion.expression.kind === "memberAccess") &&
+        sameSourceSpan(assertion, assertion.expression);
+      return transparent
+        ? resolveSourceBackedExpressionType(assertion.expression)
+        : assertion.targetType;
+    }
+    default:
+      return undefined;
+  }
+};
+
+const extendSourceBackedLocalsFromParameters = (
+  parameters: readonly IrParameter[],
+  sourceBackedLocals: SourceBackedLocalTypes
+): SourceBackedLocalTypes => {
+  let nextLocals: Map<string, IrType> | undefined;
+  for (const parameter of parameters) {
+    if (parameter.pattern.kind !== "identifierPattern" || !parameter.type) {
+      continue;
+    }
+
+    nextLocals ??= new Map(sourceBackedLocals);
+    nextLocals.set(parameter.pattern.name, parameter.type);
+  }
+
+  return nextLocals ?? sourceBackedLocals;
+};
+
 const refreshSpreadArgument = (
   argument: Extract<IrExpression, { kind: "array" }>["elements"][number],
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  sourceBackedLocals: SourceBackedLocalTypes
 ) =>
   argument?.kind === "spread"
     ? (() => {
-        const expression = refreshExpression(argument.expression, ctx);
+        const expression = refreshExpression(
+          argument.expression,
+          ctx,
+          sourceBackedLocals
+        );
         return {
           ...argument,
           expression,
@@ -206,27 +432,35 @@ const refreshSpreadArgument = (
         };
       })()
     : argument
-      ? refreshExpression(argument, ctx)
+      ? refreshExpression(argument, ctx, sourceBackedLocals)
       : argument;
 
 const refreshExpression = (
   expr: IrExpression,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  sourceBackedLocals: SourceBackedLocalTypes = EMPTY_SOURCE_BACKED_LOCAL_TYPES
 ): IrExpression => {
   switch (expr.kind) {
+    case "identifier":
+      return refreshIdentifierSourceBackedType(expr, sourceBackedLocals, ctx);
+
     case "call": {
-      const callee = refreshExpression(expr.callee, ctx);
+      const callee = refreshExpression(expr.callee, ctx, sourceBackedLocals);
       const arguments_ = expr.arguments.map((argument) =>
         argument.kind === "spread"
           ? (() => {
-              const expression = refreshExpression(argument.expression, ctx);
+              const expression = refreshExpression(
+                argument.expression,
+                ctx,
+                sourceBackedLocals
+              );
               return {
                 ...argument,
                 expression,
                 inferredType: expression.inferredType,
               };
             })()
-          : refreshExpression(argument, ctx)
+          : refreshExpression(argument, ctx, sourceBackedLocals)
       );
 
       if (callee.kind === "identifier" && callee.name === "super") {
@@ -416,18 +650,22 @@ const refreshExpression = (
     }
 
     case "new": {
-      const callee = refreshExpression(expr.callee, ctx);
+      const callee = refreshExpression(expr.callee, ctx, sourceBackedLocals);
       const arguments_ = expr.arguments.map((argument) =>
         argument.kind === "spread"
           ? (() => {
-              const expression = refreshExpression(argument.expression, ctx);
+              const expression = refreshExpression(
+                argument.expression,
+                ctx,
+                sourceBackedLocals
+              );
               return {
                 ...argument,
                 expression,
                 inferredType: expression.inferredType,
               };
             })()
-          : refreshExpression(argument, ctx)
+          : refreshExpression(argument, ctx, sourceBackedLocals)
       );
 
       if (!expr.signatureId) {
@@ -525,27 +763,27 @@ const refreshExpression = (
     case "memberAccess":
       return {
         ...expr,
-        object: refreshExpression(expr.object, ctx),
+        object: refreshExpression(expr.object, ctx, sourceBackedLocals),
         property:
           typeof expr.property === "string"
             ? expr.property
-            : refreshExpression(expr.property, ctx),
+            : refreshExpression(expr.property, ctx, sourceBackedLocals),
       };
 
     case "binary":
     case "logical":
       return {
         ...expr,
-        left: refreshExpression(expr.left, ctx),
-        right: refreshExpression(expr.right, ctx),
+        left: refreshExpression(expr.left, ctx, sourceBackedLocals),
+        right: refreshExpression(expr.right, ctx, sourceBackedLocals),
       };
 
     case "conditional":
       return {
         ...expr,
-        condition: refreshExpression(expr.condition, ctx),
-        whenTrue: refreshExpression(expr.whenTrue, ctx),
-        whenFalse: refreshExpression(expr.whenFalse, ctx),
+        condition: refreshExpression(expr.condition, ctx, sourceBackedLocals),
+        whenTrue: refreshExpression(expr.whenTrue, ctx, sourceBackedLocals),
+        whenFalse: refreshExpression(expr.whenFalse, ctx, sourceBackedLocals),
       };
 
     case "assignment":
@@ -556,12 +794,16 @@ const refreshExpression = (
           expr.left.kind === "arrayPattern" ||
           expr.left.kind === "objectPattern"
             ? expr.left
-            : refreshExpression(expr.left, ctx),
-        right: refreshExpression(expr.right, ctx),
+            : refreshExpression(expr.left, ctx, sourceBackedLocals),
+        right: refreshExpression(expr.right, ctx, sourceBackedLocals),
       };
 
     case "await": {
-      const expression = refreshExpression(expr.expression, ctx);
+      const expression = refreshExpression(
+        expr.expression,
+        ctx,
+        sourceBackedLocals
+      );
       if (!("sourceBackedReturnType" in expression)) {
         return {
           ...expr,
@@ -583,25 +825,35 @@ const refreshExpression = (
             coherentSourceBackedReturnType ?? expression.inferredType,
           sourceBackedReturnType: coherentSourceBackedReturnType,
         } as typeof expression,
+        inferredType: coherentSourceBackedReturnType
+          ? (getAwaitedIrType(coherentSourceBackedReturnType) ??
+            coherentSourceBackedReturnType)
+          : expr.inferredType,
       };
     }
 
     case "unary":
     case "update":
-    case "typeAssertion":
     case "numericNarrowing":
     case "asinterface":
     case "trycast":
       return {
         ...expr,
-        expression: refreshExpression(expr.expression, ctx),
+        expression: refreshExpression(expr.expression, ctx, sourceBackedLocals),
       };
+
+    case "typeAssertion":
+      return refreshTransparentAssertionSourceBackedType(
+        expr,
+        refreshExpression(expr.expression, ctx, sourceBackedLocals),
+        ctx
+      );
 
     case "yield":
       return {
         ...expr,
         expression: expr.expression
-          ? refreshExpression(expr.expression, ctx)
+          ? refreshExpression(expr.expression, ctx, sourceBackedLocals)
           : undefined,
       };
 
@@ -609,7 +861,7 @@ const refreshExpression = (
       return {
         ...expr,
         expressions: expr.expressions.map((expression) =>
-          refreshExpression(expression, ctx)
+          refreshExpression(expression, ctx, sourceBackedLocals)
         ),
       };
 
@@ -617,7 +869,7 @@ const refreshExpression = (
       return {
         ...expr,
         elements: expr.elements.map((element) =>
-          refreshSpreadArgument(element, ctx)
+          refreshSpreadArgument(element, ctx, sourceBackedLocals)
         ),
       };
 
@@ -628,12 +880,20 @@ const refreshExpression = (
           property.kind === "spread"
             ? {
                 ...property,
-                expression: refreshExpression(property.expression, ctx),
+                expression: refreshExpression(
+                  property.expression,
+                  ctx,
+                  sourceBackedLocals
+                ),
               }
             : property.kind === "property"
               ? {
                   ...property,
-                  value: refreshExpression(property.value, ctx),
+                  value: refreshExpression(
+                    property.value,
+                    ctx,
+                    sourceBackedLocals
+                  ),
                 }
               : property
         ),
@@ -644,14 +904,35 @@ const refreshExpression = (
         ...expr,
         body:
           expr.body.kind === "blockStatement"
-            ? refreshStatement(expr.body, ctx)
-            : refreshExpression(expr.body, ctx),
+            ? refreshBlockStatement(
+                expr.body,
+                ctx,
+                extendSourceBackedLocalsFromParameters(
+                  expr.parameters,
+                  sourceBackedLocals
+                )
+              )
+            : refreshExpression(
+                expr.body,
+                ctx,
+                extendSourceBackedLocalsFromParameters(
+                  expr.parameters,
+                  sourceBackedLocals
+                )
+              ),
       };
 
     case "functionExpression":
       return {
         ...expr,
-        body: refreshStatement(expr.body, ctx),
+        body: refreshBlockStatement(
+          expr.body,
+          ctx,
+          extendSourceBackedLocalsFromParameters(
+            expr.parameters,
+            sourceBackedLocals
+          )
+        ),
       };
 
     default:
@@ -659,22 +940,160 @@ const refreshExpression = (
   }
 };
 
+const refreshIfGuardShape = (
+  shape: IrIfGuardShape,
+  ctx: ProgramContext,
+  sourceBackedLocals: SourceBackedLocalTypes
+): IrIfGuardShape => {
+  switch (shape.kind) {
+    case "typeofGuard":
+    case "arrayIsArrayGuard":
+    case "nullableGuard":
+    case "propertyExistence":
+    case "propertyTruthiness":
+      return {
+        ...shape,
+        target: refreshExpression(shape.target, ctx, sourceBackedLocals),
+      };
+
+    case "discriminantEquality":
+      return {
+        ...shape,
+        target: refreshExpression(shape.target, ctx, sourceBackedLocals),
+      };
+
+    case "instanceofGuard":
+      return {
+        ...shape,
+        target: refreshExpression(shape.target, ctx, sourceBackedLocals),
+        typeExpression: refreshExpression(
+          shape.typeExpression,
+          ctx,
+          sourceBackedLocals
+        ),
+      };
+
+    case "compound":
+      return {
+        ...shape,
+        left: refreshIfGuardShape(shape.left, ctx, sourceBackedLocals),
+        right: refreshIfGuardShape(shape.right, ctx, sourceBackedLocals),
+      };
+
+    case "opaqueBoolean":
+      return shape;
+  }
+};
+
+const refreshIfBranchPlan = (
+  plan: IrIfBranchPlan | undefined,
+  ctx: ProgramContext,
+  sourceBackedLocals: SourceBackedLocalTypes
+): IrIfBranchPlan | undefined =>
+  plan
+    ? {
+        ...plan,
+        guardShape: refreshIfGuardShape(
+          plan.guardShape,
+          ctx,
+          sourceBackedLocals
+        ),
+        narrowedBindings: plan.narrowedBindings.map((narrowing) => ({
+          ...narrowing,
+          targetExpr: refreshExpression(
+            narrowing.targetExpr,
+            ctx,
+            sourceBackedLocals
+          ) as typeof narrowing.targetExpr,
+          targetType:
+            reconcileSourceBackedLocalType(
+              narrowing.targetType,
+              narrowing.targetExpr.kind === "identifier"
+                ? sourceBackedLocals.get(narrowing.targetExpr.name)
+                : undefined,
+              ctx
+            ) ?? narrowing.targetType,
+        })),
+      }
+    : undefined;
+
+const extendSourceBackedLocalsFromVariableDeclaration = (
+  stmt: Extract<IrStatement, { kind: "variableDeclaration" }>,
+  sourceBackedLocals: SourceBackedLocalTypes
+): SourceBackedLocalTypes => {
+  if (stmt.declarationKind !== "const") {
+    return sourceBackedLocals;
+  }
+
+  let nextLocals: Map<string, IrType> | undefined;
+  for (const declaration of stmt.declarations) {
+    if (declaration.name.kind !== "identifierPattern") {
+      continue;
+    }
+
+    const sourceBackedType =
+      declaration.type ??
+      (declaration.initializer
+        ? resolveSourceBackedExpressionType(declaration.initializer)
+        : undefined) ??
+      declaration.initializer?.inferredType;
+    if (!sourceBackedType) {
+      continue;
+    }
+
+    nextLocals ??= new Map(sourceBackedLocals);
+    nextLocals.set(declaration.name.name, sourceBackedType);
+  }
+
+  return nextLocals ?? sourceBackedLocals;
+};
+
+const refreshStatementList = (
+  statements: readonly IrStatement[],
+  ctx: ProgramContext,
+  sourceBackedLocals: SourceBackedLocalTypes
+): readonly IrStatement[] => {
+  let currentLocals = sourceBackedLocals;
+  return statements.map((statement) => {
+    const refreshedStatement = refreshStatement(statement, ctx, currentLocals);
+    if (refreshedStatement.kind === "variableDeclaration") {
+      currentLocals = extendSourceBackedLocalsFromVariableDeclaration(
+        refreshedStatement,
+        currentLocals
+      );
+    }
+    return refreshedStatement;
+  });
+};
+
+const refreshBlockStatement = (
+  stmt: Extract<IrStatement, { kind: "blockStatement" }>,
+  ctx: ProgramContext,
+  sourceBackedLocals: SourceBackedLocalTypes
+): Extract<IrStatement, { kind: "blockStatement" }> => {
+  return {
+    ...stmt,
+    statements: refreshStatementList(stmt.statements, ctx, sourceBackedLocals),
+  };
+};
+
 const refreshStatement = <T extends IrStatement>(
   stmt: T,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  sourceBackedLocals: SourceBackedLocalTypes = EMPTY_SOURCE_BACKED_LOCAL_TYPES
 ): T => {
   switch (stmt.kind) {
     case "expressionStatement":
       return {
         ...stmt,
-        expression: refreshExpression(stmt.expression, ctx),
+        expression: refreshExpression(stmt.expression, ctx, sourceBackedLocals),
       } as T;
 
     case "returnStatement":
       return {
         ...stmt,
         expression: stmt.expression
-          ? refreshExpression(stmt.expression, ctx)
+          ? refreshExpression(stmt.expression, ctx, sourceBackedLocals)
           : undefined,
       } as T;
 
@@ -684,7 +1103,11 @@ const refreshStatement = <T extends IrStatement>(
         declarations: stmt.declarations.map((declaration) => ({
           ...declaration,
           initializer: declaration.initializer
-            ? refreshExpression(declaration.initializer, ctx)
+            ? refreshExpression(
+                declaration.initializer,
+                ctx,
+                sourceBackedLocals
+              )
             : undefined,
         })),
       } as T;
@@ -692,63 +1115,77 @@ const refreshStatement = <T extends IrStatement>(
     case "ifStatement":
       return {
         ...stmt,
-        condition: refreshExpression(stmt.condition, ctx),
-        thenStatement: refreshStatement(stmt.thenStatement, ctx),
+        condition: refreshExpression(stmt.condition, ctx, sourceBackedLocals),
+        thenStatement: refreshStatement(
+          stmt.thenStatement,
+          ctx,
+          sourceBackedLocals
+        ),
         elseStatement: stmt.elseStatement
-          ? refreshStatement(stmt.elseStatement, ctx)
+          ? refreshStatement(stmt.elseStatement, ctx, sourceBackedLocals)
           : undefined,
+        thenPlan: refreshIfBranchPlan(stmt.thenPlan, ctx, sourceBackedLocals),
+        elsePlan: refreshIfBranchPlan(stmt.elsePlan, ctx, sourceBackedLocals),
       } as T;
 
     case "blockStatement":
-      return {
-        ...stmt,
-        statements: stmt.statements.map((statement) =>
-          refreshStatement(statement, ctx)
-        ),
-      } as T;
+      return refreshBlockStatement(stmt, ctx, sourceBackedLocals) as T;
 
-    case "forStatement":
+    case "forStatement": {
+      const initializer =
+        stmt.initializer && stmt.initializer.kind !== "variableDeclaration"
+          ? refreshExpression(stmt.initializer, ctx, sourceBackedLocals)
+          : stmt.initializer
+            ? refreshStatement(stmt.initializer, ctx, sourceBackedLocals)
+            : undefined;
+      const loopLocals =
+        initializer && initializer.kind === "variableDeclaration"
+          ? extendSourceBackedLocalsFromVariableDeclaration(
+              initializer,
+              sourceBackedLocals
+            )
+          : sourceBackedLocals;
       return {
         ...stmt,
-        initializer:
-          stmt.initializer && stmt.initializer.kind !== "variableDeclaration"
-            ? refreshExpression(stmt.initializer, ctx)
-            : stmt.initializer
-              ? refreshStatement(stmt.initializer, ctx)
-              : undefined,
+        initializer,
         condition: stmt.condition
-          ? refreshExpression(stmt.condition, ctx)
+          ? refreshExpression(stmt.condition, ctx, loopLocals)
           : undefined,
-        update: stmt.update ? refreshExpression(stmt.update, ctx) : undefined,
-        body: refreshStatement(stmt.body, ctx),
+        update: stmt.update
+          ? refreshExpression(stmt.update, ctx, loopLocals)
+          : undefined,
+        body: refreshStatement(stmt.body, ctx, loopLocals),
       } as T;
+    }
 
     case "forOfStatement":
     case "forInStatement":
       return {
         ...stmt,
-        expression: refreshExpression(stmt.expression, ctx),
-        body: refreshStatement(stmt.body, ctx),
+        expression: refreshExpression(stmt.expression, ctx, sourceBackedLocals),
+        body: refreshStatement(stmt.body, ctx, sourceBackedLocals),
       } as T;
 
     case "whileStatement":
       return {
         ...stmt,
-        condition: refreshExpression(stmt.condition, ctx),
-        body: refreshStatement(stmt.body, ctx),
+        condition: refreshExpression(stmt.condition, ctx, sourceBackedLocals),
+        body: refreshStatement(stmt.body, ctx, sourceBackedLocals),
       } as T;
 
     case "switchStatement":
       return {
         ...stmt,
-        expression: refreshExpression(stmt.expression, ctx),
+        expression: refreshExpression(stmt.expression, ctx, sourceBackedLocals),
         cases: stmt.cases.map((switchCase) => ({
           ...switchCase,
           test: switchCase.test
-            ? refreshExpression(switchCase.test, ctx)
+            ? refreshExpression(switchCase.test, ctx, sourceBackedLocals)
             : undefined,
-          statements: switchCase.statements.map((statement) =>
-            refreshStatement(statement, ctx)
+          statements: refreshStatementList(
+            switchCase.statements,
+            ctx,
+            sourceBackedLocals
           ),
         })),
       } as T;
@@ -756,28 +1193,39 @@ const refreshStatement = <T extends IrStatement>(
     case "throwStatement":
       return {
         ...stmt,
-        expression: refreshExpression(stmt.expression, ctx),
+        expression: refreshExpression(stmt.expression, ctx, sourceBackedLocals),
       } as T;
 
     case "tryStatement":
       return {
         ...stmt,
-        tryBlock: refreshStatement(stmt.tryBlock, ctx),
+        tryBlock: refreshStatement(stmt.tryBlock, ctx, sourceBackedLocals),
         catchClause: stmt.catchClause
           ? {
               ...stmt.catchClause,
-              body: refreshStatement(stmt.catchClause.body, ctx),
+              body: refreshStatement(
+                stmt.catchClause.body,
+                ctx,
+                sourceBackedLocals
+              ),
             }
           : undefined,
         finallyBlock: stmt.finallyBlock
-          ? refreshStatement(stmt.finallyBlock, ctx)
+          ? refreshStatement(stmt.finallyBlock, ctx, sourceBackedLocals)
           : undefined,
       } as T;
 
     case "functionDeclaration":
       return {
         ...stmt,
-        body: refreshStatement(stmt.body, ctx),
+        body: refreshBlockStatement(
+          stmt.body,
+          ctx,
+          extendSourceBackedLocalsFromParameters(
+            stmt.parameters,
+            sourceBackedLocals
+          )
+        ),
       } as T;
 
     case "classDeclaration":
@@ -787,26 +1235,48 @@ const refreshStatement = <T extends IrStatement>(
           if (member.kind === "methodDeclaration" && member.body) {
             return {
               ...member,
-              body: refreshStatement(member.body, ctx),
+              body: refreshBlockStatement(
+                member.body,
+                ctx,
+                extendSourceBackedLocalsFromParameters(
+                  member.parameters,
+                  sourceBackedLocals
+                )
+              ),
             };
           }
           if (member.kind === "constructorDeclaration" && member.body) {
             return {
               ...member,
-              body: refreshStatement(member.body, ctx),
+              body: refreshBlockStatement(
+                member.body,
+                ctx,
+                extendSourceBackedLocalsFromParameters(
+                  member.parameters,
+                  sourceBackedLocals
+                )
+              ),
             };
           }
           if (member.kind === "propertyDeclaration") {
             return {
               ...member,
               initializer: member.initializer
-                ? refreshExpression(member.initializer, ctx)
+                ? refreshExpression(member.initializer, ctx, sourceBackedLocals)
                 : undefined,
               getterBody: member.getterBody
-                ? refreshStatement(member.getterBody, ctx)
+                ? refreshBlockStatement(
+                    member.getterBody,
+                    ctx,
+                    sourceBackedLocals
+                  )
                 : undefined,
               setterBody: member.setterBody
-                ? refreshStatement(member.setterBody, ctx)
+                ? refreshBlockStatement(
+                    member.setterBody,
+                    ctx,
+                    sourceBackedLocals
+                  )
                 : undefined,
             };
           }
@@ -826,12 +1296,20 @@ export const runCallResolutionRefreshPass = (
   ok: true,
   modules: modules.map((module) => ({
     ...module,
-    body: module.body.map((statement) => refreshStatement(statement, ctx)),
+    body: refreshStatementList(
+      module.body,
+      ctx,
+      EMPTY_SOURCE_BACKED_LOCAL_TYPES
+    ),
     exports: module.exports.map((entry) =>
       entry.kind === "declaration"
         ? {
             ...entry,
-            declaration: refreshStatement(entry.declaration, ctx),
+            declaration: refreshStatement(
+              entry.declaration,
+              ctx,
+              EMPTY_SOURCE_BACKED_LOCAL_TYPES
+            ),
           }
         : entry
     ),

@@ -1,4 +1,9 @@
-import { IrType, isAwaitableIrType } from "@tsonic/frontend";
+import {
+  getAwaitedIrType,
+  IrType,
+  isAwaitableIrType,
+  normalizedUnionType,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
@@ -51,16 +56,74 @@ const requiresExplicitTaskFromResultType = (
   exprAst.kind === "nullLiteralExpression" ||
   exprAst.kind === "defaultExpression";
 
-const getAwaitTaskResultCarrierType = (
-  resultType: IrType | undefined
+const normalizeAwaitTaskResultType = (
+  resultType: IrType | undefined,
+  context: EmitterContext
 ): IrType | undefined => {
-  if (!resultType || resultType.kind === "voidType") {
+  if (!resultType) {
     return undefined;
   }
 
-  const runtimeNullishSplit = splitRuntimeNullishUnionMembers(resultType);
+  const resolved = resolveTypeAlias(stripNullish(resultType), context);
+  const awaited = getAwaitedIrType(resolved);
+  if (awaited) {
+    return (
+      normalizeAwaitTaskResultType(awaited, context) ?? {
+        kind: "voidType",
+      }
+    );
+  }
+
+  if (resolved.kind !== "unionType") {
+    return resolved;
+  }
+
+  const nonVoidMembers: IrType[] = [];
+  let sawVoidOnlyMember = false;
+
+  for (const member of resolved.types) {
+    if (!member) {
+      continue;
+    }
+
+    const normalized = normalizeAwaitTaskResultType(member, context);
+    if (!normalized || normalized.kind === "voidType") {
+      sawVoidOnlyMember = true;
+      continue;
+    }
+
+    if (normalized.kind === "unionType") {
+      nonVoidMembers.push(...normalized.types);
+    } else {
+      nonVoidMembers.push(normalized);
+    }
+  }
+
+  if (nonVoidMembers.length === 0) {
+    return sawVoidOnlyMember ? { kind: "voidType" } : undefined;
+  }
+
+  return nonVoidMembers.length === 1
+    ? nonVoidMembers[0]
+    : normalizedUnionType(nonVoidMembers);
+};
+
+const getAwaitTaskResultCarrierType = (
+  resultType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  const normalizedResultType = normalizeAwaitTaskResultType(
+    resultType,
+    context
+  );
+  if (!normalizedResultType || normalizedResultType.kind === "voidType") {
+    return undefined;
+  }
+
+  const runtimeNullishSplit =
+    splitRuntimeNullishUnionMembers(normalizedResultType);
   if (!runtimeNullishSplit) {
-    return resultType;
+    return normalizedResultType;
   }
 
   const nonNullishMembers = [...runtimeNullishSplit.nonNullishMembers];
@@ -72,10 +135,10 @@ const getAwaitTaskResultCarrierType = (
     return nonNullishMembers[0];
   }
 
-  return resultType.kind === "unionType" &&
-    resultType.runtimeUnionLayout === "carrierSlotOrder"
+  return normalizedResultType.kind === "unionType" &&
+    normalizedResultType.runtimeUnionLayout === "carrierSlotOrder"
     ? {
-        ...resultType,
+        ...normalizedResultType,
         types: nonNullishMembers,
       }
     : {
@@ -88,7 +151,7 @@ const buildDefaultTaskAst = (
   resultType: IrType | undefined,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const carrierType = getAwaitTaskResultCarrierType(resultType);
+  const carrierType = getAwaitTaskResultCarrierType(resultType, context);
   if (!carrierType) {
     return [buildCompletedTaskAst(), context];
   }
@@ -114,7 +177,7 @@ const buildAwaitMatchResultTypeAst = (
   resultType: IrType | undefined,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const carrierType = getAwaitTaskResultCarrierType(resultType);
+  const carrierType = getAwaitTaskResultCarrierType(resultType, context);
   if (!carrierType) {
     return [buildTaskTypeAst(), context];
   }
@@ -215,7 +278,7 @@ const buildPromotedAwaitResultValueAst = (
     return [valueAst, undefined, context];
   }
 
-  const carrierType = getAwaitTaskResultCarrierType(resultType);
+  const carrierType = getAwaitTaskResultCarrierType(resultType, context);
   if (!carrierType) {
     return [valueAst, undefined, context];
   }
@@ -286,7 +349,7 @@ export const emitNormalizedAwaitTaskAst = (
     const explicitResultType =
       promotedResultTypeAst === undefined &&
       requiresExplicitTaskFromResultType(promotedValueAst)
-        ? getAwaitTaskResultCarrierType(resultType ?? valueType)
+        ? getAwaitTaskResultCarrierType(resultType ?? valueType, currentContext)
         : undefined;
     let resultTypeAst: CSharpTypeAst | undefined;
     let resultTypeContext = currentContext;
@@ -529,7 +592,7 @@ export const emitNormalizedAwaitTaskAst = (
 
   const needsExplicitResultType = requiresExplicitTaskFromResultType(valueAst);
   const explicitCarrierType = needsExplicitResultType
-    ? getAwaitTaskResultCarrierType(resultType)
+    ? getAwaitTaskResultCarrierType(resultType, currentContext)
     : undefined;
   let resultTypeAst: CSharpTypeAst | undefined;
   let resultTypeContext = currentContext;

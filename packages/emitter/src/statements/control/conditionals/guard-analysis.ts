@@ -12,6 +12,7 @@ export type {
   GuardInfo,
   InstanceofGuardInfo,
   DiscriminantEqualityGuardInfo,
+  PropertyExistenceGuardInfo,
   PropertyTruthinessGuardInfo,
   RuntimeUnionFrame,
   NullableGuardInfo,
@@ -28,6 +29,7 @@ export {
 // Guard detection/resolution functions
 export {
   tryResolveDiscriminantEqualityGuard,
+  tryResolvePropertyExistenceGuard,
   tryResolvePropertyTruthinessGuard,
   tryResolvePredicateGuard,
   tryResolveInstanceofGuard,

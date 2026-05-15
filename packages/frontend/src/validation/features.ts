@@ -87,6 +87,37 @@ const typeHasStringIndex = (
   );
 };
 
+const typeHasDeclaredProperty = (
+  type: ts.Type,
+  key: string,
+  checker: ts.TypeChecker
+): boolean =>
+  checker.getPropertyOfType(type, key) !== undefined ||
+  checker.getPropertyOfType(checker.getApparentType(type), key) !== undefined;
+
+const isClosedStructuralPropertyUnion = (
+  type: ts.Type,
+  key: string,
+  checker: ts.TypeChecker
+): boolean => {
+  if (!type.isUnion()) {
+    return false;
+  }
+
+  const members = type.types.filter(
+    (member) =>
+      (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0
+  );
+  if (members.length < 2) {
+    return false;
+  }
+
+  const hasKey = members.map((member) =>
+    typeHasDeclaredProperty(member, key, checker)
+  );
+  return hasKey.some(Boolean) && hasKey.some((present) => !present);
+};
+
 const isClosedInOperatorExpression = (
   node: ts.BinaryExpression,
   checker: ts.TypeChecker
@@ -96,8 +127,18 @@ const isClosedInOperatorExpression = (
     return false;
   }
 
-  return typeHasStringIndex(checker.getTypeAtLocation(node.right), checker);
+  const rightType = checker.getTypeAtLocation(node.right);
+  return (
+    typeHasStringIndex(rightType, checker) ||
+    isClosedStructuralPropertyUnion(rightType, key, checker)
+  );
 };
+
+const isClosedForInStatement = (
+  node: ts.ForInStatement,
+  checker: ts.TypeChecker
+): boolean =>
+  typeHasStringIndex(checker.getTypeAtLocation(node.expression), checker);
 
 const normalizeFileName = (fileName: string): string =>
   fileName.replace(/\\/g, "/");
@@ -401,8 +442,6 @@ const hasAnyModifier = (
 
 const RUNTIME_CLASS_ACCESSIBILITY_MODIFIERS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.PublicKeyword,
-  ts.SyntaxKind.PrivateKeyword,
-  ts.SyntaxKind.ProtectedKeyword,
 ]);
 
 const RUNTIME_CLASS_ONLY_MODIFIERS = new Set<ts.SyntaxKind>([
@@ -434,15 +473,6 @@ const getUnsupportedRuntimeClassModifier = (
   if (isAmbientOrDeclarationNode(node)) return undefined;
 
   if (hasModifier(node, ts.SyntaxKind.AbstractKeyword)) return "abstract";
-  if (hasModifier(node, ts.SyntaxKind.PublicKeyword)) return "public";
-  if (hasModifier(node, ts.SyntaxKind.PrivateKeyword)) return "private";
-  if (hasModifier(node, ts.SyntaxKind.ProtectedKeyword)) return "protected";
-  if (
-    ts.isPropertyDeclaration(node) &&
-    hasModifier(node, ts.SyntaxKind.ReadonlyKeyword)
-  ) {
-    return "readonly";
-  }
 
   return undefined;
 };
@@ -494,11 +524,11 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (ts.isForInStatement(node)) {
+    if (ts.isForInStatement(node) && !isClosedForInStatement(node, checker)) {
       addUnsupported(
         node,
-        "'for...in' is not supported in emitted Tsonic code.",
-        "Iterate a concrete collection explicitly, for example over dictionary.Keys."
+        "'for...in' is only supported for statically proven string-key carriers.",
+        "Use for...in only over Record<string, T> or another closed string-indexed dictionary carrier."
       );
     }
 
@@ -510,7 +540,7 @@ export const validateUnsupportedFeatures = (
         addUnsupported(
           node,
           "The JavaScript 'in' operator is only supported for statically proven string-key carriers.",
-          "Use a string-literal key with a string-indexed dictionary carrier. Declared object properties do not provide JavaScript own-property existence semantics in emitted NativeAOT code."
+          "Use a string-literal key with a string-indexed dictionary carrier, or a closed structural union where that key statically selects one or more arms."
         );
       }
     }
@@ -555,9 +585,7 @@ export const validateUnsupportedFeatures = (
         ts.isGetAccessorDeclaration(node) ||
         ts.isSetAccessorDeclaration(node)) &&
       (hasAnyModifier(node, RUNTIME_CLASS_ACCESSIBILITY_MODIFIERS) ||
-        hasAnyModifier(node, RUNTIME_CLASS_ONLY_MODIFIERS) ||
-        (ts.isPropertyDeclaration(node) &&
-          hasModifier(node, ts.SyntaxKind.ReadonlyKeyword)))
+        hasAnyModifier(node, RUNTIME_CLASS_ONLY_MODIFIERS))
     ) {
       const modifierName = getUnsupportedRuntimeClassModifier(node);
       if (modifierName) {

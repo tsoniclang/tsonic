@@ -3,7 +3,7 @@
  *
  * Contains the main validation visitor and rule implementations for:
  * - TSN7401: 'any' type usage
- * - TSN7402: JsValue usage in emitted source code
+ * - TSN7402: reserved historical code; JsValue is now the dynamic JSON carrier
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
  * - TSN5001: NativeAOT-safe JSON and broad Array.isArray limitations
@@ -206,6 +206,10 @@ const isBroadJsonTargetTypeNode = (node: ts.TypeNode): boolean => {
   }
 
   if (ts.isTypeReferenceNode(node)) {
+    if (ts.isIdentifier(node.typeName) && node.typeName.text === "JsValue") {
+      return false;
+    }
+
     return (
       node.typeArguments?.some((typeArg) =>
         isBroadJsonTargetTypeNode(typeArg)
@@ -294,6 +298,31 @@ const isBroadJsonSourceType = (
   });
 };
 
+const isDynamicJsonCarrierType = (
+  type: ts.Type,
+  checker: ts.TypeChecker
+): boolean => {
+  const displayName = checker.typeToString(type);
+  return (
+    displayName === "JsValue" ||
+    displayName === "JsPrimitive" ||
+    type.aliasSymbol?.getName() === "JsValue" ||
+    type.aliasSymbol?.getName() === "JsPrimitive" ||
+    type.symbol?.getName() === "JsValue" ||
+    type.symbol?.getName() === "JsPrimitive"
+  );
+};
+
+const typeHasDynamicJsonCarrierStringIndex = (
+  type: ts.Type,
+  checker: ts.TypeChecker
+): boolean => {
+  const stringIndexType = type.getStringIndexType();
+  return (
+    !!stringIndexType && isDynamicJsonCarrierType(stringIndexType, checker)
+  );
+};
+
 const isBroadArrayIsArraySourceType = (
   type: ts.Type,
   checker: ts.TypeChecker,
@@ -306,6 +335,11 @@ const isBroadArrayIsArraySourceType = (
   const nextSeen = new Set(seen);
   nextSeen.add(type);
 
+  if (isDynamicJsonCarrierType(type, checker)) {
+    return false;
+  }
+
+  const displayName = checker.typeToString(type);
   if (
     (type.flags &
       (ts.TypeFlags.Any |
@@ -316,7 +350,7 @@ const isBroadArrayIsArraySourceType = (
     return true;
   }
 
-  if (checker.typeToString(type) === "object") {
+  if (displayName === "object") {
     return true;
   }
 
@@ -327,6 +361,162 @@ const isBroadArrayIsArraySourceType = (
   }
 
   return false;
+};
+
+const isDirectBooleanReturnExpression = (node: ts.Node): boolean => {
+  let current: ts.Node = node;
+  for (
+    let parent: ts.Node | undefined = current.parent;
+    parent;
+    current = parent, parent = parent.parent
+  ) {
+    if (ts.isParenthesizedExpression(parent)) {
+      continue;
+    }
+
+    return ts.isReturnStatement(parent) && parent.expression === current;
+  }
+
+  return false;
+};
+
+const unwrapExpression = (expr: ts.Expression): ts.Expression => {
+  let current = expr;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+};
+
+const isJsonParseInitializedSymbol = (
+  expr: ts.Expression,
+  checker: ts.TypeChecker
+): boolean => {
+  const unwrapped = unwrapExpression(expr);
+  if (!ts.isIdentifier(unwrapped)) {
+    return false;
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (!declaration || !ts.isVariableDeclaration(declaration)) {
+    return false;
+  }
+
+  const initializer = declaration.initializer
+    ? unwrapExpression(declaration.initializer)
+    : undefined;
+  return !!initializer && isJsonParseCall(initializer);
+};
+
+const isDeclaredDynamicJsonCarrierSymbol = (
+  expr: ts.Expression,
+  checker: ts.TypeChecker
+): boolean => {
+  const unwrapped = unwrapExpression(expr);
+  if (!ts.isIdentifier(unwrapped)) {
+    return false;
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (!symbol || !declaration) {
+    return false;
+  }
+
+  return isDynamicJsonCarrierType(
+    checker.getTypeOfSymbolAtLocation(symbol, declaration),
+    checker
+  );
+};
+
+const getObjectEntriesSource = (
+  expr: ts.Expression,
+  checker: ts.TypeChecker
+): ts.Expression | undefined => {
+  const unwrapped = unwrapExpression(expr);
+
+  if (ts.isCallExpression(unwrapped)) {
+    const callee = unwrapped.expression;
+    return ts.isPropertyAccessExpression(callee) &&
+      ts.isIdentifier(callee.expression) &&
+      callee.expression.text === "Object" &&
+      callee.name.text === "entries"
+      ? unwrapped.arguments[0]
+      : undefined;
+  }
+
+  if (!ts.isElementAccessExpression(unwrapped)) {
+    return undefined;
+  }
+
+  const collection = unwrapExpression(unwrapped.expression);
+  if (ts.isCallExpression(collection)) {
+    return getObjectEntriesSource(collection, checker);
+  }
+
+  if (!ts.isIdentifier(collection)) {
+    return undefined;
+  }
+
+  const symbol = checker.getSymbolAtLocation(collection);
+  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (!declaration || !ts.isVariableDeclaration(declaration)) {
+    return undefined;
+  }
+
+  const initializer = declaration.initializer
+    ? unwrapExpression(declaration.initializer)
+    : undefined;
+  return initializer ? getObjectEntriesSource(initializer, checker) : undefined;
+};
+
+const isObjectEntriesValueFromDynamicJsonCarrier = (
+  expr: ts.Expression,
+  checker: ts.TypeChecker
+): boolean => {
+  const unwrapped = unwrapExpression(expr);
+  if (!ts.isIdentifier(unwrapped)) {
+    return false;
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (
+    !declaration ||
+    !ts.isBindingElement(declaration) ||
+    !ts.isArrayBindingPattern(declaration.parent)
+  ) {
+    return false;
+  }
+
+  const arrayPattern = declaration.parent;
+  if (arrayPattern.elements.indexOf(declaration) !== 1) {
+    return false;
+  }
+
+  const variableDeclaration = arrayPattern.parent;
+  if (
+    !ts.isVariableDeclaration(variableDeclaration) ||
+    !variableDeclaration.initializer
+  ) {
+    return false;
+  }
+
+  const entriesSource = getObjectEntriesSource(
+    variableDeclaration.initializer,
+    checker
+  );
+  return entriesSource
+    ? isDeclaredDynamicJsonCarrierSymbol(entriesSource, checker) ||
+        typeHasDynamicJsonCarrierStringIndex(
+          checker.getTypeAtLocation(entriesSource),
+          checker
+        )
+    : false;
 };
 
 /**
@@ -355,18 +545,18 @@ export const validateStaticSafety = (
 
     if (isJsonParseCall(node)) {
       const targetTypeNode = getJsonParseTargetTypeNode(node);
-      if (!targetTypeNode || isBroadJsonTargetTypeNode(targetTypeNode)) {
+      if (targetTypeNode && isBroadJsonTargetTypeNode(targetTypeNode)) {
         currentCollector = addDiagnostic(
           currentCollector,
           createBackendCapabilityDiagnostic(
             program,
-            "broad-json-parse-untyped",
+            "broad-json-parse-target",
             createDiagnostic(
               "TSN5001",
               "error",
-              "JSON.parse requires a closed compile-time target type for NativeAOT-safe code.",
+              "JSON.parse cannot target a broad compile-time type for NativeAOT-safe code.",
               getNodeLocation(sourceFile, node),
-              "Use JSON.parse<T>(json), assign to a concrete typed variable, or use generated typed serializer code. Broad targets such as unknown, any, object, and unions are not supported for untyped JSON parsing."
+              "Use untyped JSON.parse for the JsValue dynamic carrier, JSON.parse<T>(json) for a closed DTO, or assign to a concrete typed variable. Broad targets such as unknown, any, object, and unions are not supported."
             )
           )
         );
@@ -401,10 +591,20 @@ export const validateStaticSafety = (
       if (
         !sourceExpression ||
         ts.isSpreadElement(sourceExpression) ||
-        isBroadArrayIsArraySourceType(
-          program.checker.getTypeAtLocation(sourceExpression),
-          program.checker
-        )
+        (!isJsonParseInitializedSymbol(sourceExpression, program.checker) &&
+          !isDeclaredDynamicJsonCarrierSymbol(
+            sourceExpression,
+            program.checker
+          ) &&
+          !isObjectEntriesValueFromDynamicJsonCarrier(
+            sourceExpression,
+            program.checker
+          ) &&
+          !isDirectBooleanReturnExpression(node) &&
+          isBroadArrayIsArraySourceType(
+            program.checker.getTypeAtLocation(sourceExpression),
+            program.checker
+          ))
       ) {
         currentCollector = addDiagnostic(
           currentCollector,
@@ -563,19 +763,6 @@ export const validateStaticSafety = (
       if (ts.isIdentifier(typeName)) {
         const name = typeName.text;
         const hasTypeArgs = node.typeArguments && node.typeArguments.length > 0;
-
-        if (name === "JsValue") {
-          currentCollector = addDiagnostic(
-            currentCollector,
-            createDiagnostic(
-              "TSN7402",
-              "error",
-              "JsValue is not supported in emitted Tsonic code.",
-              getNodeLocation(sourceFile, node),
-              "Use a concrete DTO/domain type or generated typed JSON serializer path."
-            )
-          );
-        }
 
         // TSN7419: 'never' cannot be used as a generic type argument.
         //

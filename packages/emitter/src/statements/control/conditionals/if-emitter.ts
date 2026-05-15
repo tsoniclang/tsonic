@@ -34,6 +34,7 @@ import {
   emitBranchScopedStatementAst,
 } from "./branch-context.js";
 import {
+  tryEmitPropertyExistenceGuard,
   tryEmitPropertyTruthinessGuard,
   tryEmitDiscriminantEqualityGuard,
 } from "./if-emit-union-guards.js";
@@ -53,6 +54,8 @@ const tryEmitPlannedGuard = (
   switch (stmt.thenPlan.guardShape.kind) {
     case "propertyTruthiness":
       return tryEmitPropertyTruthinessGuard(stmt, context);
+    case "propertyExistence":
+      return tryEmitPropertyExistenceGuard(stmt, context);
     case "discriminantEquality":
       return tryEmitDiscriminantEqualityGuard(stmt, context);
     case "instanceofGuard":
@@ -125,10 +128,20 @@ export const emitIfStatementAst = (
           },
         };
 
-        const thenCtx: EmitterContext = {
+        const semanticThenCondContext: EmitterContext = {
           ...rhsCtxAfterCond,
-          narrowedBindings: narrowedMap,
+          narrowedBindings: context.narrowedBindings,
         };
+        const thenCtx = applyIrBranchNarrowings(
+          applyConditionBranchNarrowing(
+            stmt.condition,
+            "truthy",
+            semanticThenCondContext,
+            emitExprAstCb
+          ),
+          stmt.thenPlan.narrowedBindings,
+          emitExprAstCb
+        );
         const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
           stmt.thenStatement,
           thenCtx

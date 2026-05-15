@@ -31,6 +31,7 @@ import {
 import { withAppliedNarrowings } from "./narrowing-environment.js";
 import {
   getCurrentTypeForDecl,
+  narrowTypeByPropertyExistence,
   narrowTypeByPropertyTruthiness,
 } from "./narrowing-property-helpers.js";
 
@@ -383,6 +384,15 @@ const tryResolveTruthyNarrowing = (
   ctx: ProgramContext
 ): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
+  const propertyExistence = tryResolvePropertyExistenceNarrowing(
+    unwrapped,
+    ctx,
+    true
+  );
+  if (propertyExistence) {
+    return propertyExistence;
+  }
+
   const arrayIsArrayTarget = tryGetArrayIsArrayTarget(unwrapped, ctx);
   if (arrayIsArrayTarget) {
     const targetType = narrowTypeByArrayIsArray(
@@ -484,6 +494,47 @@ const tryResolveTruthyNarrowing = (
   return makeTypeNarrowing(narrowedTarget, narrowedType);
 };
 
+const tryResolvePropertyExistenceNarrowing = (
+  expr: ts.Expression,
+  ctx: ProgramContext,
+  wantPresent: boolean
+): TypeNarrowing | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  if (
+    !ts.isBinaryExpression(unwrapped) ||
+    unwrapped.operatorToken.kind !== ts.SyntaxKind.InKeyword
+  ) {
+    return undefined;
+  }
+
+  const key =
+    ts.isStringLiteral(unwrapped.left) ||
+    ts.isNoSubstitutionTemplateLiteral(unwrapped.left)
+      ? unwrapped.left.text
+      : undefined;
+  if (!key) {
+    return undefined;
+  }
+
+  const target = getAccessPathTarget(unwrapped.right, ctx);
+  if (!target) {
+    return undefined;
+  }
+
+  const currentType = getCurrentTypeForAccessPath(target, ctx);
+  if (!currentType) {
+    return undefined;
+  }
+
+  const narrowed = narrowTypeByPropertyExistence(
+    currentType,
+    key,
+    wantPresent,
+    ctx
+  );
+  return narrowed ? makeTypeNarrowing(target, narrowed) : undefined;
+};
+
 /**
  * Collect `instanceof` narrowings that are guaranteed to hold when `expr` is truthy.
  *
@@ -544,6 +595,15 @@ const tryResolveFalsyNarrowing = (
   ctx: ProgramContext
 ): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
+  const propertyExistence = tryResolvePropertyExistenceNarrowing(
+    unwrapped,
+    ctx,
+    false
+  );
+  if (propertyExistence) {
+    return propertyExistence;
+  }
+
   const arrayIsArrayTarget = tryGetArrayIsArrayTarget(unwrapped, ctx);
   if (arrayIsArrayTarget) {
     const targetType = narrowTypeByArrayIsArray(

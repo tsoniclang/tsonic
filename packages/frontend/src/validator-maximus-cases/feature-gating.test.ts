@@ -100,6 +100,37 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "for...in over string-key records",
+        source: `
+          export function count(values: Record<string, number>): number {
+            let total = 0;
+            for (const key in values) {
+              total = total + values[key];
+            }
+            return total;
+          }
+        `,
+      },
+      {
+        name: "explicit public class members",
+        source: `
+          export class TestCase {
+            public run(): void {}
+          }
+        `,
+      },
+      {
+        name: "in operator over closed structural union",
+        source: `
+          type Success = { property_id: string };
+          type Failure = { error: Promise<void> };
+
+          export function hasError(value: Success | Failure): boolean {
+            return "error" in value;
+          }
+        `,
+      },
+      {
         name: "import type query",
         source: `
           import type { Value } from "./module.js";

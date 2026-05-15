@@ -26,6 +26,7 @@ import {
 } from "../flow-narrowing.js";
 import { resolveInstanceofTargetType } from "../narrowing-resolvers-equality.js";
 import { getAccessPathKey, getAccessPathTarget } from "../access-paths.js";
+import { getReadableMemberTypeForNarrowing } from "../narrowing-property-helpers.js";
 import {
   NumericKind,
   getBinaryResultKind,
@@ -144,6 +145,35 @@ const hasStringKeyCarrier = (
   );
 };
 
+const hasKnownProperty = (
+  type: IrType,
+  key: string,
+  ctx: ProgramContext
+): boolean => getReadableMemberTypeForNarrowing(type, key, ctx) !== undefined;
+
+const hasStructuralPropertyUnionCarrier = (
+  type: IrType | undefined,
+  key: string,
+  ctx: ProgramContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const nonNullishType = stripNullishFromUnion(type);
+  if (!nonNullishType || nonNullishType.kind !== "unionType") {
+    return false;
+  }
+
+  const members = nonNullishType.types;
+  if (members.length < 2) {
+    return false;
+  }
+
+  const presence = members.map((member) => hasKnownProperty(member, key, ctx));
+  return presence.some(Boolean) && presence.some((present) => !present);
+};
+
 const deriveInOperatorPlan = (
   left: IrExpression,
   right: IrExpression,
@@ -156,6 +186,10 @@ const deriveInOperatorPlan = (
 
   if (hasStringKeyCarrier(right.inferredType, ctx)) {
     return { kind: "dictionaryKey", key };
+  }
+
+  if (hasStructuralPropertyUnionCarrier(right.inferredType, key, ctx)) {
+    return { kind: "unionProperty", key };
   }
 
   return undefined;

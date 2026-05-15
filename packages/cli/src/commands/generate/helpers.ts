@@ -31,6 +31,7 @@ const findDll = (dllName: string): string | null => {
   if (existsSync(projectLibPath)) return projectLibPath;
 
   const cliRuntimePaths = [
+    join(import.meta.dirname, "../../../../runtime"),
     join(import.meta.dirname, "../../../runtime"),
     join(import.meta.dirname, "../../runtime"),
     join(import.meta.dirname, "../runtime"),

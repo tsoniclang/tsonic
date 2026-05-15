@@ -3,7 +3,7 @@
  *
  * Detects patterns that violate static typing requirements:
  * - TSN7401: 'any' type usage
- * - TSN7402: JsValue usage in emitted source code
+ * - TSN7402: reserved historical code; JsValue is now the dynamic JSON carrier
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
  * - TSN7406: Mapped types not supported (retired)

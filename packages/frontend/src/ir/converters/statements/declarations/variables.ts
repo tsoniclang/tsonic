@@ -18,6 +18,7 @@ import {
 } from "../../../../generic-function-values.js";
 import {
   deriveTypeFromExpression,
+  resolveMutableNumericLiteralDeclarationType,
   withVariableDeclaratorTypeEnv,
 } from "../../type-env.js";
 import {
@@ -196,16 +197,32 @@ export const convertVariableStatement = (
     // 1) Explicit annotation wins.
     // 2) For module-level/static variables (and exports), C# requires explicit type.
     //    Derive from initializer deterministically (no TS fallback).
-    const declaredType = decl.type
+    const explicitDeclaredType = decl.type
       ? currentCtx.typeSystem.typeFromSyntax(
           currentCtx.binding.captureTypeSyntax(decl.type)
         )
+      : undefined;
+    const mutableNumericLiteralType =
+      resolveMutableNumericLiteralDeclarationType(
+        declarationKind,
+        explicitDeclaredType,
+        convertedInitializer,
+        ts.isIdentifier(decl.name)
+          ? (currentCtx.mutableNumericLiteralWideningDeclIds?.has(
+              currentCtx.binding.resolveIdentifier(decl.name)?.id ?? -1
+            ) ?? false)
+          : false
+      );
+    const declaredType = explicitDeclaredType
+      ? explicitDeclaredType
       : convertedInitializer?.kind === "object" &&
           convertedInitializer.behaviorMembers?.length
         ? undefined
-        : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
-          ? deriveTypeFromExpression(convertedInitializer)
-          : undefined;
+        : mutableNumericLiteralType
+          ? mutableNumericLiteralType
+          : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
+            ? deriveTypeFromExpression(convertedInitializer)
+            : undefined;
 
     const irDecl: IrVariableDeclarator = {
       kind: "variableDeclarator",

@@ -103,6 +103,41 @@ describe("materialized narrowing", () => {
     expect(nextContext.tempVarId).to.equal(1);
   });
 
+  it("does not rematerialize broad-source JS number switch expressions", () => {
+    const sourceAst = {
+      kind: "identifierExpression" as const,
+      identifier: "value",
+    };
+    const broadObjectSlotUnion: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "boolean" },
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "string" },
+        { kind: "referenceType", name: "object", typeArguments: [] },
+      ],
+    };
+    const numberType: IrType = { kind: "primitiveType", name: "number" };
+
+    const [firstAst, firstContext] = materializeDirectNarrowingAst(
+      sourceAst,
+      broadObjectSlotUnion,
+      numberType,
+      context
+    );
+    const [secondAst] = materializeDirectNarrowingAst(
+      firstAst,
+      broadObjectSlotUnion,
+      numberType,
+      firstContext
+    );
+
+    expect(printExpression(secondAst)).to.equal(printExpression(firstAst));
+    expect(printExpression(secondAst)).not.to.include(
+      "}) switch { int __tsonic_number_int_"
+    );
+  });
+
   it("produces .Value unwrap for ref-wrapped nullable value types", () => {
     const numberType: IrType = { kind: "primitiveType", name: "number" };
     const undefinedType: IrType = {

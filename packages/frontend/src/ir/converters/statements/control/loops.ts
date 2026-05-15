@@ -9,6 +9,7 @@ import {
   IrWhileStatement,
   IrForStatement,
   IrForOfStatement,
+  IrForInStatement,
   IrType,
 } from "../../../types.js";
 import { normalizedUnionType } from "../../../types/type-ops.js";
@@ -18,6 +19,88 @@ import { convertStatementSingle } from "../../../statement-converter.js";
 import { convertVariableDeclarationList } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { withVariableTypeEnv } from "../../type-env.js";
+
+const isOneLiteral = (node: ts.Expression): boolean =>
+  ts.isNumericLiteral(node) && node.text === "1";
+
+const isIdentifierNamed = (
+  node: ts.Expression,
+  name: string
+): node is ts.Identifier => ts.isIdentifier(node) && node.text === name;
+
+const isCanonicalIntegerIncrementor = (
+  incrementor: ts.Expression | undefined,
+  name: string
+): boolean => {
+  if (!incrementor) return false;
+
+  if (
+    ts.isPostfixUnaryExpression(incrementor) ||
+    ts.isPrefixUnaryExpression(incrementor)
+  ) {
+    return (
+      incrementor.operator === ts.SyntaxKind.PlusPlusToken &&
+      isIdentifierNamed(incrementor.operand, name)
+    );
+  }
+
+  if (!ts.isBinaryExpression(incrementor)) return false;
+
+  if (
+    incrementor.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken &&
+    isIdentifierNamed(incrementor.left, name)
+  ) {
+    return isOneLiteral(incrementor.right);
+  }
+
+  if (
+    incrementor.operatorToken.kind !== ts.SyntaxKind.EqualsToken ||
+    !isIdentifierNamed(incrementor.left, name) ||
+    !ts.isBinaryExpression(incrementor.right) ||
+    incrementor.right.operatorToken.kind !== ts.SyntaxKind.PlusToken
+  ) {
+    return false;
+  }
+
+  return (
+    (isIdentifierNamed(incrementor.right.left, name) &&
+      isOneLiteral(incrementor.right.right)) ||
+    (isOneLiteral(incrementor.right.left) &&
+      isIdentifierNamed(incrementor.right.right, name))
+  );
+};
+
+const detectCanonicalIntegerLoopVariable = (
+  initializer: ts.ForInitializer | undefined,
+  incrementor: ts.Expression | undefined
+): string | undefined => {
+  if (!initializer || !ts.isVariableDeclarationList(initializer)) {
+    return undefined;
+  }
+
+  if (!(initializer.flags & ts.NodeFlags.Let)) {
+    return undefined;
+  }
+
+  if (initializer.declarations.length !== 1) {
+    return undefined;
+  }
+
+  const decl = initializer.declarations[0];
+  if (
+    !decl ||
+    !ts.isIdentifier(decl.name) ||
+    !decl.initializer ||
+    !ts.isNumericLiteral(decl.initializer) ||
+    !Number.isInteger(Number(decl.initializer.text))
+  ) {
+    return undefined;
+  }
+
+  return isCanonicalIntegerIncrementor(incrementor, decl.name.text)
+    ? decl.name.text
+    : undefined;
+};
 
 const normalizeForIteration = (
   type: IrType | undefined
@@ -166,11 +249,26 @@ export const convertForStatement = (
     if (ts.isVariableDeclarationList(node.initializer)) {
       const converted = convertVariableDeclarationList(node.initializer, ctx);
       initializer = converted;
-      bodyCtx = withVariableTypeEnv(
-        ctx,
-        node.initializer.declarations,
-        converted
+      const canonicalLoopVariable = detectCanonicalIntegerLoopVariable(
+        node.initializer,
+        node.incrementor
       );
+      bodyCtx = canonicalLoopVariable
+        ? withVariableTypeEnv(ctx, node.initializer.declarations, {
+            kind: "variableDeclaration",
+            declarationKind: "let",
+            declarations: converted.declarations.map((decl) =>
+              decl.name.kind === "identifierPattern" &&
+              decl.name.name === canonicalLoopVariable
+                ? {
+                    ...decl,
+                    type: { kind: "primitiveType", name: "int" },
+                  }
+                : decl
+            ),
+            isExported: false,
+          })
+        : withVariableTypeEnv(ctx, node.initializer.declarations, converted);
     } else {
       initializer = convertExpression(node.initializer, ctx, undefined);
     }
@@ -250,13 +348,53 @@ export const convertForOfStatement = (
   };
 };
 
-/** Unsupported `for...in` conversion guard. */
+/**
+ * Convert for-in statement.
+ *
+ * Supported only after validation has proven a closed string-key carrier.
+ * The loop variable is deterministically typed as string and the emitter
+ * lowers the source to the dictionary `Keys` collection.
+ */
 export const convertForInStatement = (
-  _node: ts.ForInStatement,
-  _ctx: ProgramContext,
-  _expectedReturnType?: IrType
-): never => {
-  throw new Error(
-    "ICE: for...in reached IR conversion - validation missed TSN2001"
+  node: ts.ForInStatement,
+  ctx: ProgramContext,
+  expectedReturnType?: IrType
+): IrForInStatement => {
+  const firstDecl = ts.isVariableDeclarationList(node.initializer)
+    ? node.initializer.declarations[0]
+    : undefined;
+
+  const variable = ts.isVariableDeclarationList(node.initializer)
+    ? convertBindingName(
+        firstDecl?.name ?? ts.factory.createIdentifier("_"),
+        ctx
+      )
+    : convertBindingName(node.initializer as ts.BindingName, ctx);
+
+  const expression = convertExpression(node.expression, ctx, undefined);
+
+  let bodyCtx = ctx;
+  if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
+    const stringType: IrType = { kind: "primitiveType", name: "string" };
+    bodyCtx = withVariableTypeEnv(ctx, [firstDecl], {
+      kind: "variableDeclaration",
+      declarationKind: "const",
+      declarations: [
+        { kind: "variableDeclarator", name: variable, type: stringType },
+      ],
+      isExported: false,
+    });
+  }
+
+  const body = convertStatementSingle(
+    node.statement,
+    bodyCtx,
+    expectedReturnType
   );
+  return {
+    kind: "forInStatement",
+    variable,
+    expression,
+    body: body ?? { kind: "emptyStatement" },
+  };
 };

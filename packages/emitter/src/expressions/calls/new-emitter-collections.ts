@@ -1,6 +1,7 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { emitTypeAst } from "../../types/emitter.js";
 import {
   emitTypeArgumentsAst,
   generateSpecializedName,
@@ -391,6 +392,22 @@ export const isUint8ArrayConstructorWithNumericLength = (
   );
 };
 
+const isNumericLengthExpression = (expr: IrExpression): boolean => {
+  const type = expr.inferredType;
+  return (
+    (type?.kind === "primitiveType" &&
+      (type.name === "number" || type.name === "int")) ||
+    (type?.kind === "literalType" && typeof type.value === "number") ||
+    (type?.kind === "referenceType" &&
+      (type.name === "int" ||
+        type.name === "double" ||
+        referenceTypeHasClrIdentity(
+          type,
+          TYPED_ARRAY_NUMERIC_LENGTH_CLR_NAMES
+        )))
+  );
+};
+
 export const emitUint8ArrayNumericLengthConstructor = (
   expr: Extract<IrExpression, { kind: "new" }>,
   context: EmitterContext
@@ -416,6 +433,112 @@ export const emitUint8ArrayNumericLengthConstructor = (
       kind: "objectCreationExpression",
       type: typeAst,
       arguments: [argAst],
+    },
+    currentContext,
+  ];
+};
+
+const isJsArrayConstructorIdentity = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  if (expr.callee.kind !== "identifier" || expr.callee.name !== "Array") {
+    return false;
+  }
+
+  const key = getConstructorKey(expr);
+  if (!key) {
+    return false;
+  }
+
+  const normalized = key.replace(/^global::/, "");
+  return (
+    normalized === "js.Array" ||
+    normalized.startsWith("js.Array<") ||
+    (normalized === "Array" && expr.inferredType?.kind === "arrayType")
+  );
+};
+
+export const isJsArrayConstructorWithNumericLength = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  if (!isJsArrayConstructorIdentity(expr)) {
+    return false;
+  }
+
+  if (getJsArrayConstructorElementType(expr) === undefined) {
+    return false;
+  }
+
+  if (expr.arguments.length !== 1) {
+    return false;
+  }
+
+  const arg = expr.arguments[0];
+  return !!arg && arg.kind !== "spread" && isNumericLengthExpression(arg);
+};
+
+const getJsArrayConstructorElementType = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): IrType | undefined => {
+  if (expr.inferredType?.kind === "arrayType") {
+    return expr.inferredType.elementType;
+  }
+
+  return expr.typeArguments?.[0];
+};
+
+export const isJsArrayNativeConstructor = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean =>
+  isJsArrayConstructorIdentity(expr) &&
+  getJsArrayConstructorElementType(expr) !== undefined &&
+  expr.arguments.every((arg) => arg !== undefined && arg.kind !== "spread");
+
+export const emitJsArrayNativeConstructor = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const elementType = getJsArrayConstructorElementType(expr);
+  if (!elementType) {
+    throw new Error("ICE: JS Array native constructor missing element type");
+  }
+
+  const [elementTypeAst, typeContext] = emitTypeAst(elementType, context);
+  let currentContext = typeContext;
+
+  if (isJsArrayConstructorWithNumericLength(expr)) {
+    const [sizeAst, sizeContext] = emitExpressionAst(
+      expr.arguments[0] as IrExpression,
+      currentContext,
+      INT_IR_TYPE
+    );
+
+    return [
+      {
+        kind: "arrayCreationExpression",
+        elementType: elementTypeAst,
+        sizeExpression: sizeAst,
+      },
+      sizeContext,
+    ];
+  }
+
+  const initializer: CSharpExpressionAst[] = [];
+  for (const arg of expr.arguments) {
+    const [argAst, argContext] = emitExpressionAst(
+      arg as IrExpression,
+      currentContext,
+      elementType
+    );
+    initializer.push(argAst);
+    currentContext = argContext;
+  }
+
+  return [
+    {
+      kind: "arrayCreationExpression",
+      elementType: elementTypeAst,
+      initializer: initializer.length > 0 ? initializer : undefined,
     },
     currentContext,
   ];

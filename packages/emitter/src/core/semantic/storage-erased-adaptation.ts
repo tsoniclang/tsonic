@@ -13,6 +13,7 @@ import {
   matchesSemanticExpectedType,
   requiresValueTypeMaterialization,
 } from "./expected-type-matching.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 import { tryBuildRuntimeReificationPlan } from "./runtime-reification.js";
 import {
   getArrayLikeElementType,
@@ -264,8 +265,17 @@ export const adaptStorageErasedValueAst = (opts: {
     return undefined;
   }
 
+  const storageMatchesExpectedEmission = matchesExpectedEmissionType(
+    storageType,
+    expectedType,
+    needsPlanContext
+  );
+  const expectedRequiresRuntimeUnionMaterialization =
+    willCarryAsRuntimeUnion(expectedType, needsPlanContext) &&
+    !willCarryAsRuntimeUnion(storageType, needsPlanContext);
   if (
-    matchesExpectedEmissionType(storageType, expectedType, needsPlanContext) &&
+    storageMatchesExpectedEmission &&
+    !expectedRequiresRuntimeUnionMaterialization &&
     !needsArrayElementMaterialization
   ) {
     return [valueAst, needsPlanContext];

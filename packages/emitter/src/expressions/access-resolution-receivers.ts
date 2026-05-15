@@ -35,7 +35,10 @@ import {
   resolveEffectiveExpressionType,
   tryResolveRuntimeUnionMemberType,
 } from "../core/semantic/narrowed-expression-types.js";
-import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import {
+  matchesExpectedEmissionType,
+  requiresValueTypeMaterialization,
+} from "../core/semantic/expected-type-matching.js";
 import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
@@ -72,6 +75,19 @@ const resolveReceiverStorageAst = (
   return identifierExpression(
     context.localNameMap?.get(sourceExpr.name) ??
       escapeCSharpIdentifier(sourceExpr.name)
+  );
+};
+
+const preservesMaterializedValueTypeNarrowing = (
+  narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
+  context: EmitterContext
+): boolean => {
+  const sourceType =
+    narrowed.sourceType ?? narrowed.storageType ?? narrowed.carrierType;
+  return (
+    !!sourceType &&
+    !!narrowed.type &&
+    requiresValueTypeMaterialization(sourceType, narrowed.type, context)
   );
 };
 
@@ -349,7 +365,12 @@ export const tryEmitMaterializedNarrowedMemberRead = (
       !narrowedExactSurface ||
       !expectedExactSurface ||
       !sameTypeAstSurface(narrowedExactSurface[0], expectedExactSurface[0]);
-    if (targetSurfaceDiffers && carrierAst && carrierType) {
+    if (
+      targetSurfaceDiffers &&
+      carrierAst &&
+      carrierType &&
+      !preservesMaterializedValueTypeNarrowing(narrowed, context)
+    ) {
       return materializeDirectNarrowingAst(
         carrierAst,
         carrierType,

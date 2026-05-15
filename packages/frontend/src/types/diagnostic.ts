@@ -53,7 +53,7 @@ export type DiagnosticCode =
   | "TSN7301" // Class cannot implement nominalized interface
   // Static/AOT safety errors (TSN7401-TSN7499)
   | "TSN7401" // 'any' type not supported - requires explicit type
-  | "TSN7402" // JsValue runtime surface not supported in source
+  | "TSN7402" // Reserved historical code; JsValue is the dynamic JSON carrier
   | "TSN7403" // Object literal requires contextual nominal type
   | "TSN7405" // Untyped lambda parameter - requires explicit type annotation
   | "TSN7406" // Mapped types not supported (retired)

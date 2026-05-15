@@ -15,7 +15,10 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
-import { identifierExpression } from "../../core/format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  identifierType,
+} from "../../core/format/backend-ast/builders.js";
 import { emitTypeArgumentsAst } from "../identifiers.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
@@ -24,6 +27,10 @@ const SYSTEM_OBJECT_CLR_NAMES = new Set([
   "System.Object",
   "global::System.Object",
 ]);
+
+const isDynamicJsonValueTarget = (type: IrType | undefined): boolean =>
+  type?.kind === "referenceType" &&
+  (type.name === "JsValue" || type.typeId?.tsName === "JsValue");
 
 const isConcreteGlobalJsonParseTarget = (
   type: IrType | undefined
@@ -41,6 +48,44 @@ const isConcreteGlobalJsonParseTarget = (
     return false;
   }
   return !containsTypeParameter(type);
+};
+
+const emitDynamicJsonParseCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+  const argAsts: CSharpExpressionAst[] = [];
+  for (const arg of expr.arguments) {
+    if (!arg) continue;
+    if (arg.kind === "spread") {
+      const [spreadAst, nextContext] = emitExpressionAst(
+        arg.expression,
+        currentContext
+      );
+      argAsts.push(spreadAst);
+      currentContext = nextContext;
+      continue;
+    }
+
+    const [argAst, nextContext] = emitExpressionAst(arg, currentContext);
+    argAsts.push(argAst);
+    currentContext = nextContext;
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression("global::Tsonic.Runtime.JSON"),
+        memberName: "parse",
+      },
+      arguments: argAsts,
+      typeArguments: [identifierType("object")],
+    },
+    currentContext,
+  ];
 };
 
 const isConcreteGlobalJsonStringifySource = (
@@ -195,6 +240,10 @@ const emitGlobalJsonCall = (
     (isConcreteGlobalJsonParseTarget(expr.inferredType)
       ? expr.inferredType
       : undefined);
+
+  if (isDynamicJsonValueTarget(deserializeTarget)) {
+    return emitDynamicJsonParseCall(expr, context);
+  }
 
   if (deserializeTarget) {
     return emitJsonSerializerCall(

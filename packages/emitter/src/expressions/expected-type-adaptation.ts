@@ -84,6 +84,7 @@ import {
   getArrayElementType,
   getDictionaryValueType,
 } from "./structural-type-shapes.js";
+import { isCompilerGeneratedStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 
 const JS_NUMERIC_ADAPTATION_CLR_NAMES = new Set([
   "System.Int32",
@@ -426,6 +427,80 @@ const unwrapTransparentAst = (
     current = current.expression;
   }
   return current;
+};
+
+const isCompilerGeneratedStructuralType = (
+  type: IrType | undefined
+): boolean => {
+  const stripped = type ? stripNullish(type) : undefined;
+  return (
+    stripped?.kind === "referenceType" &&
+    isCompilerGeneratedStructuralReferenceType(stripped)
+  );
+};
+
+const isNamedStructuralReferenceType = (type: IrType | undefined): boolean => {
+  const stripped = type ? stripNullish(type) : undefined;
+  return (
+    stripped?.kind === "referenceType" &&
+    stripped.structuralOrigin === "namedReference" &&
+    (stripped.structuralMembers?.length ?? 0) > 0
+  );
+};
+
+const resolveSourceLocalName = (
+  emittedIdentifier: string,
+  context: EmitterContext
+): string => {
+  for (const [sourceName, localName] of context.localNameMap ?? []) {
+    if (localName === emittedIdentifier) {
+      return sourceName;
+    }
+  }
+
+  return emittedIdentifier;
+};
+
+const identifierAlreadyHasExpectedSurface = (
+  valueAst: CSharpExpressionAst,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  if (valueAst.kind !== "identifierExpression") {
+    return false;
+  }
+
+  const sourceName = resolveSourceLocalName(valueAst.identifier, context);
+  const localType =
+    context.localValueTypes?.get(sourceName) ??
+    context.localSemanticTypes?.get(sourceName);
+  if (!localType) {
+    return false;
+  }
+
+  if (
+    areIrTypesEquivalent(
+      stripNullish(localType),
+      stripNullish(expectedType),
+      context
+    )
+  ) {
+    return true;
+  }
+
+  try {
+    const [localTypeAst, localTypeContext] = emitTypeAst(
+      stripNullish(localType),
+      context
+    );
+    const [expectedTypeAst] = emitTypeAst(
+      stripNullish(expectedType),
+      localTypeContext
+    );
+    return sameTypeAstSurface(localTypeAst, expectedTypeAst);
+  } catch {
+    return false;
+  }
 };
 
 const isCurrentInstanceSelfTarget = (
@@ -1208,6 +1283,10 @@ const adaptValueToExpectedTypeAstResult = (opts: {
     return adaptMatch([valueAst, context]);
   }
 
+  if (identifierAlreadyHasExpectedSurface(valueAst, expectedType, context)) {
+    return adaptMatch([valueAst, context]);
+  }
+
   const exactExpectedSurface = tryEmitExactComparisonTargetAst(
     expectedType,
     context
@@ -1518,6 +1597,66 @@ export const adaptEmittedExpressionAst = (opts: {
   })();
   if (broadPassThroughSourceIdentifier) {
     return broadPassThroughSourceIdentifier;
+  }
+  const recoveredNamedStructuralAliasIdentifier = (() => {
+    const structuralAliasSourceExpr =
+      expr.kind === "typeAssertion" &&
+      isCompilerGeneratedStructuralType(expr.targetType)
+        ? expr.expression
+        : adaptationSourceExpr;
+    if (!expectedType || structuralAliasSourceExpr.kind !== "identifier") {
+      return undefined;
+    }
+
+    const unwrappedCastedAst = unwrapTransparentAst(normalizedCastedAst);
+    const identifierName =
+      castedContext.localNameMap?.get(structuralAliasSourceExpr.name) ??
+      escapeCSharpIdentifier(structuralAliasSourceExpr.name);
+    if (
+      unwrappedCastedAst.kind !== "identifierExpression" ||
+      unwrappedCastedAst.identifier !== identifierName
+    ) {
+      return undefined;
+    }
+
+    const sourceSemanticType =
+      castedContext.localSemanticTypes?.get(structuralAliasSourceExpr.name) ??
+      castedContext.localValueTypes?.get(structuralAliasSourceExpr.name) ??
+      resolveEffectiveExpressionType(structuralAliasSourceExpr, castedContext);
+    const strippedSourceSemanticType = sourceSemanticType
+      ? stripNullish(sourceSemanticType)
+      : undefined;
+    const strippedExpectedType = stripNullish(expectedType);
+    if (
+      !isNamedStructuralReferenceType(strippedSourceSemanticType) ||
+      !(
+        (strippedSourceSemanticType?.kind === "referenceType" &&
+          strippedExpectedType.kind === "referenceType" &&
+          strippedSourceSemanticType.name === strippedExpectedType.name) ||
+        (strippedSourceSemanticType
+          ? areIrTypesEquivalent(
+              strippedSourceSemanticType,
+              expectedType,
+              castedContext
+            ) ||
+            matchesExpectedEmissionType(
+              strippedSourceSemanticType,
+              expectedType,
+              castedContext
+            )
+          : false)
+      )
+    ) {
+      return undefined;
+    }
+
+    return [identifierExpression(identifierName), castedContext] as [
+      CSharpExpressionAst,
+      EmitterContext,
+    ];
+  })();
+  if (recoveredNamedStructuralAliasIdentifier) {
+    return recoveredNamedStructuralAliasIdentifier;
   }
   const directStorageType =
     expectedType &&
