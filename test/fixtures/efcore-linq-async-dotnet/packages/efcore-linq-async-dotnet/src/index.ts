@@ -11,7 +11,7 @@ import type {
   ExtensionMethods as Ef,
 } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
 
-type DbSetQuery<T> = Ef<Linq<DbSet<T>>>;
+type DbSetQuery<T extends object | null> = Ef<Linq<DbSet<T>>>;
 
 export class UserEntity {
   Id: int = 0;
