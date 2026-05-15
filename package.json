@@ -27,7 +27,7 @@
   ],
   "devDependencies": {
     "@eslint/js": "^9.37.0",
-    "@tsonic/js": "10.0.49",
+    "@tsonic/js": "10.0.50",
     "@types/chai": "5.2.2",
     "@types/mocha": "10.0.10",
     "@types/node": "20.14.0",
@@ -62,9 +62,9 @@
   "license": "MIT",
   "dependencies": {
     "@tsonic/cli": "0.0.77",
-    "@tsonic/core": "10.0.41",
-    "@tsonic/dotnet": "10.0.41",
-    "@tsonic/globals": "10.0.42",
-    "@tsonic/nodejs": "10.0.49"
+    "@tsonic/core": "10.0.42",
+    "@tsonic/dotnet": "10.0.42",
+    "@tsonic/globals": "10.0.43",
+    "@tsonic/nodejs": "10.0.50"
   }
 }
