@@ -143,6 +143,91 @@ actual emitted value has a direct CLR carrier. For example, a conditional whose
 branches both emit `string[]` remains a direct array even if one semantic branch
 was originally written as `string[] | undefined`.
 
+## Guards and narrowing
+
+Branch narrowing is owned by the frontend and represented as a branch plan in
+IR. The emitter consumes that plan instead of rediscovering the guard from text.
+
+Supported guard families include:
+
+- `typeof value === "string"` and other closed primitive checks
+- `value instanceof SomeClass` when the right side is a proven constructible type
+- `Array.isArray(value)` when the narrowed carrier is an array carrier
+- literal-discriminant checks such as `result.success === true`
+- string-literal property checks over proven dictionary carriers
+
+Example:
+
+```ts
+type Ok = { success: true; value: string };
+type Err = { success: false; error: string };
+
+export function message(result: Ok | Err): string {
+  if (result.success === true) {
+    return result.value;
+  }
+
+  return result.error;
+}
+```
+
+The frontend records that the true branch is the `Ok` arm and the false branch
+is the `Err` arm. The emitter uses those arm identities directly when accessing
+`value` and `error`.
+
+## Calls, constructors, and expected types
+
+Call lowering is driven by the selected call target and the expected type of
+each argument. Numeric literals, object literals, callbacks, arrays, and union
+arms adapt to the selected parameter only when the compiler can prove the
+carrier.
+
+```ts
+import type { int } from "@tsonic/core/types.js";
+
+declare function takeInt(value: int): void;
+
+takeInt(42);
+```
+
+The literal is contextually adapted to `int` because the parameter target is
+known. The same mechanism applies to constructors, extension-style calls,
+callback return values, and generic call sites.
+
+## Loops and awaited values
+
+`for...of` requires a proven iterable, array, or source-backed collection
+carrier. `await` adapts the resolved value to the proven target type instead of
+leaving it as a broad temporary.
+
+```ts
+export async function first(values: Promise<string[]>): Promise<string> {
+  const resolved = await values;
+  for (const value of resolved) {
+    return value;
+  }
+  return "";
+}
+```
+
+The compiler proves the awaited carrier is `string[]`, then lowers the loop over
+that array carrier.
+
+## JSON and broad values
+
+`unknown` is the broad boundary type. It may be stored and narrowed only through
+deterministic carrier checks. It is not permission for reflection-style member
+discovery.
+
+```ts
+type Payload = { title: string; count: number };
+
+const payload = JSON.parse<Payload>('{"title":"docs","count":1}');
+```
+
+`JSON.parse<T>` and `JSON.stringify<T>` require closed compile-time types so the
+compiler can root generated serialization metadata for NativeAOT.
+
 ## Language intrinsics
 
 Use `@tsonic/core/lang.js` for language-facing helpers:

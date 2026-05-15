@@ -21,6 +21,8 @@ can force CLR intent where `number` would be too vague.
 
 - `undefined` / `null` are preserved according to the active surface and target
   shape
+- `unknown` is the broad boundary type for values whose useful runtime shape is
+  not proven at the declaration boundary
 - optional properties are not treated as permission for arbitrary dynamic
   object use
 - nullish coalescing still has to lower to a stable target type
@@ -59,6 +61,11 @@ const map = new Dictionary<string, number>();
 ```
 
 That is still a CLR binding package call surface.
+
+Generated CLR binding packages project `System.Object` as TypeScript `unknown`
+and value-type constraints as `NonNullable<unknown>`. Those mappings keep broad
+CLR slots explicit while preventing source-level code from treating a broad
+value as an arbitrary dynamic object.
 
 ## Surface effect
 

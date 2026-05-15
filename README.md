@@ -266,11 +266,18 @@ Supported output shapes include:
 - AST-only emitter pipeline
 - canonical type identity keys for type comparison, overload matching, and
   runtime-union decisions
+- frontend-owned branch plans for `typeof`, `instanceof`, `Array.isArray`, and
+  literal-discriminant guards
 - source-package graphs compiled transitively with source-backed metadata
   retained through call, constructor, and narrowing paths
 - runtime union carriers that preserve union arm identity instead of lowering
   ambiguous values through `object`
+- deterministic call and constructor adaptation from expected parameter,
+  receiver, return, and generic constraints
+- `await` normalization that adapts awaited values to the proven target carrier
 - Promise constructor + `then` / `catch` / `finally` lowering
+- `for...of` and loop-variable lowering over proven array, iterable, and
+  source-backed collection carriers
 - static ESM import graphs only; dynamic `import()` and `import.meta` are not
   emitted language features
 - typed JSON parse/stringify lowering through compile-time serialization

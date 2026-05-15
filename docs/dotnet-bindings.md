@@ -78,6 +78,15 @@ import { Console } from "@tsonic/dotnet/System.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 ```
 
+### Broad CLR object values
+
+Generated CLR binding packages represent `System.Object` as TypeScript
+`unknown`. A broad object value can be passed to another broad CLR slot, stored,
+or narrowed through a proven API. It cannot be used for arbitrary member access.
+
+Value-type constraints are represented as `NonNullable<unknown>`, which keeps
+struct-like generic constraints distinct from unconstrained object slots.
+
 ### ASP.NET Core usage
 
 Install the framework binding package explicitly:

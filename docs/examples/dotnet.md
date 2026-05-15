@@ -28,7 +28,13 @@ map.Add("a", 1);
 ```ts
 import { JsonSerializer } from "@tsonic/dotnet/System.Text.Json.js";
 
-const text = JsonSerializer.Serialize({ ok: true });
+export class Payload {
+  ok: boolean = false;
+}
+
+const payload = new Payload();
+payload.ok = true;
+const text = JsonSerializer.Serialize(payload);
 ```
 
 ## Explicit numeric types
