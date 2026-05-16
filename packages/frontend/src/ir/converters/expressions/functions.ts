@@ -294,7 +294,7 @@ export const convertFunctionExpression = (
     kind: "functionExpression",
     name: node.name?.text,
     parameters,
-    returnType: declaredReturnType,
+    returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
       ? convertBlockStatement(node.body, bodyCtx, returnExpressionType)
@@ -304,6 +304,7 @@ export const convertFunctionExpression = (
     ),
     isGenerator: !!node.asteriskToken,
     inferredType,
+    contextualType: expectedType,
     sourceSpan: getSourceSpan(node),
   };
 };
@@ -366,15 +367,7 @@ export const convertArrowFunction = (
     : undefined;
 
   const returnType =
-    declaredReturnType ??
-    (expressionBodyReturnType &&
-    useExpectedReturnType &&
-    expectedReturnType &&
-    ctx.typeSystem.isAssignableTo(expressionBodyReturnType, expectedReturnType)
-      ? expressionBodyReturnType
-      : useExpectedReturnType
-        ? expectedReturnType
-        : (expressionBodyReturnType ?? expectedReturnType));
+    contextualReturnType ?? expressionBodyReturnType ?? expectedReturnType;
 
   // DETERMINISTIC TYPING: contextualType comes from expectedType
   const contextualType = expectedType;

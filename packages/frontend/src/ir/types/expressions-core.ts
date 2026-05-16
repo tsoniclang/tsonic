@@ -152,6 +152,8 @@ export type IrFunctionExpression = {
   /** True when object-literal method shorthand must bind `this` to the constructed object. */
   readonly capturesObjectLiteralThis?: boolean;
   readonly inferredType?: IrType;
+  /** Contextual type from call site or assignment target. */
+  readonly contextualType?: IrType;
   readonly sourceSpan?: SourceLocation;
 };
 

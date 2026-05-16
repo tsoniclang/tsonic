@@ -167,6 +167,115 @@ describe("Dependency Graph", function () {
     }
   });
 
+  it("dedupes ambient source-package files reached through normal imports", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/rootdir-external"
+    );
+
+    try {
+      const projectRoot = fixture.path("workspace/app");
+      const sourceRoot = fixture.path("workspace/app/src");
+      const packageRoot = fixture.path(
+        "workspace/app/node_modules/@fixture/js"
+      );
+      const entryPath = path.join(sourceRoot, "index.ts");
+
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify({ name: "app", version: "0.0.0", type: "module" })
+      );
+      fs.writeFileSync(
+        entryPath,
+        'import "@fixture/js/globals.js";\nexport const app = 1;\n'
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify({
+          name: "@fixture/js",
+          version: "1.0.0",
+          type: "module",
+        })
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic.surface.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          id: "@fixture/js",
+          extends: ["clr"],
+          requiredTypeRoots: ["."],
+        })
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic.package.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          kind: "tsonic-source-package",
+          surfaces: ["@fixture/js"],
+          source: {
+            namespace: "Fixture.Js",
+            ambient: ["./globals.ts"],
+            exports: {
+              ".": "./src/index.ts",
+              "./globals.js": "./globals.ts",
+            },
+          },
+        })
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "globals.ts"),
+        [
+          'import "./src/index.js";',
+          "export {};",
+          "declare global {",
+          "  interface Array<T> {}",
+          "  interface Boolean {}",
+          "  interface CallableFunction {}",
+          "  interface Function {}",
+          "  interface IArguments {}",
+          "  interface NewableFunction {}",
+          "  interface Number {}",
+          "  interface Object {}",
+          "  interface RegExp {}",
+          "  interface String {}",
+          "}",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src/index.ts"),
+        "export const jsPackage = 1;\n"
+      );
+
+      const result = buildModuleDependencyGraph(entryPath, {
+        projectRoot,
+        sourceRoot,
+        rootNamespace: "Test",
+        surface: "@fixture/js",
+        typeRoots: [packageRoot],
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const globalsModules = result.value.modules.filter(
+        (module) =>
+          module.namespace === "Fixture.Js" &&
+          module.className === "globals"
+      );
+      const indexModules = result.value.modules.filter(
+        (module) =>
+          module.namespace === "Fixture.Js" && module.className === "index"
+      );
+
+      expect(globalsModules).to.have.length(1);
+      expect(indexModules).to.have.length(1);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("should traverse imports from installed tsonic source packages", () => {
     const fixture = materializeFrontendFixture([
       "fragments/minimal-surfaces/tsonic-js",

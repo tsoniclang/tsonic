@@ -4,12 +4,25 @@ import { runValidation, hasDiagnostic } from "./test-helpers.js";
 
 describe("validateUnsupportedFeatures", () => {
   describe("TSN5001", () => {
-    it("rejects direct function.length access", () => {
+    it("allows direct function.length access on deterministic function identifiers", () => {
       const result = runValidation(`
         type Handler = (value: string) => void;
 
         export function arity(handler: Handler): number {
           return handler.length;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN5001")).to.equal(false);
+    });
+
+    it("rejects function.length access when receiver evaluation has runtime effects", () => {
+      const result = runValidation(`
+        type Handler = (value: string) => void;
+        declare function getHandler(): Handler;
+
+        export function arity(): number {
+          return getHandler().length;
         }
       `);
 

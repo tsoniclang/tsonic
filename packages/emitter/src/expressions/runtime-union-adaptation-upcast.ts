@@ -4,7 +4,7 @@
  * union-value lifting.
  */
 
-import type { IrExpression, IrType } from "@tsonic/frontend";
+import { type IrExpression, type IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
@@ -85,6 +85,7 @@ import {
   runtimeUnionAliasReferencesMatch,
 } from "../core/semantic/runtime-union-alias-identity.js";
 import { referenceTypesShareClrIdentity } from "../core/semantic/clr-type-identity.js";
+import { tryAdaptAwaitableValueAst } from "./awaitable-adaptation.js";
 
 const normalizeRuntimeUnionEmissionType = (
   type: IrType,
@@ -522,6 +523,19 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
 
   if (referenceTypesHaveSameNominalIdentity(actualType, memberType, context)) {
     return [ast, context];
+  }
+
+  const awaitableAdaptation = tryAdaptAwaitableValueAst({
+    ast,
+    actualType,
+    expectedType: memberType,
+    expectedTypeAst: memberTypeAst,
+    context,
+    visited,
+    adaptAwaitedValueAst: maybeAdaptRuntimeUnionExpressionAst,
+  });
+  if (awaitableAdaptation) {
+    return awaitableAdaptation;
   }
 
   const upcastWithVisited = (

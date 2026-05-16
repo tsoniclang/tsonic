@@ -37,6 +37,7 @@ import {
   attachTypeIds,
 } from "./type-system-call-resolution.js";
 import { surfaceIncludesJs } from "../../surface/profiles.js";
+import { expandReferenceAlias } from "./type-alias-expansion.js";
 
 const buildGenericCollectionType = (elementType: IrType): IrType => ({
   kind: "referenceType",
@@ -44,6 +45,65 @@ const buildGenericCollectionType = (elementType: IrType): IrType => ({
   resolvedClrType: "System.Collections.Generic.ICollection",
   typeArguments: [elementType],
 });
+
+const FUNCTION_LENGTH_TYPE: IrType = { kind: "primitiveType", name: "int" };
+
+const resolveFunctionDeclaredMemberType = (
+  state: TypeSystemState,
+  receiver: IrType,
+  memberName: string,
+  seen: ReadonlySet<string> = new Set()
+): IrType | undefined => {
+  if (memberName !== "length") {
+    return undefined;
+  }
+
+  if (receiver.kind === "functionType") {
+    return FUNCTION_LENGTH_TYPE;
+  }
+
+  if (
+    receiver.kind === "intersectionType" &&
+    receiver.types.length > 0 &&
+    receiver.types.every((member) => member.kind === "functionType")
+  ) {
+    return FUNCTION_LENGTH_TYPE;
+  }
+
+  if (receiver.kind === "unionType") {
+    const functionMembers = receiver.types.filter(
+      (member) => !isNullishPrimitive(member)
+    );
+    if (
+      functionMembers.length > 0 &&
+      functionMembers.every(
+        (member) =>
+          resolveFunctionDeclaredMemberType(state, member, memberName, seen) !==
+          undefined
+      )
+    ) {
+      return FUNCTION_LENGTH_TYPE;
+    }
+  }
+
+  if (receiver.kind === "referenceType") {
+    const aliasKey = `${receiver.name}:${receiver.typeArguments?.length ?? 0}`;
+    if (seen.has(aliasKey)) {
+      return undefined;
+    }
+    const expanded = expandReferenceAlias(state, receiver);
+    if (expanded) {
+      return resolveFunctionDeclaredMemberType(
+        state,
+        expanded,
+        memberName,
+        new Set([...seen, aliasKey])
+      );
+    }
+  }
+
+  return undefined;
+};
 
 const resolveDictionaryDeclaredMemberType = (
   receiver: IrType,
@@ -481,6 +541,15 @@ export const resolveMemberTypeNoDiag = (
   receiver: IrType,
   memberName: string
 ): IrType | undefined => {
+  const functionDeclaredMemberType = resolveFunctionDeclaredMemberType(
+    state,
+    receiver,
+    memberName
+  );
+  if (functionDeclaredMemberType) {
+    return functionDeclaredMemberType;
+  }
+
   const dictionaryDeclaredMemberType = resolveDictionaryDeclaredMemberType(
     receiver,
     memberName
