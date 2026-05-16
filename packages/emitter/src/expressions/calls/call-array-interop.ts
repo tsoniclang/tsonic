@@ -9,7 +9,6 @@
 export {
   shouldPreferNativeArrayWrapperInterop,
   hasDirectNativeArrayLikeInteropShape,
-  nativeArrayReturningInteropMembers,
   emitArrayMutationInteropCall,
 } from "./call-array-mutation.js";
 

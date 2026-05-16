@@ -9,9 +9,7 @@ import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
   getArrayLikeElementType,
-  getPropertyType,
   normalizeStructuralEmissionType,
-  resolveArrayLikeReceiverType,
   resolveStructuralReferenceType,
 } from "../core/semantic/type-resolution.js";
 import {
@@ -39,7 +37,11 @@ import {
   matchesExpectedEmissionType,
   requiresValueTypeMaterialization,
 } from "../core/semantic/expected-type-matching.js";
-import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
+import {
+  resolveRuntimeStorageArrayLikeElementType,
+  resolveRuntimeStoragePropertyType,
+  resolveRuntimeStorageType,
+} from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
@@ -146,20 +148,12 @@ export const emitArrayWrapperElementTypeAst = (
   fallbackElementType: IrType,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const storageReceiverType = normalizeRuntimeStorageType(
+  const elementType = resolveRuntimeStorageArrayLikeElementType(
     receiverType,
     context
   );
-  const resolvedReceiverType = resolveArrayLikeReceiverType(
-    storageReceiverType,
-    context
-  );
-
-  if (resolvedReceiverType) {
-    const [elementTypeAst, nextContext] = emitTypeAst(
-      resolvedReceiverType.elementType,
-      context
-    );
+  if (elementType) {
+    const [elementTypeAst, nextContext] = emitTypeAst(elementType, context);
     return [
       eraseOutOfScopeArrayWrapperTypeParameters(elementTypeAst, nextContext),
       nextContext,
@@ -286,12 +280,10 @@ export const maybeReifyStorageErasedMemberRead = (
 
   const semanticType = resolveEffectiveExpressionType(expr, context);
   const storageType =
-    normalizeRuntimeStorageType(
-      getPropertyType(
-        resolveEffectiveExpressionType(expr.object, context),
-        expr.property,
-        context
-      ) ?? expr.inferredType,
+    resolveRuntimeStoragePropertyType(
+      resolveEffectiveExpressionType(expr.object, context),
+      expr.property,
+      expr.inferredType,
       context
     ) ?? expr.inferredType;
 
@@ -321,12 +313,10 @@ export const tryEmitStorageCompatibleNarrowedMemberRead = (
   }
 
   const storageType =
-    normalizeRuntimeStorageType(
-      getPropertyType(
-        resolveEffectiveExpressionType(expr.object, context),
-        expr.property,
-        context
-      ) ?? expr.inferredType,
+    resolveRuntimeStoragePropertyType(
+      resolveEffectiveExpressionType(expr.object, context),
+      expr.property,
+      expr.inferredType,
       context
     ) ?? expr.inferredType;
 
@@ -452,7 +442,7 @@ const tryResolveEmittedRuntimeUnionMemberTypeAst = (
   }
 
   const storageMemberType =
-    normalizeRuntimeStorageType(memberType, layoutContext) ?? memberType;
+    resolveRuntimeStorageType(memberType, layoutContext) ?? memberType;
   return emitTypeAst(
     normalizeStructuralEmissionType(storageMemberType, layoutContext),
     layoutContext
@@ -648,8 +638,7 @@ export const resolveEmittedReceiverTypeAst = (
 
         if (narrowed.type) {
           const storageNarrowedType =
-            normalizeRuntimeStorageType(narrowed.type, context) ??
-            narrowed.type;
+            resolveRuntimeStorageType(narrowed.type, context) ?? narrowed.type;
           return emitTypeAst(
             normalizeStructuralEmissionType(storageNarrowedType, context),
             context
@@ -665,7 +654,7 @@ export const resolveEmittedReceiverTypeAst = (
   }
 
   const normalizedReceiverType =
-    normalizeRuntimeStorageType(receiverType, context) ?? receiverType;
+    resolveRuntimeStorageType(receiverType, context) ?? receiverType;
   const arrayLikeElementType = getArrayLikeElementType(
     normalizedReceiverType,
     context

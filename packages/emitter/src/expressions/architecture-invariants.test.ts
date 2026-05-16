@@ -126,4 +126,117 @@ describe("expression architecture invariants", () => {
 
     expect(hits).to.deep.equal([]);
   });
+
+  it("keeps JS surface member behavior metadata-backed", () => {
+    const hits: string[] = [];
+    for (const file of walkTsFiles(emitterRoot)) {
+      if (file.endsWith(".test.ts")) continue;
+      const relativeFile = relative(emitterRoot, file);
+      const text = readFileSync(file, "utf8");
+      if (
+        text.includes("js-array-surface-members") ||
+        text.includes("JS_ARRAY_MUTATING_METHODS") ||
+        text.includes("JS_ARRAY_RETURNING_METHODS") ||
+        text.includes("isLengthPropertyName")
+      ) {
+        hits.push(relativeFile);
+      }
+    }
+
+    expect(hits).to.deep.equal([]);
+  });
+
+  it("does not synthesize string length access from receiver type names", () => {
+    const hits: string[] = [];
+
+    for (const file of walkTsFiles(emitterRoot)) {
+      if (file.endsWith(".test.ts")) continue;
+      const relativeFile = relative(emitterRoot, file);
+      const text = readFileSync(file, "utf8");
+      if (text.includes("isStringReceiverType")) {
+        hits.push(`${relativeFile}:isStringReceiverType`);
+      }
+    }
+
+    expect(hits).to.deep.equal([]);
+  });
+
+  it("centralizes typeof comparison extraction", () => {
+    const allowedFiles = new Set([
+      "core/semantic/typeof-comparison.ts",
+      "expressions/operators/unary-emitter.ts",
+    ]);
+    const hits: string[] = [];
+
+    for (const file of walkTsFiles(emitterRoot)) {
+      if (file.endsWith(".test.ts")) continue;
+      const relativeFile = relative(emitterRoot, file).replace(/\\/g, "/");
+      if (allowedFiles.has(relativeFile)) continue;
+      const text = readFileSync(file, "utf8");
+      if (
+        text.includes('operator !== "typeof"') ||
+        text.includes('operator === "typeof"')
+      ) {
+        hits.push(relativeFile);
+      }
+    }
+
+    expect(hits).to.deep.equal([]);
+  });
+
+  it("keeps runtime-storage normalization behind semantic storage helpers", () => {
+    const allowedFiles = new Set([
+      "core/format/local-names.ts",
+      "core/semantic/broad-array-storage.ts",
+      "core/semantic/direct-storage-ir-types.ts",
+      "core/semantic/storage-types.ts",
+      "core/semantic/symbol-types.ts",
+      "core/semantic/variable-type-resolution.ts",
+    ]);
+    const hits: string[] = [];
+
+    for (const file of walkTsFiles(emitterRoot)) {
+      if (file.endsWith(".test.ts")) continue;
+      const relativeFile = relative(emitterRoot, file).replace(/\\/g, "/");
+      if (allowedFiles.has(relativeFile)) continue;
+      const text = readFileSync(file, "utf8");
+      if (text.includes("normalizeRuntimeStorageType(")) {
+        hits.push(relativeFile);
+      }
+    }
+
+    expect(hits).to.deep.equal([]);
+  });
+
+  it("keeps identifier storage orchestration as a facade over named strategies", () => {
+    const facade = readFileSync(
+      join(expressionsRoot, "identifier-storage.ts"),
+      "utf8"
+    );
+    const strategyRoot = join(expressionsRoot, "identifier-storage");
+    const strategyFiles = walkTsFiles(strategyRoot)
+      .map((file) => relative(strategyRoot, file).replace(/\\/g, "/"))
+      .filter((file) => file !== "storage-surface.ts")
+      .sort();
+
+    expect(strategyFiles).to.include.members([
+      "broad-storage-target.ts",
+      "implicit-storage.ts",
+      "materialized-narrowed.ts",
+      "narrowed-storage-compatible.ts",
+      "reified-storage.ts",
+      "runtime-subset.ts",
+      "storage-compatible.ts",
+      "storage-surface-match.ts",
+    ]);
+    expect(facade).to.include('from "./identifier-storage/storage-surface.js"');
+    expect(facade).to.not.include("normalizeRuntimeStorageType(");
+
+    const oversizedStrategies = strategyFiles.filter(
+      (file) =>
+        readFileSync(join(strategyRoot, file), "utf8").split("\n").length > 360
+    );
+
+    expect(oversizedStrategies).to.deep.equal([]);
+  });
 });

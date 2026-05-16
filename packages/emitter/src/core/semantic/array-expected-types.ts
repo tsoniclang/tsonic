@@ -8,7 +8,7 @@ import {
   stripNullish,
 } from "./type-resolution.js";
 import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
-import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 
 const collectArrayLiteralContextCandidates = (
   type: IrType,

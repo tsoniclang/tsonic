@@ -27,7 +27,7 @@ import type {
   CSharpLocalDeclarationStatementAst,
 } from "../../core/format/backend-ast/types.js";
 import { getIterableSourceShape } from "../../expressions/structural-type-shapes.js";
-import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
+import { resolveRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import {
   detectCanonicalIntLoop,
   wrapInBlock,
@@ -252,7 +252,7 @@ export const emitForOfStatementAst = (
     resolveEffectiveExpressionType(stmt.expression, context) ??
     stmt.expression.inferredType;
   const iterableStorageType =
-    normalizeRuntimeStorageType(iterableExpressionType, context) ??
+    resolveRuntimeStorageType(iterableExpressionType, context) ??
     iterableExpressionType;
   const [exprAst, exprContext] = emitExpressionAst(
     stmt.expression,

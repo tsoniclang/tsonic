@@ -7,7 +7,10 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFiles, emitModule } from "../../emitter.js";
 import { assumeEmittableIrModule, IrModule } from "@tsonic/frontend";
-import { createJsSurfaceBindingRegistry } from "../../expressions/index-cases/helpers.js";
+import {
+  createJsSurfaceBindingRegistry,
+  jsSurfaceCapabilities,
+} from "../../expressions/index-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
 
@@ -288,6 +291,7 @@ describe("Module Generation", () => {
     const result = emitModule(module, {
       surface: "@tsonic/js",
       bindingRegistry: jsSurfaceBindingRegistry,
+      surfaceCapabilities: jsSurfaceCapabilities,
     });
     expect(result).to.include("internal static string[] items");
     expect(result).to.not.include("internal static readonly string[] items");

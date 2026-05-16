@@ -42,6 +42,36 @@ export const createJsSurfaceBindingRegistry = (
     ...overrides,
   });
 
+export const jsSurfaceCapabilities: EmitterContext["options"]["surfaceCapabilities"] =
+  {
+    mode: "@tsonic/js",
+    includesClr: false,
+    resolvedModes: ["@tsonic/js"],
+    requiredTypeRoots: [],
+    memberSemantics: {
+      "js.Array": {
+        length: { storageAccess: "arrayLength" },
+        push: { mutatesReceiver: true },
+      },
+      "js.Array`1": {
+        length: { storageAccess: "arrayLength" },
+        push: { mutatesReceiver: true },
+      },
+      "js.ReadonlyArray": {
+        length: { storageAccess: "arrayLength" },
+      },
+      "js.ReadonlyArray`1": {
+        length: { storageAccess: "arrayLength" },
+      },
+      "js.String": {
+        length: {
+          emittedMemberName: "Length",
+          emissionKind: "instanceMember",
+        },
+      },
+    },
+  };
+
 export {
   describe,
   it,

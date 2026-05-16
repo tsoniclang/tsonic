@@ -43,6 +43,7 @@ import {
 } from "./broad-array-storage.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { willCarryAsRuntimeUnion } from "./union-semantics.js";
+import { tryExtractTypeofComparison } from "./typeof-comparison.js";
 
 const stripNullishForRefinement = (
   type: IrType,
@@ -549,54 +550,15 @@ export const applyDirectTypeofRefinement = (
   context: EmitterContext,
   emitExprAst: EmitExprAstFn
 ): EmitterContext | undefined => {
-  if (condition.kind !== "binary") return undefined;
-  if (
-    condition.operator !== "===" &&
-    condition.operator !== "==" &&
-    condition.operator !== "!==" &&
-    condition.operator !== "!="
-  ) {
-    return undefined;
-  }
+  const comparison = tryExtractTypeofComparison(condition);
+  if (!comparison?.narrowable) return undefined;
 
-  const extract = (
-    left: IrExpression,
-    right: IrExpression
-  ):
-    | {
-        readonly bindingKey: string;
-        readonly targetExpr: Extract<
-          IrExpression,
-          { kind: "identifier" | "memberAccess" }
-        >;
-        readonly tag: string;
-      }
-    | undefined => {
-    if (left.kind !== "unary" || left.operator !== "typeof") return undefined;
-    const target = unwrapTransparentNarrowingTarget(left.expression);
-    if (!target) return undefined;
-    if (right.kind !== "literal" || typeof right.value !== "string") {
-      return undefined;
-    }
-    const bindingKey =
-      target.kind === "identifier"
-        ? target.name
-        : getMemberAccessNarrowKey(target);
-    if (!bindingKey) return undefined;
-    return {
-      bindingKey,
-      targetExpr: target,
-      tag: right.value,
-    };
+  const directGuard = {
+    bindingKey: comparison.narrowable.bindingKey,
+    targetExpr: comparison.narrowable.targetExpr,
+    tag: comparison.tag,
   };
-
-  const directGuard =
-    extract(condition.left, condition.right) ??
-    extract(condition.right, condition.left);
-  if (!directGuard) return undefined;
-
-  const matchesInTruthyBranch =
-    condition.operator === "===" || condition.operator === "==";
+  const matchesInTruthyBranch = !comparison.negate;
   const matchTag =
     branch === "truthy" ? matchesInTruthyBranch : !matchesInTruthyBranch;
 

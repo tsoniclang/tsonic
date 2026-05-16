@@ -2,17 +2,13 @@
  * JS-surface length access emission.
  *
  * CLR/default-surface members are emitted through the normal declared-member
- * path. This module only owns the JavaScript-surface `.length` bridge for
- * array-like carriers that lower to native CLR storage.
+ * path. This module only owns JavaScript-surface `.length` access for
+ * array-like carriers whose storage shape is native CLR array-like storage.
  */
 
 import { IrExpression, type IrType } from "@tsonic/frontend";
-import { EmitterContext, contextSurfaceIncludesJs } from "../types.js";
-import {
-  resolveTypeAlias,
-  stripNullish,
-  resolveArrayLikeReceiverType,
-} from "../core/semantic/type-resolution.js";
+import { EmitterContext } from "../types.js";
+import { resolveArrayLikeReceiverType } from "../core/semantic/type-resolution.js";
 import {
   nullLiteral,
   nullableType,
@@ -30,12 +26,8 @@ import {
 } from "./access-resolution.js";
 import { buildNativeArrayInteropWrapAst } from "./array-interop.js";
 import { hasSourceDeclaredMember } from "./access-resolution-types.js";
-import { referenceTypeHasClrIdentity } from "../core/semantic/clr-type-identity.js";
+import { surfaceMemberReadsArrayLength } from "../core/semantic/surface-member-semantics.js";
 
-const SYSTEM_STRING_CLR_NAMES = new Set([
-  "System.String",
-  "global::System.String",
-]);
 const SYSTEM_ARRAY_TYPE_AST = clrTypeNameToTypeAst("System.Array");
 
 const isRuntimeUnionMemberProjectionAst = (
@@ -57,24 +49,6 @@ const isRuntimeUnionMemberProjectionAst = (
   );
 };
 
-export const isStringReceiverType = (
-  type: IrType | undefined,
-  context: EmitterContext
-): boolean => {
-  if (!type) return false;
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  return (
-    (resolved.kind === "primitiveType" && resolved.name === "string") ||
-    (resolved.kind === "referenceType" &&
-      (resolved.name === "string" ||
-        resolved.name === "String" ||
-        referenceTypeHasClrIdentity(resolved, SYSTEM_STRING_CLR_NAMES)))
-  );
-};
-
-export const isLengthPropertyName = (propertyName: string): boolean =>
-  propertyName === "length";
-
 export const tryEmitJsSurfaceArrayLikeLengthAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   objectAst: CSharpExpressionAst,
@@ -82,10 +56,10 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (
-    !contextSurfaceIncludesJs(context) ||
+    !expr.memberBinding ||
+    !surfaceMemberReadsArrayLength(expr.memberBinding, context) ||
     expr.isComputed ||
-    typeof expr.property !== "string" ||
-    !isLengthPropertyName(expr.property)
+    typeof expr.property !== "string"
   ) {
     return undefined;
   }

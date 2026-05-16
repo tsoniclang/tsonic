@@ -17,11 +17,9 @@ import { EmitterContext } from "../../types.js";
 import { getPropertyType } from "./type-resolution.js";
 import { emitRemappedLocalName } from "../format/local-names.js";
 import { resolveIteratorResultReferenceType } from "./structural-resolution.js";
-import {
-  getCanonicalRuntimeUnionMembers,
-  findRuntimeUnionMemberIndices,
-  type EmitTypeAstLike,
-} from "./runtime-unions.js";
+import type { EmitTypeAstLike } from "./runtime-union-shared.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
+import { findRuntimeUnionMemberIndices } from "./runtime-union-matching.js";
 import {
   getSemanticUnionMembers,
   findSemanticUnionMemberIndex,

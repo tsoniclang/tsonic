@@ -7,7 +7,7 @@ import {
 } from "./type-resolution.js";
 import type { EmitterContext } from "../../types.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
-import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 import { collectRuntimeUnionRawMembers } from "./runtime-union-expansion.js";
 import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
 import { isAssignable, isAssignableToType } from "./type-compatibility.js";

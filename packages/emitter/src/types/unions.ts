@@ -12,8 +12,8 @@ import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolutio
 import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
-  getCanonicalRuntimeUnionMembers,
 } from "../core/semantic/runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "../core/semantic/runtime-union-frame.js";
 import { shouldUseBroadObjectForUnionStorage } from "../core/semantic/storage-types.js";
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "../core/semantic/runtime-union-family-preservation.js";

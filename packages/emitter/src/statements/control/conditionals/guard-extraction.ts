@@ -16,6 +16,7 @@ import {
 import { isAssignable } from "../../../core/semantic/index.js";
 import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../../core/semantic/narrowing-keys.js";
+import { tryExtractTypeofComparison } from "../../../core/semantic/typeof-comparison.js";
 
 export const isArrayLikeNarrowingCandidate = (
   type: IrType,
@@ -171,53 +172,13 @@ export const tryExtractDirectTypeofGuard = (
       readonly matchesInTruthyBranch: boolean;
     }
   | undefined => {
-  if (expr.kind !== "binary") return undefined;
-  if (
-    expr.operator !== "===" &&
-    expr.operator !== "==" &&
-    expr.operator !== "!==" &&
-    expr.operator !== "!="
-  ) {
-    return undefined;
-  }
-
-  const extract = (
-    left: typeof expr.left,
-    right: typeof expr.right
-  ):
-    | {
-        readonly bindingKey: string;
-        readonly targetExpr: Extract<
-          IrExpression,
-          { kind: "identifier" | "memberAccess" }
-        >;
-        readonly tag: string;
-      }
-    | undefined => {
-    if (left.kind !== "unary" || left.operator !== "typeof") return undefined;
-    const target = unwrapTransparentNarrowingTarget(left.expression);
-    if (!target) return undefined;
-    if (right.kind !== "literal" || typeof right.value !== "string") {
-      return undefined;
-    }
-    const bindingKey =
-      target.kind === "identifier"
-        ? target.name
-        : getMemberAccessNarrowKey(target);
-    if (!bindingKey) return undefined;
-    return {
-      bindingKey,
-      targetExpr: target,
-      tag: right.value,
-    };
-  };
-
-  const directGuard =
-    extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
-  if (!directGuard) return undefined;
+  const comparison = tryExtractTypeofComparison(expr);
+  if (!comparison?.narrowable) return undefined;
 
   return {
-    ...directGuard,
-    matchesInTruthyBranch: expr.operator === "===" || expr.operator === "==",
+    bindingKey: comparison.narrowable.bindingKey,
+    targetExpr: comparison.narrowable.targetExpr,
+    tag: comparison.tag,
+    matchesInTruthyBranch: !comparison.negate,
   };
 };

@@ -22,10 +22,10 @@ import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 import {
-  JS_ARRAY_MUTATING_METHODS,
-  JS_ARRAY_RETURNING_METHODS,
-  jsArrayMethodReturnsMutatedArray,
-} from "../../core/semantic/js-array-surface-members.js";
+  surfaceMemberMutatesReceiver,
+  surfaceMemberReturnsArray,
+  surfaceMemberReturnsReceiver,
+} from "../../core/semantic/surface-member-semantics.js";
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
@@ -61,8 +61,6 @@ export const hasDirectNativeArrayLikeInteropShape = (
       receiverType.typeArguments?.length === 1)
   );
 };
-
-export const nativeArrayReturningInteropMembers = JS_ARRAY_RETURNING_METHODS;
 
 const createVarLocal = (
   name: string,
@@ -187,12 +185,12 @@ export const emitArrayMutationInteropCall = (
   if (expr.callee.kind !== "memberAccess") return undefined;
   if (expr.callee.isComputed) return undefined;
   if (typeof expr.callee.property !== "string") return undefined;
-  if (!JS_ARRAY_MUTATING_METHODS.has(expr.callee.property)) return undefined;
 
   const binding = expr.callee.memberBinding;
   if (
     !binding ||
-    (binding.isExtensionMethod && !isArrayWrapperBindingType(binding.type))
+    (binding.isExtensionMethod && !isArrayWrapperBindingType(binding.type)) ||
+    !surfaceMemberMutatesReceiver(binding, context)
   ) {
     return undefined;
   }
@@ -257,7 +255,7 @@ export const emitArrayMutationInteropCall = (
   };
 
   let returnExpression: CSharpExpressionAst = resultIdentifier;
-  if (expr.callee.property === "splice") {
+  if (surfaceMemberReturnsArray(binding, context)) {
     returnExpression = {
       kind: "invocationExpression",
       expression: {
@@ -267,7 +265,7 @@ export const emitArrayMutationInteropCall = (
       },
       arguments: [],
     };
-  } else if (jsArrayMethodReturnsMutatedArray(expr.callee.property)) {
+  } else if (surfaceMemberReturnsReceiver(binding, context)) {
     returnExpression = mutatedArrayAst;
   }
 

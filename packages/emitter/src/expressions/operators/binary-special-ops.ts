@@ -15,10 +15,8 @@ import {
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../core/semantic/runtime-union-matching.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
-import {
-  buildRuntimeUnionLayout,
-  getCanonicalRuntimeUnionMembers,
-} from "../../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "../../core/semantic/runtime-union-frame.js";
 import { unwrapTransparentNarrowingTarget } from "../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
 import { currentNarrowedType } from "../../core/semantic/narrowing-builders.js";
@@ -42,6 +40,7 @@ import {
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
+import { tryExtractTypeofComparison } from "../../core/semantic/typeof-comparison.js";
 
 const NUMERIC_TYPEOF_PATTERN_NAMES = [
   "byte",
@@ -369,62 +368,11 @@ const buildBroadTypeofCheck = (
     : positive;
 };
 
-const extractTypeofComparison = (
-  expr: Extract<IrExpression, { kind: "binary" }>
-):
-  | {
-      readonly target: IrExpression;
-      readonly tag: string;
-      readonly negate: boolean;
-    }
-  | undefined => {
-  if (
-    expr.operator !== "===" &&
-    expr.operator !== "==" &&
-    expr.operator !== "!==" &&
-    expr.operator !== "!="
-  ) {
-    return undefined;
-  }
-
-  const extract = (
-    left: IrExpression,
-    right: IrExpression
-  ):
-    | {
-        readonly target: IrExpression;
-        readonly tag: string;
-      }
-    | undefined => {
-    if (left.kind !== "unary" || left.operator !== "typeof") {
-      return undefined;
-    }
-    if (right.kind !== "literal" || typeof right.value !== "string") {
-      return undefined;
-    }
-    return {
-      target: left.expression,
-      tag: right.value,
-    };
-  };
-
-  const direct =
-    extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
-  if (!direct) {
-    return undefined;
-  }
-
-  return {
-    ...direct,
-    negate: expr.operator === "!==" || expr.operator === "!=",
-  };
-};
-
 export const emitTypeofComparison = (
   expr: Extract<IrExpression, { kind: "binary" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const comparison = extractTypeofComparison(expr);
+  const comparison = tryExtractTypeofComparison(expr);
   if (!comparison) {
     return undefined;
   }

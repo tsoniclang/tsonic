@@ -16,7 +16,7 @@ import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveNamedRuntimeCarrierType } from "./direct-storage-ir-types.js";
 import { expandRuntimeUnionMembers } from "./runtime-union-expansion.js";
-import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 import {
   findExactRuntimeUnionMemberIndices,

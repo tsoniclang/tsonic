@@ -9,8 +9,8 @@ import { collectRuntimeUnionRawMembers } from "./runtime-union-expansion.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
-  getCanonicalRuntimeUnionMembers,
-} from "./runtime-unions.js";
+} from "./runtime-union-matching.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 import { isRuntimeUnionTypeAst } from "./runtime-reification-helpers.js";
 import { getPropertyType, resolveTypeAlias } from "./type-resolution.js";
 import { stripNullableTypeAst } from "../format/backend-ast/utils.js";

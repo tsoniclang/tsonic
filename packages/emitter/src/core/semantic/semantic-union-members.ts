@@ -21,7 +21,7 @@
 import { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { stripNullish } from "./type-resolution.js";
-import { getRuntimeUnionReferenceMembers } from "./runtime-unions.js";
+import { getRuntimeUnionReferenceMembers } from "./runtime-union-shared.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 
 /**

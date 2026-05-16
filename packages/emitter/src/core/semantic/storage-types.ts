@@ -1,7 +1,9 @@
 import { IrType, isAwaitableIrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 import {
+  getPropertyType,
+  resolveArrayLikeReceiverType,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
@@ -20,6 +22,31 @@ const OBJECT_STORAGE_TYPE: IrType = {
   kind: "referenceType",
   name: "object",
   resolvedClrType: "System.Object",
+};
+
+export const resolveRuntimeStorageArrayLikeElementType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) return undefined;
+  const storageType = resolveRuntimeStorageType(type, context) ?? type;
+  return resolveArrayLikeReceiverType(storageType, context)?.elementType;
+};
+
+export const resolveRuntimeStorageType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => normalizeRuntimeStorageType(type, context);
+
+export const resolveRuntimeStoragePropertyType = (
+  receiverType: IrType | undefined,
+  propertyName: string,
+  fallbackType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  const propertyType =
+    getPropertyType(receiverType, propertyName, context) ?? fallbackType;
+  return resolveRuntimeStorageType(propertyType, context) ?? propertyType;
 };
 
 const typesEquivalent = (

@@ -11,6 +11,7 @@ const getSurfaceCapabilities = (options: EmitterOptions) =>
     includesClr: options.surface === undefined || options.surface === "clr",
     resolvedModes: [options.surface ?? "clr"],
     requiredTypeRoots: [],
+    memberSemantics: {},
   };
 
 export const contextSurfaceIncludesJs = (

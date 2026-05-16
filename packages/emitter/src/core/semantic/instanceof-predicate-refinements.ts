@@ -11,7 +11,7 @@ import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
-} from "./runtime-unions.js";
+} from "./runtime-union-matching.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { normalizeInstanceofTargetType } from "./instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "./transparent-expressions.js";

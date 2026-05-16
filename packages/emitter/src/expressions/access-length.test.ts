@@ -11,6 +11,17 @@ describe("access-length", () => {
     const context = createContext({
       rootNamespace: "Test",
       surface: "@tsonic/js",
+      surfaceCapabilities: {
+        mode: "@tsonic/js",
+        includesClr: false,
+        resolvedModes: ["@tsonic/js"],
+        requiredTypeRoots: [],
+        memberSemantics: {
+          "js.Array": {
+            length: { storageAccess: "arrayLength" },
+          },
+        },
+      },
     });
 
     const valuesType = {
@@ -32,6 +43,12 @@ describe("access-length", () => {
       isComputed: false,
       isOptional: true,
       inferredType: { kind: "primitiveType" as const, name: "number" as const },
+      memberBinding: {
+        kind: "property" as const,
+        assembly: "js",
+        type: "js.Array",
+        member: "length",
+      },
     };
 
     const result = tryEmitJsSurfaceArrayLikeLengthAccess(
