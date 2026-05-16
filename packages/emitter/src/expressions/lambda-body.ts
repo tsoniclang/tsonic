@@ -431,11 +431,11 @@ const resolveFunctionExpressionReturnType = (
   expr: Extract<IrExpression, { kind: "functionExpression" | "arrowFunction" }>,
   contextualFunctionType: Extract<IrType, { kind: "functionType" }> | undefined
 ): IrType | undefined => {
-  if (contextualFunctionType?.returnType) {
-    return contextualFunctionType.returnType;
-  }
   if (expr.returnType) {
     return expr.returnType;
+  }
+  if (contextualFunctionType?.returnType) {
+    return contextualFunctionType.returnType;
   }
   if (expr.inferredType?.kind === "functionType") {
     return expr.inferredType.returnType;

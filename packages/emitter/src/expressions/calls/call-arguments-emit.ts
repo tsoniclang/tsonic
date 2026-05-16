@@ -68,6 +68,8 @@ import {
   tryEmitCarrierPreservingExpressionAst,
   hasMismatchedCollectionElementCarrier,
 } from "../expected-type-adaptation.js";
+import { tryAdaptAwaitableValueAst } from "../awaitable-adaptation.js";
+import { maybeAdaptRuntimeUnionExpressionAst } from "../runtime-union-adaptation.js";
 import {
   isExactArrayCreationToType,
   isExactExpressionToType,
@@ -2388,7 +2390,8 @@ const emitFunctionValueCallArguments = (
               }));
       const contextualRawEmitExpectedTypeCandidate =
         arg.kind === "arrowFunction" || arg.kind === "functionExpression"
-          ? (selectedParameterType ??
+          ? (surfaceParameterType ??
+            selectedParameterType ??
             rawEmitExpectedTypeCandidate ??
             contextualExpectedType ??
             adaptationExpectedType ??
@@ -3241,7 +3244,8 @@ const emitCallArguments = (
             }));
     const contextualRawEmitExpectedTypeCandidate =
       arg.kind === "arrowFunction" || arg.kind === "functionExpression"
-        ? (selectedParameterTypes[i] ??
+        ? (surfaceParameterType ??
+          selectedParameterTypes[i] ??
           rawEmitExpectedTypeCandidate ??
           contextualExpectedType ??
           adaptationExpectedType ??
@@ -3432,8 +3436,24 @@ const emitCallArguments = (
             "Internal Compiler Error: source-backed structural call argument could not be materialized to its runtime surface."
           );
         }
+        const awaitableArgumentSourceType =
+          preEmitStorageAwareArgumentType ??
+          preEmitEffectiveArgumentType ??
+          effectiveArgumentType ??
+          arg.inferredType;
+        const awaitableArgument =
+          adaptationExpectedType && awaitableArgumentSourceType
+            ? tryAdaptAwaitableValueAst({
+                ast: rawArgAst,
+                actualType: awaitableArgumentSourceType,
+                expectedType: adaptationExpectedType,
+                context: emittedContext,
+                adaptAwaitedValueAst: maybeAdaptRuntimeUnionExpressionAst,
+              })
+            : undefined;
         const [materializedArgAst, materializedContext] =
           forcedRuntimeUnionArgument ??
+          awaitableArgument ??
           (skipRuntimeUnionArgumentMaterialization
             ? [rawArgAst, emittedContext]
             : (adaptValueToExpectedTypeAst({

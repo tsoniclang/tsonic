@@ -40,15 +40,7 @@ export const NATIVE_AOT_CAPABILITIES: BackendCapabilityManifest = new Map([
       "Use untyped JSON.parse for the JsValue dynamic carrier, or provide a closed target type so generated serializers can be emitted."
     ),
   ],
-  [
-    "function-length",
-    unsupported(
-      "function-length",
-      "TSN5001",
-      "JavaScript function.length is not supported in emitted Tsonic code.",
-      "Model arity explicitly in source or use a typed overload surface."
-    ),
-  ],
+  ["function-length", supported("function-length")],
   [
     "array-isarray-broad",
     unsupported(

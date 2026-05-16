@@ -48,6 +48,7 @@ import {
   emitMemberName,
 } from "./access-resolution.js";
 import { tryEmitJsSurfaceArrayLikeLengthAccess } from "./access-length.js";
+import { tryEmitFunctionLengthAccess } from "./access-function-length.js";
 import { tryEmitMemberBindingAccess } from "./access-binding.js";
 import { emitComputedAccess } from "./access-computed.js";
 import { emitPropertyAccess } from "./access-property.js";
@@ -149,6 +150,17 @@ export const emitMemberAccess = (
         },
         newContext,
       ];
+    }
+  }
+
+  if (!expr.isComputed && usage === "value" && propertyName === "length") {
+    const functionLengthAccess = tryEmitFunctionLengthAccess(
+      expr,
+      objectType,
+      context
+    );
+    if (functionLengthAccess) {
+      return functionLengthAccess;
     }
   }
 

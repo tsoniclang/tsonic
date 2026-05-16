@@ -3,6 +3,389 @@ import { expect } from "chai";
 import { compileProjectToCSharp, compileToCSharp } from "./helpers.js";
 
 describe("May 14 downstream contract coverage", () => {
+  it("wraps contextual lambda expression-body returns into source-owned union aliases", () => {
+    const csharp = compileToCSharp(`
+      class Request {
+        body: string = "";
+      }
+
+      class Response {
+        json(value: string): Response {
+          return this;
+        }
+      }
+
+      type NextFunction = (value?: string | null) => void | Promise<void>;
+      type IgnoredHandlerResult =
+        | void
+        | Response
+        | Promise<void | Response>;
+      type RequestHandler = (
+        req: Request,
+        res: Response,
+        next: NextFunction
+      ) => IgnoredHandlerResult;
+
+      declare const app: {
+        post(path: string, handler: RequestHandler): void;
+      };
+
+      export function main(): void {
+        app.post("/echo", (req: Request, res: Response) => res.json(req.body));
+      }
+    `);
+
+    expect(csharp).to.match(
+      /return global::Test\.IgnoredHandlerResult\.From\d\(res\.json\(req\.body\)\);/
+    );
+  });
+
+  it("prefers exact contextual union return arms over broad object catch-all arms", () => {
+    const csharp = compileToCSharp(`
+      type JsValue =
+        | string
+        | number
+        | boolean
+        | object
+        | null
+        | undefined;
+
+      class Request {
+        body: JsValue = undefined;
+      }
+
+      class Response {
+        json(value: JsValue): Response {
+          return this;
+        }
+      }
+
+      type NextFunction = (value?: string | null) => void | Promise<void>;
+      type IgnoredHandlerResult =
+        | void
+        | JsValue
+        | Response
+        | Promise<void | JsValue | Response>;
+      type RequestHandler = (
+        req: Request,
+        res: Response,
+        next: NextFunction
+      ) => IgnoredHandlerResult;
+
+      declare const app: {
+        post(path: string, handler: RequestHandler): void;
+      };
+
+      export function main(): void {
+        app.post("/echo", (req: Request, res: Response) => res.json(req.body));
+      }
+    `);
+
+    expect(csharp).to.match(
+      /return global::Test\.IgnoredHandlerResult\.From\d\(res\.json\(req\.body\)\);/
+    );
+    expect(csharp).to.not.include("return res.json(req.body);");
+  });
+
+  it("wraps source-package rest-handler expression returns into the declared handler carrier", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "node_modules/@fixture/mini-express/package.json": JSON.stringify(
+          {
+            name: "@fixture/mini-express",
+            version: "1.0.0",
+            type: "module",
+            exports: {
+              ".": "./src/index.ts",
+              "./index.js": "./src/index.ts",
+            },
+          },
+          null,
+          2
+        ),
+        "node_modules/@fixture/mini-express/tsonic.package.json":
+          JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              source: {
+                namespace: "Fixture.MiniExpress",
+                exports: {
+                  ".": "./src/index.ts",
+                  "./index.js": "./src/index.ts",
+                },
+              },
+            },
+            null,
+            2
+          ),
+        "node_modules/@fixture/mini-express/src/index.ts": `
+          export type JsValue =
+            | string
+            | number
+            | boolean
+            | object
+            | null
+            | undefined;
+          export type PathSpec = string | RegExp | readonly PathSpec[];
+          export type NextFunction = (value?: string | null) => void | Promise<void>;
+          export type IgnoredHandlerResult =
+            | void
+            | JsValue
+            | Response
+            | Promise<void | JsValue | Response>;
+          export type RequestHandler = (
+            req: Request,
+            res: Response,
+            next: NextFunction
+          ) => IgnoredHandlerResult;
+
+          export class Request {
+            body: JsValue = undefined;
+          }
+
+          export class Response {
+            json(value: JsValue): Response {
+              return this;
+            }
+          }
+
+          export class Application {
+            post(path: PathSpec, ...handlers: RequestHandler[]): Application {
+              return this;
+            }
+          }
+
+          export const express = {
+            create(): Application {
+              return new Application();
+            },
+          };
+        `,
+        "src/App.ts": `
+          import {
+            express,
+            type Request,
+            type Response,
+          } from "@fixture/mini-express/index.js";
+
+          const app = express.create();
+
+          app.post("/echo", (req: Request, res: Response) => res.json(req.body));
+        `,
+      },
+      "src/App.ts",
+      { surface: "@tsonic/js" },
+      {
+        sourceRootRelativePath: "src",
+        rootNamespace: "ExpressHandlerCarrier",
+      }
+    );
+
+    expect(csharp).to.match(
+      /return global::Fixture\.MiniExpress\.IgnoredHandlerResult\.From\d\(res\.json\(req\.body\)\);/
+    );
+    expect(csharp).to.not.include("return res.json(req.body);");
+  });
+
+  it("materializes contextual union returns across lambda and function-expression positions", () => {
+    const csharp = compileToCSharp(`
+      export class Ok {}
+      export class Err {}
+
+      export type Result = Ok | Err;
+      export type Handler = () => Result;
+      export type Routes = { get: Handler };
+
+      declare function use(handler: Handler): void;
+      declare function take(result: Result): void;
+      declare function takeHandlers(handlers: Handler[]): void;
+      declare function takeRoute(route: Routes): void;
+
+      function ok(): Ok {
+        return new Ok();
+      }
+
+      function err(): Err {
+        return new Err();
+      }
+
+      export function directReturn(): Result {
+        return ok();
+      }
+
+      export function callArgument(): void {
+        take(ok());
+      }
+
+      export function expressionLambdaArgument(): void {
+        use(() => ok());
+      }
+
+      export function blockLambdaArgument(): void {
+        use(() => {
+          return ok();
+        });
+      }
+
+      export function functionExpressionArgument(): void {
+        use(function () {
+          return ok();
+        });
+      }
+
+      export const variableArrow: Handler = () => ok();
+
+      export const variableFunction: Handler = function () {
+        return ok();
+      };
+
+      export function returnedLambda(): Handler {
+        return () => ok();
+      }
+
+      export function arrayElement(): void {
+        takeHandlers([() => ok()]);
+      }
+
+      export function objectProperty(): void {
+        takeRoute({ get: () => ok() });
+      }
+
+      export function conditionalExpression(flag: boolean): void {
+        use(() => flag ? ok() : err());
+      }
+
+      export function nestedBlock(flag: boolean): void {
+        use(() => {
+          if (flag) {
+            return ok();
+          }
+          return err();
+        });
+      }
+    `);
+
+    expect([...csharp.matchAll(/Result\.From\d\(ok\(\)\)/g)]).to.have.length
+      .greaterThanOrEqual(10);
+    expect([...csharp.matchAll(/Result\.From\d\(err\(\)\)/g)]).to.have.length
+      .greaterThanOrEqual(2);
+    expect(csharp).to.match(/take\(global::Test\.Result\.From\d\(ok\(\)\)\);/);
+    expect(csharp).to.match(/return global::Test\.Result\.From\d\(ok\(\)\);/);
+    expect(csharp).to.not.match(/return ok\(\);/);
+    expect(csharp).to.not.match(/=> ok\(\)/);
+  });
+
+  it("materializes contextual async lambda returns through nested union carriers", () => {
+    const csharp = compileToCSharp(`
+      export class Ok {}
+      export class Err {}
+
+      export type Result = Ok | Err;
+      export type AsyncResult = Result | Promise<Result>;
+      export type AsyncHandler = () => AsyncResult;
+
+      declare function useAsync(handler: AsyncHandler): void;
+
+      function ok(): Ok {
+        return new Ok();
+      }
+
+      export function asyncExpression(): void {
+        useAsync(async () => ok());
+      }
+
+      export function asyncBlock(): void {
+        useAsync(async () => {
+          return ok();
+        });
+      }
+    `);
+
+    expect([...csharp.matchAll(/AsyncResult\.From\d\(/g)]).to.have.length(2);
+    expect([...csharp.matchAll(/Result\.From\d\(ok\(\)\)/g)]).to.have.length(2);
+    expect(csharp).to.include("Task.Run<global::Test.Result>");
+    expect(csharp).to.not.match(/return ok\(\);/);
+  });
+
+  it("adapts void promises returned through contextual union promise arms", () => {
+    const csharp = compileToCSharp(`
+      export type JsValue =
+        | string
+        | number
+        | boolean
+        | object
+        | null
+        | undefined;
+
+      export class Response {
+        set(name: string, value: string): Response {
+          return this;
+        }
+      }
+
+      export type NextFunction = (value?: string | null) => void | Promise<void>;
+      export type IgnoredHandlerResult =
+        | void
+        | JsValue
+        | Response
+        | Promise<void | JsValue | Response>;
+      export type RequestHandler = (
+        res: Response,
+        next: NextFunction
+      ) => IgnoredHandlerResult;
+
+      declare function use(handler: RequestHandler): void;
+
+      export function main(): void {
+        use((res: Response, next: NextFunction) => {
+          res.set("x-middleware", "on");
+          return next();
+        });
+      }
+    `);
+
+    expect(csharp).to.match(
+      /IgnoredHandlerResult\.From\d\(global::System\.Threading\.Tasks\.Task\.Run<object\?>\(async/
+    );
+    expect(csharp).to.include("var __tsonic_await_task");
+    expect(csharp).to.match(/if \(__tsonic_await_task(?:_\d+)? == null\)/);
+    expect(csharp).to.match(/await __tsonic_await_task(?:_\d+)?;/);
+    expect(csharp).to.include("return default(object?);");
+    expect(csharp).to.not.match(/IgnoredHandlerResult\.From\d\(next\(/);
+  });
+
+  it("adapts promised concrete arms through contextual union promise arms", () => {
+    const csharp = compileToCSharp(`
+      export class Ok {}
+      export class Err {}
+
+      export type Result = Ok | Err;
+      export type AsyncOutcome = void | Promise<Result>;
+
+      function accept(value: AsyncOutcome): void {
+      }
+
+      async function okAsync(): Promise<Ok> {
+        return new Ok();
+      }
+
+      export function main(): void {
+        accept(okAsync());
+      }
+    `);
+
+    expect(csharp).to.include(
+      "accept(global::System.Threading.Tasks.Task.Run<global::Test.Result>(async"
+    );
+    expect(csharp).to.match(/var __tsonic_await_value(?:_\d+)? = await okAsync\(\);/);
+    expect(csharp).to.match(
+      /return global::Test\.Result\.From\d\(__tsonic_await_value(?:_\d+)?\);/
+    );
+    expect(csharp).to.not.include("accept(okAsync());");
+  });
+
   it("passes declared locals to out parameters without discard lowering", () => {
     const csharp = compileToCSharp(`
       import type { int, out } from "@tsonic/core/types.js";
@@ -94,6 +477,41 @@ describe("May 14 downstream contract coverage", () => {
 
     expect(csharp).to.include(".Length > 0");
     expect(csharp).to.not.include("((string)value).Length");
+  });
+
+  it("lowers function length over function-type runtime-union arms without reflection", () => {
+    const csharp = compileToCSharp(
+      `
+        type NextFunction = () => void;
+        interface Request {}
+        interface Response {}
+        type RequestHandler = (
+          req: Request,
+          res: Response,
+          next: NextFunction
+        ) => void;
+        type ErrorRequestHandler = (
+          error: Error,
+          req: Request,
+          res: Response,
+          next: NextFunction
+        ) => void;
+
+        export function isErrorHandler(
+          handler: RequestHandler | ErrorRequestHandler
+        ): boolean {
+          return handler.length >= 4;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(".Match<int>(");
+    expect(csharp).to.include("=> 3");
+    expect(csharp).to.include("=> 4");
+    expect(csharp).to.not.include("handler.length");
+    expect(csharp).to.not.include("GetParameters");
   });
 
   it("lowers Number(...) over CLR numeric values through explicit numeric conversion", () => {

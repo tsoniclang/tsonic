@@ -208,7 +208,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("rejects JavaScript function.length inspection in NativeAOT builds", () => {
+  it("emits deterministic JavaScript function.length inspection in NativeAOT builds", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-function-length-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
@@ -263,6 +263,12 @@ describe("build command (native library port regressions)", function () {
           "export function getArity(handler: () => void): number {",
           "  return handler.length;",
           "}",
+          "",
+          "export function main(): void {",
+          "  if (getArity(() => undefined) !== 0) {",
+          "    throw new Error('bad arity');",
+          "  }",
+          "}",
         ].join("\n"),
         "utf-8"
       );
@@ -284,12 +290,14 @@ describe("build command (native library port regressions)", function () {
       );
 
       const result = buildCommand(config);
-      expect(result.ok).to.equal(false);
-      if (result.ok) {
-        throw new Error("Expected build to fail with TSN5001");
+      if (!result.ok) {
+        throw new Error(result.error);
       }
-      expect(result.error).to.include("TSN5001");
-      expect(result.error).to.include("function.length is not supported");
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.include("return 0;");
+      expect(tree).to.not.include("handler.length");
+      expect(tree).to.not.include("GetParameters");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

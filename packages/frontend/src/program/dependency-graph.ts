@@ -315,6 +315,37 @@ const canonicalizeExistingPath = (filePath: string): string => {
   return ts.sys.realpath?.(normalizedPath) ?? normalizedPath;
 };
 
+const appendUniqueSourceFile = (
+  files: string[],
+  seenCanonicalPaths: Set<string>,
+  filePath: string
+): void => {
+  const canonicalPath = canonicalizeExistingPath(filePath);
+  if (seenCanonicalPaths.has(canonicalPath)) {
+    return;
+  }
+  seenCanonicalPaths.add(canonicalPath);
+  files.push(filePath);
+};
+
+const dedupeModulesBySourceIdentity = (
+  modules: readonly EmittableIrModule[]
+): readonly EmittableIrModule[] => {
+  const deduped: EmittableIrModule[] = [];
+  const seenModuleIds = new Set<string>();
+
+  for (const module of modules) {
+    const moduleId = `${module.namespace}\0${module.className}\0${module.filePath}`;
+    if (seenModuleIds.has(moduleId)) {
+      continue;
+    }
+    seenModuleIds.add(moduleId);
+    deduped.push(module);
+  }
+
+  return deduped;
+};
+
 const dedupeDiscoveryTypeRoots = (
   typeRoots: readonly string[]
 ): readonly string[] => {
@@ -428,7 +459,15 @@ export const buildModuleDependencyGraph = (
     }
   }
   // Track all discovered files for later type checking
-  const allDiscoveredFiles: string[] = [...ambientSupportFiles];
+  const allDiscoveredFiles: string[] = [];
+  const seenDiscoveredFilePaths = new Set<string>();
+  for (const ambientFile of ambientSupportFiles) {
+    appendUniqueSourceFile(
+      allDiscoveredFiles,
+      seenDiscoveredFilePaths,
+      ambientFile
+    );
+  }
   const dependencyEdges: WorkspaceGraphEdge[] = [];
 
   // BFS to discover all local imports
@@ -446,7 +485,11 @@ export const buildModuleDependencyGraph = (
       continue;
     }
     visited.add(realPath);
-    allDiscoveredFiles.push(realPath);
+    appendUniqueSourceFile(
+      allDiscoveredFiles,
+      seenDiscoveredFilePaths,
+      realPath
+    );
 
     // Read source file directly from filesystem
     const sourceText = ts.sys.readFile(currentFile);
@@ -693,7 +736,9 @@ export const buildModuleDependencyGraph = (
     return error(processedResult.error);
   }
 
-  const processedModules = [...processedResult.value.modules];
+  const processedModules = [
+    ...dedupeModulesBySourceIdentity(processedResult.value.modules),
+  ];
 
   // Sort modules by relative path for deterministic output
   processedModules.sort((a, b) => a.filePath.localeCompare(b.filePath));

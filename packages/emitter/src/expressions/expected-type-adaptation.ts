@@ -27,6 +27,7 @@ import {
   maybeAdaptDictionaryUnionValueAst,
   maybeAdaptRuntimeUnionExpressionAst,
 } from "./runtime-union-adaptation.js";
+import { tryAdaptAwaitableValueAst } from "./awaitable-adaptation.js";
 import {
   resolveDirectStorageExpressionType,
   resolveDirectStorageIrType,
@@ -132,7 +133,10 @@ const isJsNumberStorageTarget = (
 const isBroadCarrierPreservingTarget = (
   type: IrType | undefined,
   context: EmitterContext
-): boolean => isBroadObjectSlotType(type, context);
+): boolean =>
+  !!type &&
+  isBroadObjectSlotType(type, context) &&
+  !willCarryAsRuntimeUnion(type, context);
 
 const isCarrierPreservingExpectedType = (
   type: IrType | undefined,
@@ -1409,6 +1413,18 @@ const adaptValueToExpectedTypeAstResult = (opts: {
     )
   ) {
     return adaptMatch([valueAst, context]);
+  }
+
+  const awaitableAdjusted = tryAdaptAwaitableValueAst({
+    ast: valueAst,
+    actualType,
+    expectedType,
+    context,
+    visited,
+    adaptAwaitedValueAst: maybeAdaptRuntimeUnionExpressionAst,
+  });
+  if (awaitableAdjusted) {
+    return adaptMatch(awaitableAdjusted);
   }
 
   const unionAdjusted = maybeAdaptRuntimeUnionExpressionAst(

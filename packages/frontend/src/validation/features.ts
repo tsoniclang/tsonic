@@ -420,7 +420,18 @@ const isUnsupportedFunctionLengthAccess = (
     return false;
   }
 
-  return isFunctionLikeType(checker.getTypeAtLocation(receiver), checker);
+  if (!isFunctionLikeType(checker.getTypeAtLocation(receiver), checker)) {
+    return false;
+  }
+
+  if (ts.isPropertyAccessChain(node)) {
+    return true;
+  }
+
+  return (
+    !ts.isIdentifier(receiver) &&
+    receiver.kind !== ts.SyntaxKind.ThisKeyword
+  );
 };
 
 const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean => {
