@@ -26,7 +26,7 @@ import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-m
 import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
-import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
+import { resolveRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import { unwrapTransparentExpression } from "../../core/semantic/transparent-expressions.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
 
@@ -68,7 +68,7 @@ export const normalizeCallArgumentExpectedType = (
     ? normalizeStructuralEmissionType(normalizedType, context)
     : normalizedType;
   const storageAlignedType = emissionAlignedType
-    ? (normalizeRuntimeStorageType(emissionAlignedType, context) ??
+    ? (resolveRuntimeStorageType(emissionAlignedType, context) ??
       emissionAlignedType)
     : emissionAlignedType;
   if (!storageAlignedType) {

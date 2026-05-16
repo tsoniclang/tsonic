@@ -170,6 +170,33 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       expect(lengthExpr.memberBinding?.member.toLowerCase()).to.equal("length");
     });
 
+    it("should attach a concrete member binding for string length on js surface", () => {
+      const code = `
+        export function getLen(value: string): number {
+          return value.length;
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const lengthExpr = findExpression(
+        modules,
+        (expr): expr is IrMemberExpression =>
+          expr.kind === "memberAccess" &&
+          expr.property === "length" &&
+          expr.object.kind === "identifier" &&
+          expr.object.name === "value"
+      );
+
+      expect(lengthExpr).to.not.be.undefined;
+      expect(lengthExpr?.kind).to.equal("memberAccess");
+      if (!lengthExpr || lengthExpr.kind !== "memberAccess") return;
+      expect(lengthExpr.memberBinding).to.not.equal(undefined);
+      expect(lengthExpr.memberBinding?.type).to.equal("js.String");
+      expect(lengthExpr.memberBinding?.member).to.equal("length");
+    });
+
     it("should attach a concrete member binding for nullish readonly property length on js surface", () => {
       const code = `
         export type Query = {

@@ -3,6 +3,7 @@ import {
   it,
   expect,
   emitExpressionAst,
+  jsSurfaceCapabilities,
   printExpression,
   type IrExpression,
   type IrType,
@@ -77,6 +78,7 @@ describe("Expression Emission", () => {
       options: {
         rootNamespace: "Test",
         surface: "@tsonic/js",
+        surfaceCapabilities: jsSurfaceCapabilities,
         indent: 4,
       },
       isStatic: false,
@@ -155,6 +157,7 @@ describe("Expression Emission", () => {
       options: {
         rootNamespace: "Test",
         surface: "@tsonic/js",
+        surfaceCapabilities: jsSurfaceCapabilities,
         indent: 4,
       },
       isStatic: false,
@@ -228,6 +231,7 @@ describe("Expression Emission", () => {
       options: {
         rootNamespace: "Test",
         surface: "@tsonic/js",
+        surfaceCapabilities: jsSurfaceCapabilities,
         indent: 4,
       },
       isStatic: false,

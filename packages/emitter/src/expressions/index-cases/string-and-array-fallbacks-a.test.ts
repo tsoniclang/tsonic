@@ -5,6 +5,7 @@ import {
   emitModule,
   emitMemberAccess,
   printExpression,
+  jsSurfaceCapabilities,
   type EmitterContext,
   type IrModule,
 } from "./helpers.js";
@@ -164,18 +165,27 @@ describe("Expression Emission", () => {
             property: "length",
             isComputed: false,
             isOptional: false,
+            memberBinding: {
+              kind: "property",
+              assembly: "js",
+              type: "js.Array",
+              member: "length",
+            },
           },
         },
       ],
       exports: [],
     };
 
-    const result = emitModule(module, { surface: "@tsonic/js" });
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      surfaceCapabilities: jsSurfaceCapabilities,
+    });
     expect(result).to.include("process.argv.Length");
     expect(result).to.not.include("new global::js.Array<");
   });
 
-  it("should lower js-surface string length to CLR Length when narrowing lost the original binding", () => {
+  it("should not synthesize string length binding when the frontend binding is absent", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -203,11 +213,11 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module, { surface: "@tsonic/js" });
-    expect(result).to.include("value.Length");
-    expect(result).not.to.include("value.length");
+    expect(result).to.include("value.length");
+    expect(result).not.to.include("value.Length");
   });
 
-  it("should recover JS string length fallback for narrowed union receivers", () => {
+  it("should preserve narrowed string length spelling when the frontend binding is absent", () => {
     const expr = {
       kind: "memberAccess" as const,
       object: {
@@ -264,10 +274,10 @@ describe("Expression Emission", () => {
 
     const [result] = emitMemberAccess(expr, context);
     const printed = printExpression(result);
-    expect(printed).to.equal("(value.As1()).Length");
+    expect(printed).to.equal("(value.As1()).length");
   });
 
-  it("should recover JS string length fallback when narrowed receivers use string reference types", () => {
+  it("should not infer CLR string length from narrowed receiver type names", () => {
     const expr = {
       kind: "memberAccess" as const,
       object: {
@@ -323,6 +333,6 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal("(value.As1()).Length");
+    expect(printExpression(result)).to.equal("(value.As1()).length");
   });
 });

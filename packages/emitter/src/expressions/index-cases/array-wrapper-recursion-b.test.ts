@@ -6,6 +6,7 @@ import {
   emitExpressionAst,
   printExpression,
   createJsSurfaceBindingRegistry,
+  jsSurfaceCapabilities,
   storageCarrierMap,
   type IrExpression,
   type IrModule,
@@ -54,6 +55,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module, {
       surface: "@tsonic/js",
+      surfaceCapabilities: jsSurfaceCapabilities,
       bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result).to.include("nums.Length");
@@ -103,6 +105,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module, {
       surface: "@tsonic/js",
+      surfaceCapabilities: jsSurfaceCapabilities,
       bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result).to.include("maybeNums.Length");
@@ -150,6 +153,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module, {
       surface: "@tsonic/js",
+      surfaceCapabilities: jsSurfaceCapabilities,
       bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result).to.include("attachments.Length");
@@ -194,6 +198,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module, {
       surface: "@tsonic/js",
+      surfaceCapabilities: jsSurfaceCapabilities,
       bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result).to.include("nums.Length");
@@ -263,6 +268,7 @@ describe("Expression Emission", () => {
       options: {
         rootNamespace: "Test",
         surface: "@tsonic/js",
+        surfaceCapabilities: jsSurfaceCapabilities,
         indent: 4,
       },
       isStatic: false,
@@ -365,6 +371,7 @@ describe("Expression Emission", () => {
       options: {
         rootNamespace: "Test",
         surface: "@tsonic/js",
+        surfaceCapabilities: jsSurfaceCapabilities,
         indent: 4,
       },
       isStatic: false,

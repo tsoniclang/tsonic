@@ -17,7 +17,7 @@ import {
 } from "@tsonic/frontend";
 import { contextSurfaceIncludesJs, type EmitterContext } from "../../types.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
-import { JS_ARRAY_MUTATING_METHODS } from "./js-array-surface-members.js";
+import { surfaceMemberMutatesReceiver } from "./surface-member-semantics.js";
 
 export type MutableStorageAnalysis = {
   readonly mutableModuleBindings: ReadonlySet<string>;
@@ -331,7 +331,8 @@ export const checkArrayMutationOnCall = (
     expr.callee.isComputed ||
     typeof expr.callee.property !== "string" ||
     !contextSurfaceIncludesJs(context) ||
-    !JS_ARRAY_MUTATING_METHODS.has(expr.callee.property)
+    !expr.callee.memberBinding ||
+    !surfaceMemberMutatesReceiver(expr.callee.memberBinding, context)
   ) {
     return;
   }

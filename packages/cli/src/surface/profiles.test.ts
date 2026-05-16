@@ -83,6 +83,22 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["types"],
             requiredNpmPackages: ["@tsonic/js"],
+            memberSemantics: {
+              "js.Array": {
+                length: {
+                  storageAccess: "arrayLength",
+                },
+                map: {
+                  returnsArray: true,
+                },
+              },
+              "js.String": {
+                length: {
+                  emittedMemberName: "Length",
+                  emissionKind: "instanceMember",
+                },
+              },
+            },
           },
           null,
           2
@@ -93,6 +109,16 @@ describe("CLI Surface Profiles", () => {
       expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
       expect(caps.resolvedModes).to.deep.equal(["@tsonic/js"]);
       expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
+      expect(caps.memberSemantics?.["js.Array"]?.map).to.deep.equal({
+        returnsArray: true,
+      });
+      expect(caps.memberSemantics?.["js.Array"]?.length).to.deep.equal({
+        storageAccess: "arrayLength",
+      });
+      expect(caps.memberSemantics?.["js.String"]?.length).to.deep.equal({
+        emittedMemberName: "Length",
+        emissionKind: "instanceMember",
+      });
       expect(caps.requiredTypeRoots).to.not.include(
         "node_modules/@tsonic/dotnet"
       );

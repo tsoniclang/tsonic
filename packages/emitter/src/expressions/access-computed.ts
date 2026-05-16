@@ -38,7 +38,7 @@ import {
   tryEmitBroadArrayAssertionReceiverStorageAst,
 } from "./access-resolution.js";
 import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
-import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
+import { resolveRuntimeStorageArrayLikeElementType } from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import { getAcceptedSurfaceType } from "../core/semantic/defaults.js";
 import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
@@ -355,11 +355,10 @@ export const emitComputedAccess = (
       return [valueAst, nextContext];
     }
 
-    const storageReceiverType =
-      normalizeRuntimeStorageType(objectType, context) ?? objectType;
-    const storageElementType =
-      storageReceiverType &&
-      resolveArrayLikeReceiverType(storageReceiverType, context)?.elementType;
+    const storageElementType = resolveRuntimeStorageArrayLikeElementType(
+      objectType,
+      context
+    );
     const adapted = adaptStorageErasedValueAst({
       valueAst,
       semanticType: expr.inferredType,
@@ -424,11 +423,10 @@ export const emitComputedAccess = (
     arrayLikeReceiver &&
     isRuntimeUnionMemberProjectionAst(objectAst)
   ) {
-    const storageReceiverType =
-      normalizeRuntimeStorageType(objectType, context) ?? objectType;
-    const storageElementType =
-      storageReceiverType &&
-      resolveArrayLikeReceiverType(storageReceiverType, context)?.elementType;
+    const storageElementType = resolveRuntimeStorageArrayLikeElementType(
+      objectType,
+      context
+    );
     const adapted = adaptStorageErasedValueAst({
       valueAst: accessAst,
       semanticType: expr.inferredType,

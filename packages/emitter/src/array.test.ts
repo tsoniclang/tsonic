@@ -10,7 +10,10 @@ import {
   testIfStatement,
   type TestIrModule as IrModule,
 } from "./test-ir-strict.js";
-import { createJsSurfaceBindingRegistry } from "./expressions/index-cases/helpers.js";
+import {
+  createJsSurfaceBindingRegistry,
+  jsSurfaceCapabilities,
+} from "./expressions/index-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
 
@@ -246,6 +249,7 @@ describe("Array Emission", () => {
     const code = emitModule(module, {
       surface: "@tsonic/js",
       bindingRegistry: jsSurfaceBindingRegistry,
+      surfaceCapabilities: jsSurfaceCapabilities,
     });
 
     expect(code).to.include("arr = __tsonic_arrayWrapper.toArray()");
@@ -301,6 +305,7 @@ describe("Array Emission", () => {
     const code = emitModule(module, {
       surface: "@tsonic/js",
       bindingRegistry: jsSurfaceBindingRegistry,
+      surfaceCapabilities: jsSurfaceCapabilities,
     });
 
     expect(code).to.include("var __tsonic_arrayTarget = box;");
@@ -418,6 +423,7 @@ describe("Array Emission", () => {
     const code = emitModule(module, {
       surface: "@tsonic/js",
       bindingRegistry: jsSurfaceBindingRegistry,
+      surfaceCapabilities: jsSurfaceCapabilities,
     });
 
     expect(code).to.include("observers = __tsonic_arrayWrapper.toArray()");
@@ -574,6 +580,7 @@ describe("Array Emission", () => {
     const code = emitModule(module, {
       surface: "@tsonic/js",
       bindingRegistry: jsSurfaceBindingRegistry,
+      surfaceCapabilities: jsSurfaceCapabilities,
     });
 
     expect(code).to.include(

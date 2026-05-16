@@ -7,13 +7,28 @@ type SurfaceProfile = {
   readonly mode: SurfaceMode;
   readonly extends: readonly SurfaceMode[];
   readonly requiredTypeRoots: readonly string[];
+  readonly memberSemantics: SurfaceMemberSemanticsMap;
 };
+
+export type SurfaceMemberSemantics = {
+  readonly mutatesReceiver?: boolean;
+  readonly returnsReceiver?: boolean;
+  readonly returnsArray?: boolean;
+  readonly storageAccess?: "arrayLength";
+  readonly emittedMemberName?: string;
+  readonly emissionKind?: "instanceMember";
+};
+
+export type SurfaceMemberSemanticsMap = Readonly<
+  Record<string, Readonly<Record<string, SurfaceMemberSemantics>>>
+>;
 
 export type SurfaceCapabilities = {
   readonly mode: SurfaceMode;
   readonly includesClr: boolean;
   readonly resolvedModes: readonly SurfaceMode[];
   readonly requiredTypeRoots: readonly string[];
+  readonly memberSemantics?: SurfaceMemberSemanticsMap;
 };
 
 export const surfaceIncludesMode = (
@@ -30,6 +45,7 @@ type SurfaceManifest = {
   readonly id?: unknown;
   readonly extends?: unknown;
   readonly requiredTypeRoots?: unknown;
+  readonly memberSemantics?: unknown;
 };
 
 type ResolveSurfaceOptions = {
@@ -42,6 +58,7 @@ const BUILTIN_SURFACE_PROFILES: Readonly<Record<string, SurfaceProfile>> = {
     mode: "clr",
     extends: [],
     requiredTypeRoots: ["node_modules/@tsonic/globals"],
+    memberSemantics: {},
   },
 };
 
@@ -53,6 +70,26 @@ const mergeUnique = <T>(buckets: readonly (readonly T[])[]): readonly T[] => {
     }
   }
   return Array.from(merged);
+};
+
+const mergeMemberSemantics = (
+  buckets: readonly SurfaceMemberSemanticsMap[]
+): SurfaceMemberSemanticsMap => {
+  const merged: Record<string, Record<string, SurfaceMemberSemantics>> = {};
+
+  for (const bucket of buckets) {
+    for (const [typeName, members] of Object.entries(bucket)) {
+      const targetMembers = (merged[typeName] ??= {});
+      for (const [memberName, semantics] of Object.entries(members)) {
+        targetMembers[memberName] = {
+          ...targetMembers[memberName],
+          ...semantics,
+        };
+      }
+    }
+  }
+
+  return merged;
 };
 
 const BUILTIN_SURFACE_MODE_SET = new Set<string>(
@@ -307,6 +344,101 @@ const parseManifestStringArray = (
   return values.length > 0 ? values : [];
 };
 
+const parseManifestBoolean = (value: unknown): boolean | undefined =>
+  typeof value === "boolean" ? value : undefined;
+
+const parseMemberSemantics = (
+  value: unknown
+): SurfaceMemberSemanticsMap | undefined => {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const result: Record<string, Record<string, SurfaceMemberSemantics>> = {};
+  for (const [typeName, rawMembers] of Object.entries(value)) {
+    const normalizedTypeName = typeName.trim();
+    if (
+      normalizedTypeName.length === 0 ||
+      !rawMembers ||
+      typeof rawMembers !== "object" ||
+      Array.isArray(rawMembers)
+    ) {
+      return undefined;
+    }
+
+    const members: Record<string, SurfaceMemberSemantics> = {};
+    for (const [memberName, rawSemantics] of Object.entries(rawMembers)) {
+      const normalizedMemberName = memberName.trim();
+      if (
+        normalizedMemberName.length === 0 ||
+        !rawSemantics ||
+        typeof rawSemantics !== "object" ||
+        Array.isArray(rawSemantics)
+      ) {
+        return undefined;
+      }
+
+      const mutatesReceiver = parseManifestBoolean(
+        (rawSemantics as { readonly mutatesReceiver?: unknown }).mutatesReceiver
+      );
+      const returnsReceiver = parseManifestBoolean(
+        (rawSemantics as { readonly returnsReceiver?: unknown }).returnsReceiver
+      );
+      const returnsArray = parseManifestBoolean(
+        (rawSemantics as { readonly returnsArray?: unknown }).returnsArray
+      );
+      const rawStorageAccess = (
+        rawSemantics as { readonly storageAccess?: unknown }
+      ).storageAccess;
+      const storageAccess =
+        rawStorageAccess === undefined || rawStorageAccess === "arrayLength"
+          ? rawStorageAccess
+          : undefined;
+      if (rawStorageAccess !== undefined && storageAccess === undefined) {
+        return undefined;
+      }
+      const rawEmittedMemberName = (
+        rawSemantics as { readonly emittedMemberName?: unknown }
+      ).emittedMemberName;
+      const emittedMemberName =
+        typeof rawEmittedMemberName === "string" &&
+        rawEmittedMemberName.trim().length > 0
+          ? rawEmittedMemberName.trim()
+          : undefined;
+      if (
+        rawEmittedMemberName !== undefined &&
+        emittedMemberName === undefined
+      ) {
+        return undefined;
+      }
+      const rawEmissionKind = (
+        rawSemantics as { readonly emissionKind?: unknown }
+      ).emissionKind;
+      const emissionKind =
+        rawEmissionKind === undefined || rawEmissionKind === "instanceMember"
+          ? rawEmissionKind
+          : undefined;
+      if (rawEmissionKind !== undefined && emissionKind === undefined) {
+        return undefined;
+      }
+
+      members[normalizedMemberName] = {
+        ...(mutatesReceiver === undefined ? {} : { mutatesReceiver }),
+        ...(returnsReceiver === undefined ? {} : { returnsReceiver }),
+        ...(returnsArray === undefined ? {} : { returnsArray }),
+        ...(storageAccess === undefined ? {} : { storageAccess }),
+        ...(emittedMemberName === undefined ? {} : { emittedMemberName }),
+        ...(emissionKind === undefined ? {} : { emissionKind }),
+      };
+    }
+
+    result[normalizedTypeName] = members;
+  }
+
+  return result;
+};
+
 const normalizeExtendsMode = (
   mode: SurfaceMode,
   parentMode: SurfaceMode
@@ -367,10 +499,13 @@ const loadCustomSurfaceProfile = (
       packageRoot,
       parseManifestStringArray(parsed.requiredTypeRoots)
     );
+    const memberSemantics = parseMemberSemantics(parsed.memberSemantics);
+    if (!memberSemantics) return undefined;
     return {
       mode,
       extends: extendsList,
       requiredTypeRoots,
+      memberSemantics,
     };
   }
 
@@ -379,6 +514,7 @@ const loadCustomSurfaceProfile = (
       mode,
       extends: [],
       requiredTypeRoots: [packageRoot],
+      memberSemantics: {},
     };
   }
 
@@ -403,6 +539,7 @@ const getSurfaceProfile = (
     mode,
     extends: [],
     requiredTypeRoots: [],
+    memberSemantics: {},
   };
 };
 
@@ -439,6 +576,9 @@ export const resolveSurfaceCapabilities = (
     resolvedModes: chain.map((profile) => profile.mode),
     requiredTypeRoots: mergeUnique(
       chain.map((profile) => profile.requiredTypeRoots)
+    ),
+    memberSemantics: mergeMemberSemantics(
+      chain.map((profile) => profile.memberSemantics)
     ),
   };
 };

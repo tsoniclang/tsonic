@@ -18,7 +18,7 @@ import type {
   CSharpBlockStatementAst,
 } from "../../../core/format/backend-ast/types.js";
 import { isMutablePropertySlot } from "../../../core/semantic/mutable-storage.js";
-import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
+import { resolveRuntimeStorageType } from "../../../core/semantic/storage-types.js";
 import { normalizeValueSlotType } from "../../../core/semantic/value-slot-types.js";
 
 /**
@@ -83,8 +83,7 @@ export const emitPropertyMember = (
   };
   const emittedMemberType =
     member.type && accessibility === "private"
-      ? (normalizeRuntimeStorageType(member.type, storageContext) ??
-        member.type)
+      ? (resolveRuntimeStorageType(member.type, storageContext) ?? member.type)
       : member.type;
   if (emittedMemberType) {
     try {

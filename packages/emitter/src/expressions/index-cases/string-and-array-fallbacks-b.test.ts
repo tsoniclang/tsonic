@@ -11,7 +11,7 @@ import {
 } from "./helpers.js";
 
 describe("Expression Emission", () => {
-  it("should recover JS string length fallback when narrowed receivers use CLR-backed string references", () => {
+  it("should not synthesize JS string length when narrowed receivers only look string-like", () => {
     const expr = {
       kind: "memberAccess" as const,
       object: {
@@ -75,10 +75,10 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal("(value.As1()).Length");
+    expect(printExpression(result)).to.equal("(value.As1()).length");
   });
 
-  it("should recover JS string length fallback when narrowed runtime-union bindings omit the narrowed type", () => {
+  it("should preserve source spelling when narrowed runtime-union bindings omit the narrowed type", () => {
     const expr = {
       kind: "memberAccess" as const,
       object: {
@@ -133,10 +133,10 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal("(value.As1()).Length");
+    expect(printExpression(result)).to.equal("(value.As1()).length");
   });
 
-  it("should recover JS string length fallback before CLR member-binding access on narrowed strings", () => {
+  it("should use frontend member-binding access for narrowed strings", () => {
     const expr = {
       kind: "memberAccess" as const,
       object: {

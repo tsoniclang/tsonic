@@ -14,7 +14,7 @@
 
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 import { getSemanticUnionMembers } from "./semantic-union-members.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 import { shouldUseBroadObjectForUnionStorage } from "./storage-types.js";

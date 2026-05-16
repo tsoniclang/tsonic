@@ -59,6 +59,19 @@ describe("Frontend Surface Profiles", () => {
         resolve(packageRoot, "globals")
       );
       expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
+      expect(caps.memberSemantics?.["js.Array"]?.map).to.deep.equal({
+        returnsArray: true,
+      });
+      expect(caps.memberSemantics?.["js.Array"]?.length).to.deep.equal({
+        storageAccess: "arrayLength",
+      });
+      expect(caps.memberSemantics?.["js.String"]?.length).to.deep.equal({
+        emittedMemberName: "Length",
+        emissionKind: "instanceMember",
+      });
+      expect(caps.memberSemantics?.["web.DOMTokenList"]?.add).to.deep.equal({
+        mutatesReceiver: true,
+      });
     } finally {
       fixture.cleanup();
     }

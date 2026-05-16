@@ -6,7 +6,7 @@
  */
 
 import { IrExpression } from "@tsonic/frontend";
-import { contextSurfaceIncludesJs, EmitterContext } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { resolveArrayLikeReceiverType } from "../core/semantic/type-resolution.js";
 import { resolveTypeMemberKind } from "../core/semantic/member-surfaces.js";
@@ -36,14 +36,15 @@ import {
   isStaticTypeReference,
 } from "./access-resolution.js";
 import { buildNativeArrayInteropWrapAst } from "./array-interop.js";
-import {
-  isStringReceiverType,
-  isLengthPropertyName,
-  tryEmitJsSurfaceArrayLikeLengthAccess,
-} from "./access-length.js";
+import { tryEmitJsSurfaceArrayLikeLengthAccess } from "./access-length.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 import { getClrIdentityKey } from "../core/semantic/clr-type-identity.js";
+import {
+  getSurfaceEmittedMemberName,
+  surfaceMemberEmitsAsInstanceMember,
+  surfaceMemberReadsArrayLength,
+} from "../core/semantic/surface-member-semantics.js";
 
 const clrBindingTypeHasIdentity = (
   bindingTypeName: string,
@@ -69,7 +70,17 @@ export const tryEmitMemberBindingAccess = (
   }
 
   const { type, member } = expr.memberBinding;
-  const escapedMember = escapeCSharpIdentifier(member);
+  const surfaceEmittedMemberName = getSurfaceEmittedMemberName(
+    expr.memberBinding,
+    context
+  );
+  const emitsAsInstanceMember = surfaceMemberEmitsAsInstanceMember(
+    expr.memberBinding,
+    context
+  );
+  const escapedMember = escapeCSharpIdentifier(
+    surfaceEmittedMemberName ?? member
+  );
   const bindingTypeLeaf = stripClrGenericArity(type).split(".").pop();
   const normalizedBindingType = normalizeClrQualifiedName(type, true);
   const normalizedBindingTypeWithoutArity = normalizeClrQualifiedName(
@@ -85,10 +96,12 @@ export const tryEmitMemberBindingAccess = (
   const sourcePropertyName =
     typeof expr.property === "string" ? expr.property : member;
   const arrayLikeReceiver = resolveArrayLikeReceiverType(receiverType, context);
+  const readsArrayLength = surfaceMemberReadsArrayLength(
+    expr.memberBinding,
+    context
+  );
   const directReceiverStorageType =
-    usage === "value" &&
-    typeof expr.property === "string" &&
-    isLengthPropertyName(expr.property)
+    usage === "value" && readsArrayLength
       ? resolveDirectStorageIrType(expr.object, context)
       : undefined;
   const directArrayLikeReceiver = resolveArrayLikeReceiverType(
@@ -109,28 +122,7 @@ export const tryEmitMemberBindingAccess = (
     !!receiverType &&
     resolveTypeMemberKind(receiverType, sourcePropertyName, context) !==
       undefined;
-  const bindingTargetsStringLength =
-    usage === "value" &&
-    typeof expr.property === "string" &&
-    isLengthPropertyName(expr.property) &&
-    (bindingTypeLeaf === "String" ||
-      normalizedBindingTypeWithoutArity === "global::js.String" ||
-      normalizedBindingTypeWithoutArity === "js.String");
-  if (
-    bindingTargetsStringLength &&
-    ((receiverHasDeterministicMember &&
-      !isStringReceiverType(receiverType, context)) ||
-      directArrayLikeReceiver)
-  ) {
-    return undefined;
-  }
-  if (
-    usage === "value" &&
-    typeof expr.property === "string" &&
-    isLengthPropertyName(expr.property) &&
-    contextSurfaceIncludesJs(context) &&
-    directArrayLikeReceiver
-  ) {
+  if (usage === "value" && readsArrayLength && directArrayLikeReceiver) {
     const [objectAst, withObject] = emitExpressionAst(expr.object, context);
     return tryEmitJsSurfaceArrayLikeLengthAccess(
       expr,
@@ -141,17 +133,14 @@ export const tryEmitMemberBindingAccess = (
   }
   if (
     usage === "value" &&
-    typeof expr.property === "string" &&
-    isLengthPropertyName(expr.property) &&
+    readsArrayLength &&
     (hasSourceDeclaredReceiverMember || receiverHasDeterministicMember)
   ) {
     return undefined;
   }
   if (
     usage === "value" &&
-    typeof expr.property === "string" &&
-    isLengthPropertyName(expr.property) &&
-    contextSurfaceIncludesJs(context) &&
+    readsArrayLength &&
     !expr.memberBinding.isExtensionMethod &&
     !hasSourceDeclaredReceiverMember &&
     (arrayLikeReceiver || hasArrayLikeBindingHint)
@@ -257,7 +246,11 @@ export const tryEmitMemberBindingAccess = (
     }
   }
 
-  if (usage === "value" && expr.memberBinding.isExtensionMethod) {
+  if (
+    usage === "value" &&
+    expr.memberBinding.isExtensionMethod &&
+    !emitsAsInstanceMember
+  ) {
     const [objectAst, newContext] = emitExpressionAst(expr.object, context);
     const extensionCallAst: CSharpExpressionAst = {
       kind: "invocationExpression",
@@ -387,9 +380,12 @@ export const tryEmitMemberBindingAccess = (
       context,
       usage
     );
-    const emittedMemberName = hasSourceDeclaredReceiverMember
-      ? emittedSourceMemberName
-      : escapedMember;
+    const emittedMemberName =
+      surfaceEmittedMemberName !== undefined
+        ? escapedMember
+        : hasSourceDeclaredReceiverMember
+          ? emittedSourceMemberName
+          : escapedMember;
     if (expr.isOptional) {
       return [
         {

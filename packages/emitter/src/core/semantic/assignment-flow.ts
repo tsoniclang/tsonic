@@ -10,10 +10,8 @@ import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 import { getPropertyType } from "./property-lookup-resolution.js";
 import { isAssignable } from "./index.js";
 import { isRuntimeNullishType } from "./nullish-value-helpers.js";
-import {
-  findExactRuntimeUnionMemberIndices,
-  getCanonicalRuntimeUnionMembers,
-} from "./runtime-unions.js";
+import { findExactRuntimeUnionMemberIndices } from "./runtime-union-matching.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 
 export type EmitExprAstFn = (
   expr: IrExpression,

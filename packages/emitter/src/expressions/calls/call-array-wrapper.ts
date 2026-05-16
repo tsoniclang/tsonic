@@ -17,9 +17,9 @@ import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 import {
   isArrayWrapperBindingType,
   hasDirectNativeArrayLikeInteropShape,
-  nativeArrayReturningInteropMembers,
 } from "./call-array-mutation.js";
 import { getClrIdentityKey } from "../../core/semantic/clr-type-identity.js";
+import { surfaceMemberReturnsArray } from "../../core/semantic/surface-member-semantics.js";
 
 const isSystemArrayBindingType = (bindingTypeName: string): boolean =>
   getClrIdentityKey(bindingTypeName) === getClrIdentityKey("System.Array");
@@ -69,13 +69,6 @@ const shouldNormalizeNativeArrayWrapperResult = (
   if (expr.callee.kind !== "memberAccess") {
     return false;
   }
-  if (typeof expr.callee.property !== "string") {
-    return false;
-  }
-  if (!nativeArrayReturningInteropMembers.has(expr.callee.property)) {
-    return false;
-  }
-
   const receiverType =
     resolveEffectiveExpressionType(expr.callee.object, context) ??
     expr.callee.object.inferredType;
@@ -88,7 +81,9 @@ const shouldNormalizeNativeArrayWrapperResult = (
     return false;
   }
 
-  return binding.kind === "method";
+  return (
+    binding.kind === "method" && surfaceMemberReturnsArray(binding, context)
+  );
 };
 
 export const emitArrayWrapperInteropCall = (

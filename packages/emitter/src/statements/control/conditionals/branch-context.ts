@@ -21,7 +21,7 @@ import type {
 } from "../../../core/format/backend-ast/types.js";
 import { emitStatementAst } from "../../../statement-emitter.js";
 import { materializeDirectNarrowingAst } from "../../../core/semantic/materialized-narrowing.js";
-import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
+import { resolveRuntimeStorageType } from "../../../core/semantic/storage-types.js";
 import { areIrTypesEquivalent } from "../../../core/semantic/type-equivalence.js";
 import { willCarryAsRuntimeUnion } from "../../../core/semantic/union-semantics.js";
 import {
@@ -687,10 +687,10 @@ export const withRuntimeUnionMemberNarrowing = (
       sourceType,
       narrowedAst,
       sourceMemberType
-        ? (normalizeRuntimeStorageType(sourceMemberType, sourceLayoutContext) ??
+        ? (resolveRuntimeStorageType(sourceMemberType, sourceLayoutContext) ??
             sourceMemberType)
         : (storageType ??
-            normalizeRuntimeStorageType(memberType, sourceLayoutContext) ??
+            resolveRuntimeStorageType(memberType, sourceLayoutContext) ??
             memberType),
       toReceiverAst(receiver)
     )
