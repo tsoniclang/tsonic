@@ -12,6 +12,7 @@ import {
 } from "../../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../../type-emitter.js";
 import { emitBlockStatementAst } from "../../../statement-emitter.js";
+import { appendImplicitRuntimeAbsenceReturnAst } from "../../block-emitters/runtime-absence-return.js";
 import {
   emitParametersWithDestructuring,
   generateParameterDestructuringAst,
@@ -294,7 +295,7 @@ export const emitMethodMember = (
       ? getAsyncBodyReturnType(member.isAsync, member.returnType)
       : member.returnType;
 
-  const [bodyBlockAst, finalContext] = withScoped(
+  const [rawBodyBlockAst, rawFinalContext] = withScoped(
     destructuringContext,
     {
       typeParameters: methodTypeParams,
@@ -302,6 +303,12 @@ export const emitMethodMember = (
     },
     (scopedCtx) => emitBlockStatementAst(body, scopedCtx)
   );
+  const [bodyBlockAst, finalContext] = member.isGenerator
+    ? [rawBodyBlockAst, rawFinalContext]
+    : appendImplicitRuntimeAbsenceReturnAst(rawBodyBlockAst, body, {
+        ...rawFinalContext,
+        returnType: bodyReturnType,
+      });
 
   let mergedBody: CSharpBlockStatementAst;
 

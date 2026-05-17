@@ -25,6 +25,7 @@ import {
   isNumericSourceIrType,
 } from "../../expressions/post-emission-adaptation.js";
 import { stripNullish } from "../../core/semantic/type-resolution.js";
+import { tryEmitRuntimeAbsenceReturnStatementAst } from "./runtime-absence-return.js";
 
 const getBareTypeParameterName = (
   type: IrType | undefined,
@@ -202,6 +203,11 @@ export const emitReturnStatementAst = (
       ],
       newContext,
     ];
+  }
+
+  const runtimeAbsenceReturn = tryEmitRuntimeAbsenceReturnStatementAst(context);
+  if (runtimeAbsenceReturn) {
+    return [[runtimeAbsenceReturn[0]], runtimeAbsenceReturn[1]];
   }
 
   return [[{ kind: "returnStatement" }], context];

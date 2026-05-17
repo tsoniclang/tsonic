@@ -368,6 +368,11 @@ export const convertArrowFunction = (
 
   const returnType =
     contextualReturnType ?? expressionBodyReturnType ?? expectedReturnType;
+  const inferredReturnType =
+    declaredReturnType ??
+    expressionBodyReturnType ??
+    (useExpectedReturnType ? expectedReturnType : undefined) ??
+    expectedReturnType;
 
   // DETERMINISTIC TYPING: contextualType comes from expectedType
   const contextualType = expectedType;
@@ -376,7 +381,7 @@ export const convertArrowFunction = (
   const inferredType = {
     kind: "functionType" as const,
     parameters,
-    returnType: returnType ?? { kind: "unknownType" as const },
+    returnType: inferredReturnType ?? { kind: "unknownType" as const },
   };
 
   return {

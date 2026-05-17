@@ -59,6 +59,7 @@ import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-un
 import { getPassingModifierFromCast, isLValue } from "./call-analysis.js";
 import {
   adaptValueToExpectedTypeAst,
+  tryAdaptAwaitedValueToExpectedTypeAst,
   resolveDirectStorageCompatibleExpressionType,
   resolveDirectStorageCompatibleIrType,
   resolveCarrierPreservingRawExpectedType,
@@ -69,7 +70,6 @@ import {
   hasMismatchedCollectionElementCarrier,
 } from "../expected-type-adaptation.js";
 import { tryAdaptAwaitableValueAst } from "../awaitable-adaptation.js";
-import { maybeAdaptRuntimeUnionExpressionAst } from "../runtime-union-adaptation.js";
 import {
   isExactArrayCreationToType,
   isExactExpressionToType,
@@ -3448,7 +3448,7 @@ const emitCallArguments = (
                 actualType: awaitableArgumentSourceType,
                 expectedType: adaptationExpectedType,
                 context: emittedContext,
-                adaptAwaitedValueAst: maybeAdaptRuntimeUnionExpressionAst,
+                adaptAwaitedValueAst: tryAdaptAwaitedValueToExpectedTypeAst,
               })
             : undefined;
         const [materializedArgAst, materializedContext] =

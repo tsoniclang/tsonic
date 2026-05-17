@@ -8,6 +8,7 @@ import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import { emitBlockStatementAst } from "../../../statement-emitter.js";
+import { appendImplicitRuntimeAbsenceReturnAst } from "../../block-emitters/runtime-absence-return.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import { allocateLocalName } from "../../../core/format/local-names.js";
 import type {
@@ -185,11 +186,19 @@ export const emitPropertyMember = (
       ...getterBodyContext,
       usedLocalNames: new Set<string>(),
     };
-    const [getterBlock, getterCtx] = withScoped(
+    const [rawGetterBlock, rawGetterCtx] = withScoped(
       getterEmitContext,
       { returnType: member.type },
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       (scopedCtx) => emitBlockStatementAst(member.getterBody!, scopedCtx)
+    );
+    const [getterBlock, getterCtx] = appendImplicitRuntimeAbsenceReturnAst(
+      rawGetterBlock,
+      member.getterBody,
+      {
+        ...rawGetterCtx,
+        returnType: member.type,
+      }
     );
     getterBody = getterBlock;
     bodyContext = { ...dedent(getterCtx), usedLocalNames: savedUsed };
