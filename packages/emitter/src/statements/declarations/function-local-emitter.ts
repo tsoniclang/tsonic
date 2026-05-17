@@ -2,6 +2,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, withAsync, withStatic } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitBlockStatementAst } from "../blocks.js";
+import { appendImplicitRuntimeAbsenceReturnAst } from "../block-emitters/runtime-absence-return.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import {
   buildGeneratorHelperTypeArguments,
@@ -226,10 +227,16 @@ export const emitFunctionDeclarationAst = (
     returnType: bodyReturnType,
   };
 
-  const [bodyBlock, bodyCtxAfter] = emitBlockStatementAst(
+  const [rawBodyBlock, rawBodyCtxAfter] = emitBlockStatementAst(
     stmt.body,
     bodyContext
   );
+  const [bodyBlock, bodyCtxAfter] = stmt.isGenerator
+    ? [rawBodyBlock, rawBodyCtxAfter]
+    : appendImplicitRuntimeAbsenceReturnAst(rawBodyBlock, stmt.body, {
+        ...rawBodyCtxAfter,
+        returnType: bodyReturnType,
+      });
 
   if (stmt.isGenerator && usesExchangeBasedLowering && isBidirectional) {
     const exchangeName = `${csharpBaseName}_exchange`;

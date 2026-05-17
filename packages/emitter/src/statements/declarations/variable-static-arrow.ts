@@ -13,6 +13,7 @@ import {
 import { EmitterContext, indent, withAsync, withStatic } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitBlockStatementAst } from "../../statements/blocks.js";
+import { appendImplicitRuntimeAbsenceReturnAst } from "../block-emitters/runtime-absence-return.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitCSharpName } from "../../naming-policy.js";
@@ -399,8 +400,16 @@ export const emitStaticArrowFieldMembers = (
   // Build method body AST
   const bodyResult = (() => {
     if (arrowFunc.body.kind === "blockStatement") {
-      return emitBlockStatementAst(arrowFunc.body, {
+      const blockContext = {
         ...bodyBaseContext,
+        returnType: bodyReturnType,
+      };
+      const [blockAst, blockContextAfter] = emitBlockStatementAst(
+        arrowFunc.body,
+        blockContext
+      );
+      return appendImplicitRuntimeAbsenceReturnAst(blockAst, arrowFunc.body, {
+        ...blockContextAfter,
         returnType: bodyReturnType,
       });
     }

@@ -40,6 +40,205 @@ describe("May 14 downstream contract coverage", () => {
     );
   });
 
+  it("materializes implicit block-lambda fallthrough as contextual runtime absence", () => {
+    const csharp = compileToCSharp(`
+      class Request {
+        body: string = "";
+      }
+
+      class Response {
+        json(value: string): Response {
+          return this;
+        }
+      }
+
+      type NextFunction = (value?: string | null) => void | Promise<void>;
+      type IgnoredHandlerResult =
+        | void
+        | Response
+        | Promise<void | Response>;
+      type RequestHandler = (
+        req: Request,
+        res: Response,
+        next: NextFunction
+      ) => IgnoredHandlerResult;
+
+      declare const app: {
+        post(path: string, handler: RequestHandler): void;
+      };
+
+      export function main(): void {
+        app.post("/echo", (req: Request, res: Response) => {
+          res.json(req.body);
+        });
+      }
+    `);
+
+    expect(csharp).to.include("res.json(req.body);");
+    expect(csharp).to.include(
+      "return default(global::Test.IgnoredHandlerResult);"
+    );
+  });
+
+  it("materializes explicit block-lambda empty returns as contextual runtime absence", () => {
+    const csharp = compileToCSharp(`
+      class Request {
+        body: string = "";
+      }
+
+      class Response {
+        json(value: string): Response {
+          return this;
+        }
+      }
+
+      type NextFunction = (value?: string | null) => void | Promise<void>;
+      type IgnoredHandlerResult =
+        | void
+        | Response
+        | Promise<void | Response>;
+      type RequestHandler = (
+        req: Request,
+        res: Response,
+        next: NextFunction
+      ) => IgnoredHandlerResult;
+
+      declare const app: {
+        post(path: string, handler: RequestHandler): void;
+      };
+
+      export function main(): void {
+        app.post("/echo", (req: Request, res: Response) => {
+          res.json(req.body);
+          return;
+        });
+      }
+    `);
+
+    expect(csharp).to.include("res.json(req.body);");
+    expect(csharp).to.include(
+      "return default(global::Test.IgnoredHandlerResult);"
+    );
+    expect(csharp).to.not.include("return;");
+  });
+
+  it("materializes implicit runtime absence at every function body boundary", () => {
+    const csharp = compileToCSharp(`
+      class Response {
+        json(value: string): Response {
+          return this;
+        }
+      }
+
+      type MaybeHandlerResult =
+        | void
+        | string
+        | Response;
+
+      export function moduleHandler(res: Response): MaybeHandlerResult {
+        res.json("module");
+      }
+
+      export function outer(res: Response): MaybeHandlerResult {
+        function localHandler(): MaybeHandlerResult {
+          res.json("local");
+        }
+
+        localHandler();
+      }
+
+      export class Controller {
+        handle(res: Response): MaybeHandlerResult {
+          res.json("method");
+        }
+      }
+
+      export const staticHandler: (res: Response) => MaybeHandlerResult = (
+        res: Response
+      ) => {
+        res.json("static");
+      };
+    `);
+
+    expect(csharp).to.include('res.json("module");');
+    expect(csharp).to.include('res.json("local");');
+    expect(csharp).to.include('res.json("method");');
+    expect(csharp).to.include('res.json("static");');
+    expect(
+      csharp.match(/return default\(global::Test\.MaybeHandlerResult\);/g) ??
+        []
+    ).to.have.length(5);
+  });
+
+  it("does not add implicit runtime absence after complete branch returns", () => {
+    const csharp = compileToCSharp(`
+      class Response {
+        json(value: string): Response {
+          return this;
+        }
+      }
+
+      type MaybeHandlerResult =
+        | void
+        | string
+        | Response;
+
+      export function complete(
+        flag: boolean,
+        res: Response
+      ): MaybeHandlerResult {
+        if (flag) {
+          return "ok";
+        } else {
+          return res.json("ok");
+        }
+      }
+    `);
+
+    expect(csharp).to.match(
+      /return global::Test\.MaybeHandlerResult\.From\d\("ok"\);/
+    );
+    expect(csharp).to.match(
+      /return global::Test\.MaybeHandlerResult\.From\d\(res\.json\("ok"\)\);/
+    );
+    expect(csharp).to.not.include(
+      "return default(global::Test.MaybeHandlerResult);"
+    );
+  });
+
+  it("materializes runtime absence for async fallthrough and accessor empty returns", () => {
+    const csharp = compileToCSharp(`
+      class Response {
+        json(value: string): Response {
+          return this;
+        }
+      }
+
+      type MaybeHandlerResult =
+        | void
+        | string
+        | Response;
+
+      export async function asyncModule(
+        res: Response
+      ): Promise<MaybeHandlerResult> {
+        res.json("async");
+      }
+
+      export class Box {
+        get maybe(): MaybeHandlerResult {
+          return;
+        }
+      }
+    `);
+
+    expect(csharp).to.include('res.json("async");');
+    expect(csharp).to.include(
+      "return default(global::Test.MaybeHandlerResult);"
+    );
+    expect(csharp).to.not.include("return;");
+  });
+
   it("prefers exact contextual union return arms over broad object catch-all arms", () => {
     const csharp = compileToCSharp(`
       type JsValue =

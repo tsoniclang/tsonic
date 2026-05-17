@@ -8,7 +8,6 @@
 
 import {
   IrExpression,
-  IrStatement,
   IrType,
   getAwaitedIrType,
   isAwaitableIrType,
@@ -16,6 +15,10 @@ import {
 import { EmitterContext, withStatic } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitBlockStatementAst } from "../statement-emitter.js";
+import {
+  appendImplicitRuntimeAbsenceReturnAst,
+  isDefinitelyTerminatingStatement,
+} from "../statements/block-emitters/runtime-absence-return.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveTypeAlias,
@@ -47,17 +50,6 @@ type AsyncUnionReturnPlan = {
   readonly unionReturnType: IrType;
   readonly awaitedReturnType: IrType;
   readonly awaitableMemberType: IrType;
-};
-
-const isDefinitelyTerminatingStatement = (stmt: IrStatement): boolean => {
-  if (stmt.kind === "returnStatement" || stmt.kind === "throwStatement") {
-    return true;
-  }
-  if (stmt.kind === "blockStatement") {
-    const last = stmt.statements.at(-1);
-    return last ? isDefinitelyTerminatingStatement(last) : false;
-  }
-  return false;
 };
 
 const canEmitDirectVoidLambdaStatement = (
@@ -355,16 +347,28 @@ const emitLambdaBodyAst = (
   );
 
   if (body.kind === "blockStatement") {
-    const [blockAst] = emitBlockStatementAst(body, {
+    const blockEmitContext = {
       ...preludeContext,
       returnType,
-    });
+    };
+    const [blockAst, emittedBlockContext] = emitBlockStatementAst(
+      body,
+      blockEmitContext
+    );
+    const [blockWithImplicitReturn, implicitReturnContext] =
+      appendImplicitRuntimeAbsenceReturnAst(blockAst, body, {
+        ...emittedBlockContext,
+        returnType,
+      });
     return [
       {
         kind: "blockStatement",
-        statements: [...preludeStatements, ...blockAst.statements],
+        statements: [
+          ...preludeStatements,
+          ...blockWithImplicitReturn.statements,
+        ],
       },
-      preludeContext,
+      implicitReturnContext,
     ];
   }
 
@@ -431,11 +435,11 @@ const resolveFunctionExpressionReturnType = (
   expr: Extract<IrExpression, { kind: "functionExpression" | "arrowFunction" }>,
   contextualFunctionType: Extract<IrType, { kind: "functionType" }> | undefined
 ): IrType | undefined => {
-  if (expr.returnType) {
-    return expr.returnType;
-  }
   if (contextualFunctionType?.returnType) {
     return contextualFunctionType.returnType;
+  }
+  if (expr.returnType) {
+    return expr.returnType;
   }
   if (expr.inferredType?.kind === "functionType") {
     return expr.inferredType.returnType;

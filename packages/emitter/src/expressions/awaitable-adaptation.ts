@@ -20,6 +20,7 @@ import {
 } from "../core/format/backend-ast/utils.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import {
+  isRuntimeNullishType,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
@@ -41,6 +42,20 @@ type AwaitedValueAdapter = (
 
 const isVoidType = (type: IrType): boolean =>
   stripNullish(type).kind === "voidType";
+
+const typeAcceptsRuntimeAbsence = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolvedType = resolveTypeAlias(type, context);
+  if (resolvedType.kind === "voidType") {
+    return false;
+  }
+  if (isRuntimeNullishType(resolvedType)) {
+    return true;
+  }
+  return splitRuntimeNullishUnionMembers(resolvedType)?.hasRuntimeNullish ?? false;
+};
 
 const getSingleAwaitableRuntimeType = (
   type: IrType,
@@ -110,16 +125,6 @@ export const tryAdaptAwaitableValueAst = (opts: {
     adaptAwaitedValueAst,
   } = opts;
   let currentContext = context;
-  let emittedExpectedType = expectedTypeAst;
-  if (!emittedExpectedType) {
-    [emittedExpectedType, currentContext] = emitTypeAst(
-      expectedType,
-      currentContext
-    );
-  }
-  if (!isTaskTypeAst(stripNullableTypeAst(emittedExpectedType))) {
-    return undefined;
-  }
 
   const expectedAwaitableSource = getSingleAwaitableRuntimeType(
     expectedType,
@@ -130,6 +135,17 @@ export const tryAdaptAwaitableValueAst = (opts: {
     currentContext
   );
   if (!expectedAwaitableSource || !actualAwaitableSource) {
+    return undefined;
+  }
+
+  let emittedExpectedType = expectedTypeAst;
+  if (!emittedExpectedType) {
+    [emittedExpectedType, currentContext] = emitTypeAst(
+      expectedType,
+      currentContext
+    );
+  }
+  if (!isTaskTypeAst(stripNullableTypeAst(emittedExpectedType))) {
     return undefined;
   }
   const emittedActualType = (() => {
@@ -209,6 +225,9 @@ export const tryAdaptAwaitableValueAst = (opts: {
       },
     });
   } else if (actualAwaitedIsVoid) {
+    if (!typeAcceptsRuntimeAbsence(expectedAwaitedType, currentContext)) {
+      return undefined;
+    }
     if (!expectedAwaitedTypeAst) {
       return undefined;
     }

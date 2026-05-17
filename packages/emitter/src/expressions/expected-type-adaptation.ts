@@ -147,6 +147,21 @@ const isCarrierPreservingExpectedType = (
     willCarryAsRuntimeUnion(type, context) ||
     (splitRuntimeNullishUnionMembers(type)?.hasRuntimeNullish ?? false));
 
+export const tryAdaptAwaitedValueToExpectedTypeAst = (
+  valueAst: CSharpExpressionAst,
+  actualType: IrType | undefined,
+  context: EmitterContext,
+  expectedType: IrType | undefined,
+  visited?: ReadonlySet<string>
+): [CSharpExpressionAst, EmitterContext] | undefined =>
+  maybeAdaptRuntimeUnionExpressionAst(
+    valueAst,
+    actualType,
+    context,
+    expectedType,
+    visited
+  );
+
 const matchesRuntimeUnionCarrierSurface = (
   actualType: IrType,
   expectedType: IrType,
