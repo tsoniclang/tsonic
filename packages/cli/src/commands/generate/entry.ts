@@ -1,5 +1,5 @@
 import { isExecutableStatement, type IrModule } from "@tsonic/frontend";
-import type { EntryInfo } from "@tsonic/backend";
+import type { EntryInfo } from "@tsonic/csharp-backend";
 
 export const findMainEntryInfo = (entryModule: IrModule): EntryInfo | null => {
   for (const exp of entryModule.exports) {

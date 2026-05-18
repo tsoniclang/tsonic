@@ -14,7 +14,7 @@ import {
   type EmittableIrModule,
   type IrModule,
 } from "@tsonic/frontend";
-import { emitCSharpFiles } from "@tsonic/emitter";
+import { emitCSharpFiles } from "@tsonic/csharp-emitter";
 import {
   CSHARP_BACKEND_TARGET_ID,
   generateCsproj,
@@ -24,7 +24,7 @@ import {
   type ConsoleAppConfig,
   type ExecutableConfig,
   type LibraryConfig,
-} from "@tsonic/backend";
+} from "@tsonic/csharp-backend";
 import type { ResolvedConfig, Result } from "../../types.js";
 import { findMainEntryInfo, hasTopLevelExecutableStatements } from "./entry.js";
 import {

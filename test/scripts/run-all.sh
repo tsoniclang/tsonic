@@ -381,8 +381,8 @@ run_parallel_mocha_phases() {
     fi
 
     load_parallel_mocha_phase_stats "FRONTEND" "Frontend Tests" "@tsonic/frontend"
-    load_parallel_mocha_phase_stats "BACKEND" "Backend Tests" "@tsonic/backend"
-    load_parallel_mocha_phase_stats "EMITTER" "Emitter Tests" "@tsonic/emitter"
+    load_parallel_mocha_phase_stats "BACKEND" "Backend Tests" "@tsonic/csharp-backend"
+    load_parallel_mocha_phase_stats "EMITTER" "Emitter Tests" "@tsonic/csharp-emitter"
     if [ "$CLI_STATUS" != "skipped" ]; then
         load_parallel_mocha_phase_stats "CLI" "CLI Tests" "@tsonic/cli"
     fi

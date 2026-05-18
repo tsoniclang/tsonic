@@ -2,7 +2,7 @@
  * Type definitions for CLI
  */
 
-import type { OutputType, PackageMetadata } from "@tsonic/backend";
+import type { OutputType, PackageMetadata } from "@tsonic/csharp-backend";
 
 export type SurfaceMode = string;
 

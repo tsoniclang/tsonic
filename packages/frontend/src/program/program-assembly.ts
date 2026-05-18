@@ -156,6 +156,10 @@ export const createProgram = (
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
   const surface = options.surface ?? "core";
+  const activeTargetId =
+    options.backendTargetId === undefined
+      ? undefined
+      : String(options.backendTargetId);
   const initialSurfaceResolveOptions = {
     projectRoot: options.projectRoot,
   };
@@ -241,7 +245,8 @@ export const createProgram = (
     path.join(options.projectRoot, "__tsonic_source_bindings__.ts"),
     options.projectRoot,
     surface,
-    authoritativeTsonicPackageRoots
+    authoritativeTsonicPackageRoots,
+    activeTargetId
   );
   if (!bindingSourceFiles.ok) {
     return error(
@@ -361,7 +366,8 @@ export const createProgram = (
             aliasTarget,
             packageRoot,
             options.surface,
-            options.projectRoot
+            options.projectRoot,
+            activeTargetId
           );
 
           if (!resolved.ok || !resolved.value) {
@@ -428,7 +434,8 @@ export const createProgram = (
           moduleName,
           projectResolveFile,
           options.surface,
-          options.projectRoot
+          options.projectRoot,
+          activeTargetId
         );
         if (projectSourcePackage.ok && projectSourcePackage.value) {
           return {
@@ -495,13 +502,15 @@ export const createProgram = (
               moduleName,
               authoritativePackageRoot,
               options.surface,
-              options.projectRoot
+              options.projectRoot,
+              activeTargetId
             )
           : resolveSourcePackageImport(
               moduleName,
               containingFile,
               options.surface,
-              options.projectRoot
+              options.projectRoot,
+              activeTargetId
             );
       if (!sourcePackage.ok) {
         return undefined;
@@ -527,7 +536,8 @@ export const createProgram = (
                 declarationAlias.targetSpecifier,
                 authoritativeAliasRoot,
                 options.surface,
-                options.projectRoot
+                options.projectRoot,
+                activeTargetId
               )
             : declarationAlias.targetSpecifier === "." ||
                 declarationAlias.targetSpecifier.startsWith("./")
@@ -535,13 +545,15 @@ export const createProgram = (
                   declarationAlias.targetSpecifier,
                   path.dirname(declarationAlias.declarationFile),
                   options.surface,
-                  options.projectRoot
+                  options.projectRoot,
+                  activeTargetId
                 )
               : resolveSourcePackageImport(
                   declarationAlias.targetSpecifier,
                   containingFile,
                   options.surface,
-                  options.projectRoot
+                  options.projectRoot,
+                  activeTargetId
                 );
         if (redirectedSourcePackage.ok && redirectedSourcePackage.value) {
           return toTsSourceResolvedModule(

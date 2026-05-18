@@ -12,7 +12,7 @@
   "exclude": ["node_modules", "dist"],
   "references": [
     { "path": "../frontend" },
-    { "path": "../emitter" },
-    { "path": "../backend" }
+    { "path": "../targets/csharp/emitter" },
+    { "path": "../targets/csharp/backend" }
   ]
 }

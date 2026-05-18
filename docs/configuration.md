@@ -128,6 +128,7 @@ That manifest is where a package declares:
 - exported subpaths
 - ambient files
 - module aliases
+- supported backend targets
 - runtime metadata when needed
 
 Generated CLR binding packages are different; they are owned by `tsbindgen` and

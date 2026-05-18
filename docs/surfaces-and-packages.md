@@ -69,6 +69,7 @@ Each uses `tsonic.package.json` metadata to declare:
 - ambient files
 - module aliases
 - surface compatibility
+- supported backend targets
 - runtime metadata where needed
 
 The compiler treats these manifests as the package authority. It does not infer
@@ -82,6 +83,7 @@ Example:
   "schemaVersion": 1,
   "kind": "tsonic-source-package",
   "surfaces": ["@tsonic/js"],
+  "supportedTargets": ["csharp"],
   "source": {
     "exports": {
       ".": "./src/index.ts",

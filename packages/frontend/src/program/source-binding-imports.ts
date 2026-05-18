@@ -41,7 +41,8 @@ export const resolveSourceBindingFiles = (
   containingFile: string,
   projectRoot: string,
   surface: SurfaceMode,
-  authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>
+  authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>,
+  activeTargetId?: string
 ): Result<readonly string[], Diagnostic> => {
   const kindSet = new Set(kinds);
   const seenImports = new Set<string>();
@@ -73,13 +74,15 @@ export const resolveSourceBindingFiles = (
             sourceImport,
             authoritativePackageRoot,
             surface,
-            projectRoot
+            projectRoot,
+            activeTargetId
           )
         : resolveSourcePackageImport(
             sourceImport,
             containingFile,
             surface,
-            projectRoot
+            projectRoot,
+            activeTargetId
           );
     if (!resolved.ok) {
       return resolved;
@@ -124,7 +127,8 @@ export const resolveSourceBackedBindingFiles = (
   containingFile: string,
   projectRoot: string,
   surface: SurfaceMode,
-  authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>
+  authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>,
+  activeTargetId?: string
 ): Result<readonly string[], Diagnostic> => {
   const resolvedSimpleBindings = resolveSourceBindingFiles(
     bindings,
@@ -132,7 +136,8 @@ export const resolveSourceBackedBindingFiles = (
     containingFile,
     projectRoot,
     surface,
-    authoritativeTsonicPackageRoots
+    authoritativeTsonicPackageRoots,
+    activeTargetId
   );
   if (!resolvedSimpleBindings.ok) {
     return resolvedSimpleBindings;

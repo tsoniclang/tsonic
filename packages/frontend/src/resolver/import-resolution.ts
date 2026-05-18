@@ -31,6 +31,7 @@ export type ResolveImportOptions = {
   readonly bindings?: BindingRegistry;
   readonly projectRoot?: string;
   readonly surface?: string;
+  readonly backendTargetId?: string;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
   readonly declarationModuleAliases?: ReadonlyMap<
     string,
@@ -164,7 +165,8 @@ export const resolveImport = (
               declarationAlias.targetSpecifier,
               authoritativePackageRoot,
               opts.surface,
-              opts.projectRoot
+              opts.projectRoot,
+              opts.backendTargetId
             )
           : declarationAlias.targetSpecifier === "." ||
               declarationAlias.targetSpecifier.startsWith("./")
@@ -172,13 +174,15 @@ export const resolveImport = (
                 declarationAlias.targetSpecifier,
                 path.dirname(declarationAlias.declarationFile),
                 opts.surface,
-                opts.projectRoot
+                opts.projectRoot,
+                opts.backendTargetId
               )
             : resolveSourcePackageImport(
                 declarationAlias.targetSpecifier,
                 containingFile,
                 opts.surface,
-                opts.projectRoot
+                opts.projectRoot,
+                opts.backendTargetId
               );
       if (!declarationAliasTarget.ok) {
         return declarationAliasTarget;
@@ -204,13 +208,15 @@ export const resolveImport = (
             canonicalImportSpecifier,
             authoritativePackageRoot,
             opts.surface,
-            opts.projectRoot
+            opts.projectRoot,
+            opts.backendTargetId
           )
         : resolveSourcePackageImport(
             canonicalImportSpecifier,
             containingFile,
             opts.surface,
-            opts.projectRoot
+            opts.projectRoot,
+            opts.backendTargetId
           );
     if (!sourcePackage.ok) return sourcePackage;
     if (sourcePackage.value) {
@@ -246,7 +252,9 @@ export const resolveImport = (
 
   // Use import-driven resolution for external imports (if resolver provided)
   if (externalResolver) {
-    const externalResolution = externalResolver.resolve(canonicalImportSpecifier);
+    const externalResolution = externalResolver.resolve(
+      canonicalImportSpecifier
+    );
     if (externalResolution.kind === "externalSurface") {
       return ok({
         resolvedPath: "", // No file path for external imports

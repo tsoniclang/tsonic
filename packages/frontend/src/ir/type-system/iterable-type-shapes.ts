@@ -9,6 +9,7 @@ import {
 } from "../types/type-ops.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { normalizeToNominal } from "./type-system-state.js";
+import { resolveMemberTypeNoDiag } from "./inference-member-lookup.js";
 
 export type IterableShape = {
   readonly mode: "sync" | "async";
@@ -231,16 +232,26 @@ const resolveNominalMemberReturnTypes = (
       : undefined;
 
   const result: IrType[] = [];
-  const propertyType = substituteType(memberEntry.type);
-  if (propertyType) {
-    result.push(propertyType);
-  }
+  const pushMemberType = (candidate: IrType | undefined): void => {
+    if (!candidate) {
+      return;
+    }
+
+    if (
+      candidate.kind === "functionType" &&
+      candidate.parameters.length === 0
+    ) {
+      result.push(candidate.returnType);
+      return;
+    }
+
+    result.push(candidate);
+  };
+
+  pushMemberType(substituteType(memberEntry.type));
 
   for (const signature of memberEntry.signatures ?? []) {
-    const returnType = substituteType(signature.returnType);
-    if (returnType) {
-      result.push(returnType);
-    }
+    pushMemberType(substituteType(signature.returnType));
   }
 
   return result;
@@ -254,7 +265,14 @@ const resolveStructuralMemberReturnTypes = (
 
   for (const member of type.structuralMembers ?? []) {
     if (member.kind === "propertySignature" && member.name === memberName) {
-      result.push(member.type);
+      if (
+        member.type.kind === "functionType" &&
+        member.type.parameters.length === 0
+      ) {
+        result.push(member.type.returnType);
+      } else {
+        result.push(member.type);
+      }
       continue;
     }
 
@@ -269,6 +287,24 @@ const resolveStructuralMemberReturnTypes = (
   }
 
   return result;
+};
+
+const resolveCallableMemberReturnTypes = (
+  type: IrType | undefined
+): readonly IrType[] => {
+  if (!type) {
+    return [];
+  }
+
+  if (type.kind === "functionType") {
+    return type.parameters.length === 0 ? [type.returnType] : [];
+  }
+
+  if (type.kind === "intersectionType") {
+    return type.types.flatMap(resolveCallableMemberReturnTypes);
+  }
+
+  return [type];
 };
 
 export const getIterableShape = (
@@ -316,6 +352,18 @@ export const getIterableShape = (
     return knownShape;
   }
 
+  for (const returnType of resolveCallableMemberReturnTypes(
+    resolveMemberTypeNoDiag(state, normalized, "[symbol:iterator]")
+  )) {
+    const nested = getIterableShape(state, returnType, nextVisited);
+    if (nested) {
+      return {
+        mode: "sync",
+        elementType: nested.elementType,
+      };
+    }
+  }
+
   for (const returnType of resolveStructuralMemberReturnTypes(
     normalized,
     "[symbol:iterator]"
@@ -338,6 +386,18 @@ export const getIterableShape = (
     if (nested) {
       return {
         mode: "sync",
+        elementType: nested.elementType,
+      };
+    }
+  }
+
+  for (const returnType of resolveCallableMemberReturnTypes(
+    resolveMemberTypeNoDiag(state, normalized, "[symbol:asyncIterator]")
+  )) {
+    const nested = getIterableShape(state, returnType, nextVisited);
+    if (nested) {
+      return {
+        mode: "async",
         elementType: nested.elementType,
       };
     }

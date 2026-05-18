@@ -175,6 +175,49 @@ describe("add npm (package manifests)", function () {
     }
   });
 
+  it("rejects source packages that do not support the active target", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-add-npm-source-package-target-")
+    );
+    try {
+      const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
+      installJsSurface(dir);
+      const pkgName = "@acme/rust-only";
+      writeLocalNpmPackage(dir, "local/rust-only", {
+        name: pkgName,
+        packageManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
+          supportedTargets: ["rust"],
+          source: {
+            namespace: "Acme.RustOnly",
+            exports: { ".": "./src/index.ts" },
+          },
+        },
+      });
+      mkdirSync(join(dir, "local/rust-only", "src"), { recursive: true });
+      writeFileSync(
+        join(dir, "local/rust-only", "src", "index.ts"),
+        "export const ok = true;\n",
+        "utf-8"
+      );
+
+      const result = addNpmCommand("./local/rust-only", configPath, {
+        quiet: true,
+      });
+
+      expect(result.ok).to.equal(false);
+      if (result.ok) return;
+      expect(result.error).to.include(
+        "Package @acme/rust-only does not support target csharp"
+      );
+      expect(result.error).to.include("Supported targets: rust");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("merges overlay metadata from source packages when they declare runtime requirements", () => {
     const dir = mkdtempSync(
       join(tmpdir(), "tsonic-add-npm-source-package-overlay-")

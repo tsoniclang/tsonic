@@ -1210,6 +1210,35 @@ describe("IR Builder", function () {
         expect(handler?.kind).to.equal("arrowFunction");
         if (!handler || handler.kind !== "arrowFunction") return;
 
+        const controlsDecl = registerDecl.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "controls"
+            )
+        );
+        expect(controlsDecl).to.not.equal(undefined);
+        if (!controlsDecl) return;
+
+        const controlsInit = controlsDecl.declarations[0]?.initializer;
+        expect(controlsInit?.kind).to.equal("call");
+        expect(controlsInit?.inferredType?.kind).to.equal("arrayType");
+        if (controlsInit?.inferredType?.kind !== "arrayType") return;
+
+        const controlsElementType = controlsInit.inferredType.elementType;
+        expect(controlsElementType.kind).to.equal("referenceType");
+        if (controlsElementType.kind !== "referenceType") return;
+
+        expect(controlsElementType.typeId).to.deep.include({
+          stableId: "@fixture/pkg:fixture.pkg.NextControl",
+          providerName: "fixture.pkg.NextControl",
+          ownerIdentity: "@fixture/pkg",
+          sourceName: "NextControl",
+          origin: "source",
+        });
+
         const nextType = handler.parameters[2]?.type;
         expect(nextType?.kind).to.equal("functionType");
         if (!nextType || nextType.kind !== "functionType") return;

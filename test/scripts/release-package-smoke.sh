@@ -125,15 +125,15 @@ mkdir -p "$PACK_DIR" "$CONSUMER_DIR/packages/app/src"
 
 for built_path in \
   "$ROOT_DIR/packages/frontend/dist/index.js" \
-  "$ROOT_DIR/packages/emitter/dist/index.js" \
-  "$ROOT_DIR/packages/backend/dist/index.js" \
+  "$ROOT_DIR/packages/targets/csharp/emitter/dist/index.js" \
+  "$ROOT_DIR/packages/targets/csharp/backend/dist/index.js" \
   "$ROOT_DIR/packages/cli/dist/index.js"; do
   require_path "$built_path"
 done
 
 frontend_tgz="$(pack_package "$ROOT_DIR/packages/frontend")"
-emitter_tgz="$(pack_package "$ROOT_DIR/packages/emitter")"
-backend_tgz="$(pack_package "$ROOT_DIR/packages/backend")"
+emitter_tgz="$(pack_package "$ROOT_DIR/packages/targets/csharp/emitter")"
+backend_tgz="$(pack_package "$ROOT_DIR/packages/targets/csharp/backend")"
 cli_tgz="$(pack_package "$ROOT_DIR/packages/cli")"
 tsonic_tgz="$(pack_package "$ROOT_DIR/npm/tsonic")"
 tsbindgen_tgz="$(pack_package "$TSONICLANG_ROOT/tsbindgen")"
