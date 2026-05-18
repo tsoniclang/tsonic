@@ -8,6 +8,8 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { buildModuleDependencyGraph } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
+import { CSHARP_EMITTER_TARGET_ID } from "../target.js";
+import { CSHARP_TEST_CAPABILITIES } from "../test-backend-capabilities.js";
 import { DiagnosticsMode, Scenario } from "./types.js";
 
 // Resolve paths to globals packages for golden tests
@@ -99,6 +101,8 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
     rootNamespace,
     typeRoots,
     surface,
+    backendCapabilities: CSHARP_TEST_CAPABILITIES,
+    backendTargetId: CSHARP_EMITTER_TARGET_ID,
   });
 
   // Handle expected diagnostics tests

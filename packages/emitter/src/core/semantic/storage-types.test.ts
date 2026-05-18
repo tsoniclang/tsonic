@@ -6,7 +6,7 @@ import { normalizeRuntimeStorageType } from "./storage-types.js";
 
 const testTypeId = (targetName: string) => ({
   stableId: `Test:${targetName}`,
-  targetName,
+  providerName: targetName,
   ownerIdentity: "Test",
   sourceName: targetName.split(".").pop() ?? targetName,
   origin: "source" as const,
@@ -34,7 +34,7 @@ describe("storage-types", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
       typeId: testTypeId("Test.Router"),
     };
 
@@ -70,7 +70,7 @@ describe("storage-types", () => {
             elementType: {
               kind: "referenceType",
               name: "object",
-              targetQualifiedName: "System.Object",
+              providerQualifiedName: "System.Object",
             },
             storageErasedElementType: middlewareLike,
             origin: "explicit",
@@ -93,7 +93,7 @@ describe("storage-types", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
       typeId: testTypeId("Test.Router"),
     };
 
@@ -138,7 +138,7 @@ describe("storage-types", () => {
                 elementType: {
                   kind: "referenceType",
                   name: "object",
-                  targetQualifiedName: "System.Object",
+                  providerQualifiedName: "System.Object",
                 },
                 storageErasedElementType: middlewareLike,
                 origin: "explicit",
@@ -197,7 +197,7 @@ describe("storage-types", () => {
       {
         kind: "referenceType",
         name: "object",
-        targetQualifiedName: "System.Object",
+        providerQualifiedName: "System.Object",
       },
     ],
   ] as const satisfies readonly [string, IrType][]) {
@@ -205,7 +205,7 @@ describe("storage-types", () => {
       expect(normalizeRuntimeStorageType(type, context)).to.deep.equal({
         kind: "referenceType",
         name: "object",
-        targetQualifiedName: "System.Object",
+        providerQualifiedName: "System.Object",
       });
     });
   }
@@ -228,7 +228,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "object",
-          targetQualifiedName: "System.Object",
+          providerQualifiedName: "System.Object",
         },
         { kind: "primitiveType", name: "null" },
       ])
@@ -244,7 +244,7 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "referenceType",
       name: "object",
-      targetQualifiedName: "System.Object",
+      providerQualifiedName: "System.Object",
     });
   });
 
@@ -306,7 +306,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "object",
-          targetQualifiedName: "System.Object",
+          providerQualifiedName: "System.Object",
         },
         { kind: "primitiveType", name: "null" },
       ],
@@ -339,7 +339,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "List",
-          targetQualifiedName: "System.Collections.Generic.List",
+          providerQualifiedName: "System.Collections.Generic.List",
           typeArguments: [{ kind: "typeParameterType", name: "T" }],
         },
         context
@@ -347,12 +347,12 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "referenceType",
       name: "List",
-      targetQualifiedName: "System.Collections.Generic.List",
+      providerQualifiedName: "System.Collections.Generic.List",
       typeArguments: [
         {
           kind: "referenceType",
           name: "object",
-          targetQualifiedName: "System.Object",
+          providerQualifiedName: "System.Object",
         },
       ],
     });
@@ -397,7 +397,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "List_1",
-          targetQualifiedName: "System.Collections.Generic.List`1",
+          providerQualifiedName: "System.Collections.Generic.List`1",
           typeArguments: [
             {
               kind: "referenceType",
@@ -414,7 +414,7 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "referenceType",
       name: "List_1",
-      targetQualifiedName: "System.Collections.Generic.List`1",
+      providerQualifiedName: "System.Collections.Generic.List`1",
       typeArguments: [
         {
           kind: "referenceType",
@@ -459,7 +459,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "List_1",
-          targetQualifiedName: "System.Collections.Generic.List`1",
+          providerQualifiedName: "System.Collections.Generic.List`1",
           typeArguments: [
             {
               kind: "referenceType",
@@ -473,7 +473,7 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "referenceType",
       name: "List_1",
-      targetQualifiedName: "System.Collections.Generic.List`1",
+      providerQualifiedName: "System.Collections.Generic.List`1",
       typeArguments: [
         {
           kind: "referenceType",
@@ -482,7 +482,7 @@ describe("storage-types", () => {
             {
               kind: "referenceType",
               name: "object",
-              targetQualifiedName: "System.Object",
+              providerQualifiedName: "System.Object",
             },
           ],
         },
@@ -520,7 +520,7 @@ describe("storage-types", () => {
             {
               kind: "referenceType",
               name: "Readable",
-              targetQualifiedName: "nodejs.stream.Readable",
+              providerQualifiedName: "nodejs.stream.Readable",
             },
           ],
         },
@@ -531,7 +531,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "Readable",
-          targetQualifiedName: "nodejs.stream.Readable",
+          providerQualifiedName: "nodejs.stream.Readable",
         },
         { kind: "primitiveType", name: "undefined" },
       ])

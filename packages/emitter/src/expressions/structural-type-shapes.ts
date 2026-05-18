@@ -60,7 +60,7 @@ export const getDirectIterableElementType = (
     /\$instance$/,
     ""
   );
-  const clrSimpleName = resolved.targetQualifiedName
+  const clrSimpleName = resolved.providerQualifiedName
     ?.split(".")
     .pop()
     ?.replace(/\$instance$/, "");
@@ -158,9 +158,9 @@ const getReferenceBindingLookupCandidates = (
   };
 
   add(ref.name);
-  add(ref.targetQualifiedName);
+  add(ref.providerQualifiedName);
   add(ref.typeId?.sourceName);
-  add(ref.typeId?.targetName);
+  add(ref.typeId?.providerName);
 
   for (const value of [...candidates]) {
     if (!value.endsWith("$instance")) {
@@ -181,7 +181,8 @@ const resolveIteratorMemberFromBindingRegistry = (
     return undefined;
   }
 
-  const preferredTargetOwner = ref.targetQualifiedName ?? ref.typeId?.targetName;
+  const preferredTargetOwner =
+    ref.providerQualifiedName ?? ref.typeId?.providerName;
   const matches = new Map<string, IteratorMemberResolution>();
 
   for (const candidate of getReferenceBindingLookupCandidates(ref)) {
@@ -381,7 +382,7 @@ export const canPreferAnonymousStructuralTarget = (type: IrType): boolean => {
   }
 
   const simpleName = stripped.name.split(".").pop() ?? stripped.name;
-  const clrSimpleName = stripped.targetQualifiedName?.split(".").pop();
+  const clrSimpleName = stripped.providerQualifiedName?.split(".").pop();
   const isCompilerGeneratedCarrier = (name: string | undefined): boolean =>
     !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
 

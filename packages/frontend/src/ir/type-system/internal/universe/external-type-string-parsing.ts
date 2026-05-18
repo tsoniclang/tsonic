@@ -125,24 +125,13 @@ export const parseExternalTypeString = (targetType: string): IrType => {
     const arity = parseInt(underscoreInstantiationMatch[2], 10);
     const typeArgsStr = underscoreInstantiationMatch[3];
 
-    // NOTE: target type strings inside normalized signatures often use assembly-qualified
-    // type arguments (commas for provider metadata components).
-    // Those commas are not type-argument separators. Only parse `[[...]]` payloads
-    // that follow our deterministic tsbindgen encoding for bindings.json heritage
-    // (no assembly identity segments).
-    //
-    // If we mis-parse assembly-qualified args, we break signatureKey matching which
-    // hydrates optional/rest flags from tsbindgen .d.ts (airplane-grade determinism).
-    const looksAssemblyQualified =
-      /\bVersion=|\bCulture=|\bPublicKeyToken=/.test(typeArgsStr);
-
-    const args = looksAssemblyQualified ? [] : splitTypeArguments(typeArgsStr);
+    const args = splitTypeArguments(typeArgsStr);
 
     // Airplane-grade safety: only attach parsed typeArguments when we can prove
     // the arity matches. Otherwise, preserve only the generic *definition* arity
     // and keep the raw provider target string for later resolution.
     const typeArguments: IrType[] | undefined =
-      !looksAssemblyQualified && args.length === arity
+      args.length === arity
         ? args.map((arg) => parseExternalTypeString(arg.trim()))
         : undefined;
 
@@ -150,7 +139,7 @@ export const parseExternalTypeString = (targetType: string): IrType => {
       kind: "referenceType",
       name: `${baseName}_${arity}`,
       typeArguments,
-      targetQualifiedName: targetType,
+      providerQualifiedName: targetType,
     };
   }
 
@@ -161,20 +150,18 @@ export const parseExternalTypeString = (targetType: string): IrType => {
     const arity = parseInt(genericMatch[2], 10);
     const typeArgsStr = genericMatch[3]; // May be undefined
 
-    // Extract type arguments if present
-    const typeArguments: IrType[] = [];
+    let typeArguments: IrType[] | undefined;
     if (typeArgsStr) {
-      // Parse comma-separated type args (this is simplified, may need proper parsing)
       const args = splitTypeArguments(typeArgsStr);
-      for (const arg of args) {
-        typeArguments.push(parseExternalTypeString(arg.trim()));
+      if (args.length === arity) {
+        typeArguments = args.map((arg) => parseExternalTypeString(arg.trim()));
       }
     } else {
-      // Generate placeholder type parameters
-      for (let i = 0; i < arity; i++) {
+      typeArguments = [];
+      for (let index = 0; index < arity; index++) {
         typeArguments.push({
           kind: "typeParameterType",
-          name: i === 0 ? "T" : `T${i + 1}`,
+          name: index === 0 ? "T" : `T${index + 1}`,
         });
       }
     }
@@ -182,8 +169,8 @@ export const parseExternalTypeString = (targetType: string): IrType => {
     return {
       kind: "referenceType",
       name: baseName,
-      typeArguments: typeArguments.length > 0 ? typeArguments : undefined,
-      targetQualifiedName: targetType,
+      typeArguments,
+      providerQualifiedName: targetType,
     };
   }
 
@@ -191,7 +178,7 @@ export const parseExternalTypeString = (targetType: string): IrType => {
   return {
     kind: "referenceType",
     name: targetType,
-    targetQualifiedName: targetType,
+    providerQualifiedName: targetType,
   };
 };
 

@@ -82,9 +82,9 @@ export const buildAliasTable = (
     addSourceNameAliases(aliases, typeId.sourceName, typeId);
   }
 
-  for (const [targetName, typeId] of externalCatalog.targetNameToTypeId) {
-    if (!aliases.has(targetName)) {
-      aliases.set(targetName, typeId);
+  for (const [providerName, typeId] of externalCatalog.providerNameToTypeId) {
+    if (!aliases.has(providerName)) {
+      aliases.set(providerName, typeId);
     }
   }
 

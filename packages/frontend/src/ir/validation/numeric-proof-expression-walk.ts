@@ -291,7 +291,7 @@ export const processExpression = (
           const typeInfo = objectType
             ? `objectType.kind=${objectType.kind}` +
               (objectType.kind === "referenceType"
-                ? `, name=${objectType.name}, targetQualifiedName=${objectType.targetQualifiedName ?? "undefined"}`
+                ? `, name=${objectType.name}, providerQualifiedName=${objectType.providerQualifiedName ?? "undefined"}`
                 : "")
             : "objectType=undefined";
 

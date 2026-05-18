@@ -1,5 +1,6 @@
 import {
   assumeEmittableIrModules,
+  type BackendTargetId,
   type EmittableIrModule,
   type IrModule,
   type IrStatement,
@@ -22,14 +23,19 @@ import type { TsonicProgram } from "./types.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 import { error, ok, type Result } from "../types/result.js";
 
-export type IrProcessingPipelineOptions = {
+export type IrProcessingPipelineOptions<
+  Target extends BackendTargetId = BackendTargetId,
+> = {
   readonly sourceRoot: string;
   readonly rootNamespace: string;
   readonly backendCapabilities?: TsonicProgram["options"]["backendCapabilities"];
+  readonly backendTargetId?: Target;
 };
 
-export type IrProcessingPipelineResult = {
-  readonly modules: readonly EmittableIrModule[];
+export type IrProcessingPipelineResult<
+  Target extends BackendTargetId = BackendTargetId,
+> = {
+  readonly modules: readonly EmittableIrModule<Target>[];
 };
 
 export const collectSynthesizedTypeNames = (
@@ -75,11 +81,13 @@ const knownReferenceTypesFor = (
     ...collectSynthesizedTypeNames(modules),
   ]);
 
-export const runIrProcessingPipeline = (
+export const runIrProcessingPipeline = <
+  Target extends BackendTargetId = BackendTargetId,
+>(
   modules: readonly IrModule[],
   program: TsonicProgram,
-  options: IrProcessingPipelineOptions
-): Result<IrProcessingPipelineResult, readonly Diagnostic[]> => {
+  options: IrProcessingPipelineOptions<Target>
+): Result<IrProcessingPipelineResult<Target>, readonly Diagnostic[]> => {
   const restResult = runRestTypeSynthesisPass(modules);
   const loweredModules = runAnonymousTypeLoweringPass(
     restResult.modules
@@ -162,6 +170,9 @@ export const runIrProcessingPipeline = (
   }
 
   return ok({
-    modules: assumeEmittableIrModules(virtualResult.modules),
+    modules: assumeEmittableIrModules(
+      virtualResult.modules,
+      options.backendTargetId
+    ),
   });
 };

@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
+import { ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES } from "./test-backend-capabilities.js";
 import type { IrModule } from "../ir/types.js";
 
 const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
@@ -56,6 +57,7 @@ describe("Fixture fast coverage", function () {
       rootNamespace: "NodejsSurfaceModuleGraph",
       surface: "@tsonic/js",
       typeRoots: [nodejsSourceRoot],
+      backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     });
 
     expect(result.ok).to.equal(true);
@@ -116,6 +118,7 @@ describe("Fixture fast coverage", function () {
       rootNamespace: "NodejsPathPosixJoin",
       surface: "@tsonic/js",
       typeRoots: [nodejsSourceRoot],
+      backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     });
 
     expect(result.ok).to.equal(true);
@@ -141,6 +144,7 @@ describe("Fixture fast coverage", function () {
       rootNamespace: "JsSurfaceNodeAliases",
       surface: "@tsonic/js",
       typeRoots: [nodejsSourceRoot],
+      backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     });
 
     expect(result.ok).to.equal(true);
@@ -186,6 +190,7 @@ describe("Fixture fast coverage", function () {
       rootNamespace: "NodejsSurfaceAliasCoverage",
       surface: "@tsonic/js",
       typeRoots: [nodejsSourceRoot],
+      backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     });
 
     expect(result.ok).to.equal(true);
@@ -228,6 +233,7 @@ describe("Fixture fast coverage", function () {
       sourceRoot: fixtureSourceRoot(fixtureName),
       rootNamespace: "SourcePackageBasic",
       surface: "@tsonic/js",
+      backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     });
 
     expect(result.ok).to.equal(true);
@@ -255,6 +261,7 @@ describe("Fixture fast coverage", function () {
       sourceRoot: fixtureSourceRoot(fixtureName),
       rootNamespace: "SourcePackageSubpath",
       surface: "@tsonic/js",
+      backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     });
 
     expect(result.ok).to.equal(true);
@@ -285,6 +292,7 @@ describe("Fixture fast coverage", function () {
       rootNamespace: "NodejsSurfaceImportsNegative",
       surface: "@tsonic/js",
       typeRoots: [nodejsSourceRoot],
+      backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     });
 
     expect(result.ok).to.equal(false);
@@ -330,6 +338,7 @@ describe("Fixture fast coverage", function () {
           rootNamespace: scenario.rootNamespace,
           surface: "@tsonic/js",
           typeRoots: [jsSourceRoot, coreRoot],
+          backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         }
       );
 

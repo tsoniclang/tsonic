@@ -8,7 +8,7 @@ describe("call resolution signatures catalog", () => {
     const dbSetId: TypeId = {
       stableId:
         "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbSet`1",
-      targetName: "Microsoft.EntityFrameworkCore.DbSet`1",
+      providerName: "Microsoft.EntityFrameworkCore.DbSet`1",
       ownerIdentity: "Microsoft.EntityFrameworkCore",
       sourceName: "DbSet_1",
     };
@@ -26,7 +26,7 @@ describe("call resolution signatures catalog", () => {
       unifiedCatalog: {
         resolveTsName: (name: string) =>
           name === "DbSet_1" ? dbSetId : undefined,
-        resolveTargetName: () => undefined,
+        resolveProviderName: () => undefined,
         getByTypeId: () => ({ origin: "external" }),
         getTypeParameters: () => [{ name: "TEntity" }],
       },
@@ -53,13 +53,13 @@ describe("call resolution signatures catalog", () => {
   it("treats tsbindgen instance wrappers as equivalent to their exported generic aliases", () => {
     const dbSetAliasId: TypeId = {
       stableId: "TestApp:DbSet_1",
-      targetName: "DbSet_1",
+      providerName: "DbSet_1",
       ownerIdentity: "TestApp",
       sourceName: "DbSet_1",
     };
     const dbSetInstanceId: TypeId = {
       stableId: "TestApp:DbSet_1$instance",
-      targetName: "DbSet_1$instance",
+      providerName: "DbSet_1$instance",
       ownerIdentity: "TestApp",
       sourceName: "DbSet_1$instance",
     };
@@ -82,7 +82,7 @@ describe("call resolution signatures catalog", () => {
           if (name === "DbSet_1$instance") return dbSetInstanceId;
           return undefined;
         },
-        resolveTargetName: () => undefined,
+        resolveProviderName: () => undefined,
         getByTypeId: () => ({ origin: "source" }),
         getTypeParameters: (typeId: TypeId) =>
           typeId.stableId === dbSetAliasId.stableId

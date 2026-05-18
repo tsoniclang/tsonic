@@ -58,7 +58,10 @@ import type { DeclId } from "./type-system/types.js";
 import { readSourcePackageMetadata } from "../program/source-package-metadata.js";
 import { getNamespaceFromPath } from "../resolver/namespace.js";
 import { getClassNameFromPath } from "../resolver/naming.js";
-import { createMemberSymbolId, createTypeSymbolId } from "../symbols/index.js";
+import {
+  memberSymbolIdFromStableId,
+  typeSymbolIdFromStableId,
+} from "../symbols/index.js";
 import type { TypeSymbolId } from "../symbols/index.js";
 
 const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
@@ -186,10 +189,17 @@ const readNamespaceFromBindingsJson = (
 };
 
 type ImportedIdentifierExternalBinding = {
-  readonly targetQualifiedName: string;
-  readonly targetOwnerIdentity?: string;
+  readonly providerQualifiedName: string;
+  readonly providerOwnerIdentity?: string;
   readonly typeSymbolId?: TypeSymbolId;
 };
+
+const typeSymbolIdForExternalType = (
+  ownerIdentity: string,
+  providerQualifiedName: string,
+  stableId?: string
+): TypeSymbolId =>
+  typeSymbolIdFromStableId(stableId ?? `${ownerIdentity}:${providerQualifiedName}`);
 
 type SourceFileExportKind =
   | "class"
@@ -374,9 +384,9 @@ const resolveSourcePackageImportedIdentifierExternalBinding = (
       : `${namespace}.${getClassNameFromPath(declPath)}.${exported.localName}`;
 
   return {
-    targetQualifiedName: owner,
-    targetOwnerIdentity: metadata.namespace,
-    typeSymbolId: createTypeSymbolId(metadata.namespace, owner),
+    providerQualifiedName: owner,
+    providerOwnerIdentity: metadata.namespace,
+    typeSymbolId: typeSymbolIdFromStableId(`${metadata.namespace}:${owner}`),
   };
 };
 
@@ -433,16 +443,20 @@ const resolveImportedIdentifierExternalBinding = (
   };
 
   const resolvedTypeBinding = namespaceBinding.types.find(matchesExportName);
-  const targetQualifiedName = resolvedTypeBinding?.name;
-  if (!targetQualifiedName) {
+  const providerQualifiedName = resolvedTypeBinding?.name;
+  if (!providerQualifiedName) {
     return undefined;
   }
   const ownerIdentity =
     resolvedTypeBinding.members[0]?.binding.assembly ?? "external-surface";
   return {
-    targetQualifiedName,
-    targetOwnerIdentity: ownerIdentity,
-    typeSymbolId: createTypeSymbolId(ownerIdentity, targetQualifiedName),
+    providerQualifiedName,
+    providerOwnerIdentity: ownerIdentity,
+    typeSymbolId: typeSymbolIdForExternalType(
+      ownerIdentity,
+      providerQualifiedName,
+      resolvedTypeBinding.stableId
+    ),
   };
 };
 
@@ -619,18 +633,15 @@ export const convertExpression = (
         name: node.text,
         inferredType: effectiveIdentifierType,
         sourceSpan: getSourceSpan(node),
-        targetQualifiedName: externalBinding.type,
-        targetOwnerIdentity: externalBinding.assembly,
-        targetMemberName: externalBinding.targetMemberName,
-        typeSymbolId: createTypeSymbolId(
-          externalBinding.assembly,
-          externalBinding.staticType ?? externalBinding.type
+        providerQualifiedName: externalBinding.type,
+        providerOwnerIdentity: externalBinding.assembly,
+        providerMemberName: externalBinding.providerMemberName,
+        typeSymbolId: typeSymbolIdFromStableId(
+          `${externalBinding.assembly}:${externalBinding.staticType ?? externalBinding.type}`
         ),
-        memberSymbolId: externalBinding.targetMemberName
-          ? createMemberSymbolId(
-              externalBinding.assembly,
-              externalBinding.staticType ?? externalBinding.type,
-              externalBinding.targetMemberName
+        memberSymbolId: externalBinding.providerMemberName
+          ? memberSymbolIdFromStableId(
+              `${externalBinding.assembly}:${externalBinding.staticType ?? externalBinding.type}.${externalBinding.providerMemberName}`
             )
           : undefined,
         originalName,
@@ -661,16 +672,15 @@ export const convertExpression = (
       name: node.text,
       inferredType: effectiveIdentifierType,
       sourceSpan: getSourceSpan(node),
-      targetQualifiedName:
-        importResolvedExternalBinding?.targetQualifiedName ??
+      providerQualifiedName:
+        importResolvedExternalBinding?.providerQualifiedName ??
         ambientSourceOwner,
-      targetOwnerIdentity: importResolvedExternalBinding?.targetOwnerIdentity,
+      providerOwnerIdentity: importResolvedExternalBinding?.providerOwnerIdentity,
       typeSymbolId:
         importResolvedExternalBinding?.typeSymbolId ??
         (ambientSourceOwner
-          ? createTypeSymbolId(
-              importResolvedExternalBinding?.targetOwnerIdentity ?? "source",
-              ambientSourceOwner
+          ? typeSymbolIdFromStableId(
+              `${importResolvedExternalBinding?.providerOwnerIdentity ?? "source"}:${ambientSourceOwner}`
             )
           : undefined),
       originalName,

@@ -293,7 +293,7 @@ export const irTypeToSignatureKey = (type: IrType): string => {
     case "objectType":
       return "object";
     case "referenceType": {
-      const raw = type.targetQualifiedName ?? type.name;
+      const raw = type.providerQualifiedName ?? type.name;
       const withoutArgs = raw.includes("[[")
         ? (raw.split("[[")[0] ?? raw)
         : raw;

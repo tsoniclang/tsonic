@@ -143,7 +143,7 @@ const getFunctionValueSignature = (
   const calleeType = expr.callee.inferredType;
   if (!calleeType || calleeType.kind !== "functionType") return undefined;
 
-  if (expr.callee.kind === "identifier" && expr.callee.targetQualifiedName) {
+  if (expr.callee.kind === "identifier" && expr.callee.providerQualifiedName) {
     return undefined;
   }
 
@@ -2043,7 +2043,7 @@ const resolveActualFunctionTypeForArgument = (
 const broadObjectIrType: IrType = {
   kind: "referenceType",
   name: "object",
-  targetQualifiedName: "System.Object",
+  providerQualifiedName: "System.Object",
 };
 
 const resolveGenericBroadObjectFallbackExpectedType = (

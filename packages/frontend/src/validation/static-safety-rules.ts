@@ -6,13 +6,13 @@
  * - TSN7402: reserved historical code; JsValue is now the dynamic JSON carrier
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
- * - TSN5001: NativeAOT-safe JSON and broad Array.isArray limitations
+ * - TSN5001: deterministic native-safe JSON and broad Array.isArray limitations
  * - TSN7413: Dictionary key must be string, number, or symbol
  * - TSN7419: 'never' cannot be used as a generic type argument
  * - TSN7430: Arrow function requires explicit types (escape hatch)
  * - TSN7432: Generic function value restrictions
  *
- * This ensures NativeAOT-compatible, predictable-performance output.
+ * This ensures deterministic native-safe, predictable-performance output.
  *
  */
 
@@ -27,6 +27,7 @@ import {
 } from "../types/diagnostic.js";
 import {
   capability,
+  isCapabilityUnavailable,
   type FeatureKey,
 } from "../capabilities/backend-capabilities.js";
 import { getNodeLocation } from "./helpers.js";
@@ -53,7 +54,10 @@ const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
   capabilityName: FeatureKey,
   fallback: Diagnostic
-): Diagnostic => {
+): Diagnostic | undefined => {
+  if (!isCapabilityUnavailable(program.options.backendCapabilities, capabilityName)) {
+    return undefined;
+  }
   const backendCapability = capability(
     program.options.backendCapabilities,
     capabilityName
@@ -549,20 +553,20 @@ export const validateStaticSafety = (
     if (isJsonParseCall(node)) {
       const targetTypeNode = getJsonParseTargetTypeNode(node);
       if (targetTypeNode && isBroadJsonTargetTypeNode(targetTypeNode)) {
-        currentCollector = addDiagnostic(
-          currentCollector,
-          createBackendCapabilityDiagnostic(
-            program,
-            "broad-json-parse-target",
-            createDiagnostic(
-              "TSN5001",
-              "error",
-              "JSON.parse cannot target a broad compile-time type for NativeAOT-safe code.",
-              getNodeLocation(sourceFile, node),
-              "Use untyped JSON.parse for the JsValue dynamic carrier, JSON.parse<T>(json) for a closed DTO, or assign to a concrete typed variable. Broad targets such as unknown, any, object, and unions are not supported."
-            )
+        const diagnostic = createBackendCapabilityDiagnostic(
+          program,
+          "broad-json-targets",
+          createDiagnostic(
+            "TSN5001",
+            "error",
+            "JSON.parse cannot target a broad compile-time type for deterministic native-safe code.",
+            getNodeLocation(sourceFile, node),
+            "Use untyped JSON.parse for the JsValue dynamic carrier, JSON.parse<T>(json) for a closed DTO, or assign to a concrete typed variable. Broad targets such as unknown, any, object, and unions are not supported."
           )
         );
+        if (diagnostic) {
+          currentCollector = addDiagnostic(currentCollector, diagnostic);
+        }
       }
     }
 
@@ -576,16 +580,20 @@ export const validateStaticSafety = (
           program.checker
         )
       ) {
-        currentCollector = addDiagnostic(
-          currentCollector,
+        const diagnostic = createBackendCapabilityDiagnostic(
+          program,
+          "broad-json-stringify-source",
           createDiagnostic(
             "TSN5001",
             "error",
-            "JSON.stringify requires a closed compile-time source type for NativeAOT-safe code.",
+            "JSON.stringify requires a closed compile-time source type for deterministic native-safe code.",
             getNodeLocation(sourceFile, node),
             "Pass a concrete DTO, primitive, array of concrete values, or object literal with fully known property types. Broad sources such as unknown, any, object, unions, dictionaries, and generic type parameters are not supported for global JSON.stringify."
           )
         );
+        if (diagnostic) {
+          currentCollector = addDiagnostic(currentCollector, diagnostic);
+        }
       }
     }
 
@@ -609,20 +617,20 @@ export const validateStaticSafety = (
             program.checker
           ))
       ) {
-        currentCollector = addDiagnostic(
-          currentCollector,
-          createBackendCapabilityDiagnostic(
-            program,
-            "array-isarray-broad",
-            createDiagnostic(
-              "TSN5001",
-              "error",
-              "Array.isArray cannot narrow a broad runtime value without a closed carrier.",
-              getNodeLocation(sourceFile, node),
-              "Use Array.isArray only on values whose possible runtime carriers are known at compile time, such as concrete arrays or unions with concrete array arms. Broad unknown, any, object, and unconstrained generic values cannot be materialized as arrays in NativeAOT-safe code."
-            )
+        const diagnostic = createBackendCapabilityDiagnostic(
+          program,
+          "broad-array-narrowing",
+          createDiagnostic(
+            "TSN5001",
+            "error",
+            "Array.isArray cannot narrow a broad runtime value without a closed carrier.",
+            getNodeLocation(sourceFile, node),
+            "Use Array.isArray only on values whose possible runtime carriers are known at compile time, such as concrete arrays or unions with concrete array arms. Broad unknown, any, object, and unconstrained generic values cannot be materialized as arrays in deterministic native-safe code."
           )
         );
+        if (diagnostic) {
+          currentCollector = addDiagnostic(currentCollector, diagnostic);
+        }
       }
     }
 

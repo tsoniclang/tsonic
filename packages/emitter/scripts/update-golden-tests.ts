@@ -14,6 +14,8 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { buildModuleDependencyGraph } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../src/emitter.js";
+import { CSHARP_EMITTER_TARGET_ID } from "../src/target.js";
+import { CSHARP_TEST_CAPABILITIES } from "../src/test-backend-capabilities.js";
 import { parseConfigYaml } from "../src/golden-tests/config-parser.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,6 +71,8 @@ const generateAndWrite = (
       sourceRoot,
       rootNamespace,
       typeRoots,
+      backendCapabilities: CSHARP_TEST_CAPABILITIES,
+      backendTargetId: CSHARP_EMITTER_TARGET_ID,
     });
 
     if (!graphResult.ok) {

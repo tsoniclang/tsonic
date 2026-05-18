@@ -141,8 +141,8 @@ export const resolveImport = (
       isLocal: false,
       resolutionKind: "phantomTypeOnly",
       originalSpecifier: importSpecifier,
-      targetQualifiedName: undefined,
-      targetOwnerIdentity: undefined,
+      providerQualifiedName: undefined,
+      providerOwnerIdentity: undefined,
     });
   }
 
@@ -271,8 +271,8 @@ export const resolveImport = (
         isLocal: false,
         resolutionKind: "externalSurface",
         originalSpecifier: importSpecifier,
-        targetQualifiedName: binding.type,
-        targetOwnerIdentity: binding.assembly,
+        providerQualifiedName: binding.type,
+        providerOwnerIdentity: binding.assembly,
       });
     }
   }

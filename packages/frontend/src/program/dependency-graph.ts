@@ -7,7 +7,7 @@ import * as ts from "typescript";
 import { dirname, isAbsolute, relative, resolve } from "path";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
-import type { EmittableIrModule } from "../ir/types.js";
+import type { BackendTargetId, EmittableIrModule } from "../ir/types.js";
 import { buildIr } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import type { CompilerOptions } from "./types.js";
@@ -42,9 +42,11 @@ import {
 } from "./workspace-fingerprint.js";
 import type { TargetRenderTable } from "../symbols/index.js";
 
-export type ModuleDependencyGraphResult = {
-  readonly modules: readonly EmittableIrModule[];
-  readonly entryModule: EmittableIrModule;
+export type ModuleDependencyGraphResult<
+  Target extends BackendTargetId = BackendTargetId,
+> = {
+  readonly modules: readonly EmittableIrModule<Target>[];
+  readonly entryModule: EmittableIrModule<Target>;
   readonly surfaceCapabilities: SurfaceCapabilities;
   /** Type bindings loaded from external packages (for emitter bindingsRegistry) */
   readonly bindings: ReadonlyMap<string, TypeBinding>;
@@ -331,10 +333,12 @@ const appendUniqueSourceFile = (
   files.push(filePath);
 };
 
-const dedupeModulesBySourceIdentity = (
-  modules: readonly EmittableIrModule[]
-): readonly EmittableIrModule[] => {
-  const deduped: EmittableIrModule[] = [];
+const dedupeModulesBySourceIdentity = <
+  Target extends BackendTargetId = BackendTargetId,
+>(
+  modules: readonly EmittableIrModule<Target>[]
+): readonly EmittableIrModule<Target>[] => {
+  const deduped: EmittableIrModule<Target>[] = [];
   const seenModuleIds = new Set<string>();
 
   for (const module of modules) {
@@ -383,10 +387,12 @@ const dedupeDiscoveryTypeRoots = (
  * Traverses all local imports and builds IR for all discovered modules
  * Uses TypeScript's ts.resolveModuleName() for correct module resolution
  */
-export const buildModuleDependencyGraph = (
+export const buildModuleDependencyGraph = <
+  Target extends BackendTargetId = BackendTargetId,
+>(
   entryFile: string,
-  options: CompilerOptions
-): Result<ModuleDependencyGraphResult, readonly Diagnostic[]> => {
+  options: CompilerOptions<Target>
+): Result<ModuleDependencyGraphResult<Target>, readonly Diagnostic[]> => {
   const diagnostics: Diagnostic[] = [];
 
   // Normalize entry file and source root to absolute paths
@@ -733,6 +739,7 @@ export const buildModuleDependencyGraph = (
       sourceRoot: sourceRootAbs,
       rootNamespace: options.rootNamespace,
       backendCapabilities: options.backendCapabilities,
+      backendTargetId: options.backendTargetId,
     }
   );
   if (!processedResult.ok) {
@@ -771,7 +778,9 @@ export const buildModuleDependencyGraph = (
       tsonicProgram.surfaceCapabilities ?? surfaceCapabilities,
     bindings: tsonicProgram.bindings.getEmitterTypeMap(),
     bindingRegistry: tsonicProgram.bindings,
-    targetRenderTable: tsonicProgram.targetSurfaceArtifacts?.renderTable,
+    targetRenderTable:
+      tsonicProgram.targetSurfaceProvider?.getArtifacts().renderTable ??
+      tsonicProgram.targetSurfaceArtifacts?.renderTable,
     workspaceGraph: buildWorkspaceGraphSnapshot({
       projectRoot: options.projectRoot,
       sourceRoot: sourceRootAbs,

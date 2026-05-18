@@ -18,7 +18,7 @@ export const isCompilerGeneratedStructuralReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): boolean => {
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrSimpleName = type.targetQualifiedName?.split(".").pop();
+  const clrSimpleName = type.providerQualifiedName?.split(".").pop();
   return (
     isCompilerGeneratedStructuralName(simpleName) ||
     isCompilerGeneratedStructuralName(clrSimpleName)
@@ -27,12 +27,12 @@ export const isCompilerGeneratedStructuralReferenceType = (
 
 const buildReferenceType = (
   name: string,
-  targetQualifiedName: string | undefined,
+  providerQualifiedName: string | undefined,
   typeArguments: readonly IrType[] | undefined
 ): Extract<IrType, { kind: "referenceType" }> => ({
   kind: "referenceType",
   name,
-  ...(targetQualifiedName ? { targetQualifiedName } : {}),
+  ...(providerQualifiedName ? { providerQualifiedName } : {}),
   ...(typeArguments ? { typeArguments: [...typeArguments] } : {}),
 });
 
@@ -51,7 +51,7 @@ const getIteratorResultReferenceKey = (
 ): string =>
   getReferenceNominalIdentityKey(type, context) ??
   type.typeId?.stableId ??
-  type.targetQualifiedName ??
+  type.providerQualifiedName ??
   type.name;
 
 const tryResolveIteratorResultVariant = (

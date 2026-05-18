@@ -261,8 +261,8 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
 
   if (
     callee.kind !== "identifier" ||
-    !callee.targetOwnerIdentity ||
-    !callee.targetQualifiedName
+    !callee.providerOwnerIdentity ||
+    !callee.providerQualifiedName
   ) {
     return undefined;
   }
@@ -270,8 +270,8 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
   const binding = ctx.bindings.getExactBindingByKind(callee.name, "global");
   if (
     !binding ||
-    binding.assembly !== callee.targetOwnerIdentity ||
-    !targetBindingTypesMatch(binding.type, callee.targetQualifiedName) ||
+    binding.assembly !== callee.providerOwnerIdentity ||
+    !targetBindingTypesMatch(binding.type, callee.providerQualifiedName) ||
     !binding.sourceImport
   ) {
     return undefined;

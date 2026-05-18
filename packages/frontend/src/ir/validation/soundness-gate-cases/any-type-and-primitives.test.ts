@@ -11,6 +11,11 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import type {
+  BackendCapability,
+  BackendCapabilityManifest,
+  FeatureKey,
+} from "../../../capabilities/backend-capabilities.js";
 import {
   validateCapabilityAcceptability,
   validateIrSoundness,
@@ -18,6 +23,22 @@ import {
 } from "../soundness-gate.js";
 import { IrModule } from "../../types.js";
 import { createModuleWithType } from "./test-helpers.js";
+
+const capabilityEntry = (
+  name: FeatureKey,
+  status: BackendCapability["status"]
+): BackendCapability => ({
+  name,
+  status,
+  diagnosticCode: "TSN5001",
+  diagnosticMessage: `Backend does not support ${name}.`,
+  remediation: `Enable ${name} or rewrite the source feature.`,
+});
+
+const manifestWith = (
+  name: FeatureKey,
+  status: BackendCapability["status"]
+): BackendCapabilityManifest => new Map([[name, capabilityEntry(name, status)]]);
 
 describe("IR Soundness Gate", () => {
   describe("anyType Detection (TSN7414)", () => {
@@ -137,6 +158,120 @@ describe("IR Soundness Gate", () => {
       expect(capability.diagnostics[0]?.message).to.include(
         "runtime storage type"
       );
+    });
+
+    it("should make intersection runtime storage controlled by the capability manifest", () => {
+      const module = createModuleWithType({
+        kind: "intersectionType",
+        types: [
+          { kind: "referenceType", name: "Foo" },
+          { kind: "referenceType", name: "Bar" },
+        ],
+      });
+
+      const result = validateCapabilityAcceptability([module], {
+        knownReferenceTypes: new Set(["Foo", "Bar"]),
+        backendCapabilities: manifestWith("intersection-value-storage", "supported"),
+      });
+
+      expect(result.ok).to.equal(true);
+    });
+
+    it("should reject unsupported parameter passing modes during capability validation", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "functionDeclaration",
+            name: "read",
+            parameters: [
+              {
+                kind: "parameter",
+                pattern: { kind: "identifierPattern", name: "value" },
+                type: { kind: "primitiveType", name: "int" },
+                isOptional: false,
+                isRest: false,
+                passing: "out",
+              },
+            ],
+            returnType: { kind: "voidType" },
+            body: { kind: "blockStatement", statements: [] },
+            isExported: false,
+            isAsync: false,
+            isGenerator: false,
+          },
+        ],
+        exports: [],
+      };
+
+      const blocked = validateCapabilityAcceptability([module], {
+        backendCapabilities: manifestWith("out-parameters", "unsupported"),
+      });
+      const supported = validateCapabilityAcceptability([module], {
+        backendCapabilities: manifestWith("out-parameters", "supported"),
+      });
+
+      expect(blocked.ok).to.equal(false);
+      expect(blocked.diagnostics[0]?.message).to.include("out-parameters");
+      expect(supported.ok).to.equal(true);
+    });
+
+    it("should reject unsupported generators during capability validation", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "functionDeclaration",
+            name: "values",
+            parameters: [],
+            returnType: { kind: "voidType" },
+            body: { kind: "blockStatement", statements: [] },
+            isExported: false,
+            isAsync: false,
+            isGenerator: true,
+          },
+        ],
+        exports: [],
+      };
+
+      const blocked = validateCapabilityAcceptability([module], {
+        backendCapabilities: manifestWith("generators", "unsupported"),
+      });
+      const supported = validateCapabilityAcceptability([module], {
+        backendCapabilities: manifestWith("generators", "supported"),
+      });
+
+      expect(blocked.ok).to.equal(false);
+      expect(blocked.diagnostics[0]?.message).to.include("generators");
+      expect(supported.ok).to.equal(true);
+    });
+
+    it("should reject unsupported bigint during capability validation", () => {
+      const module = createModuleWithType({
+        kind: "primitiveType",
+        name: "bigint",
+      });
+
+      const blocked = validateCapabilityAcceptability([module], {
+        backendCapabilities: manifestWith("bigint", "unsupported"),
+      });
+      const supported = validateCapabilityAcceptability([module], {
+        backendCapabilities: manifestWith("bigint", "supported"),
+      });
+
+      expect(blocked.ok).to.equal(false);
+      expect(blocked.diagnostics[0]?.message).to.include("bigint");
+      expect(supported.ok).to.equal(true);
     });
 
     it("should allow expression-only intersection metadata for overload sets", () => {

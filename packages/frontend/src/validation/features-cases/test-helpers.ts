@@ -16,7 +16,8 @@ export type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
 export const createTestProgram = (
   source: string,
   fileName = "/test/index.ts",
-  extraFiles: Readonly<Record<string, string>> = {}
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
 ): TsonicProgram & { readonly sourceFile: ts.SourceFile } => {
   const allFiles = new Map<string, string>([
     [fileName, source],
@@ -92,6 +93,7 @@ export const createTestProgram = (
       projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
+      ...options,
     },
     sourceFiles: Array.from(sourceFiles.keys())
       .map((name) => program.getSourceFile(name))
@@ -107,12 +109,14 @@ export const createTestProgram = (
 
 export const runValidation = (
   sourceText: string,
-  extraFiles: Readonly<Record<string, string>> = {}
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
 ): ValidationResult => {
   const testProgram = createTestProgram(
     sourceText,
     "/test/index.ts",
-    extraFiles
+    extraFiles,
+    options
   );
   return validateUnsupportedFeatures(
     testProgram.sourceFile,

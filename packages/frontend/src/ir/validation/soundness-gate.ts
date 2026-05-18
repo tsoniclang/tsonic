@@ -12,6 +12,7 @@ import { IrModule } from "../types.js";
 import type {
   CapabilityValidationOptions,
   IrExpression,
+  IrParameter,
   IrPattern,
   SoundnessGateOptions,
   SoundnessValidationResult,
@@ -19,12 +20,19 @@ import type {
   ValidationContext,
 } from "./soundness-gate-shared.js";
 import {
+  createUnsupportedCapabilityDiagnostic,
+  shouldReportUnsupportedCapability,
+} from "./soundness-gate-shared.js";
+import {
   extractImportedTypeNames,
   extractLocalTypeNames,
   validateStatement,
 } from "./soundness-gate-statement-validation.js";
 import { validateExpression } from "./soundness-gate-expression-validation.js";
-import { validateType } from "./soundness-gate-type-validation.js";
+import {
+  validateParameter,
+  validateType,
+} from "./soundness-gate-type-validation.js";
 
 /**
  * Validate a single module
@@ -94,6 +102,89 @@ const createContext = (
   activeTypeValidation: new WeakSet<object>(),
 });
 
+const addCallableCapabilityDiagnostics = (
+  label: string,
+  value: {
+    readonly isAsync: boolean;
+    readonly isGenerator?: boolean;
+    readonly attributes?: readonly unknown[];
+  },
+  ctx: ValidationContext
+): void => {
+  const isGenerator = value.isGenerator === true;
+  if (
+    isGenerator &&
+    value.isAsync &&
+    shouldReportUnsupportedCapability(ctx, "async-iteration")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "async-iteration",
+        "TSN5001",
+        `${label} uses async iteration, which is not supported by the active backend.`,
+        "Use a backend that declares async-iteration support, or rewrite this function as a supported async or generator shape."
+      )
+    );
+  } else if (
+    isGenerator &&
+    shouldReportUnsupportedCapability(ctx, "generators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "generators",
+        "TSN5001",
+        `${label} uses generator syntax, which is not supported by the active backend.`,
+        "Use a backend that declares generator support, or rewrite this function to return an explicit collection."
+      )
+    );
+  }
+
+  if (
+    value.attributes !== undefined &&
+    value.attributes.length > 0 &&
+    shouldReportUnsupportedCapability(ctx, "method-decorators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "method-decorators",
+        "TSN5001",
+        `${label} has metadata attributes, which are not supported by the active backend.`,
+        "Use a backend that declares callable metadata-attribute support, or remove the attributes."
+      )
+    );
+  }
+};
+
+const addTypeDeclarationAttributeCapabilityDiagnostics = (
+  label: string,
+  attributes: readonly unknown[] | undefined,
+  ctx: ValidationContext
+): void => {
+  if (
+    attributes !== undefined &&
+    attributes.length > 0 &&
+    shouldReportUnsupportedCapability(ctx, "class-decorators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "class-decorators",
+        "TSN5001",
+        `${label} has metadata attributes, which are not supported by the active backend.`,
+        "Use a backend that declares type metadata-attribute support, or remove the attributes."
+      )
+    );
+  }
+};
+
+const addParameterCapabilityDiagnostics = (
+  parameter: IrParameter,
+  ctx: ValidationContext
+): void => validateParameter(parameter, ctx);
+
 const addExpressionCapabilityDiagnostics = (
   expression: IrExpression,
   ctx: ValidationContext
@@ -134,8 +225,9 @@ const addExpressionCapabilityDiagnostics = (
       break;
     case "functionExpression":
     case "arrowFunction":
+      addCallableCapabilityDiagnostics("Function expression", expression, ctx);
       expression.parameters.forEach((parameter) =>
-        validateType(parameter.type, ctx, "function parameter")
+        addParameterCapabilityDiagnostics(parameter, ctx)
       );
       validateType(expression.returnType, ctx, "function return type");
       if (expression.body.kind === "blockStatement") {
@@ -275,6 +367,11 @@ const addStatementCapabilityDiagnostics = (
       });
       break;
     case "functionDeclaration":
+      addCallableCapabilityDiagnostics(
+        `Function '${statement.name}'`,
+        statement,
+        ctx
+      );
       statement.typeParameters?.forEach((typeParameter) => {
         validateType(typeParameter.constraint, ctx, "type parameter constraint", {
           intersectionRootKind: "typeParameterConstraint",
@@ -282,40 +379,73 @@ const addStatementCapabilityDiagnostics = (
         validateType(typeParameter.default, ctx, "type parameter default");
       });
       statement.parameters.forEach((parameter) =>
-        validateType(parameter.type, ctx, "function parameter")
+        addParameterCapabilityDiagnostics(parameter, ctx)
       );
       validateType(statement.returnType, ctx, `function '${statement.name}' return type`);
       addStatementCapabilityDiagnostics(statement.body, ctx);
       break;
     case "classDeclaration":
+      addTypeDeclarationAttributeCapabilityDiagnostics(
+        `Class '${statement.name}'`,
+        statement.attributes,
+        ctx
+      );
+      addTypeDeclarationAttributeCapabilityDiagnostics(
+        `Class constructor for '${statement.name}'`,
+        statement.ctorAttributes,
+        ctx
+      );
       validateType(statement.superClass, ctx, `class '${statement.name}' extends`);
       statement.implements.forEach((heritage, index) =>
         validateType(heritage, ctx, `class '${statement.name}' implements ${index}`)
       );
       statement.members.forEach((member) => {
         if (member.kind === "methodDeclaration") {
+          addCallableCapabilityDiagnostics(
+            `Method '${member.name}'`,
+            member,
+            ctx
+          );
           member.parameters.forEach((parameter) =>
-            validateType(parameter.type, ctx, "method parameter")
+            addParameterCapabilityDiagnostics(parameter, ctx)
           );
           validateType(member.returnType, ctx, `method '${member.name}' return type`);
           if (member.body) addStatementCapabilityDiagnostics(member.body, ctx);
         } else if (member.kind === "propertyDeclaration") {
+          addCallableCapabilityDiagnostics(
+            `Property '${member.name}'`,
+            { isAsync: false, attributes: member.attributes },
+            ctx
+          );
           validateType(member.type, ctx, `property '${member.name}'`);
           if (member.initializer) {
             addExpressionCapabilityDiagnostics(member.initializer, ctx);
           }
         } else if (member.body) {
+          addCallableCapabilityDiagnostics(
+            `Constructor for '${statement.name}'`,
+            { isAsync: false, attributes: member.attributes },
+            ctx
+          );
+          member.parameters.forEach((parameter) =>
+            addParameterCapabilityDiagnostics(parameter, ctx)
+          );
           addStatementCapabilityDiagnostics(member.body, ctx);
         }
       });
       break;
     case "interfaceDeclaration":
+      addTypeDeclarationAttributeCapabilityDiagnostics(
+        `Interface '${statement.name}'`,
+        statement.attributes,
+        ctx
+      );
       statement.members.forEach((member) => {
         if (member.kind === "propertySignature") {
           validateType(member.type, ctx, `property '${member.name}'`);
         } else {
           member.parameters.forEach((parameter) =>
-            validateType(parameter.type, ctx, "method parameter")
+            addParameterCapabilityDiagnostics(parameter, ctx)
           );
           validateType(member.returnType, ctx, `method '${member.name}' return type`);
         }
@@ -328,7 +458,7 @@ const addStatementCapabilityDiagnostics = (
             validateType(member.type, ctx, `property '${member.name}'`);
           } else {
             member.parameters.forEach((parameter) =>
-              validateType(parameter.type, ctx, "method parameter")
+              addParameterCapabilityDiagnostics(parameter, ctx)
             );
             validateType(member.returnType, ctx, `method '${member.name}' return type`);
           }

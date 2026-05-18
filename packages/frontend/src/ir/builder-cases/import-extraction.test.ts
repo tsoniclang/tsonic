@@ -64,7 +64,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("should attach targetValue for tsbindgen flattened named exports", () => {
+    it("should attach providerValue for tsbindgen flattened named exports", () => {
       const source = `
         import { buildSite } from "@demo/pkg/Demo.js";
         void buildSite;
@@ -120,14 +120,14 @@ describe("IR Builder", function () {
         throw new Error("Missing named specifier");
       expect(spec.name).to.equal("buildSite");
       expect(spec.isType).to.not.equal(true);
-      expect(spec.targetValue).to.deep.equal({
+      expect(spec.providerValue).to.deep.equal({
         ownerQualifiedName: "Demo.BuildSite",
         ownerIdentity: "Demo",
         memberName: "buildSite",
       });
     });
 
-    it("should attach targetQualifiedName for external type imports used as values", () => {
+    it("should attach providerQualifiedName for external type imports used as values", () => {
       const source = `
         import { Task as TaskValue } from "@demo/async/Async.Tasks.js";
       `;
@@ -182,8 +182,8 @@ describe("IR Builder", function () {
       expect(spec.name).to.equal("Task");
       expect(spec.localName).to.equal("TaskValue");
       expect(spec.isType).to.not.equal(true);
-      expect(spec.targetQualifiedName).to.equal("Async.Tasks.Task");
-      expect(spec.targetValue).to.equal(undefined);
+      expect(spec.providerQualifiedName).to.equal("Async.Tasks.Task");
+      expect(spec.providerValue).to.equal(undefined);
     });
 
     it("prefers the imported external facade namespace over internal re-export declaration owners", () => {
@@ -272,7 +272,7 @@ describe("IR Builder", function () {
 
         expect(spec.name).to.equal("Widget");
         expect(spec.isType).to.not.equal(true);
-        expect(spec.targetQualifiedName).to.equal("Public.Widget");
+        expect(spec.providerQualifiedName).to.equal("Public.Widget");
       } finally {
         fixture.cleanup();
       }
@@ -361,9 +361,9 @@ describe("IR Builder", function () {
         }
 
         expect(consoleImport.localName).to.equal("DotnetConsole");
-        expect(consoleImport.targetQualifiedName).to.equal("System.Console");
-        expect(consoleImport.targetValue).to.equal(undefined);
-        expect(dateImport.targetQualifiedName).to.equal("System.DateTimeOffset");
+        expect(consoleImport.providerQualifiedName).to.equal("System.Console");
+        expect(consoleImport.providerValue).to.equal(undefined);
+        expect(dateImport.providerQualifiedName).to.equal("System.DateTimeOffset");
       } finally {
         fixture.cleanup();
       }
@@ -465,11 +465,11 @@ describe("IR Builder", function () {
       const imp = result.value.imports[0];
       if (!imp) throw new Error("Missing import");
       expect(imp.source).to.equal("node:path");
-      expect(imp.targetQualifiedName).to.equal("nodejs.path");
+      expect(imp.providerQualifiedName).to.equal("nodejs.path");
       const spec = imp.specifiers[0];
       if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
       expect(spec.name).to.equal("join");
-      expect(spec.targetValue).to.equal(undefined);
+      expect(spec.providerValue).to.equal(undefined);
     });
 
     it("treats source-package node subpath imports as module-bound values without TSN4004", () => {
@@ -529,11 +529,11 @@ describe("IR Builder", function () {
       const imp = result.value.imports[0];
       if (!imp) throw new Error("Missing import");
       expect(imp.source).to.equal("@tsonic/nodejs/http.js");
-      expect(imp.targetQualifiedName).to.equal("nodejs.Http.http");
+      expect(imp.providerQualifiedName).to.equal("nodejs.Http.http");
       const spec = imp.specifiers[0];
       if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
       expect(spec.name).to.equal("createServer");
-      expect(spec.targetValue).to.equal(undefined);
+      expect(spec.providerValue).to.equal(undefined);
     });
 
     it("does not globally hijack module-bound named value imports to unrelated external types", () => {
@@ -587,13 +587,13 @@ describe("IR Builder", function () {
 
       const imp = result.value.imports[0];
       if (!imp) throw new Error("Missing import");
-      expect(imp.targetQualifiedName).to.equal("nodejs.buffer");
+      expect(imp.providerQualifiedName).to.equal("nodejs.buffer");
 
       const spec = imp.specifiers[0];
       if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
       expect(spec.name).to.equal("Buffer");
-      expect(spec.targetQualifiedName).to.equal(undefined);
-      expect(spec.targetValue).to.equal(undefined);
+      expect(spec.providerQualifiedName).to.equal(undefined);
+      expect(spec.providerValue).to.equal(undefined);
     });
 
     it("prefers installed source-package imports over external resolution", () => {
@@ -655,7 +655,7 @@ describe("IR Builder", function () {
         expect(imp.isLocal).to.equal(true);
         expect(imp.resolutionKind).to.not.equal("externalSurface");
         expect(imp.resolvedNamespace).to.equal(undefined);
-        expect(imp.targetQualifiedName).to.equal(undefined);
+        expect(imp.providerQualifiedName).to.equal(undefined);
         expect(imp.resolvedPath).to.equal(
           fixture.path("app/node_modules/@tsonic/nodejs/src/process-module.ts")
         );
@@ -729,11 +729,11 @@ describe("IR Builder", function () {
         }
 
         expect(incoming.isType).to.equal(true);
-        expect(incoming.targetQualifiedName).to.equal(
+        expect(incoming.providerQualifiedName).to.equal(
           "nodejs.Http.IncomingMessage"
         );
         expect(response.isType).to.equal(true);
-        expect(response.targetQualifiedName).to.equal("nodejs.Http.ServerResponse");
+        expect(response.providerQualifiedName).to.equal("nodejs.Http.ServerResponse");
       } finally {
         fixture.cleanup();
       }
@@ -785,7 +785,7 @@ describe("IR Builder", function () {
         if (!imp) throw new Error("Missing import");
         expect(imp.isLocal).to.equal(true);
         expect(imp.resolutionKind).to.not.equal("externalSurface");
-        expect(imp.targetQualifiedName).to.equal(undefined);
+        expect(imp.providerQualifiedName).to.equal(undefined);
         expect(imp.resolvedNamespace).to.equal(undefined);
         expect(imp.resolvedPath).to.equal(
           fixture.path("app/node_modules/@tsonic/nodejs/src/http/index.ts")
@@ -802,8 +802,8 @@ describe("IR Builder", function () {
           throw new Error("Missing named import specifiers");
         }
 
-        expect(incoming.targetQualifiedName).to.equal(undefined);
-        expect(response.targetQualifiedName).to.equal(undefined);
+        expect(incoming.providerQualifiedName).to.equal(undefined);
+        expect(response.providerQualifiedName).to.equal(undefined);
       } finally {
         fixture.cleanup();
       }
@@ -860,7 +860,7 @@ describe("IR Builder", function () {
         expect(pathImport.source).to.equal("node:path");
         expect(pathImport.isLocal).to.equal(true);
         expect(pathImport.resolutionKind).to.not.equal("externalSurface");
-        expect(pathImport.targetQualifiedName).to.equal(undefined);
+        expect(pathImport.providerQualifiedName).to.equal(undefined);
         expect(pathImport.resolvedNamespace).to.equal(undefined);
         expect(pathImport.resolvedPath).to.equal(
           fixture.path("app/node_modules/@tsonic/nodejs/src/path.ts")
@@ -869,7 +869,7 @@ describe("IR Builder", function () {
         expect(httpImport.source).to.equal("node:http");
         expect(httpImport.isLocal).to.equal(true);
         expect(httpImport.resolutionKind).to.not.equal("externalSurface");
-        expect(httpImport.targetQualifiedName).to.equal(undefined);
+        expect(httpImport.providerQualifiedName).to.equal(undefined);
         expect(httpImport.resolvedNamespace).to.equal(undefined);
         expect(httpImport.resolvedPath).to.equal(
           fixture.path("app/node_modules/@tsonic/nodejs/src/http/index.ts")
@@ -893,13 +893,13 @@ describe("IR Builder", function () {
         }
 
         expect(createServer.isType).to.equal(false);
-        expect(createServer.targetValue).to.equal(undefined);
+        expect(createServer.providerValue).to.equal(undefined);
         expect(incoming.isType).to.equal(true);
-        expect(incoming.targetQualifiedName).to.equal(undefined);
+        expect(incoming.providerQualifiedName).to.equal(undefined);
         expect(server.isType).to.equal(true);
-        expect(server.targetQualifiedName).to.equal(undefined);
+        expect(server.providerQualifiedName).to.equal(undefined);
         expect(response.isType).to.equal(true);
-        expect(response.targetQualifiedName).to.equal(undefined);
+        expect(response.providerQualifiedName).to.equal(undefined);
 
         const serverDecl = result.value.body.find(
           (
@@ -1038,7 +1038,7 @@ describe("IR Builder", function () {
             throw new Error("Expected referenceType return");
           }
 
-          expect(overload.returnType.typeId?.targetName).to.equal(
+          expect(overload.returnType.typeId?.providerName).to.equal(
             "TestApp.net.Server"
           );
         }

@@ -40,7 +40,7 @@ import { createRuntimeUnionRegistry } from "../core/semantic/runtime-union-regis
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  targetQualifiedName: "Tsonic.Runtime.JsValue",
+  providerQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 const testTypeId = (
@@ -49,7 +49,7 @@ const testTypeId = (
   sourceName = targetName.split(".").pop() ?? targetName
 ) => ({
   stableId: `${ownerIdentity}:${targetName}`,
-  targetName,
+  providerName: targetName,
   ownerIdentity,
   sourceName,
   origin: "source" as const,
@@ -65,14 +65,14 @@ describe("expected-type-adaptation", () => {
       {
         kind: "referenceType",
         name: "Char",
-        targetQualifiedName: "System.Char",
+        providerQualifiedName: "System.Char",
       },
       identifierExpression("value"),
       context,
       {
         kind: "referenceType",
         name: "String",
-        targetQualifiedName: "System.String",
+        providerQualifiedName: "System.String",
       }
     );
 
@@ -83,10 +83,10 @@ describe("expected-type-adaptation", () => {
     const regexpType: IrType = {
       kind: "referenceType",
       name: "RegExp",
-      targetQualifiedName: "js.RegExp",
+      providerQualifiedName: "js.RegExp",
       typeId: {
         stableId: "@tsonic/js:js.RegExp",
-        targetName: "js.RegExp",
+        providerName: "js.RegExp",
         ownerIdentity: "@tsonic/js",
         sourceName: "RegExp",
       },
@@ -128,7 +128,7 @@ describe("expected-type-adaptation", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            targetQualifiedName: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -142,7 +142,7 @@ describe("expected-type-adaptation", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const pathSpecType: IrType = {
@@ -157,7 +157,7 @@ describe("expected-type-adaptation", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
       ],
     };
@@ -343,7 +343,7 @@ describe("expected-type-adaptation", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
     const handlerType: IrType = {
       kind: "functionType",
@@ -378,7 +378,7 @@ describe("expected-type-adaptation", () => {
       {
         kind: "referenceType",
         name: "BufferLike",
-        targetQualifiedName: "Test.BufferLike",
+        providerQualifiedName: "Test.BufferLike",
       },
     ]);
 
@@ -407,7 +407,7 @@ describe("expected-type-adaptation", () => {
       {
         kind: "referenceType",
         name: "BufferLike",
-        targetQualifiedName: "Test.BufferLike",
+        providerQualifiedName: "Test.BufferLike",
       },
     ]);
 
@@ -418,7 +418,7 @@ describe("expected-type-adaptation", () => {
       expectedType: {
         kind: "referenceType",
         name: "object",
-        targetQualifiedName: "System.Object",
+        providerQualifiedName: "System.Object",
       },
       allowUnionNarrowing: false,
     });
@@ -440,7 +440,7 @@ describe("expected-type-adaptation", () => {
       {
         kind: "referenceType",
         name: "Uint8Array",
-        targetQualifiedName: "js.Uint8Array",
+        providerQualifiedName: "js.Uint8Array",
       },
     ]);
 
@@ -653,7 +653,7 @@ describe("expected-type-adaptation", () => {
               {
                 kind: "referenceType",
                 name: "Error",
-                targetQualifiedName: "global::js.Error",
+                providerQualifiedName: "global::js.Error",
               },
               { kind: "primitiveType", name: "undefined" },
             ],
@@ -669,7 +669,7 @@ describe("expected-type-adaptation", () => {
     const streamType: IrType = {
       kind: "referenceType",
       name: "Stream",
-      targetQualifiedName: "Test.Stream",
+      providerQualifiedName: "Test.Stream",
     };
 
     const assertedRestArrayType: IrType = {
@@ -774,7 +774,7 @@ describe("expected-type-adaptation", () => {
     const namesAttributeType: IrType = {
       kind: "referenceType",
       name: "NamesAttribute",
-      targetQualifiedName: "Test.NamesAttribute",
+      providerQualifiedName: "Test.NamesAttribute",
     };
     const stringArrayType: IrType = {
       kind: "arrayType",
@@ -843,7 +843,7 @@ describe("expected-type-adaptation", () => {
     const listenerType: IrType = {
       kind: "referenceType",
       name: "ListenerRegistration",
-      targetQualifiedName: "Test.ListenerRegistration__Alias",
+      providerQualifiedName: "Test.ListenerRegistration__Alias",
     };
     const actualType: IrType = {
       kind: "unionType",
@@ -988,7 +988,7 @@ describe("expected-type-adaptation", () => {
       ],
       typeId: {
         stableId: "@jotster/core:Jotster.Core.types.Result",
-        targetName: "Jotster.Core.types.Result",
+        providerName: "Jotster.Core.types.Result",
         ownerIdentity: "@jotster/core",
         sourceName: "Result",
       },
@@ -1023,12 +1023,12 @@ describe("expected-type-adaptation", () => {
     const okType: IrType = {
       kind: "referenceType",
       name: "Ok",
-      targetQualifiedName: "Test.Ok",
+      providerQualifiedName: "Test.Ok",
     };
     const errType: IrType = {
       kind: "referenceType",
       name: "Err",
-      targetQualifiedName: "Test.Err",
+      providerQualifiedName: "Test.Err",
     };
     const resultCarrier = stampRuntimeUnionAliasCarrier(
       normalizedUnionType([okType, errType]),
@@ -1040,7 +1040,7 @@ describe("expected-type-adaptation", () => {
     const resultType: IrType = {
       kind: "referenceType",
       name: "ResultLike",
-      targetQualifiedName: "Test.ResultLike",
+      providerQualifiedName: "Test.ResultLike",
     };
     const rawCarrierType = normalizedUnionType([okType, errType]);
     const context = {
@@ -1134,7 +1134,7 @@ describe("expected-type-adaptation", () => {
         {
           kind: "referenceType",
           name: "MkdirOptions",
-          targetQualifiedName: "Test.MkdirOptions",
+          providerQualifiedName: "Test.MkdirOptions",
           typeId: testTypeId("Test", "Test.MkdirOptions", "MkdirOptions"),
         },
       ]),
@@ -1168,7 +1168,7 @@ describe("expected-type-adaptation", () => {
       {
         kind: "referenceType",
         name: "MkdirOptionsLike",
-        targetQualifiedName: "Test.MkdirOptionsLike",
+        providerQualifiedName: "Test.MkdirOptionsLike",
         typeId: testTypeId(
           "Test",
           "Test.MkdirOptionsLike",
@@ -1197,13 +1197,13 @@ describe("expected-type-adaptation", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
       typeId: testTypeId("Test", "Test.Router", "Router"),
     };
     const applicationType: IrType = {
       kind: "referenceType",
       name: "Application",
-      targetQualifiedName: "Test.Application",
+      providerQualifiedName: "Test.Application",
       typeId: testTypeId("Test", "Test.Application", "Application"),
     };
     const middlewareLikeCarrier = stampRuntimeUnionAliasCarrier(
@@ -1219,7 +1219,7 @@ describe("expected-type-adaptation", () => {
     const middlewareLikeType: IrType = {
       kind: "referenceType",
       name: "MiddlewareLike",
-      targetQualifiedName: "Test.MiddlewareLike",
+      providerQualifiedName: "Test.MiddlewareLike",
       typeId: testTypeId("Test", "Test.MiddlewareLike", "MiddlewareLike"),
     };
     const context = {
@@ -1304,7 +1304,7 @@ describe("expected-type-adaptation", () => {
         {
           kind: "referenceType",
           name: "TypedArrayInput",
-          targetQualifiedName: "js.TypedArrayInput",
+          providerQualifiedName: "js.TypedArrayInput",
           typeId: testTypeId(
             "@tsonic/js",
             "js.TypedArrayInput",
@@ -1314,7 +1314,7 @@ describe("expected-type-adaptation", () => {
             {
               kind: "referenceType",
               name: "byte",
-              targetQualifiedName: "System.Byte",
+              providerQualifiedName: "System.Byte",
             },
           ],
         },
@@ -1348,7 +1348,7 @@ describe("expected-type-adaptation", () => {
     const expectedType: IrType = {
       kind: "referenceType",
       name: "TypedArrayConstructorInput",
-      targetQualifiedName: "js.TypedArrayConstructorInput",
+      providerQualifiedName: "js.TypedArrayConstructorInput",
       typeId: testTypeId(
         "@tsonic/js",
         "js.TypedArrayConstructorInput",
@@ -1358,7 +1358,7 @@ describe("expected-type-adaptation", () => {
         {
           kind: "referenceType",
           name: "byte",
-          targetQualifiedName: "System.Byte",
+          providerQualifiedName: "System.Byte",
         },
       ],
     };
@@ -1390,7 +1390,7 @@ describe("expected-type-adaptation", () => {
       actualType: {
         kind: "referenceType",
         name: "int",
-        targetQualifiedName: "System.Int32",
+        providerQualifiedName: "System.Int32",
       },
       context,
       expectedType,
@@ -1457,7 +1457,7 @@ describe("expected-type-adaptation", () => {
         name: "byte",
         typeId: {
           stableId: "System.Private.CoreLib:System.Byte",
-          targetName: "System.Byte",
+          providerName: "System.Byte",
           ownerIdentity: "System.Private.CoreLib",
           sourceName: "Byte",
         },
@@ -1631,7 +1631,7 @@ describe("expected-type-adaptation", () => {
               type: {
                 kind: "referenceType",
                 name: "Request",
-                targetQualifiedName: "Test.Request",
+                providerQualifiedName: "Test.Request",
                 typeId: testTypeId("Test", "Test.Request", "Request"),
               },
               initializer: undefined,
@@ -1651,7 +1651,7 @@ describe("expected-type-adaptation", () => {
               type: {
                 kind: "referenceType",
                 name: "object",
-                targetQualifiedName: "System.Object",
+                providerQualifiedName: "System.Object",
               },
               initializer: undefined,
               isOptional: false,
@@ -1670,13 +1670,13 @@ describe("expected-type-adaptation", () => {
     const middlewareHandlerType: IrType = {
       kind: "referenceType",
       name: "MiddlewareHandler",
-      targetQualifiedName: "Test.MiddlewareHandler",
+      providerQualifiedName: "Test.MiddlewareHandler",
       typeId: testTypeId("Test", "Test.MiddlewareHandler", "MiddlewareHandler"),
     };
     const broadObjectType: IrType = {
       kind: "referenceType",
       name: "object",
-      targetQualifiedName: "System.Object",
+      providerQualifiedName: "System.Object",
     };
 
     const context = {

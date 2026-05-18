@@ -29,12 +29,12 @@ const getTypeMemberIndexCandidates = (
   const index = context.options.typeMemberIndex;
   if (!index) return undefined;
 
-  if (ref.typeId?.targetName) {
-    return [stripGlobalPrefix(ref.typeId.targetName)];
+  if (ref.typeId?.providerName) {
+    return [stripGlobalPrefix(ref.typeId.providerName)];
   }
 
-  if (ref.targetQualifiedName) {
-    return [stripGlobalPrefix(ref.targetQualifiedName)];
+  if (ref.providerQualifiedName) {
+    return [stripGlobalPrefix(ref.providerQualifiedName)];
   }
 
   if (ref.name.includes(".")) {
@@ -157,7 +157,7 @@ const collectInterfaceProps = (
   visitedTypes: readonly string[]
 ): void => {
   // Prevent cycles
-  const cycleKey = ref.targetQualifiedName ?? ref.name;
+  const cycleKey = ref.providerQualifiedName ?? ref.name;
   if (visitedTypes.includes(cycleKey)) return;
   const nextVisited = [...visitedTypes, cycleKey];
 
@@ -211,7 +211,7 @@ export const isTypeOnlyStructuralTarget = (
     return true;
   }
 
-  if (resolved.targetQualifiedName) {
+  if (resolved.providerQualifiedName) {
     return false;
   }
 
@@ -243,7 +243,7 @@ const isCompilerGeneratedStructuralCarrierType = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): boolean => {
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrSimpleName = type.targetQualifiedName?.split(".").pop();
+  const clrSimpleName = type.providerQualifiedName?.split(".").pop();
   const isCarrierName = (name: string | undefined): boolean =>
     !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
 

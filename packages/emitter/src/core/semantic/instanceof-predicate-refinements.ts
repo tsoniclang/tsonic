@@ -50,13 +50,13 @@ export const applyInstanceofRefinement = (
 
     if (
       normalized.kind === "referenceType" &&
-      !normalized.targetQualifiedName &&
-      "targetQualifiedName" in expr &&
-      typeof expr.targetQualifiedName === "string"
+      !normalized.providerQualifiedName &&
+      "providerQualifiedName" in expr &&
+      typeof expr.providerQualifiedName === "string"
     ) {
       return {
         ...normalized,
-        targetQualifiedName: expr.targetQualifiedName,
+        providerQualifiedName: expr.providerQualifiedName,
       };
     }
 

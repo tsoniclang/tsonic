@@ -62,6 +62,31 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("new Promise(");
     });
 
+    it("uses contextual void promise type for source-package Promise constructors", () => {
+      const source = `
+        import { setTimeout } from "@tsonic/js/timers.js";
+
+        function yieldToEventLoop(): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(() => resolve(), 0);
+          });
+        }
+
+        export async function main(): Promise<void> {
+          await yieldToEventLoop();
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include("TaskCompletionSource<bool>");
+      expect(csharp).to.include("global::System.Action __tsonic_resolve");
+      expect(csharp).to.not.include("Action<global::System.Threading.Tasks.Task?");
+      expect(csharp).to.not.include("Task<global::System.Threading.Tasks.Task?");
+    });
+
     it("normalizes Promise executor resolve callbacks to the promised value type", () => {
       const source = `
         interface PromiseLike<T> {

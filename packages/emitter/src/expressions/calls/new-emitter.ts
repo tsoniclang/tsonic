@@ -2,7 +2,7 @@
  * New expression emitter
  */
 
-import { IrCallExpression, IrExpression } from "@tsonic/frontend";
+import { IrCallExpression, IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import {
@@ -35,7 +35,8 @@ import { emitCallArguments } from "./call-arguments.js";
  */
 export const emitNew = (
   expr: Extract<IrExpression, { kind: "new" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   // Special case: new List<T>([...]) → new List<T> { ... }
   if (isListConstructorWithArrayLiteral(expr)) {
@@ -48,7 +49,7 @@ export const emitNew = (
 
   // Promise constructor lowering
   if (isPromiseConstructorCall(expr)) {
-    return emitPromiseConstructor(expr, context);
+    return emitPromiseConstructor(expr, context, expectedType);
   }
 
   const [calleeAst, newContext] = emitExpressionAst(expr.callee, context);

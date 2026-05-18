@@ -48,7 +48,7 @@ const withSimpleTypeAliases = (
     }
     if (tsNameToTypeId.has(alias)) continue;
 
-    const typeId = assemblyCatalog.targetNameToTypeId.get(descriptor.type);
+    const typeId = assemblyCatalog.providerNameToTypeId.get(descriptor.type);
     if (!typeId) continue;
     tsNameToTypeId.set(alias, typeId);
   }
@@ -56,7 +56,7 @@ const withSimpleTypeAliases = (
   return {
     entries: assemblyCatalog.entries,
     tsNameToTypeId,
-    targetNameToTypeId: assemblyCatalog.targetNameToTypeId,
+    providerNameToTypeId: assemblyCatalog.providerNameToTypeId,
     namespaceToTypeIds: assemblyCatalog.namespaceToTypeIds,
   };
 };
@@ -280,7 +280,10 @@ export const createProgramContext = (
     metadata: program.metadata,
     bindings: program.bindings,
     externalResolver: program.externalResolver,
-    targetSurfaceArtifacts: program.targetSurfaceArtifacts,
+    targetSurfaceArtifacts:
+      program.targetSurfaceProvider?.getArtifacts() ??
+      program.targetSurfaceArtifacts,
+    targetSurfaceProvider: program.targetSurfaceProvider,
     diagnostics: [],
   };
 };

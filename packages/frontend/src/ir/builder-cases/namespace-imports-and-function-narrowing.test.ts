@@ -107,7 +107,7 @@ describe("IR Builder", function () {
         expect(errorMember.type.kind).to.equal("referenceType");
         if (errorMember.type.kind !== "referenceType") return;
         expect(errorMember.type.typeId).to.not.equal(undefined);
-        expect(errorMember.type.targetQualifiedName).to.be.a("string");
+        expect(errorMember.type.providerQualifiedName).to.be.a("string");
         expect(parseCall.callee.inferredType?.kind).to.equal("functionType");
         if (parseCall.callee.inferredType?.kind !== "functionType") return;
         expect(parseCall.callee.inferredType.returnType.kind).to.not.equal(
@@ -453,7 +453,7 @@ describe("IR Builder", function () {
           stmt.condition.kind === "binary" &&
           stmt.condition.operator === "instanceof" &&
           stmt.condition.right.inferredType?.kind === "referenceType"
-            ? stmt.condition.right.inferredType.targetQualifiedName
+            ? stmt.condition.right.inferredType.providerQualifiedName
             : undefined
         );
 

@@ -146,11 +146,11 @@ describe("IR Builder", function () {
         kind: "referenceType",
         name: "Promise",
         typeArguments: [{ kind: "voidType" }],
-        targetQualifiedName: "TestApp.Promise",
+        providerQualifiedName: "TestApp.Promise",
       });
       expect(ctor.inferredType.typeId).to.deep.equal({
         stableId: "TestApp:TestApp.Promise",
-        targetName: "TestApp.Promise",
+        providerName: "TestApp.Promise",
         ownerIdentity: "TestApp",
         sourceName: "Promise",
         origin: "source",
@@ -335,11 +335,11 @@ describe("IR Builder", function () {
         kind: "referenceType",
         name: "Promise",
         typeArguments: [{ kind: "voidType" }],
-        targetQualifiedName: "TestApp.Promise",
+        providerQualifiedName: "TestApp.Promise",
       });
       expect(ctor.inferredType.typeId).to.deep.equal({
         stableId: "TestApp:TestApp.Promise",
-        targetName: "TestApp.Promise",
+        providerName: "TestApp.Promise",
         ownerIdentity: "TestApp",
         sourceName: "Promise",
         origin: "source",

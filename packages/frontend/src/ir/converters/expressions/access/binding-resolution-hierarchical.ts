@@ -324,7 +324,7 @@ export const resolveHierarchicalBinding = (
     }
 
     const resolvedTargetBinding = tryResolveOwnerMemberBinding(
-      object.targetQualifiedName
+      object.providerQualifiedName
     );
     if (resolvedTargetBinding) {
       return resolvedTargetBinding;

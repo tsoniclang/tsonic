@@ -43,7 +43,7 @@ export const coerceClrPrimitiveToPrimitiveType = (
 ): IrType | undefined => {
   if (type.kind !== "referenceType") return undefined;
 
-  const resolved = type.targetQualifiedName ?? type.typeId?.targetName;
+  const resolved = type.providerQualifiedName ?? type.typeId?.providerName;
   if (!resolved) return undefined;
 
   const clr = stripGlobalPrefix(resolved);
@@ -64,6 +64,9 @@ export const coerceClrPrimitiveToPrimitiveType = (
     case "System.Double":
     case "double":
       return { kind: "primitiveType", name: "number" } as IrType;
+
+    case "System.Numerics.BigInteger":
+      return { kind: "primitiveType", name: "bigint" } as IrType;
 
     case "System.Char":
     case "char":
@@ -329,6 +332,16 @@ export const buildTruthySwitchAst = (tmp: string): CSharpExpressionAst => {
         numericLiteral({ base: "decimal", wholePart: "0", suffix: "m" })
       ),
       typedNonZeroArm(predefinedType("char"), charLiteral("\0")),
+      typedNonZeroArm(
+        identifierType("global::System.Numerics.BigInteger"),
+        {
+          kind: "memberAccessExpression",
+          expression: typeReferenceExpr(
+            identifierType("global::System.Numerics.BigInteger")
+          ),
+          memberName: "Zero",
+        }
+      ),
       makeSwitchArm({ kind: "discardPattern" }, booleanLiteral(true)),
     ],
   };

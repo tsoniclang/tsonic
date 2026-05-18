@@ -629,7 +629,7 @@ describe("IR Builder", function () {
         }
         expect(inheritedSurfaceElementType.typeId).to.deep.equal({
           stableId: "TestApp:byte",
-          targetName: "byte",
+          providerName: "byte",
           ownerIdentity: "TestApp",
           sourceName: "byte",
           origin: "source",
@@ -766,7 +766,7 @@ describe("IR Builder", function () {
         }
         expect(iterableSurfaceElementType.typeId).to.deep.equal({
           stableId: "TestApp:byte",
-          targetName: "byte",
+          providerName: "byte",
           ownerIdentity: "TestApp",
           sourceName: "byte",
           origin: "source",
@@ -899,7 +899,7 @@ describe("IR Builder", function () {
         }
         expect(arrayLiteralSurfaceElementType.typeId).to.deep.equal({
           stableId: "TestApp:byte",
-          targetName: "byte",
+          providerName: "byte",
           ownerIdentity: "TestApp",
           sourceName: "byte",
           origin: "source",
@@ -1100,7 +1100,7 @@ describe("IR Builder", function () {
         expect(dataAccessType?.kind).to.equal("referenceType");
         if (dataAccessType?.kind === "referenceType") {
           expect(dataAccessType.name).to.equal("Channel");
-          expect(dataAccessType.targetQualifiedName).to.equal(
+          expect(dataAccessType.providerQualifiedName).to.equal(
             "fixture.domain.Channel"
           );
         }

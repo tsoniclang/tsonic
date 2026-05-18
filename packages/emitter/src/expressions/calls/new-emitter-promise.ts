@@ -49,43 +49,36 @@ const containsVoidInGenericPosition = (type: IrType | undefined): boolean => {
   return false;
 };
 
-const getPromiseValueType = (
-  expr: Extract<IrExpression, { kind: "new" }>
-): IrType | undefined => {
-  const normalizePromiseValue = (type: IrType): IrType | undefined => {
-    const normalized = normalizePromiseChainResultIrType(type);
-    return normalized && !isVoidLikeType(normalized) ? normalized : undefined;
+type PromiseValueResolution =
+  | { readonly kind: "value"; readonly type: IrType }
+  | { readonly kind: "void" };
+
+const resolvePromiseValue = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  expectedType: IrType | undefined
+): PromiseValueResolution | undefined => {
+  const resolveCandidate = (
+    type: IrType | undefined
+  ): PromiseValueResolution | undefined => {
+    if (!type) return undefined;
+    const normalized = normalizePromiseChainResultIrType(type) ?? type;
+    return isVoidLikeType(normalized)
+      ? { kind: "void" }
+      : { kind: "value", type: normalized };
   };
 
-  const inferred = expr.inferredType;
-  if (inferred?.kind === "referenceType") {
-    const candidate = inferred.typeArguments?.[0];
-    if (candidate) {
-      return normalizePromiseValue(candidate);
-    }
-  }
-
   const explicit = expr.typeArguments?.[0];
-  if (explicit) {
-    return normalizePromiseValue(explicit);
-  }
+  const explicitValue = resolveCandidate(explicit);
+  if (explicitValue) return explicitValue;
 
-  return undefined;
-};
+  const expectedValue = resolveCandidate(expectedType);
+  if (expectedValue) return expectedValue;
 
-const isVoidPromiseValue = (
-  expr: Extract<IrExpression, { kind: "new" }>
-): boolean => {
-  const inferred = expr.inferredType;
-  if (inferred?.kind === "referenceType") {
-    const candidate = inferred.typeArguments?.[0];
-    if (candidate) {
-      return isVoidLikeType(candidate);
-    }
-  }
-
-  const explicit = expr.typeArguments?.[0];
-  return explicit ? isVoidLikeType(explicit) : false;
+  const inferred =
+    expr.inferredType?.kind === "referenceType"
+      ? expr.inferredType.typeArguments?.[0]
+      : expr.inferredType;
+  return resolveCandidate(inferred);
 };
 
 const getExecutorArity = (
@@ -111,15 +104,14 @@ const getExecutorArity = (
 
 const normalizePromiseExecutorExpectedType = (
   expr: Extract<IrExpression, { kind: "new" }>,
-  promiseValueType: IrType | undefined
+  promiseValueType: IrType | undefined,
+  voidPromiseValue: boolean
 ): IrType | undefined => {
   const executorType = expr.parameterTypes?.[0];
   if (executorType?.kind !== "functionType") {
     return executorType;
   }
 
-  const voidPromiseValue =
-    promiseValueType === undefined && isVoidPromiseValue(expr);
   if (!promiseValueType && !voidPromiseValue) {
     return executorType;
   }
@@ -160,7 +152,8 @@ const normalizePromiseExecutorExpectedType = (
 
 export const emitPromiseConstructor = (
   expr: Extract<IrExpression, { kind: "new" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] => {
   const executor = expr.arguments[0];
   if (!executor || executor.kind === "spread") {
@@ -170,7 +163,10 @@ export const emitPromiseConstructor = (
   }
 
   let currentContext = context;
-  const promiseValueType = getPromiseValueType(expr);
+  const promiseValue = resolvePromiseValue(expr, expectedType);
+  const promiseValueType =
+    promiseValue?.kind === "value" ? promiseValue.type : undefined;
+  const voidPromiseValue = promiseValue?.kind === "void";
   let valueTypeAst: CSharpTypeAst = {
     kind: "predefinedType",
     keyword: "bool",
@@ -188,7 +184,9 @@ export const emitPromiseConstructor = (
         identifierType("global::System.Threading.Tasks.Task", [valueTypeAst]),
         currentContext,
       ]
-    : expr.inferredType
+    : voidPromiseValue
+      ? [identifierType("global::System.Threading.Tasks.Task"), currentContext]
+      : expr.inferredType
       ? emitTypeAst(expr.inferredType, currentContext)
       : [identifierType("global::System.Threading.Tasks.Task"), currentContext];
   currentContext = taskTypeContext;
@@ -250,7 +248,8 @@ export const emitPromiseConstructor = (
       : executor;
   const executorExpectedType = normalizePromiseExecutorExpectedType(
     expr,
-    promiseValueType
+    promiseValueType,
+    voidPromiseValue
   );
 
   const [executorAst, executorContext] = emitExpressionAst(

@@ -15,12 +15,12 @@ import { printRuntimeUnionCarrierTypeForIrType } from "../../runtime-union-cases
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  targetQualifiedName: "Tsonic.Runtime.JsValue",
+  providerQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 const testTypeId = (targetName: string) => ({
   stableId: `Test:${targetName}`,
-  targetName,
+  providerName: targetName,
   ownerIdentity: "Test",
   sourceName: targetName.split(".").pop() ?? targetName,
   origin: "source" as const,
@@ -149,7 +149,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "Router",
-          targetQualifiedName: "Test.Router",
+          providerQualifiedName: "Test.Router",
         },
         {
           kind: "arrayType",
@@ -224,7 +224,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "Router",
-          targetQualifiedName: "Test.Router",
+          providerQualifiedName: "Test.Router",
         },
         {
           kind: "arrayType",
@@ -313,7 +313,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
       typeId: testTypeId("Test.Router"),
     };
 
@@ -436,7 +436,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {
@@ -502,7 +502,7 @@ describe("Expression Emission", () => {
               elementType: {
                 kind: "referenceType",
                 name: "object",
-                targetQualifiedName: "System.Object",
+                providerQualifiedName: "System.Object",
               },
               storageErasedElementType: middlewareLike,
               origin: "explicit",

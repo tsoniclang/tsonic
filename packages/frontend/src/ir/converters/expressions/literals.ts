@@ -124,7 +124,7 @@ export const convertRegularExpressionLiteral = (
   const raw = node.getText();
   const { pattern, flags } = splitRegularExpressionLiteral(raw);
   const regExpBinding = ctx.bindings.getBinding("RegExp");
-  const targetQualifiedName =
+  const providerQualifiedName =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.type
       : (resolveAmbientGlobalSourceOwnerByName(
@@ -133,7 +133,7 @@ export const convertRegularExpressionLiteral = (
           ctx,
           ts.SymbolFlags.Value
         ) ?? undefined);
-  const targetOwnerIdentity =
+  const providerOwnerIdentity =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.assembly
       : undefined;
@@ -161,7 +161,7 @@ export const convertRegularExpressionLiteral = (
   const inferredType: IrType = {
     kind: "referenceType",
     name: "RegExp",
-    targetQualifiedName,
+    providerQualifiedName,
   };
   const sourceBackedConstructorParameterTypes =
     buildSourceBackedConstructorParameterTypes({
@@ -170,8 +170,8 @@ export const convertRegularExpressionLiteral = (
         kind: "identifier",
         name: "RegExp",
         inferredType,
-        targetQualifiedName,
-        targetOwnerIdentity,
+        providerQualifiedName,
+        providerOwnerIdentity,
         sourceSpan: getSourceSpan(node),
       },
       constructedType: inferredType,
@@ -188,10 +188,10 @@ export const convertRegularExpressionLiteral = (
       inferredType: {
         kind: "referenceType",
         name: "RegExp",
-        targetQualifiedName,
+        providerQualifiedName,
       },
-      targetQualifiedName,
-      targetOwnerIdentity,
+      providerQualifiedName,
+      providerOwnerIdentity,
       sourceSpan: getSourceSpan(node),
     },
     arguments: args,

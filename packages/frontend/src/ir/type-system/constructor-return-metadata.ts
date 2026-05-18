@@ -12,7 +12,7 @@ export const attachConstructedReferenceMetadata = (
     !constructorType ||
     constructorType.kind !== "referenceType" ||
     (!constructorType.typeId &&
-      !constructorType.targetQualifiedName &&
+      !constructorType.providerQualifiedName &&
       !constructorType.structuralMembers)
   ) {
     return resolvedReturnType;
@@ -20,8 +20,8 @@ export const attachConstructedReferenceMetadata = (
 
   const needsConstructorIdentity =
     !resolvedReturnType.typeId &&
-    !resolvedReturnType.targetQualifiedName &&
-    (!!constructorType.typeId || !!constructorType.targetQualifiedName);
+    !resolvedReturnType.providerQualifiedName &&
+    (!!constructorType.typeId || !!constructorType.providerQualifiedName);
 
   return {
     ...resolvedReturnType,
@@ -29,8 +29,8 @@ export const attachConstructedReferenceMetadata = (
       ? {
           name: constructorType.name,
           ...(constructorType.typeId ? { typeId: constructorType.typeId } : {}),
-          ...(constructorType.targetQualifiedName
-            ? { targetQualifiedName: constructorType.targetQualifiedName }
+          ...(constructorType.providerQualifiedName
+            ? { providerQualifiedName: constructorType.providerQualifiedName }
             : {}),
         }
       : {}),

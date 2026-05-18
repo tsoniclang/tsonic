@@ -14,7 +14,8 @@ import { createBinding } from "../ir/binding/index.js";
 
 export const createTestProgram = (
   source: string,
-  fileName = "test.ts"
+  fileName = "test.ts",
+  options: Partial<TsonicProgram["options"]> = {}
 ): TsonicProgram => {
   const sourceFile = ts.createSourceFile(
     fileName,
@@ -61,6 +62,7 @@ export const createTestProgram = (
       projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
+      ...options,
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],

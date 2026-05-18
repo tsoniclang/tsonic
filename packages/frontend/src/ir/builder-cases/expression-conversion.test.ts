@@ -342,12 +342,12 @@ describe("IR Builder", function () {
       if (!inferredType || inferredType.kind !== "referenceType") {
         return;
       }
-      expect(inferredType.targetQualifiedName).to.equal(
+      expect(inferredType.providerQualifiedName).to.equal(
         "TestApp.IntervalIterationResult"
       );
       expect(inferredType.typeId).to.deep.equal({
         stableId: "TestApp:TestApp.IntervalIterationResult",
-        targetName: "TestApp.IntervalIterationResult",
+        providerName: "TestApp.IntervalIterationResult",
         ownerIdentity: "TestApp",
         sourceName: "IntervalIterationResult",
         origin: "source",

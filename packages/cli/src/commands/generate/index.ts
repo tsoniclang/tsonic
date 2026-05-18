@@ -16,6 +16,7 @@ import {
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "@tsonic/emitter";
 import {
+  CSHARP_BACKEND_TARGET_ID,
   generateCsproj,
   generateProgramCs,
   NATIVE_AOT_CAPABILITIES,
@@ -40,6 +41,10 @@ import {
   getLocalPackageIdFromModulePath,
   resolveLocalPackageBuildReferences,
 } from "../local-package-references.js";
+
+type CSharpEmittableIrModule = EmittableIrModule<
+  typeof CSHARP_BACKEND_TARGET_ID
+>;
 
 const normalizeResolvedFilePath = (filePath: string): string =>
   resolve(filePath).replace(/\\/g, "/");
@@ -128,11 +133,11 @@ const resolveReexportTargetModule = <Module extends IrModule>(
 };
 
 const collectEmittedSourceClosure = (
-  modules: readonly EmittableIrModule[],
+  modules: readonly CSharpEmittableIrModule[],
   absoluteSourceRoot: string,
   workspaceRoot: string,
   dllModePackageIds: ReadonlySet<string>
-): readonly EmittableIrModule[] => {
+): readonly CSharpEmittableIrModule[] => {
   if (dllModePackageIds.size === 0) {
     return modules;
   }
@@ -257,8 +262,8 @@ const collectReferencedAnonymousTypeNames = (
 };
 
 const pruneSyntheticAnonymousModules = (
-  modules: readonly EmittableIrModule[]
-): readonly EmittableIrModule[] => {
+  modules: readonly CSharpEmittableIrModule[]
+): readonly CSharpEmittableIrModule[] => {
   const syntheticModule = modules.find(
     (module) => module.filePath === SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH
   );
@@ -313,7 +318,7 @@ const pruneSyntheticAnonymousModules = (
     }
   }
 
-  const prunedSyntheticModule: EmittableIrModule = {
+  const prunedSyntheticModule: CSharpEmittableIrModule = {
     ...syntheticModule,
     body: syntheticModule.body.filter(
       (statement) =>
@@ -418,7 +423,7 @@ export const generateCommand = (
     const allTypeRoots = [...typeRoots, ...typeLibraries].map((pathLike) =>
       isAbsolute(pathLike) ? pathLike : resolve(workspaceRoot, pathLike)
     );
-    const compilerOptions: CompilerOptions = {
+    const compilerOptions: CompilerOptions<typeof CSHARP_BACKEND_TARGET_ID> = {
       projectRoot,
       sourceRoot: absoluteSourceRoot,
       rootNamespace,
@@ -426,6 +431,7 @@ export const generateCommand = (
       surface: config.surface,
       verbose: config.verbose,
       backendCapabilities: NATIVE_AOT_CAPABILITIES,
+      backendTargetId: CSHARP_BACKEND_TARGET_ID,
     };
     const graphResult = buildModuleDependencyGraph(
       absoluteEntryPoint,
@@ -503,7 +509,7 @@ export const generateCommand = (
       ).replace(/\\/g, "/");
       const foundEntryModule =
         prunedEmittedModules.find(
-          (module: EmittableIrModule) => module.filePath === entryRelative
+          (module: CSharpEmittableIrModule) => module.filePath === entryRelative
         ) ?? entryModule;
       if (foundEntryModule) {
         const hasTopLevelCode =

@@ -15,7 +15,7 @@ export const normalizeInstanceofTargetType = (
     return {
       kind: "referenceType",
       name: "Array",
-      targetQualifiedName: "System.Array",
+      providerQualifiedName: "System.Array",
     };
   }
 

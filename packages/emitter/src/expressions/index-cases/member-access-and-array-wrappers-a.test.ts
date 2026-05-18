@@ -195,9 +195,9 @@ describe("Expression Emission", () => {
               inferredType: {
                 kind: "referenceType",
                 name: "Environment_SpecialFolder",
-                targetQualifiedName: "System.Environment+SpecialFolder",
+                providerQualifiedName: "System.Environment+SpecialFolder",
               },
-              targetQualifiedName: "System.Environment+SpecialFolder",
+              providerQualifiedName: "System.Environment+SpecialFolder",
             },
             property: "UserProfile",
             isComputed: false,
@@ -240,7 +240,7 @@ describe("Expression Emission", () => {
               inferredType: {
                 kind: "referenceType",
                 name: "Entity",
-                targetQualifiedName: "Acme.Core.Entity",
+                providerQualifiedName: "Acme.Core.Entity",
               },
             },
             property: "Maybe",

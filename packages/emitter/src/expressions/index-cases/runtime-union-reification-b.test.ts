@@ -20,7 +20,7 @@ import {
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  targetQualifiedName: "Tsonic.Runtime.JsValue",
+  providerQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 describe("Expression Emission", () => {
@@ -62,7 +62,7 @@ describe("Expression Emission", () => {
     const broadObjectType: IrType = {
       kind: "referenceType",
       name: "object",
-      targetQualifiedName: "System.Object",
+      providerQualifiedName: "System.Object",
     };
 
     const targetType: IrType = {
@@ -116,7 +116,7 @@ describe("Expression Emission", () => {
     const broadObjectType: IrType = {
       kind: "referenceType",
       name: "object",
-      targetQualifiedName: "System.Object",
+      providerQualifiedName: "System.Object",
     };
 
     const jsValueArrayType: IrType = {
@@ -164,7 +164,7 @@ describe("Expression Emission", () => {
               storageType: {
                 kind: "referenceType",
                 name: "System.Array",
-                targetQualifiedName: "System.Array",
+                providerQualifiedName: "System.Array",
               },
             },
           ],
@@ -184,7 +184,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
     const middlewareEntryType: IrType = {
       kind: "unionType",
@@ -225,7 +225,7 @@ describe("Expression Emission", () => {
         elementType: {
           kind: "referenceType",
           name: "object",
-          targetQualifiedName: "System.Object",
+          providerQualifiedName: "System.Object",
         },
         origin: "explicit",
       }
@@ -307,7 +307,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType",
               name: "System.Exception",
-              targetQualifiedName: "global::System.Exception",
+              providerQualifiedName: "global::System.Exception",
             },
           ],
         ]),
@@ -338,7 +338,7 @@ describe("Expression Emission", () => {
       {
         kind: "referenceType",
         name: "System.Exception",
-        targetQualifiedName: "global::System.Exception",
+        providerQualifiedName: "global::System.Exception",
       }
     );
 
@@ -381,7 +381,7 @@ describe("Expression Emission", () => {
     const streamType: IrType = {
       kind: "referenceType",
       name: "Stream",
-      targetQualifiedName: "Test.Stream",
+      providerQualifiedName: "Test.Stream",
     };
     const unionElementType: IrType = {
       kind: "unionType",
@@ -398,7 +398,7 @@ describe("Expression Emission", () => {
             elementType: {
               kind: "referenceType",
               name: "object",
-              targetQualifiedName: "System.Object",
+              providerQualifiedName: "System.Object",
             },
             origin: "explicit",
           },
@@ -433,7 +433,7 @@ describe("Expression Emission", () => {
               elementType: {
                 kind: "referenceType",
                 name: "object",
-                targetQualifiedName: "System.Object",
+                providerQualifiedName: "System.Object",
               },
               origin: "explicit",
             },
@@ -447,7 +447,7 @@ describe("Expression Emission", () => {
               elementType: {
                 kind: "referenceType",
                 name: "object",
-                targetQualifiedName: "System.Object",
+                providerQualifiedName: "System.Object",
               },
               origin: "explicit",
             },
@@ -481,7 +481,7 @@ describe("Expression Emission", () => {
               {
                 kind: "referenceType",
                 name: "Uint8Array",
-                targetQualifiedName: "global::js.Uint8Array",
+                providerQualifiedName: "global::js.Uint8Array",
               },
             ],
           },
@@ -492,7 +492,7 @@ describe("Expression Emission", () => {
           inferredType: {
             kind: "referenceType",
             name: "Uint8Array",
-            targetQualifiedName: "global::js.Uint8Array",
+            providerQualifiedName: "global::js.Uint8Array",
           },
         },
         inferredType: { kind: "primitiveType", name: "boolean" },
@@ -518,7 +518,7 @@ describe("Expression Emission", () => {
                 {
                   kind: "referenceType",
                   name: "Uint8Array",
-                  targetQualifiedName: "global::js.Uint8Array",
+                  providerQualifiedName: "global::js.Uint8Array",
                 },
               ],
             },
@@ -534,7 +534,7 @@ describe("Expression Emission", () => {
                 {
                   kind: "referenceType",
                   name: "Uint8Array",
-                  targetQualifiedName: "global::js.Uint8Array",
+                  providerQualifiedName: "global::js.Uint8Array",
                 },
               ],
             },
@@ -553,7 +553,7 @@ describe("Expression Emission", () => {
     const keyObjectType: IrType = {
       kind: "referenceType",
       name: "KeyObject",
-      targetQualifiedName: "global::Test.KeyObject",
+      providerQualifiedName: "global::Test.KeyObject",
     };
     const stringOrKeyObjectType: IrType = {
       kind: "unionType",
@@ -717,7 +717,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "Test.RegExp",
+          providerQualifiedName: "Test.RegExp",
         },
       ],
     };
@@ -823,7 +823,7 @@ describe("Expression Emission", () => {
       {
         kind: "referenceType",
         name: "Router",
-        targetQualifiedName: "Test.Router",
+        providerQualifiedName: "Test.Router",
       },
       {
         kind: "arrayType",

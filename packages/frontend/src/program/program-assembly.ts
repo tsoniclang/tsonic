@@ -39,7 +39,8 @@ import {
 import { discoverProgramInputs } from "./program-input-discovery.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
 import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
-import { createTargetSurfaceArtifactsFromBindings } from "./target-surface-artifacts.js";
+import { createBindingTargetSurfaceProvider } from "./binding-target-surface-provider.js";
+import { defineBackendTargetId } from "../ir/types.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -635,7 +636,11 @@ export const createProgram = (
   // Create resolver for import-driven external namespace discovery
   // Uses projectRoot (not sourceRoot) to resolve packages from node_modules
   const externalResolver = createExternalBindingsResolver(options.projectRoot);
-  const targetSurfaceArtifacts = createTargetSurfaceArtifactsFromBindings(bindings);
+  const targetSurfaceProvider = createBindingTargetSurfaceProvider({
+    targetId: options.backendTargetId ?? defineBackendTargetId("default"),
+    bindings,
+  });
+  const targetSurfaceArtifacts = targetSurfaceProvider.getArtifacts();
 
   // Create binding layer for symbol resolution
   // This replaces direct checker API calls throughout the pipeline
@@ -656,5 +661,6 @@ export const createProgram = (
     externalResolver,
     binding,
     targetSurfaceArtifacts,
+    targetSurfaceProvider,
   });
 };

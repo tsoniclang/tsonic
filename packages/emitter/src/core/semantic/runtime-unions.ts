@@ -162,22 +162,89 @@ export const buildRuntimeUnionLayout = (
         }
       : undefined
   );
+  const [carrierTypeArgumentAsts, carrierTypeArgumentContext] =
+    buildCarrierTypeArgumentAsts({
+      carrierTypeParameters: carrier.typeParameters,
+      sourceAliasTypeArgumentAsts: sourceAliasMetadata?.typeArgumentAsts,
+      layoutSourceType,
+      layoutEntries,
+      context: sourceAliasContext,
+      emitTypeAst,
+    });
 
   return [
     {
       members: layoutEntries.map((entry) => entry.member),
       memberTypeAsts: layoutEntries.map((entry) => entry.typeAst),
-      carrierTypeArgumentAsts:
-        carrier.typeParameters.length === 0
-          ? []
-          : (sourceAliasMetadata?.typeArgumentAsts ??
-            layoutEntries.map((entry) => entry.typeAst)),
+      carrierTypeArgumentAsts,
       runtimeUnionArity: layoutEntries.length,
       carrierName: carrier.name,
       carrierFullName: carrier.fullName,
     },
-    restoreLayoutContext(sourceAliasContext),
+    restoreLayoutContext(carrierTypeArgumentContext),
   ];
+};
+
+const buildCarrierTypeArgumentAsts = (opts: {
+  readonly carrierTypeParameters: readonly string[];
+  readonly sourceAliasTypeArgumentAsts?: readonly CSharpTypeAst[];
+  readonly layoutSourceType: IrType;
+  readonly layoutEntries: readonly {
+    readonly member: IrType;
+    readonly typeAst: CSharpTypeAst;
+  }[];
+  readonly context: EmitterContext;
+  readonly emitTypeAst: EmitTypeAstLike;
+}): [readonly CSharpTypeAst[], EmitterContext] => {
+  const {
+    carrierTypeParameters,
+    sourceAliasTypeArgumentAsts,
+    layoutSourceType,
+    layoutEntries,
+    context,
+    emitTypeAst,
+  } = opts;
+
+  if (carrierTypeParameters.length === 0) {
+    return [[], context];
+  }
+
+  if (sourceAliasTypeArgumentAsts) {
+    return [sourceAliasTypeArgumentAsts, context];
+  }
+
+  if (
+    layoutSourceType.kind === "unionType" &&
+    layoutSourceType.runtimeCarrierTypeArguments &&
+    layoutSourceType.runtimeCarrierTypeArguments.length > 0
+  ) {
+    const typeArgumentAsts: CSharpTypeAst[] = [];
+    let currentContext = context;
+    for (const typeArgument of layoutSourceType.runtimeCarrierTypeArguments) {
+      const [typeArgumentAst, nextContext] = emitTypeAst(
+        typeArgument,
+        currentContext
+      );
+      typeArgumentAsts.push(typeArgumentAst);
+      currentContext = nextContext;
+    }
+    return [typeArgumentAsts, currentContext];
+  }
+
+  if (
+    layoutSourceType.kind === "unionType" &&
+    layoutSourceType.runtimeCarrierTypeParameters &&
+    layoutSourceType.runtimeCarrierTypeParameters.length > 0
+  ) {
+    return [
+      layoutSourceType.runtimeCarrierTypeParameters.map((name) =>
+        identifierType(name)
+      ),
+      context,
+    ];
+  }
+
+  return [layoutEntries.map((entry) => entry.typeAst), context];
 };
 
 const buildSourceAliasCarrierMetadata = (
@@ -214,7 +281,7 @@ const buildSourceAliasCarrierMetadata = (
           ...(layoutSourceType.runtimeCarrierNamespace &&
           layoutSourceType.runtimeCarrierName
             ? {
-                targetQualifiedName: `${layoutSourceType.runtimeCarrierNamespace}.${layoutSourceType.runtimeCarrierName}`,
+                providerQualifiedName: `${layoutSourceType.runtimeCarrierNamespace}.${layoutSourceType.runtimeCarrierName}`,
               }
             : {}),
         };

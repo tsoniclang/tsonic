@@ -132,7 +132,7 @@ describe("Expression Emission", () => {
                 elementType: {
                   kind: "referenceType",
                   name: "Acme.Core.Attachment",
-                  targetQualifiedName: "Acme.Core.Attachment",
+                  providerQualifiedName: "Acme.Core.Attachment",
                 },
               },
             },
@@ -224,7 +224,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {
@@ -283,7 +283,7 @@ describe("Expression Emission", () => {
             elementType: {
               kind: "referenceType",
               name: "object",
-              targetQualifiedName: "System.Object",
+              providerQualifiedName: "System.Object",
             },
             origin: "explicit",
           } satisfies IrType,
@@ -316,7 +316,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {
@@ -386,7 +386,7 @@ describe("Expression Emission", () => {
             elementType: {
               kind: "referenceType",
               name: "object",
-              targetQualifiedName: "System.Object",
+              providerQualifiedName: "System.Object",
             },
             origin: "explicit",
           } satisfies IrType,

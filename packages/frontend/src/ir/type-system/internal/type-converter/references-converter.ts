@@ -245,7 +245,7 @@ export const convertTypeReference = (
       .getDecl(declId);
     return declInfo?.fqName ?? typeName;
   })();
-  const targetQualifiedName = resolveSourceTargetIdentity(declId, binding);
+  const providerQualifiedName = resolveSourceTargetIdentity(declId, binding);
 
   // ExtensionMethods wrapper erasure for resolved names
   if (
@@ -334,7 +334,7 @@ export const convertTypeReference = (
     kind: "referenceType",
     name: resolvedName,
     typeArguments: convertedTypeArguments,
-    targetQualifiedName,
+    providerQualifiedName,
     structuralOrigin: "namedReference",
     ...(substitutedStructuralMembers
       ? { structuralMembers: substitutedStructuralMembers }

@@ -16,7 +16,8 @@ export { expect };
 export const createTestProgram = (
   source: string,
   fileName = "/test/index.ts",
-  extraFiles: Readonly<Record<string, string>> = {}
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
 ): TsonicProgram => {
   const allFiles = new Map<string, string>([
     [fileName, source],
@@ -88,6 +89,7 @@ export const createTestProgram = (
       projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
+      ...options,
     },
     sourceFiles: Array.from(sourceFiles.keys())
       .map((name) => program.getSourceFile(name))
@@ -102,17 +104,19 @@ export const createTestProgram = (
 
 export const collectCodes = (
   source: string,
-  extraFiles: Readonly<Record<string, string>> = {}
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
 ): readonly string[] =>
   validateProgram(
-    createTestProgram(source, "/test/index.ts", extraFiles)
+    createTestProgram(source, "/test/index.ts", extraFiles, options)
   ).diagnostics.map((d) => d.code);
 
 export const hasCode = (
   source: string,
   code: string,
-  extraFiles: Readonly<Record<string, string>> = {}
-): boolean => collectCodes(source, extraFiles).includes(code);
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
+): boolean => collectCodes(source, extraFiles, options).includes(code);
 
 export const collectCodesInTempProject = (
   source: string,

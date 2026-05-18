@@ -3,7 +3,12 @@ import {
   SourceLocation,
   createDiagnostic,
 } from "../../types/diagnostic.js";
-import type { BackendCapabilityManifest } from "../../capabilities/backend-capabilities.js";
+import {
+  capability,
+  isCapabilityUnavailable,
+  type BackendCapabilityManifest,
+  type FeatureKey,
+} from "../../capabilities/backend-capabilities.js";
 import type {
   IrModule,
   IrPattern,
@@ -53,6 +58,7 @@ export const KNOWN_BUILTINS = new Set([
   "decimal",
   "bool",
   "char",
+  "bigint",
   "string",
   "object",
   "void",
@@ -79,6 +85,30 @@ export const moduleLocation = (ctx: ValidationContext): SourceLocation => ({
   column: 1,
   length: 1,
 });
+
+export const shouldReportUnsupportedCapability = (
+  ctx: ValidationContext,
+  capabilityName: FeatureKey
+): boolean =>
+  ctx.enableCapabilityChecks &&
+  isCapabilityUnavailable(ctx.backendCapabilities, capabilityName);
+
+export const createUnsupportedCapabilityDiagnostic = (
+  ctx: ValidationContext,
+  capabilityName: FeatureKey,
+  fallbackCode: Diagnostic["code"],
+  fallbackMessage: string,
+  fallbackRemediation: string
+): Diagnostic => {
+  const backendCapability = capability(ctx.backendCapabilities, capabilityName);
+  return createDiagnostic(
+    backendCapability?.diagnosticCode ?? fallbackCode,
+    "error",
+    backendCapability?.diagnosticMessage ?? fallbackMessage,
+    moduleLocation(ctx),
+    backendCapability?.remediation ?? fallbackRemediation
+  );
+};
 
 export const getReferenceResolutionCandidates = (
   name: string

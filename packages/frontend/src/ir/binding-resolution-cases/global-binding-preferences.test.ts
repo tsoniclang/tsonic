@@ -76,8 +76,8 @@ describe("Binding Resolution in IR", () => {
           kind: "identifier",
           name: "console",
           inferredType: { kind: "referenceType", name: "Console" },
-          targetQualifiedName: "Acme.Js.console",
-          targetOwnerIdentity: "Acme.Js",
+          providerQualifiedName: "Acme.Js.console",
+          providerOwnerIdentity: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "error",
         ctx
@@ -141,8 +141,8 @@ describe("Binding Resolution in IR", () => {
           kind: "identifier",
           name: "Array",
           inferredType: { kind: "referenceType", name: "Array" },
-          targetQualifiedName: "Acme.Js.ArrayRuntime",
-          targetOwnerIdentity: "Acme.Js",
+          providerQualifiedName: "Acme.Js.ArrayRuntime",
+          providerOwnerIdentity: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "isArray",
         ctx
@@ -199,8 +199,8 @@ describe("Binding Resolution in IR", () => {
           name: "Array",
           declId: createTestDeclId(1),
           inferredType: { kind: "referenceType", name: "Array" },
-          targetQualifiedName: "Acme.Js.ArrayRuntime",
-          targetOwnerIdentity: "Acme.Js",
+          providerQualifiedName: "Acme.Js.ArrayRuntime",
+          providerOwnerIdentity: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "from",
         ctx
@@ -348,7 +348,7 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "js",
             type: "js.Boolean",
-            targetMemberName: "Globals.Boolean",
+            providerMemberName: "Globals.Boolean",
           },
         },
       });

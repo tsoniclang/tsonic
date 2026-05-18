@@ -6,7 +6,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFiles, emitModule } from "../../emitter.js";
-import { assumeEmittableIrModule, IrModule, IrType } from "@tsonic/frontend";
+import { assumeEmittableIrModule } from "../../test-ir-strict.js";
+import type { IrModule, IrType } from "@tsonic/frontend";
 
 describe("Module Generation", () => {
   it("should emit a regular class", () => {
@@ -141,7 +142,7 @@ describe("Module Generation", () => {
               name: "buildSite",
               localName: "buildSite",
               isType: false,
-              targetValue: {
+              providerValue: {
                 ownerQualifiedName: "Lib.BuildSite",
                 ownerIdentity: "Lib",
                 memberName: "buildSite",
@@ -195,7 +196,7 @@ describe("Module Generation", () => {
     const routerType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "global::System.Object",
+      providerQualifiedName: "global::System.Object",
       structuralMembers: [],
     } as unknown as Extract<IrType, { kind: "referenceType" }> & {
       structuralMembers: unknown[];

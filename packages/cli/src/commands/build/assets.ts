@@ -44,11 +44,11 @@ const findAssemblyNameConflicts = (
   const librariesById = assets.libraries ?? {};
   const conflicts: AssemblyNameConflict[] = [];
 
-  for (const [targetKey, targetValue] of Object.entries(targets)) {
-    if (!targetKey || !targetValue || typeof targetValue !== "object") continue;
+  for (const [targetKey, providerValue] of Object.entries(targets)) {
+    if (!targetKey || !providerValue || typeof providerValue !== "object") continue;
 
     for (const [libKey, libValue] of Object.entries(
-      targetValue as Record<string, unknown>
+      providerValue as Record<string, unknown>
     )) {
       if (!libKey || !libValue || typeof libValue !== "object") continue;
       if (librariesById[libKey]?.type === "project") continue;

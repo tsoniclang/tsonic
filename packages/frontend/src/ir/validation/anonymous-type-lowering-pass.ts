@@ -45,7 +45,7 @@ import {
 import type { LoweringContext } from "./anon-type-lower-types.js";
 
 import { lowerExpression, lowerStatement } from "./anon-type-ir-rewriting.js";
-import { createTypeSymbolId } from "../../symbols/index.js";
+import { typeSymbolIdFromStableId } from "../../symbols/index.js";
 
 /**
  * Result of anonymous type lowering pass
@@ -123,14 +123,14 @@ const collectLocalDeclaredTypeReferences = (
       case "classDeclaration":
       case "interfaceDeclaration":
       case "enumDeclaration":
-        const targetQualifiedName = module.namespace
+        const providerQualifiedName = module.namespace
           ? `${module.namespace}.${stmt.name}`
           : stmt.name;
         const reference: IrReferenceType = {
           kind: "referenceType",
           name: stmt.name,
-          targetQualifiedName,
-          symbolId: createTypeSymbolId("source", targetQualifiedName),
+          providerQualifiedName,
+          symbolId: typeSymbolIdFromStableId(`source:${providerQualifiedName}`),
           typeArguments:
             "typeParameters" in stmt
               ? stmt.typeParameters?.map(
@@ -142,7 +142,7 @@ const collectLocalDeclaredTypeReferences = (
               : undefined,
         };
         references.set(stmt.name, reference);
-        references.set(targetQualifiedName, reference);
+        references.set(providerQualifiedName, reference);
         break;
     }
   }
@@ -161,12 +161,12 @@ const collectDeclaredTypeReferences = (
     namespace: string,
     typeParameters?: readonly { readonly name: string }[]
   ): void => {
-    const targetQualifiedName = namespace ? `${namespace}.${name}` : name;
+    const providerQualifiedName = namespace ? `${namespace}.${name}` : name;
     const reference: IrReferenceType = {
       kind: "referenceType",
       name,
-      targetQualifiedName,
-      symbolId: createTypeSymbolId("source", targetQualifiedName),
+      providerQualifiedName,
+      symbolId: typeSymbolIdFromStableId(`source:${providerQualifiedName}`),
       typeArguments: typeParameters?.map(
         (parameter): IrType => ({
           kind: "typeParameterType",
@@ -175,7 +175,7 @@ const collectDeclaredTypeReferences = (
       ),
     };
 
-    byQualifiedName.set(targetQualifiedName, reference);
+    byQualifiedName.set(providerQualifiedName, reference);
     const bucket = simpleBuckets.get(name) ?? [];
     bucket.push(reference);
     simpleBuckets.set(name, bucket);
@@ -263,13 +263,12 @@ const registerExistingAnonymousReference = (
     members: type.structuralMembers,
   });
 
-  const targetQualifiedName =
-    type.targetQualifiedName ?? type.typeId?.targetName ?? undefined;
+  const providerQualifiedName = type.providerQualifiedName;
   const existing = shapeToExistingReference.get(signature);
   if (
     existing &&
-    existing.targetQualifiedName !== undefined &&
-    targetQualifiedName === undefined
+    existing.providerQualifiedName !== undefined &&
+    providerQualifiedName === undefined
   ) {
     return;
   }
@@ -278,7 +277,7 @@ const registerExistingAnonymousReference = (
     kind: "referenceType",
     name: type.name,
     typeArguments: type.typeArguments,
-    targetQualifiedName,
+    providerQualifiedName,
     structuralMembers: type.structuralMembers,
     structuralOrigin: type.structuralOrigin ?? "compilerOwnedStructural",
   });
@@ -348,7 +347,7 @@ const collectAnonymousReferenceDeclarations = (
   }
   seen.add(value);
 
-  if (isAnonymousReferenceType(value) && value.targetQualifiedName === undefined) {
+  if (isAnonymousReferenceType(value) && value.providerQualifiedName === undefined) {
     if (!declarationsByName.has(value.name)) {
       declarationsByName.set(value.name, {
         kind: "classDeclaration",
@@ -494,16 +493,16 @@ const shouldTraverseInferredTypeMetadata = (
   const record = owner as {
     readonly kind?: unknown;
     readonly importedFrom?: unknown;
-    readonly targetQualifiedName?: unknown;
-    readonly targetOwnerIdentity?: unknown;
+    readonly providerQualifiedName?: unknown;
+    readonly providerOwnerIdentity?: unknown;
     readonly originalName?: unknown;
   };
 
   if (
     record.kind === "identifier" &&
     (record.importedFrom !== undefined ||
-      record.targetQualifiedName !== undefined ||
-      record.targetOwnerIdentity !== undefined ||
+      record.providerQualifiedName !== undefined ||
+      record.providerOwnerIdentity !== undefined ||
       (typeof record.originalName === "string" &&
         record.originalName.startsWith('"') &&
         record.originalName.endsWith('"')))
@@ -586,7 +585,7 @@ export const runAnonymousTypeLoweringPass = (
                         name: parameter.name,
                       })
                     ) ?? undefined,
-                  targetQualifiedName: `${module.namespace}.${stmt.name}`,
+                  providerQualifiedName: `${module.namespace}.${stmt.name}`,
                   structuralMembers: members,
                   structuralOrigin: "compilerOwnedStructural",
                 },
@@ -609,7 +608,7 @@ export const runAnonymousTypeLoweringPass = (
                       name: parameter.name,
                     })
                   ) ?? undefined,
-                targetQualifiedName: `${module.namespace}.${stmt.name}`,
+                providerQualifiedName: `${module.namespace}.${stmt.name}`,
                 structuralMembers: stmt.members,
                 structuralOrigin: "compilerOwnedStructural",
               },

@@ -2,15 +2,19 @@
  * Virtual Marking Pass
  *
  * Recomputes local TypeScript class override/shadow relationships after all IR
- * collection passes have attached final emitted member names. This pass is the
+ * collection passes have attached final source-visible overload identities. This pass is the
  * single source of truth for local class hierarchies:
  * - no legacy overload helper bridges
  * - no widened-signature compatibility bridges
  * - no source-name-only matching
  *
- * A derived member overrides a local base member only when the emitted native target name
+ * A derived member overrides a local base member only when the source-visible public name
  * and full signature match exactly after base-class type-argument substitution.
  * Otherwise, a same-name local member is marked as shadowing.
+ *
+ * This pass intentionally handles source-owned class hierarchy semantics only. It does not
+ * inspect target render names or backend-specific identities; external override metadata is
+ * collected before IR validation and consumed through source-semantic member flags.
  */
 
 import {

@@ -1,11 +1,7 @@
 import { isKnownBuiltinReferenceType } from "./known-builtin-reference-types.js";
 import {
-  capability,
-  type FeatureKey,
-} from "../../capabilities/backend-capabilities.js";
-import {
+  createUnsupportedCapabilityDiagnostic,
   createDiagnostic,
-  type Diagnostic,
   getReferenceResolutionCandidates,
   KNOWN_BUILTINS,
   moduleLocation,
@@ -15,6 +11,7 @@ import {
   type IrType,
   type IrTypeParameter,
   type ValidationContext,
+  shouldReportUnsupportedCapability,
 } from "./soundness-gate-shared.js";
 import { validateExpression } from "./soundness-gate-expression-validation.js";
 
@@ -24,22 +21,11 @@ type IntersectionRootKind =
   | "typeParameterConstraint"
   | "semanticMetadata";
 
-const unsupportedCapabilityDiagnostic = (
-  ctx: ValidationContext,
-  capabilityName: FeatureKey,
-  fallbackCode: Diagnostic["code"],
-  fallbackMessage: string,
-  fallbackRemediation: string
-) => {
-  const backendCapability = capability(ctx.backendCapabilities, capabilityName);
-  return createDiagnostic(
-    backendCapability?.diagnosticCode ?? fallbackCode,
-    "error",
-    backendCapability?.diagnosticMessage ?? fallbackMessage,
-    moduleLocation(ctx),
-    backendCapability?.remediation ?? fallbackRemediation
-  );
-};
+const parameterPassingCapabilities = {
+  out: "out-parameters",
+  ref: "ref-parameters",
+  in: "in-parameters",
+} as const;
 
 export const validateType = (
   type: IrType | undefined,
@@ -136,14 +122,14 @@ export const validateType = (
 
       case "intersectionType":
         if (
-          ctx.enableCapabilityChecks &&
+          shouldReportUnsupportedCapability(ctx, "intersection-value-storage") &&
           (options.intersectionRootKind ?? "runtimeStorage") ===
-          "runtimeStorage"
+            "runtimeStorage"
         ) {
           ctx.diagnostics.push(
-            unsupportedCapabilityDiagnostic(
+            createUnsupportedCapabilityDiagnostic(
               ctx,
-              "intersection-runtime-storage",
+              "intersection-value-storage",
               "TSN7414",
               `Intersection type in ${typeContext} cannot be emitted as a runtime storage type.`,
               "Use a named interface/class that represents the required runtime shape, or keep the intersection only as a generic constraint."
@@ -160,7 +146,7 @@ export const validateType = (
         break;
 
       case "referenceType": {
-        const { name, targetQualifiedName, typeId } = type;
+        const { name, providerQualifiedName, typeId } = type;
         if (
           type.structuralMembers !== undefined &&
           type.structuralMembers.length > 0 &&
@@ -190,7 +176,7 @@ export const validateType = (
         ];
         const isResolvable =
           typeId !== undefined ||
-          targetQualifiedName !== undefined ||
+          providerQualifiedName !== undefined ||
           (type.structuralMembers !== undefined &&
             type.structuralMembers.length > 0) ||
           candidateNames.some(
@@ -248,6 +234,21 @@ export const validateType = (
       }
 
       case "primitiveType":
+        if (
+          type.name === "bigint" &&
+          shouldReportUnsupportedCapability(ctx, "bigint")
+        ) {
+          ctx.diagnostics.push(
+            createUnsupportedCapabilityDiagnostic(
+              ctx,
+              "bigint",
+              "TSN5001",
+              `bigint in ${typeContext} is not supported by the active backend.`,
+              "Use a backend that declares bigint support, or rewrite this type to a supported numeric abstraction."
+            )
+          );
+        }
+        break;
       case "typeParameterType":
       case "literalType":
       case "voidType":
@@ -289,6 +290,35 @@ export const validateParameter = (
     parameter.pattern.kind === "identifierPattern"
       ? parameter.pattern.name
       : "param";
+  if (parameter.passing !== "value") {
+    const capabilityName = parameterPassingCapabilities[parameter.passing];
+    if (shouldReportUnsupportedCapability(ctx, capabilityName)) {
+      ctx.diagnostics.push(
+        createUnsupportedCapabilityDiagnostic(
+          ctx,
+          capabilityName,
+          "TSN5001",
+          `Parameter '${paramName}' uses ${parameter.passing} passing, which is not supported by the active backend.`,
+          `Use a backend that declares ${parameter.passing} parameter support, or rewrite the API to return an explicit value.`
+        )
+      );
+    }
+  }
+  if (
+    parameter.attributes !== undefined &&
+    parameter.attributes.length > 0 &&
+    shouldReportUnsupportedCapability(ctx, "parameter-decorators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "parameter-decorators",
+        "TSN5001",
+        `Parameter '${paramName}' has metadata attributes, which are not supported by the active backend.`,
+        "Use a backend that declares parameter metadata-attribute support, or remove the parameter attributes."
+      )
+    );
+  }
   validateType(parameter.type, ctx, `parameter '${paramName}'`);
   validatePattern(parameter.pattern, ctx);
   if (parameter.initializer) {

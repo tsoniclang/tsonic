@@ -12,7 +12,7 @@ import { normalizeRuntimeUnionCarrierNames } from "../../runtime-union-cases/hel
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  targetQualifiedName: "Tsonic.Runtime.JsValue",
+  providerQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 describe("Expression Emission", () => {
@@ -26,7 +26,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            targetQualifiedName: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -40,7 +40,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const pathSpecType: IrType = {
@@ -55,7 +55,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
       ],
     };
@@ -110,7 +110,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            targetQualifiedName: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -124,7 +124,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const pathSpecType: IrType = {
@@ -139,7 +139,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
       ],
     };
@@ -196,7 +196,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            targetQualifiedName: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -210,7 +210,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const pathSpecType: IrType = {
@@ -225,7 +225,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
       ],
     };
@@ -276,7 +276,7 @@ describe("Expression Emission", () => {
     const bindOptionsType: IrType = {
       kind: "referenceType",
       name: "BindOptions",
-      targetQualifiedName: "Test.BindOptions",
+      providerQualifiedName: "Test.BindOptions",
     };
 
     const broadType: IrType = {
@@ -355,7 +355,7 @@ describe("Expression Emission", () => {
     const bytesType: IrType = {
       kind: "referenceType",
       name: "Bytes",
-      targetQualifiedName: "Test.Bytes",
+      providerQualifiedName: "Test.Bytes",
     };
 
     const broadType: IrType = {
@@ -423,7 +423,7 @@ describe("Expression Emission", () => {
     const bytesType: IrType = {
       kind: "referenceType",
       name: "Bytes",
-      targetQualifiedName: "Test.Bytes",
+      providerQualifiedName: "Test.Bytes",
     };
 
     const broadType: IrType = {
@@ -479,7 +479,7 @@ describe("Expression Emission", () => {
     const bindOptionsType: IrType = {
       kind: "referenceType",
       name: "BindOptions",
-      targetQualifiedName: "Test.BindOptions",
+      providerQualifiedName: "Test.BindOptions",
     };
 
     const broadType: IrType = {
@@ -563,17 +563,17 @@ describe("Expression Emission", () => {
     const rsaType: IrType = {
       kind: "referenceType",
       name: "RSA",
-      targetQualifiedName: "Test.RSA",
+      providerQualifiedName: "Test.RSA",
     };
     const dsaType: IrType = {
       kind: "referenceType",
       name: "DSA",
-      targetQualifiedName: "Test.DSA",
+      providerQualifiedName: "Test.DSA",
     };
     const ecDsaType: IrType = {
       kind: "referenceType",
       name: "ECDsa",
-      targetQualifiedName: "Test.ECDsa",
+      providerQualifiedName: "Test.ECDsa",
     };
     const nullType: IrType = { kind: "primitiveType", name: "null" };
     const nativeKeyType: IrType = {
@@ -588,7 +588,7 @@ describe("Expression Emission", () => {
     const nativeKeyRef: IrType = {
       kind: "referenceType",
       name: "NativeAsymmetricKey",
-      targetQualifiedName: "Test.NativeAsymmetricKey",
+      providerQualifiedName: "Test.NativeAsymmetricKey",
     };
     const remainingKeyTypes: IrType = {
       kind: "unionType",

@@ -43,7 +43,7 @@ const typeHasTargetIdentity = (
   if (!type) return false;
   switch (type.kind) {
     case "referenceType":
-      return !!type.targetQualifiedName || !!type.typeId?.targetName;
+      return !!type.providerQualifiedName || !!type.symbolId || !!type.typeId;
     case "unionType":
     case "intersectionType":
       return type.types.some(typeHasTargetIdentity);
@@ -61,7 +61,7 @@ const typeHasTargetTypeIdentity = (
 ): boolean => typeHasTargetIdentity(type);
 
 const expressionHasTargetIdentity = (expr: IrExpression): boolean =>
-  ("targetQualifiedName" in expr && typeof expr.targetQualifiedName === "string") ||
+  ("providerQualifiedName" in expr && typeof expr.providerQualifiedName === "string") ||
   typeHasTargetIdentity(expr.inferredType);
 
 /**
@@ -166,7 +166,7 @@ export const convertMemberExpression = (
     // Hierarchical bindings: namespace.type is a static type reference, not a runtime
     // value. When this pattern is present in the binding manifest, avoid poisoning the
     // receiver with unknownType; the emitter uses "no inferredType" to classify the
-    // receiver as a static type, enabling global::Type.Member emission.
+    // receiver as a static type and render the target-specific static member access.
     const isNamespaceTypeReference =
       object.kind === "identifier" &&
       ctx.bindings

@@ -134,8 +134,8 @@ export const externalSignatureTypeKey = (
     }
     case "referenceType": {
       const identity =
-        type.targetQualifiedName !== undefined
-          ? `target:${type.targetQualifiedName}`
+        type.providerQualifiedName !== undefined
+          ? `target:${type.providerQualifiedName}`
           : type.typeId?.stableId !== undefined
             ? `id:${type.typeId.stableId}`
             : (type.typeId?.symbolId ?? type.symbolId) !== undefined

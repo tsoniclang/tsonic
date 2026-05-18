@@ -61,7 +61,7 @@ describe("Binding Resolution in IR", () => {
       if (writeLineAccess.object.object.kind !== "identifier") return;
 
       expect(writeLineAccess.object.object.name).to.equal("Console");
-      expect(writeLineAccess.object.object.targetQualifiedName).to.equal(undefined);
+      expect(writeLineAccess.object.object.providerQualifiedName).to.equal(undefined);
       expect(writeLineAccess.object.memberBinding).to.equal(undefined);
     });
 

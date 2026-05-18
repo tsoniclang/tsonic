@@ -1,7 +1,10 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
-import { dtsTypeNodeToIrType } from "./external-type-parser.js";
+import {
+  dtsTypeNodeToIrType,
+  parseExternalTypeString,
+} from "./external-type-parser.js";
 
 const parseAliasTypeNode = (source: string, aliasName: string): ts.TypeNode => {
   const sf = ts.createSourceFile(
@@ -111,5 +114,35 @@ describe("external-type-parser d.ts utility typing", () => {
         { kind: "primitiveType", name: "null" },
       ],
     });
+  });
+
+  it("preserves raw target string when provider metadata makes generic arguments ambiguous", () => {
+    const result = parseExternalTypeString(
+      "ProviderBox_1[[Payload,ProviderIdentity,ProviderKey=opaque]]"
+    );
+
+    expect(result.kind).to.equal("referenceType");
+    if (result.kind !== "referenceType") {
+      throw new Error("Expected referenceType result");
+    }
+    expect(result.name).to.equal("ProviderBox_1");
+    expect(result.typeArguments).to.equal(undefined);
+    expect(result.providerQualifiedName).to.equal(
+      "ProviderBox_1[[Payload,ProviderIdentity,ProviderKey=opaque]]"
+    );
+  });
+
+  it("parses generic arguments only when the argument count matches declared arity", () => {
+    const result = parseExternalTypeString("ProviderPair_2[[Left,Right]]");
+
+    expect(result.kind).to.equal("referenceType");
+    if (result.kind !== "referenceType") {
+      throw new Error("Expected referenceType result");
+    }
+    expect(result.name).to.equal("ProviderPair_2");
+    expect(result.typeArguments).to.deep.equal([
+      { kind: "referenceType", name: "Left", providerQualifiedName: "Left" },
+      { kind: "referenceType", name: "Right", providerQualifiedName: "Right" },
+    ]);
   });
 });

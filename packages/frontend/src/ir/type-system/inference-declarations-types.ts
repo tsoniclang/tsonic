@@ -37,11 +37,12 @@ import {
   isOverloadSurfaceDeclaration,
 } from "../syntax/overload-stubs.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
+import { typeIdProviderLookupName } from "./internal/universe/types.js";
 
 const CATCH_VARIABLE_EXCEPTION_TYPE: IrReferenceType = {
   kind: "referenceType",
   name: "Error",
-  targetQualifiedName: "core:Error",
+  providerQualifiedName: "core:Error",
 };
 
 const isCatchVariableDeclaration = (
@@ -398,7 +399,9 @@ const buildNominalReferenceType = (
   return {
     kind: "referenceType",
     name: declInfo.fqName ?? simpleName ?? "unknown",
-    ...(typeId ? { typeId, targetQualifiedName: typeId.targetName } : {}),
+    ...(typeId
+      ? { typeId, providerQualifiedName: typeIdProviderLookupName(typeId) }
+      : {}),
     ...(structuralMembers
       ? { structuralMembers, structuralOrigin: "namedReference" as const }
       : {}),

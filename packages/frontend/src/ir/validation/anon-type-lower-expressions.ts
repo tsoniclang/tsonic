@@ -31,8 +31,8 @@ export const lowerExpression = (
       case "identifier": {
         if (!expr.declId || !expr.inferredType) return expr;
         if (
-          expr.targetQualifiedName ||
-          expr.targetOwnerIdentity ||
+          expr.providerQualifiedName ||
+          expr.providerOwnerIdentity ||
           expr.importedFrom
         ) {
           return expr;

@@ -2,7 +2,7 @@
  * Tests for IR Soundness Gate – Reference Type Resolvability
  *
  * Validates that the soundness gate correctly handles reference types:
- * - Types with targetQualifiedName are allowed
+ * - Types with providerQualifiedName are allowed
  * - Known CLR binding types are allowed
  * - tsbindgen instance aliases are allowed when base alias is known
  * - Known builtins (Array, Promise, PromiseLike, ReadonlyArray, ArrayLike, AsyncIterable)
@@ -19,11 +19,11 @@ import { createModuleWithType } from "./test-helpers.js";
 
 describe("IR Soundness Gate", () => {
   describe("Reference Type Resolvability", () => {
-    it("should allow referenceType with targetQualifiedName", () => {
+    it("should allow referenceType with providerQualifiedName", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Action",
-        targetQualifiedName: "global::System.Action",
+        providerQualifiedName: "global::System.Action",
       });
 
       const result = validateIrSoundness([module]);

@@ -31,7 +31,7 @@ describe("Expression Emission", () => {
                 valueType: {
                   kind: "referenceType",
                   name: "Acme.Core.Channel",
-                  targetQualifiedName: "Acme.Core.Channel",
+                  providerQualifiedName: "Acme.Core.Channel",
                 },
               },
             },

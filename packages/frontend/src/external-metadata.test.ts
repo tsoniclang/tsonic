@@ -224,10 +224,10 @@ describe("ExternalMetadataRegistry", () => {
     const builderType: IrType = {
       kind: "referenceType",
       name: "Builder",
-      targetQualifiedName: "Provider.Builder",
+      providerQualifiedName: "Provider.Builder",
       typeId: {
         symbolId: typeSymbolIdFromStableId("local-test:builder-symbol"),
-        targetName: "Provider.Builder",
+        providerName: "Provider.Builder",
         stableId: "local-test:builder-symbol",
         sourceName: "Builder",
         ownerIdentity: "local-test",

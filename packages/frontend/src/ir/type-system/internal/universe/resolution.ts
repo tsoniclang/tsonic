@@ -80,8 +80,8 @@ export const resolveTypeName = (
     return { typeId: tsTypeId, collector };
   }
 
-  // 3. Try universe by provider target name
-  const targetTypeId = universe.resolveTargetName(name);
+  // 3. Try universe by provider-local name
+  const targetTypeId = universe.resolveProviderName(name);
   if (targetTypeId) {
     return { typeId: targetTypeId, collector };
   }
@@ -138,8 +138,8 @@ export const tryResolveTypeName = (
   const tsTypeId = universe.resolveTsName(name);
   if (tsTypeId) return tsTypeId;
 
-  // Try universe by provider target name
-  return universe.resolveTargetName(name);
+  // Try universe by provider-local name
+  return universe.resolveProviderName(name);
 };
 
 /**

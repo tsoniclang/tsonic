@@ -97,13 +97,16 @@ export type IrIdentifierExpression = {
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the declaration this identifier references (from Binding layer)
   readonly declId?: DeclId;
-  // Target binding for globals (console, Math, etc.)
-  readonly targetQualifiedName?: string;
-  readonly targetOwnerIdentity?: string;
-  readonly targetMemberName?: string;
-  /** Symbol identity for external target type/container references. */
+  /**
+   * Provider-local binding keys for externally-owned global/module values.
+   * New rendering code must prefer typeSymbolId/memberSymbolId plus the target render table.
+   */
+  readonly providerQualifiedName?: string;
+  readonly providerOwnerIdentity?: string;
+  readonly providerMemberName?: string;
+  /** Symbol identity for external provider type/container references. */
   readonly typeSymbolId?: TypeSymbolId;
-  /** Symbol identity for external target member/value references. */
+  /** Symbol identity for external provider member/value references. */
   readonly memberSymbolId?: MemberSymbolId;
   // For imported symbols from local modules
   readonly importedFrom?: {

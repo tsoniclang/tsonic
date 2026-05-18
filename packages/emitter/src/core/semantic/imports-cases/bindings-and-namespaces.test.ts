@@ -22,7 +22,7 @@ describe("Import Handling", () => {
           kind: "import",
           source: "node:fs",
           isLocal: false,
-          targetQualifiedName: "nodejs.fs",
+          providerQualifiedName: "nodejs.fs",
           specifiers: [
             {
               kind: "named",
@@ -67,7 +67,7 @@ describe("Import Handling", () => {
           source: "node:http",
           isLocal: true,
           resolvedPath: "/node_modules/@tsonic/nodejs/src/http/index.ts",
-          targetQualifiedName: "nodejs.Http.http",
+          providerQualifiedName: "nodejs.Http.http",
           resolvedNamespace: "nodejs.Http",
           specifiers: [
             {
@@ -81,14 +81,14 @@ describe("Import Handling", () => {
               name: "IncomingMessage",
               localName: "IncomingMessage",
               isType: true,
-              targetQualifiedName: "nodejs.Http.IncomingMessage",
+              providerQualifiedName: "nodejs.Http.IncomingMessage",
             },
             {
               kind: "named",
               name: "ServerResponse",
               localName: "ServerResponse",
               isType: true,
-              targetQualifiedName: "nodejs.Http.ServerResponse",
+              providerQualifiedName: "nodejs.Http.ServerResponse",
             },
           ],
         },
@@ -112,7 +112,7 @@ describe("Import Handling", () => {
                     type: {
                       kind: "referenceType",
                       name: "IncomingMessage",
-                      targetQualifiedName: "nodejs.Http.IncomingMessage",
+                      providerQualifiedName: "nodejs.Http.IncomingMessage",
                     },
                     isOptional: false,
                     isRest: false,
@@ -124,7 +124,7 @@ describe("Import Handling", () => {
                     type: {
                       kind: "referenceType",
                       name: "ServerResponse",
-                      targetQualifiedName: "nodejs.Http.ServerResponse",
+                      providerQualifiedName: "nodejs.Http.ServerResponse",
                     },
                     isOptional: false,
                     isRest: false,
@@ -231,7 +231,7 @@ describe("Import Handling", () => {
           source: "@tsonic/nodejs/buffer.js",
           isLocal: true,
           resolvedPath: "/node_modules/@tsonic/nodejs/src/buffer/index.ts",
-          targetQualifiedName: "nodejs.buffer",
+          providerQualifiedName: "nodejs.buffer",
           resolvedNamespace: "nodejs",
           specifiers: [
             {
@@ -239,7 +239,7 @@ describe("Import Handling", () => {
               name: "Buffer",
               localName: "Buffer",
               isType: true,
-              targetQualifiedName: "nodejs.Buffer",
+              providerQualifiedName: "nodejs.Buffer",
             },
           ],
         },
@@ -333,7 +333,7 @@ describe("Import Handling", () => {
               name: "Object",
               localName: "DotnetObject",
               isType: false,
-              targetQualifiedName: "System.Object",
+              providerQualifiedName: "System.Object",
             },
           ],
         },
@@ -387,7 +387,7 @@ describe("Import Handling", () => {
           source: "@tsonic/nodejs/buffer.js",
           isLocal: true,
           resolvedPath: "/node_modules/@tsonic/nodejs/src/buffer/index.ts",
-          targetQualifiedName: "nodejs.buffer",
+          providerQualifiedName: "nodejs.buffer",
           resolvedNamespace: "nodejs",
           specifiers: [
             {
@@ -395,7 +395,7 @@ describe("Import Handling", () => {
               name: "Buffer",
               localName: "NodeBuffer",
               isType: false,
-              targetQualifiedName: "nodejs.Buffer.Buffer",
+              providerQualifiedName: "nodejs.Buffer.Buffer",
             },
           ],
         },
@@ -500,7 +500,7 @@ describe("Import Handling", () => {
           source: "@tsonic/nodejs/zlib.js",
           isLocal: true,
           resolvedPath: "/node_modules/@tsonic/nodejs/src/zlib/index.ts",
-          targetQualifiedName: "nodejs.zlib",
+          providerQualifiedName: "nodejs.zlib",
           resolvedNamespace: "nodejs",
           specifiers: [
             {
@@ -586,7 +586,7 @@ describe("Import Handling", () => {
           kind: "import",
           source: "node:fs",
           isLocal: false,
-          targetQualifiedName: "nodejs.fs",
+          providerQualifiedName: "nodejs.fs",
           specifiers: [
             {
               kind: "named",
@@ -639,7 +639,7 @@ describe("Import Handling", () => {
           kind: "import",
           source: "node:fs",
           isLocal: false,
-          targetQualifiedName: "nodejs.fs",
+          providerQualifiedName: "nodejs.fs",
           specifiers: [
             {
               kind: "default",
@@ -678,7 +678,7 @@ describe("Import Handling", () => {
     );
   });
 
-  it("should infer module-object namespace imports from targetQualifiedName name (no hardcoded module list)", () => {
+  it("should infer module-object namespace imports from providerQualifiedName name (no hardcoded module list)", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/app.ts",
@@ -690,7 +690,7 @@ describe("Import Handling", () => {
           kind: "import",
           source: "node:child_process",
           isLocal: false,
-          targetQualifiedName: "nodejs.child_process",
+          providerQualifiedName: "nodejs.child_process",
           specifiers: [
             {
               kind: "named",
@@ -740,7 +740,7 @@ describe("Import Handling", () => {
           kind: "import",
           source: "node:path",
           isLocal: false,
-          targetQualifiedName: "nodejs.path",
+          providerQualifiedName: "nodejs.path",
           specifiers: [
             {
               kind: "namespace",
@@ -803,7 +803,7 @@ describe("Import Handling", () => {
           isExternalSurface: true,
           resolutionKind: "externalSurface",
           resolvedNamespace: "nodejs",
-          targetQualifiedName: "nodejs.path",
+          providerQualifiedName: "nodejs.path",
           specifiers: [
             {
               kind: "named",
@@ -833,10 +833,10 @@ describe("Import Handling", () => {
 
     const result = emitModule(module);
     expect(result).to.include('global::nodejs.path.join("a", "b")');
-    expect(result).not.to.include("ICE: Missing targetValue");
+    expect(result).not.to.include("ICE: Missing providerValue");
   });
 
-  it("binds CLR named imports with only targetQualifiedName as static type containers", () => {
+  it("binds CLR named imports with only providerQualifiedName as static type containers", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/app.ts",
@@ -857,7 +857,7 @@ describe("Import Handling", () => {
               name: "Task",
               localName: "TaskValue",
               isType: false,
-              targetQualifiedName: "System.Threading.Tasks.Task",
+              providerQualifiedName: "System.Threading.Tasks.Task",
             },
           ],
         },
@@ -881,10 +881,10 @@ describe("Import Handling", () => {
     expect(result).to.include(
       "global::System.Threading.Tasks.Task.CompletedTask"
     );
-    expect(result).not.to.include("ICE: Missing targetValue");
+    expect(result).not.to.include("ICE: Missing providerValue");
   });
 
-  it("binds module-bound named value imports with targetQualifiedName as CLR type containers", () => {
+  it("binds module-bound named value imports with providerQualifiedName as CLR type containers", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/app.ts",
@@ -896,7 +896,7 @@ describe("Import Handling", () => {
           kind: "import",
           source: "@tsonic/nodejs/buffer.js",
           isLocal: false,
-          targetQualifiedName: "nodejs.buffer",
+          providerQualifiedName: "nodejs.buffer",
           resolvedNamespace: "nodejs",
           specifiers: [
             {
@@ -904,7 +904,7 @@ describe("Import Handling", () => {
               name: "Buffer",
               localName: "Buffer",
               isType: false,
-              targetQualifiedName: "nodejs.Buffer",
+              providerQualifiedName: "nodejs.Buffer",
             },
           ],
         },
@@ -946,7 +946,7 @@ describe("Import Handling", () => {
           kind: "import",
           source: "node:http",
           isLocal: false,
-          targetQualifiedName: "nodejs.Http.http",
+          providerQualifiedName: "nodejs.Http.http",
           resolvedNamespace: "nodejs.Http",
           specifiers: [
             {

@@ -647,6 +647,71 @@ describe("Binding System", () => {
       );
     });
 
+    it("should merge extension surfaces that share target names but have distinct stable identities", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/first/System.Collections.Generic/bindings.json", {
+        namespace: "System.Collections.Generic",
+        types: [
+          {
+            stableId:
+              "System.Private.CoreLib:System.Collections.Generic.CollectionExtensions",
+            targetName: "System.Collections.Generic.CollectionExtensions",
+            ownerIdentity: "System.Private.CoreLib",
+            kind: "Class",
+            methods: [
+              {
+                stableId:
+                  "System.Private.CoreLib:System.Collections.Generic.CollectionExtensions::TryAdd(IDictionary_2,TKey,TValue):System.Boolean",
+                targetName: "TryAdd",
+                normalizedSignature:
+                  "TryAdd|(IDictionary_2,TKey,TValue):System.Boolean|static=true",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      registry.addBindings("/second/System.Collections.Generic/bindings.json", {
+        namespace: "System.Collections.Generic",
+        types: [
+          {
+            stableId:
+              "Microsoft.Extensions.DependencyModel:System.Collections.Generic.CollectionExtensions",
+            targetName: "System.Collections.Generic.CollectionExtensions",
+            ownerIdentity: "Microsoft.Extensions.DependencyModel",
+            kind: "Class",
+            methods: [
+              {
+                stableId:
+                  "Microsoft.Extensions.DependencyModel:System.Collections.Generic.CollectionExtensions::GetDefaultGroup(IEnumerable_1):RuntimeAssetGroup",
+                targetName: "GetDefaultGroup",
+                normalizedSignature:
+                  "GetDefaultGroup|(IEnumerable_1):RuntimeAssetGroup|static=true",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const type = registry.getType("CollectionExtensions");
+      expect(type?.stableId).to.equal(undefined);
+      expect(type?.stableIds).to.deep.equal([
+        "Microsoft.Extensions.DependencyModel:System.Collections.Generic.CollectionExtensions",
+        "System.Private.CoreLib:System.Collections.Generic.CollectionExtensions",
+      ]);
+      expect(type?.members.map((member) => member.alias)).to.deep.equal([
+        "TryAdd",
+        "GetDefaultGroup",
+      ]);
+    });
+
     it("should expose tsbindgen namespace types for namespace-scoped import identity", () => {
       const registry = new BindingRegistry();
 

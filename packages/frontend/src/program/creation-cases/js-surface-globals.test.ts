@@ -125,19 +125,19 @@ describe("Program Creation – JS surface globals", function () {
         kind: "global",
         assembly: "js",
         type: "js.Globals",
-        targetMemberName: "Globals.parseInt",
+        providerMemberName: "Globals.parseInt",
       });
       expect(result.value.bindings.getBinding("setInterval")).to.deep.equal({
         kind: "global",
         assembly: "js",
         type: "js.Timers",
-        targetMemberName: "Timers.setInterval",
+        providerMemberName: "Timers.setInterval",
       });
       expect(result.value.bindings.getBinding("clearInterval")).to.deep.equal({
         kind: "global",
         assembly: "js",
         type: "js.Timers",
-        targetMemberName: "Timers.clearInterval",
+        providerMemberName: "Timers.clearInterval",
       });
     } finally {
       fixture.cleanup();

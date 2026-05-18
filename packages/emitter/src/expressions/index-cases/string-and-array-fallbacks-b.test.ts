@@ -23,12 +23,12 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "String" as const,
-              targetQualifiedName: "System.String",
+              providerQualifiedName: "System.String",
             },
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              targetQualifiedName: "js.Uint8Array",
+              providerQualifiedName: "js.Uint8Array",
             },
           ],
         },
@@ -67,7 +67,7 @@ describe("Expression Emission", () => {
             type: {
               kind: "referenceType" as const,
               name: "String" as const,
-              targetQualifiedName: "System.String",
+              providerQualifiedName: "System.String",
             },
           },
         ],
@@ -91,7 +91,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              targetQualifiedName: "js.Uint8Array",
+              providerQualifiedName: "js.Uint8Array",
             },
           ],
         },
@@ -149,7 +149,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              targetQualifiedName: "js.Uint8Array",
+              providerQualifiedName: "js.Uint8Array",
             },
           ],
         },
@@ -292,7 +292,7 @@ describe("Expression Emission", () => {
           name: "byte" as const,
           typeId: {
             stableId: "System.Private.CoreLib:System.Byte",
-            targetName: "System.Byte",
+            providerName: "System.Byte",
             ownerIdentity: "System.Private.CoreLib",
             sourceName: "Byte",
           },
@@ -311,7 +311,7 @@ describe("Expression Emission", () => {
           name: "byte" as const,
           typeId: {
             stableId: "System.Private.CoreLib:System.Byte",
-            targetName: "System.Byte",
+            providerName: "System.Byte",
             ownerIdentity: "System.Private.CoreLib",
             sourceName: "Byte",
           },
@@ -322,7 +322,7 @@ describe("Expression Emission", () => {
         name: "byte" as const,
         typeId: {
           stableId: "System.Private.CoreLib:System.Byte",
-          targetName: "System.Byte",
+          providerName: "System.Byte",
           ownerIdentity: "System.Private.CoreLib",
           sourceName: "Byte",
         },
@@ -369,7 +369,7 @@ describe("Expression Emission", () => {
         name: "byte" as const,
         typeId: {
           stableId: "System.Private.CoreLib:System.Byte",
-          targetName: "System.Byte",
+          providerName: "System.Byte",
           ownerIdentity: "System.Private.CoreLib",
           sourceName: "Byte",
         },

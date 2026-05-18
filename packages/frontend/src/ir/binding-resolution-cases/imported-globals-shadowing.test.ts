@@ -145,8 +145,8 @@ describe("Binding Resolution in IR", () => {
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.targetQualifiedName).to.equal(undefined);
-      expect(consoleExpr.targetOwnerIdentity).to.equal(undefined);
+      expect(consoleExpr.providerQualifiedName).to.equal(undefined);
+      expect(consoleExpr.providerOwnerIdentity).to.equal(undefined);
       expect(consoleExpr.declId).to.not.equal(undefined);
       expect(memberExpr.memberBinding).to.equal(undefined);
     });
@@ -285,8 +285,8 @@ describe("Binding Resolution in IR", () => {
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.targetQualifiedName).to.equal(undefined);
-      expect(consoleExpr.targetOwnerIdentity).to.equal(undefined);
+      expect(consoleExpr.providerQualifiedName).to.equal(undefined);
+      expect(consoleExpr.providerOwnerIdentity).to.equal(undefined);
       expect(consoleExpr.declId).to.not.equal(undefined);
       expect(memberExpr.memberBinding).to.equal(undefined);
     });
@@ -398,14 +398,14 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "js",
             type: "js.Globals",
-            targetMemberName: "Globals.parseInt",
+            providerMemberName: "Globals.parseInt",
           },
           String: {
             kind: "global",
             assembly: "js",
             type: "js.String",
             staticType: "js.String",
-            targetMemberName: "Globals.String",
+            providerMemberName: "Globals.String",
             typeSemantics: { contributesTypeIdentity: true },
           },
           Error: {
@@ -485,10 +485,10 @@ describe("Binding Resolution in IR", () => {
           matches.some(
             (identifier) =>
               identifier.declId !== undefined &&
-              identifier.targetOwnerIdentity === "js" &&
-              identifier.targetQualifiedName === expectedClrType &&
+              identifier.providerOwnerIdentity === "js" &&
+              identifier.providerQualifiedName === expectedClrType &&
               (expectedCsharpName === undefined ||
-                identifier.targetMemberName === expectedCsharpName)
+                identifier.providerMemberName === expectedCsharpName)
           ),
           `expected bound ambient global '${name}'`
         ).to.equal(true);
@@ -612,14 +612,14 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "js",
             type: "js.Globals",
-            targetMemberName: "Globals.parseInt",
+            providerMemberName: "Globals.parseInt",
           },
           String: {
             kind: "global",
             assembly: "js",
             type: "js.String",
             staticType: "js.String",
-            targetMemberName: "Globals.String",
+            providerMemberName: "Globals.String",
             typeSemantics: { contributesTypeIdentity: true },
           },
           Error: {
@@ -699,10 +699,10 @@ describe("Binding Resolution in IR", () => {
           matches.some(
             (identifier) =>
               identifier.declId !== undefined &&
-              identifier.targetOwnerIdentity === "js" &&
-              identifier.targetQualifiedName === expectedClrType &&
+              identifier.providerOwnerIdentity === "js" &&
+              identifier.providerQualifiedName === expectedClrType &&
               (expectedCsharpName === undefined ||
-                identifier.targetMemberName === expectedCsharpName)
+                identifier.providerMemberName === expectedCsharpName)
           ),
           `expected bound declare-global ambient '${name}'`
         ).to.equal(true);

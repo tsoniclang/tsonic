@@ -259,7 +259,7 @@ const createCoreExternalCarrierEntries = (): readonly NominalEntry[] => {
 const addCoreExternalCarrierEntries = (
   entries: Map<string, NominalEntry>,
   tsNameToTypeId: Map<string, TypeId>,
-  targetNameToTypeId: Map<string, TypeId>,
+  providerNameToTypeId: Map<string, TypeId>,
   namespaceToTypeIds: Map<string, TypeId[]>
 ): void => {
   for (const entry of createCoreExternalCarrierEntries()) {
@@ -269,7 +269,7 @@ const addCoreExternalCarrierEntries = (
 
     entries.set(entry.typeId.stableId, entry);
     tsNameToTypeId.set(entry.typeId.sourceName, entry.typeId);
-    targetNameToTypeId.set(entry.typeId.targetName, entry.typeId);
+    providerNameToTypeId.set(entry.typeId.providerName, entry.typeId);
 
     const namespaceTypes = namespaceToTypeIds.get("core") ?? [];
     namespaceTypes.push(entry.typeId);
@@ -295,7 +295,7 @@ export const loadExternalCatalog = (
 ): ExternalTypeCatalog => {
   const entries = new Map<string, NominalEntry>();
   const tsNameToTypeId = new Map<string, TypeId>();
-  const targetNameToTypeId = new Map<string, TypeId>();
+  const providerNameToTypeId = new Map<string, TypeId>();
   const namespaceToTypeIds = new Map<string, TypeId[]>();
   const dtsFiles = new Set<string>();
 
@@ -418,7 +418,7 @@ export const loadExternalCatalog = (
 
         // Add to name lookup maps
         tsNameToTypeId.set(entry.typeId.sourceName, entry.typeId);
-        targetNameToTypeId.set(entry.typeId.targetName, entry.typeId);
+        providerNameToTypeId.set(entry.typeId.providerName, entry.typeId);
 
         // Add to namespace map
         const nsTypes = namespaceToTypeIds.get(bindings.namespace) ?? [];
@@ -439,14 +439,14 @@ export const loadExternalCatalog = (
   addCoreExternalCarrierEntries(
     entries,
     tsNameToTypeId,
-    targetNameToTypeId,
+    providerNameToTypeId,
     namespaceToTypeIds
   );
 
   return {
     entries,
     tsNameToTypeId,
-    targetNameToTypeId,
+    providerNameToTypeId,
     namespaceToTypeIds,
   };
 };
@@ -459,7 +459,7 @@ export const loadSinglePackageBindings = (
 ): ExternalTypeCatalog => {
   const entries = new Map<string, NominalEntry>();
   const tsNameToTypeId = new Map<string, TypeId>();
-  const targetNameToTypeId = new Map<string, TypeId>();
+  const providerNameToTypeId = new Map<string, TypeId>();
   const namespaceToTypeIds = new Map<string, TypeId[]>();
   const dtsPath = path.join(
     path.dirname(bindingsPath),
@@ -483,7 +483,7 @@ export const loadSinglePackageBindings = (
 
     entries.set(entry.typeId.stableId, entry);
     tsNameToTypeId.set(entry.typeId.sourceName, entry.typeId);
-    targetNameToTypeId.set(entry.typeId.targetName, entry.typeId);
+    providerNameToTypeId.set(entry.typeId.providerName, entry.typeId);
 
     const nsTypes = namespaceToTypeIds.get(bindings.namespace) ?? [];
     nsTypes.push(entry.typeId);
@@ -497,7 +497,7 @@ export const loadSinglePackageBindings = (
   return {
     entries,
     tsNameToTypeId,
-    targetNameToTypeId,
+    providerNameToTypeId,
     namespaceToTypeIds,
   };
 };
@@ -534,7 +534,7 @@ export const getTypeByTargetName = (
   catalog: ExternalTypeCatalog,
   targetName: string
 ): NominalEntry | undefined => {
-  const typeId = catalog.targetNameToTypeId.get(targetName);
+  const typeId = catalog.providerNameToTypeId.get(targetName);
   return typeId ? catalog.entries.get(typeId.stableId) : undefined;
 };
 

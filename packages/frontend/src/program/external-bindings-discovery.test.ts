@@ -177,10 +177,10 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
     expect(fooSpec, "expected named import foo").to.not.equal(undefined);
     if (!fooSpec || fooSpec.kind !== "named") return;
 
-    expect(fooSpec.targetValue?.ownerQualifiedName).to.equal(
+    expect(fooSpec.providerValue?.ownerQualifiedName).to.equal(
       "Other.Container"
     );
-    expect(fooSpec.targetValue?.memberName).to.equal("foo");
+    expect(fooSpec.providerValue?.memberName).to.equal("foo");
   });
 
   it("loads external bindings referenced only from declaration files", () => {

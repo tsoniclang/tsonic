@@ -18,7 +18,10 @@ import type { SurfaceMode } from "../program/types.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
-import type { TargetSurfaceArtifacts } from "../symbols/index.js";
+import type {
+  TargetSurfaceArtifacts,
+  TargetSurfaceProvider,
+} from "../symbols/index.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
@@ -120,6 +123,7 @@ export type ProgramContext = {
   readonly externalResolver: ExternalBindingsResolver;
 
   readonly targetSurfaceArtifacts?: TargetSurfaceArtifacts;
+  readonly targetSurfaceProvider?: TargetSurfaceProvider;
 
   /**
    * Lexical type environment for deterministic flow typing.

@@ -206,7 +206,7 @@ const parseEmitterClrTypeString = (clrType: string): IrType => {
         args.length === arity
           ? args.map((arg) => parseEmitterClrTypeString(arg.trim()))
           : undefined,
-      targetQualifiedName: clrType,
+      providerQualifiedName: clrType,
     };
   }
 
@@ -227,14 +227,14 @@ const parseEmitterClrTypeString = (clrType: string): IrType => {
       kind: "referenceType",
       name: baseName,
       typeArguments,
-      targetQualifiedName: clrType,
+      providerQualifiedName: clrType,
     };
   }
 
   return {
     kind: "referenceType",
     name: clrType,
-    targetQualifiedName: clrType,
+    providerQualifiedName: clrType,
   };
 };
 
@@ -304,9 +304,9 @@ const collectBindingStructuralProperties = (
   };
 
   add(type.name);
-  add(type.targetQualifiedName);
+  add(type.providerQualifiedName);
   add(type.typeId?.sourceName);
-  add(type.typeId?.targetName);
+  add(type.typeId?.providerName);
 
   for (const candidate of candidates) {
     const binding = registry.get(candidate);

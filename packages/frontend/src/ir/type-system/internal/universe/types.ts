@@ -48,4 +48,5 @@ export {
   makeTypeId,
   parseStableId,
   resolveRawTypeStableId,
+  typeIdProviderLookupName,
 } from "./raw-bindings-types.js";

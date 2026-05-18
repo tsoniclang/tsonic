@@ -17,9 +17,9 @@ import { createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
 import { resolveImport } from "../../resolver.js";
 import {
-  createMemberSymbolId,
-  createModuleSymbolId,
-  createTypeSymbolId,
+  memberSymbolIdFromStableId,
+  moduleSymbolIdFromStableId,
+  typeSymbolIdFromStableId,
 } from "../../symbols/index.js";
 
 const getSourceSpan = (
@@ -40,6 +40,12 @@ const getSourceSpan = (
 
 const normalizeProviderQualifiedTypeName = (targetName: string): string =>
   targetName.trim().replace(/`\d+/g, "").replace(/\+/g, ".");
+
+const typeSymbolIdForExternalType = (
+  ownerIdentity: string,
+  providerQualifiedName: string,
+  stableId?: string
+) => typeSymbolIdFromStableId(stableId ?? `${ownerIdentity}:${providerQualifiedName}`);
 
 const typeBindingOwnerIdentity = (
   type: TypeBinding,
@@ -106,7 +112,7 @@ export const extractImports = (
         isExternalSurfaceImport && externalResolution.kind === "externalSurface"
           ? externalResolution.ownerIdentity
           : resolvedImport.ok
-            ? resolvedImport.value.targetOwnerIdentity
+            ? resolvedImport.value.providerOwnerIdentity
             : undefined;
 
       const getSourcePackageModuleBinding = (): ReturnType<
@@ -359,16 +365,20 @@ export const extractImports = (
               ? normalizeProviderQualifiedTypeName(resolvedTypeBinding.name)
               : owningNamespace
                 ? `${owningNamespace}.${spec.name}`
-                : spec.targetQualifiedName;
+                : spec.providerQualifiedName;
             const ownerIdentity = resolvedTypeBinding
               ? typeBindingOwnerIdentity(resolvedTypeBinding, importOwnerIdentity)
               : (importOwnerIdentity ?? "external-surface");
             return {
               ...spec,
               isType: true,
-              targetQualifiedName: resolvedTypeName,
+              providerQualifiedName: resolvedTypeName,
               typeSymbolId: resolvedTypeName
-                ? createTypeSymbolId(ownerIdentity, resolvedTypeName)
+                ? typeSymbolIdForExternalType(
+                    ownerIdentity,
+                    resolvedTypeName,
+                    resolvedTypeBinding?.stableId
+                  )
                 : spec.typeSymbolId,
             };
           }
@@ -384,8 +394,12 @@ export const extractImports = (
             return {
               ...spec,
               isType: true,
-              targetQualifiedName: resolvedTypeName,
-              typeSymbolId: createTypeSymbolId(ownerIdentity, resolvedTypeName),
+              providerQualifiedName: resolvedTypeName,
+              typeSymbolId: typeSymbolIdForExternalType(
+                ownerIdentity,
+                resolvedTypeName,
+                resolvedTypeBinding?.stableId
+              ),
             };
           }
 
@@ -405,10 +419,11 @@ export const extractImports = (
           );
           return {
             ...spec,
-            targetQualifiedName: resolvedTypeName,
-            typeSymbolId: createTypeSymbolId(
+            providerQualifiedName: resolvedTypeName,
+            typeSymbolId: typeSymbolIdForExternalType(
               typeBindingOwnerIdentity(resolvedTypeBinding, importOwnerIdentity),
-              resolvedTypeName
+              resolvedTypeName,
+              resolvedTypeBinding.stableId
             ),
           };
         }
@@ -436,15 +451,13 @@ export const extractImports = (
 
         return {
           ...spec,
-          targetValue: {
+          providerValue: {
             ownerQualifiedName: exp.ownerQualifiedName,
             ownerIdentity: exp.ownerIdentity,
             memberName: exp.targetName,
           },
-          memberSymbolId: createMemberSymbolId(
-            exp.ownerIdentity,
-            exp.ownerQualifiedName,
-            exp.targetName
+          memberSymbolId: memberSymbolIdFromStableId(
+            `${exp.ownerIdentity}:${exp.ownerQualifiedName}.${exp.targetName}`
           ),
         };
       });
@@ -462,15 +475,19 @@ export const extractImports = (
         resolvedPath,
         specifiers: resolvedSpecifiers,
         resolvedNamespace,
-        targetQualifiedName: moduleBindingType,
-        targetOwnerIdentity: importOwnerIdentity,
+        providerQualifiedName: moduleBindingType,
+        providerOwnerIdentity: importOwnerIdentity,
         typeSymbolId:
           moduleBindingType && importOwnerIdentity
-            ? createTypeSymbolId(importOwnerIdentity, moduleBindingType)
+            ? typeSymbolIdFromStableId(
+                `${importOwnerIdentity}:${moduleBindingType}`
+              )
             : undefined,
         moduleSymbolId:
           moduleBindingType && importOwnerIdentity
-            ? createModuleSymbolId(importOwnerIdentity, moduleBindingType)
+            ? moduleSymbolIdFromStableId(
+                `${importOwnerIdentity}:${moduleBindingType}`
+              )
             : undefined,
       });
     }

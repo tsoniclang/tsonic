@@ -1,5 +1,5 @@
 /**
- * IR Builder tests: CLR identity preservation for source-binding declarations
+ * IR Builder tests: external identity preservation for source-binding declarations
  */
 
 import { describe, it } from "mocha";
@@ -13,11 +13,11 @@ import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js
 describe("IR Builder", function () {
   this.timeout(90_000);
 
-  describe("CLR identity", () => {
+  describe("external identity", () => {
     it("preserves canonical source-package member types across package internals", function () {
       this.timeout(60_000);
       const fixture = materializeFrontendFixture(
-        "ir/clr-identity/source-package-internals"
+        "ir/external-identity/source-package-internals"
       );
 
       try {
@@ -78,7 +78,7 @@ describe("IR Builder", function () {
         expect(resolvedType?.kind).to.not.equal("unknownType");
         if (resolvedType?.kind === "referenceType") {
           expect(resolvedType.name).to.equal("Date$instance");
-          expect(resolvedType.targetQualifiedName).to.equal(
+          expect(resolvedType.providerQualifiedName).to.equal(
             "Acme.Js.internal.Date$instance"
           );
         }
@@ -110,10 +110,10 @@ describe("IR Builder", function () {
       }
     });
 
-    it("preserves canonical CLR identity for array elements from source-binding declarations", function () {
+    it("preserves canonical external identity for array elements from source-binding declarations", function () {
       this.timeout(30_000);
       const fixture = materializeFrontendFixture(
-        "ir/clr-identity/array-elements"
+        "ir/external-identity/array-elements"
       );
 
       try {
@@ -174,7 +174,7 @@ describe("IR Builder", function () {
         expect(attachmentsType.elementType.name).to.equal(
           "Acme.Core.Attachment"
         );
-        expect(attachmentsType.elementType.targetQualifiedName).to.equal(
+        expect(attachmentsType.elementType.providerQualifiedName).to.equal(
           "Acme.Core.Attachment"
         );
       } finally {
@@ -182,10 +182,10 @@ describe("IR Builder", function () {
       }
     });
 
-    it("preserves CLR identity for generic structural aliases from source-binding declarations", function () {
+    it("preserves external identity for generic structural aliases from source-binding declarations", function () {
       this.timeout(30_000);
       const fixture = materializeFrontendFixture(
-        "ir/clr-identity/generic-structural-alias"
+        "ir/external-identity/generic-structural-alias"
       );
 
       try {
@@ -247,7 +247,7 @@ describe("IR Builder", function () {
         if (!okType || okType.kind !== "referenceType") return;
 
         expect(okType.name).to.equal("Acme.Core.Ok__Alias_1");
-        expect(okType.targetQualifiedName).to.equal("Acme.Core.Ok__Alias`1");
+        expect(okType.providerQualifiedName).to.equal("Acme.Core.Ok__Alias`1");
       } finally {
         fixture.cleanup();
       }

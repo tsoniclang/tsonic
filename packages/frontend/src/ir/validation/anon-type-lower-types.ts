@@ -32,15 +32,15 @@ import { lowerExpression } from "./anon-type-ir-rewriting.js";
 
 const canonicalTargetNameFromReference = (
   type: IrReferenceType | undefined
-): string | undefined => type?.targetQualifiedName ?? type?.typeId?.targetName;
+): string | undefined => type?.providerQualifiedName;
 
 const enrichReferenceIdentityMetadata = (
   reference: IrReferenceType,
   source: IrReferenceType,
   localDeclaredReference: IrReferenceType | undefined
 ): IrReferenceType => {
-  const targetQualifiedName =
-    reference.targetQualifiedName ??
+  const providerQualifiedName =
+    reference.providerQualifiedName ??
     canonicalTargetNameFromReference(source) ??
     canonicalTargetNameFromReference(localDeclaredReference);
   const typeId =
@@ -49,7 +49,7 @@ const enrichReferenceIdentityMetadata = (
     reference.symbolId ?? source.symbolId ?? localDeclaredReference?.symbolId;
 
   if (
-    reference.targetQualifiedName === targetQualifiedName &&
+    reference.providerQualifiedName === providerQualifiedName &&
     reference.typeId === typeId &&
     reference.symbolId === symbolId
   ) {
@@ -58,7 +58,7 @@ const enrichReferenceIdentityMetadata = (
 
   return {
     ...reference,
-    ...(targetQualifiedName !== undefined ? { targetQualifiedName } : {}),
+    ...(providerQualifiedName !== undefined ? { providerQualifiedName } : {}),
     ...(typeId !== undefined ? { typeId } : {}),
     ...(symbolId !== undefined ? { symbolId } : {}),
   };
@@ -206,7 +206,7 @@ export const lowerType = (
 
     case "referenceType": {
       const localDeclaredReference =
-        type.targetQualifiedName === undefined
+        type.providerQualifiedName === undefined
           ? ctx.localDeclaredTypeReferences.get(type.name)
           : undefined;
       const cachedByIdentity = ctx.loweredTypeByIdentity.get(type);

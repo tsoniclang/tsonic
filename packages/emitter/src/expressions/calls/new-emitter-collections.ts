@@ -35,7 +35,7 @@ export const isListConstructorWithArrayLiteral = (
   const typeId = inferredType.typeId;
   if (
     !typeId ||
-    !typeId.targetName.startsWith("System.Collections.Generic.List")
+    !typeId.providerName.startsWith("System.Collections.Generic.List")
   ) {
     return false;
   }
@@ -157,7 +157,7 @@ const makeClrValueArrayType = (
     name,
     typeId: {
       stableId: `System.Private.CoreLib:${targetName}`,
-      targetName,
+      providerName: targetName,
       ownerIdentity: "System.Private.CoreLib",
       sourceName,
     },
@@ -190,8 +190,8 @@ const getTypedArrayLeafName = (
   }
 
   const candidates = [
-    type.targetQualifiedName,
-    type.typeId?.targetName,
+    type.providerQualifiedName,
+    type.typeId?.providerName,
     type.typeId?.sourceName,
     type.name,
   ];
@@ -220,8 +220,8 @@ const getReferenceTypeIdentity = (
   }
 
   return (
-    type.targetQualifiedName ??
-    type.typeId?.targetName ??
+    type.providerQualifiedName ??
+    type.typeId?.providerName ??
     type.typeId?.sourceName ??
     type.name
   );
@@ -273,7 +273,7 @@ const getConstructorKey = (
   }
 
   if (expr.callee.kind === "identifier") {
-    return expr.callee.targetQualifiedName ?? expr.callee.name;
+    return expr.callee.providerQualifiedName ?? expr.callee.name;
   }
 
   return undefined;

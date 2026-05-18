@@ -37,6 +37,7 @@ import { applyReceiverSubstitution } from "./call-resolution-receiver-substituti
 import { resolveMethodTypeSubstitution } from "./call-resolution-method-substitution.js";
 import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 import { referenceTypeIdentity } from "../types/type-ops.js";
+import { typeIdProviderLookupName } from "./internal/universe/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // resolveCall — Main entry point for call resolution
@@ -251,8 +252,10 @@ export const resolveCall = (
       resolveTypeIdByName(state, query.declaringTargetType);
     workingReturn = {
       ...workingReturn,
-      ...(typeId ? { typeId, targetQualifiedName: typeId.targetName } : {}),
-      ...(!typeId ? { targetQualifiedName: query.declaringTargetType } : {}),
+      ...(typeId
+        ? { typeId, providerQualifiedName: typeIdProviderLookupName(typeId) }
+        : {}),
+      ...(!typeId ? { providerQualifiedName: query.declaringTargetType } : {}),
     };
   }
 

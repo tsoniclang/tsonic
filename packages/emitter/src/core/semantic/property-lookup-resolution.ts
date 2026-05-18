@@ -115,7 +115,7 @@ export const resolveLocalTypeInfoWithoutBindings = (
   }
 
   const fqn =
-    ref.targetQualifiedName ?? (ref.name.includes(".") ? ref.name : undefined);
+    ref.providerQualifiedName ?? (ref.name.includes(".") ? ref.name : undefined);
   if (fqn && fqn.includes(".")) {
     const namespace = fqn.slice(0, fqn.lastIndexOf("."));
     const scoped = matches.filter((m) => m.namespace === namespace);
@@ -146,9 +146,9 @@ const getReferenceBindingLookupCandidates = (
   };
 
   add(ref.name);
-  add(ref.targetQualifiedName);
+  add(ref.providerQualifiedName);
   add(ref.typeId?.sourceName);
-  add(ref.typeId?.targetName);
+  add(ref.typeId?.providerName);
 
   for (const value of [...candidates]) {
     if (!value.includes(".")) continue;
@@ -164,7 +164,7 @@ const getBindingScopedReference = (
 ): Extract<IrType, { kind: "referenceType" }> => ({
   ...ref,
   name: binding.alias,
-  targetQualifiedName: binding.name,
+  providerQualifiedName: binding.name,
 });
 
 export const resolveBindingBackedReferenceType = (
@@ -292,7 +292,7 @@ export const resolvePropertyType = (
     const typeInfo = typeInfoResult.info;
 
     // Prevent cycles
-    const cycleKey = type.targetQualifiedName ?? type.name;
+    const cycleKey = type.providerQualifiedName ?? type.name;
     if (visitedTypes.includes(cycleKey)) {
       return undefined;
     }

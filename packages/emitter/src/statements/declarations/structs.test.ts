@@ -5,8 +5,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFile } from "../../index.js";
-import {
-  assumeEmittableIrModule,
+import { assumeEmittableIrModule } from "../../test-ir-strict.js";
+import type {
   IrModule,
   IrClassDeclaration,
   IrInterfaceDeclaration,

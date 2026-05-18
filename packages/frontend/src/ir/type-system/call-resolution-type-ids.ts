@@ -37,6 +37,7 @@ import {
   normalizeToNominal,
   resolveSourceReferenceFQName,
 } from "./type-system-state.js";
+import { typeIdProviderLookupName } from "./internal/universe/types.js";
 import { typesEqual } from "./type-system-relations.js";
 import { resolveInstalledSourcePackageNamespace } from "../../program/source-file-identity.js";
 
@@ -276,10 +277,10 @@ const attachTypeIdsImpl = (
       const sourceFqName = resolveSourceReferenceFQName(state, type);
       const typeId =
         type.typeId ??
-        (type.targetQualifiedName
+        (type.providerQualifiedName
           ? resolveTypeIdByName(
               state,
-              type.targetQualifiedName,
+              type.providerQualifiedName,
               type.typeArguments?.length
             )
           : undefined) ??
@@ -532,7 +533,7 @@ const preferInstalledSourceSurfaceAliasTypeId = (
   return {
     ...type,
     typeId: aliasTypeId,
-    targetQualifiedName: aliasTypeId.targetName,
+    providerQualifiedName: typeIdProviderLookupName(aliasTypeId),
   };
 };
 

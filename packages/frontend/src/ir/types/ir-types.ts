@@ -46,6 +46,7 @@ export type IrIterableShapeMetadata = {
  * These are distinct types, not decorated versions of each other.
  * - User writes `: number` → primitiveType(name="number")
  * - User writes `: int` → primitiveType(name="int")
+ * - User writes `: bigint` → primitiveType(name="bigint")
  *
  * The numeric classification of LITERALS is separate (see IrLiteralExpression.numericIntent).
  * Type-level and expression-level concerns are strictly separated.
@@ -56,6 +57,7 @@ export type IrPrimitiveType = {
     | "string"
     | "number"
     | "int"
+    | "bigint"
     | "char"
     | "boolean"
     | "null"
@@ -70,8 +72,8 @@ export type IrReferenceType = {
   readonly asyncWrapper?: IrAsyncWrapperMetadata;
   /** Source-semantic iterable metadata supplied by external binding surfaces. */
   readonly iterableShape?: IrIterableShapeMetadata;
-  /** Target-qualified type name retained only until symbol-table migration is complete. */
-  readonly targetQualifiedName?: string;
+  /** Provider-qualified type key from external binding surfaces. Prefer symbolId when rendering. */
+  readonly providerQualifiedName?: string;
   /** Target-neutral symbol identity for nominal external/source references. */
   readonly symbolId?: TypeSymbolId;
   /**

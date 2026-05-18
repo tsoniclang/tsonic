@@ -85,8 +85,10 @@ const frontendTargetLeakPatterns: readonly RegExp[] = [
   /C#/,
   /\.NET/,
   /\bdotnet\b/,
+  /\bNativeAOT\b/,
   /\bSystem\./,
   /\bMicrosoft\./,
+  /\bBigInteger\b/,
   /global::System/,
   /\bSystem\.Private\.CoreLib\b/,
   /\bSystem\.Runtime\b/,
@@ -178,6 +180,85 @@ describe("architecture completion tracker", () => {
     expect(hits).to.deep.equal([]);
   });
 
+  it("keeps frontend symbol handles stable-id routed instead of render-name constructed", () => {
+    const hits: string[] = [];
+
+    for (const file of frontendProductFiles()) {
+      const relativeFile = relative(repoRoot, file).replace(/\\/g, "/");
+      if (relativeFile === "packages/frontend/src/symbols/symbol-ids.ts") {
+        continue;
+      }
+      if (
+        relativeFile.startsWith(
+          "packages/frontend/src/ir/type-system/internal/universe/"
+        )
+      ) {
+        continue;
+      }
+
+      const text = readFileSync(file, "utf8");
+      if (
+        /\bcreate(Type|Member|Module)SymbolId\b/.test(text) ||
+        /typeId\??\.targetName/.test(text) ||
+        /\btargetQualifiedName\b/.test(text)
+      ) {
+        hits.push(relativeFile);
+      }
+    }
+
+    expect(hits).to.deep.equal([]);
+  });
+
+  it("keeps external provider keys separate from target rendering", () => {
+    const expressions = readFileSync(
+      join(repoRoot, "packages/frontend/src/ir/types/expressions-core.ts"),
+      "utf8"
+    );
+    expect(expressions).to.include(
+      "Provider-local binding keys for externally-owned global/module values"
+    );
+    expect(expressions).to.include(
+      "target render table"
+    );
+
+    const virtualMarking = readFileSync(
+      join(repoRoot, "packages/frontend/src/ir/validation/virtual-marking-pass.ts"),
+      "utf8"
+    );
+    expect(virtualMarking).to.include(
+      "source-owned class hierarchy semantics only"
+    );
+    expect(virtualMarking).to.not.include("emitted native target name");
+    expect(virtualMarking).to.not.include("emitted CLR");
+  });
+
+  it("wires the target surface provider instead of leaving the interface dormant", () => {
+    const providerFile = join(
+      repoRoot,
+      "packages/frontend/src/program/binding-target-surface-provider.ts"
+    );
+    expect(existsSync(providerFile)).to.equal(true);
+
+    const provider = readFileSync(providerFile, "utf8");
+    expect(provider).to.include("createBindingTargetSurfaceProvider");
+    expect(provider).to.include("TargetSurfaceProvider");
+
+    const programAssembly = readFileSync(
+      join(repoRoot, "packages/frontend/src/program/program-assembly.ts"),
+      "utf8"
+    );
+    expect(programAssembly).to.include("createBindingTargetSurfaceProvider");
+    expect(programAssembly).to.include("targetSurfaceProvider");
+
+    const dependencyGraph = readFileSync(
+      join(repoRoot, "packages/frontend/src/program/dependency-graph.ts"),
+      "utf8"
+    );
+    expect(dependencyGraph).to.include(
+      "targetSurfaceProvider?.getArtifacts().renderTable"
+    );
+  });
+
   it("keeps greenfield-only artifacts instead of compatibility shims", () => {
     expect(
       existsSync(join(repoRoot, "packages/emitter/src/test-ir-strict.ts"))
@@ -199,5 +280,36 @@ describe("architecture completion tracker", () => {
     expect(runAll).to.not.include("--parallel-unit");
     expect(runAll).to.not.include("TSONIC_PARALLEL_VALIDATE");
     expect(runAll).to.not.include("--no-verify");
+  });
+
+  it("keeps emittable IR target-branded before backend emission", () => {
+    const phases = readFileSync(
+      join(repoRoot, "packages/frontend/src/ir/types/phases.ts"),
+      "utf8"
+    );
+    expect(phases).to.include("declare const backendTargetBrand: unique symbol");
+    expect(phases).to.include("defineBackendTargetId");
+    expect(phases).to.include("declare const irTargetBrand: unique symbol");
+    expect(phases).to.include("export type EmittableIrModule<");
+
+    const pipeline = readFileSync(
+      join(repoRoot, "packages/frontend/src/program/ir-processing-pipeline.ts"),
+      "utf8"
+    );
+    expect(pipeline).to.include("backendTargetId?: Target");
+    expect(pipeline).to.include("options.backendTargetId");
+
+    const emitter = readFileSync(
+      join(repoRoot, "packages/emitter/src/emitter.ts"),
+      "utf8"
+    );
+    expect(emitter).to.include("CSharpEmittableIrModule");
+    expect(emitter).to.not.match(/readonly EmittableIrModule\[\]/);
+
+    const cliGenerate = readFileSync(
+      join(repoRoot, "packages/cli/src/commands/generate/index.ts"),
+      "utf8"
+    );
+    expect(cliGenerate).to.include("backendTargetId: CSHARP_BACKEND_TARGET_ID");
   });
 });

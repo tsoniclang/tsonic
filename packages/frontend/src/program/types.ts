@@ -10,11 +10,17 @@ import type { Binding } from "../ir/binding/index.js";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
-import type { TargetSurfaceArtifacts } from "../symbols/index.js";
+import type { BackendTargetId } from "../ir/types.js";
+import type {
+  TargetSurfaceArtifacts,
+  TargetSurfaceProvider,
+} from "../symbols/index.js";
 
 export type SurfaceMode = string;
 
-export type CompilerOptions = {
+export type CompilerOptions<
+  Target extends BackendTargetId = BackendTargetId,
+> = {
   readonly projectRoot: string; // Directory containing package.json (for node_modules resolution)
   readonly sourceRoot: string;
   readonly rootNamespace: string;
@@ -23,12 +29,15 @@ export type CompilerOptions = {
   readonly typeRoots?: readonly string[];
   readonly verbose?: boolean;
   readonly backendCapabilities?: BackendCapabilityManifest;
+  readonly backendTargetId?: Target;
 };
 
-export type TsonicProgram = {
+export type TsonicProgram<
+  Target extends BackendTargetId = BackendTargetId,
+> = {
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
-  readonly options: CompilerOptions;
+  readonly options: CompilerOptions<Target>;
   readonly surfaceCapabilities?: SurfaceCapabilities;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
   readonly declarationModuleAliases?: ReadonlyMap<
@@ -46,4 +55,6 @@ export type TsonicProgram = {
   readonly binding: Binding;
   /** Target-neutral symbol surface plus target render table produced for the active compilation. */
   readonly targetSurfaceArtifacts?: TargetSurfaceArtifacts;
+  /** Active target surface contract used to produce symbol artifacts after bindings discovery. */
+  readonly targetSurfaceProvider?: TargetSurfaceProvider;
 };

@@ -115,7 +115,7 @@ const typeofGenericTarget = (tag: string): IrType | undefined => {
       return {
         kind: "referenceType",
         name: "object",
-        targetQualifiedName: "core:Object",
+        providerQualifiedName: "core:Object",
       };
     case "function":
       return {
@@ -265,7 +265,7 @@ const isArrayLikeCandidate = (type: IrType): boolean => {
   }
 
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const targetSimpleName = type.targetQualifiedName?.split(".").pop();
+  const targetSimpleName = type.providerQualifiedName?.split(".").pop();
   return (
     simpleName === "Array" ||
     simpleName === "ReadonlyArray" ||

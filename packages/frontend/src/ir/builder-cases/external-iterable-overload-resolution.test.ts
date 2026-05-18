@@ -141,7 +141,7 @@ const findEqualCallStatements = (
 describe("IR Builder", function () {
   this.timeout(90_000);
 
-  describe("CLR iterable overload resolution", () => {
+  describe("external iterable overload resolution", () => {
     it("prefers IEnumerable_1 overloads for iterator-bearing class arguments", () => {
       const fixture = createFilesystemTestProgram(
         {

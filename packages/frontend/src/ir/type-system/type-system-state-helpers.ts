@@ -182,12 +182,12 @@ export const resolveTypeIdByName = (
   pushCandidate(state.aliasTable.get(name));
   pushCandidate(sourceTsNameCandidate);
   pushCandidate(externalTsNameCandidate);
-  pushCandidate(state.unifiedCatalog.resolveTargetName(name));
+  pushCandidate(state.unifiedCatalog.resolveProviderName(name));
   if (canonicalName !== name) {
     pushCandidate(state.aliasTable.get(canonicalName));
     pushCandidate(canonicalSourceTsNameCandidate);
     pushCandidate(canonicalExternalTsNameCandidate);
-    pushCandidate(state.unifiedCatalog.resolveTargetName(canonicalName));
+    pushCandidate(state.unifiedCatalog.resolveProviderName(canonicalName));
   }
 
   if (arity === undefined) {
@@ -220,14 +220,14 @@ export const resolveTypeIdByName = (
 
     pushSuffixedCandidate(state.aliasTable.get(suffixed));
     pushSuffixedCandidate(state.unifiedCatalog.resolveTsName(suffixed));
-    pushSuffixedCandidate(state.unifiedCatalog.resolveTargetName(suffixed));
+    pushSuffixedCandidate(state.unifiedCatalog.resolveProviderName(suffixed));
     if (canonicalSuffixed) {
       pushSuffixedCandidate(state.aliasTable.get(canonicalSuffixed));
       pushSuffixedCandidate(
         state.unifiedCatalog.resolveTsName(canonicalSuffixed)
       );
       pushSuffixedCandidate(
-        state.unifiedCatalog.resolveTargetName(canonicalSuffixed)
+        state.unifiedCatalog.resolveProviderName(canonicalSuffixed)
       );
     }
 
@@ -242,7 +242,7 @@ export const resolveSourceReferenceFQName = (
   state: TypeSystemState,
   type: Extract<IrType, { kind: "referenceType" }>
 ): string | undefined => {
-  if (type.targetQualifiedName || type.name.includes(".")) {
+  if (type.providerQualifiedName || type.name.includes(".")) {
     return undefined;
   }
 
@@ -318,8 +318,8 @@ export const normalizeToNominal = (
     const arity = type.typeArguments?.length;
     const sourceFqName = resolveSourceReferenceFQName(state, type);
     const typeId =
-      (type.targetQualifiedName
-        ? resolveTypeIdByName(state, type.targetQualifiedName, arity)
+      (type.providerQualifiedName
+        ? resolveTypeIdByName(state, type.providerQualifiedName, arity)
         : undefined) ??
       (sourceFqName
         ? resolveTypeIdByName(state, sourceFqName, arity)

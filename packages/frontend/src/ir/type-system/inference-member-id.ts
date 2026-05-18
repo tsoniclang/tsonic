@@ -119,11 +119,10 @@ export const parseIndexerKeyTypeName = (
   const first = params[0];
   if (!first) return undefined;
 
-  // Strip assembly qualification (", Assembly, Version=..., ...") if present.
-  const withoutAsm = first.includes(",")
+  const withoutProviderSuffix = first.includes(",")
     ? (first.split(",")[0] ?? first)
     : first;
-  return withoutAsm.trim();
+  return withoutProviderSuffix.trim();
 };
 
 const sourcePrimitiveNameToIrType = (name: SourcePrimitiveName): IrType => {
@@ -143,7 +142,7 @@ const resolveIndexerKeyIrType = (
   state: TypeSystemState,
   keyTypeName: string
 ): IrType => {
-  const targetTypeId = state.unifiedCatalog.resolveTargetName(keyTypeName);
+  const targetTypeId = state.unifiedCatalog.resolveProviderName(keyTypeName);
   const targetEntry = targetTypeId
     ? state.unifiedCatalog.getByTypeId(targetTypeId)
     : undefined;
@@ -157,10 +156,10 @@ const resolveIndexerKeyIrType = (
   }
 
   const typeId =
-    (parsed.targetQualifiedName
-      ? state.unifiedCatalog.resolveTargetName(parsed.targetQualifiedName)
+    (parsed.providerQualifiedName
+      ? state.unifiedCatalog.resolveProviderName(parsed.providerQualifiedName)
       : undefined) ??
-    state.unifiedCatalog.resolveTargetName(parsed.name) ??
+    state.unifiedCatalog.resolveProviderName(parsed.name) ??
     state.unifiedCatalog.resolveTsName(parsed.name);
   if (!typeId) {
     return parsed;

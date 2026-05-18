@@ -240,6 +240,17 @@ const mergeOptionalMetadataObject = <T extends object>(
   return merged as T;
 };
 
+const getTypeStableIds = (type: TypeBinding): readonly string[] => {
+  const ids = new Set<string>();
+  if (type.stableId !== undefined) {
+    ids.add(type.stableId);
+  }
+  for (const stableId of type.stableIds ?? []) {
+    ids.add(stableId);
+  }
+  return Array.from(ids).sort();
+};
+
 const mergeMemberBinding = (
   existing: MemberBinding,
   incoming: MemberBinding,
@@ -261,6 +272,13 @@ const mergeMemberBinding = (
       alias,
       "kind"
     ) as MemberBinding["kind"],
+    stableId: mergeOptionalField(
+      existing.stableId,
+      incoming.stableId,
+      context,
+      alias,
+      "stableId"
+    ),
     signature: mergeOptionalField(
       existing.signature,
       incoming.signature,
@@ -443,8 +461,14 @@ const mergeTypeBinding = (
     );
   }
 
+  const stableIds = Array.from(
+    new Set([...getTypeStableIds(existing), ...getTypeStableIds(incoming)])
+  ).sort();
+
   return {
     ...existing,
+    stableId: stableIds.length === 1 ? stableIds[0] : undefined,
+    stableIds,
     members: mergeMemberBindings(
       existing.members,
       incoming.members,
@@ -984,6 +1008,7 @@ export const addBindingsToState = (
             : undefined);
         const memberBinding: MemberBinding = {
           kind: "method",
+          stableId: method.stableId,
           name: method.targetName,
           // No naming policy: TS member names are the provider names as authored.
           alias: method.targetName,
@@ -1047,6 +1072,7 @@ export const addBindingsToState = (
           prop.ownerQualifiedName ?? tsbType.targetName;
         members.push({
           kind: "property",
+          stableId: prop.stableId,
           signature: prop.normalizedSignature,
           semanticType: prop.semanticType,
           semanticOptional: prop.semanticOptional,
@@ -1068,6 +1094,7 @@ export const addBindingsToState = (
         // Fields are treated as properties for binding purposes
         members.push({
           kind: "property",
+          stableId: field.stableId,
           signature: field.normalizedSignature,
           semanticType: field.semanticType,
           semanticOptional: field.semanticOptional,
@@ -1123,6 +1150,7 @@ export const addBindingsToState = (
 
       // Create TypeBinding - TS alias is derived deterministically from provider target name.
       const rawTypeBinding: TypeBinding = {
+        stableId: tsbType.stableId,
         name: tsbType.targetName,
         alias: tsAlias,
         kind: kindFromBindings,

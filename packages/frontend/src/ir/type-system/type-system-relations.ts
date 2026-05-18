@@ -113,7 +113,7 @@ const isArrayInstanceTarget = (type: IrType): boolean => {
   }
 
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const targetSimpleName = type.targetQualifiedName?.split(".").pop();
+  const targetSimpleName = type.providerQualifiedName?.split(".").pop();
   return (
     simpleName === "Array" ||
     simpleName === "ReadonlyArray" ||
@@ -132,7 +132,7 @@ const isArrayInstanceCandidate = (type: IrType): boolean => {
   }
 
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const targetSimpleName = type.targetQualifiedName?.split(".").pop();
+  const targetSimpleName = type.providerQualifiedName?.split(".").pop();
   return (
     simpleName === "Array" ||
     simpleName === "ReadonlyArray" ||
@@ -327,7 +327,7 @@ const resolveAliasExpansion = (
     type.typeId ??
     resolveTypeIdByName(
       state,
-      type.targetQualifiedName ?? type.name,
+      type.providerQualifiedName ?? type.name,
       type.typeArguments?.length ?? 0
     );
   if (!typeId) {

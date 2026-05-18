@@ -3,6 +3,7 @@ import type {
   ModuleSymbolId,
   TypeSymbolId,
 } from "./symbol-ids.js";
+import type { BackendTargetId } from "../ir/types/phases.js";
 
 export type TargetSymbolOrigin = "source" | "externalSurface" | "compilerIntrinsic";
 
@@ -20,7 +21,7 @@ export type TargetExportSymbol =
   | { readonly kind: "module"; readonly moduleSymbolId: ModuleSymbolId };
 
 export type TargetSurfaceProvider = {
-  readonly targetId: string;
+  readonly targetId: BackendTargetId;
   resolveImport(
     specifier: string,
     containingFile: string

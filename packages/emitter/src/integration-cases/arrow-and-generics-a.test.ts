@@ -151,7 +151,7 @@ describe("End-to-End Integration", () => {
                   kind: "global",
                   assembly: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
-                  targetMemberName: "Timers.setInterval",
+                  providerMemberName: "Timers.setInterval",
                 },
               },
             },
@@ -186,7 +186,7 @@ describe("End-to-End Integration", () => {
                               type: {
                                 kind: "referenceType",
                                 name: "System.Action",
-                                targetQualifiedName: "System.Action",
+                                providerQualifiedName: "System.Action",
                               },
                               isOptional: false,
                               isRest: false,
@@ -232,7 +232,7 @@ describe("End-to-End Integration", () => {
                               type: {
                                 kind: "referenceType",
                                 name: "Action_1",
-                                targetQualifiedName: "System.Action`1",
+                                providerQualifiedName: "System.Action`1",
                                 typeArguments: [
                                   {
                                     kind: "typeParameterType",

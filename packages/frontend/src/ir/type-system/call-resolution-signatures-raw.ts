@@ -27,6 +27,7 @@ import {
   resolveTypeIdByName,
 } from "./type-system-state.js";
 import { convertTypeNode } from "./call-resolution-utilities.js";
+import { typeIdProviderLookupName } from "./internal/universe/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // getRawSignature — Extract raw signature from HandleRegistry
@@ -192,7 +193,7 @@ export const getRawSignature = (
         ...(typeId
           ? {
               typeId,
-              targetQualifiedName: typeId.targetName,
+              providerQualifiedName: typeIdProviderLookupName(typeId),
             }
           : {}),
       };

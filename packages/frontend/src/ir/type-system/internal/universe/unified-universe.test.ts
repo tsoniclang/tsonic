@@ -10,18 +10,18 @@ import type {
 const emptyAssemblyCatalog = (): ExternalTypeCatalog => ({
   entries: new Map(),
   tsNameToTypeId: new Map(),
-  targetNameToTypeId: new Map(),
+  providerNameToTypeId: new Map(),
   namespaceToTypeIds: new Map(),
 });
 
 const makeAssemblyTypeId = (
   stableId: string,
-  targetName: string,
+  providerName: string,
   ownerIdentity: string,
   tsName: string
 ): TypeId => ({
   stableId,
-  targetName: targetName,
+  providerName,
   ownerIdentity: ownerIdentity,
   sourceName: tsName,
 });
@@ -177,7 +177,7 @@ describe("buildUnifiedUniverse", () => {
       {
         entries: new Map([[errorTypeId.stableId, assemblyEntry]]),
         tsNameToTypeId: new Map([[errorTypeId.sourceName, errorTypeId]]),
-        targetNameToTypeId: new Map([[errorTypeId.targetName, errorTypeId]]),
+        providerNameToTypeId: new Map([[errorTypeId.providerName, errorTypeId]]),
         namespaceToTypeIds: new Map(),
       },
       "project"

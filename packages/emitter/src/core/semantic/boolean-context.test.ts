@@ -35,7 +35,7 @@ const ref = (targetName: string): IrType =>
   ({
     kind: "referenceType",
     name: targetName.split(".").at(-1) ?? targetName,
-    targetQualifiedName: targetName,
+    providerQualifiedName: targetName,
   }) as IrType;
 
 const union = (types: readonly IrType[]): IrType =>
@@ -101,6 +101,12 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       const charExpr = id("c", ref("System.Char"));
       const [charText] = toText(charExpr, idAst("c"), ctx);
       expect(charText).to.equal("(c != '\\0')");
+
+      const bigintExpr = id("b", ref("System.Numerics.BigInteger"));
+      const [bigintText] = toText(bigintExpr, idAst("b"), ctx);
+      expect(bigintText).to.equal(
+        "(b != global::System.Numerics.BigInteger.Zero)"
+      );
     });
 
     it("emits !string.IsNullOrEmpty for primitive strings", () => {
@@ -118,6 +124,13 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       expect(text).to.include("!= 0");
       expect(text).to.include("!double.IsNaN");
       expect(next.tempVarId).to.equal(1);
+    });
+
+    it("emits zero comparison truthiness for primitive bigint", () => {
+      const ctx = createContext();
+      const expr = id("b", prim("bigint"));
+      const [text] = toText(expr, idAst("b"), ctx);
+      expect(text).to.equal("(b != global::System.Numerics.BigInteger.Zero)");
     });
 
     it("parenthesizes non-simple numeric expressions (e.g. `a ?? b`) under pattern matching", () => {
@@ -189,6 +202,7 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
         `!global::System.Double.IsNaN((double)${tmp})`,
         `decimal => (decimal)${tmp} != 0m`,
         `char => (char)${tmp} != '\\0'`,
+        `global::System.Numerics.BigInteger => (global::System.Numerics.BigInteger)${tmp} != global::System.Numerics.BigInteger.Zero`,
         `_ => true`,
       ];
 

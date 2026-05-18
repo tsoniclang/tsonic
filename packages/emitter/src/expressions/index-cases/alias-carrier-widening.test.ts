@@ -11,7 +11,7 @@ import { normalizeRuntimeUnionCarrierNames } from "../../runtime-union-cases/hel
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  targetQualifiedName: "Tsonic.Runtime.JsValue",
+  providerQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 describe("Expression Emission", () => {
@@ -34,7 +34,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
       ],
     };
@@ -48,7 +48,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            targetQualifiedName: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -62,7 +62,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const broadType: IrType = {
@@ -122,7 +122,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            targetQualifiedName: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -136,7 +136,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     // PathSpec underlying: string | RegExp | readonly PathSpec[]
@@ -147,7 +147,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
         {
           kind: "arrayType",
@@ -279,7 +279,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            targetQualifiedName: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -293,7 +293,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const pathSpecUnderlying: IrType = {
@@ -303,7 +303,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
         {
           kind: "arrayType",

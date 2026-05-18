@@ -82,7 +82,7 @@ const classifyNumericType = (type: IrType | undefined): NumericExprKind => {
 
   if (type?.kind === "referenceType") {
     const fact = numericTypeFactFromName(
-      type.typeId?.targetName ?? type.targetQualifiedName ?? type.name
+      type.typeId?.sourceName ?? type.providerQualifiedName ?? type.name
     );
     if (fact?.kind === "numeric") {
       const exactKind =

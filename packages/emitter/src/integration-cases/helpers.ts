@@ -11,6 +11,8 @@ import {
   validateProgram,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
+import { CSHARP_EMITTER_TARGET_ID } from "../target.js";
+import { CSHARP_TEST_CAPABILITIES } from "../test-backend-capabilities.js";
 import type { EmitterOptions } from "../types.js";
 import { normalizeRuntimeUnionCarrierNames } from "../runtime-union-cases/helpers.js";
 
@@ -441,6 +443,8 @@ export const compileProjectToCSharp = (
       projectRoot: tempDir,
       sourceRoot,
       rootNamespace,
+      backendCapabilities: CSHARP_TEST_CAPABILITIES,
+      backendTargetId: CSHARP_EMITTER_TARGET_ID,
       ...(emitOptions.surface ? { surface: emitOptions.surface } : {}),
     };
 
@@ -474,6 +478,8 @@ export const compileProjectToCSharp = (
       {
         sourceRoot,
         rootNamespace,
+        backendCapabilities: CSHARP_TEST_CAPABILITIES,
+        backendTargetId: CSHARP_EMITTER_TARGET_ID,
       }
     );
     if (!processedResult.ok) {

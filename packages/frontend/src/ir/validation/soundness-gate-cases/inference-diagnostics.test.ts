@@ -113,7 +113,7 @@ describe("IR Soundness Gate", () => {
                 inferredType: {
                   kind: "referenceType",
                   name: "Foo_1",
-                  targetQualifiedName: "global::Test.Foo_1",
+                  providerQualifiedName: "global::Test.Foo_1",
                 },
               },
               arguments: [],

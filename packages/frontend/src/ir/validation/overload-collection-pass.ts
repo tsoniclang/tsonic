@@ -51,7 +51,7 @@ type OverloadMarker =
   | {
       readonly kind: "method";
       readonly ownerName: string;
-      readonly targetMemberName: string;
+      readonly providerMemberName: string;
       readonly familyName: string;
       readonly sourceSpan?: SourceLocation;
     };
@@ -509,7 +509,7 @@ const tryDetectOverloadMarker = (
       value: {
         kind: "method",
         ownerName: root.value.name,
-        targetMemberName: methodTarget.value,
+        providerMemberName: methodTarget.value,
         familyName: familyTarget.value,
         sourceSpan: call.sourceSpan,
       },
@@ -580,9 +580,9 @@ const belongsToCurrentProject = (
 ): boolean =>
   type.typeId?.ownerIdentity === projectOwnerIdentity ||
   (!type.typeId &&
-    !!type.targetQualifiedName &&
-    type.targetQualifiedName.startsWith(`${projectOwnerIdentity}.`)) ||
-  (!type.typeId && !type.targetQualifiedName);
+    !!type.providerQualifiedName &&
+    type.providerQualifiedName.startsWith(`${projectOwnerIdentity}.`)) ||
+  (!type.typeId && !type.providerQualifiedName);
 
 const normalizeComparableInterfaceMember = (
   member: Extract<
@@ -1037,7 +1037,7 @@ const getOrCreateMethodFamilyState = (
 
 const findUniqueRealMethodTarget = (
   classDeclaration: IrClassDeclaration,
-  targetMemberName: string
+  providerMemberName: string
 ): ClassMethodEntry | "missing" | "ambiguous" => {
   const matches: ClassMethodEntry[] = [];
   for (
@@ -1047,7 +1047,7 @@ const findUniqueRealMethodTarget = (
   ) {
     const member = classDeclaration.members[memberIndex];
     if (!member || member.kind !== "methodDeclaration") continue;
-    if (member.name !== targetMemberName) continue;
+    if (member.name !== providerMemberName) continue;
     matches.push({ memberIndex, declaration: member });
   }
 
@@ -1361,7 +1361,7 @@ const collectModuleOverloads = (
 
     const methodTarget = findUniqueRealMethodTarget(
       classEntry.declaration,
-      marker.targetMemberName
+      marker.providerMemberName
     );
     if (methodTarget === "missing" || methodTarget === "ambiguous") {
       diagnostics.push(
@@ -1369,8 +1369,8 @@ const collectModuleOverloads = (
           "TSN4005",
           "error",
           methodTarget === "missing"
-            ? `Overload marker target method '${marker.ownerName}.${marker.targetMemberName}' was not found.`
-            : `Overload marker target method '${marker.ownerName}.${marker.targetMemberName}' is ambiguous.`,
+            ? `Overload marker target method '${marker.ownerName}.${marker.providerMemberName}' was not found.`
+            : `Overload marker target method '${marker.ownerName}.${marker.providerMemberName}' is ambiguous.`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
@@ -1413,7 +1413,7 @@ const collectModuleOverloads = (
         createDiagnostic(
           "TSN4005",
           "error",
-          `Overload marker target '${marker.ownerName}.${marker.targetMemberName}' cannot point at the stub implementation '${marker.familyName}'. Bind a separate real body method instead.`,
+          `Overload marker target '${marker.ownerName}.${marker.providerMemberName}' cannot point at the stub implementation '${marker.familyName}'. Bind a separate real body method instead.`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
@@ -1432,7 +1432,7 @@ const collectModuleOverloads = (
         createDiagnostic(
           "TSN4005",
           "error",
-          `Real body '${marker.ownerName}.${marker.targetMemberName}' must match static/async/generator modifiers of stub '${marker.ownerName}.${marker.familyName}'.`,
+          `Real body '${marker.ownerName}.${marker.providerMemberName}' must match static/async/generator modifiers of stub '${marker.ownerName}.${marker.familyName}'.`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
@@ -1465,8 +1465,8 @@ const collectModuleOverloads = (
           "TSN4005",
           "error",
           matchingSignatureIndices.length === 0
-            ? `Real body '${marker.ownerName}.${marker.targetMemberName}' does not match any public overload signature on stub '${marker.ownerName}.${marker.familyName}'.`
-            : `Real body '${marker.ownerName}.${marker.targetMemberName}' matches multiple public overload signatures on stub '${marker.ownerName}.${marker.familyName}'. Make the signature unique.`,
+            ? `Real body '${marker.ownerName}.${marker.providerMemberName}' does not match any public overload signature on stub '${marker.ownerName}.${marker.familyName}'.`
+            : `Real body '${marker.ownerName}.${marker.providerMemberName}' matches multiple public overload signatures on stub '${marker.ownerName}.${marker.familyName}'. Make the signature unique.`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );

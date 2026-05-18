@@ -229,7 +229,7 @@ const buildNullableAwaitableTaskAst = (
 export const isValueTaskLikeIrType = (type: IrType | undefined): boolean => {
   if (!type || type.kind !== "referenceType") return false;
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrName = type.targetQualifiedName ?? type.name;
+  const clrName = type.providerQualifiedName ?? type.name;
   return (
     simpleName === "ValueTask" ||
     simpleName === "ValueTask_1" ||

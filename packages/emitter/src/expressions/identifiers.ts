@@ -363,17 +363,17 @@ export const emitIdentifier = (
   }
 
   // Use target member name from binding if specified (with global:: prefix)
-  if (expr.targetMemberName && expr.targetOwnerIdentity) {
-    const fqn = `global::${expr.targetOwnerIdentity}.${expr.targetMemberName}`;
+  if (expr.providerMemberName && expr.providerOwnerIdentity) {
+    const fqn = `global::${expr.providerOwnerIdentity}.${expr.providerMemberName}`;
     return [identifierExpression(fqn), context];
   }
 
   // Use resolved binding if available (from binding manifest) with global:: prefix.
   // Normalize nested CLR type syntax (Outer+Inner`1) before emitting.
-  if (expr.targetQualifiedName) {
+  if (expr.providerQualifiedName) {
     const fqn = normalizeClrQualifiedName(
-      resolveCoreTargetTypeName(expr.targetQualifiedName) ??
-        expr.targetQualifiedName,
+      resolveCoreTargetTypeName(expr.providerQualifiedName) ??
+        expr.providerQualifiedName,
       true
     );
     return [identifierExpression(fqn), context];

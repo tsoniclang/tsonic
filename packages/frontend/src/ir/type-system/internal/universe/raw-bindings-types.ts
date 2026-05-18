@@ -165,18 +165,27 @@ export type RawBindingsPayload = {
  */
 export const makeTypeId = (
   stableId: string,
-  targetName: string,
+  providerName: string,
   ownerIdentity: string,
   sourceName: string,
   origin: "source" | "external" = "external"
 ): TypeId => ({
   stableId,
-  targetName,
+  providerName,
   symbolId: typeSymbolIdFromStableId(stableId),
   sourceName,
   ownerIdentity,
   origin,
 });
+
+/**
+ * Transitional provider lookup accessor for code that still has to populate
+ * `IrReferenceType.providerQualifiedName` while symbol-table migration finishes.
+ *
+ * Keep direct reads of TypeId provider-local names inside this universe module.
+ */
+export const typeIdProviderLookupName = (typeId: TypeId): string =>
+  typeId.providerName;
 
 /**
  * Parse a stableId into ownerIdentity and targetName.

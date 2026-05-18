@@ -159,6 +159,7 @@ export type {
 } from "./numeric-kind.js";
 export type {
   IrPhase,
+  BackendTargetId,
   PhasedIrModule,
   PhasedIrStatement,
   PhasedIrExpression,
@@ -174,6 +175,7 @@ export type {
   EmittableIrType,
 } from "./phases.js";
 export {
+  defineBackendTargetId,
   assumeIrPhase,
   assumeIrModulesPhase,
   assumeEmittableIrModule,

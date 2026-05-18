@@ -3,6 +3,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
+import { ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES } from "./test-backend-capabilities.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 
 const hasNonEmptyObjectTypeMetadata = (value: unknown): boolean => {
@@ -146,6 +147,7 @@ describe("Dependency Graph", function () {
         projectRoot,
         sourceRoot,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
         typeRoots: [installedJsRoot, nodeRoot],
       });
@@ -252,6 +254,7 @@ describe("Dependency Graph", function () {
         projectRoot,
         sourceRoot,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@fixture/js",
         typeRoots: [packageRoot],
       });
@@ -291,6 +294,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
       });
 
@@ -328,12 +332,14 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
       });
       const secondResult = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
       });
 
@@ -373,6 +379,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
       });
 
@@ -402,6 +409,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
       });
 
@@ -438,6 +446,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
       });
 
@@ -468,6 +477,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
         typeRoots: [packageRoot],
       });
@@ -518,6 +528,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@fixture/js",
       });
 
@@ -557,6 +568,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@fixture/js",
       });
 
@@ -597,6 +609,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
         typeRoots: [packageRoot],
       });
@@ -638,6 +651,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
         typeRoots: [packageRoot],
       });
@@ -679,6 +693,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
         typeRoots: [packageRoot],
       });
@@ -713,6 +728,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
       });
 

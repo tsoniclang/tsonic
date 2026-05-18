@@ -416,7 +416,7 @@ export type EmitterContext = {
   readonly qualifyLocalTypes?: boolean;
   /**
    * When true, same-module nominal references may emit their explicit
-   * `targetQualifiedName` identity instead of the short local name.
+   * `providerQualifiedName` identity instead of the short local name.
    *
    * Used only in contexts that require canonical emitted member surfaces,
    * such as runtime-union carrier layout construction.

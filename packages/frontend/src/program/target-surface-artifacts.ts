@@ -1,8 +1,8 @@
 import {
-  createMemberSymbolId,
-  createModuleSymbolId,
-  createTypeSymbolId,
+  memberSymbolIdFromStableId,
+  moduleSymbolIdFromStableId,
   TargetSymbolRegistry,
+  typeSymbolIdFromStableId,
   type TargetSurfaceArtifacts,
   type TypeSymbolId,
 } from "../symbols/index.js";
@@ -21,13 +21,15 @@ const typeSymbolFor = (
   registry: TargetSymbolRegistry,
   ownerIdentity: string,
   qualifiedName: string,
-  sourceName: string
+  sourceName: string,
+  providerStableId?: string
 ): TypeSymbolId => {
-  const symbolId = createTypeSymbolId(ownerIdentity, qualifiedName);
+  const stableId = providerStableId ?? `${ownerIdentity}:${qualifiedName}`;
+  const symbolId = typeSymbolIdFromStableId(stableId);
   registry.addType(
     {
       symbolId,
-      stableId: `${ownerIdentity}:${qualifiedName}`,
+      stableId,
       sourceName,
       ownerIdentity,
       origin: "externalSurface",
@@ -46,16 +48,15 @@ const addMemberBinding = (
   ownerTypeSymbolId: TypeSymbolId | undefined,
   member: MemberBinding
 ): void => {
-  const symbolId = createMemberSymbolId(
-    member.binding.assembly,
-    member.binding.type,
-    member.binding.member
-  );
+  const stableId =
+    member.stableId ??
+    `${member.binding.assembly}:${member.binding.type}.${member.binding.member}`;
+  const symbolId = memberSymbolIdFromStableId(stableId);
   registry.addMember(
     {
       symbolId,
       ownerTypeSymbolId,
-      stableId: `${member.binding.assembly}:${member.binding.type}.${member.binding.member}`,
+      stableId,
       sourceName: member.alias,
       ownerIdentity: member.binding.assembly,
       origin: "externalSurface",
@@ -86,11 +87,12 @@ export const createTargetSurfaceArtifactsFromBindings = (
     );
 
     if (descriptor.kind === "module") {
-      const symbolId = createModuleSymbolId(ownerIdentity, descriptor.type);
+      const stableId = `${ownerIdentity}:${descriptor.type}`;
+      const symbolId = moduleSymbolIdFromStableId(stableId);
       registry.addModule(
         {
           symbolId,
-          stableId: `${ownerIdentity}:${descriptor.type}`,
+          stableId,
           sourceName: descriptor.type,
           ownerIdentity,
           origin: "externalSurface",
@@ -103,18 +105,15 @@ export const createTargetSurfaceArtifactsFromBindings = (
       );
     }
 
-    if (descriptor.targetMemberName) {
-      const memberSymbolId = createMemberSymbolId(
-        ownerIdentity,
-        typeName,
-        descriptor.targetMemberName
-      );
+    if (descriptor.providerMemberName) {
+      const stableId = `${ownerIdentity}:${typeName}.${descriptor.providerMemberName}`;
+      const memberSymbolId = memberSymbolIdFromStableId(stableId);
       registry.addMember(
         {
           symbolId: memberSymbolId,
           ownerTypeSymbolId: typeSymbolId,
-          stableId: `${ownerIdentity}:${typeName}.${descriptor.targetMemberName}`,
-          sourceName: descriptor.targetMemberName,
+          stableId,
+          sourceName: descriptor.providerMemberName,
           ownerIdentity,
           origin: "externalSurface",
         },
@@ -122,7 +121,7 @@ export const createTargetSurfaceArtifactsFromBindings = (
           symbolId: memberSymbolId,
           ownerTypeSymbolId: typeSymbolId,
           ownerQualifiedName: typeName,
-          memberName: descriptor.targetMemberName,
+          memberName: descriptor.providerMemberName,
           ownerIdentity,
         }
       );
@@ -136,7 +135,8 @@ export const createTargetSurfaceArtifactsFromBindings = (
         registry,
         ownerIdentity,
         type.name,
-        type.alias
+        type.alias,
+        type.stableId
       );
       for (const member of type.members) {
         addMemberBinding(registry, ownerTypeSymbolId, member);
@@ -151,16 +151,15 @@ export const createTargetSurfaceArtifactsFromBindings = (
       descriptor.ownerQualifiedName,
       namespace
     );
-    const symbolId = createMemberSymbolId(
-      descriptor.ownerIdentity,
-      descriptor.ownerQualifiedName,
-      descriptor.targetName
-    );
+    const stableId =
+      descriptor.stableId ??
+      `${descriptor.ownerIdentity}:${descriptor.ownerQualifiedName}.${descriptor.targetName}`;
+    const symbolId = memberSymbolIdFromStableId(stableId);
     registry.addMember(
       {
         symbolId,
         ownerTypeSymbolId,
-        stableId: `${descriptor.ownerIdentity}:${descriptor.ownerQualifiedName}.${descriptor.targetName}`,
+        stableId,
         sourceName: exportName,
         ownerIdentity: descriptor.ownerIdentity,
         origin: "externalSurface",

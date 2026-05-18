@@ -349,7 +349,7 @@ export const emitTypeAssertion = (
           const clrName = getIdentifierTypeName(importBinding.typeAst);
           return {
             ...target,
-            ...(clrName ? { targetQualifiedName: clrName } : {}),
+            ...(clrName ? { providerQualifiedName: clrName } : {}),
             structuralOrigin: target.structuralOrigin ?? "namedReference",
             structuralMembers: target.structuralMembers ?? aliasType.members,
           };

@@ -72,8 +72,8 @@ export const getReferenceClrTargetName = (
   type: ReferenceIrType
 ): string | undefined => {
   const rawName =
-    type.typeId?.targetName ??
-    type.targetQualifiedName ??
+    type.typeId?.providerName ??
+    type.providerQualifiedName ??
     REFERENCE_CLR_ALIASES.get(type.name);
   return rawName ? toGlobalClrName(rawName) : undefined;
 };
@@ -82,8 +82,8 @@ export const getReferenceClrIdentityKey = (
   type: ReferenceIrType
 ): string | undefined => {
   const rawName =
-    type.typeId?.targetName ??
-    type.targetQualifiedName ??
+    type.typeId?.providerName ??
+    type.providerQualifiedName ??
     REFERENCE_CLR_ALIASES.get(type.name);
   if (!rawName) {
     return undefined;

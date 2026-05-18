@@ -1,7 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolvePackageRoot, resolveTsbindgenDllPath } from "./add-common.js";
@@ -27,7 +26,7 @@ describe("add-common module resolution", () => {
       mkdirSync(join(pkgRoot, "lib"), { recursive: true });
       writeJson(join(pkgRoot, "package.json"), {
         name: "@tsonic/tsbindgen",
-        version: "0.0.0-test",
+        version: "0.7.53",
         type: "module",
         exports: {
           ".": "./index.js",
@@ -47,7 +46,7 @@ describe("add-common module resolution", () => {
     }
   });
 
-  it("falls back to the CLI's own tsbindgen when the workspace does not provide one", () => {
+  it("falls back to the active toolchain tsbindgen when the workspace does not provide one", () => {
     const projectRoot = mkdtempSync(
       join(tmpdir(), "tsonic-resolve-tsbindgen-self-")
     );
@@ -59,16 +58,117 @@ describe("add-common module resolution", () => {
         type: "module",
       });
 
-      const selfReq = createRequire(import.meta.url);
-      const selfPkgRoot = resolve(selfReq.resolve("@tsonic/tsbindgen"), "..");
-      const expectedDll = resolve(selfPkgRoot, "lib", "tsbindgen.dll");
+      const result = resolveTsbindgenDllPath(projectRoot);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(resolve(result.value)).to.match(
+        new RegExp(`[/\\\\]tsbindgen\\.dll$`)
+      );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("skips workspace tsbindgen installs that do not match the active CLI toolchain", () => {
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-resolve-tsbindgen-version-")
+    );
+
+    try {
+      writeJson(join(projectRoot, "package.json"), {
+        name: "test",
+        private: true,
+        type: "module",
+      });
+
+      const pkgRoot = join(projectRoot, "node_modules", "@tsonic", "tsbindgen");
+      mkdirSync(join(pkgRoot, "lib"), { recursive: true });
+      writeJson(join(pkgRoot, "package.json"), {
+        name: "@tsonic/tsbindgen",
+        version: "0.0.0-stale",
+        type: "module",
+        exports: {
+          ".": "./index.js",
+        },
+      });
+      writeFileSync(join(pkgRoot, "index.js"), "export {};\n", "utf-8");
+      writeFileSync(join(pkgRoot, "lib", "tsbindgen.dll"), "", "utf-8");
 
       const result = resolveTsbindgenDllPath(projectRoot);
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
-      expect(resolve(result.value)).to.equal(expectedDll);
+      expect(resolve(result.value)).to.not.equal(
+        resolve(join(pkgRoot, "lib", "tsbindgen.dll"))
+      );
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("uses a compatible sibling tsbindgen build before the active packaged fallback", () => {
+    const monoRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-resolve-tsbindgen-sibling-")
+    );
+    const projectRoot = join(monoRoot, "app");
+    const previousRepoRoot = process.env.TSONIC_REPO_ROOT;
+
+    try {
+      process.env.TSONIC_REPO_ROOT = join(monoRoot, "tsonic");
+
+      mkdirSync(projectRoot, { recursive: true });
+      writeJson(join(projectRoot, "package.json"), {
+        name: "test",
+        private: true,
+        type: "module",
+      });
+
+      const stalePkgRoot = join(
+        projectRoot,
+        "node_modules",
+        "@tsonic",
+        "tsbindgen"
+      );
+      mkdirSync(join(stalePkgRoot, "lib"), { recursive: true });
+      writeJson(join(stalePkgRoot, "package.json"), {
+        name: "@tsonic/tsbindgen",
+        version: "0.0.0-stale",
+        type: "module",
+        exports: {
+          ".": "./index.js",
+        },
+      });
+      writeFileSync(join(stalePkgRoot, "index.js"), "export {};\n", "utf-8");
+      writeFileSync(join(stalePkgRoot, "lib", "tsbindgen.dll"), "", "utf-8");
+
+      const siblingRoot = join(monoRoot, "tsbindgen");
+      const siblingDll = join(
+        siblingRoot,
+        "artifacts",
+        "bin",
+        "tsbindgen",
+        "Release",
+        "net10.0",
+        "tsbindgen.dll"
+      );
+      mkdirSync(join(siblingDll, ".."), { recursive: true });
+      writeJson(join(siblingRoot, "package.json"), {
+        name: "@tsonic/tsbindgen",
+        version: "0.7.53",
+        type: "module",
+      });
+      writeFileSync(siblingDll, "", "utf-8");
+
+      const result = resolveTsbindgenDllPath(projectRoot);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(resolve(result.value)).to.equal(resolve(siblingDll));
+    } finally {
+      if (previousRepoRoot === undefined) {
+        delete process.env.TSONIC_REPO_ROOT;
+      } else {
+        process.env.TSONIC_REPO_ROOT = previousRepoRoot;
+      }
+      rmSync(monoRoot, { recursive: true, force: true });
     }
   });
 

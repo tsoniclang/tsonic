@@ -53,7 +53,7 @@ describe("Binding System", () => {
       });
     });
 
-    it("should load root-level global function bindings with targetMemberName", () => {
+    it("should load root-level global function bindings with providerMemberName", () => {
       fs.writeFileSync(
         path.join(tempDir, "package.json"),
         JSON.stringify(
@@ -89,13 +89,13 @@ describe("Binding System", () => {
                 kind: "global",
                 assembly: "js",
                 type: "js.Timers",
-                targetMemberName: "Timers.setInterval",
+                providerMemberName: "Timers.setInterval",
               },
               clearInterval: {
                 kind: "global",
                 assembly: "js",
                 type: "js.Timers",
-                targetMemberName: "Timers.clearInterval",
+                providerMemberName: "Timers.clearInterval",
               },
             },
           },
@@ -110,13 +110,13 @@ describe("Binding System", () => {
         kind: "global",
         assembly: "js",
         type: "js.Timers",
-        targetMemberName: "Timers.setInterval",
+        providerMemberName: "Timers.setInterval",
       });
       expect(registry.getBinding("clearInterval")).to.deep.equal({
         kind: "global",
         assembly: "js",
         type: "js.Timers",
-        targetMemberName: "Timers.clearInterval",
+        providerMemberName: "Timers.clearInterval",
       });
     });
 

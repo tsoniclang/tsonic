@@ -70,10 +70,10 @@ export const createModule = (
 /**
  * Helper to create a minimal identifier IR
  */
-export const makeIdentifier = (name: string, targetQualifiedName?: string) => ({
+export const makeIdentifier = (name: string, providerQualifiedName?: string) => ({
   kind: "identifier" as const,
   name,
-  targetQualifiedName,
+  providerQualifiedName,
 });
 
 export const makeTypedIdentifier = (
@@ -85,10 +85,10 @@ export const makeTypedIdentifier = (
   inferredType,
 });
 
-export const makeRefType = (name: string, targetQualifiedName?: string) => ({
+export const makeRefType = (name: string, providerQualifiedName?: string) => ({
   kind: "referenceType" as const,
   name,
-  targetQualifiedName,
+  providerQualifiedName,
 });
 
 /**
@@ -207,14 +207,14 @@ export const makeMarkerCall = (
   targetName: string,
   attrName: string,
   args: Array<{ kind: "literal"; value: string | number | boolean }> = [],
-  targetQualifiedName?: string,
+  providerQualifiedName?: string,
   apiObjectName = "A"
 ) => ({
   kind: "expressionStatement" as const,
   expression: makeCall(
     makeMemberAccess(makeTypeRootCall(targetName, apiObjectName), "add"),
     [
-      makeIdentifier(attrName, targetQualifiedName),
+      makeIdentifier(attrName, providerQualifiedName),
       ...args.map((a) => makeLiteral(a.value)),
     ]
   ),
@@ -397,14 +397,14 @@ export const makeFunctionMarkerCall = (
   functionName: string,
   attrName: string,
   args: Array<{ kind: "literal"; value: string | number | boolean }> = [],
-  targetQualifiedName?: string,
+  providerQualifiedName?: string,
   apiObjectName = "A"
 ) => ({
   kind: "expressionStatement" as const,
   expression: makeCall(
     makeMemberAccess(makeFunctionRootCall(functionName, apiObjectName), "add"),
     [
-      makeIdentifier(attrName, targetQualifiedName),
+      makeIdentifier(attrName, providerQualifiedName),
       ...args.map((a) => makeLiteral(a.value)),
     ]
   ),

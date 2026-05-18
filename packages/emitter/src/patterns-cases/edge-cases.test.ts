@@ -39,7 +39,7 @@ describe("Destructuring Pattern Lowering", () => {
       const emptyType: IrType = {
         kind: "referenceType",
         name: "Empty",
-        targetQualifiedName: "Empty",
+        providerQualifiedName: "Empty",
         structuralMembers: [],
       };
 

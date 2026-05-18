@@ -3159,6 +3159,27 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(".From1(selected)");
     });
 
+    it("boxes direct source-package values before probing runtime-union constructor arguments", () => {
+      const csharp = compileToCSharp(
+        `
+          import { statSync } from "node:fs";
+
+          export function lastModified(path: string): Date {
+            return new Date(statSync(path).mtimeMs);
+          }
+        `,
+        "/test/src/index.ts",
+        { surface: "@tsonic/nodejs" }
+      );
+
+      expect(csharp).to.include(
+        "(object)global::nodejs.FsModule.statSync(path).mtimeMs is global::Tsonic.Internal.Union<double, string>"
+      );
+      expect(csharp).to.not.include(
+        "? (global::Tsonic.Internal.Union<double, string>)global::nodejs.FsModule.statSync(path).mtimeMs"
+      );
+    });
+
     it("returns narrowed string members from overload implementations with broad return types", () => {
       const csharp = compileToCSharp(`
         import { overloads as O } from "@tsonic/core/lang.js";

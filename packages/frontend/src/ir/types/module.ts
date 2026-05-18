@@ -32,9 +32,9 @@ export type IrImport = {
   readonly resolvedPath?: string;
   readonly specifiers: readonly IrImportSpecifier[];
   readonly resolvedNamespace?: string; // For external imports or local imports.
-  // For module bindings mapped to target surface symbols.
-  readonly targetQualifiedName?: string;
-  readonly targetOwnerIdentity?: string;
+  // For module bindings mapped to external provider surface symbols.
+  readonly providerQualifiedName?: string;
+  readonly providerOwnerIdentity?: string;
   readonly typeSymbolId?: TypeSymbolId;
   // For local imports: the target module's container class name
   readonly targetContainerName?: string; // e.g., "Math" for ./utils/Math.ts
@@ -54,12 +54,11 @@ export type IrImportSpecifier =
        * *other* external namespaces (e.g., `@jotster/core/Jotster.Core.js` exporting
        * `JotsterDbContext` from `Jotster.Core.db`).
        *
-       * When present, this is the fully-qualified provider type name,
-       * and the emitter must use it instead of `${import.resolvedNamespace}.${name}`.
+       * When present, this is the fully-qualified provider type key.
        *
        * This is ONLY used for type imports (`isType === true`).
        */
-      readonly targetQualifiedName?: string | undefined;
+      readonly providerQualifiedName?: string | undefined;
       readonly typeSymbolId?: TypeSymbolId | undefined;
       /**
        * For external namespace imports, tsbindgen can optionally provide a stable "flattened"
@@ -70,7 +69,7 @@ export type IrImportSpecifier =
        *
        * This is ONLY used for value imports (`isType !== true`).
        */
-      readonly targetValue?:
+      readonly providerValue?:
         | {
             readonly ownerQualifiedName: string;
             readonly ownerIdentity: string;

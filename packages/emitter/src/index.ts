@@ -6,6 +6,7 @@ export * from "./types.js";
 export * from "./type-emitter.js";
 export * from "./expression-emitter.js";
 export * from "./statement-emitter.js";
+export * from "./target.js";
 export {
   emitModule,
   emitCSharpFile,

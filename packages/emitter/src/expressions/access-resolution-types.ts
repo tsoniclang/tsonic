@@ -171,8 +171,8 @@ export const hasPropertyFromBindingsRegistry = (
 
   addCandidate(type.name);
   addCandidate(type.typeId?.sourceName);
-  addCandidate(type.targetQualifiedName);
-  addCandidate(type.typeId?.targetName);
+  addCandidate(type.providerQualifiedName);
+  addCandidate(type.typeId?.providerName);
 
   for (const value of Array.from(candidates)) {
     if (value.endsWith("$instance")) {
@@ -292,9 +292,9 @@ export const isStaticTypeReference = (
     const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
     if (
       !isLocal &&
-      (expr.object.targetQualifiedName !== undefined ||
-        (expr.object.targetMemberName !== undefined &&
-          expr.object.targetOwnerIdentity !== undefined))
+      (expr.object.providerQualifiedName !== undefined ||
+        (expr.object.providerMemberName !== undefined &&
+          expr.object.providerOwnerIdentity !== undefined))
     ) {
       return true;
     }

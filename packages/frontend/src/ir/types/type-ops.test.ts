@@ -277,7 +277,7 @@ describe("type-ops", () => {
   it("canonicalizes provider reference identities in stable keys", () => {
     const stableTypeId = {
       stableId: "provider:provider.Span`1",
-      targetName: "provider.Span`1",
+      providerName: "provider.Span`1",
       ownerIdentity: "provider",
       sourceName: "Span",
     };
@@ -305,7 +305,7 @@ describe("type-ops", () => {
       name: "Widget",
       typeId: {
         stableId: "package-a:Acme.Widget",
-        targetName: "Acme.Widget",
+        providerName: "Acme.Widget",
         ownerIdentity: "PackageA",
         sourceName: "Widget",
       },
@@ -315,7 +315,7 @@ describe("type-ops", () => {
       name: "Widget",
       typeId: {
         stableId: "package-b:Acme.Widget",
-        targetName: "Acme.Widget",
+        providerName: "Acme.Widget",
         ownerIdentity: "PackageB",
         sourceName: "Widget",
       },
@@ -498,7 +498,7 @@ describe("type-ops", () => {
           {
             kind: "referenceType",
             name: "byte",
-            targetQualifiedName: "System.Byte",
+            providerQualifiedName: "System.Byte",
           },
         ],
       ])

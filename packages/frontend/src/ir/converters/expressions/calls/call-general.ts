@@ -98,7 +98,7 @@ const isExpressionTreeContextType = (type: IrType | undefined): boolean => {
 const createDynamicJsonValueType = (): IrType => ({
   kind: "referenceType",
   name: "JsValue",
-  targetQualifiedName: "core:Object",
+  providerQualifiedName: "core:Object",
   structuralOrigin: "namedReference",
 });
 
@@ -384,13 +384,12 @@ const collectSourceBackedReceiverOwnerAliases = (
   pushAlias(receiverType.name);
   pushAlias(receiverType.name.split(".").pop() ?? receiverType.name);
 
-  if (receiverType.targetQualifiedName) {
-    pushAlias(tsbindgenTargetTypeNameToTsTypeName(receiverType.targetQualifiedName));
-    pushAlias(receiverType.targetQualifiedName);
+  if (receiverType.providerQualifiedName) {
+    pushAlias(tsbindgenTargetTypeNameToTsTypeName(receiverType.providerQualifiedName));
+    pushAlias(receiverType.providerQualifiedName);
   }
 
   pushAlias(receiverType.typeId?.sourceName);
-  pushAlias(receiverType.typeId?.targetName);
 
   return aliases;
 };
@@ -401,8 +400,8 @@ const resolveSourceBackedMemberSourceOrigin = (
   ctx: ProgramContext
 ): SourceBackedSourceOrigin | undefined => {
   const preferredTargetOwner =
-    typeof receiverType.targetQualifiedName === "string"
-      ? receiverType.targetQualifiedName
+    typeof receiverType.providerQualifiedName === "string"
+      ? receiverType.providerQualifiedName
       : undefined;
 
   for (const ownerAlias of collectSourceBackedReceiverOwnerAliases(
@@ -886,15 +885,15 @@ const resolveSourceBackedIdentifierGlobalTarget = (
   callee: Extract<IrCallExpression["callee"], { kind: "identifier" }>,
   ctx: ProgramContext
 ): SourceBackedIdentifierGlobalTarget | undefined => {
-  if (!callee.targetOwnerIdentity || !callee.targetQualifiedName) {
+  if (!callee.providerOwnerIdentity || !callee.providerQualifiedName) {
     return undefined;
   }
 
   const binding = ctx.bindings.getExactBindingByKind(callee.name, "global");
   if (
     !binding ||
-    binding.assembly !== callee.targetOwnerIdentity ||
-    !targetBindingTypesMatch(binding.type, callee.targetQualifiedName) ||
+    binding.assembly !== callee.providerOwnerIdentity ||
+    !targetBindingTypesMatch(binding.type, callee.providerQualifiedName) ||
     !binding.sourceImport
   ) {
     return undefined;

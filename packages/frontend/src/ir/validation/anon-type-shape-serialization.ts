@@ -278,8 +278,7 @@ export const getReferenceLoweringStableKey = (
 ): string | undefined => {
   const baseKey =
     type.typeId?.stableId ??
-    type.typeId?.targetName ??
-    type.targetQualifiedName ??
+    type.providerQualifiedName ??
     undefined;
   if (!baseKey) return undefined;
 

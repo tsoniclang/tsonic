@@ -312,7 +312,7 @@ const resolveSourceReferenceTypeId = (
   sourceRegistry: TypeRegistry,
   entries: ReadonlyMap<string, NominalEntry>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
-  targetNameToTypeId: ReadonlyMap<string, TypeId>,
+  providerNameToTypeId: ReadonlyMap<string, TypeId>,
   ownerIdentity: string,
   containingFQName: string
 ): TypeId | undefined => {
@@ -320,8 +320,8 @@ const resolveSourceReferenceTypeId = (
     return type.typeId;
   }
 
-  if (type.targetQualifiedName) {
-    const byTargetName = targetNameToTypeId.get(type.targetQualifiedName);
+  if (type.providerQualifiedName) {
+    const byTargetName = providerNameToTypeId.get(type.providerQualifiedName);
     if (byTargetName) {
       return byTargetName;
     }
@@ -330,7 +330,7 @@ const resolveSourceReferenceTypeId = (
   if (type.name.includes(".")) {
     return (
       getSourceTypeIdByFQName(type.name, sourceRegistry, entries) ??
-      targetNameToTypeId.get(type.name) ??
+      providerNameToTypeId.get(type.name) ??
       tsNameToTypeId.get(type.name)
     );
   }
@@ -382,7 +382,7 @@ const resolveSourceReferenceTypeId = (
     }
   }
 
-  return tsNameToTypeId.get(type.name) ?? targetNameToTypeId.get(type.name);
+  return tsNameToTypeId.get(type.name) ?? providerNameToTypeId.get(type.name);
 };
 
 const enrichSourceTypeParameters = (
@@ -517,7 +517,7 @@ const enrichSourceIrType = (
   sourceRegistry: TypeRegistry,
   entries: ReadonlyMap<string, NominalEntry>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
-  targetNameToTypeId: ReadonlyMap<string, TypeId>,
+  providerNameToTypeId: ReadonlyMap<string, TypeId>,
   ownerIdentity: string,
   containingFQName: string,
   cache: EnrichTypeCache
@@ -542,7 +542,7 @@ const enrichSourceIrType = (
       sourceRegistry,
       entries,
       tsNameToTypeId,
-      targetNameToTypeId,
+      providerNameToTypeId,
       ownerIdentity,
       containingFQName,
       cache
@@ -555,7 +555,7 @@ const enrichSourceIrType = (
         sourceRegistry,
         entries,
         tsNameToTypeId,
-        targetNameToTypeId,
+        providerNameToTypeId,
         ownerIdentity,
         containingFQName
       );
@@ -782,7 +782,7 @@ const enrichSourceNominalEntry = (
   sourceRegistry: TypeRegistry,
   entries: ReadonlyMap<string, NominalEntry>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
-  targetNameToTypeId: ReadonlyMap<string, TypeId>,
+  providerNameToTypeId: ReadonlyMap<string, TypeId>,
   cache: EnrichTypeCache
 ): NominalEntry => {
   if (entry.origin !== "source") {
@@ -795,9 +795,9 @@ const enrichSourceNominalEntry = (
       sourceRegistry,
       entries,
       tsNameToTypeId,
-      targetNameToTypeId,
+      providerNameToTypeId,
       entry.typeId.ownerIdentity,
-      entry.typeId.targetName,
+      entry.typeId.providerName,
       cache
     );
 
@@ -931,11 +931,11 @@ export const buildUnifiedUniverse = (
     ...externalCatalog.tsNameToTypeId,
     ...buildAliasTable(externalCatalog),
   ]);
-  const targetNameToTypeId = new Map<string, TypeId>(
-    externalCatalog.targetNameToTypeId
+  const providerNameToTypeId = new Map<string, TypeId>(
+    externalCatalog.providerNameToTypeId
   );
   const sourceTsNamePriority = new Map<string, number>();
-  const sourceTargetNamePriority = new Map<string, number>();
+  const sourceProviderNamePriority = new Map<string, number>();
   const enrichTypeCache: EnrichTypeCache = new WeakMap();
 
   // Add source types if registry is provided
@@ -977,16 +977,19 @@ export const buildUnifiedUniverse = (
           sourceTsNamePriority.set(nominalEntry.typeId.sourceName, sourcePriority);
         }
 
-        const existingTargetPriority = sourceTargetNamePriority.get(
-          nominalEntry.typeId.targetName
+        const existingTargetPriority = sourceProviderNamePriority.get(
+          nominalEntry.typeId.providerName
         );
         if (
           existingTargetPriority === undefined ||
           sourcePriority >= existingTargetPriority
         ) {
-          targetNameToTypeId.set(nominalEntry.typeId.targetName, nominalEntry.typeId);
-          sourceTargetNamePriority.set(
-            nominalEntry.typeId.targetName,
+          providerNameToTypeId.set(
+            nominalEntry.typeId.providerName,
+            nominalEntry.typeId
+          );
+          sourceProviderNamePriority.set(
+            nominalEntry.typeId.providerName,
             sourcePriority
           );
         }
@@ -1004,7 +1007,7 @@ export const buildUnifiedUniverse = (
           sourceRegistry,
           entries,
           tsNameToTypeId,
-          targetNameToTypeId,
+          providerNameToTypeId,
           enrichTypeCache
         )
       );
@@ -1019,7 +1022,8 @@ export const buildUnifiedUniverse = (
 
     resolveTsName: (tsName: string) => tsNameToTypeId.get(tsName),
 
-    resolveTargetName: (targetName: string) => targetNameToTypeId.get(targetName),
+    resolveProviderName: (providerName: string) =>
+      providerNameToTypeId.get(providerName),
 
     getMembers: (typeId: TypeId) => {
       const entry = entries.get(typeId.stableId);
@@ -1097,9 +1101,9 @@ export const getTypeId = (
 
   // Handle reference types - look up by name
   if (type.kind === "referenceType") {
-    // Try targetName first (most specific)
-    if (type.targetQualifiedName) {
-      const typeId = catalog.resolveTargetName(type.targetQualifiedName);
+    // Try provider-local name first (most specific)
+    if (type.providerQualifiedName) {
+      const typeId = catalog.resolveProviderName(type.providerQualifiedName);
       if (typeId) return typeId;
     }
 
@@ -1107,8 +1111,8 @@ export const getTypeId = (
     const typeId = catalog.resolveTsName(type.name);
     if (typeId) return typeId;
 
-    // Try as targetName
-    return catalog.resolveTargetName(type.name);
+    // Try as provider-local name
+    return catalog.resolveProviderName(type.name);
   }
 
   // Arrays, tuples, functions, unions, intersections, etc. don't have TypeIds

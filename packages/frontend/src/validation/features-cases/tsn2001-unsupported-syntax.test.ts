@@ -17,7 +17,7 @@ describe("validateUnsupportedFeatures", () => {
         hasDiagnostic(
           result,
           "TSN2001",
-          "'with' statement is not supported in strict NativeAOT mode"
+          "'with' statement is not supported in deterministic native-safe mode"
         )
       ).to.equal(true);
     });

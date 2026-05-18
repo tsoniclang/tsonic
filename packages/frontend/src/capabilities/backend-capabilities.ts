@@ -1,22 +1,28 @@
+import type { DiagnosticCode } from "../types/diagnostic.js";
+
 export type BackendCapabilityStatus = "supported" | "partial" | "unsupported";
 
-export type FeatureKey =
-  | "function-length"
-  | "dynamic-json-parse-jsvalue"
-  | "closed-json-parse-typed"
-  | "array-isarray-closed"
-  | "array-isarray-broad"
-  | "broad-json-parse-target"
-  | "intersection-runtime-storage"
-  | "class-decorators"
-  | "method-decorators"
-  | "parameter-decorators"
-  | "out-parameters"
-  | "ref-parameters"
-  | "in-parameters"
-  | "generators"
-  | "async-iteration"
-  | "bigint";
+export const FEATURE_KEYS = [
+  "dynamic-function-arity-introspection",
+  "dynamic-json-parsing",
+  "typed-json-parsing",
+  "closed-array-narrowing",
+  "broad-array-narrowing",
+  "broad-json-targets",
+  "broad-json-stringify-source",
+  "intersection-value-storage",
+  "class-decorators",
+  "method-decorators",
+  "parameter-decorators",
+  "out-parameters",
+  "ref-parameters",
+  "in-parameters",
+  "generators",
+  "async-iteration",
+  "bigint",
+] as const;
+
+export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 export type BackendCapability = {
   readonly name: FeatureKey;
@@ -40,4 +46,8 @@ export const isCapabilitySupported = (
   manifest: BackendCapabilityManifest | undefined,
   name: FeatureKey
 ): boolean => capability(manifest, name)?.status === "supported";
-import type { DiagnosticCode } from "../types/diagnostic.js";
+
+export const isCapabilityUnavailable = (
+  manifest: BackendCapabilityManifest | undefined,
+  name: FeatureKey
+): boolean => !isCapabilitySupported(manifest, name);

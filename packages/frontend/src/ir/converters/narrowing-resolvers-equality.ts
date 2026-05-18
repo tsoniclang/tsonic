@@ -227,7 +227,7 @@ export const resolveInstanceofTargetType = (
     return {
       kind: "referenceType",
       name: tsbindgenTargetTypeNameToTsTypeName(identityTargetType),
-      targetQualifiedName: identityTargetType,
+      providerQualifiedName: identityTargetType,
     };
   };
 
@@ -342,23 +342,23 @@ export const resolveInstanceofTargetType = (
             : undefined);
         if (sourceNamespace) {
           const simpleName = declNode.name.text;
-          const targetQualifiedName = `${sourceNamespace}.${simpleName}`;
+          const providerQualifiedName = `${sourceNamespace}.${simpleName}`;
           const ownerIdentity = resolveSourceFileOwnerIdentity(
             sourceFile.fileName,
             ctx.sourceRoot,
             ctx.rootNamespace
           );
-          const stableId = `${ownerIdentity}:${targetQualifiedName}`;
+          const stableId = `${ownerIdentity}:${providerQualifiedName}`;
           return {
             kind: "referenceType",
             name: declNode.name.text,
-            targetQualifiedName,
+            providerQualifiedName,
             typeId: {
               stableId,
               symbolId: typeSymbolIdFromStableId(stableId),
               sourceName: declNode.name.text,
               ownerIdentity,
-              targetName: targetQualifiedName,
+              providerName: providerQualifiedName,
               origin: "source",
             },
           };

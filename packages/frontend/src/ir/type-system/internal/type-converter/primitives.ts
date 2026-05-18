@@ -32,11 +32,7 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
     case ts.SyntaxKind.BooleanKeyword:
       return { kind: "primitiveType", name: "boolean" };
     case ts.SyntaxKind.BigIntKeyword:
-      return {
-        kind: "referenceType",
-        name: "BigInteger",
-        typeArguments: [],
-      };
+      return { kind: "primitiveType", name: "bigint" };
     case ts.SyntaxKind.SymbolKeyword:
       // TypeScript `symbol` is lowered as an opaque object identity handle.
       // This keeps AOT semantics deterministic without introducing JS runtime symbol
@@ -65,12 +61,18 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
 };
 
 /**
- * Check if a type name is a TS primitive type (string, number, boolean, null, undefined)
+ * Check if a type name is a TS primitive type.
  */
 export const isPrimitiveTypeName = (
   typeName: string
-): typeName is "string" | "number" | "boolean" | "null" | "undefined" => {
-  return ["string", "number", "boolean", "null", "undefined"].includes(
+): typeName is
+  | "string"
+  | "number"
+  | "boolean"
+  | "bigint"
+  | "null"
+  | "undefined" => {
+  return ["string", "number", "boolean", "bigint", "null", "undefined"].includes(
     typeName
   );
 };
@@ -88,7 +90,7 @@ export const isCorePrimitiveTypeName = (
  * Get primitive type IR representation for a TS primitive type name
  */
 export const getPrimitiveType = (
-  typeName: "string" | "number" | "boolean" | "null" | "undefined"
+  typeName: "string" | "number" | "boolean" | "bigint" | "null" | "undefined"
 ): IrPrimitiveType => {
   return {
     kind: "primitiveType",

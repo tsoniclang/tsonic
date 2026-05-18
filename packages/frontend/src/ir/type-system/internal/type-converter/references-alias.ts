@@ -98,19 +98,19 @@ const buildSourceObjectAliasReference = (
   const stableSourceFilePath =
     resolveContainingSourcePackageStableFilePath(sourceFile.fileName) ??
     sourceFile.fileName.replace(/\\/g, "/");
-  const targetQualifiedName = sourcePackageNamespace
+  const providerQualifiedName = sourcePackageNamespace
     ? `${sourcePackageNamespace}.${aliasName}__Alias`
     : undefined;
   const referenceBase: Extract<IrType, { kind: "referenceType" }> = {
     kind: "referenceType",
     name: aliasName,
     ...(refTypeArgs.length > 0 ? { typeArguments: refTypeArgs } : {}),
-    targetQualifiedName,
-    ...(targetQualifiedName
+    providerQualifiedName,
+    ...(providerQualifiedName
       ? {
           typeId: {
             stableId: `source-alias:${stableSourceFilePath}#${aliasName}`,
-            targetName: targetQualifiedName,
+            providerName: providerQualifiedName,
             ownerIdentity: sourcePackageNamespace ?? "source",
             sourceName: aliasName,
             origin: "source",

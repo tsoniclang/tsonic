@@ -50,7 +50,7 @@ export const detectOverride = (
   const heritageType = resolveHeritageReferenceType(superClass, ctx);
   const heritageTargetName =
     heritageType.kind === "referenceType"
-      ? (heritageType.targetQualifiedName ?? heritageType.typeId?.targetName)
+      ? heritageType.providerQualifiedName
       : undefined;
 
   if (heritageTargetName && ctx.metadata.getTypeMetadata(heritageTargetName)) {

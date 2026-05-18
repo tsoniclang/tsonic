@@ -1,7 +1,17 @@
 import { describe, it, expect, hasCode } from "./helpers.js";
+import type {
+  BackendCapability,
+  BackendCapabilityManifest,
+  FeatureKey,
+} from "../capabilities/backend-capabilities.js";
+
+const manifestWith = (
+  name: FeatureKey,
+  status: BackendCapability["status"]
+): BackendCapabilityManifest => new Map([[name, { name, status }]]);
 
 describe("Maximus Validation Coverage", () => {
-  describe("JSON NativeAOT static safety", () => {
+  describe("JSON deterministic native static safety", () => {
     const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
@@ -128,5 +138,35 @@ describe("Maximus Validation Coverage", () => {
         expect(hasCode(c.source, "TSN5001")).to.equal(true);
       });
     }
+
+    it("allows broad JSON.parse targets when the active backend declares support", () => {
+      const source = `
+        const value: unknown = JSON.parse("{}");
+        void value;
+      `;
+
+      expect(
+        hasCode(source, "TSN5001", {}, {
+          backendCapabilities: manifestWith("broad-json-targets", "supported"),
+        })
+      ).to.equal(false);
+    });
+
+    it("allows broad JSON.stringify sources when the active backend declares support", () => {
+      const source = `
+        declare const value: unknown;
+        const text = JSON.stringify(value);
+        void text;
+      `;
+
+      expect(
+        hasCode(source, "TSN5001", {}, {
+          backendCapabilities: manifestWith(
+            "broad-json-stringify-source",
+            "supported"
+          ),
+        })
+      ).to.equal(false);
+    });
   });
 });

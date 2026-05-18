@@ -14,7 +14,7 @@ export const expandReferenceAlias = (
     type.typeId ??
     resolveTypeIdByName(
       state,
-      type.targetQualifiedName ?? type.name,
+      type.providerQualifiedName ?? type.name,
       type.typeArguments?.length ?? 0
     );
   if (!typeId) {

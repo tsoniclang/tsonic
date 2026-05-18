@@ -1372,13 +1372,13 @@ describe("IR Builder", function () {
                   kind: "global",
                   assembly: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
-                  targetMemberName: "Timers.setInterval",
+                  providerMemberName: "Timers.setInterval",
                 },
                 clearInterval: {
                   kind: "global",
                   assembly: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
-                  targetMemberName: "Timers.clearInterval",
+                  providerMemberName: "Timers.clearInterval",
                 },
               },
             },
@@ -1421,7 +1421,7 @@ describe("IR Builder", function () {
                             type: {
                               kind: "referenceType",
                               name: "System.Action",
-                              targetQualifiedName: "System.Action",
+                              providerQualifiedName: "System.Action",
                             },
                             isOptional: false,
                             isRest: false,
@@ -1567,20 +1567,20 @@ describe("IR Builder", function () {
         if (setIntervalCall.callee.kind !== "identifier") return;
 
         expect(setIntervalCall.callee.name).to.equal("setInterval");
-        expect(setIntervalCall.callee.targetQualifiedName).to.equal(
+        expect(setIntervalCall.callee.providerQualifiedName).to.equal(
           "Acme.ExternalRuntime.Timers"
         );
-        expect(setIntervalCall.callee.targetOwnerIdentity).to.equal(
+        expect(setIntervalCall.callee.providerOwnerIdentity).to.equal(
           "Acme.ExternalRuntime"
         );
-        expect(setIntervalCall.callee.targetMemberName).to.equal(
+        expect(setIntervalCall.callee.providerMemberName).to.equal(
           "Timers.setInterval"
         );
         expect(setIntervalCall.parameterTypes).to.deep.equal([
           {
             kind: "referenceType",
             name: "System.Action",
-            targetQualifiedName: "System.Action",
+            providerQualifiedName: "System.Action",
           },
           {
             kind: "primitiveType",
@@ -1591,7 +1591,7 @@ describe("IR Builder", function () {
           {
             kind: "referenceType",
             name: "System.Action",
-            targetQualifiedName: "System.Action",
+            providerQualifiedName: "System.Action",
           },
           {
             kind: "primitiveType",
@@ -1614,7 +1614,7 @@ describe("IR Builder", function () {
         if (clearIntervalCall.kind !== "call") return;
         expect(clearIntervalCall.callee.kind).to.equal("identifier");
         if (clearIntervalCall.callee.kind !== "identifier") return;
-        expect(clearIntervalCall.callee.targetMemberName).to.equal(
+        expect(clearIntervalCall.callee.providerMemberName).to.equal(
           "Timers.clearInterval"
         );
       } finally {
@@ -1782,10 +1782,10 @@ describe("IR Builder", function () {
         expect(parseIntCall.callee.kind).to.equal("identifier");
         if (parseIntCall.callee.kind !== "identifier") return;
         expect(parseIntCall.callee.name).to.equal("parseInt");
-        expect(parseIntCall.callee.targetQualifiedName).to.equal(
+        expect(parseIntCall.callee.providerQualifiedName).to.equal(
           "fixture.js.Globals.parseInt"
         );
-        expect(parseIntCall.callee.targetOwnerIdentity).to.equal("fixture.js");
+        expect(parseIntCall.callee.providerOwnerIdentity).to.equal("fixture.js");
 
         const logStmt = fn.body.statements[1];
         expect(logStmt?.kind).to.equal("expressionStatement");
@@ -1802,10 +1802,10 @@ describe("IR Builder", function () {
         expect(logCallee.object.kind).to.equal("identifier");
         if (logCallee.object.kind !== "identifier") return;
         expect(logCallee.object.name).to.equal("console");
-        expect(logCallee.object.targetQualifiedName).to.equal(
+        expect(logCallee.object.providerQualifiedName).to.equal(
           "fixture.js.console.console"
         );
-        expect(logCallee.object.targetOwnerIdentity).to.equal("fixture.js");
+        expect(logCallee.object.providerOwnerIdentity).to.equal("fixture.js");
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
@@ -2006,10 +2006,10 @@ describe("IR Builder", function () {
         expect(callExpr.callee.kind).to.equal("identifier");
         if (callExpr.callee.kind !== "identifier") return;
 
-        expect(callExpr.callee.targetQualifiedName).to.equal(
+        expect(callExpr.callee.providerQualifiedName).to.equal(
           "fixture.nodejs.TimersModule.setInterval"
         );
-        expect(callExpr.callee.targetOwnerIdentity).to.equal("fixture.nodejs");
+        expect(callExpr.callee.providerOwnerIdentity).to.equal("fixture.nodejs");
 
         expect(callExpr.parameterTypes?.[0]).to.deep.equal({
           kind: "functionType",
@@ -2552,7 +2552,7 @@ describe("IR Builder", function () {
         if (regexCtor.callee.kind !== "identifier") return;
 
         expect(regexCtor.callee.name).to.equal("RegExp");
-        expect(regexCtor.callee.targetQualifiedName).to.equal("fixture.js.RegExp");
+        expect(regexCtor.callee.providerQualifiedName).to.equal("fixture.js.RegExp");
         expect(regexCtor.arguments).to.deep.equal([
           {
             kind: "literal",

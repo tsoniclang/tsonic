@@ -171,7 +171,7 @@ describe("Union Type Emission", () => {
     const routerType = {
       kind: "referenceType",
       name: "Router",
-      targetQualifiedName: "global::System.Object",
+      providerQualifiedName: "global::System.Object",
       structuralMembers: [],
     } as unknown as Extract<IrType, { kind: "referenceType" }> & {
       structuralMembers: unknown[];
@@ -263,7 +263,7 @@ describe("Union Type Emission", () => {
                   {
                     kind: "referenceType",
                     name: "RegExp",
-                    targetQualifiedName: "System.Text.RegularExpressions.Regex",
+                    providerQualifiedName: "System.Text.RegularExpressions.Regex",
                   },
                 ],
               },

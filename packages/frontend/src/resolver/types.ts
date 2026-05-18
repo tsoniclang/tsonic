@@ -11,6 +11,6 @@ export type ResolvedModule = {
   // For external-surface imports: the source-facing namespace from the package subpath.
   readonly resolvedNamespace?: string;
   // For module bindings mapped to target surface symbols.
-  readonly targetQualifiedName?: string;
-  readonly targetOwnerIdentity?: string;
+  readonly providerQualifiedName?: string;
+  readonly providerOwnerIdentity?: string;
 };

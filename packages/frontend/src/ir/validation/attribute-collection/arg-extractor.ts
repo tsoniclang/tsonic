@@ -220,23 +220,61 @@ export const tryExtractAttributeArg = (
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TARGET TYPE RESOLUTION
+// ATTRIBUTE TYPE RESOLUTION
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const resolveTargetTypeForAttributeCtor = (
+type AttributeCtorReference = Extract<IrType, { readonly kind: "referenceType" }>;
+
+export const resolveAttributeCtorReference = (
   ctorIdent: IrIdentifierExpression,
   module: IrModule
-): string | undefined => {
-  if (ctorIdent.targetQualifiedName) return ctorIdent.targetQualifiedName;
+): AttributeCtorReference | undefined => {
+  if (
+    ctorIdent.inferredType?.kind === "referenceType" &&
+    (ctorIdent.inferredType.typeId ||
+      ctorIdent.inferredType.symbolId ||
+      ctorIdent.inferredType.providerQualifiedName)
+  ) {
+    return {
+      kind: "referenceType",
+      name: ctorIdent.name,
+      typeArguments: ctorIdent.inferredType.typeArguments,
+      ...(ctorIdent.inferredType.typeId
+        ? { typeId: ctorIdent.inferredType.typeId }
+        : {}),
+      ...(ctorIdent.inferredType.symbolId
+        ? { symbolId: ctorIdent.inferredType.symbolId }
+        : {}),
+      ...(ctorIdent.inferredType.providerQualifiedName
+        ? { providerQualifiedName: ctorIdent.inferredType.providerQualifiedName }
+        : {}),
+    };
+  }
 
-  // Prefer external-surface imports: these are the authoritative mapping for runtime type names.
+  if (ctorIdent.providerQualifiedName || ctorIdent.typeSymbolId) {
+    return {
+      kind: "referenceType",
+      name: ctorIdent.name,
+      ...(ctorIdent.providerQualifiedName
+        ? { providerQualifiedName: ctorIdent.providerQualifiedName }
+        : {}),
+      ...(ctorIdent.typeSymbolId ? { symbolId: ctorIdent.typeSymbolId } : {}),
+    };
+  }
+
+  // Prefer external-surface imports: these are the authoritative mapping for provider type identities.
   for (const imp of module.imports) {
     if (imp.resolutionKind !== "externalSurface") continue;
     if (!imp.resolvedNamespace) continue;
     for (const spec of imp.specifiers) {
       if (spec.kind !== "named") continue;
       if (spec.localName !== ctorIdent.name) continue;
-      return `${imp.resolvedNamespace}.${spec.name}`;
+      return {
+        kind: "referenceType",
+        name: ctorIdent.name,
+        providerQualifiedName: `${imp.resolvedNamespace}.${spec.name}`,
+        ...(spec.typeSymbolId ? { symbolId: spec.typeSymbolId } : {}),
+      };
     }
   }
 
@@ -247,15 +285,11 @@ export const makeAttributeType = (
   ctorIdent: IrIdentifierExpression,
   module: IrModule
 ): ParseResult<IrType> => {
-  const targetQualifiedName = resolveTargetTypeForAttributeCtor(ctorIdent, module);
-  if (targetQualifiedName) {
+  const attributeReference = resolveAttributeCtorReference(ctorIdent, module);
+  if (attributeReference) {
     return {
       kind: "ok",
-      value: {
-        kind: "referenceType",
-        name: ctorIdent.name,
-        targetQualifiedName,
-      },
+      value: attributeReference,
     };
   }
 

@@ -130,7 +130,7 @@ describe("narrowing-resolvers-equality", () => {
           ? {
               kind: "referenceType",
               name: "Readable",
-              targetQualifiedName: "Test.Readable",
+              providerQualifiedName: "Test.Readable",
             }
           : {
               kind: "unknownType",
@@ -140,7 +140,7 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "Readable",
-      targetQualifiedName: "Test.Readable",
+      providerQualifiedName: "Test.Readable",
     });
   });
 
@@ -173,7 +173,7 @@ describe("narrowing-resolvers-equality", () => {
           ? {
               kind: "referenceType",
               name: "ECDsa",
-              targetQualifiedName: "System.Security.Cryptography.ECDsa",
+              providerQualifiedName: "System.Security.Cryptography.ECDsa",
             }
           : {
               kind: "unknownType",
@@ -184,7 +184,7 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "ECDsa",
-      targetQualifiedName: "System.Security.Cryptography.ECDsa",
+      providerQualifiedName: "System.Security.Cryptography.ECDsa",
     });
   });
 
@@ -215,7 +215,7 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "Uint8Array",
-      targetQualifiedName: "js.Uint8Array",
+      providerQualifiedName: "js.Uint8Array",
     });
   });
 
@@ -234,7 +234,7 @@ describe("narrowing-resolvers-equality", () => {
           ? {
               kind: "referenceType",
               name: "Buffer",
-              targetQualifiedName: "Test.Buffer",
+              providerQualifiedName: "Test.Buffer",
             }
           : {
               kind: "unknownType",
@@ -256,7 +256,7 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "Buffer",
-      targetQualifiedName: "Test.Buffer",
+      providerQualifiedName: "Test.Buffer",
     });
   });
 
@@ -286,7 +286,7 @@ describe("narrowing-resolvers-equality", () => {
       typeOfDecl: () => ({
         kind: "referenceType",
         name: "Buffer",
-        targetQualifiedName: "System.Buffer",
+        providerQualifiedName: "System.Buffer",
       }),
       getExactBindingByKind: (name, kind) =>
         name === "Buffer" && kind === "global"
@@ -305,10 +305,10 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "Buffer",
-      targetQualifiedName: "Test.Buffer",
+      providerQualifiedName: "Test.Buffer",
       typeId: {
         stableId: "Test:Test.Buffer",
-        targetName: "Test.Buffer",
+        providerName: "Test.Buffer",
         symbolId: "type-stable:Test%3ATest.Buffer",
         sourceName: "Buffer",
         ownerIdentity: "Test",
@@ -371,7 +371,7 @@ describe("narrowing-resolvers-equality", () => {
         typeOfDecl: () => ({
           kind: "referenceType",
           name: "RegExp",
-          targetQualifiedName: "Test.RegExp",
+          providerQualifiedName: "Test.RegExp",
         }),
       });
 
@@ -385,7 +385,7 @@ describe("narrowing-resolvers-equality", () => {
       expect(target).to.deep.include({
         kind: "referenceType",
         name: "RegExp",
-        targetQualifiedName: "fixture.js.RegExp",
+        providerQualifiedName: "fixture.js.RegExp",
       });
       expect(
         target && target.kind === "referenceType" ? target.typeId : undefined
@@ -393,7 +393,7 @@ describe("narrowing-resolvers-equality", () => {
         stableId: "@fixture/js:fixture.js.RegExp",
         sourceName: "RegExp",
         ownerIdentity: "@fixture/js",
-        targetName: "fixture.js.RegExp",
+        providerName: "fixture.js.RegExp",
         origin: "source",
       });
     } finally {

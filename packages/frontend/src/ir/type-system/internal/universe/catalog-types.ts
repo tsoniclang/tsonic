@@ -63,8 +63,13 @@ export type TypeId = {
   readonly sourceName: string;
   /** Owner/package/project identity, independent of target render naming. */
   readonly ownerIdentity: string;
-  /** Provider-local target render key; consumed only by target-surface indexes. */
-  readonly targetName: string;
+  /**
+   * Provider-local lookup key.
+   *
+   * This is intentionally confined to the universe index builders. Product
+   * frontend code outside `internal/universe` must use stableId/sourceName/symbolId.
+   */
+  readonly providerName: string;
   readonly origin?: TypeOrigin;
 };
 
@@ -312,8 +317,8 @@ export type ExternalTypeCatalog = {
   readonly entries: ReadonlyMap<string, NominalEntry>;
   /** TS name → TypeId mapping */
   readonly tsNameToTypeId: ReadonlyMap<string, TypeId>;
-  /** Provider-local target name → TypeId mapping */
-  readonly targetNameToTypeId: ReadonlyMap<string, TypeId>;
+  /** Provider-local type name → TypeId mapping */
+  readonly providerNameToTypeId: ReadonlyMap<string, TypeId>;
   /** Namespace → TypeIds mapping */
   readonly namespaceToTypeIds: ReadonlyMap<string, readonly TypeId[]>;
 };
@@ -335,8 +340,8 @@ export type UnifiedTypeCatalog = {
   readonly getByStableId: (stableId: string) => NominalEntry | undefined;
   /** Resolve TS name to TypeId */
   readonly resolveTsName: (tsName: string) => TypeId | undefined;
-  /** Resolve provider-local target name to TypeId */
-  readonly resolveTargetName: (targetName: string) => TypeId | undefined;
+  /** Resolve provider-local type name to TypeId */
+  readonly resolveProviderName: (providerName: string) => TypeId | undefined;
   /** Get all members of a type */
   readonly getMembers: (typeId: TypeId) => ReadonlyMap<string, MemberEntry>;
   /** Get specific member by name */

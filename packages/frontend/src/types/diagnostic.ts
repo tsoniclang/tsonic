@@ -34,7 +34,7 @@ export type DiagnosticCode =
   | "TSN4005" // Invalid compiler marker usage
   | "TSN4006" // Invalid attribute argument
   | "TSN4007" // Attribute target not found
-  | "TSN5001" // NativeAOT limitation
+  | "TSN5001" // deterministic native-safety limitation
   | "TSN5002" // Runtime implementation missing
   | "TSN6001" // Internal compiler error
   | "TSN6201" // Invalid override accessibility (method)

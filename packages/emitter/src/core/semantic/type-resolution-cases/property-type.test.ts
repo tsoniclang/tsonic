@@ -284,7 +284,7 @@ describe("type-resolution", () => {
       const contextualType: IrType = {
         kind: "referenceType",
         name: "__Anon_events",
-        targetQualifiedName: "Test.__Anon_events",
+        providerQualifiedName: "Test.__Anon_events",
       };
 
       const result = getPropertyType(contextualType, "events", context);

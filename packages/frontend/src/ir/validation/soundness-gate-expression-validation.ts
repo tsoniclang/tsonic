@@ -1,7 +1,10 @@
 import {
+  createUnsupportedCapabilityDiagnostic,
   createDiagnostic,
   moduleLocation,
+  shouldReportUnsupportedCapability,
   type IrExpression,
+  type IrParameter,
   type ValidationContext,
 } from "./soundness-gate-shared.js";
 import {
@@ -64,6 +67,91 @@ const typeContainsPoison = (type: IrType | undefined): boolean => {
   }
 };
 
+const parameterPassingCapabilities = {
+  out: "out-parameters",
+  ref: "ref-parameters",
+  in: "in-parameters",
+} as const;
+
+const validateExpressionParameterCapabilities = (
+  parameter: IrParameter,
+  ctx: ValidationContext
+): void => {
+  const paramName =
+    parameter.pattern.kind === "identifierPattern"
+      ? parameter.pattern.name
+      : "param";
+  if (parameter.passing !== "value") {
+    const capabilityName = parameterPassingCapabilities[parameter.passing];
+    if (shouldReportUnsupportedCapability(ctx, capabilityName)) {
+      ctx.diagnostics.push(
+        createUnsupportedCapabilityDiagnostic(
+          ctx,
+          capabilityName,
+          "TSN5001",
+          `Parameter '${paramName}' uses ${parameter.passing} passing, which is not supported by the active backend.`,
+          `Use a backend that declares ${parameter.passing} parameter support, or rewrite the API to return an explicit value.`
+        )
+      );
+    }
+  }
+  if (
+    parameter.attributes !== undefined &&
+    parameter.attributes.length > 0 &&
+    shouldReportUnsupportedCapability(ctx, "parameter-decorators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "parameter-decorators",
+        "TSN5001",
+        `Parameter '${paramName}' has metadata attributes, which are not supported by the active backend.`,
+        "Use a backend that declares parameter metadata-attribute support, or remove the parameter attributes."
+      )
+    );
+  }
+};
+
+const validateFunctionExpressionCapabilities = (
+  label: string,
+  expr: Extract<
+    IrExpression,
+    { kind: "functionExpression" } | { kind: "arrowFunction" }
+  >,
+  ctx: ValidationContext
+): void => {
+  const isGenerator =
+    expr.kind === "functionExpression" ? expr.isGenerator : false;
+  if (
+    isGenerator &&
+    expr.isAsync &&
+    shouldReportUnsupportedCapability(ctx, "async-iteration")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "async-iteration",
+        "TSN5001",
+        `${label} uses async iteration, which is not supported by the active backend.`,
+        "Use a backend that declares async-iteration support, or rewrite this function as a supported async or generator shape."
+      )
+    );
+  } else if (
+    isGenerator &&
+    shouldReportUnsupportedCapability(ctx, "generators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "generators",
+        "TSN5001",
+        `${label} uses generator syntax, which is not supported by the active backend.`,
+        "Use a backend that declares generator support, or rewrite this function to return an explicit collection."
+      )
+    );
+  }
+};
+
 export const validateExpression = (
   expr: IrExpression,
   ctx: ValidationContext
@@ -101,6 +189,10 @@ export const validateExpression = (
       break;
 
     case "functionExpression":
+      validateFunctionExpressionCapabilities("Function expression", expr, ctx);
+      expr.parameters.forEach((parameter) =>
+        validateExpressionParameterCapabilities(parameter, ctx)
+      );
       expr.parameters.forEach((parameter) =>
         validatePattern(parameter.pattern, ctx)
       );
@@ -112,6 +204,10 @@ export const validateExpression = (
       break;
 
     case "arrowFunction":
+      validateFunctionExpressionCapabilities("Arrow function", expr, ctx);
+      expr.parameters.forEach((parameter) =>
+        validateExpressionParameterCapabilities(parameter, ctx)
+      );
       expr.parameters.forEach((parameter) =>
         validatePattern(parameter.pattern, ctx)
       );
