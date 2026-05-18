@@ -4,6 +4,14 @@ import { normalizedUnionType, type IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
 
+const testTypeId = (targetName: string) => ({
+  stableId: `Test:${targetName}`,
+  targetName,
+  ownerIdentity: "Test",
+  sourceName: targetName.split(".").pop() ?? targetName,
+  origin: "source" as const,
+});
+
 describe("storage-types", () => {
   const context: EmitterContext = {
     indentLevel: 0,
@@ -26,7 +34,8 @@ describe("storage-types", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      targetQualifiedName: "Test.Router",
+      typeId: testTypeId("Test.Router"),
     };
 
     const middlewareLike = {
@@ -61,7 +70,7 @@ describe("storage-types", () => {
             elementType: {
               kind: "referenceType",
               name: "object",
-              resolvedClrType: "System.Object",
+              targetQualifiedName: "System.Object",
             },
             storageErasedElementType: middlewareLike,
             origin: "explicit",
@@ -84,7 +93,8 @@ describe("storage-types", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      targetQualifiedName: "Test.Router",
+      typeId: testTypeId("Test.Router"),
     };
 
     const middlewareLike = {
@@ -128,7 +138,7 @@ describe("storage-types", () => {
                 elementType: {
                   kind: "referenceType",
                   name: "object",
-                  resolvedClrType: "System.Object",
+                  targetQualifiedName: "System.Object",
                 },
                 storageErasedElementType: middlewareLike,
                 origin: "explicit",
@@ -187,7 +197,7 @@ describe("storage-types", () => {
       {
         kind: "referenceType",
         name: "object",
-        resolvedClrType: "System.Object",
+        targetQualifiedName: "System.Object",
       },
     ],
   ] as const satisfies readonly [string, IrType][]) {
@@ -195,7 +205,7 @@ describe("storage-types", () => {
       expect(normalizeRuntimeStorageType(type, context)).to.deep.equal({
         kind: "referenceType",
         name: "object",
-        resolvedClrType: "System.Object",
+        targetQualifiedName: "System.Object",
       });
     });
   }
@@ -218,7 +228,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "object",
-          resolvedClrType: "System.Object",
+          targetQualifiedName: "System.Object",
         },
         { kind: "primitiveType", name: "null" },
       ])
@@ -234,7 +244,7 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "referenceType",
       name: "object",
-      resolvedClrType: "System.Object",
+      targetQualifiedName: "System.Object",
     });
   });
 
@@ -296,7 +306,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "object",
-          resolvedClrType: "System.Object",
+          targetQualifiedName: "System.Object",
         },
         { kind: "primitiveType", name: "null" },
       ],
@@ -329,7 +339,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "List",
-          resolvedClrType: "System.Collections.Generic.List",
+          targetQualifiedName: "System.Collections.Generic.List",
           typeArguments: [{ kind: "typeParameterType", name: "T" }],
         },
         context
@@ -337,12 +347,12 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "referenceType",
       name: "List",
-      resolvedClrType: "System.Collections.Generic.List",
+      targetQualifiedName: "System.Collections.Generic.List",
       typeArguments: [
         {
           kind: "referenceType",
           name: "object",
-          resolvedClrType: "System.Object",
+          targetQualifiedName: "System.Object",
         },
       ],
     });
@@ -387,7 +397,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "List_1",
-          resolvedClrType: "System.Collections.Generic.List`1",
+          targetQualifiedName: "System.Collections.Generic.List`1",
           typeArguments: [
             {
               kind: "referenceType",
@@ -404,7 +414,7 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "referenceType",
       name: "List_1",
-      resolvedClrType: "System.Collections.Generic.List`1",
+      targetQualifiedName: "System.Collections.Generic.List`1",
       typeArguments: [
         {
           kind: "referenceType",
@@ -449,7 +459,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "List_1",
-          resolvedClrType: "System.Collections.Generic.List`1",
+          targetQualifiedName: "System.Collections.Generic.List`1",
           typeArguments: [
             {
               kind: "referenceType",
@@ -463,7 +473,7 @@ describe("storage-types", () => {
     ).to.deep.equal({
       kind: "referenceType",
       name: "List_1",
-      resolvedClrType: "System.Collections.Generic.List`1",
+      targetQualifiedName: "System.Collections.Generic.List`1",
       typeArguments: [
         {
           kind: "referenceType",
@@ -472,7 +482,7 @@ describe("storage-types", () => {
             {
               kind: "referenceType",
               name: "object",
-              resolvedClrType: "System.Object",
+              targetQualifiedName: "System.Object",
             },
           ],
         },
@@ -510,7 +520,7 @@ describe("storage-types", () => {
             {
               kind: "referenceType",
               name: "Readable",
-              resolvedClrType: "nodejs.stream.Readable",
+              targetQualifiedName: "nodejs.stream.Readable",
             },
           ],
         },
@@ -521,7 +531,7 @@ describe("storage-types", () => {
         {
           kind: "referenceType",
           name: "Readable",
-          resolvedClrType: "nodejs.stream.Readable",
+          targetQualifiedName: "nodejs.stream.Readable",
         },
         { kind: "primitiveType", name: "undefined" },
       ])

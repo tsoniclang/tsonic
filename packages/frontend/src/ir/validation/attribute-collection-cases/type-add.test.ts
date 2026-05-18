@@ -247,7 +247,7 @@ describe("Attribute Collection Pass", () => {
         type: {
           kind: "referenceType",
           name: "User",
-          resolvedClrType: "Test.User",
+          targetQualifiedName: "Test.User",
         },
       });
     });
@@ -294,7 +294,7 @@ describe("Attribute Collection Pass", () => {
           type: {
             kind: "referenceType",
             name: "MyEnum",
-            resolvedClrType: "Test.MyEnum",
+            targetQualifiedName: "Test.MyEnum",
           },
           member: "Value",
         },
@@ -352,7 +352,7 @@ describe("Attribute Collection Pass", () => {
           type: {
             kind: "referenceType",
             name: "LayoutKind",
-            resolvedClrType: "System.Runtime.InteropServices.LayoutKind",
+            targetQualifiedName: "System.Runtime.InteropServices.LayoutKind",
           },
           member: "Sequential",
         },

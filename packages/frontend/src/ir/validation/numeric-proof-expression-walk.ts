@@ -99,16 +99,16 @@ export const processExpression = (
       }
 
       // Annotate identifiers with their proven numeric kind
-      // This allows the emitter to know that x is Int32 when used in binary expressions
+      // This allows later phases to know that x is int32 when used in binary expressions.
       const varKind = ctx.provenVariables.get(expr.name);
       const paramKind = ctx.provenParameters.get(expr.name);
       const numericKind = varKind ?? paramKind;
 
       if (numericKind !== undefined) {
         // Update inferredType to reflect the proven numeric type
-        // INVARIANT: "Int32" → primitiveType(name="int")
+        // INVARIANT: int32 → primitiveType(name="int")
         const baseType: IrType =
-          numericKind === "Int32"
+          numericKind === "int32"
             ? { kind: "primitiveType" as const, name: "int" as const }
             : { kind: "referenceType" as const, name: numericKind };
 
@@ -201,9 +201,9 @@ export const processExpression = (
       // If both operands have numeric kinds, annotate the binary result
       if (leftKind !== undefined && rightKind !== undefined) {
         const resultKind = getBinaryResultKind(leftKind, rightKind);
-        // INVARIANT: "Int32" → primitiveType(name="int")
+        // INVARIANT: int32 → primitiveType(name="int")
         const inferredType =
-          resultKind === "Int32"
+          resultKind === "int32"
             ? { kind: "primitiveType" as const, name: "int" as const }
             : { kind: "referenceType" as const, name: resultKind };
         return {
@@ -279,7 +279,7 @@ export const processExpression = (
       // ============================================================================
 
       // ARRAY INDEX VALIDATION: Use accessKind tag (set during IR build) to determine
-      // whether Int32 proof is required. This is COMPILER-GRADE: no heuristic name matching.
+      // whether int32 proof is required. This is compiler-grade: no heuristic name matching.
       if (typeof processedProperty !== "string" && expr.isComputed) {
         const accessKind = expr.accessKind;
 
@@ -291,7 +291,7 @@ export const processExpression = (
           const typeInfo = objectType
             ? `objectType.kind=${objectType.kind}` +
               (objectType.kind === "referenceType"
-                ? `, name=${objectType.name}, resolvedClrType=${objectType.resolvedClrType ?? "undefined"}`
+                ? `, name=${objectType.name}, targetQualifiedName=${objectType.targetQualifiedName ?? "undefined"}`
                 : "")
             : "objectType=undefined";
 
@@ -315,23 +315,23 @@ export const processExpression = (
           };
         }
 
-        // Require Int32 proof for:
-        // - clrIndexer: CLR collection indexers (List<T>, Array, etc.)
+        // Require source-int proof for:
+        // - numericIndexer: positional collection indexers
         // - stringChar: string character access
-        // Dictionary access does NOT require Int32 proof (key is typed K, usually string)
-        const requiresInt32 =
-          accessKind === "clrIndexer" || accessKind === "stringChar";
+        // Dictionary access does NOT require source-int proof (key is typed K, usually string)
+        const requiresSourceInt =
+          accessKind === "numericIndexer" || accessKind === "stringChar";
 
-        if (requiresInt32) {
+        if (requiresSourceInt) {
           const indexKind = inferNumericKind(processedProperty, ctx);
-          if (indexKind !== "Int32") {
+          if (indexKind !== "int32") {
             ctx.diagnostics.push(
               createDiagnostic(
                 "TSN5107",
                 "error",
-                `Array index must be Int32, got ${indexKind ?? "unknown"}`,
+                `Array index must be int32, got ${indexKind ?? "unknown"}`,
                 processedProperty.sourceSpan ?? moduleLocation(ctx),
-                "Use 'index as int' to narrow, or ensure index is derived from Int32 source."
+                "Use 'index as int' to narrow, or ensure index is derived from an int32 source."
               )
             );
             // Return without annotation - emitter will ICE if it reaches this
@@ -359,7 +359,7 @@ export const processExpression = (
           };
         }
 
-        // For dictionary access (accessKind === "dictionary"): no Int32 requirement
+        // For dictionary access (accessKind === "dictionary"): no source-int requirement
         // Pass through without annotation - key type is handled by the dictionary itself
       }
 

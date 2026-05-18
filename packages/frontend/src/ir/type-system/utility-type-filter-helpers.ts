@@ -125,7 +125,7 @@ export const expandNonNullableUtility = (type: IrType): IrType => {
 };
 
 /**
- * Expand Awaited<T>: Recursively unwrap Promise/Task/ValueTask.
+ * Expand Awaited<T>: recursively unwrap async wrappers.
  */
 export const expandAwaitedUtility = (
   state: TypeSystemState,

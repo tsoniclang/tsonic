@@ -26,7 +26,8 @@ describe("Import Handling", () => {
           kind: "import",
           source: "System.IO",
           isLocal: false,
-          isClr: true,
+          isExternalSurface: true,
+          resolutionKind: "externalSurface",
           specifiers: [],
           resolvedNamespace: "System.IO",
         },
@@ -34,7 +35,8 @@ describe("Import Handling", () => {
           kind: "import",
           source: "System.Text.Json",
           isLocal: false,
-          isClr: true,
+          isExternalSurface: true,
+          resolutionKind: "externalSurface",
           specifiers: [],
           resolvedNamespace: "System.Text.Json",
         },
@@ -64,14 +66,12 @@ describe("Import Handling", () => {
           kind: "import",
           source: "./auth.ts",
           isLocal: true,
-          isClr: false,
           specifiers: [],
         },
         {
           kind: "import",
           source: "../models/User.ts",
           isLocal: true,
-          isClr: false,
           specifiers: [],
         },
       ],
@@ -99,7 +99,6 @@ describe("Import Handling", () => {
           kind: "import",
           source: "./Auth.js",
           isLocal: true,
-          isClr: false,
           resolvedPath: "/tmp/tsonic/common/imports/local-caller/Auth.ts",
           specifiers: [
             {
@@ -171,7 +170,6 @@ describe("Import Handling", () => {
           kind: "import",
           source: "@acme/math",
           isLocal: true,
-          isClr: false,
           resolvedPath: "/tmp/project/node_modules/@acme/math/src/index.ts",
           specifiers: [
             {
@@ -245,7 +243,6 @@ describe("Import Handling", () => {
           kind: "import",
           source: "node:path",
           isLocal: true,
-          isClr: false,
           resolvedPath:
             "/tmp/project/node_modules/@tsonic/nodejs/src/path-module.ts",
           specifiers: [
@@ -256,14 +253,13 @@ describe("Import Handling", () => {
               isType: false,
             },
           ],
-          resolvedClrType: "nodejs.path",
+          targetQualifiedName: "nodejs.path",
           resolvedNamespace: "nodejs",
         },
         {
           kind: "import",
           source: "node:http",
           isLocal: true,
-          isClr: false,
           resolvedPath:
             "/tmp/project/node_modules/@tsonic/nodejs/src/http/index.ts",
           specifiers: [
@@ -278,17 +274,17 @@ describe("Import Handling", () => {
               name: "IncomingMessage",
               localName: "IncomingMessage",
               isType: true,
-              resolvedClrType: "nodejs.Http.IncomingMessage",
+              targetQualifiedName: "nodejs.Http.IncomingMessage",
             },
             {
               kind: "named",
               name: "ServerResponse",
               localName: "ServerResponse",
               isType: true,
-              resolvedClrType: "nodejs.Http.ServerResponse",
+              targetQualifiedName: "nodejs.Http.ServerResponse",
             },
           ],
-          resolvedClrType: "nodejs.Http.http",
+          targetQualifiedName: "nodejs.Http.http",
           resolvedNamespace: "nodejs.Http",
         },
       ],
@@ -393,7 +389,6 @@ describe("Import Handling", () => {
           kind: "import",
           source: "@tsonic/nodejs/fs.js",
           isLocal: true,
-          isClr: false,
           resolvedPath:
             "/tmp/project/node_modules/@tsonic/nodejs/src/fs-module.ts",
           specifiers: [
@@ -497,7 +492,6 @@ describe("Import Handling", () => {
             kind: "import",
             source: "@tsonic/js/console.js",
             isLocal: true,
-            isClr: false,
             resolvedPath: resolvedConsolePath,
             specifiers: [
               {

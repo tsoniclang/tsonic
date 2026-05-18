@@ -15,6 +15,10 @@ import { NumericKind } from "./numeric-kind.js";
 import { SourceLocation } from "../../types/diagnostic.js";
 import type { DeclId, SignatureId, MemberId } from "../type-system/types.js";
 import type {
+  MemberSymbolId,
+  TypeSymbolId,
+} from "../../symbols/index.js";
+import type {
   IrNumericNarrowingExpression,
   IrTypeAssertionExpression,
   IrAsInterfaceExpression,
@@ -75,8 +79,8 @@ export type IrLiteralExpression = {
   readonly sourceSpan?: SourceLocation;
   /**
    * For numeric literals, the inferred numeric kind based on lexeme form.
-   * - Integer literals (42, 0xFF) → "Int32"
-   * - Floating literals (42.0, 3.14, 1e3) → "Double"
+   * - Integer literals (42, 0xFF) → int32
+   * - Floating literals (42.0, 3.14, 1e3) → float64
    *
    * This is expression-level information, NOT type-level.
    * The type system still sees this as "number" (which means double).
@@ -93,10 +97,14 @@ export type IrIdentifierExpression = {
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the declaration this identifier references (from Binding layer)
   readonly declId?: DeclId;
-  // Resolved binding for globals (console, Math, etc.)
-  readonly resolvedClrType?: string; // e.g., "Tsonic.Runtime.console"
-  readonly resolvedAssembly?: string; // e.g., "Tsonic.Runtime"
-  readonly csharpName?: string; // Optional: renamed identifier in C# (from binding)
+  // Target binding for globals (console, Math, etc.)
+  readonly targetQualifiedName?: string;
+  readonly targetOwnerIdentity?: string;
+  readonly targetMemberName?: string;
+  /** Symbol identity for external target type/container references. */
+  readonly typeSymbolId?: TypeSymbolId;
+  /** Symbol identity for external target member/value references. */
+  readonly memberSymbolId?: MemberSymbolId;
   // For imported symbols from local modules
   readonly importedFrom?: {
     readonly containerName: string; // e.g., "Math"
@@ -104,7 +112,7 @@ export type IrIdentifierExpression = {
     readonly namespace: string; // e.g., "MultiFileCheck.utils"
   };
   // For aliased imports: the original export name before renaming
-  // e.g., for `import { String as ClrString }`, originalName is "String"
+  // e.g., for `import { String as RuntimeString }`, originalName is "String"
   readonly originalName?: string;
 };
 
@@ -128,7 +136,7 @@ export type IrObjectExpression = {
   readonly contextualType?: IrType;
   /** True if this object literal contains spread expressions (for IIFE lowering) */
   readonly hasSpreads?: boolean;
-  /** True when this literal must emit as a C# anonymous object expression. */
+  /** True when this literal must emit as a target anonymous object expression. */
   readonly emitAsAnonymousObject?: boolean;
 };
 
@@ -171,15 +179,15 @@ export type IrArrowFunctionExpression = {
 
 /**
  * Classification for computed member access lowering.
- * Determines whether TSN5107 (Int32 proof) is required.
+ * Determines whether TSN5107 (source-int proof) is required.
  *
- * - clrIndexer: CLR indexer (obj[int]) - requires Int32 proof
- * - dictionary: Dictionary<K,V>[key] - NO Int32 requirement (key is typed)
- * - stringChar: string[int] character access - requires Int32 proof
+ * - numericIndexer: positional indexer (obj[int]) - requires source-int proof
+ * - dictionary: Dictionary<K,V>[key] - NO source-int requirement (key is typed)
+ * - stringChar: string[int] character access - requires source-int proof
  * - unknown: Fallback for unclassified access - emit error
  */
 export type ComputedAccessKind =
-  | "clrIndexer"
+  | "numericIndexer"
   | "dictionary"
   | "stringChar"
   | "unknown";
@@ -201,14 +209,14 @@ export type IrMemberExpression = {
   readonly receiverArmSelection?: IrUnionArmSelection;
   // Opaque handle to the member declaration (from Binding layer)
   readonly memberId?: MemberId;
-  // Hierarchical member binding (from bindings manifest)
-  // When a member access like systemLinq.enumerable.selectMany is resolved,
-  // this contains the full CLR binding info
+  // Hierarchical member binding (from bindings manifest).
+  // When a member access like namespace.type.member is resolved, this contains
+  // the provider binding info.
   readonly memberBinding?: {
     readonly kind: "method" | "property";
-    readonly assembly: string; // e.g., "System.Linq"
-    readonly type: string; // Full CLR type e.g., "System.Linq.Enumerable"
-    readonly member: string; // CLR member name e.g., "SelectMany"
+    readonly assembly: string;
+    readonly type: string;
+    readonly member: string;
     // Parameter modifiers for ref/out/in parameters
     readonly parameterModifiers?: readonly {
       readonly index: number;
@@ -222,7 +230,7 @@ export type IrMemberExpression = {
     };
   };
   // Classification for computed access lowering (set during IR build)
-  // Determines whether Int32 proof is required for indices
+  // Determines whether source-int proof is required for indices
   readonly accessKind?: ComputedAccessKind;
   /** Explicit source-surface protocol for computed index access. */
   readonly accessProtocol?: ComputedAccessProtocol;

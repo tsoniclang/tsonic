@@ -94,6 +94,11 @@ const JS_NUMERIC_ADAPTATION_CLR_NAMES = new Set([
   "global::System.Double",
 ]);
 
+const JS_NUMBER_BOXING_CLR_NAMES = new Set([
+  "System.Double",
+  "global::System.Double",
+]);
+
 const isNumericTypeParameterType = (
   type: IrType | undefined,
   context: EmitterContext
@@ -327,6 +332,17 @@ export const resolveCarrierPreservingSourceType = (
     )
   ) {
     return undefined;
+  }
+  if (
+    runtimeUnionAliasReferencesMatch(
+      strippedSourceType,
+      strippedCarrierTargetType,
+      context
+    )
+  ) {
+    return sourceHasRuntimeNullish && targetHasRuntimeNullish
+      ? sourceType
+      : strippedSourceType;
   }
   return matchesExpectedEmissionType(
     strippedSourceType,
@@ -811,10 +827,6 @@ export const tryEmitCarrierPreservingExpressionAst = (opts: {
   }
 
   const transparentExpr = unwrapTransparentExpression(expr);
-  const carrierAst = resolveRuntimeCarrierExpressionAst(
-    transparentExpr,
-    context
-  );
   const effectiveExpressionType =
     resolveEffectiveExpressionType(transparentExpr, context) ??
     transparentExpr.inferredType;
@@ -825,8 +837,12 @@ export const tryEmitCarrierPreservingExpressionAst = (opts: {
   ) {
     return undefined;
   }
+  const runtimeCarrierType = resolveRuntimeCarrierIrType(
+    transparentExpr,
+    context
+  );
   const carrierType = resolveActiveCarrierSourceType(
-    resolveRuntimeCarrierIrType(transparentExpr, context),
+    runtimeCarrierType,
     effectiveExpressionType
   );
   const carrierSourceType = resolveCarrierPreservingSourceType(
@@ -834,6 +850,35 @@ export const tryEmitCarrierPreservingExpressionAst = (opts: {
     expectedType,
     context
   );
+  const narrowed =
+    transparentExpr.kind === "identifier"
+      ? context.narrowedBindings?.get(transparentExpr.name)
+      : undefined;
+  const originalStorageType =
+    transparentExpr.kind === "identifier"
+      ? (context.localValueTypes?.get(transparentExpr.name) ??
+        (narrowed?.kind === "expr" ? narrowed.storageType : undefined))
+      : undefined;
+  const originalStorageCanServeAsCarrier =
+    !!resolveCarrierPreservingSourceType(
+      originalStorageType,
+      expectedType,
+      context
+    ) &&
+    !isStorageErasedBroadObjectPassThroughType(originalStorageType, context);
+  const originalNarrowedCarrierAst =
+    carrierSourceType &&
+    (narrowed?.kind === "runtimeSubset" || narrowed?.kind === "expr") &&
+    originalStorageCanServeAsCarrier &&
+    transparentExpr.kind === "identifier"
+      ? identifierExpression(
+          context.localNameMap?.get(transparentExpr.name) ??
+            escapeCSharpIdentifier(transparentExpr.name)
+        )
+      : undefined;
+  const carrierAst =
+    originalNarrowedCarrierAst ??
+    resolveRuntimeCarrierExpressionAst(transparentExpr, context);
   if (carrierSourceType && carrierAst) {
     return {
       ast: carrierAst,
@@ -888,6 +933,49 @@ const isJsNumericAdaptationSource = (
   }
 };
 
+const isJsNumberBoxingSource = (
+  type: IrType | undefined,
+  context: EmitterContext,
+  seen = new Set<IrType>()
+): boolean => {
+  if (!type || seen.has(type)) {
+    return false;
+  }
+  seen.add(type);
+
+  const resolved = resolveComparableType(type, context);
+  switch (resolved.kind) {
+    case "literalType":
+      return typeof resolved.value === "number";
+    case "primitiveType":
+      return resolved.name === "number";
+    case "typeParameterType":
+      return (
+        (context.typeParamConstraints?.get(resolved.name) ??
+          "unconstrained") === "numeric"
+      );
+    case "referenceType":
+      return (
+        resolved.name === "number" ||
+        resolved.name === "double" ||
+        referenceTypeHasClrIdentity(resolved, JS_NUMBER_BOXING_CLR_NAMES)
+      );
+    case "unionType":
+      return resolved.types.every((member) => {
+        const comparableMember = resolveComparableType(member, context);
+        return (
+          (comparableMember.kind === "primitiveType" &&
+            comparableMember.name === "null") ||
+          (comparableMember.kind === "primitiveType" &&
+            comparableMember.name === "undefined") ||
+          isJsNumberBoxingSource(member, context, seen)
+        );
+      });
+    default:
+      return false;
+  }
+};
+
 const requiresJsNumberBoxingAdaptation = (
   actualType: IrType | undefined,
   expectedType: IrType | undefined,
@@ -895,7 +983,7 @@ const requiresJsNumberBoxingAdaptation = (
 ): boolean =>
   contextSurfaceIncludesJs(context) &&
   isBroadObjectSlotType(expectedType, context) &&
-  isJsNumericAdaptationSource(actualType, context);
+  isJsNumberBoxingSource(actualType, context);
 
 const isNumericLiteralAst = (ast: CSharpExpressionAst): boolean => {
   if (ast.kind === "numericLiteralExpression") {

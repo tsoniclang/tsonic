@@ -9,7 +9,7 @@
  * Split from binding-registry-resolution.ts for file-size compliance (< 500 LOC).
  */
 
-import { tsbindgenClrTypeNameToTsTypeName } from "../tsbindgen/names.js";
+import { tsbindgenTargetTypeNameToTsTypeName } from "../tsbindgen/names.js";
 import type {
   MemberBinding,
   TypeBinding,
@@ -29,7 +29,7 @@ import type {
 export type RegistryState = {
   readonly types: ReadonlyMap<string, TypeBinding>;
   readonly memberOverloads: ReadonlyMap<string, MemberBinding[]>;
-  readonly clrTypeNamesByAlias: ReadonlyMap<string, Set<string>>;
+  readonly targetTypeNamesByAlias: ReadonlyMap<string, Set<string>>;
   readonly extensionMethods: ReadonlyMap<
     string,
     ReadonlyMap<string, ReadonlyMap<string, MemberBinding[]>>
@@ -40,7 +40,7 @@ export type RegistryState = {
   readonly simpleGlobalBindings: ReadonlyMap<string, SimpleBindingDescriptor>;
   readonly simpleModuleBindings: ReadonlyMap<string, SimpleBindingDescriptor>;
   readonly typeLookupAliasMap: ReadonlyMap<string, string>;
-  readonly clrTypeNames: ReadonlySet<string>;
+  readonly targetTypeNames: ReadonlySet<string>;
 };
 
 // ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ export type RegistryState = {
 
 /**
  * Split a comma-delimited type list, respecting nested bracket depth.
- * tsbindgen signatures use CLR-style nested generic brackets in some contexts.
+ * Binding-provider signatures can use nested generic brackets in some contexts.
  */
 export const splitSignatureTypeList = (str: string): string[] => {
   const result: string[] = [];
@@ -82,7 +82,7 @@ export const splitSignatureTypeList = (str: string): string[] => {
 // Simple binding helpers (used by resolution)
 // ---------------------------------------------------------------------------
 
-const getSimpleBindingMemberOwnerClrType = (
+const getSimpleBindingMemberOwnerTargetType = (
   descriptor: SimpleBindingDescriptor
 ): string => descriptor.type;
 
@@ -101,8 +101,8 @@ const resolveSimpleBindingMemberOwnerAlias = (
 ): string | undefined => {
   const descriptor = state.simpleBindings.get(typeAlias);
   if (!descriptor) return undefined;
-  const mapped = tsbindgenClrTypeNameToTsTypeName(
-    getSimpleBindingMemberOwnerClrType(descriptor)
+  const mapped = tsbindgenTargetTypeNameToTsTypeName(
+    getSimpleBindingMemberOwnerTargetType(descriptor)
   );
   if (!mapped || mapped === typeAlias) return undefined;
   return mapped;
@@ -176,14 +176,14 @@ const resolveMemberOverloadsForOwner = (
   state: RegistryState,
   ownerAlias: string,
   memberAlias: string,
-  preferredClrOwner?: string
+  preferredTargetOwner?: string
 ): readonly MemberBinding[] | undefined => {
   const resolved = state.memberOverloads.get(`${ownerAlias}.${memberAlias}`);
   if (!resolved || resolved.length === 0) return resolved;
 
-  if (preferredClrOwner) {
+  if (preferredTargetOwner) {
     const preferredOwnerMatches = resolved.filter(
-      (binding) => binding.binding.type === preferredClrOwner
+      (binding) => binding.binding.type === preferredTargetOwner
     );
     if (preferredOwnerMatches.length > 0) {
       return preferredOwnerMatches;
@@ -191,16 +191,16 @@ const resolveMemberOverloadsForOwner = (
     return undefined;
   }
 
-  const ownerClrTypes = state.clrTypeNamesByAlias.get(ownerAlias);
-  if (!ownerClrTypes || ownerClrTypes.size !== 1) {
+  const ownerTargetTypes = state.targetTypeNamesByAlias.get(ownerAlias);
+  if (!ownerTargetTypes || ownerTargetTypes.size !== 1) {
     return resolved;
   }
 
-  const [ownerClrType] = Array.from(ownerClrTypes);
-  if (!ownerClrType) return resolved;
+  const [ownerTargetType] = Array.from(ownerTargetTypes);
+  if (!ownerTargetType) return resolved;
 
   const directOwnerMatches = resolved.filter((binding) =>
-    ownerClrTypes.has(binding.binding.type)
+    ownerTargetTypes.has(binding.binding.type)
   );
   return directOwnerMatches.length > 0 ? directOwnerMatches : resolved;
 };
@@ -213,13 +213,13 @@ const resolveMemberOverloadsByHierarchy = (
   state: RegistryState,
   ownerAlias: string,
   memberAlias: string,
-  preferredClrOwner?: string
+  preferredTargetOwner?: string
 ): readonly MemberBinding[] | undefined => {
   const direct = resolveMemberOverloadsForOwner(
     state,
     ownerAlias,
     memberAlias,
-    preferredClrOwner
+    preferredTargetOwner
   );
   if (direct && direct.length > 0) {
     return direct;
@@ -249,7 +249,7 @@ const resolveMemberOverloadsByHierarchy = (
       state,
       currentBase,
       memberAlias,
-      preferredClrOwner
+      preferredTargetOwner
     );
     if (resolved && resolved.length > 0) {
       return resolved;
@@ -283,7 +283,7 @@ const resolveMemberOverloadsByHierarchy = (
         state,
         candidateAlias,
         memberAlias,
-        preferredClrOwner
+        preferredTargetOwner
       );
       if (resolved && resolved.length > 0) {
         resolvedAtDepth.push(resolved);
@@ -348,11 +348,11 @@ export const resolveMemberOverloads = (
   state: RegistryState,
   typeAlias: string,
   memberAlias: string,
-  preferredClrOwner?: string
+  preferredTargetOwner?: string
 ): readonly MemberBinding[] | undefined => {
-  const resolvedPreferredClrOwner =
-    preferredClrOwner ??
-    (state.clrTypeNames.has(typeAlias) ? typeAlias : undefined);
+  const resolvedPreferredTargetOwner =
+    preferredTargetOwner ??
+    (state.targetTypeNames.has(typeAlias) ? typeAlias : undefined);
   const normalizedTypeAlias = resolveLookupAlias(state, typeAlias);
   const rootAliases: string[] = [];
   const seenRoots = new Set<string>();
@@ -373,7 +373,7 @@ export const resolveMemberOverloads = (
         state,
         ownerAlias,
         memberAlias,
-        resolvedPreferredClrOwner
+        resolvedPreferredTargetOwner
       );
       if (match && match.length > 0) return match;
     }

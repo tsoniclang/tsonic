@@ -47,7 +47,7 @@ export type IrVariableDeclaration = {
 export type IrVariableDeclarator = {
   readonly kind: "variableDeclarator";
   readonly name: IrPattern;
-  /** Type from annotation or inferred. Always set for module-level exports (C# requires explicit type). */
+  /** Type from annotation or inferred. Always set for module-level exports. */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
 };
@@ -65,7 +65,7 @@ export type IrFunctionDeclaration = {
   readonly isGenerator: boolean;
   readonly isExported: boolean;
   readonly overloadFamily?: IrOverloadFamilyMember;
-  /** C# attributes to emit before the function declaration */
+  /** Attributes to emit before the function declaration. */
   readonly attributes?: readonly IrAttribute[];
 };
 
@@ -78,12 +78,12 @@ export type IrClassDeclaration = {
   readonly implements: readonly IrType[];
   readonly members: readonly IrClassMember[];
   readonly isExported: boolean;
-  /** True if this class should be emitted as a C# struct instead of a class */
+  /** True if this class should be emitted as a native value type. */
   readonly isStruct: boolean;
-  /** C# attributes to emit before the class declaration */
+  /** Attributes to emit before the class declaration. */
   readonly attributes?: readonly IrAttribute[];
   /**
-   * C# attributes to emit before ALL constructors on this class.
+   * Attributes to emit before ALL constructors on this class.
    *
    * Used by the compiler-only attribute API: `A<Class>().ctor.add(...)`.
    * These attributes are applied to:
@@ -117,26 +117,26 @@ export type IrMethodDeclaration = {
   /** True if this method should be emitted as virtual (overridden in derived class) */
   readonly isVirtual?: boolean;
   readonly overloadFamily?: IrOverloadFamilyMember;
-  /** C# attributes to emit before the method declaration */
+  /** Attributes to emit before the method declaration. */
   readonly attributes?: readonly IrAttribute[];
 };
 
 export type IrPropertyDeclaration = {
   readonly kind: "propertyDeclaration";
   readonly name: string;
-  /** Type from annotation or inferred. Always set for class fields (C# requires explicit type). */
+  /** Type from annotation or inferred. Always set for class fields. */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
   /**
    * Emit as an auto-property (`{ get; set; }`) even when no accessor bodies are present.
    *
-   * Property declarations are emitted as C# properties by default. Some lowering passes
+   * Property declarations are emitted as target properties by default. Some lowering passes
    * set this flag explicitly (for clarity and future-proofing) when the intent is
    * specifically "DTO-like / reflection-friendly" emission.
    */
   readonly emitAsAutoProperty?: boolean;
   /**
-   * Emit as a C# field (no accessors) instead of an auto-property.
+   * Emit as a target field (no accessors) instead of an auto-property.
    *
    * Set when a TypeScript class property is annotated with `field<T>` from
    * `@tsonic/core/lang.js`.
@@ -146,7 +146,7 @@ export type IrPropertyDeclaration = {
   readonly getterBody?: IrBlockStatement;
   /**
    * Setter body for accessor properties (`set foo(v) { ... }`).
-   * The implicit C# setter parameter is named `value`; setterParamName preserves TS source naming.
+   * The implicit target setter parameter is named `value`; setterParamName preserves TS source naming.
    */
   readonly setterBody?: IrBlockStatement;
   /** Original TypeScript parameter name for setter body, if present. */
@@ -160,9 +160,9 @@ export type IrPropertyDeclaration = {
   readonly isShadow?: boolean;
   /** True if this property should be emitted as virtual (overridden in derived class) */
   readonly isVirtual?: boolean;
-  /** C# attributes to emit before the property declaration */
+  /** Attributes to emit before the property declaration. */
   readonly attributes?: readonly IrAttribute[];
-  /** True if property must be set in object initializer (C# 11 'required' modifier) */
+  /** True if property must be set in object initializer. */
   readonly isRequired?: boolean;
 };
 
@@ -171,7 +171,7 @@ export type IrConstructorDeclaration = {
   readonly parameters: readonly IrParameter[];
   readonly body?: IrBlockStatement;
   readonly accessibility: IrAccessibility;
-  /** C# attributes to emit before the constructor declaration */
+  /** Attributes to emit before the constructor declaration. */
   readonly attributes?: readonly IrAttribute[];
 };
 
@@ -182,9 +182,9 @@ export type IrInterfaceDeclaration = {
   readonly extends: readonly IrType[];
   readonly members: readonly IrInterfaceMember[];
   readonly isExported: boolean;
-  /** True if this interface should be emitted as a C# struct instead of a class */
+  /** True if this interface should be emitted as a native value type. */
   readonly isStruct: boolean;
-  /** C# attributes to emit before the interface/class/struct declaration */
+  /** Attributes to emit before the interface/class/struct declaration. */
   readonly attributes?: readonly IrAttribute[];
 };
 
@@ -207,7 +207,7 @@ export type IrTypeAliasDeclaration = {
   readonly typeParameters?: readonly IrTypeParameter[];
   readonly type: IrType;
   readonly isExported: boolean;
-  /** True if this type alias should be emitted as a C# struct instead of a class */
+  /** True if this type alias should be emitted as a native value type. */
   readonly isStruct: boolean;
 };
 

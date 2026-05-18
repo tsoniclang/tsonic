@@ -31,11 +31,11 @@ const prim = (
   name: Extract<IrType, { kind: "primitiveType" }>["name"]
 ): IrType => ({ kind: "primitiveType", name }) as IrType;
 
-const ref = (clrName: string): IrType =>
+const ref = (targetName: string): IrType =>
   ({
     kind: "referenceType",
-    name: clrName.split(".").at(-1) ?? clrName,
-    resolvedClrType: clrName,
+    name: targetName.split(".").at(-1) ?? targetName,
+    targetQualifiedName: targetName,
   }) as IrType;
 
 const union = (types: readonly IrType[]): IrType =>

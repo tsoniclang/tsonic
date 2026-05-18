@@ -38,7 +38,7 @@ const numberType: IrType = { kind: "primitiveType", name: "number" };
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  resolvedClrType: "Tsonic.Runtime.JsValue",
+  targetQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 const aliasedUnion: IrType = {
@@ -274,7 +274,7 @@ describe("local-names semantic/storage channels", () => {
         {
           kind: "referenceType",
           name: "System.Exception",
-          resolvedClrType: "global::System.Exception",
+          targetQualifiedName: "global::System.Exception",
         },
         outerCtx
       );

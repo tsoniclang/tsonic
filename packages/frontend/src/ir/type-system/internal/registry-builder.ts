@@ -16,7 +16,7 @@ import type {
 } from "./type-registry.js";
 import {
   isWellKnownLibrary,
-  getCanonicalClrFQName,
+  getCanonicalTargetName,
   extractTypeParameters,
   extractMembers,
   extractMembersFromAliasedObjectType,
@@ -100,21 +100,21 @@ export const buildTypeRegistry = (
     // Check if this file is from a well-known Tsonic library
     const isFromWellKnownLib = isWellKnownLibrary(sf.fileName);
 
-    // Canonicalize a type name to CLR FQ name if it's a well-known type
+    // Canonicalize a type name to target name if it's a well-known type
     // This is used for both the type itself and its heritage references
     const canonicalize = (simpleName: string): string => {
-      // Check for canonical CLR name (works for both the current file and heritage refs)
+      // Check for canonical native target name (works for both the current file and heritage refs)
       // Heritage refs like String$instance should be canonicalized even if
       // the current file isn't from a well-known lib (though it usually is)
-      const canonicalName = getCanonicalClrFQName(simpleName, true);
+      const canonicalName = getCanonicalTargetName(simpleName, true);
       if (canonicalName) return canonicalName;
       return simpleName;
     };
 
-    // Make FQ name - use canonical CLR FQ name for well-known types
+    // Make FQ name - use canonical target name for well-known types
     const makeFQName = (simpleName: string): string => {
-      // First check if this is a well-known type that needs canonical CLR name
-      const canonicalName = getCanonicalClrFQName(
+      // First check if this is a well-known type that needs canonical native target name
+      const canonicalName = getCanonicalTargetName(
         simpleName,
         isFromWellKnownLib
       );

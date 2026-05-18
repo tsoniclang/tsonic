@@ -17,7 +17,7 @@ import {
 } from "../../../types.js";
 import { getSourceSpan } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
-import { IrType } from "../../../types.js";
+import { IrType, primitiveTypeFactFromName } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 import {
@@ -70,36 +70,9 @@ export const tryConvertIntrinsicCall = (
 
     if (type.kind !== "referenceType") return false;
 
-    const name = type.resolvedClrType ?? type.name;
     return (
-      name === "byte" ||
-      name === "sbyte" ||
-      name === "short" ||
-      name === "ushort" ||
-      name === "int" ||
-      name === "uint" ||
-      name === "long" ||
-      name === "ulong" ||
-      name === "nint" ||
-      name === "nuint" ||
-      name === "int128" ||
-      name === "uint128" ||
-      name === "float" ||
-      name === "double" ||
-      name === "half" ||
-      name === "decimal" ||
-      name === "bool" ||
-      name === "char" ||
-      name === "System.Guid" ||
-      name === "global::System.Guid" ||
-      name === "System.DateTime" ||
-      name === "global::System.DateTime" ||
-      name === "System.DateOnly" ||
-      name === "global::System.DateOnly" ||
-      name === "System.TimeOnly" ||
-      name === "global::System.TimeOnly" ||
-      name === "System.TimeSpan" ||
-      name === "global::System.TimeSpan"
+      primitiveTypeFactFromName(type.name) !== undefined ||
+      type.name === "char"
     );
   };
 
@@ -169,7 +142,7 @@ export const tryConvertIntrinsicCall = (
   }
 
   // Check for defaultof<T>() - language intrinsic for default value.
-  // defaultof<T>() compiles to C#: default(T)
+  // defaultof<T>() compiles to target: default(T)
   if (
     isCoreLangIntrinsicCall("defaultof") &&
     node.typeArguments &&
@@ -251,7 +224,7 @@ export const tryConvertIntrinsicCall = (
         createDiagnostic(
           "TSN7443",
           "error",
-          "'sizeof<T>()' requires a known value-compatible type (primitive numeric/bool/char or known CLR struct).",
+          "'sizeof<T>()' requires a known source value type (numeric/bool/char).",
           getSourceSpan(node)
         )
       );
@@ -291,7 +264,7 @@ export const tryConvertIntrinsicCall = (
   }
 
   // Check for trycast<T>(x) - special intrinsic for safe casting
-  // trycast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
+  // trycast<T>(x) compiles to target: x as T (safe cast, returns null on failure)
   if (
     isCoreLangIntrinsicCall("trycast") &&
     node.typeArguments &&
@@ -330,7 +303,7 @@ export const tryConvertIntrinsicCall = (
   }
 
   // Check for stackalloc<T>(size) - language intrinsic for stack allocation.
-  // stackalloc<T>(size) compiles to C#: stackalloc T[size]
+  // stackalloc<T>(size) compiles to target: stackalloc T[size]
   if (
     isCoreLangIntrinsicCall("stackalloc") &&
     node.typeArguments &&

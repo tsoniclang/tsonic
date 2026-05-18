@@ -26,8 +26,8 @@ export const isNullishPrimitive = (type: IrType): boolean =>
  *
  * Rules:
  * 1. All numeric literals with same intent → use that intent (int, long, double)
- * 2. Mixed Int32/Int64 → Int64
- * 3. Any Double present → double
+ * 2. Mixed int32/int64 → int64
+ * 3. Any float64 present → double
  * 4. String literals → string
  * 5. Boolean literals → boolean
  * 6. Mixed or complex → fall back to TS inference
@@ -103,9 +103,6 @@ const computeArrayElementType = (
         case "AsyncGenerator":
         case "Set":
         case "ReadonlySet":
-        case "IEnumerable":
-        case "IReadOnlyList":
-        case "List":
           return type.typeArguments[0] ? [type.typeArguments[0]] : undefined;
         case "Map":
         case "ReadonlyMap":
@@ -180,18 +177,21 @@ const computeArrayElementType = (
     allNumericLiterals &&
     numericIntents.length > 0
   ) {
-    // Any Double → number (emits as "double" in C#)
+    // Any floating intent → number.
     if (
-      numericIntents.includes("Double") ||
-      numericIntents.includes("Single")
+      numericIntents.includes("float64") ||
+      numericIntents.includes("float32")
     ) {
       return { kind: "primitiveType", name: "number" };
     }
-    // Any Int64/UInt64 → fall back to TS inference (no primitive for long)
-    if (numericIntents.includes("Int64") || numericIntents.includes("UInt64")) {
+    // Any int64/uint64 → fall back to TS inference (no primitive for long)
+    if (
+      numericIntents.includes("int64") ||
+      numericIntents.includes("uint64")
+    ) {
       return fallbackType;
     }
-    // All Int32 or smaller → int
+    // All int32 or smaller → int
     return { kind: "primitiveType", name: "int" };
   }
 
@@ -300,10 +300,7 @@ export const normalizeExpectedArrayType = (
         case "Generator":
         case "AsyncGenerator":
         case "Set":
-        case "ReadonlySet":
-        case "IEnumerable":
-        case "IReadOnlyList":
-        case "List": {
+        case "ReadonlySet": {
           const elementType = member.typeArguments[0];
           return elementType
             ? {

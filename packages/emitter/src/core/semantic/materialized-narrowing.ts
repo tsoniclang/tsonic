@@ -200,7 +200,7 @@ const isUnemittableStructuralReferenceTarget = (
     return false;
   }
 
-  if (resolved.resolvedClrType || resolved.typeId) {
+  if (resolved.targetQualifiedName || resolved.typeId) {
     return false;
   }
 

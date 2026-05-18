@@ -17,7 +17,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "int",
-          resolvedClrType: "System.Int32",
+          targetQualifiedName: "System.Int32",
         },
         { kind: "primitiveType", name: "string" },
       ],
@@ -52,7 +52,7 @@ describe("Expression Emission", () => {
                   valueType: {
                     kind: "referenceType",
                     name: "int",
-                    resolvedClrType: "System.Int32",
+                    targetQualifiedName: "System.Int32",
                   },
                 },
               },

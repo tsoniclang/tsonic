@@ -5,6 +5,7 @@
 import type {
   BindingRegistry as FrontendBindingRegistry,
   SurfaceCapabilities,
+  TargetRenderTable,
   TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
 import type {
@@ -162,7 +163,7 @@ export type EmitterOptions = {
   readonly entryPointPath?: string;
   /** Current module file path being emitted (for import-path-sensitive lowering). */
   readonly currentModuleFilePath?: string;
-  /** Type roots used by the frontend to discover CLR bindings (informational; emitter does not load directly). */
+  /** Type roots used by the frontend to discover external bindings (informational; emitter does not load directly). */
   readonly libraries?: readonly string[];
   /** Module map for resolving cross-file imports (populated during batch emission) */
   readonly moduleMap?: ModuleMap;
@@ -200,7 +201,7 @@ export type EmitterOptions = {
    */
   readonly enableJsonAot?: boolean;
   /**
-   * Pre-loaded CLR bindings from frontend (for Action/Func resolution).
+   * Pre-loaded external bindings from frontend (for Action/Func resolution).
    * When provided, these take precedence over loading from library directories.
    * The map keys are TypeScript emit names (e.g., "Action", "List").
    * Values must have either `clrName` or `name` property containing the CLR type name.
@@ -208,6 +209,8 @@ export type EmitterOptions = {
   readonly clrBindings?: ReadonlyMap<string, FrontendTypeBinding>;
   /** Full frontend binding registry for exact source/global/module binding lookups during emission. */
   readonly bindingRegistry?: FrontendBindingRegistry;
+  /** Target render table keyed by frontend-neutral symbol IDs. */
+  readonly targetRenderTable?: TargetRenderTable;
 };
 
 /**
@@ -413,7 +416,7 @@ export type EmitterContext = {
   readonly qualifyLocalTypes?: boolean;
   /**
    * When true, same-module nominal references may emit their explicit
-   * `resolvedClrType` identity instead of the short local name.
+   * `targetQualifiedName` identity instead of the short local name.
    *
    * Used only in contexts that require canonical emitted member surfaces,
    * such as runtime-union carrier layout construction.

@@ -342,14 +342,16 @@ describe("IR Builder", function () {
       if (!inferredType || inferredType.kind !== "referenceType") {
         return;
       }
-      expect(inferredType.resolvedClrType).to.equal(
+      expect(inferredType.targetQualifiedName).to.equal(
         "TestApp.IntervalIterationResult"
       );
       expect(inferredType.typeId).to.deep.equal({
         stableId: "TestApp:TestApp.IntervalIterationResult",
-        clrName: "TestApp.IntervalIterationResult",
-        assemblyName: "TestApp",
-        tsName: "IntervalIterationResult",
+        targetName: "TestApp.IntervalIterationResult",
+        ownerIdentity: "TestApp",
+        sourceName: "IntervalIterationResult",
+        origin: "source",
+        symbolId: "type-stable:TestApp%3ATestApp.IntervalIterationResult",
       });
       expect(promiseResolveArg.typeArguments).to.deep.equal([
         { kind: "typeParameterType", name: "T" },

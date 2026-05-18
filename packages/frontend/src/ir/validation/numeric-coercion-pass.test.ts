@@ -31,7 +31,7 @@ describe("numeric-coercion-pass", () => {
                       kind: "literal",
                       value: 1.5,
                       raw: "1.5",
-                      numericIntent: "Double",
+                      numericIntent: "float64",
                     },
                   ],
                   isOptional: false,

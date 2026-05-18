@@ -132,7 +132,8 @@ describe("Module Generation", () => {
           kind: "import",
           source: "@fixture/lib/Lib.js",
           isLocal: false,
-          isClr: true,
+          isExternalSurface: true,
+          resolutionKind: "externalSurface",
           resolvedNamespace: "Lib",
           specifiers: [
             {
@@ -140,9 +141,9 @@ describe("Module Generation", () => {
               name: "buildSite",
               localName: "buildSite",
               isType: false,
-              resolvedClrValue: {
-                declaringClrType: "Lib.BuildSite",
-                declaringAssemblyName: "Lib",
+              targetValue: {
+                ownerQualifiedName: "Lib.BuildSite",
+                ownerIdentity: "Lib",
                 memberName: "buildSite",
               },
             },
@@ -194,7 +195,7 @@ describe("Module Generation", () => {
     const routerType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "global::System.Object",
+      targetQualifiedName: "global::System.Object",
       structuralMembers: [],
     } as unknown as Extract<IrType, { kind: "referenceType" }> & {
       structuralMembers: unknown[];

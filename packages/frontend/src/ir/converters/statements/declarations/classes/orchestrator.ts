@@ -93,7 +93,7 @@ const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
  * make `implements IFoo` noisy for user-authored classes. We provide
  * `Interface<IFoo>` (from @tsonic/core/lang) to strip those members at the TS layer.
  *
- * For IR + C# emission, we want the underlying CLR interface `IFoo`.
+ * For IR + target emission, we want the underlying native target interface `IFoo`.
  */
 const unwrapInterfaceHeritageType = (
   typeRef: ts.ExpressionWithTypeArguments

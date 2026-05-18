@@ -58,6 +58,8 @@ import type { DeclId } from "./type-system/types.js";
 import { readSourcePackageMetadata } from "../program/source-package-metadata.js";
 import { getNamespaceFromPath } from "../resolver/namespace.js";
 import { getClassNameFromPath } from "../resolver/naming.js";
+import { createMemberSymbolId, createTypeSymbolId } from "../symbols/index.js";
+import type { TypeSymbolId } from "../symbols/index.js";
 
 const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
   ts.isImportClause(decl) ||
@@ -183,9 +185,10 @@ const readNamespaceFromBindingsJson = (
   }
 };
 
-type ImportedIdentifierClrBinding = {
-  readonly resolvedClrType: string;
-  readonly resolvedAssembly?: string;
+type ImportedIdentifierExternalBinding = {
+  readonly targetQualifiedName: string;
+  readonly targetOwnerIdentity?: string;
+  readonly typeSymbolId?: TypeSymbolId;
 };
 
 type SourceFileExportKind =
@@ -330,10 +333,10 @@ const collectSourceFileTopLevelExports = (
   return exports;
 };
 
-const resolveSourcePackageImportedIdentifierClrBinding = (
+const resolveSourcePackageImportedIdentifierExternalBinding = (
   declPath: string,
   exportName: string
-): ImportedIdentifierClrBinding | undefined => {
+): ImportedIdentifierExternalBinding | undefined => {
   const packageRoot = findContainingSourcePackageRoot(declPath);
   if (!packageRoot) {
     return undefined;
@@ -371,16 +374,17 @@ const resolveSourcePackageImportedIdentifierClrBinding = (
       : `${namespace}.${getClassNameFromPath(declPath)}.${exported.localName}`;
 
   return {
-    resolvedClrType: owner,
-    resolvedAssembly: metadata.namespace,
+    targetQualifiedName: owner,
+    targetOwnerIdentity: metadata.namespace,
+    typeSymbolId: createTypeSymbolId(metadata.namespace, owner),
   };
 };
 
-const resolveImportedIdentifierClrBinding = (
+const resolveImportedIdentifierExternalBinding = (
   declId: DeclId,
   declarations: readonly ts.Declaration[],
   ctx: ProgramContext
-): ImportedIdentifierClrBinding | undefined => {
+): ImportedIdentifierExternalBinding | undefined => {
   const importSpecifier = declarations.find(ts.isImportSpecifier);
   if (!importSpecifier) {
     return undefined;
@@ -393,10 +397,8 @@ const resolveImportedIdentifierClrBinding = (
     return undefined;
   }
 
-  const sourcePackageBinding = resolveSourcePackageImportedIdentifierClrBinding(
-    declPath,
-    exportName
-  );
+  const sourcePackageBinding =
+    resolveSourcePackageImportedIdentifierExternalBinding(declPath, exportName);
   if (sourcePackageBinding) {
     return sourcePackageBinding;
   }
@@ -426,12 +428,22 @@ const resolveImportedIdentifierClrBinding = (
       return true;
     }
 
-    const simpleClrName = type.name.split(".").pop() ?? type.name;
-    return simpleClrName.replace(/`\d+$/, "") === exportName;
+    const simpleTargetName = type.name.split(".").pop() ?? type.name;
+    return simpleTargetName.replace(/`\d+$/, "") === exportName;
   };
 
-  const resolvedClrType = namespaceBinding.types.find(matchesExportName)?.name;
-  return resolvedClrType ? { resolvedClrType } : undefined;
+  const resolvedTypeBinding = namespaceBinding.types.find(matchesExportName);
+  const targetQualifiedName = resolvedTypeBinding?.name;
+  if (!targetQualifiedName) {
+    return undefined;
+  }
+  const ownerIdentity =
+    resolvedTypeBinding.members[0]?.binding.assembly ?? "external-surface";
+  return {
+    targetQualifiedName,
+    targetOwnerIdentity: ownerIdentity,
+    typeSymbolId: createTypeSymbolId(ownerIdentity, targetQualifiedName),
+  };
 };
 
 /**
@@ -555,7 +567,7 @@ export const convertExpression = (
     const effectiveIdentifierType =
       contextualGenericFunctionType ?? identifierStorageType;
 
-    // Check if this identifier is an aliased import (e.g., import { String as ClrString })
+    // Check if this identifier is an aliased import (e.g., import { String as RuntimeString })
     // Use TypeSystem.getFQNameOfDecl() to get the original name.
     let originalName: string | undefined;
     if (declId) {
@@ -575,9 +587,13 @@ export const convertExpression = (
       symbolDeclarations.length > 0 &&
       !hasImportLikeDeclaration &&
       symbolDeclarations.every(isAmbientGlobalDeclaration);
-    const importResolvedClrBinding =
+    const importResolvedExternalBinding =
       declId && hasImportLikeDeclaration
-        ? resolveImportedIdentifierClrBinding(declId, symbolDeclarations, ctx)
+        ? resolveImportedIdentifierExternalBinding(
+            declId,
+            symbolDeclarations,
+            ctx
+          )
         : undefined;
     const suppressSyntheticFlowAssertion =
       isMemberAccessReceiverExpression(node);
@@ -588,11 +604,14 @@ export const convertExpression = (
       fromEnv
     );
 
-    // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
-    const clrBinding = ctx.bindings.getExactBindingByKind(node.text, "global");
+    // Check if this identifier is bound to an external target type (e.g., console, Math, etc.)
+    const externalBinding = ctx.bindings.getExactBindingByKind(
+      node.text,
+      "global"
+    );
     if (
-      clrBinding &&
-      clrBinding.kind === "global" &&
+      externalBinding &&
+      externalBinding.kind === "global" &&
       (!declId || isAmbientGlobal)
     ) {
       const baseIdentifier: IrExpression = {
@@ -600,9 +619,20 @@ export const convertExpression = (
         name: node.text,
         inferredType: effectiveIdentifierType,
         sourceSpan: getSourceSpan(node),
-        resolvedClrType: clrBinding.type,
-        resolvedAssembly: clrBinding.assembly,
-        csharpName: clrBinding.csharpName, // Optional C# name from binding
+        targetQualifiedName: externalBinding.type,
+        targetOwnerIdentity: externalBinding.assembly,
+        targetMemberName: externalBinding.targetMemberName,
+        typeSymbolId: createTypeSymbolId(
+          externalBinding.assembly,
+          externalBinding.staticType ?? externalBinding.type
+        ),
+        memberSymbolId: externalBinding.targetMemberName
+          ? createMemberSymbolId(
+              externalBinding.assembly,
+              externalBinding.staticType ?? externalBinding.type,
+              externalBinding.targetMemberName
+            )
+          : undefined,
         originalName,
         declId,
       };
@@ -623,7 +653,7 @@ export const convertExpression = (
       return baseIdentifier;
     }
     const ambientSourceOwner =
-      !clrBinding && isAmbientGlobal
+      !externalBinding && isAmbientGlobal
         ? resolveAmbientGlobalSourceOwner(symbolDeclarations, ctx)
         : undefined;
     const baseIdentifier: IrExpression = {
@@ -631,9 +661,18 @@ export const convertExpression = (
       name: node.text,
       inferredType: effectiveIdentifierType,
       sourceSpan: getSourceSpan(node),
-      resolvedClrType:
-        importResolvedClrBinding?.resolvedClrType ?? ambientSourceOwner,
-      resolvedAssembly: importResolvedClrBinding?.resolvedAssembly,
+      targetQualifiedName:
+        importResolvedExternalBinding?.targetQualifiedName ??
+        ambientSourceOwner,
+      targetOwnerIdentity: importResolvedExternalBinding?.targetOwnerIdentity,
+      typeSymbolId:
+        importResolvedExternalBinding?.typeSymbolId ??
+        (ambientSourceOwner
+          ? createTypeSymbolId(
+              importResolvedExternalBinding?.targetOwnerIdentity ?? "source",
+              ambientSourceOwner
+            )
+          : undefined),
       originalName,
       declId,
     };
@@ -804,11 +843,11 @@ export const convertExpression = (
         };
       }
 
-      // Determine the inferredType based on the targetKind
-      // INVARIANT: "Int32" → primitiveType(name="int")
+      // Determine the inferredType based on the targetKind.
+      // INVARIANT: int32 → primitiveType(name="int")
       // Other numeric kinds remain as referenceType (handled by assertedType)
       const inferredType =
-        numericKind === "Int32"
+        numericKind === "int32"
           ? { kind: "primitiveType" as const, name: "int" as const }
           : assertedType;
 
@@ -824,7 +863,7 @@ export const convertExpression = (
     }
 
     // Check if this is `as number` or `as double` - explicit widening intent
-    // This creates a numericNarrowing with targetKind: "Double" to distinguish
+    // This creates a numericNarrowing with targetKind: float64 to distinguish
     // from a plain literal (which also has inferredType: number but no assertion)
     if (
       assertedType.kind === "primitiveType" &&
@@ -842,7 +881,7 @@ export const convertExpression = (
         const narrowingExpr: IrNumericNarrowingExpression = {
           kind: "numericNarrowing",
           expression: innerExpr,
-          targetKind: "Double",
+          targetKind: "float64",
           inferredType: assertedType,
           sourceSpan: getSourceSpan(node),
         };
@@ -876,10 +915,10 @@ export const convertExpression = (
     }
 
     // Convert the inner expression contextually, using the asserted type as the target.
-    // This prevents `({ ... } as T)` from becoming an anonymous object cast to T (invalid in C#).
+    // This prevents `({ ... } as T)` from becoming an anonymous object cast to T.
     const innerExpr = convertExpression(node.expression, ctx, assertedType);
 
-    // Non-numeric assertion - create type assertion node for C# cast
+    // Non-numeric assertion - create type assertion node for target cast.
     return {
       kind: "typeAssertion",
       expression: innerExpr,

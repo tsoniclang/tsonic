@@ -2,8 +2,8 @@
   "namespace": "Acme.Core",
   "types": [
     {
-      "clrName": "Acme.Core.Ok__Alias`1",
-      "assemblyName": "Acme.Core",
+      "targetName": "Acme.Core.Ok__Alias`1",
+      "ownerIdentity": "Acme.Core",
       "methods": [],
       "properties": [],
       "fields": []

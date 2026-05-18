@@ -21,7 +21,7 @@ import {
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  resolvedClrType: "Tsonic.Runtime.JsValue",
+  targetQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 describe("Type Assertion Emission", () => {

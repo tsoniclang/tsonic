@@ -63,12 +63,12 @@ describe("storage-erased-adaptation", () => {
           elementType: {
             kind: "referenceType",
             name: "Item",
-            resolvedClrType: "Fixture.Channels.domain.Item",
+            targetQualifiedName: "Fixture.Channels.domain.Item",
             typeId: {
               stableId: "@fixture/channels:Fixture.Channels.domain.Item",
-              clrName: "Fixture.Channels.domain.Item",
-              assemblyName: "@fixture/channels",
-              tsName: "Item",
+              targetName: "Fixture.Channels.domain.Item",
+              ownerIdentity: "@fixture/channels",
+              sourceName: "Item",
             },
             structuralMembers: [idMember],
           },
@@ -78,12 +78,12 @@ describe("storage-erased-adaptation", () => {
           elementType: {
             kind: "referenceType",
             name: "Item",
-            resolvedClrType: "Fixture.Channels.repo.Item",
+            targetQualifiedName: "Fixture.Channels.repo.Item",
             typeId: {
               stableId: "@fixture/channels:Fixture.Channels.repo.Item",
-              clrName: "Fixture.Channels.repo.Item",
-              assemblyName: "@fixture/channels",
-              tsName: "Item",
+              targetName: "Fixture.Channels.repo.Item",
+              ownerIdentity: "@fixture/channels",
+              sourceName: "Item",
             },
             structuralMembers: [idMember],
           },

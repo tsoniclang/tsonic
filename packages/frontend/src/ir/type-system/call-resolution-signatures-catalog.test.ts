@@ -8,9 +8,9 @@ describe("call resolution signatures catalog", () => {
     const dbSetId: TypeId = {
       stableId:
         "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbSet`1",
-      clrName: "Microsoft.EntityFrameworkCore.DbSet`1",
-      assemblyName: "Microsoft.EntityFrameworkCore",
-      tsName: "DbSet_1",
+      targetName: "Microsoft.EntityFrameworkCore.DbSet`1",
+      ownerIdentity: "Microsoft.EntityFrameworkCore",
+      sourceName: "DbSet_1",
     };
 
     const state = {
@@ -26,8 +26,8 @@ describe("call resolution signatures catalog", () => {
       unifiedCatalog: {
         resolveTsName: (name: string) =>
           name === "DbSet_1" ? dbSetId : undefined,
-        resolveClrName: () => undefined,
-        getByTypeId: () => ({ origin: "assembly" }),
+        resolveTargetName: () => undefined,
+        getByTypeId: () => ({ origin: "external" }),
         getTypeParameters: () => [{ name: "TEntity" }],
       },
     } as const;
@@ -53,15 +53,15 @@ describe("call resolution signatures catalog", () => {
   it("treats tsbindgen instance wrappers as equivalent to their exported generic aliases", () => {
     const dbSetAliasId: TypeId = {
       stableId: "TestApp:DbSet_1",
-      clrName: "DbSet_1",
-      assemblyName: "TestApp",
-      tsName: "DbSet_1",
+      targetName: "DbSet_1",
+      ownerIdentity: "TestApp",
+      sourceName: "DbSet_1",
     };
     const dbSetInstanceId: TypeId = {
       stableId: "TestApp:DbSet_1$instance",
-      clrName: "DbSet_1$instance",
-      assemblyName: "TestApp",
-      tsName: "DbSet_1$instance",
+      targetName: "DbSet_1$instance",
+      ownerIdentity: "TestApp",
+      sourceName: "DbSet_1$instance",
     };
 
     const state = {
@@ -82,7 +82,7 @@ describe("call resolution signatures catalog", () => {
           if (name === "DbSet_1$instance") return dbSetInstanceId;
           return undefined;
         },
-        resolveClrName: () => undefined,
+        resolveTargetName: () => undefined,
         getByTypeId: () => ({ origin: "source" }),
         getTypeParameters: (typeId: TypeId) =>
           typeId.stableId === dbSetAliasId.stableId

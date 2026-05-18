@@ -17,7 +17,7 @@ const numberType: IrType = { kind: "primitiveType", name: "number" };
 const uint8ArrayType: IrType = {
   kind: "referenceType",
   name: "Uint8Array",
-  resolvedClrType: "js.Uint8Array",
+  targetQualifiedName: "js.Uint8Array",
 };
 
 describe("direct-value-surfaces", () => {
@@ -62,7 +62,7 @@ describe("direct-value-surfaces", () => {
     const narrowedStringType: IrType = {
       kind: "referenceType",
       name: "Uint8Array",
-      resolvedClrType: "js.Uint8Array",
+      targetQualifiedName: "js.Uint8Array",
     };
     const context = {
       ...createContext({ rootNamespace: "Test" }),

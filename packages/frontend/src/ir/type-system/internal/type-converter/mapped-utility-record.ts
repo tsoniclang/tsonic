@@ -63,7 +63,7 @@ export const expandRecordType = (
   const irValueType = convertType(valueTypeNode, binding);
 
   // Build IrObjectType with a property for each key
-  // Prefix numeric keys with '_' to make them valid C# identifiers
+  // Prefix numeric keys with '_' to make them valid target identifiers
   const members: IrPropertySignature[] = Array.from(literalKeys).map((key) => ({
     kind: "propertySignature" as const,
     name: /^\d/.test(key) ? `_${key}` : key,

@@ -23,13 +23,13 @@ const SYSTEM_NUMERICS_BIG_INTEGER_CLR_NAMES = new Set([
 export const SYSTEM_OBJECT_REFERENCE_TYPE: IrType = {
   kind: "referenceType",
   name: "object",
-  resolvedClrType: "global::System.Object",
+  targetQualifiedName: "global::System.Object",
 };
 
 export const isJsValueReferenceType = (type: IrType): boolean =>
   type.kind === "referenceType" &&
   (type.name === "JsValue" ||
-    type.typeId?.tsName === "JsValue" ||
+    type.typeId?.sourceName === "JsValue" ||
     referenceTypeHasClrIdentity(type, JS_VALUE_CLR_NAMES));
 
 const isSystemObjectReferenceType = (type: IrType): boolean =>
@@ -39,6 +39,8 @@ const isSystemObjectReferenceType = (type: IrType): boolean =>
 
 const isBroadObjectUnionMemberType = (type: IrType): boolean =>
   type.kind === "functionType" ||
+  type.kind === "unknownType" ||
+  type.kind === "anyType" ||
   type.kind === "primitiveType" ||
   type.kind === "literalType" ||
   isJsValueReferenceType(type) ||
@@ -74,6 +76,9 @@ export const isBroadObjectSlotType = (
 
   const resolved = resolveTypeAlias(stripNullish(type), context);
   if (isJsValueReferenceType(resolved)) {
+    return true;
+  }
+  if (resolved.kind === "unknownType" || resolved.kind === "anyType") {
     return true;
   }
 

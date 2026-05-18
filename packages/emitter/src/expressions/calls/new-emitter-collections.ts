@@ -7,7 +7,7 @@ import {
   generateSpecializedName,
 } from "../identifiers.js";
 import {
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   extractCalleeNameFromAst,
   normalizeClrQualifiedName,
 } from "../../core/format/backend-ast/utils.js";
@@ -35,7 +35,7 @@ export const isListConstructorWithArrayLiteral = (
   const typeId = inferredType.typeId;
   if (
     !typeId ||
-    !typeId.clrName.startsWith("System.Collections.Generic.List")
+    !typeId.targetName.startsWith("System.Collections.Generic.List")
   ) {
     return false;
   }
@@ -148,18 +148,18 @@ const makeClrValueArrayType = (
     | "uint"
     | "float"
     | "double",
-  clrName: string,
-  tsName: string
+  targetName: string,
+  sourceName: string
 ): IrType => ({
   kind: "arrayType",
   elementType: {
     kind: "referenceType",
     name,
     typeId: {
-      stableId: `System.Private.CoreLib:${clrName}`,
-      clrName,
-      assemblyName: "System.Private.CoreLib",
-      tsName,
+      stableId: `System.Private.CoreLib:${targetName}`,
+      targetName,
+      ownerIdentity: "System.Private.CoreLib",
+      sourceName,
     },
   },
   origin: "explicit",
@@ -190,9 +190,9 @@ const getTypedArrayLeafName = (
   }
 
   const candidates = [
-    type.resolvedClrType,
-    type.typeId?.clrName,
-    type.typeId?.tsName,
+    type.targetQualifiedName,
+    type.typeId?.targetName,
+    type.typeId?.sourceName,
     type.name,
   ];
 
@@ -220,9 +220,9 @@ const getReferenceTypeIdentity = (
   }
 
   return (
-    type.resolvedClrType ??
-    type.typeId?.clrName ??
-    type.typeId?.tsName ??
+    type.targetQualifiedName ??
+    type.typeId?.targetName ??
+    type.typeId?.sourceName ??
     type.name
   );
 };
@@ -273,7 +273,7 @@ const getConstructorKey = (
   }
 
   if (expr.callee.kind === "identifier") {
-    return expr.callee.resolvedClrType ?? expr.callee.name;
+    return expr.callee.targetQualifiedName ?? expr.callee.name;
   }
 
   return undefined;
@@ -297,7 +297,7 @@ const getConstructorTypeAst = (
 
   const globalTypeName = getConstructorGlobalTypeName(expr);
   if (globalTypeName) {
-    return clrTypeNameToTypeAst(globalTypeName);
+    return targetTypeNameToTypeAst(globalTypeName);
   }
 
   return identifierType(extractCalleeNameFromAst(calleeAst));

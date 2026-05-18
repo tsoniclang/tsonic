@@ -62,7 +62,7 @@ describe("Reference Type Emission", () => {
           {
             kind: "referenceType",
             name: "RegExp",
-            resolvedClrType: "System.Text.RegularExpressions.Regex",
+            targetQualifiedName: "System.Text.RegularExpressions.Regex",
           },
           {
             kind: "arrayType",
@@ -113,7 +113,7 @@ describe("Reference Type Emission", () => {
           {
             kind: "referenceType",
             name: "MiddlewareHandler",
-            resolvedClrType: "System.Delegate",
+            targetQualifiedName: "System.Delegate",
           },
           {
             kind: "arrayType",
@@ -165,7 +165,7 @@ describe("Reference Type Emission", () => {
           {
             kind: "referenceType",
             name: "MiddlewareHandler",
-            resolvedClrType: "System.Delegate",
+            targetQualifiedName: "System.Delegate",
           },
           {
             kind: "arrayType",
@@ -181,7 +181,7 @@ describe("Reference Type Emission", () => {
           {
             kind: "referenceType",
             name: "Router",
-            resolvedClrType: "Test.Router",
+            targetQualifiedName: "Test.Router",
           },
           {
             kind: "arrayType",
@@ -251,7 +251,7 @@ describe("Reference Type Emission", () => {
           {
             kind: "referenceType",
             name: "MiddlewareHandler",
-            resolvedClrType: "System.Delegate",
+            targetQualifiedName: "System.Delegate",
           },
           {
             kind: "arrayType",
@@ -267,7 +267,7 @@ describe("Reference Type Emission", () => {
           {
             kind: "referenceType",
             name: "Router",
-            resolvedClrType: "Test.Router",
+            targetQualifiedName: "Test.Router",
           },
           {
             kind: "arrayType",
@@ -333,7 +333,7 @@ describe("Reference Type Emission", () => {
           {
             kind: "referenceType",
             name: "RegExp",
-            resolvedClrType: "System.Text.RegularExpressions.Regex",
+            targetQualifiedName: "System.Text.RegularExpressions.Regex",
           },
           {
             kind: "arrayType",

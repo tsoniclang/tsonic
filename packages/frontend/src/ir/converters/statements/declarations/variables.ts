@@ -41,7 +41,7 @@ import {
  */
 /**
  * Check if a variable statement is at module level (not inside a function).
- * Module-level variables become static fields in C# and need explicit types.
+ * Module-level variables become static fields in target and need explicit types.
  */
 const isModuleLevelVariable = (node: ts.VariableStatement): boolean => {
   // Walk up the parent chain to check if we're inside a function/method
@@ -119,7 +119,7 @@ export const convertVariableStatement = (
   const declarationKind = isConst ? "const" : isLet ? "let" : "var";
   const isExported = hasExportModifier(node);
 
-  // Module-level variables need explicit types in C# (they become static fields)
+  // Module-level variables need explicit types in target (they become static fields)
   const isModuleLevel = isModuleLevelVariable(node);
   const needsExplicitType = isExported || isModuleLevel;
 
@@ -195,7 +195,7 @@ export const convertVariableStatement = (
 
     // Determine declared type:
     // 1) Explicit annotation wins.
-    // 2) For module-level/static variables (and exports), C# requires explicit type.
+    // 2) For module-level/static variables (and exports), target requires explicit type.
     //    Derive from initializer deterministically (no TS fallback).
     const explicitDeclaredType = decl.type
       ? currentCtx.typeSystem.typeFromSyntax(

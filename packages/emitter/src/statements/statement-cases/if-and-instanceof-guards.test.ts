@@ -197,7 +197,7 @@ describe("Statement Emission", () => {
                   {
                     kind: "referenceType",
                     name: "Uint8Array",
-                    resolvedClrType: "js.Uint8Array",
+                    targetQualifiedName: "js.Uint8Array",
                   },
                 ],
               },
@@ -225,7 +225,7 @@ describe("Statement Emission", () => {
                         {
                           kind: "referenceType",
                           name: "Uint8Array",
-                          resolvedClrType: "js.Uint8Array",
+                          targetQualifiedName: "js.Uint8Array",
                         },
                       ],
                     },
@@ -236,7 +236,7 @@ describe("Statement Emission", () => {
                     inferredType: {
                       kind: "referenceType",
                       name: "Uint8Array",
-                      resolvedClrType: "js.Uint8Array",
+                      targetQualifiedName: "js.Uint8Array",
                     },
                   },
                 },
@@ -710,7 +710,7 @@ describe("Statement Emission", () => {
           elementType: {
             kind: "referenceType",
             name: "JsValue",
-            resolvedClrType: "Tsonic.Runtime.JsValue",
+            targetQualifiedName: "Tsonic.Runtime.JsValue",
           },
           origin: "explicit",
         },
@@ -718,7 +718,7 @@ describe("Statement Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "js.RegExp",
+          targetQualifiedName: "js.RegExp",
         },
       ],
     };
@@ -790,7 +790,7 @@ describe("Statement Emission", () => {
                     inferredType: {
                       kind: "referenceType",
                       name: "RegExp",
-                      resolvedClrType: "js.RegExp",
+                      targetQualifiedName: "js.RegExp",
                     },
                   },
                 },

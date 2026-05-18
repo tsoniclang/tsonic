@@ -84,7 +84,7 @@ const getDeterministicReferenceIdentity = (
 ): string | undefined => {
   const identity = referenceTypeIdentity(type);
   return identity !== undefined &&
-    (identity.startsWith("id:") || identity.startsWith("clr:"))
+    identity.startsWith("id:")
     ? identity
     : undefined;
 };
@@ -505,7 +505,7 @@ const refreshExpression = (
         }
       );
       const resolved = selection.resolved;
-      const usesAuthoritativeSurfaceBindings = ctx.surface !== "clr";
+      const usesAuthoritativeSurfaceBindings = ctx.surface !== "core";
       const boundGlobalCallParameterTypes = getBoundGlobalCallParameterTypes(
         callee,
         argumentCount,

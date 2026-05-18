@@ -11,12 +11,12 @@ export const defaultTsConfig: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.NodeNext,
   moduleResolution: ts.ModuleResolutionKind.NodeNext,
-  // We use the globals from the BCL bindings directory instead of npm packages
-  // The BCL bindings include a globals.d.ts that provides minimal types
+  // We use globals from the active external surface instead of npm ambient packages.
+  // The external surface provides a globals.d.ts with the minimal supported types.
   noLib: true,
-  types: [], // No npm packages - globals come from BCL bindings typeRoots
+  types: [], // No npm packages - globals come from external surface typeRoots
   // Airplane-grade default: full TypeScript strictness.
-  // We rely on strict TS diagnostics to prevent “TS accepts it, C# cannot” cases
+  // We rely on strict TS diagnostics to prevent “TS accepts it, target emission cannot” cases
   // (especially around overload selection and delegate assignability).
   strict: true,
   // Keep function-parameter variance strict (redundant under `strict`, but
@@ -30,6 +30,6 @@ export const defaultTsConfig: ts.CompilerOptions = {
   noEmit: true,
   resolveJsonModule: false,
   isolatedModules: true, // Re-enabled - safe now that DOM globals are gone
-  verbatimModuleSyntax: false, // Disabled to allow .NET type imports
+  verbatimModuleSyntax: false, // Disabled to allow external type imports
   allowImportingTsExtensions: true, // ESM requires .ts/.js extensions
 };

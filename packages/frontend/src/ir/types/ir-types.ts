@@ -4,6 +4,7 @@
 
 import { IrParameter, IrInterfaceMember, IrTypeParameter } from "./helpers.js";
 import type { TypeId } from "../type-system/index.js";
+import type { TypeSymbolId } from "../../symbols/index.js";
 
 export type IrType =
   | IrPrimitiveType
@@ -27,15 +28,24 @@ export type IrStructuralOrigin =
   | "inlineStructural"
   | "compilerOwnedStructural";
 
+export type IrAsyncWrapperMetadata = {
+  readonly resultTypeParameterIndex?: number;
+};
+
+export type IrIterableShapeMetadata = {
+  readonly mode: "sync" | "async";
+  readonly elementTypeParameterIndex: number;
+};
+
 /**
  * Primitive types in IR.
  *
- * INVARIANT A: "number" always emits as C# "double". No exceptions.
- * INVARIANT B: "int" always emits as C# "int". No exceptions.
+ * INVARIANT A: "number" is source float64 intent. No exceptions.
+ * INVARIANT B: "int" is source int32 intent. No exceptions.
  *
  * These are distinct types, not decorated versions of each other.
- * - User writes `: number` → primitiveType(name="number") → emits "double"
- * - User writes `: int` → primitiveType(name="int") → emits "int"
+ * - User writes `: number` → primitiveType(name="number")
+ * - User writes `: int` → primitiveType(name="int")
  *
  * The numeric classification of LITERALS is separate (see IrLiteralExpression.numericIntent).
  * Type-level and expression-level concerns are strictly separated.
@@ -44,9 +54,9 @@ export type IrPrimitiveType = {
   readonly kind: "primitiveType";
   readonly name:
     | "string"
-    | "number" // Always double in C#
-    | "int" // Always int in C#
-    | "char" // For string indexer access (str[i] returns char in C#)
+    | "number"
+    | "int"
+    | "char"
     | "boolean"
     | "null"
     | "undefined";
@@ -56,12 +66,18 @@ export type IrReferenceType = {
   readonly kind: "referenceType";
   readonly name: string;
   readonly typeArguments?: readonly IrType[];
-  /** Fully-qualified CLR type for imported types (e.g., "MyApp.Models.User") */
-  readonly resolvedClrType?: string;
+  /** Source-semantic async wrapper metadata supplied by external binding surfaces. */
+  readonly asyncWrapper?: IrAsyncWrapperMetadata;
+  /** Source-semantic iterable metadata supplied by external binding surfaces. */
+  readonly iterableShape?: IrIterableShapeMetadata;
+  /** Target-qualified type name retained only until symbol-table migration is complete. */
+  readonly targetQualifiedName?: string;
+  /** Target-neutral symbol identity for nominal external/source references. */
+  readonly symbolId?: TypeSymbolId;
   /**
    * Canonical type identity from UnifiedTypeCatalog.
    * When present, this is the authoritative source of type identity.
-   * Use typeId.clrName for emission, typeId.stableId for equality checks.
+   * Use typeId.symbolId for target rendering, typeId.stableId for equality checks.
    */
   readonly typeId?: TypeId;
   /**
@@ -101,7 +117,7 @@ export type IrArrayType = {
    * Set to "explicit" when the array type came from an explicit T[] annotation.
    * Undefined when the type was inferred.
    *
-   * All array types emit as native CLR arrays (T[]).
+   * All array types carry native array intent.
    * Users must explicitly use List<T> to get a List.
    */
   readonly origin?: "explicit";
@@ -113,7 +129,7 @@ export type IrArrayType = {
    *   tuplePrefixElementTypes = [PathSpec], tupleRestElementType = RequestHandler)
    *
    * This preserves spread-call semantics for overload resolution while still emitting
-   * as a CLR array at runtime.
+   * as a native array at runtime.
    */
   readonly tuplePrefixElementTypes?: readonly IrType[];
   readonly tupleRestElementType?: IrType;
@@ -139,7 +155,7 @@ export type IrArrayType = {
  * - `[string, number]` → IrTupleType { elementTypes: [string, number] }
  * - `[boolean, string, number]` → IrTupleType { elementTypes: [boolean, string, number] }
  *
- * Emits to C# ValueTuple<T1, T2, ...>.
+ * Carries fixed-length tuple intent.
  */
 export type IrTupleType = {
   readonly kind: "tupleType";
@@ -175,8 +191,8 @@ export type IrObjectType = {
  * - `{ [k: string]: T }` → IrDictionaryType { keyType: string, valueType: T }
  * - `Record<string, T>` → IrDictionaryType { keyType: string, valueType: T }
  *
- * Emits to C# Dictionary<TKey, TValue>.
- * Access should be via indexer `d["key"]` (dot property access will fail in C#).
+ * Carries dictionary/map intent.
+ * Access should be via indexer `d["key"]`.
  */
 export type IrDictionaryType = {
   readonly kind: "dictionaryType";
@@ -265,7 +281,7 @@ export type IrNeverType = {
 };
 
 /**
- * C# Attribute attached to a declaration (class, function, method, property, parameter)
+ * Attribute attached to a declaration (class, function, method, property, parameter)
  *
  * Attributes are collected from marker calls like `A<T>().add(Attr)` and
  * attached to the corresponding IR declaration nodes.
@@ -276,12 +292,7 @@ export type IrNeverType = {
  * A<User>().add(DataContractAttribute, { Name: "UserDTO" });
  * ```
  *
- * Emits to C#:
- * ```csharp
- * [global::System.SerializableAttribute]
- * [global::System.Runtime.Serialization.DataContractAttribute(Name = "UserDTO")]
- * public class User { ... }
- * ```
+ * The target emitter owns concrete attribute syntax.
  */
 export type IrAttributeTarget =
   | "assembly"
@@ -297,7 +308,7 @@ export type IrAttributeTarget =
 export type IrAttribute = {
   readonly kind: "attribute";
   /**
-   * C# attribute target specifier (e.g., `[return: Attr]`, `[field: Attr]`).
+   * Attribute target specifier (e.g., return or field target).
    *
    * Note:
    * - Not all targets are valid for all declaration kinds.
@@ -314,7 +325,7 @@ export type IrAttribute = {
 
 /**
  * Attribute argument value - must be a constant expression.
- * C# attributes only accept compile-time constants.
+ * Attribute arguments must be compile-time constants.
  */
 export type IrAttributePrimitiveArg =
   | { readonly kind: "string"; readonly value: string }

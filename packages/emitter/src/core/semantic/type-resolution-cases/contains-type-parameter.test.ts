@@ -72,7 +72,7 @@ describe("type-resolution", () => {
       const routerType = {
         kind: "referenceType",
         name: "Router",
-        resolvedClrType: "global::System.Object",
+        targetQualifiedName: "global::System.Object",
         structuralMembers: [],
       } as unknown as Extract<IrType, { kind: "referenceType" }> & {
         structuralMembers: unknown[];

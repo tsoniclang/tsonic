@@ -70,8 +70,8 @@ describe("Binding Resolution in IR", () => {
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.resolvedClrType).to.equal("Tsonic.Runtime.console");
-      expect(consoleExpr.resolvedAssembly).to.equal("Tsonic.Runtime");
+      expect(consoleExpr.targetQualifiedName).to.equal("Tsonic.Runtime.console");
+      expect(consoleExpr.targetOwnerIdentity).to.equal("Tsonic.Runtime");
     });
 
     it("should not resolve identifiers without bindings", () => {
@@ -106,8 +106,8 @@ describe("Binding Resolution in IR", () => {
       const globalExpr = memberExpr.object as IrIdentifierExpression;
       expect(globalExpr.kind).to.equal("identifier");
       expect(globalExpr.name).to.equal("customGlobal");
-      expect(globalExpr.resolvedClrType).to.equal(undefined);
-      expect(globalExpr.resolvedAssembly).to.equal(undefined);
+      expect(globalExpr.targetQualifiedName).to.equal(undefined);
+      expect(globalExpr.targetOwnerIdentity).to.equal(undefined);
     });
 
     it("should resolve Math to CLR type", () => {
@@ -156,8 +156,8 @@ describe("Binding Resolution in IR", () => {
       const mathExpr = memberExpr.object as IrIdentifierExpression;
       expect(mathExpr.kind).to.equal("identifier");
       expect(mathExpr.name).to.equal("Math");
-      expect(mathExpr.resolvedClrType).to.equal("Tsonic.Runtime.Math");
-      expect(mathExpr.resolvedAssembly).to.equal("Tsonic.Runtime");
+      expect(mathExpr.targetQualifiedName).to.equal("Tsonic.Runtime.Math");
+      expect(mathExpr.targetOwnerIdentity).to.equal("Tsonic.Runtime");
     });
 
     it("prefers the global binding when a module binding shares the same alias", () => {
@@ -212,8 +212,8 @@ describe("Binding Resolution in IR", () => {
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.resolvedClrType).to.equal("js.console");
-      expect(consoleExpr.resolvedAssembly).to.equal("js");
+      expect(consoleExpr.targetQualifiedName).to.equal("js.console");
+      expect(consoleExpr.targetOwnerIdentity).to.equal("js");
     });
 
     it("prefers the exact CLR numeric alias overload for explicitly typed arguments", () => {
@@ -803,7 +803,7 @@ describe("Binding Resolution in IR", () => {
       });
     });
 
-    it("should resolve global function bindings with csharpName on identifier callees", () => {
+    it("should resolve global function bindings with targetMemberName on identifier callees", () => {
       const source = `
         export function test() {
           setInterval(() => {}, 1000);
@@ -817,7 +817,7 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "js",
             type: "js.Timers",
-            csharpName: "Timers.setInterval",
+            targetMemberName: "Timers.setInterval",
           },
         },
       });
@@ -853,9 +853,9 @@ describe("Binding Resolution in IR", () => {
       if (calleeExpr.kind !== "identifier") return;
 
       expect(calleeExpr.name).to.equal("setInterval");
-      expect(calleeExpr.csharpName).to.equal("Timers.setInterval");
-      expect(calleeExpr.resolvedClrType).to.equal("js.Timers");
-      expect(calleeExpr.resolvedAssembly).to.equal("js");
+      expect(calleeExpr.targetMemberName).to.equal("Timers.setInterval");
+      expect(calleeExpr.targetQualifiedName).to.equal("js.Timers");
+      expect(calleeExpr.targetOwnerIdentity).to.equal("js");
     });
 
     it("uses the unique CLR runtime overload for global bindings while preserving the ambient surface", () => {
@@ -878,7 +878,7 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "Acme.ExternalRuntime",
             type: "Acme.ExternalRuntime.Timers",
-            csharpName: "Timers.setInterval",
+            targetMemberName: "Timers.setInterval",
           },
         },
       });
@@ -886,16 +886,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "Acme.ExternalRuntime",
         types: [
           {
-            clrName: "Acme.ExternalRuntime.Timers",
-            assemblyName: "Acme.ExternalRuntime",
+            targetName: "Acme.ExternalRuntime.Timers",
+            ownerIdentity: "Acme.ExternalRuntime",
             methods: [
               {
-                clrName: "setInterval",
+                targetName: "setInterval",
                 normalizedSignature:
                   "setInterval|(System.Action,System.Double):System.Double|static=true",
                 parameterCount: 2,
-                declaringClrType: "Acme.ExternalRuntime.Timers",
-                declaringAssemblyName: "Acme.ExternalRuntime",
+                ownerQualifiedName: "Acme.ExternalRuntime.Timers",
+                ownerIdentity: "Acme.ExternalRuntime",
                 semanticSignature: {
                   parameters: [
                     {
@@ -907,7 +907,7 @@ describe("Binding Resolution in IR", () => {
                       type: {
                         kind: "referenceType",
                         name: "System.Action",
-                        resolvedClrType: "System.Action",
+                        targetQualifiedName: "System.Action",
                       },
                       isOptional: false,
                       isRest: false,
@@ -935,12 +935,12 @@ describe("Binding Resolution in IR", () => {
                 },
               },
               {
-                clrName: "setInterval",
+                targetName: "setInterval",
                 normalizedSignature:
                   "setInterval|(System.Action_1,System.Double,System.Object):System.Double|static=true",
                 parameterCount: 3,
-                declaringClrType: "Acme.ExternalRuntime.Timers",
-                declaringAssemblyName: "Acme.ExternalRuntime",
+                ownerQualifiedName: "Acme.ExternalRuntime.Timers",
+                ownerIdentity: "Acme.ExternalRuntime",
                 semanticSignature: {
                   typeParameters: ["T0"],
                   parameters: [
@@ -953,7 +953,7 @@ describe("Binding Resolution in IR", () => {
                       type: {
                         kind: "referenceType",
                         name: "Action_1",
-                        resolvedClrType: "System.Action`1",
+                        targetQualifiedName: "System.Action`1",
                         typeArguments: [
                           {
                             kind: "typeParameterType",
@@ -1032,7 +1032,7 @@ describe("Binding Resolution in IR", () => {
       const runtimeHandlerType = callExpr.parameterTypes?.[0];
       expect(runtimeHandlerType?.kind).to.equal("referenceType");
       if (runtimeHandlerType?.kind === "referenceType") {
-        expect(runtimeHandlerType.resolvedClrType).to.equal("System.Action");
+        expect(runtimeHandlerType.targetQualifiedName).to.equal("System.Action");
       }
 
       const surfaceHandlerType = callExpr.surfaceParameterTypes?.[0];
@@ -1073,7 +1073,7 @@ describe("Binding Resolution in IR", () => {
       const refreshedRuntimeHandlerType = refreshedCallExpr.parameterTypes?.[0];
       expect(refreshedRuntimeHandlerType?.kind).to.equal("referenceType");
       if (refreshedRuntimeHandlerType?.kind === "referenceType") {
-        expect(refreshedRuntimeHandlerType.resolvedClrType).to.equal(
+        expect(refreshedRuntimeHandlerType.targetQualifiedName).to.equal(
           "System.Action"
         );
       }

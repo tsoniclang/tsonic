@@ -41,8 +41,7 @@ import { expandReferenceAlias } from "./type-alias-expansion.js";
 
 const buildGenericCollectionType = (elementType: IrType): IrType => ({
   kind: "referenceType",
-  name: "ICollection_1",
-  resolvedClrType: "System.Collections.Generic.ICollection",
+  name: "Iterable",
   typeArguments: [elementType],
 });
 

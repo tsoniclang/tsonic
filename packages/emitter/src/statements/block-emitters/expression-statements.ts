@@ -22,7 +22,7 @@ const isNoopVoidOperand = (
     return false;
   }
 
-  if (expr.resolvedClrType !== undefined) {
+  if (expr.targetQualifiedName !== undefined) {
     return true;
   }
 

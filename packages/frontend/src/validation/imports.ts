@@ -123,7 +123,7 @@ export const validateImportDeclaration = (
     sourceFile.fileName,
     program.options.sourceRoot,
     {
-      clrResolver: program.clrResolver,
+      externalResolver: program.externalResolver,
       bindings: program.bindings,
       projectRoot: program.options.projectRoot,
       surface: program.options.surface,

@@ -149,12 +149,12 @@ export const registerCatchVariableTypes = (
     {
       kind: "referenceType",
       name: "System.Exception",
-      resolvedClrType: "global::System.Exception",
+      targetQualifiedName: "global::System.Exception",
     },
     {
       kind: "referenceType",
       name: "System.Exception",
-      resolvedClrType: "global::System.Exception",
+      targetQualifiedName: "global::System.Exception",
     },
     context
   );

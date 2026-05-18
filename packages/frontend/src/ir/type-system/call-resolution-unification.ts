@@ -10,10 +10,7 @@
 import type { IrType, IrReferenceType } from "../types/index.js";
 import { normalizedUnionType } from "../types/type-ops.js";
 import { unwrapAsyncWrapperType } from "../types/type-ops.js";
-import {
-  referenceTypeIdentity,
-  referenceTypeHasClrIdentity,
-} from "../types/type-ops.js";
+import { referenceTypeIdentity } from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type { TypeParameterInfo } from "./types.js";
 import type { TypeSystemState } from "./type-system-state.js";
@@ -24,11 +21,6 @@ import {
   mapEntriesEqual,
   delegateToFunctionType,
 } from "./call-resolution-utilities.js";
-
-const BROAD_OBJECT_INFERENCE_CLR_NAMES = new Set([
-  "System.Object",
-  "global::System.Object",
-]);
 
 // ─────────────────────────────────────────────────────────────────────────
 // inferMethodTypeArgsFromArguments — Generic method type argument inference
@@ -85,7 +77,8 @@ export const inferMethodTypeArgsFromArguments = (
     return (
       type.kind === "referenceType" &&
       (type.name === "object" ||
-        referenceTypeHasClrIdentity(type, BROAD_OBJECT_INFERENCE_CLR_NAMES))
+        type.name === "Object" ||
+        type.typeId?.sourceName === "Object")
     );
   };
 
@@ -199,12 +192,7 @@ export const inferMethodTypeArgsFromArguments = (
       return undefined;
     }
 
-    const simpleName = type.name.split(".").pop() ?? type.name;
-    if (simpleName !== "PromiseLike" && simpleName !== "Promise") {
-      return undefined;
-    }
-
-    return type.typeArguments?.[0];
+    return unwrapAsyncWrapperType(type);
   };
 
   const getDeterministicAsyncUnionTypeParameter = (
@@ -488,7 +476,7 @@ export const inferMethodTypeArgsFromArguments = (
       //   Select(items, x => x * 2)
       // Pass 1 models the lambda as `(unknown) => unknown` only to preserve arity.
       // That placeholder must not overwrite concrete inference already obtained
-      // from other arguments like `items: IEnumerable<int>`.
+      // from other arguments like `items: Iterable<int>`.
       if (argumentType.kind === "anyType") {
         return true;
       }
@@ -541,7 +529,7 @@ export const inferMethodTypeArgsFromArguments = (
     //
     // This is required for airplane-grade extension method typing where the receiver
     // often has the form `TShape & <extension markers> & <method table>`.
-    // Generic inference must still be able to infer through the real CLR shape in the intersection.
+    // Generic inference must still be able to infer through the real native target shape in the intersection.
     if (argumentType.kind === "intersectionType") {
       for (const part of argumentType.types) {
         if (!part) continue;
@@ -551,7 +539,7 @@ export const inferMethodTypeArgsFromArguments = (
     }
 
     // Expression<TDelegate> wrapper: infer through the underlying delegate shape.
-    // This is required for Queryable APIs that use Expression<Func<...>>.
+    // This is required for external query APIs that accept expression-tree wrappers.
     if (
       parameterType.kind === "referenceType" &&
       parameterType.name === "Expression_1" &&
@@ -561,7 +549,7 @@ export const inferMethodTypeArgsFromArguments = (
       return inner ? tryUnify(inner, argumentType, currentSubstitution) : true;
     }
 
-    // PromiseLike<T> / Promise<T> parameter positions should infer through the
+    // Async-wrapper parameter positions should infer through the
     // awaited inner result when the argument is an async wrapper.
     //
     // This is required for JS-surface APIs like:
@@ -569,31 +557,23 @@ export const inferMethodTypeArgsFromArguments = (
     // where an argument element of type Promise<number> must infer T = number,
     // not T = Promise<number>.
     if (parameterType.kind === "referenceType") {
-      const simpleName =
-        parameterType.name.split(".").pop() ?? parameterType.name;
-      if (
-        (simpleName === "PromiseLike" || simpleName === "Promise") &&
-        (parameterType.typeArguments?.length ?? 0) === 1
-      ) {
-        const awaitedArgument = unwrapAsyncWrapperType(argumentType);
-        const awaitedParameter = parameterType.typeArguments?.[0];
-        if (awaitedArgument && awaitedParameter) {
-          return tryUnify(
-            awaitedParameter,
-            awaitedArgument,
-            currentSubstitution
-          );
-        }
+      const awaitedArgument = unwrapAsyncWrapperType(argumentType);
+      const awaitedParameter = unwrapAsyncWrapperType(parameterType);
+      if (awaitedArgument && awaitedParameter) {
+        return tryUnify(
+          awaitedParameter,
+          awaitedArgument,
+          currentSubstitution
+        );
       }
     }
 
     // Delegate unification: allow deterministic inference through the delegate's
-    // Invoke signature when a lambda (functionType) is passed to a CLR delegate
-    // parameter (Func/Action/custom delegates).
+    // invoke signature when a lambda (functionType) is passed to an external
+    // callable nominal parameter.
     //
-    // Without this, generic methods like:
-    //   Select<TResult>(selector: Func<TSource, TResult>)
-    // cannot infer TResult from a lambda argument, causing TSN5201/TSN5202.
+    // Without this, generic methods that accept callable nominal parameters
+    // cannot infer result type parameters from lambda arguments.
     if (
       parameterType.kind === "referenceType" &&
       argumentType.kind === "functionType"
@@ -659,12 +639,7 @@ export const inferMethodTypeArgsFromArguments = (
 
         for (const candidate of candidates) {
           if (!candidate || candidate.kind !== "referenceType") continue;
-          const simpleName = candidate.name.split(".").pop() ?? candidate.name;
-          if (simpleName !== "PromiseLike" && simpleName !== "Promise") {
-            continue;
-          }
-
-          const awaitedParameter = candidate.typeArguments?.[0];
+          const awaitedParameter = unwrapAsyncWrapperType(candidate);
           if (!awaitedParameter) continue;
 
           const trial = new Map(snapshot);
@@ -804,7 +779,7 @@ export const inferMethodTypeArgsFromArguments = (
         }
 
         // Inheritance/interface unification: allow argumentType to flow through
-        // its inheritance chain to the parameter type (e.g., List<T> → IEnumerable<T>).
+        // its inheritance chain to the parameter type (e.g., Collection<T> → Iterable<T>).
         const paramNominal = normalizeToNominal(state, parameterType);
         const argNominal = normalizeToNominal(state, argRef);
         if (paramNominal && argNominal) {

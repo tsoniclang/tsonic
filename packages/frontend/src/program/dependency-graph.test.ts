@@ -203,7 +203,7 @@ describe("Dependency Graph", function () {
         JSON.stringify({
           schemaVersion: 1,
           id: "@fixture/js",
-          extends: ["clr"],
+          extends: ["core"],
           requiredTypeRoots: ["."],
         })
       );

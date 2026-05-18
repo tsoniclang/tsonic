@@ -4,7 +4,7 @@
 
 export type { CompilerOptions, TsonicProgram } from "./types.js";
 export { defaultTsConfig } from "./config.js";
-export { loadDotnetMetadata } from "./metadata.js";
+export { loadExternalMetadata } from "./metadata.js";
 export {
   BindingRegistry,
   loadBindings,

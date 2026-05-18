@@ -214,7 +214,7 @@ const buildSourceAliasCarrierMetadata = (
           ...(layoutSourceType.runtimeCarrierNamespace &&
           layoutSourceType.runtimeCarrierName
             ? {
-                resolvedClrType: `${layoutSourceType.runtimeCarrierNamespace}.${layoutSourceType.runtimeCarrierName}`,
+                targetQualifiedName: `${layoutSourceType.runtimeCarrierNamespace}.${layoutSourceType.runtimeCarrierName}`,
               }
             : {}),
         };

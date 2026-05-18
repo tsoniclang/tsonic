@@ -372,7 +372,7 @@ describe("Module Generation", () => {
           returnType: {
             kind: "referenceType",
             name: "RuntimeValue",
-            resolvedClrType: "MyApp.RuntimeValue",
+            targetQualifiedName: "MyApp.RuntimeValue",
           },
           body: {
             kind: "blockStatement",

@@ -9,7 +9,7 @@
  * - hasStaticModifier: check for static keyword on node
  * - isLambdaExpression: detect arrow/function expressions
  * - getNumericKindFromIrType: IrType → NumericKind lookup
- * - unwrapAwaitedForInference: unwrap Promise/Task wrappers
+ * - unwrapAwaitedForInference: unwrap async wrappers
  * - buildFunctionTypeFromSignatureShape: create IrFunctionType from shape
  * - buildCallableOverloadFamilyType: merge overloads into intersection
  * - buildStructuralMethodFamilyType: structural method → callable type
@@ -27,7 +27,7 @@ import type {
 } from "../types/index.js";
 import * as ts from "typescript";
 import { TSONIC_TO_NUMERIC_KIND } from "../types/numeric-kind.js";
-import { getSpreadTupleShape } from "../types/index.js";
+import { getAwaitedIrType, getSpreadTupleShape } from "../types/index.js";
 import type { NumericKind } from "../types/numeric-kind.js";
 import { unknownType, voidType } from "./types.js";
 
@@ -58,16 +58,16 @@ export const collectResolutionArgTypes = (
  * Mirrors the logic in literals.ts deriveTypeFromNumericIntent.
  */
 export const deriveTypeFromNumericKind = (kind: NumericKind): IrType => {
-  if (kind === "Int32") return { kind: "referenceType", name: "int" };
-  if (kind === "Int64") return { kind: "referenceType", name: "long" };
-  if (kind === "Double") return { kind: "primitiveType", name: "number" };
-  if (kind === "Single") return { kind: "referenceType", name: "float" };
-  if (kind === "Byte") return { kind: "referenceType", name: "byte" };
-  if (kind === "Int16") return { kind: "referenceType", name: "short" };
-  if (kind === "UInt32") return { kind: "referenceType", name: "uint" };
-  if (kind === "UInt64") return { kind: "referenceType", name: "ulong" };
-  if (kind === "UInt16") return { kind: "referenceType", name: "ushort" };
-  if (kind === "SByte") return { kind: "referenceType", name: "sbyte" };
+  if (kind === "int32") return { kind: "primitiveType", name: "int" };
+  if (kind === "int64") return { kind: "referenceType", name: "long" };
+  if (kind === "float64") return { kind: "primitiveType", name: "number" };
+  if (kind === "float32") return { kind: "referenceType", name: "float" };
+  if (kind === "uint8") return { kind: "referenceType", name: "byte" };
+  if (kind === "int16") return { kind: "referenceType", name: "short" };
+  if (kind === "uint32") return { kind: "referenceType", name: "uint" };
+  if (kind === "uint64") return { kind: "referenceType", name: "ulong" };
+  if (kind === "uint16") return { kind: "referenceType", name: "ushort" };
+  if (kind === "int8") return { kind: "referenceType", name: "sbyte" };
   // Default to double for unknown
   return { kind: "primitiveType", name: "number" };
 };
@@ -121,7 +121,7 @@ export const isLambdaExpression = (expr: ts.Expression): boolean => {
 export const getNumericKindFromIrType = (
   type: IrType
 ): NumericKind | undefined => {
-  if (type.kind === "primitiveType" && type.name === "number") return "Double";
+  if (type.kind === "primitiveType" && type.name === "number") return "float64";
   if (type.kind === "primitiveType") {
     return TSONIC_TO_NUMERIC_KIND.get(type.name);
   }
@@ -147,22 +147,9 @@ export const unwrapAwaitedForInference = (type: IrType): IrType => {
     if (inner) return unwrapAwaitedForInference(inner);
   }
 
-  if (type.kind === "referenceType") {
-    const clrName = type.typeId?.clrName;
-    if (
-      clrName === "System.Threading.Tasks.Task" ||
-      clrName === "System.Threading.Tasks.ValueTask"
-    ) {
-      return voidType;
-    }
-
-    if (
-      clrName?.startsWith("System.Threading.Tasks.Task`") ||
-      clrName?.startsWith("System.Threading.Tasks.ValueTask`")
-    ) {
-      const inner = type.typeArguments?.[0];
-      if (inner) return unwrapAwaitedForInference(inner);
-    }
+  const awaited = getAwaitedIrType(type);
+  if (awaited) {
+    return awaited.kind === "voidType" ? voidType : unwrapAwaitedForInference(awaited);
   }
 
   return type;

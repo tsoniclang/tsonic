@@ -1,10 +1,11 @@
 import type {
   BackendCapability,
   BackendCapabilityManifest,
+  FeatureKey,
 } from "@tsonic/frontend";
 
 const unsupported = (
-  name: string,
+  name: FeatureKey,
   diagnosticCode: NonNullable<BackendCapability["diagnosticCode"]>,
   diagnosticMessage: string,
   remediation: string
@@ -16,16 +17,16 @@ const unsupported = (
   remediation,
 });
 
-const supported = (name: string): BackendCapability => ({
+const supported = (name: FeatureKey): BackendCapability => ({
   name,
   status: "supported",
 });
 
 export const NATIVE_AOT_CAPABILITIES: BackendCapabilityManifest = new Map([
   [
-    "intersection-as-storage",
+    "intersection-runtime-storage",
     unsupported(
-      "intersection-as-storage",
+      "intersection-runtime-storage",
       "TSN7414",
       "Intersection types cannot be emitted as NativeAOT runtime storage.",
       "Use a named interface/class for runtime storage, or keep the intersection only as a generic constraint."

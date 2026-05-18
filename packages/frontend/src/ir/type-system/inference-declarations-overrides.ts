@@ -353,13 +353,13 @@ export const typeFromSyntax = (
     return convertTypeNode(state, syntaxInfo.typeNode);
   }
 
-  const exactClrName =
+  const exactTargetName =
     ts.isTypeAliasDeclaration(declNode) && ts.isTypeLiteralNode(declNode.type)
       ? `${nominalEntry.fullyQualifiedName}__Alias`
       : nominalEntry.fullyQualifiedName;
   const exactTypeId = resolveTypeIdByName(
     state,
-    exactClrName,
+    exactTargetName,
     rawType.typeArguments?.length
   );
   if (!exactTypeId) {

@@ -170,9 +170,9 @@ export const hasPropertyFromBindingsRegistry = (
   };
 
   addCandidate(type.name);
-  addCandidate(type.typeId?.tsName);
-  addCandidate(type.resolvedClrType);
-  addCandidate(type.typeId?.clrName);
+  addCandidate(type.typeId?.sourceName);
+  addCandidate(type.targetQualifiedName);
+  addCandidate(type.typeId?.targetName);
 
   for (const value of Array.from(candidates)) {
     if (value.endsWith("$instance")) {
@@ -292,9 +292,9 @@ export const isStaticTypeReference = (
     const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
     if (
       !isLocal &&
-      (expr.object.resolvedClrType !== undefined ||
-        (expr.object.csharpName !== undefined &&
-          expr.object.resolvedAssembly !== undefined))
+      (expr.object.targetQualifiedName !== undefined ||
+        (expr.object.targetMemberName !== undefined &&
+          expr.object.targetOwnerIdentity !== undefined))
     ) {
       return true;
     }

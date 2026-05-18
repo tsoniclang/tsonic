@@ -776,7 +776,7 @@ describe("End-to-End Integration", () => {
             {
               schemaVersion: 1,
               kind: "tsonic-source-package",
-              surfaces: ["clr"],
+              surfaces: ["core"],
               source: {
                 namespace: "fixture.tls",
                 exports: {
@@ -2323,7 +2323,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "var headerValue = normalizeHeaderValue(((global::System.Func<global::Tsonic.Internal.Union<string[], string>?>)(() =>"
       );
-      expect(csharp).not.to.include("((global::System.Func<string?>)(() =>");
+      expect(csharp).not.to.include(
+        "normalizeHeaderValue(((global::System.Func<string?>)(() =>"
+      );
       expect(csharp).not.to.include(
         "var headerValue = normalizeHeaderValue(((global::System.Object)(((global::System.Object)"
       );
@@ -2414,7 +2416,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "var headerValue = normalizeHeaderValue(((global::System.Func<global::Tsonic.Internal.Union"
       );
-      expect(csharp).not.to.include("((global::System.Func<string?>)(() =>");
+      expect(csharp).not.to.include(
+        "normalizeHeaderValue(((global::System.Func<string?>)(() =>"
+      );
     });
 
     it("wraps int-valued returns into JS-number union members", () => {
@@ -2879,6 +2883,12 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include("isErrorHandler(");
+      expect(csharp).to.include(
+        "isErrorHandler((global::Test.MiddlewareHandler)handler, false)"
+      );
+      expect(csharp).to.include(
+        "isErrorHandler((global::Test.MiddlewareHandler)handler, true)"
+      );
       expect(csharp).to.include(
         "MiddlewareHandler From1(global::System.Func<Request__Alias, Response__Alias"
       );
@@ -3886,6 +3896,9 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("if (chunk.Is4())");
       expect(csharp).to.include(
+        "global::nodejs.buffer.Buffer chunk__is_1 = (global::nodejs.buffer.Buffer)chunk.As4();"
+      );
+      expect(csharp).to.include(
         "return ServerResponse._copyUint8Array(chunk__is_1.buffer);"
       );
       expect(csharp).to.include(
@@ -3894,6 +3907,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("if (chunk.Is2())");
       expect(csharp).to.include("for (int index = 0; index < source.length;");
       expect(csharp).to.include("source.at(index)");
+      expect(csharp).not.to.include(
+        "if (chunk is global::nodejs.buffer.Buffer"
+      );
       expect(csharp).not.to.include(
         "new global::js.Array<object>(chunk__is_1).length"
       );
@@ -4459,7 +4475,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "return value >= 0x80 ? (double)(value - 0x100) : value;"
+        "return value >= 0x80 ? (double)(value - 0x100) : (double)value;"
       );
       expect(csharp).not.to.include("Union<int, byte>");
       expect(csharp).not.to.include(".From1(value - 0x100)");

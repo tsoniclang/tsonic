@@ -27,6 +27,13 @@ export type SoundnessGateOptions = {
   readonly backendCapabilities?: BackendCapabilityManifest;
 };
 
+export type UniversalHygieneOptions = Omit<
+  SoundnessGateOptions,
+  "backendCapabilities"
+>;
+
+export type CapabilityValidationOptions = SoundnessGateOptions;
+
 export const KNOWN_BUILTINS = new Set([
   "sbyte",
   "short",
@@ -60,6 +67,8 @@ export type ValidationContext = {
   readonly importedTypeNames: ReadonlySet<string>;
   readonly knownReferenceTypes: ReadonlySet<string>;
   readonly backendCapabilities?: BackendCapabilityManifest;
+  readonly enableCapabilityChecks: boolean;
+  readonly validationMode: "universal" | "capability";
   readonly typeParameterNames: ReadonlySet<string>;
   readonly activeTypeValidation: WeakSet<object>;
 };

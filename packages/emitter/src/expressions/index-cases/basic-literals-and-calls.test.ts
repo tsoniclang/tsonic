@@ -6,6 +6,7 @@ import {
   createExactGlobalBindingRegistry,
   type IrExpression,
   type IrModule,
+  type IrType,
 } from "./helpers.js";
 
 describe("Expression Emission", () => {
@@ -127,7 +128,7 @@ describe("Expression Emission", () => {
     const jsValueType = {
       kind: "referenceType" as const,
       name: "JsValue" as const,
-      resolvedClrType: "Tsonic.Runtime.JsValue" as const,
+      targetQualifiedName: "Tsonic.Runtime.JsValue" as const,
     };
 
     const module: IrModule = {
@@ -234,7 +235,7 @@ describe("Expression Emission", () => {
     expect(result).not.to.include('$"flag={flag}"');
   });
 
-  it("should use csharpName for identifiers when provided", () => {
+  it("should use targetMemberName for identifiers when provided", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -252,15 +253,15 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "console",
-                resolvedClrType: "System.Console",
-                resolvedAssembly: "System",
-                csharpName: "Console", // Custom C# name
+                targetQualifiedName: "System.Console",
+                targetOwnerIdentity: "System",
+                targetMemberName: "Console", // Custom C# name
               },
               property: "log",
               isComputed: false,
               isOptional: false,
             },
-            arguments: [{ kind: "literal", value: "Hello with csharpName" }],
+            arguments: [{ kind: "literal", value: "Hello with targetMemberName" }],
             isOptional: false,
           },
         },
@@ -270,13 +271,13 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Should use global:: prefixed assembly + csharpName
+    // Should use global:: prefixed assembly + targetMemberName
     expect(result).to.include("global::System.Console.log");
     // No using statements
     expect(result).not.to.include("using System");
   });
 
-  it("should use resolvedClrType when csharpName is not provided", () => {
+  it("should use targetQualifiedName when targetMemberName is not provided", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -294,9 +295,9 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "Debug",
-                resolvedClrType: "System.Diagnostics.Debug",
-                resolvedAssembly: "System",
-                // No csharpName specified
+                targetQualifiedName: "System.Diagnostics.Debug",
+                targetOwnerIdentity: "System",
+                // No targetMemberName specified
               },
               property: "WriteLine",
               isComputed: false,
@@ -312,14 +313,14 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Should use global:: prefixed full type name when no csharpName
-    // resolvedClrType already contains full type name, just add global::
+    // Should use global:: prefixed full type name when no targetMemberName
+    // targetQualifiedName already contains full type name, just add global::
     expect(result).to.include("global::System.Diagnostics.Debug.WriteLine");
     // No using statements
     expect(result).not.to.include("using System");
   });
 
-  it("should emit global function calls using csharpName on identifier callees", () => {
+  it("should emit global function calls using targetMemberName on identifier callees", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -335,9 +336,9 @@ describe("Expression Emission", () => {
             callee: {
               kind: "identifier",
               name: "clearInterval",
-              resolvedClrType: "js.Timers",
-              resolvedAssembly: "js",
-              csharpName: "Timers.clearInterval",
+              targetQualifiedName: "js.Timers",
+              targetOwnerIdentity: "js",
+              targetMemberName: "Timers.clearInterval",
             },
             arguments: [{ kind: "literal", value: 1 }],
             isOptional: false,
@@ -424,7 +425,7 @@ describe("Expression Emission", () => {
     const assertionErrorType = {
       kind: "referenceType" as const,
       name: "AssertionError" as const,
-      resolvedClrType: "MyApp.AssertionError",
+      targetQualifiedName: "MyApp.AssertionError",
     };
     const jsValueOrUndefinedType = {
       kind: "unionType" as const,
@@ -432,7 +433,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType" as const,
           name: "JsValue" as const,
-          resolvedClrType: "Tsonic.Runtime.JsValue" as const,
+          targetQualifiedName: "Tsonic.Runtime.JsValue" as const,
         },
         { kind: "primitiveType" as const, name: "undefined" as const },
       ],
@@ -509,6 +510,113 @@ describe("Expression Emission", () => {
     expect(result).to.include("(object)(double)10");
   });
 
+  it("rewraps explicit non-null source-backed values through optional public union carriers", () => {
+    const nativeArrayType: IrType = {
+      kind: "referenceType",
+      name: "NativeArray",
+      targetQualifiedName: "Test.NativeArray",
+    };
+    const bufferType: IrType = {
+      kind: "referenceType",
+      name: "Buffer",
+      targetQualifiedName: "Test.Buffer",
+    };
+    const keyObjectType: IrType = {
+      kind: "referenceType",
+      name: "KeyObject",
+      targetQualifiedName: "Test.KeyObject",
+    };
+    const sourceUnionMembers: readonly IrType[] = [
+      { kind: "primitiveType", name: "string" },
+      bufferType,
+      nativeArrayType,
+    ];
+    const selectedOptionalKeyType: IrType = {
+      kind: "unionType",
+      types: [
+        ...sourceUnionMembers,
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+    const publicOptionalKeyType: IrType = {
+      kind: "unionType",
+      runtimeUnionLayout: "carrierSlotOrder",
+      runtimeCarrierFamilyKey: "runtime-union:alias:Test.NativeKey",
+      runtimeCarrierName: "NativeKey",
+      runtimeCarrierNamespace: "Test",
+      types: [
+        ...sourceUnionMembers,
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "publicRsa" },
+              type: nativeArrayType,
+              initializer: {
+                kind: "new",
+                callee: {
+                  kind: "identifier",
+                  name: "NativeArray",
+                  targetQualifiedName: "Test.NativeArray",
+                  inferredType: nativeArrayType,
+                },
+                arguments: [],
+                inferredType: nativeArrayType,
+              },
+            },
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "key" },
+              type: keyObjectType,
+              initializer: {
+                kind: "new",
+                callee: {
+                  kind: "identifier",
+                  name: "KeyObject",
+                  targetQualifiedName: "Test.KeyObject",
+                  inferredType: keyObjectType,
+                },
+                arguments: [
+                  {
+                    kind: "identifier",
+                    name: "publicRsa",
+                    inferredType: nativeArrayType,
+                  },
+                ],
+                inferredType: keyObjectType,
+                parameterTypes: [selectedOptionalKeyType],
+                sourceBackedSurfaceParameterTypes: [publicOptionalKeyType],
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+
+    expect(result).to.include(
+      "new global::Test.KeyObject(global::Test.NativeKey<string, global::Test.Buffer, global::Test.NativeArray>.From3(publicRsa))"
+    );
+    expect(result).not.to.include("global::Tsonic.Internal.Union");
+  });
+
   it("should convert char identifiers to string when a call argument expects string", () => {
     const module: IrModule = {
       kind: "module",
@@ -540,8 +648,8 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "regex",
-                resolvedClrType: "System.Text.RegularExpressions.Regex",
-                resolvedAssembly: "System.Text.RegularExpressions",
+                targetQualifiedName: "System.Text.RegularExpressions.Regex",
+                targetOwnerIdentity: "System.Text.RegularExpressions",
                 inferredType: { kind: "referenceType", name: "RegExp" },
               },
               property: "test",

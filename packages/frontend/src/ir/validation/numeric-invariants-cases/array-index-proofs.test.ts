@@ -36,7 +36,7 @@ describe("Numeric Proof Invariants", () => {
           "arr",
           arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
         ),
-        createVarDecl("idx", narrowTo(numLiteral(1), "Int32")),
+        createVarDecl("idx", narrowTo(numLiteral(1), "int32")),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("idx"))),
       ]);
 

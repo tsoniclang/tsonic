@@ -16,10 +16,10 @@ import {
 } from "./profiles.js";
 
 describe("CLI Surface Profiles", () => {
-  it("should resolve clr capabilities", () => {
-    const caps = resolveSurfaceCapabilities("clr");
-    expect(caps.includesClr).to.equal(true);
-    expect(caps.resolvedModes).to.deep.equal(["clr"]);
+  it("should resolve core capabilities", () => {
+    const caps = resolveSurfaceCapabilities("core");
+    expect(caps.includesCore).to.equal(true);
+    expect(caps.resolvedModes).to.deep.equal(["core"]);
     expect(caps.requiredTypeRoots).to.deep.equal([
       "node_modules/@tsonic/globals",
     ]);
@@ -30,7 +30,7 @@ describe("CLI Surface Profiles", () => {
   });
 
   it("should validate surface mode strings", () => {
-    expect(isSurfaceMode("clr")).to.equal(true);
+    expect(isSurfaceMode("core")).to.equal(true);
     expect(isSurfaceMode("@tsonic/js")).to.equal(true);
     expect(isSurfaceMode("@tsonic/nodejs")).to.equal(true);
     expect(isSurfaceMode("web")).to.equal(true);
@@ -38,10 +38,10 @@ describe("CLI Surface Profiles", () => {
     expect(isSurfaceMode("   ")).to.equal(false);
   });
 
-  it("should default to clr when mode is undefined", () => {
+  it("should default to core when mode is undefined", () => {
     const caps = resolveSurfaceCapabilities(undefined);
-    expect(caps.mode).to.equal("clr");
-    expect(caps.includesClr).to.equal(true);
+    expect(caps.mode).to.equal("core");
+    expect(caps.includesCore).to.equal(true);
     expect(caps.requiredTypeRoots).to.deep.equal([
       "node_modules/@tsonic/globals",
     ]);
@@ -50,12 +50,12 @@ describe("CLI Surface Profiles", () => {
   it("should leave unresolved custom surfaces empty until a manifest is installed", () => {
     const caps = resolveSurfaceCapabilities("@acme/surface-web");
     expect(caps.mode).to.equal("@acme/surface-web");
-    expect(caps.includesClr).to.equal(false);
+    expect(caps.includesCore).to.equal(false);
     expect(caps.requiredTypeRoots).to.deep.equal([]);
     expect(caps.requiredNpmPackages).to.deep.equal([]);
   });
 
-  it("should prefer installed @tsonic/js manifest without clr inheritance", () => {
+  it("should prefer installed @tsonic/js manifest without core inheritance", () => {
     const workspaceRoot = mkdtempSync(
       join(tmpdir(), "tsonic-surface-sibling-")
     );
@@ -122,7 +122,7 @@ describe("CLI Surface Profiles", () => {
       expect(caps.requiredTypeRoots).to.not.include(
         "node_modules/@tsonic/dotnet"
       );
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
@@ -161,7 +161,7 @@ describe("CLI Surface Profiles", () => {
       );
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
       expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
       expect(
@@ -608,7 +608,7 @@ describe("CLI Surface Profiles", () => {
       const caps = resolveSurfaceCapabilities("@tsonic/nodejs", {
         workspaceRoot,
       });
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.requiredTypeRoots).to.deep.equal([]);
       expect(caps.requiredNpmPackages).to.deep.equal([]);
       expect(
@@ -686,7 +686,7 @@ describe("CLI Surface Profiles", () => {
         workspaceRoot,
       });
       expect(caps.mode).to.equal("@acme/surface-web");
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.requiredNpmPackages).to.deep.equal([
         "@tsonic/js",
         "@acme/surface-web",
@@ -773,7 +773,7 @@ describe("CLI Surface Profiles", () => {
         "@tsonic/js",
         "@acme/surface-node",
       ]);
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.requiredNpmPackages).to.deep.equal([
         "@tsonic/js",
         "@acme/surface-node",

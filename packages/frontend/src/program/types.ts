@@ -3,13 +3,14 @@
  */
 
 import * as ts from "typescript";
-import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
+import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { BindingRegistry } from "./bindings.js";
-import { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { ExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import type { Binding } from "../ir/binding/index.js";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
+import type { TargetSurfaceArtifacts } from "../symbols/index.js";
 
 export type SurfaceMode = string;
 
@@ -35,12 +36,14 @@ export type TsonicProgram = {
     DeclarationModuleAlias
   >;
   readonly sourceFiles: readonly ts.SourceFile[];
-  /** Declaration files from typeRoots (globals, dotnet types, etc.) */
+  /** Declaration files from typeRoots (globals, external surface types, etc.) */
   readonly declarationSourceFiles: readonly ts.SourceFile[];
-  readonly metadata: DotnetMetadataRegistry;
+  readonly metadata: ExternalMetadataRegistry;
   readonly bindings: BindingRegistry;
-  /** Resolver for CLR namespace imports (import-driven discovery) */
-  readonly clrResolver: ClrBindingsResolver;
+  /** Resolver for external namespace imports (import-driven discovery) */
+  readonly externalResolver: ExternalBindingsResolver;
   /** Symbol resolution binding layer (replaces direct checker calls) */
   readonly binding: Binding;
+  /** Target-neutral symbol surface plus target render table produced for the active compilation. */
+  readonly targetSurfaceArtifacts?: TargetSurfaceArtifacts;
 };

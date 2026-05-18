@@ -88,12 +88,12 @@ describe("type-resolution", () => {
           {
             kind: "referenceType",
             name: "__Anon_events",
-            resolvedClrType: "Test.__Anon_events",
+            targetQualifiedName: "Test.__Anon_events",
           },
           {
             kind: "referenceType",
             name: "__Anon_error",
-            resolvedClrType: "Test.__Anon_error",
+            targetQualifiedName: "Test.__Anon_error",
           },
         ],
       };

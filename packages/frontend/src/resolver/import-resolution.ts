@@ -19,7 +19,7 @@ import {
   resolveSourcePackageImport,
   resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
-import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
+import { ExternalBindingsResolver } from "./external-bindings-resolver.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
 
@@ -27,7 +27,7 @@ import type { DeclarationModuleAlias } from "../program/declaration-module-alias
  * Options for import resolution
  */
 export type ResolveImportOptions = {
-  readonly clrResolver?: ClrBindingsResolver;
+  readonly externalResolver?: ExternalBindingsResolver;
   readonly bindings?: BindingRegistry;
   readonly projectRoot?: string;
   readonly surface?: string;
@@ -110,7 +110,7 @@ const findCaseMismatchPath = (
  * @param importSpecifier - The import path to resolve
  * @param containingFile - The file containing the import
  * @param sourceRoot - The project source root
- * @param opts - Optional resolvers (clrResolver for CLR imports, bindings for module bindings)
+ * @param opts - Optional resolvers (externalResolver for external imports, bindings for module bindings)
  */
 export const resolveImport = (
   importSpecifier: string,
@@ -121,7 +121,7 @@ export const resolveImport = (
   const bindings = opts?.bindings;
   const canonicalImportSpecifier = importSpecifier;
 
-  const clrResolver = opts?.clrResolver;
+  const externalResolver = opts?.externalResolver;
 
   if (isLocalImport(canonicalImportSpecifier)) {
     return resolveLocalImport(
@@ -139,15 +139,15 @@ export const resolveImport = (
     return ok({
       resolvedPath: "", // No file path for type-only packages
       isLocal: false,
-      isClr: false,
+      resolutionKind: "phantomTypeOnly",
       originalSpecifier: importSpecifier,
-      resolvedClrType: undefined,
-      resolvedAssembly: undefined,
+      targetQualifiedName: undefined,
+      targetOwnerIdentity: undefined,
     });
   }
 
-  // Prefer installed source packages over CLR/module bindings so packages like
-  // @tsonic/nodejs use their native source implementation instead of CLR
+  // Prefer installed source packages over external/module bindings so packages like
+  // @tsonic/nodejs use their native source implementation instead of external
   // facade packages when both are available.
   if (opts?.projectRoot) {
     const declarationAlias = opts.declarationModuleAliases?.get(
@@ -188,7 +188,7 @@ export const resolveImport = (
           resolvedPath: declarationAliasTarget.value.resolvedPath,
           isLocal: true,
           isSourcePackage: true,
-          isClr: false,
+          resolutionKind: "local",
           originalSpecifier: importSpecifier,
         });
       }
@@ -218,7 +218,7 @@ export const resolveImport = (
         resolvedPath: sourcePackage.value.resolvedPath,
         isLocal: true,
         isSourcePackage: true,
-        isClr: false,
+        resolutionKind: "local",
         originalSpecifier: importSpecifier,
       });
     }
@@ -238,22 +238,22 @@ export const resolveImport = (
       return ok({
         resolvedPath: installedPackage.value.resolvedPath,
         isLocal: true,
-        isClr: false,
+        resolutionKind: "local",
         originalSpecifier: importSpecifier,
       });
     }
   }
 
-  // Use import-driven resolution for CLR imports (if resolver provided)
-  if (clrResolver) {
-    const clrResolution = clrResolver.resolve(canonicalImportSpecifier);
-    if (clrResolution.isClr) {
+  // Use import-driven resolution for external imports (if resolver provided)
+  if (externalResolver) {
+    const externalResolution = externalResolver.resolve(canonicalImportSpecifier);
+    if (externalResolution.kind === "externalSurface") {
       return ok({
-        resolvedPath: "", // No file path for CLR imports
+        resolvedPath: "", // No file path for external imports
         isLocal: false,
-        isClr: true,
+        resolutionKind: "externalSurface",
         originalSpecifier: importSpecifier,
-        resolvedNamespace: clrResolution.resolvedNamespace,
+        resolvedNamespace: externalResolution.resolvedNamespace,
       });
     }
   }
@@ -269,10 +269,10 @@ export const resolveImport = (
       return ok({
         resolvedPath: "", // No file path for bound modules
         isLocal: false,
-        isClr: false,
+        resolutionKind: "externalSurface",
         originalSpecifier: importSpecifier,
-        resolvedClrType: binding.type,
-        resolvedAssembly: binding.assembly,
+        targetQualifiedName: binding.type,
+        targetOwnerIdentity: binding.assembly,
       });
     }
   }
@@ -283,7 +283,7 @@ export const resolveImport = (
       "error",
       `Unsupported module import: "${importSpecifier}"`,
       undefined,
-      "Tsonic only supports local imports (with .js or .ts), source-package imports, declaration-module aliases, and CLR interop bindings"
+      "Tsonic only supports local imports (with .js or .ts), source-package imports, declaration-module aliases, and external bindings"
     )
   );
 };
@@ -372,18 +372,18 @@ export const resolveLocalImport = (
   return ok({
     resolvedPath,
     isLocal: true,
-    isClr: false,
+    resolutionKind: "local",
     originalSpecifier: importSpecifier,
   });
 };
 
 /**
- * Resolve CLR import (namespace validation)
+ * Resolve external import (namespace validation)
  */
-export const resolveClrImport = (
+export const resolveExternalSurfaceImport = (
   importSpecifier: string
 ): Result<ResolvedModule, Diagnostic> => {
-  // For CLR imports, we don't resolve to a file
+  // For external imports, we don't resolve to a file
   // We just validate the format and return the namespace
 
   // Check for invalid characters
@@ -392,17 +392,17 @@ export const resolveClrImport = (
       createDiagnostic(
         "TSN4001",
         "error",
-        `Invalid CLR namespace: "${importSpecifier}"`,
+        `Invalid external namespace: "${importSpecifier}"`,
         undefined,
-        "Must be a valid CLR namespace identifier"
+        "Must be a valid external namespace identifier"
       )
     );
   }
 
   return ok({
-    resolvedPath: "", // No file path for CLR imports
+    resolvedPath: "", // No file path for external imports
     isLocal: false,
-    isClr: true,
+    resolutionKind: "externalSurface",
     originalSpecifier: importSpecifier,
   });
 };

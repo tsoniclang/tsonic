@@ -227,26 +227,26 @@ describe("Binding Resolution in IR", () => {
         namespace: "Acme.Runtime",
         types: [
           {
-            clrName: "Acme.Runtime.Array`1",
-            assemblyName: "Acme.Runtime",
+            targetName: "Acme.Runtime.Array`1",
+            ownerIdentity: "Acme.Runtime",
             methods: [
               {
-                clrName: "map",
-                declaringClrType: "Acme.Runtime.Array`1",
-                declaringAssemblyName: "Acme.Runtime",
+                targetName: "map",
+                ownerQualifiedName: "Acme.Runtime.Array`1",
+                ownerIdentity: "Acme.Runtime",
               },
             ],
             properties: [],
             fields: [],
           },
           {
-            clrName: "Acme.Runtime.ArrayStatics",
-            assemblyName: "Acme.Runtime",
+            targetName: "Acme.Runtime.ArrayStatics",
+            ownerIdentity: "Acme.Runtime",
             methods: [
               {
-                clrName: "from",
-                declaringClrType: "Acme.Runtime.ArrayStatics",
-                declaringAssemblyName: "Acme.Runtime",
+                targetName: "from",
+                ownerQualifiedName: "Acme.Runtime.ArrayStatics",
+                ownerIdentity: "Acme.Runtime",
               },
             ],
             properties: [],

@@ -154,7 +154,7 @@ export type TsonicWorkspaceConfig = {
   readonly dotnetVersion: string;
   /**
    * Active language surface for this workspace compilation.
-   * - "clr": deterministic noLib CLR-first surface (default)
+   * - "core": deterministic noLib core surface (default)
    * - any other value: exact npm package name providing `tsonic.surface.json`
    *   (for example: "@tsonic/js", "@acme/surface-web")
    *

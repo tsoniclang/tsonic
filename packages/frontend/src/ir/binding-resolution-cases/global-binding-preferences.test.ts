@@ -17,28 +17,28 @@ const addClrBindings = (
   path: string,
   namespace: string,
   types: readonly {
-    readonly clrName: string;
-    readonly assemblyName: string;
+    readonly targetName: string;
+    readonly ownerIdentity: string;
     readonly methods?: readonly {
-      readonly clrName: string;
+      readonly targetName: string;
       readonly normalizedSignature?: string;
       readonly parameterCount?: number;
-      readonly declaringClrType: string;
-      readonly declaringAssemblyName: string;
+      readonly ownerQualifiedName: string;
+      readonly ownerIdentity: string;
       readonly isExtensionMethod?: boolean;
     }[];
     readonly properties?: readonly {
-      readonly clrName: string;
-      readonly declaringClrType: string;
-      readonly declaringAssemblyName: string;
+      readonly targetName: string;
+      readonly ownerQualifiedName: string;
+      readonly ownerIdentity: string;
     }[];
   }[]
 ): void => {
   bindings.addBindings(path, {
     namespace,
     types: types.map((type) => ({
-      clrName: type.clrName,
-      assemblyName: type.assemblyName,
+      targetName: type.targetName,
+      ownerIdentity: type.ownerIdentity,
       methods: type.methods ?? [],
       properties: type.properties ?? [],
       fields: [],
@@ -52,16 +52,16 @@ describe("Binding Resolution in IR", () => {
       const bindings = new BindingRegistry();
       addClrBindings(bindings, "/test/js.json", "Acme.Js", [
         {
-          clrName: "Acme.Js.console",
-          assemblyName: "Acme.Js",
+          targetName: "Acme.Js.console",
+          ownerIdentity: "Acme.Js",
           methods: [
             {
-              clrName: "error",
+              targetName: "error",
               normalizedSignature:
                 "error|(System.String):System.Void|static=false",
               parameterCount: 1,
-              declaringClrType: "Acme.Js.console",
-              declaringAssemblyName: "Acme.Js",
+              ownerQualifiedName: "Acme.Js.console",
+              ownerIdentity: "Acme.Js",
             },
           ],
         },
@@ -76,8 +76,8 @@ describe("Binding Resolution in IR", () => {
           kind: "identifier",
           name: "console",
           inferredType: { kind: "referenceType", name: "Console" },
-          resolvedClrType: "Acme.Js.console",
-          resolvedAssembly: "Acme.Js",
+          targetQualifiedName: "Acme.Js.console",
+          targetOwnerIdentity: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "error",
         ctx
@@ -105,28 +105,28 @@ describe("Binding Resolution in IR", () => {
       });
       addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
         {
-          clrName: "Acme.Js.ArrayRuntime",
-          assemblyName: "Acme.Js",
+          targetName: "Acme.Js.ArrayRuntime",
+          ownerIdentity: "Acme.Js",
         },
         {
-          clrName: "Acme.Js.ArrayStatics",
-          assemblyName: "Acme.Js",
+          targetName: "Acme.Js.ArrayStatics",
+          ownerIdentity: "Acme.Js",
           methods: [
             {
-              clrName: "isArray",
+              targetName: "isArray",
               normalizedSignature:
                 "isArray|(System.Object):System.Boolean|static=true",
               parameterCount: 1,
-              declaringClrType: "Acme.Js.ArrayStatics",
-              declaringAssemblyName: "Acme.Js",
+              ownerQualifiedName: "Acme.Js.ArrayStatics",
+              ownerIdentity: "Acme.Js",
             },
             {
-              clrName: "from",
+              targetName: "from",
               normalizedSignature:
                 "from|(System.Object):Acme.Js.ArrayRuntime|static=true",
               parameterCount: 1,
-              declaringClrType: "Acme.Js.ArrayStatics",
-              declaringAssemblyName: "Acme.Js",
+              ownerQualifiedName: "Acme.Js.ArrayStatics",
+              ownerIdentity: "Acme.Js",
             },
           ],
         },
@@ -141,8 +141,8 @@ describe("Binding Resolution in IR", () => {
           kind: "identifier",
           name: "Array",
           inferredType: { kind: "referenceType", name: "Array" },
-          resolvedClrType: "Acme.Js.ArrayRuntime",
-          resolvedAssembly: "Acme.Js",
+          targetQualifiedName: "Acme.Js.ArrayRuntime",
+          targetOwnerIdentity: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "isArray",
         ctx
@@ -170,20 +170,20 @@ describe("Binding Resolution in IR", () => {
       });
       addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
         {
-          clrName: "Acme.Js.ArrayRuntime",
-          assemblyName: "Acme.Js",
+          targetName: "Acme.Js.ArrayRuntime",
+          ownerIdentity: "Acme.Js",
         },
         {
-          clrName: "Acme.Js.ArrayStatics",
-          assemblyName: "Acme.Js",
+          targetName: "Acme.Js.ArrayStatics",
+          ownerIdentity: "Acme.Js",
           methods: [
             {
-              clrName: "from",
+              targetName: "from",
               normalizedSignature:
                 "from|(System.Object):Acme.Js.ArrayRuntime|static=true",
               parameterCount: 1,
-              declaringClrType: "Acme.Js.ArrayStatics",
-              declaringAssemblyName: "Acme.Js",
+              ownerQualifiedName: "Acme.Js.ArrayStatics",
+              ownerIdentity: "Acme.Js",
             },
           ],
         },
@@ -199,8 +199,8 @@ describe("Binding Resolution in IR", () => {
           name: "Array",
           declId: createTestDeclId(1),
           inferredType: { kind: "referenceType", name: "Array" },
-          resolvedClrType: "Acme.Js.ArrayRuntime",
-          resolvedAssembly: "Acme.Js",
+          targetQualifiedName: "Acme.Js.ArrayRuntime",
+          targetOwnerIdentity: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "from",
         ctx
@@ -227,32 +227,32 @@ describe("Binding Resolution in IR", () => {
       });
       addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
         {
-          clrName: "Acme.Js.console",
-          assemblyName: "Acme.Js",
+          targetName: "Acme.Js.console",
+          ownerIdentity: "Acme.Js",
           methods: [
             {
-              clrName: "error",
+              targetName: "error",
               normalizedSignature:
                 "error|(System.String):System.Void|static=false",
               parameterCount: 1,
-              declaringClrType: "Acme.Js.console",
-              declaringAssemblyName: "Acme.Js",
+              ownerQualifiedName: "Acme.Js.console",
+              ownerIdentity: "Acme.Js",
             },
           ],
         },
       ]);
       addClrBindings(bindings, "/test/system.json", "System", [
         {
-          clrName: "System.Console",
-          assemblyName: "System.Runtime",
+          targetName: "System.Console",
+          ownerIdentity: "System.Runtime",
           methods: [
             {
-              clrName: "Error",
+              targetName: "Error",
               normalizedSignature:
                 "Error|(System.String):System.Void|static=true",
               parameterCount: 1,
-              declaringClrType: "System.Console",
-              declaringAssemblyName: "System.Runtime",
+              ownerQualifiedName: "System.Console",
+              ownerIdentity: "System.Runtime",
             },
           ],
         },
@@ -298,13 +298,13 @@ describe("Binding Resolution in IR", () => {
         "System.Diagnostics",
         [
           {
-            clrName: "System.Diagnostics.Process",
-            assemblyName: "System.Diagnostics.Process",
+            targetName: "System.Diagnostics.Process",
+            ownerIdentity: "System.Diagnostics.Process",
             properties: [
               {
-                clrName: "ExitCode",
-                declaringClrType: "System.Diagnostics.Process",
-                declaringAssemblyName: "System.Diagnostics.Process",
+                targetName: "ExitCode",
+                ownerQualifiedName: "System.Diagnostics.Process",
+                ownerIdentity: "System.Diagnostics.Process",
               },
             ],
           },
@@ -348,7 +348,7 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "js",
             type: "js.Boolean",
-            csharpName: "Globals.Boolean",
+            targetMemberName: "Globals.Boolean",
           },
         },
       });
@@ -356,16 +356,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "js.Boolean",
-            assemblyName: "js",
+            targetName: "js.Boolean",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "toString",
+                targetName: "toString",
                 normalizedSignature:
                   "toString|(System.Boolean):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.Boolean",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.Boolean",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -378,15 +378,15 @@ describe("Binding Resolution in IR", () => {
         namespace: "System",
         types: [
           {
-            clrName: "System.Boolean",
-            assemblyName: "System.Runtime",
+            targetName: "System.Boolean",
+            ownerIdentity: "System.Runtime",
             methods: [
               {
-                clrName: "ToString",
+                targetName: "ToString",
                 normalizedSignature: "ToString|():System.String",
                 parameterCount: 0,
-                declaringClrType: "System.Boolean",
-                declaringAssemblyName: "System.Runtime",
+                ownerQualifiedName: "System.Boolean",
+                ownerIdentity: "System.Runtime",
                 isExtensionMethod: false,
               },
             ],

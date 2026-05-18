@@ -8,7 +8,7 @@
  * - no widened-signature compatibility bridges
  * - no source-name-only matching
  *
- * A derived member overrides a local base member only when the emitted CLR name
+ * A derived member overrides a local base member only when the emitted native target name
  * and full signature match exactly after base-class type-argument substitution.
  * Otherwise, a same-name local member is marked as shadowing.
  */

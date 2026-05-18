@@ -13,7 +13,7 @@ import * as fs from "fs";
  * Support type definitions (from _support/types.d.ts)
  */
 const SUPPORT_TYPES_DEFS = `
-// Support types for CLR interop
+// Support types for native interop
 export type TSByRef<T> = { value: T };
 export type TSUnsafePointer<T> = { __brand: "unsafe-pointer"; __type: T };
 export type TSDelegate<TArgs extends any[], TReturn> = { __brand: "delegate"; __args: TArgs; __return: TReturn };

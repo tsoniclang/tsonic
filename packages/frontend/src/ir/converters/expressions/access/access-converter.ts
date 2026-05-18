@@ -37,32 +37,32 @@ import {
 } from "../../../../object-literal-method-runtime.js";
 import { selectUnionArm } from "../../union-arm-selection.js";
 
-const typeHasClrIdentity = (
+const typeHasTargetIdentity = (
   type: IrExpression["inferredType"] | undefined
 ): boolean => {
   if (!type) return false;
   switch (type.kind) {
     case "referenceType":
-      return !!type.resolvedClrType || !!type.typeId?.clrName;
+      return !!type.targetQualifiedName || !!type.typeId?.targetName;
     case "unionType":
     case "intersectionType":
-      return type.types.some(typeHasClrIdentity);
+      return type.types.some(typeHasTargetIdentity);
     case "arrayType":
-      return typeHasClrTypeIdentity(type.elementType);
+      return typeHasTargetTypeIdentity(type.elementType);
     case "tupleType":
-      return type.elementTypes.some(typeHasClrTypeIdentity);
+      return type.elementTypes.some(typeHasTargetTypeIdentity);
     default:
       return false;
   }
 };
 
-const typeHasClrTypeIdentity = (
+const typeHasTargetTypeIdentity = (
   type: NonNullable<IrExpression["inferredType"]>
-): boolean => typeHasClrIdentity(type);
+): boolean => typeHasTargetIdentity(type);
 
-const expressionHasClrIdentity = (expr: IrExpression): boolean =>
-  ("resolvedClrType" in expr && typeof expr.resolvedClrType === "string") ||
-  typeHasClrIdentity(expr.inferredType);
+const expressionHasTargetIdentity = (expr: IrExpression): boolean =>
+  ("targetQualifiedName" in expr && typeof expr.targetQualifiedName === "string") ||
+  typeHasTargetIdentity(expr.inferredType);
 
 /**
  * Convert property access or element access expression
@@ -118,7 +118,7 @@ export const convertMemberExpression = (
     const hierarchicalMemberBinding =
       exactMemberId === undefined ||
       (exactMemberBinding === undefined &&
-        expressionHasClrIdentity(bindingResolutionObject))
+        expressionHasTargetIdentity(bindingResolutionObject))
         ? resolveHierarchicalBinding(bindingResolutionObject, propertyName, ctx)
         : undefined;
     const memberBinding =
@@ -141,7 +141,7 @@ export const convertMemberExpression = (
     // is missing - use unknownType as poison so validation can emit TSN5203.
     //
     // EXCEPTION: If memberBinding exists AND declaredType is undefined, return undefined.
-    // This handles pure CLR-bound methods like Console.WriteLine that have no TS declaration.
+    // This handles pure external-bound methods like Console.WriteLine that have no TS declaration.
     const narrowedAccessType =
       hasAccessPathNarrowing(node, ctx) || currentReceiverType !== undefined
         ? getCurrentTypeForAccessExpression(node, ctx)
@@ -174,15 +174,15 @@ export const convertMemberExpression = (
         ?.types.some((t) => t.alias === propertyName) === true;
 
     // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
-    // The emitter uses memberBinding separately for C# member naming.
+    // The emitter uses memberBinding separately for target member naming.
     //
     // Priority order for inferredType:
     // 1. If declaredType exists, use it.
-    // 2. If memberBinding exists but no declaredType, use undefined (pure CLR-bound)
+    // 2. If memberBinding exists but no declaredType, use undefined (pure external-bound)
     // 3. Otherwise, poison with unknownType for validation (TSN5203)
     //
     // Note: Both memberBinding AND inferredType can be set - they serve different purposes:
-    // - memberBinding: used by emitter for C# member names
+    // - memberBinding: used by emitter for target member names
     // - inferredType: used by validation passes for type checking
     //
     // Class fields without explicit type annotations will emit TSN5203.
@@ -349,7 +349,7 @@ export const convertMemberExpression = (
     const objectType = currentReceiverType ?? object.inferredType;
 
     // Classify the access kind for proof pass
-    // This determines whether Int32 proof is required for the index
+    // This determines whether source-int proof is required for the index
     const accessKind = classifyComputedAccess(objectType, ctx);
 
     const narrowedAccessType =

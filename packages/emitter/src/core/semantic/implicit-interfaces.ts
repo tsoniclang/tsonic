@@ -48,12 +48,12 @@ const VOID_TYPE: IrType = { kind: "voidType" };
 const getReferenceLeafName = (
   ref: Extract<IrType, { kind: "referenceType" }>
 ): string => {
-  if (ref.typeId?.tsName) {
-    const leaf = ref.typeId.tsName.split(".").pop();
+  if (ref.typeId?.sourceName) {
+    const leaf = ref.typeId.sourceName.split(".").pop();
     if (leaf) return leaf;
   }
-  if (ref.resolvedClrType) {
-    const leaf = ref.resolvedClrType.split(".").pop();
+  if (ref.targetQualifiedName) {
+    const leaf = ref.targetQualifiedName.split(".").pop();
     if (leaf) return leaf;
   }
   return ref.name.split(".").pop() ?? ref.name;
@@ -67,15 +67,15 @@ const buildCanonicalInterfaceRef = (
   ...sourceRef,
   kind: "referenceType",
   name,
-  resolvedClrType:
-    sourceRef?.typeId?.clrName ??
-    (sourceRef?.resolvedClrType &&
+  targetQualifiedName:
+    sourceRef?.typeId?.targetName ??
+    (sourceRef?.targetQualifiedName &&
     getClrIdentityKey(
-      sourceRef.resolvedClrType,
+      sourceRef.targetQualifiedName,
       sourceRef.typeArguments?.length ?? 0
     ) !==
       getClrIdentityKey(sourceRef.name, sourceRef.typeArguments?.length ?? 0)
-      ? sourceRef.resolvedClrType
+      ? sourceRef.targetQualifiedName
       : undefined) ??
     `${namespace}.${name}`,
 });

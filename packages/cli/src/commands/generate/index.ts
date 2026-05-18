@@ -468,6 +468,7 @@ export const generateCommand = (
       referenceModules: modules,
       clrBindings: bindings,
       bindingRegistry: graphResult.value.bindingRegistry,
+      targetRenderTable: graphResult.value.targetRenderTable,
       enableJsonAot: config.outputConfig.nativeAot ?? false,
     });
     if (!emitResult.ok) {

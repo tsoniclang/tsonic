@@ -7,7 +7,10 @@ import {
   type Diagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
-import { capability } from "../capabilities/backend-capabilities.js";
+import {
+  capability,
+  type FeatureKey,
+} from "../capabilities/backend-capabilities.js";
 import {
   resolveSurfaceCapabilities,
   surfaceIncludesJs,
@@ -17,7 +20,7 @@ import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-lite
 
 const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
-  capabilityName: string,
+  capabilityName: FeatureKey,
   fallback: Diagnostic
 ): Diagnostic => {
   const backendCapability = capability(
@@ -631,7 +634,7 @@ export const validateUnsupportedFeatures = (
         addUnsupported(
           node,
           `JavaScript surface member '${elementAccess.name}' is not available in the active surface.`,
-          "Use an explicit CLR/domain API, or compile with a surface that provides JavaScript APIs."
+          "Use an explicit domain/native API, or compile with a surface that provides JavaScript APIs."
         );
       }
 
@@ -641,7 +644,7 @@ export const validateUnsupportedFeatures = (
           addUnsupported(
             node,
             `JavaScript surface API '${globalApi}' is not available in the active surface.`,
-            "Use an explicit CLR/domain API, or compile with a surface that provides JavaScript APIs."
+            "Use an explicit domain/native API, or compile with a surface that provides JavaScript APIs."
           );
         }
       }
@@ -652,7 +655,7 @@ export const validateUnsupportedFeatures = (
           addUnsupported(
             node,
             `JavaScript surface API '${globalApi}' is not available in the active surface.`,
-            "Use an explicit CLR/domain API, or compile with a surface that provides JavaScript APIs."
+            "Use an explicit domain/native API, or compile with a surface that provides JavaScript APIs."
           );
         }
       }

@@ -1,16 +1,16 @@
 /**
  * Unified Type Universe
  *
- * Merges source-authored types (from TypeRegistry) and assembly-authored
- * types (from ClrCatalog) into a single unified lookup table.
+ * Merges source-authored types (from TypeRegistry) and external-authored
+ * types into a single unified lookup table.
  *
- * INVARIANT INV-CLR: This is THE source of truth for all type queries.
+ * INVARIANT INV-NOMINAL: This is THE source of truth for all type queries.
  * No fallback paths allowed. If a type isn't in this catalog, it doesn't exist.
  *
  * Design:
  * - Source types get stableIds generated as "{ownerIdentity}:{fullyQualifiedName}"
- * - Assembly types keep their original stableIds from tsbindgen bindings
- * - Lookups by tsName, clrName, or stableId all work uniformly
+ * - External types keep their provider stableIds from generated bindings
+ * - Lookups by tsName, targetName, or stableId all work uniformly
  */
 
 import type {
@@ -25,10 +25,11 @@ import type {
   MemberEntry,
   HeritageEdge,
   TypeParameterEntry,
-  AssemblyTypeCatalog,
+  ExternalTypeCatalog,
   UnifiedTypeCatalog,
 } from "./types.js";
-import { makeTypeId, PRIMITIVE_TO_STABLE_ID } from "./types.js";
+import { makeTypeId } from "./types.js";
+import { buildAliasTable } from "./alias-table.js";
 import type {
   TypeRegistry,
   TypeRegistryEntry,
@@ -136,7 +137,7 @@ const convertMemberInfo = (
 
   return {
     tsName: memberInfo.name,
-    clrName: memberInfo.name,
+    targetName: memberInfo.name,
     memberKind,
     type: withOptionalUndefined(memberInfo.type, memberInfo.isOptional),
     signatures: memberInfo.methodSignatures?.map((sig) => ({
@@ -193,16 +194,10 @@ const convertHeritageInfo = (
     };
   }
 
-  const primitiveStableId = PRIMITIVE_TO_STABLE_ID.get(
-    targetName.toLowerCase()
+  const targetStableId = makeSourceStableId(
+    resolveSourceOwnerIdentity(targetName) ?? ownerIdentity,
+    targetName
   );
-
-  const targetStableId = primitiveStableId
-    ? primitiveStableId
-    : makeSourceStableId(
-        resolveSourceOwnerIdentity(targetName) ?? ownerIdentity,
-        targetName
-      );
 
   // Extract type arguments from the baseType if it's a reference type
   const typeArguments: IrType[] = [];
@@ -232,20 +227,21 @@ const convertRegistryEntry = (
     entry.fullyQualifiedName
   );
 
-  // C# has no type-alias syntax at use sites. For `type X = { ... }` (objectType),
-  // the emitter materializes a concrete CLR class named `X__Alias`.
-  // The unified universe must reflect that CLR name so cross-module emission
-  // (via TypeId.clrName) remains correct and deterministic.
-  const clrName =
+  // target has no type-alias syntax at use sites. For `type X = { ... }` (objectType),
+  // the emitter materializes a concrete target class named `X__Alias`.
+  // The unified universe must reflect that target name so cross-module emission
+  // (via TypeId.targetName) remains correct and deterministic.
+  const targetName =
     entry.kind === "typeAlias" && entry.aliasedType?.kind === "objectType"
       ? `${entry.fullyQualifiedName}__Alias`
       : entry.fullyQualifiedName;
 
   const typeId = makeTypeId(
     stableId,
-    clrName,
+    targetName,
     entry.ownerIdentity,
-    entry.name // TS name = simple name
+    entry.name, // TS name = simple name
+    "source"
   );
 
   // Convert kind
@@ -316,7 +312,7 @@ const resolveSourceReferenceTypeId = (
   sourceRegistry: TypeRegistry,
   entries: ReadonlyMap<string, NominalEntry>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
-  clrNameToTypeId: ReadonlyMap<string, TypeId>,
+  targetNameToTypeId: ReadonlyMap<string, TypeId>,
   ownerIdentity: string,
   containingFQName: string
 ): TypeId | undefined => {
@@ -324,17 +320,17 @@ const resolveSourceReferenceTypeId = (
     return type.typeId;
   }
 
-  if (type.resolvedClrType) {
-    const byClrName = clrNameToTypeId.get(type.resolvedClrType);
-    if (byClrName) {
-      return byClrName;
+  if (type.targetQualifiedName) {
+    const byTargetName = targetNameToTypeId.get(type.targetQualifiedName);
+    if (byTargetName) {
+      return byTargetName;
     }
   }
 
   if (type.name.includes(".")) {
     return (
       getSourceTypeIdByFQName(type.name, sourceRegistry, entries) ??
-      clrNameToTypeId.get(type.name) ??
+      targetNameToTypeId.get(type.name) ??
       tsNameToTypeId.get(type.name)
     );
   }
@@ -386,7 +382,7 @@ const resolveSourceReferenceTypeId = (
     }
   }
 
-  return tsNameToTypeId.get(type.name) ?? clrNameToTypeId.get(type.name);
+  return tsNameToTypeId.get(type.name) ?? targetNameToTypeId.get(type.name);
 };
 
 const enrichSourceTypeParameters = (
@@ -521,7 +517,7 @@ const enrichSourceIrType = (
   sourceRegistry: TypeRegistry,
   entries: ReadonlyMap<string, NominalEntry>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
-  clrNameToTypeId: ReadonlyMap<string, TypeId>,
+  targetNameToTypeId: ReadonlyMap<string, TypeId>,
   ownerIdentity: string,
   containingFQName: string,
   cache: EnrichTypeCache
@@ -546,7 +542,7 @@ const enrichSourceIrType = (
       sourceRegistry,
       entries,
       tsNameToTypeId,
-      clrNameToTypeId,
+      targetNameToTypeId,
       ownerIdentity,
       containingFQName,
       cache
@@ -559,7 +555,7 @@ const enrichSourceIrType = (
         sourceRegistry,
         entries,
         tsNameToTypeId,
-        clrNameToTypeId,
+        targetNameToTypeId,
         ownerIdentity,
         containingFQName
       );
@@ -786,7 +782,7 @@ const enrichSourceNominalEntry = (
   sourceRegistry: TypeRegistry,
   entries: ReadonlyMap<string, NominalEntry>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
-  clrNameToTypeId: ReadonlyMap<string, TypeId>,
+  targetNameToTypeId: ReadonlyMap<string, TypeId>,
   cache: EnrichTypeCache
 ): NominalEntry => {
   if (entry.origin !== "source") {
@@ -799,9 +795,9 @@ const enrichSourceNominalEntry = (
       sourceRegistry,
       entries,
       tsNameToTypeId,
-      clrNameToTypeId,
-      entry.typeId.assemblyName,
-      entry.typeId.clrName,
+      targetNameToTypeId,
+      entry.typeId.ownerIdentity,
+      entry.typeId.targetName,
       cache
     );
 
@@ -917,28 +913,29 @@ const enrichSourceNominalEntry = (
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Build a unified type catalog from source and assembly catalogs.
+ * Build a unified type catalog from source and external catalogs.
  *
  * @param sourceRegistry - TypeRegistry containing source-authored types
- * @param assemblyCatalog - AssemblyTypeCatalog containing CLR metadata types
+ * @param externalCatalog - ExternalTypeCatalog containing target metadata types
  * @param projectName - Fallback owner identity for local project source types
  * @returns UnifiedTypeCatalog with merged type information
  */
 export const buildUnifiedUniverse = (
   sourceRegistry: TypeRegistry | undefined,
-  assemblyCatalog: AssemblyTypeCatalog,
+  externalCatalog: ExternalTypeCatalog,
   projectName: string = "project"
 ): UnifiedTypeCatalog => {
-  // Start with assembly entries (these are the "ground truth" for CLR types)
-  const entries = new Map<string, NominalEntry>(assemblyCatalog.entries);
-  const tsNameToTypeId = new Map<string, TypeId>(
-    assemblyCatalog.tsNameToTypeId
-  );
-  const clrNameToTypeId = new Map<string, TypeId>(
-    assemblyCatalog.clrNameToTypeId
+  // Start with external entries (these are the "ground truth" for target types)
+  const entries = new Map<string, NominalEntry>(externalCatalog.entries);
+  const tsNameToTypeId = new Map<string, TypeId>([
+    ...externalCatalog.tsNameToTypeId,
+    ...buildAliasTable(externalCatalog),
+  ]);
+  const targetNameToTypeId = new Map<string, TypeId>(
+    externalCatalog.targetNameToTypeId
   );
   const sourceTsNamePriority = new Map<string, number>();
-  const sourceClrNamePriority = new Map<string, number>();
+  const sourceTargetNamePriority = new Map<string, number>();
   const enrichTypeCache: EnrichTypeCache = new WeakMap();
 
   // Add source types if registry is provided
@@ -962,34 +959,34 @@ export const buildUnifiedUniverse = (
       );
       const preserveAssemblyIdentity =
         entry.preservesAssemblyIdentity === true &&
-        assemblyCatalog.tsNameToTypeId.has(entry.name);
+        externalCatalog.tsNameToTypeId.has(entry.name);
 
-      // Add to maps (source types won't collide with assembly types by stableId)
+      // Add to maps (source types won't collide with external types by stableId)
       entries.set(nominalEntry.typeId.stableId, nominalEntry);
       if (!preserveAssemblyIdentity) {
         const sourcePriority = entry.isDeclarationFile ? 0 : 1;
 
         const existingTsPriority = sourceTsNamePriority.get(
-          nominalEntry.typeId.tsName
+          nominalEntry.typeId.sourceName
         );
         if (
           existingTsPriority === undefined ||
           sourcePriority >= existingTsPriority
         ) {
-          tsNameToTypeId.set(nominalEntry.typeId.tsName, nominalEntry.typeId);
-          sourceTsNamePriority.set(nominalEntry.typeId.tsName, sourcePriority);
+          tsNameToTypeId.set(nominalEntry.typeId.sourceName, nominalEntry.typeId);
+          sourceTsNamePriority.set(nominalEntry.typeId.sourceName, sourcePriority);
         }
 
-        const existingClrPriority = sourceClrNamePriority.get(
-          nominalEntry.typeId.clrName
+        const existingTargetPriority = sourceTargetNamePriority.get(
+          nominalEntry.typeId.targetName
         );
         if (
-          existingClrPriority === undefined ||
-          sourcePriority >= existingClrPriority
+          existingTargetPriority === undefined ||
+          sourcePriority >= existingTargetPriority
         ) {
-          clrNameToTypeId.set(nominalEntry.typeId.clrName, nominalEntry.typeId);
-          sourceClrNamePriority.set(
-            nominalEntry.typeId.clrName,
+          targetNameToTypeId.set(nominalEntry.typeId.targetName, nominalEntry.typeId);
+          sourceTargetNamePriority.set(
+            nominalEntry.typeId.targetName,
             sourcePriority
           );
         }
@@ -1007,7 +1004,7 @@ export const buildUnifiedUniverse = (
           sourceRegistry,
           entries,
           tsNameToTypeId,
-          clrNameToTypeId,
+          targetNameToTypeId,
           enrichTypeCache
         )
       );
@@ -1022,7 +1019,7 @@ export const buildUnifiedUniverse = (
 
     resolveTsName: (tsName: string) => tsNameToTypeId.get(tsName),
 
-    resolveClrName: (clrName: string) => clrNameToTypeId.get(clrName),
+    resolveTargetName: (targetName: string) => targetNameToTypeId.get(targetName),
 
     getMembers: (typeId: TypeId) => {
       const entry = entries.get(typeId.stableId);
@@ -1065,11 +1062,9 @@ export const buildUnifiedUniverse = (
 /**
  * Normalize a primitive IrType to its canonical nominal TypeId.
  *
- * This is the key function for unifying primitive types with their CLR counterparts:
- * - primitiveType("string") → TypeId for System.String
- * - primitiveType("int") → TypeId for System.Int32
- * - primitiveType("number") → TypeId for System.Double
- * - primitiveType("boolean") → TypeId for System.Boolean
+ * This is the key function for unifying primitive types with their nominal
+ * carrier types from the active external catalog. The mapping is catalog data,
+ * not a hardcoded target-runtime table.
  *
  * @param type - The IrType to normalize
  * @param catalog - The unified catalog to look up TypeIds
@@ -1081,11 +1076,7 @@ export const normalizePrimitiveToTypeId = (
 ): TypeId | undefined => {
   if (type.kind !== "primitiveType") return undefined;
 
-  const stableId = PRIMITIVE_TO_STABLE_ID.get(type.name);
-  if (!stableId) return undefined;
-
-  const entry = catalog.getByStableId(stableId);
-  return entry?.typeId;
+  return catalog.resolveTsName(type.name);
 };
 
 /**
@@ -1106,9 +1097,9 @@ export const getTypeId = (
 
   // Handle reference types - look up by name
   if (type.kind === "referenceType") {
-    // Try clrName first (most specific)
-    if (type.resolvedClrType) {
-      const typeId = catalog.resolveClrName(type.resolvedClrType);
+    // Try targetName first (most specific)
+    if (type.targetQualifiedName) {
+      const typeId = catalog.resolveTargetName(type.targetQualifiedName);
       if (typeId) return typeId;
     }
 
@@ -1116,8 +1107,8 @@ export const getTypeId = (
     const typeId = catalog.resolveTsName(type.name);
     if (typeId) return typeId;
 
-    // Try as clrName
-    return catalog.resolveClrName(type.name);
+    // Try as targetName
+    return catalog.resolveTargetName(type.name);
   }
 
   // Arrays, tuples, functions, unions, intersections, etc. don't have TypeIds

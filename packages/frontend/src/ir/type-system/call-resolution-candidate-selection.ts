@@ -24,7 +24,6 @@ import {
 } from "./type-system-state-helpers.js";
 import {
   getIterableShape,
-  getKnownIterableCarrierMode,
 } from "./iterable-type-shapes.js";
 
 type CandidateSelection = {
@@ -542,13 +541,17 @@ const countIterableCarrierCompatibleArguments = (
       continue;
     }
 
-    const parameterMode = getKnownIterableCarrierMode(state, parameterType);
-    if (!parameterMode) {
+    if (typesEqual(parameterType, argumentType)) {
+      continue;
+    }
+
+    const parameterShape = getIterableShape(state, parameterType);
+    if (!parameterShape) {
       continue;
     }
 
     const argumentShape = getIterableShape(state, argumentType);
-    if (argumentShape?.mode === parameterMode) {
+    if (argumentShape?.mode === parameterShape.mode) {
       compatible += 1;
     }
   }

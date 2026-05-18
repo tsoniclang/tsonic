@@ -40,15 +40,15 @@ describe("Binding Resolution in IR", () => {
         namespace: "System.Linq",
         types: [
           {
-            clrName: "System.Linq.Enumerable",
-            assemblyName: "System.Linq",
+            targetName: "System.Linq.Enumerable",
+            ownerIdentity: "System.Linq",
             methods: [
               {
-                clrName: "TryGetNonEnumeratedCount",
+                targetName: "TryGetNonEnumeratedCount",
                 normalizedSignature:
                   "TryGetNonEnumeratedCount|(IEnumerable_1,System.Int32&):System.Boolean|static=true",
-                declaringClrType: "System.Linq.Enumerable",
-                declaringAssemblyName: "System.Linq",
+                ownerQualifiedName: "System.Linq.Enumerable",
+                ownerIdentity: "System.Linq",
                 isExtensionMethod: true,
                 parameterModifiers: [{ index: 1, modifier: "out" }],
               },
@@ -123,25 +123,25 @@ describe("Binding Resolution in IR", () => {
         namespace: "System",
         types: [
           {
-            clrName: "System.MemoryExtensions",
-            assemblyName: "System",
+            targetName: "System.MemoryExtensions",
+            ownerIdentity: "System",
             methods: [
               {
-                clrName: "Overlaps",
+                targetName: "Overlaps",
                 normalizedSignature:
                   "Overlaps|(ReadOnlySpan_1,ReadOnlySpan_1):System.Boolean|static=true",
                 parameterCount: 2,
-                declaringClrType: "System.MemoryExtensions",
-                declaringAssemblyName: "System",
+                ownerQualifiedName: "System.MemoryExtensions",
+                ownerIdentity: "System",
                 isExtensionMethod: true,
               },
               {
-                clrName: "Overlaps",
+                targetName: "Overlaps",
                 normalizedSignature:
                   "Overlaps|(ReadOnlySpan_1,ReadOnlySpan_1,System.Int32&):System.Boolean|static=true",
                 parameterCount: 3,
-                declaringClrType: "System.MemoryExtensions",
-                declaringAssemblyName: "System",
+                ownerQualifiedName: "System.MemoryExtensions",
+                ownerIdentity: "System",
                 isExtensionMethod: true,
                 parameterModifiers: [{ index: 2, modifier: "out" }],
               },
@@ -197,16 +197,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "System.Double",
-            assemblyName: "js",
+            targetName: "System.Double",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "toFixed",
+                targetName: "toFixed",
                 normalizedSignature:
                   "toFixed|(System.Double,System.Int32):System.String|static=true",
                 parameterCount: 2,
-                declaringClrType: "js.NumberExtensions",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.NumberExtensions",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -256,16 +256,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "System.Array",
-            assemblyName: "js",
+            targetName: "System.Array",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "join",
+                targetName: "join",
                 normalizedSignature:
                   "join|(System.Array,System.String):System.String|static=true",
                 parameterCount: 2,
-                declaringClrType: "js.ArrayExtensions",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.ArrayExtensions",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -330,15 +330,15 @@ describe("Binding Resolution in IR", () => {
         namespace: "System.Linq",
         types: [
           {
-            clrName: "System.Linq.Enumerable",
-            assemblyName: "System.Linq",
+            targetName: "System.Linq.Enumerable",
+            ownerIdentity: "System.Linq",
             methods: [
               {
-                clrName: "TryGetNonEnumeratedCount",
+                targetName: "TryGetNonEnumeratedCount",
                 normalizedSignature:
                   "TryGetNonEnumeratedCount|(IEnumerable_1,System.Int32&):System.Boolean|static=true",
-                declaringClrType: "System.Linq.Enumerable",
-                declaringAssemblyName: "System.Linq",
+                ownerQualifiedName: "System.Linq.Enumerable",
+                ownerIdentity: "System.Linq",
                 isExtensionMethod: true,
                 parameterModifiers: [{ index: 1, modifier: "out" }],
               },

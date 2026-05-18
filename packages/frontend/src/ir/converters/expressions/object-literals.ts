@@ -11,7 +11,6 @@ import {
   IrType,
   IrExpression,
 } from "../../types.js";
-import { referenceTypeHasClrIdentity } from "../../types/type-ops.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { checkSynthesisEligibility } from "../anonymous-synthesis.js";
@@ -32,11 +31,6 @@ import {
   rebindObjectLiteralThisInClassMember,
   rebindObjectLiteralThisInExpression,
 } from "./object-literal-helpers.js";
-
-const BROAD_OBJECT_LITERAL_CONTEXT_CLR_NAMES = new Set([
-  "System.Object",
-  "global::System.Object",
-]);
 
 const isBroadObjectLiteralContext = (type: IrType | undefined): boolean => {
   if (!type) {
@@ -68,10 +62,7 @@ const isBroadObjectLiteralContext = (type: IrType | undefined): boolean => {
     return true;
   }
 
-  return referenceTypeHasClrIdentity(
-    type,
-    BROAD_OBJECT_LITERAL_CONTEXT_CLR_NAMES
-  );
+  return type.typeId?.sourceName === "Object";
 };
 
 /**
@@ -176,7 +167,7 @@ export const convertObjectLiteral = (
   // Type parameters are NOT valid instantiation targets for object literals.
   //
   // If we treat `T` as a contextual nominal type, the emitter can end up producing
-  // `new T { ... }`, which is not valid C# and is not CLR-faithful.
+  // `new T { ... }`, which is not valid target output and is not native target-faithful.
   //
   // Example:
   //   export function id<T>(x: T): T { return x; }

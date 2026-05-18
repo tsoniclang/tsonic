@@ -151,7 +151,7 @@ describe("tsonic.package bindings", function () {
       sourceManifest: "tsonic-package",
       packageName: "acme-conflict",
       packageVersion: "1.0.0",
-      surfaceMode: "clr",
+      surfaceMode: "core",
       requiredTypeRoots: [],
       runtimePackages: ["acme-conflict"],
       nugetDependencies: [],

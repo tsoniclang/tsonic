@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
-import { loadDotnetMetadata } from "./metadata.js";
+import { loadExternalMetadata } from "./metadata.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 
 describe("Program Metadata", () => {
@@ -12,7 +12,7 @@ describe("Program Metadata", () => {
     try {
       const globalsRoot = fixture.path("app/node_modules/@tsonic/globals");
 
-      const metadata = loadDotnetMetadata([globalsRoot]);
+      const metadata = loadExternalMetadata([globalsRoot]);
       expect(metadata.getTypeMetadata("System.String")).to.not.equal(undefined);
     } finally {
       fixture.cleanup();
@@ -27,7 +27,7 @@ describe("Program Metadata", () => {
     try {
       const globalsRoot = fixture.path("workspace/globals/versions/10");
 
-      const metadata = loadDotnetMetadata([globalsRoot]);
+      const metadata = loadExternalMetadata([globalsRoot]);
       expect(metadata.getTypeMetadata("System.String")).to.not.equal(undefined);
     } finally {
       fixture.cleanup();
@@ -42,7 +42,7 @@ describe("Program Metadata", () => {
     try {
       const globalsRoot = fixture.path("app/node_modules/@tsonic/globals");
 
-      const metadata = loadDotnetMetadata([globalsRoot]);
+      const metadata = loadExternalMetadata([globalsRoot]);
       expect(metadata.getTypeMetadata("Acme.Core.Widget")).to.not.equal(
         undefined
       );
@@ -59,7 +59,7 @@ describe("Program Metadata", () => {
     try {
       const sourceRoot = fixture.path("app/node_modules/@tsonic/js");
 
-      const metadata = loadDotnetMetadata([sourceRoot]);
+      const metadata = loadExternalMetadata([sourceRoot]);
       expect(metadata.getTypeMetadata("Ignored.ShouldNotLoad")).to.equal(
         undefined
       );

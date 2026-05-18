@@ -3,9 +3,9 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
 import { createProgramContext } from "../program-context.js";
-import { DotnetMetadataRegistry } from "../../dotnet-metadata.js";
+import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
-import { createClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
+import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
 import type { IrIdentifierExpression } from "../types.js";
 
@@ -113,9 +113,9 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile, consoleFile],
         declarationSourceFiles: [],
-        metadata: new DotnetMetadataRegistry(),
+        metadata: new ExternalMetadataRegistry(),
         bindings,
-        clrResolver: createClrBindingsResolver(rootDir),
+        externalResolver: createExternalBindingsResolver(rootDir),
         binding: createBinding(checker),
       };
 
@@ -145,8 +145,8 @@ describe("Binding Resolution in IR", () => {
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.resolvedClrType).to.equal(undefined);
-      expect(consoleExpr.resolvedAssembly).to.equal(undefined);
+      expect(consoleExpr.targetQualifiedName).to.equal(undefined);
+      expect(consoleExpr.targetOwnerIdentity).to.equal(undefined);
       expect(consoleExpr.declId).to.not.equal(undefined);
       expect(memberExpr.memberBinding).to.equal(undefined);
     });
@@ -253,9 +253,9 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile, consoleFile],
         declarationSourceFiles: [],
-        metadata: new DotnetMetadataRegistry(),
+        metadata: new ExternalMetadataRegistry(),
         bindings,
-        clrResolver: createClrBindingsResolver(rootDir),
+        externalResolver: createExternalBindingsResolver(rootDir),
         binding: createBinding(checker),
       };
 
@@ -285,8 +285,8 @@ describe("Binding Resolution in IR", () => {
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.resolvedClrType).to.equal(undefined);
-      expect(consoleExpr.resolvedAssembly).to.equal(undefined);
+      expect(consoleExpr.targetQualifiedName).to.equal(undefined);
+      expect(consoleExpr.targetOwnerIdentity).to.equal(undefined);
       expect(consoleExpr.declId).to.not.equal(undefined);
       expect(memberExpr.memberBinding).to.equal(undefined);
     });
@@ -398,14 +398,14 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "js",
             type: "js.Globals",
-            csharpName: "Globals.parseInt",
+            targetMemberName: "Globals.parseInt",
           },
           String: {
             kind: "global",
             assembly: "js",
             type: "js.String",
             staticType: "js.String",
-            csharpName: "Globals.String",
+            targetMemberName: "Globals.String",
             typeSemantics: { contributesTypeIdentity: true },
           },
           Error: {
@@ -434,9 +434,9 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile],
         declarationSourceFiles: [libFile],
-        metadata: new DotnetMetadataRegistry(),
+        metadata: new ExternalMetadataRegistry(),
         bindings,
-        clrResolver: createClrBindingsResolver(rootDir),
+        externalResolver: createExternalBindingsResolver(rootDir),
         binding: createBinding(checker),
       };
 
@@ -485,10 +485,10 @@ describe("Binding Resolution in IR", () => {
           matches.some(
             (identifier) =>
               identifier.declId !== undefined &&
-              identifier.resolvedAssembly === "js" &&
-              identifier.resolvedClrType === expectedClrType &&
+              identifier.targetOwnerIdentity === "js" &&
+              identifier.targetQualifiedName === expectedClrType &&
               (expectedCsharpName === undefined ||
-                identifier.csharpName === expectedCsharpName)
+                identifier.targetMemberName === expectedCsharpName)
           ),
           `expected bound ambient global '${name}'`
         ).to.equal(true);
@@ -612,14 +612,14 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "js",
             type: "js.Globals",
-            csharpName: "Globals.parseInt",
+            targetMemberName: "Globals.parseInt",
           },
           String: {
             kind: "global",
             assembly: "js",
             type: "js.String",
             staticType: "js.String",
-            csharpName: "Globals.String",
+            targetMemberName: "Globals.String",
             typeSemantics: { contributesTypeIdentity: true },
           },
           Error: {
@@ -648,9 +648,9 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile],
         declarationSourceFiles: [libFile],
-        metadata: new DotnetMetadataRegistry(),
+        metadata: new ExternalMetadataRegistry(),
         bindings,
-        clrResolver: createClrBindingsResolver(rootDir),
+        externalResolver: createExternalBindingsResolver(rootDir),
         binding: createBinding(checker),
       };
 
@@ -699,10 +699,10 @@ describe("Binding Resolution in IR", () => {
           matches.some(
             (identifier) =>
               identifier.declId !== undefined &&
-              identifier.resolvedAssembly === "js" &&
-              identifier.resolvedClrType === expectedClrType &&
+              identifier.targetOwnerIdentity === "js" &&
+              identifier.targetQualifiedName === expectedClrType &&
               (expectedCsharpName === undefined ||
-                identifier.csharpName === expectedCsharpName)
+                identifier.targetMemberName === expectedCsharpName)
           ),
           `expected bound declare-global ambient '${name}'`
         ).to.equal(true);

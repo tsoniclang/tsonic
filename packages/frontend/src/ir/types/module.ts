@@ -4,6 +4,11 @@
 
 import { IrStatement } from "./statements.js";
 import { IrExpression } from "./expressions.js";
+import type {
+  MemberSymbolId,
+  ModuleSymbolId,
+  TypeSymbolId,
+} from "../../symbols/index.js";
 
 export type IrModule = {
   readonly kind: "module";
@@ -20,14 +25,17 @@ export type IrImport = {
   readonly kind: "import";
   readonly source: string; // Import path
   readonly isLocal: boolean;
-  readonly isClr: boolean; // True if import is from a CLR bindings package
+  readonly isExternalSurface?: boolean;
+  readonly resolutionKind?: "local" | "externalSurface" | "phantomTypeOnly";
+  readonly moduleSymbolId?: ModuleSymbolId;
   /** Canonical resolved source file for local-like imports (e.g. installed source packages). */
   readonly resolvedPath?: string;
   readonly specifiers: readonly IrImportSpecifier[];
-  readonly resolvedNamespace?: string; // For CLR imports or local imports (e.g., "System" or "MultiFileCheck.utils")
-  // For module bindings (Node.js APIs mapped to CLR types)
-  readonly resolvedClrType?: string; // e.g., "Tsonic.NodeApi.fs"
-  readonly resolvedAssembly?: string; // e.g., "Tsonic.NodeApi"
+  readonly resolvedNamespace?: string; // For external imports or local imports.
+  // For module bindings mapped to target surface symbols.
+  readonly targetQualifiedName?: string;
+  readonly targetOwnerIdentity?: string;
+  readonly typeSymbolId?: TypeSymbolId;
   // For local imports: the target module's container class name
   readonly targetContainerName?: string; // e.g., "Math" for ./utils/Math.ts
 };
@@ -39,35 +47,37 @@ export type IrImportSpecifier =
       readonly kind: "named";
       readonly name: string;
       readonly localName: string;
-      /** Whether this import is a type (interface/class) - emitted at namespace level in C# */
+      /** Whether this import is a type (interface/class). */
       readonly isType?: boolean;
       /**
-       * For CLR namespace imports, some facade entrypoints re-export types from
-       * *other* CLR namespaces (e.g., `@jotster/core/Jotster.Core.js` exporting
+       * For external namespace imports, some facade entrypoints re-export types from
+       * *other* external namespaces (e.g., `@jotster/core/Jotster.Core.js` exporting
        * `JotsterDbContext` from `Jotster.Core.db`).
        *
-       * When present, this is the fully-qualified CLR type name (C# syntax, no backticks),
+       * When present, this is the fully-qualified provider type name,
        * and the emitter must use it instead of `${import.resolvedNamespace}.${name}`.
        *
        * This is ONLY used for type imports (`isType === true`).
        */
-      readonly resolvedClrType?: string | undefined;
+      readonly targetQualifiedName?: string | undefined;
+      readonly typeSymbolId?: TypeSymbolId | undefined;
       /**
-       * For CLR namespace imports, tsbindgen can optionally provide a stable "flattened"
+       * For external namespace imports, tsbindgen can optionally provide a stable "flattened"
        * named export surface (e.g. `export const buildSite = BuildSite.buildSite`).
        *
-       * When present, Tsonic binds the imported identifier to the declaring CLR type
-       * + member (so `buildSite(req)` emits as `global::<DeclaringType>.<member>(req)`).
+       * When present, Tsonic binds the imported identifier to the declaring provider type
+       * + member.
        *
        * This is ONLY used for value imports (`isType !== true`).
        */
-      readonly resolvedClrValue?:
+      readonly targetValue?:
         | {
-            readonly declaringClrType: string;
-            readonly declaringAssemblyName: string;
+            readonly ownerQualifiedName: string;
+            readonly ownerIdentity: string;
             readonly memberName: string;
           }
         | undefined;
+      readonly memberSymbolId?: MemberSymbolId | undefined;
     };
 
 export type IrExport =

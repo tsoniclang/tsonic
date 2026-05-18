@@ -23,24 +23,24 @@ export type DiagnosticCode =
   | "TSN2002" // Invalid type mapping
   | "TSN2003" // File name conflicts with exported member name
   | "TSN2004" // Legacy overload syntax not supported
-  | "TSN3001" // C# reserved keyword used
-  | "TSN3002" // Invalid C# identifier
-  | "TSN3003" // C# identifier collision after naming policy
+  | "TSN3001" // Target reserved keyword used
+  | "TSN3002" // Invalid target identifier
+  | "TSN3003" // Target identifier collision after naming policy
   | "TSN3011" // Promise chaining (.then/.catch/.finally) not supported
-  | "TSN4001" // .NET interop error
-  | "TSN4002" // Missing .NET type declaration
-  | "TSN4003" // Ambiguous CLR binding
-  | "TSN4004" // Missing CLR binding
+  | "TSN4001" // External interop error
+  | "TSN4002" // Missing external type declaration
+  | "TSN4003" // Ambiguous external binding
+  | "TSN4004" // Missing external binding
   | "TSN4005" // Invalid compiler marker usage
   | "TSN4006" // Invalid attribute argument
   | "TSN4007" // Attribute target not found
   | "TSN5001" // NativeAOT limitation
   | "TSN5002" // Runtime implementation missing
   | "TSN6001" // Internal compiler error
-  | "TSN6201" // Invalid CLR override accessibility (method)
-  | "TSN6202" // Invalid CLR override accessibility (property)
-  | "TSN6203" // Invalid CLR override accessibility (accessor property)
-  | "TSN6204" // Invalid CLR override: fields cannot override
+  | "TSN6201" // Invalid override accessibility (method)
+  | "TSN6202" // Invalid override accessibility (property)
+  | "TSN6203" // Invalid override accessibility (accessor property)
+  | "TSN6204" // Invalid override: fields cannot override
   | "TSN7101" // Recursive mapped types not supported
   | "TSN7102" // Conditional types using infer not supported
   | "TSN7103" // `this` typing not supported
@@ -75,7 +75,7 @@ export type DiagnosticCode =
   // Arrow function inference (TSN7430-TSN7439)
   | "TSN7430" // Arrow function requires explicit types (escape hatch)
   | "TSN7431" // Cannot infer arrow return type
-  | "TSN7432" // Generic function value usage unsupported in deterministic C# lowering shapes
+  | "TSN7432" // Generic function value usage unsupported in deterministic native lowering shapes
   | "TSN7440" // Core intrinsic must resolve to @tsonic/core
   | "TSN7441" // istype<T>(...) must be erased
   | "TSN7442" // Core intrinsic call must be lowered (no runtime call)
@@ -122,7 +122,7 @@ export type DiagnosticCode =
   | "TSN5104" // Cannot narrow from source to target type
   | "TSN5105" // Unproven numeric type at parameter boundary
   | "TSN5106" // Unproven numeric type at return boundary
-  | "TSN5107" // Array index must be Int32
+  | "TSN5107" // Array index must be source int
   | "TSN5108" // Value exceeds JS safe integer range
   | "TSN5109" // Computed access kind not classified (compiler bug)
   | "TSN5110" // Integer literal cannot be implicitly converted to double

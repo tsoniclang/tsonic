@@ -47,9 +47,9 @@ export const convertMethod = (
       return isEcmaPrivate ? "private" : declaredAccessibility;
     }
 
-    // Airplane-grade: always emit CLR-required accessibility for overrides.
+    // Airplane-grade: always emit native target-required accessibility for overrides.
     // The TS surface may lose access modifiers (e.g., protected members exposed as callable
-    // overloads to avoid unstable renames like Dispose2), but C# compilation enforces the truth.
+    // overloads to avoid unstable renames like Dispose2), but target compilation enforces the truth.
     return overrideInfo.requiredAccessibility;
   })();
 

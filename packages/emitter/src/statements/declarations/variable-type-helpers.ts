@@ -10,7 +10,7 @@ import {
   IrExpression,
   IrType,
   NumericKind,
-  NUMERIC_KIND_TO_CSHARP,
+  NUMERIC_KIND_TO_TYPE_ALIAS,
 } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
@@ -294,7 +294,7 @@ export const resolveStaticFieldType = (
 
   // numericNarrowing
   if (init?.kind === "numericNarrowing" && init.targetKind) {
-    const csharpType = NUMERIC_KIND_TO_CSHARP.get(init.targetKind) ?? "double";
+    const csharpType = NUMERIC_KIND_TO_TYPE_ALIAS.get(init.targetKind) ?? "double";
     return [identifierType(csharpType), context];
   }
 
@@ -356,7 +356,7 @@ export const resolveStaticFieldType = (
     }
     if (typeof lit.value === "number") {
       const csharpType = lit.numericIntent
-        ? (NUMERIC_KIND_TO_CSHARP.get(lit.numericIntent) ?? "double")
+        ? (NUMERIC_KIND_TO_TYPE_ALIAS.get(lit.numericIntent) ?? "double")
         : "double";
       return [identifierType(csharpType), context];
     }

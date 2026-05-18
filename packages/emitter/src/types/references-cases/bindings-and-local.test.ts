@@ -46,9 +46,9 @@ describe("Reference Type Emission", () => {
         typeArguments: [{ kind: "primitiveType", name: "int" }],
         typeId: {
           stableId: "System.Private.CoreLib:System.Collections.Generic.List`1",
-          clrName: "System.Collections.Generic.List`1",
-          assemblyName: "System.Private.CoreLib",
-          tsName: "List",
+          targetName: "System.Collections.Generic.List`1",
+          ownerIdentity: "System.Private.CoreLib",
+          sourceName: "List",
         },
       });
 

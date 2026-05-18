@@ -4,8 +4,8 @@
  * DETERMINISTIC TYPING: Literal types are derived from lexeme form, NOT TypeScript.
  *
  * Numeric literals:
- * - Integer literals (42, 0xFF) → Int32 → inferredType: int
- * - Floating literals (42.0, 3.14, 1e3) → Double → inferredType: double
+ * - Integer literals (42, 0xFF) → int32 → inferredType: int
+ * - Floating literals (42.0, 3.14, 1e3) → float64 → inferredType: double
  *
  * String literals → inferredType: string
  * Boolean literals → inferredType: boolean (handled elsewhere)
@@ -24,25 +24,25 @@ import { buildSourceBackedConstructorParameterTypes } from "./calls/source-backe
  * Derive inferredType from numericIntent (deterministic, no TypeScript).
  */
 const deriveTypeFromNumericIntent = (numericIntent: NumericKind): IrType => {
-  if (numericIntent === "Int32") {
-    return { kind: "referenceType", name: "int" };
-  } else if (numericIntent === "Double") {
+  if (numericIntent === "int32") {
+    return { kind: "primitiveType", name: "int" };
+  } else if (numericIntent === "float64") {
     return { kind: "primitiveType", name: "number" };
-  } else if (numericIntent === "Int64") {
+  } else if (numericIntent === "int64") {
     return { kind: "referenceType", name: "long" };
-  } else if (numericIntent === "Single") {
+  } else if (numericIntent === "float32") {
     return { kind: "referenceType", name: "float" };
-  } else if (numericIntent === "Byte") {
+  } else if (numericIntent === "uint8") {
     return { kind: "referenceType", name: "byte" };
-  } else if (numericIntent === "Int16") {
+  } else if (numericIntent === "int16") {
     return { kind: "referenceType", name: "short" };
-  } else if (numericIntent === "UInt32") {
+  } else if (numericIntent === "uint32") {
     return { kind: "referenceType", name: "uint" };
-  } else if (numericIntent === "UInt64") {
+  } else if (numericIntent === "uint64") {
     return { kind: "referenceType", name: "ulong" };
-  } else if (numericIntent === "UInt16") {
+  } else if (numericIntent === "uint16") {
     return { kind: "referenceType", name: "ushort" };
-  } else if (numericIntent === "SByte") {
+  } else if (numericIntent === "int8") {
     return { kind: "referenceType", name: "sbyte" };
   }
   // Default to double for unknown
@@ -124,7 +124,7 @@ export const convertRegularExpressionLiteral = (
   const raw = node.getText();
   const { pattern, flags } = splitRegularExpressionLiteral(raw);
   const regExpBinding = ctx.bindings.getBinding("RegExp");
-  const resolvedClrType =
+  const targetQualifiedName =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.type
       : (resolveAmbientGlobalSourceOwnerByName(
@@ -133,7 +133,7 @@ export const convertRegularExpressionLiteral = (
           ctx,
           ts.SymbolFlags.Value
         ) ?? undefined);
-  const resolvedAssembly =
+  const targetOwnerIdentity =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.assembly
       : undefined;
@@ -161,7 +161,7 @@ export const convertRegularExpressionLiteral = (
   const inferredType: IrType = {
     kind: "referenceType",
     name: "RegExp",
-    resolvedClrType,
+    targetQualifiedName,
   };
   const sourceBackedConstructorParameterTypes =
     buildSourceBackedConstructorParameterTypes({
@@ -170,8 +170,8 @@ export const convertRegularExpressionLiteral = (
         kind: "identifier",
         name: "RegExp",
         inferredType,
-        resolvedClrType,
-        resolvedAssembly,
+        targetQualifiedName,
+        targetOwnerIdentity,
         sourceSpan: getSourceSpan(node),
       },
       constructedType: inferredType,
@@ -188,10 +188,10 @@ export const convertRegularExpressionLiteral = (
       inferredType: {
         kind: "referenceType",
         name: "RegExp",
-        resolvedClrType,
+        targetQualifiedName,
       },
-      resolvedClrType,
-      resolvedAssembly,
+      targetQualifiedName,
+      targetOwnerIdentity,
       sourceSpan: getSourceSpan(node),
     },
     arguments: args,

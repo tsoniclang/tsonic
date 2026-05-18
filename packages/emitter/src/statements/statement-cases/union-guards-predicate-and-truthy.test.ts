@@ -486,13 +486,195 @@ describe("Statement Emission", () => {
     expect(result).to.not.include("return takeC((Shape__2)(s.Match");
   });
 
+  it("uses the current narrowed carrier when predicate complements follow broad-source guards", () => {
+    const shape0: IrType = { kind: "referenceType", name: "Shape__0" };
+    const shape1: IrType = { kind: "referenceType", name: "Shape__1" };
+    const shapeUnion: IrType = {
+      kind: "unionType",
+      types: [shape0, shape1],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__0",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__1",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "typeAliasDeclaration",
+          name: "Shape",
+          typeParameters: [],
+          type: shapeUnion,
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "takeB",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: shape1,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: { kind: "literal", value: "B" },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "fmt",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: { kind: "referenceType", name: "object" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              testIfStatement({
+                kind: "ifStatement",
+                condition: {
+                  kind: "unary",
+                  operator: "!",
+                  expression: {
+                    kind: "call",
+                    callee: { kind: "identifier", name: "isShape" },
+                    arguments: [
+                      {
+                        kind: "identifier",
+                        name: "value",
+                        inferredType: { kind: "referenceType", name: "object" },
+                      },
+                    ],
+                    isOptional: false,
+                    inferredType: { kind: "primitiveType", name: "boolean" },
+                    narrowing: {
+                      kind: "typePredicate",
+                      argIndex: 0,
+                      targetType: shapeUnion,
+                    },
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "none" },
+                    },
+                  ],
+                },
+              }),
+              testIfStatement({
+                kind: "ifStatement",
+                condition: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "isA" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "value",
+                      inferredType: shapeUnion,
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                  narrowing: {
+                    kind: "typePredicate",
+                    argIndex: 0,
+                    targetType: shape0,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "A" },
+                    },
+                  ],
+                },
+              }),
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "takeB" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "value",
+                      inferredType: shape1,
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "string" },
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("return takeB((Shape__1)value);");
+    expect(result).to.not.include("value.As2()");
+  });
+
   it("narrows truthy/falsy property guards through transparent assertion wrappers", () => {
     const okType: IrType = { kind: "referenceType", name: "Ok" };
     const errType: IrType = { kind: "referenceType", name: "Err" };
     const unionReference: IrType = {
       kind: "referenceType",
       name: "Union_2",
-      resolvedClrType: "global::Tsonic.Runtime.Union_2",
+      targetQualifiedName: "global::Tsonic.Runtime.Union_2",
       typeArguments: [okType, errType],
     };
     const unionWrapper: IrType = {

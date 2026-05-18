@@ -133,13 +133,13 @@ describe("Union Type Emission", () => {
         {
           kind: "referenceType",
           name: "PathSpec",
-          resolvedClrType: "global::Tsonic.Runtime.Union`2",
+          targetQualifiedName: "global::Tsonic.Runtime.Union`2",
           typeArguments: [
             { kind: "primitiveType", name: "string" },
             {
               kind: "referenceType",
               name: "RegExp",
-              resolvedClrType: "global::js.RegExp",
+              targetQualifiedName: "global::js.RegExp",
             },
           ],
         },

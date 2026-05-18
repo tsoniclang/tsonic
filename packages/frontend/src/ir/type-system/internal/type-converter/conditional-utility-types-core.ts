@@ -72,7 +72,7 @@ export const resolveTypeAlias = (
     isExpandableUtilityType(name) ||
     isExpandableConditionalUtilityType(name) ||
     name === "Record" ||
-    name === "CLROf" ||
+    name === "native targetOf" ||
     name === "out" ||
     name === "ref" ||
     name === "inref"

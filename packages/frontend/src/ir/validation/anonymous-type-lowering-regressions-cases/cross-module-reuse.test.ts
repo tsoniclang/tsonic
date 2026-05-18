@@ -9,7 +9,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     const externalAnonymousType: IrReferenceType = {
       kind: "referenceType",
       name: "__Anon_ext_deadbeef",
-      resolvedClrType: "Acme.Messages.__Anon_ext_deadbeef",
+      targetQualifiedName: "Acme.Messages.__Anon_ext_deadbeef",
       structuralMembers: [
         {
           kind: "propertySignature",
@@ -171,7 +171,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     expect(
       loweredElementType &&
         loweredElementType.kind === "referenceType" &&
-        loweredElementType.resolvedClrType
+        loweredElementType.targetQualifiedName
     ).to.equal("Acme.Messages.__Anon_ext_deadbeef");
   });
 
@@ -263,7 +263,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     expect(
       loweredElementType &&
         loweredElementType.kind === "referenceType" &&
-        loweredElementType.resolvedClrType
+        loweredElementType.targetQualifiedName
     ).to.equal(undefined);
   });
 

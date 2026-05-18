@@ -192,7 +192,7 @@ export const getRawSignature = (
         ...(typeId
           ? {
               typeId,
-              resolvedClrType: typeId.clrName,
+              targetQualifiedName: typeId.targetName,
             }
           : {}),
       };

@@ -1,12 +1,12 @@
 /**
  * Extension method validation
  *
- * `thisarg<T>` marks the receiver parameter of a C# extension method.
+ * `thisarg<T>` marks the receiver parameter of a source-level extension method.
  *
  * Airplane-grade constraints:
  * - Exactly one receiver parameter
  * - Must be the first parameter
- * - Only valid on top-level function declarations (emitted into a static container class)
+ * - Only valid on top-level function declarations
  * - Receiver cannot be optional/rest/destructured/initialized
  * - Receiver cannot be `out`
  */
@@ -151,7 +151,7 @@ export const validateExtensionMethods = (
               sourceFile,
               collector,
               p.info.markerNode,
-              "`thisarg<T>` is only valid on top-level function declarations (C# extension methods).",
+              "`thisarg<T>` is only valid on top-level function declarations.",
               "Move the function to module scope (top-level) and declare it with `export function ...`."
             );
           }

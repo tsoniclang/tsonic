@@ -21,14 +21,14 @@ import {
   buildAliasTable,
   buildSourceCatalog,
   buildUnifiedUniverse,
-  loadClrCatalog,
+  loadExternalCatalog,
 } from "./type-system/internal/universe/index.js";
-import type { AssemblyTypeCatalog } from "./type-system/internal/universe/types.js";
+import type { ExternalTypeCatalog } from "./type-system/internal/universe/types.js";
 /* eslint-enable no-restricted-imports */
 import type { ProgramContext } from "./program-context-types.js";
 import {
   findPackageRootForFile,
-  packageHasClrMetadata,
+  packageHasExternalMetadata,
 } from "./program-context-types.js";
 import {
   collectSupportedGenericFunctionValueSymbols,
@@ -37,9 +37,9 @@ import {
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 
 const withSimpleTypeAliases = (
-  assemblyCatalog: AssemblyTypeCatalog,
+  assemblyCatalog: ExternalTypeCatalog,
   bindings: BindingRegistry
-): AssemblyTypeCatalog => {
+): ExternalTypeCatalog => {
   const tsNameToTypeId = new Map(assemblyCatalog.tsNameToTypeId);
 
   for (const [alias, descriptor] of bindings.getAllBindings()) {
@@ -48,7 +48,7 @@ const withSimpleTypeAliases = (
     }
     if (tsNameToTypeId.has(alias)) continue;
 
-    const typeId = assemblyCatalog.clrNameToTypeId.get(descriptor.type);
+    const typeId = assemblyCatalog.targetNameToTypeId.get(descriptor.type);
     if (!typeId) continue;
     tsNameToTypeId.set(alias, typeId);
   }
@@ -56,7 +56,7 @@ const withSimpleTypeAliases = (
   return {
     entries: assemblyCatalog.entries,
     tsNameToTypeId,
-    clrNameToTypeId: assemblyCatalog.clrNameToTypeId,
+    targetNameToTypeId: assemblyCatalog.targetNameToTypeId,
     namespaceToTypeIds: assemblyCatalog.namespaceToTypeIds,
   };
 };
@@ -67,8 +67,8 @@ const withSimpleTypeAliases = (
  * This factory is the ONLY place that wires together the internal registries.
  * It performs the full setup:
  * 1. Build SourceCatalog / TypeRegistry using two-pass builder
- * 2. Build CLR catalog from explicit participating CLR packages
- * 3. Build UnifiedUniverse merging source and CLR types
+ * 2. Build external catalog from explicit participating surface packages
+ * 3. Build UnifiedUniverse merging source and external types
  * 4. Build NominalEnv from UnifiedTypeCatalog (TypeId-based)
  * 5. Construct TypeSystem as single source of truth
  *
@@ -127,10 +127,10 @@ export const createProgramContext = (
     );
     if (!pkgRoot) return true;
 
-    // tsbindgen-generated CLR declarations live in packages that include bindings.json
-    // and are already represented in the CLR catalog. Including them in SourceCatalog
-    // creates tsName collisions (e.g., `IEnumerable_1`) that break nominal resolution.
-    return !packageHasClrMetadata(
+    // tsbindgen-generated external declarations live in packages that include
+    // bindings.json and are already represented in the external catalog. Including them in SourceCatalog
+    // creates tsName collisions that break nominal resolution.
+    return !packageHasExternalMetadata(
       pkgRoot,
       packageInfoCache,
       packageHasMetadataCache
@@ -158,7 +158,7 @@ export const createProgramContext = (
     rootNamespace: options.rootNamespace,
     binding: program.binding,
   });
-  // Load assembly type catalog only from CLR packages that actually participate
+  // Load external type catalog only from packages that actually participate
   // in this compilation. Airplane-grade: do not crawl node_modules opportunistically.
   const nodeModulesPath = path.resolve(
     program.options.projectRoot,
@@ -167,7 +167,7 @@ export const createProgramContext = (
   const extraPackageRoots: string[] = [];
 
   // Any declaration package participating in the TypeScript program must also
-  // contribute its CLR metadata to the assembly catalog. This is the generic
+  // contribute its external metadata to the catalog. This is the generic
   // rule that keeps ambient surface packages and normal declaration packages in
   // sync: if a package's .d.ts files are in the program, its bindings metadata
   // must be in the universe.
@@ -179,13 +179,13 @@ export const createProgramContext = (
     );
     if (
       pkgRoot &&
-      packageHasClrMetadata(pkgRoot, packageInfoCache, packageHasMetadataCache)
+      packageHasExternalMetadata(pkgRoot, packageInfoCache, packageHasMetadataCache)
     ) {
       extraPackageRoots.push(pkgRoot);
     }
   }
 
-  // Include any additional CLR packages discovered via imports (e.g., efcore, aspnetcore).
+  // Include any additional external packages discovered via imports.
   const resolvePackageRootFromBindingsPath = (
     bindingsPath: string
   ): string | undefined => {
@@ -198,12 +198,12 @@ export const createProgramContext = (
     }
   };
 
-  for (const bindingsPath of program.clrResolver.getDiscoveredBindingPaths()) {
+  for (const bindingsPath of program.externalResolver.getDiscoveredBindingPaths()) {
     const pkgRoot = resolvePackageRootFromBindingsPath(bindingsPath);
     if (pkgRoot) extraPackageRoots.push(pkgRoot);
   }
   const assemblyCatalog = withSimpleTypeAliases(
-    loadClrCatalog(nodeModulesPath, [
+    loadExternalCatalog(nodeModulesPath, [
       ...(program.options.typeRoots ?? []),
       ...extraPackageRoots,
     ]),
@@ -233,7 +233,7 @@ export const createProgramContext = (
     // Keep TypeScript type-node conversion encapsulated in the type-system module.
     convertTypeNode: (node: unknown) =>
       convertCapturedTypeNode(node, program.binding),
-    // Unified catalog for CLR assembly type lookups
+    // Unified catalog for external/source type lookups
     unifiedCatalog,
     aliasTable,
     resolveIdentifier: (node: unknown) =>
@@ -269,7 +269,7 @@ export const createProgramContext = (
       program.authoritativeTsonicPackageRoots ?? new Map<string, string>(),
     declarationModuleAliases: program.declarationModuleAliases ?? new Map(),
     rootNamespace: options.rootNamespace,
-    surface: program.options.surface ?? "clr",
+    surface: program.options.surface ?? "core",
     surfaceCapabilities,
     checker: program.checker,
     genericFunctionValueSymbols,
@@ -279,7 +279,8 @@ export const createProgramContext = (
     typeSystem,
     metadata: program.metadata,
     bindings: program.bindings,
-    clrResolver: program.clrResolver,
+    externalResolver: program.externalResolver,
+    targetSurfaceArtifacts: program.targetSurfaceArtifacts,
     diagnostics: [],
   };
 };

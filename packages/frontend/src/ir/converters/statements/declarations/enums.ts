@@ -10,7 +10,7 @@ import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Int type constant for enum initializers
- * Enums in C# use int values, so we pass this as expectedType for deterministic typing.
+ * Enums in target use int values, so we pass this as expectedType for deterministic typing.
  */
 const INT_TYPE: IrType = { kind: "primitiveType", name: "int" };
 

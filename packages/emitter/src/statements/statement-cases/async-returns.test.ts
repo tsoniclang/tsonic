@@ -147,7 +147,8 @@ describe("Statement Emission", () => {
           returnType: {
             kind: "referenceType",
             name: "System.Threading.Tasks.Task",
-            resolvedClrType: "global::System.Threading.Tasks.Task",
+            targetQualifiedName: "global::System.Threading.Tasks.Task",
+            asyncWrapper: { resultTypeParameterIndex: 0 },
             typeArguments: [{ kind: "primitiveType", name: "string" }],
           },
           body: {
@@ -163,7 +164,8 @@ describe("Statement Emission", () => {
                   inferredType: {
                     kind: "referenceType",
                     name: "System.Threading.Tasks.Task",
-                    resolvedClrType: "global::System.Threading.Tasks.Task",
+                    targetQualifiedName: "global::System.Threading.Tasks.Task",
+                    asyncWrapper: { resultTypeParameterIndex: 0 },
                     typeArguments: [{ kind: "primitiveType", name: "string" }],
                   },
                 },

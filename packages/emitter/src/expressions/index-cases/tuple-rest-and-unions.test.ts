@@ -10,7 +10,7 @@ import {
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  resolvedClrType: "Tsonic.Runtime.JsValue",
+  targetQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 describe("Expression Emission", () => {
@@ -170,7 +170,7 @@ describe("Expression Emission", () => {
                 returnType: jsValueType,
               },
             },
-            arguments: [{ kind: "literal", value: 5, numericIntent: "Int32" }],
+            arguments: [{ kind: "literal", value: 5, numericIntent: "int32" }],
             isOptional: false,
             parameterTypes: [tupleRestType],
             inferredType: jsValueType,
@@ -249,7 +249,7 @@ describe("Expression Emission", () => {
                   {
                     kind: "literal",
                     value: 0.5,
-                    numericIntent: "Double",
+                    numericIntent: "float64",
                   },
                 ],
                 inferredType: arrayArgType,

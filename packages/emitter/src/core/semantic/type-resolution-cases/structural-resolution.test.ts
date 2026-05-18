@@ -470,7 +470,7 @@ describe("type-resolution", () => {
           kind: "referenceType",
           name: "Ok",
           typeArguments: [{ kind: "primitiveType", name: "string" }],
-          resolvedClrType: "App.Core.Ok__Alias",
+          targetQualifiedName: "App.Core.Ok__Alias",
         },
         makeContext(undefined, {
           moduleMap: new Map([
@@ -531,7 +531,7 @@ describe("type-resolution", () => {
         kind: "referenceType",
         name: "Ok",
         typeArguments: [{ kind: "primitiveType", name: "string" }],
-        resolvedClrType: "App.Core.Ok__Alias",
+        targetQualifiedName: "App.Core.Ok__Alias",
       });
     });
 

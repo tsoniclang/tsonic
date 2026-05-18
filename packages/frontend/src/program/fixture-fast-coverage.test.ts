@@ -345,7 +345,7 @@ describe("Fixture fast coverage", function () {
       if (scenario.fixtureName === "parseint-int-narrowing-reject") {
         expect(rendered).to.include("parsed");
         expect(rendered).to.match(
-          /Cannot (?:narrow|prove narrowing of) 'parsed'.*Int32/
+          /Cannot (?:narrow|prove narrowing of) 'parsed'.*int32/
         );
       } else {
         for (const expected of meta.expectedErrors?.slice(1) ?? []) {

@@ -34,6 +34,7 @@ import { normalizeStructuralEmissionType } from "../core/semantic/type-resolutio
 import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
 import { isBroadObjectSlotType } from "../core/semantic/broad-object-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { collectStructuralProperties } from "./structural-property-model.js";
 import {
   isExactArrayCreationToType,
@@ -804,7 +805,8 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     const canPreferDirectIterableCast =
       expectedType !== undefined &&
       isSimpleElementCast(effectiveElementAst, itemIdentifier) &&
-      isBroadObjectSlotType(sourceIterable.elementType, currentContext);
+      isBroadObjectSlotType(sourceIterable.elementType, currentContext) &&
+      !willCarryAsRuntimeUnion(expectedType, currentContext);
     if (canPreferDirectIterableCast && expectedType) {
       const [targetIterableTypeAst, targetIterableContext] = emitTypeAst(
         normalizeStructuralCarrierEmissionType(expectedType, currentContext),

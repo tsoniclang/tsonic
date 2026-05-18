@@ -68,6 +68,50 @@ const productFiles = (): readonly string[] =>
     .flatMap((root) => walkFiles(root))
     .filter((file) => !file.endsWith(".test.ts"));
 
+const frontendProductFiles = (): readonly string[] =>
+  walkFiles(join(repoRoot, "packages/frontend/src")).filter((file) => {
+    const relativeFile = relative(repoRoot, file).replace(/\\/g, "/");
+    return (
+      !file.endsWith(".test.ts") &&
+      !relativeFile.includes("-cases/") &&
+      !relativeFile.includes("/test-fixtures/")
+    );
+  });
+
+const frontendTargetLeakPatterns: readonly RegExp[] = [
+  /\bCLR\b/,
+  /\bclr\b/,
+  /\bCSharp\b/,
+  /C#/,
+  /\.NET/,
+  /\bdotnet\b/,
+  /\bSystem\./,
+  /\bMicrosoft\./,
+  /global::System/,
+  /\bSystem\.Private\.CoreLib\b/,
+  /\bSystem\.Runtime\b/,
+  /\bCoreLib\b/,
+  /\bmscorlib\b/,
+  /\bIEnumerable\b/,
+  /\bIAsyncEnumerable\b/,
+  /\bIEnumerator\b/,
+  /\bIDisposable\b/,
+  /\bValueTask\b/,
+  /\bTask</,
+  /\bFunc</,
+  /\bAction</,
+  /Expression\s*<\s*Func\b/,
+  /\bLINQ\b/,
+  /\bBCL\b/,
+  /\bEF Core\b/,
+  /\bdeclaringClrType\b/,
+  /\bdeclaringAssemblyName\b/,
+  /\bclrName\b/,
+  /\bassemblyName\b/,
+  /\bemittedCLRName\b/,
+  /\bemittedClrName\b/,
+];
+
 describe("architecture completion tracker", () => {
   it("marks all architecture-review items complete with concrete proof tests and examples", () => {
     const tracker = readTracker();
@@ -111,6 +155,22 @@ describe("architecture completion tracker", () => {
       for (const bannedPattern of tracker.bannedProductPatterns) {
         if (text.includes(bannedPattern)) {
           hits.push(`${relativeFile}:${bannedPattern}`);
+        }
+      }
+    }
+
+    expect(hits).to.deep.equal([]);
+  });
+
+  it("keeps frontend product code free of target-mechanism vocabulary", () => {
+    const hits: string[] = [];
+
+    for (const file of frontendProductFiles()) {
+      const relativeFile = relative(repoRoot, file).replace(/\\/g, "/");
+      const text = readFileSync(file, "utf8");
+      for (const pattern of frontendTargetLeakPatterns) {
+        if (pattern.test(text)) {
+          hits.push(`${relativeFile}:${pattern.source}`);
         }
       }
     }

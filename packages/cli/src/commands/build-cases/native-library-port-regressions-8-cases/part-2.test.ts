@@ -243,7 +243,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("does not treat source-package members as CLR-bound just because a root bindings.json exists", () => {
+  it("does not treat source-package members as external-bound just because a root bindings.json exists", () => {
     const dir = mkdtempSync(
       join(tmpdir(), "tsonic-build-source-port-bindings-root-")
     );

@@ -49,11 +49,11 @@ export type ResolutionWithCollector = {
  * Resolution order:
  * 1. Try alias table (primitives, globals, $instance interfaces)
  * 2. Try universe by TS name
- * 3. Try universe by CLR name
+ * 3. Try universe by provider target name
  * 4. Emit diagnostic and return undefined
  *
  * Diagnostic stratification:
- * - Missing stdlib type (System.*, primitives, globals) → fatal (TSN9001)
+ * - Missing source runtime type (primitives, globals) → fatal (TSN9001)
  * - Missing third-party type → error (TSN9002)
  *
  * @param name - The type name to resolve
@@ -80,10 +80,10 @@ export const resolveTypeName = (
     return { typeId: tsTypeId, collector };
   }
 
-  // 3. Try universe by CLR name
-  const clrTypeId = universe.resolveClrName(name);
-  if (clrTypeId) {
-    return { typeId: clrTypeId, collector };
+  // 3. Try universe by provider target name
+  const targetTypeId = universe.resolveTargetName(name);
+  if (targetTypeId) {
+    return { typeId: targetTypeId, collector };
   }
 
   // 4. Type not found - emit appropriate diagnostic
@@ -138,8 +138,8 @@ export const tryResolveTypeName = (
   const tsTypeId = universe.resolveTsName(name);
   if (tsTypeId) return tsTypeId;
 
-  // Try universe by CLR name
-  return universe.resolveClrName(name);
+  // Try universe by provider target name
+  return universe.resolveTargetName(name);
 };
 
 /**
@@ -240,12 +240,11 @@ export const resolveTypeNames = (
  * These are checked at universe construction time.
  */
 const REQUIRED_STDLIB_TYPES: readonly string[] = [
-  "System.String",
-  "System.Int32",
-  "System.Double",
-  "System.Boolean",
-  "System.Object",
-  "System.Void",
+  "string",
+  "int",
+  "number",
+  "boolean",
+  "object",
 ];
 
 /**
@@ -271,7 +270,7 @@ export const validateStdlibTypes = (
 ): StdlibValidationResult => {
   const result = REQUIRED_STDLIB_TYPES.reduce(
     (acc, typeName) => {
-      const typeId = universe.resolveClrName(typeName);
+      const typeId = universe.resolveTsName(typeName);
       if (!typeId) {
         const diagnostic = createDiagnostic(
           "TSN9001",

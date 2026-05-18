@@ -228,12 +228,14 @@ describe("IR Builder", function () {
       if (!inferredType || inferredType.kind !== "referenceType") {
         return;
       }
-      expect(inferredType.resolvedClrType).to.equal("TestApp.Transformer");
+      expect(inferredType.targetQualifiedName).to.equal("TestApp.Transformer");
       expect(inferredType.typeId).to.deep.equal({
         stableId: "TestApp:TestApp.Transformer",
-        clrName: "TestApp.Transformer",
-        assemblyName: "TestApp",
-        tsName: "Transformer",
+        targetName: "TestApp.Transformer",
+        ownerIdentity: "TestApp",
+        sourceName: "Transformer",
+        origin: "source",
+        symbolId: "type-stable:TestApp%3ATestApp.Transformer",
       });
       expect(returnStmt.expression.typeArguments).to.deep.equal([
         { kind: "typeParameterType", name: "T" },
@@ -555,7 +557,7 @@ describe("IR Builder", function () {
           { kind: "typeParameterType", name: "K" },
           { kind: "typeParameterType", name: "V" },
         ],
-        resolvedClrType: undefined,
+        targetQualifiedName: "TestApp.MapEntry",
       });
       expect(addParameterType.structuralMembers).to.deep.equal([
         {
@@ -744,7 +746,7 @@ describe("IR Builder", function () {
         expect(readableMember).to.not.equal(undefined);
         if (!readableMember) return;
 
-        expect(readableMember.typeId?.clrName).to.equal(
+        expect(readableMember.typeId?.targetName).to.equal(
           "TestApp.stream.Readable"
         );
       } finally {

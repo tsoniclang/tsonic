@@ -427,7 +427,7 @@ describe("Type Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "MyApp.Router",
+      targetQualifiedName: "MyApp.Router",
     };
 
     const module: IrModule = {

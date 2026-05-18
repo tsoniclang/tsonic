@@ -140,7 +140,7 @@ const stubConvertType = (node: ts.TypeNode, _binding: Binding): IrType => {
       kind: "referenceType",
       name: "BigInteger",
       typeArguments: [],
-      resolvedClrType: "System.Numerics.BigInteger",
+      targetQualifiedName: "System.Numerics.BigInteger",
     };
   }
   if (node.kind === ts.SyntaxKind.UndefinedKeyword) {

@@ -33,7 +33,7 @@ describe("Numeric Proof Invariants", () => {
     it("should attach numericIntent to variable initialized via narrowing", () => {
       // const x = 42 as int;
       const module = createModule([
-        createVarDecl("x", narrowTo(numLiteral(42), "Int32")),
+        createVarDecl("x", narrowTo(numLiteral(42), "int32")),
       ]);
 
       const result = runNumericProofPass([module]);
@@ -49,7 +49,7 @@ describe("Numeric Proof Invariants", () => {
         expect(init?.kind).to.equal("numericNarrowing");
         if (init?.kind === "numericNarrowing") {
           expect(init.proof).to.not.be.undefined;
-          expect(init.proof?.kind).to.equal("Int32");
+          expect(init.proof?.kind).to.equal("int32");
         }
       }
     });
@@ -58,7 +58,7 @@ describe("Numeric Proof Invariants", () => {
       // const x = 42 as int;
       // const y = x + 1;  // x should have Int32 intent
       const module = createModule([
-        createVarDecl("x", narrowTo(numLiteral(42), "Int32")),
+        createVarDecl("x", narrowTo(numLiteral(42), "int32")),
         createVarDecl("y", binaryExpr("+", ident("x"), numLiteral(1))),
       ]);
 
@@ -117,7 +117,7 @@ describe("Numeric Proof Invariants", () => {
               kind: "primitiveType",
               name: "int",
             }),
-            "Int32"
+            "int32"
           )
         ),
       ]);
@@ -132,7 +132,7 @@ describe("Numeric Proof Invariants", () => {
         const init = decl.declarations[0]?.initializer;
         expect(init?.kind).to.equal("numericNarrowing");
         if (init?.kind === "numericNarrowing") {
-          expect(init.proof?.kind).to.equal("Int32");
+          expect(init.proof?.kind).to.equal("int32");
           expect(init.proof?.source.type).to.equal("binaryOp");
           if (init.proof?.source.type === "binaryOp") {
             expect(init.proof.source.operator).to.equal("??");
@@ -176,7 +176,7 @@ describe("Numeric Proof Invariants", () => {
         if (init?.kind === "identifier") {
           expect(init.inferredType).to.deep.equal({
             kind: "referenceType",
-            name: "Int64",
+            name: "int64",
           });
         }
       }
@@ -189,7 +189,7 @@ describe("Numeric Proof Invariants", () => {
       const narrowingWithSpan: IrNumericNarrowingExpression = {
         kind: "numericNarrowing",
         expression: numLiteral(2147483648, "2147483648"),
-        targetKind: "Int32",
+        targetKind: "int32",
         inferredType: {
           kind: "primitiveType",
           name: "int",
@@ -227,7 +227,7 @@ describe("Numeric Proof Invariants", () => {
           "arr",
           arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
         ),
-        createVarDecl("idx", narrowTo(numLiteral(0), "Int32")),
+        createVarDecl("idx", narrowTo(numLiteral(0), "int32")),
         createVarDecl("a", arrayAccess(arrayIdent("arr"), ident("idx"))),
         createVarDecl("b", arrayAccess(arrayIdent("arr"), ident("idx"))),
       ]);

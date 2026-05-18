@@ -110,8 +110,8 @@ const isNumericConstraintType = (type: IrType): boolean => {
 
   return (
     NUMERIC_CONSTRAINT_REFERENCE_TYPES.has(type.name) ||
-    (type.resolvedClrType !== undefined &&
-      NUMERIC_CONSTRAINT_CLR_TYPES.has(type.resolvedClrType))
+    (type.targetQualifiedName !== undefined &&
+      NUMERIC_CONSTRAINT_CLR_TYPES.has(type.targetQualifiedName))
   );
 };
 

@@ -4,10 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as ts from "typescript";
 import { createProgramContext } from "./program-context.js";
-import { packageHasClrMetadata } from "./program-context-types.js";
+import { packageHasExternalMetadata } from "./program-context-types.js";
 import { BindingRegistry } from "../program/bindings.js";
-import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
-import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { ExternalMetadataRegistry } from "../external-metadata.js";
+import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
 
 describe("createProgramContext", () => {
@@ -32,7 +32,7 @@ describe("createProgramContext", () => {
         JSON.stringify(
           {
             namespace: "Markdig.Syntax",
-            assemblyName: "Markdig",
+            ownerIdentity: "Markdig",
             types: [],
           },
           null,
@@ -44,7 +44,7 @@ describe("createProgramContext", () => {
       const packageHasMetadataCache = new Map<string, boolean>();
 
       expect(
-        packageHasClrMetadata(
+        packageHasExternalMetadata(
           pkgRoot,
           packageInfoCache,
           packageHasMetadataCache
@@ -82,7 +82,7 @@ describe("createProgramContext", () => {
         JSON.stringify(
           {
             namespace: "Broken",
-            types: [{ clrName: "Broken.Type" }],
+            types: [{ targetName: "Broken.Type" }],
           },
           null,
           2
@@ -134,9 +134,9 @@ describe("createProgramContext", () => {
         },
         sourceFiles: [sourceFile],
         declarationSourceFiles: [declarationSourceFile],
-        metadata: new DotnetMetadataRegistry(),
+        metadata: new ExternalMetadataRegistry(),
         bindings: new BindingRegistry(),
-        clrResolver: createClrBindingsResolver(projectRoot),
+        externalResolver: createExternalBindingsResolver(projectRoot),
         binding: createBinding(checker),
       };
 

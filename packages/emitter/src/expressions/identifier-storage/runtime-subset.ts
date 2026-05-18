@@ -12,6 +12,7 @@ import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
 import { getCanonicalRuntimeUnionMembers } from "../../core/semantic/runtime-union-frame.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
+import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { isBroadStorageTarget } from "./broad-storage-target.js";
 import { wrapMaterializedTargetAst } from "./storage-surface-shared.js";
 
@@ -24,6 +25,16 @@ export const buildRuntimeSubsetExpressionAst = (
   const sourceType = narrowed.sourceType ?? expr.inferredType;
   if (!sourceType || !targetType) {
     return undefined;
+  }
+
+  const directProjection = tryEmitRuntimeSubsetMemberProjectionIdentifier(
+    expr,
+    narrowed,
+    context,
+    targetType
+  );
+  if (directProjection) {
+    return directProjection;
   }
 
   const sourceFrame: RuntimeMaterializationSourceFrame | undefined = (() => {
@@ -135,7 +146,8 @@ export const tryEmitRuntimeSubsetMemberProjectionIdentifier = (
     sourceMemberContext
   );
   if (
-    stableTypeKeyFromAst(sourceMemberAst) !== stableTypeKeyFromAst(expectedAst)
+    stableTypeKeyFromAst(sourceMemberAst) !== stableTypeKeyFromAst(expectedAst) &&
+    !matchesExpectedEmissionType(sourceMember, expectedType, expectedContext)
   ) {
     return undefined;
   }

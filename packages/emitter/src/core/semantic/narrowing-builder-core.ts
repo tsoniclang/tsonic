@@ -26,6 +26,7 @@ import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
 } from "./runtime-reification.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 
 export type BranchTruthiness = "truthy" | "falsy";
 
@@ -192,6 +193,49 @@ export const withoutNarrowedBinding = (
     ...context,
     narrowedBindings,
   };
+};
+
+export const emitCurrentNarrowingReceiverAst = (
+  bindingKey: string,
+  targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
+  context: EmitterContext,
+  emitExprAst: EmitExprAstFn
+): [CSharpExpressionAst, EmitterContext] => {
+  const existingBinding = context.narrowedBindings?.get(bindingKey);
+
+  if (existingBinding?.kind === "rename") {
+    return [
+      identifierExpression(escapeCSharpIdentifier(existingBinding.name)),
+      context,
+    ];
+  }
+
+  if (existingBinding?.kind === "expr") {
+    return [existingBinding.exprAst, context];
+  }
+
+  if (
+    existingBinding?.kind === "runtimeSubset" &&
+    existingBinding.storageExprAst
+  ) {
+    const sourceFrameStillMatchesOriginalCarrier =
+      existingBinding.sourceType &&
+      willCarryAsRuntimeUnion(existingBinding.sourceType, context) &&
+      existingBinding.sourceMembers &&
+      existingBinding.sourceCandidateMemberNs &&
+      existingBinding.sourceMembers.length ===
+        existingBinding.sourceCandidateMemberNs.length;
+    if (sourceFrameStillMatchesOriginalCarrier) {
+      return emitExprAst(
+        targetExpr,
+        withoutNarrowedBinding(context, bindingKey)
+      );
+    }
+
+    return [existingBinding.storageExprAst, context];
+  }
+
+  return emitExprAst(targetExpr, withoutNarrowedBinding(context, bindingKey));
 };
 
 export const applyBinding = (

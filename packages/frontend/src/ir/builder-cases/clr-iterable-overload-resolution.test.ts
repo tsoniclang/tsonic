@@ -153,7 +153,9 @@ describe("IR Builder", function () {
             "interface IterableIterator<T> extends Iterator<T> {",
             "  [Symbol.iterator](): IterableIterator<T>;",
             "}",
-            "interface IEnumerable_1<T> {}",
+            "interface IEnumerable_1<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
             "declare class Assert {",
             "  static Equal<T>(expected: IEnumerable_1<T>, actual: IEnumerable_1<T>): void;",
             "  static Equal<T>(expected: T, actual: T): void;",
@@ -231,7 +233,9 @@ describe("IR Builder", function () {
             "interface IterableIterator<T> extends Iterator<T> {",
             "  [Symbol.iterator](): IterableIterator<T>;",
             "}",
-            "interface IEnumerable_1<T> {}",
+            "interface IEnumerable_1<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
             "declare class Assert {",
             "  static Equal<T>(expected: IEnumerable_1<T>, actual: IEnumerable_1<T>): void;",
             "  static Equal<T>(expected: T, actual: T): void;",
@@ -351,6 +355,7 @@ describe("IR Builder", function () {
             [
               "export interface IEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
               "}",
               "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
             ].join("\n"),
@@ -409,7 +414,9 @@ describe("IR Builder", function () {
             "interface IterableIterator<T> extends Iterator<T> {",
             "  [Symbol.iterator](): IterableIterator<T>;",
             "}",
-            "interface IEnumerable_1$instance<T> {}",
+            "interface IEnumerable_1$instance<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
             "type IEnumerable<T> = IEnumerable_1$instance<T>;",
             "declare class Assert {",
             "  static Equal<T>(expected: IEnumerable<T>, actual: IEnumerable<T>): void;",
@@ -521,6 +528,7 @@ describe("IR Builder", function () {
             [
               "export interface IEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
               "}",
               "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
             ].join("\n"),
@@ -627,10 +635,12 @@ describe("IR Builder", function () {
             [
               "export interface IEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
               "}",
               "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
               "export interface IAsyncEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IAsyncEnumerable_1: never;",
+              "  [Symbol.asyncIterator](): AsyncIterableIterator<T>;",
               "}",
               "export type IAsyncEnumerable_1<T> = IAsyncEnumerable_1$instance<T>;",
             ].join("\n"),
@@ -724,10 +734,12 @@ describe("IR Builder", function () {
             [
               "export interface IEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
               "}",
               "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
               "export interface IAsyncEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IAsyncEnumerable_1: never;",
+              "  [Symbol.asyncIterator](): AsyncIterableIterator<T>;",
               "}",
               "export type IAsyncEnumerable_1<T> = IAsyncEnumerable_1$instance<T>;",
             ].join("\n"),
@@ -824,10 +836,12 @@ describe("IR Builder", function () {
             [
               "export interface IEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
               "}",
               "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
               "export interface IAsyncEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IAsyncEnumerable_1: never;",
+              "  [Symbol.asyncIterator](): AsyncIterableIterator<T>;",
               "}",
               "export type IAsyncEnumerable_1<T> = IAsyncEnumerable_1$instance<T>;",
             ].join("\n"),
@@ -944,10 +958,12 @@ describe("IR Builder", function () {
             [
               "export interface IEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
               "}",
               "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
               "export interface IAsyncEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IAsyncEnumerable_1: never;",
+              "  [Symbol.asyncIterator](): AsyncIterableIterator<T>;",
               "}",
               "export type IAsyncEnumerable_1<T> = IAsyncEnumerable_1$instance<T>;",
             ].join("\n"),
@@ -1069,10 +1085,12 @@ describe("IR Builder", function () {
             [
               "export interface IEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
               "}",
               "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
               "export interface IAsyncEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IAsyncEnumerable_1: never;",
+              "  [Symbol.asyncIterator](): AsyncIterableIterator<T>;",
               "}",
               "export type IAsyncEnumerable_1<T> = IAsyncEnumerable_1$instance<T>;",
             ].join("\n"),
@@ -1115,8 +1133,8 @@ describe("IR Builder", function () {
         if (call.kind !== "call") return;
 
         expect(call.parameterTypes).to.deep.equal([
-          { kind: "referenceType", name: "int" },
-          { kind: "referenceType", name: "int" },
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "int" },
         ]);
       } finally {
         fixture.cleanup();
@@ -1180,6 +1198,7 @@ describe("IR Builder", function () {
             [
               "export interface IEnumerable_1$instance<T> {",
               "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
               "}",
               "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
             ].join("\n"),

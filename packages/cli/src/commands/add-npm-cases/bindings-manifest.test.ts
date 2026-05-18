@@ -79,7 +79,7 @@ describe("add npm (bindings manifest)", function () {
       expect(normalizedManifest["bindingVersion"]).to.equal(1);
       expect(normalizedManifest["packageName"]).to.equal(pkgName);
       expect(normalizedManifest["packageVersion"]).to.equal("1.0.0");
-      expect(normalizedManifest["surfaceMode"]).to.equal("clr");
+      expect(normalizedManifest["surfaceMode"]).to.equal("core");
       expect(normalizedManifest["runtimePackages"]).to.deep.equal([pkgName]);
       expect(normalizedManifest["nugetDependencies"]).to.deep.equal([
         { source: "dotnet.framework", id: "Microsoft.AspNetCore.App" },

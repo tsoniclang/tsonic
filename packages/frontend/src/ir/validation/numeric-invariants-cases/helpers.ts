@@ -110,17 +110,17 @@ export const numLiteral = (value: number, raw?: string): IrExpression => ({
 
 /**
  * Helper to create a numeric narrowing expression
- * INVARIANT: "Int32" -> primitiveType(name="int"), others -> referenceType
+ * INVARIANT: "int32" -> primitiveType(name="int"), others -> referenceType
  */
 export const narrowTo = (
   expr: IrExpression,
-  targetKind: "Int32" | "Int64" | "Double" | "Byte"
+  targetKind: "int32" | "int64" | "float64" | "uint8"
 ): IrNumericNarrowingExpression => ({
   kind: "numericNarrowing",
   expression: expr,
   targetKind,
   inferredType:
-    targetKind === "Int32"
+    targetKind === "int32"
       ? { kind: "primitiveType", name: "int" }
       : { kind: "referenceType", name: targetKind },
 });
@@ -136,7 +136,7 @@ export const ident = (name: string): IrExpression => ({
 
 /**
  * Helper to create an array access expression
- * Includes accessKind: "clrIndexer" to match IR build behavior
+ * Includes accessKind: "numericIndexer" to match IR build behavior
  */
 export const arrayAccess = (
   object: IrExpression,
@@ -147,7 +147,7 @@ export const arrayAccess = (
   property: index,
   isComputed: true,
   isOptional: false,
-  accessKind: "clrIndexer", // Set by IR converter for array types
+  accessKind: "numericIndexer", // Set by IR converter for array types
   inferredType: { kind: "primitiveType", name: "number" },
 });
 

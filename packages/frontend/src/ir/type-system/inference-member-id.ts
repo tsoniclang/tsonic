@@ -1,8 +1,8 @@
 /**
- * Member ID Resolution — typeOfMemberId, getIndexerInfo, parseIndexerKeyClrType
+ * Member ID Resolution — typeOfMemberId, getIndexerInfo, parseIndexerKeyTypeName
  *
  * Contains member lookup by opaque handle and indexer resolution:
- * - parseIndexerKeyClrType: extract indexer key CLR type from stable ID
+ * - parseIndexerKeyTypeName: extract indexer key provider type from stable ID
  * - getIndexerInfo: resolve indexer property information
  * - typeOfMemberId: member type by opaque handle
  *
@@ -29,6 +29,8 @@ import {
   normalizeToNominal,
   resolveTypeIdByName,
 } from "./type-system-state.js";
+import { parseExternalTypeString } from "./internal/universe/external-type-string-parsing.js";
+import type { SourcePrimitiveName } from "./internal/universe/catalog-types.js";
 import {
   attachTypeIds,
   convertTypeNode,
@@ -67,7 +69,7 @@ const convertMethodTypeParameters = (
   }));
 };
 
-export const parseIndexerKeyClrType = (
+export const parseIndexerKeyTypeName = (
   stableId: string
 ): string | undefined => {
   const memberSep = stableId.indexOf("::");
@@ -124,11 +126,65 @@ export const parseIndexerKeyClrType = (
   return withoutAsm.trim();
 };
 
+const sourcePrimitiveNameToIrType = (name: SourcePrimitiveName): IrType => {
+  switch (name) {
+    case "string":
+    case "number":
+    case "boolean":
+    case "char":
+    case "int":
+      return { kind: "primitiveType", name };
+    default:
+      return { kind: "referenceType", name };
+  }
+};
+
+const resolveIndexerKeyIrType = (
+  state: TypeSystemState,
+  keyTypeName: string
+): IrType => {
+  const targetTypeId = state.unifiedCatalog.resolveTargetName(keyTypeName);
+  const targetEntry = targetTypeId
+    ? state.unifiedCatalog.getByTypeId(targetTypeId)
+    : undefined;
+  if (targetEntry?.sourcePrimitiveName) {
+    return sourcePrimitiveNameToIrType(targetEntry.sourcePrimitiveName);
+  }
+
+  const parsed = parseExternalTypeString(keyTypeName);
+  if (parsed.kind !== "referenceType") {
+    return parsed;
+  }
+
+  const typeId =
+    (parsed.targetQualifiedName
+      ? state.unifiedCatalog.resolveTargetName(parsed.targetQualifiedName)
+      : undefined) ??
+    state.unifiedCatalog.resolveTargetName(parsed.name) ??
+    state.unifiedCatalog.resolveTsName(parsed.name);
+  if (!typeId) {
+    return parsed;
+  }
+
+  const entry = state.unifiedCatalog.getByTypeId(typeId);
+  if (entry?.sourcePrimitiveName) {
+    return sourcePrimitiveNameToIrType(entry.sourcePrimitiveName);
+  }
+
+  return { ...parsed, typeId };
+};
+
 export const getIndexerInfo = (
   state: TypeSystemState,
   receiver: IrType,
   _site?: Site
-): { readonly keyClrType: string; readonly valueType: IrType } | undefined => {
+):
+  | {
+      readonly keyTypeName: string;
+      readonly keyType: IrType;
+      readonly valueType: IrType;
+    }
+  | undefined => {
   const normalized = normalizeToNominal(state, receiver);
   if (!normalized) return undefined;
 
@@ -146,8 +202,8 @@ export const getIndexerInfo = (
     const indexer = indexers[0];
     if (!indexer?.type) return undefined;
 
-    const keyClrType = parseIndexerKeyClrType(indexer.stableId);
-    if (!keyClrType) return undefined;
+    const keyTypeName = parseIndexerKeyTypeName(indexer.stableId);
+    if (!keyTypeName) return undefined;
 
     const inst = state.nominalEnv.getInstantiation(
       normalized.typeId,
@@ -159,7 +215,11 @@ export const getIndexerInfo = (
         ? irSubstitute(indexer.type, inst as IrSubstitutionMap)
         : indexer.type;
 
-    return { keyClrType, valueType };
+    return {
+      keyTypeName,
+      keyType: resolveIndexerKeyIrType(state, keyTypeName),
+      valueType,
+    };
   }
 
   return undefined;

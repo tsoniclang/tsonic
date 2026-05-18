@@ -3,13 +3,40 @@
  *
  * Defines the core types for the unified type catalog: TypeId, NominalEntry,
  * MemberEntry, MethodSignatureEntry, ConstructorEntry, FieldEntry, and the
- * catalog interfaces (AssemblyTypeCatalog, UnifiedTypeCatalog).
+ * catalog interfaces (ExternalTypeCatalog, UnifiedTypeCatalog).
  *
- * INVARIANT INV-CLR: All nominal type identities come from ONE unified catalog.
+ * INVARIANT: All nominal type identities come from ONE unified catalog.
  * No type query is allowed to "fall back" to parallel logic or parallel stores.
  */
 
-import type { IrType } from "../../../types/index.js";
+import type {
+  IrAsyncWrapperMetadata,
+  IrIterableShapeMetadata,
+  IrType,
+} from "../../../types/index.js";
+import type { TypeSymbolId } from "../../../../symbols/index.js";
+
+export type SourcePrimitiveName =
+  | "string"
+  | "number"
+  | "boolean"
+  | "char"
+  | "sbyte"
+  | "byte"
+  | "short"
+  | "ushort"
+  | "int"
+  | "uint"
+  | "long"
+  | "ulong"
+  | "nint"
+  | "nuint"
+  | "int128"
+  | "uint128"
+  | "half"
+  | "float"
+  | "double"
+  | "decimal";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL TYPE IDENTITY
@@ -19,23 +46,26 @@ import type { IrType } from "../../../types/index.js";
  * Canonical identity for any nominal type.
  *
  * Uses stableId as the primary key:
- * - Assembly types: "{assemblyName}:{clrName}" e.g., "System.Private.CoreLib:System.String"
+ * - External types: "{ownerIdentity}:{providerTypeName}"
  * - Source types: "{projectName}:{fullyQualifiedName}" e.g., "myapp:MyApp.Models.User"
  *
  * The distinction matters for:
- * - Collisions across assemblies
- * - Type-forwarding
- * - Multiple assemblies declaring same namespace/type
+ * - Collisions across target providers
+ * - Provider-owned forwarding
+ * - Multiple providers declaring the same source-facing namespace/type
  */
 export type TypeId = {
-  /** Primary key: e.g., "System.Private.CoreLib:System.String" */
+  /** Primary key: owner/provider identity plus provider-local type name. */
   readonly stableId: string;
-  /** CLR display name for emitter: e.g., "System.String" */
-  readonly clrName: string;
-  /** Assembly name: e.g., "System.Private.CoreLib" */
-  readonly assemblyName: string;
-  /** TS surface name for symbol binding: e.g., "String" */
-  readonly tsName: string;
+  /** Target-neutral nominal symbol identity. */
+  readonly symbolId?: TypeSymbolId;
+  /** Source-language-facing name used for diagnostics and type lookup. */
+  readonly sourceName: string;
+  /** Owner/package/project identity, independent of target render naming. */
+  readonly ownerIdentity: string;
+  /** Provider-local target render key; consumed only by target-surface indexes. */
+  readonly targetName: string;
+  readonly origin?: TypeOrigin;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -45,7 +75,7 @@ export type TypeId = {
 /**
  * Complete type information for a nominal type.
  *
- * This is the unified shape for both source and assembly types.
+ * This is the unified shape for both source and external types.
  * All type queries go through this structure.
  */
 export type NominalEntry = {
@@ -56,7 +86,7 @@ export type NominalEntry = {
   /**
    * Source type alias target (when kind originated from a TypeScript type alias).
    *
-   * Present only for source-origin aliases; undefined for assembly types and
+   * Present only for source-origin aliases; undefined for external types and
    * non-alias source declarations.
    */
   readonly aliasedType?: IrType;
@@ -68,6 +98,12 @@ export type NominalEntry = {
   readonly members: ReadonlyMap<string, MemberEntry>;
   /** Where this type came from */
   readonly origin: TypeOrigin;
+  /** Optional source-level primitive projection provided by target metadata. */
+  readonly sourcePrimitiveName?: SourcePrimitiveName;
+  /** Optional source-level async wrapper semantics provided by target metadata. */
+  readonly asyncWrapper?: IrAsyncWrapperMetadata;
+  /** Optional source-level iterable semantics provided by target metadata. */
+  readonly iterableShape?: IrIterableShapeMetadata;
   /** Accessibility modifier */
   readonly accessibility: "public" | "internal" | "private" | "protected";
   /** Abstract class flag */
@@ -91,7 +127,7 @@ export type NominalKind =
 /**
  * Where a type originated.
  */
-export type TypeOrigin = "source" | "assembly";
+export type TypeOrigin = "source" | "external";
 
 /**
  * Type parameter declaration on a generic type.
@@ -134,8 +170,8 @@ export type HeritageEdge = {
 export type MemberEntry = {
   /** TS surface name (for symbol binding) */
   readonly tsName: string;
-  /** CLR name (for emitter) */
-  readonly clrName: string;
+  /** Provider-local target render name. */
+  readonly targetName: string;
   /** Member kind */
   readonly memberKind: MemberKind;
   /** Type (for properties, fields); undefined for methods */
@@ -216,7 +252,7 @@ export type ParameterEntry = {
 };
 
 /**
- * Parameter passing mode for C# interop.
+ * Parameter passing mode for by-reference style APIs.
  */
 export type ParameterMode = "value" | "ref" | "out" | "in";
 
@@ -239,7 +275,7 @@ export type ConstructorEntry = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FIELD ENTRY (from metadata JSON)
+// FIELD ENTRY (from external metadata JSON)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -248,8 +284,8 @@ export type ConstructorEntry = {
 export type FieldEntry = {
   /** Stable ID */
   readonly stableId: string;
-  /** CLR name */
-  readonly clrName: string;
+  /** Provider-local target render name. */
+  readonly targetName: string;
   /** TS surface name */
   readonly tsName: string;
   /** Static field flag */
@@ -263,31 +299,31 @@ export type FieldEntry = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ASSEMBLY TYPE CATALOG — Collection of types from assemblies
+// EXTERNAL TYPE CATALOG — Collection of types from external providers
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Complete catalog of types loaded from assembly metadata.
+ * Complete catalog of types loaded from external provider metadata.
  *
  * This is the result of loading bindings.json files.
  */
-export type AssemblyTypeCatalog = {
+export type ExternalTypeCatalog = {
   /** All type entries, keyed by stableId */
   readonly entries: ReadonlyMap<string, NominalEntry>;
   /** TS name → TypeId mapping */
   readonly tsNameToTypeId: ReadonlyMap<string, TypeId>;
-  /** CLR name → TypeId mapping */
-  readonly clrNameToTypeId: ReadonlyMap<string, TypeId>;
+  /** Provider-local target name → TypeId mapping */
+  readonly targetNameToTypeId: ReadonlyMap<string, TypeId>;
   /** Namespace → TypeIds mapping */
   readonly namespaceToTypeIds: ReadonlyMap<string, readonly TypeId[]>;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// UNIFIED TYPE CATALOG — Merged source + assembly types
+// UNIFIED TYPE CATALOG — Merged source + external types
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Unified catalog merging source and assembly types.
+ * Unified catalog merging source and external types.
  *
  * This is THE source of truth for all type queries.
  * No fallback paths allowed.
@@ -299,8 +335,8 @@ export type UnifiedTypeCatalog = {
   readonly getByStableId: (stableId: string) => NominalEntry | undefined;
   /** Resolve TS name to TypeId */
   readonly resolveTsName: (tsName: string) => TypeId | undefined;
-  /** Resolve CLR name to TypeId */
-  readonly resolveClrName: (clrName: string) => TypeId | undefined;
+  /** Resolve provider-local target name to TypeId */
+  readonly resolveTargetName: (targetName: string) => TypeId | undefined;
   /** Get all members of a type */
   readonly getMembers: (typeId: TypeId) => ReadonlyMap<string, MemberEntry>;
   /** Get specific member by name */

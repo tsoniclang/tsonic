@@ -9,7 +9,6 @@ import {
   IrType,
   ComputedAccessKind,
   ComputedAccessProtocol,
-  numericTypeFactFromName,
 } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { BindingInternal } from "../../../binding/index.js";
@@ -169,7 +168,7 @@ const hasStrongerNumericIntent = (
   const candidateNumeric = getNumericKindFromIrType(candidate);
   const currentNumeric = getNumericKindFromIrType(current);
   if (candidateNumeric && currentNumeric) {
-    return currentNumeric === "Double" && candidateNumeric !== "Double";
+    return currentNumeric === "float64" && candidateNumeric !== "float64";
   }
 
   if (candidate.kind === "functionType" && current.kind === "functionType") {
@@ -184,8 +183,8 @@ const hasStrongerNumericIntent = (
     if (
       candidateReturnNumeric &&
       currentReturnNumeric &&
-      currentReturnNumeric === "Double" &&
-      candidateReturnNumeric !== "Double"
+      currentReturnNumeric === "float64" &&
+      candidateReturnNumeric !== "float64"
     ) {
       return true;
     }
@@ -400,8 +399,17 @@ export const normalizeForComputedAccess = (
   return type;
 };
 
-const isNumericIndexerKeyTypeName = (keyTypeName: string): boolean =>
-  numericTypeFactFromName(keyTypeName) !== undefined;
+const isNullishType = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const getNonNullishUnionTypes = (type: IrType): readonly IrType[] =>
+  type.kind === "unionType"
+    ? type.types.filter((member) => !isNullishType(member))
+    : [type];
+
+const isNumericIndexerKeyType = (keyType: IrType): boolean =>
+  getNumericKindFromIrType(keyType) !== undefined;
 
 const INT_IR_TYPE: IrType = { kind: "primitiveType", name: "int" };
 
@@ -521,7 +529,7 @@ export const resolveComputedAccessProtocol = (
   }
 
   const indexer = ctx.typeSystem.getIndexerInfo(normalized);
-  if (!indexer || !isNumericIndexerKeyTypeName(indexer.keyClrType)) {
+  if (!indexer || !isNumericIndexerKeyType(indexer.keyType)) {
     return undefined;
   }
 
@@ -536,13 +544,13 @@ export const resolveComputedAccessProtocol = (
 
 /**
  * Classify computed member access for proof pass.
- * This determines whether Int32 proof is required for the index.
+ * This determines whether source-int proof is required for the index.
  *
  * Classification is based on IR type kinds, NOT string matching.
- * CLR indexers (arrays, List<T>, etc.) require Int32 proof for indices.
+ * Positional indexers (arrays, lists, spans, buffers, etc.) require int proof.
  *
- * IMPORTANT: If classification cannot be determined reliably for a CLR-bound
- * reference type, we conservatively assume `clrIndexer` (requires Int32 proof).
+ * IMPORTANT: If classification cannot be determined reliably for a external-bound
+ * reference type, we conservatively assume `numericIndexer` (requires source-int proof).
  * This is safer than allowing arbitrary dictionary access without proof.
  *
  * @param objectType - The inferred type of the object being accessed
@@ -556,14 +564,30 @@ export const classifyComputedAccess = (
   if (!normalized) return "unknown";
   objectType = normalized;
 
+  if (objectType.kind === "unionType") {
+    const memberKinds = getNonNullishUnionTypes(objectType).map((member) =>
+      classifyComputedAccess(member, ctx)
+    );
+    if (memberKinds.length === 0 || memberKinds.includes("unknown")) {
+      return "unknown";
+    }
+
+    const firstKind = memberKinds[0];
+    if (firstKind && memberKinds.every((kind) => kind === firstKind)) {
+      return firstKind;
+    }
+
+    return "unknown";
+  }
+
   // TypeScript array type (number[], T[], etc.)
-  // Requires Int32 proof
+  // Requires source-int proof
   if (objectType.kind === "arrayType") {
-    return "clrIndexer";
+    return "numericIndexer";
   }
 
   if (objectType.kind === "tupleType") {
-    return "clrIndexer";
+    return "numericIndexer";
   }
 
   // IR dictionary type - this is the PRIMARY way to detect dictionaries
@@ -579,9 +603,9 @@ export const classifyComputedAccess = (
 
   if (objectType.kind === "referenceType") {
     const indexer = ctx.typeSystem.getIndexerInfo(objectType);
-    if (!indexer) return "clrIndexer";
-    return isNumericIndexerKeyTypeName(indexer.keyClrType)
-      ? "clrIndexer"
+    if (!indexer) return "numericIndexer";
+    return isNumericIndexerKeyType(indexer.keyType)
+      ? "numericIndexer"
       : "dictionary";
   }
 
@@ -603,7 +627,7 @@ export const extractTypeName = (
   if (!inferredType) return undefined;
 
   // Handle common nullish unions like `Uri | undefined` by stripping null/undefined.
-  // This enables CLR member binding after explicit null checks in source code.
+  // This enables native target member binding after explicit null checks in source code.
   if (inferredType.kind === "unionType") {
     const nonNullish = inferredType.types.filter(
       (t) =>
@@ -704,6 +728,36 @@ export const deriveElementType = (
 ): IrType | undefined => {
   objectType = normalizeForComputedAccess(objectType);
   if (!objectType) return undefined;
+
+  if (objectType.kind === "unionType") {
+    const elementTypes: IrType[] = [];
+    for (const member of getNonNullishUnionTypes(objectType)) {
+      const elementType = deriveElementType(member, ctx, accessExpression);
+      if (!elementType) {
+        return undefined;
+      }
+      if (
+        !elementTypes.some(
+          (existing) =>
+            ctx.typeSystem.typesEqual(existing, elementType) ||
+            (ctx.typeSystem.isAssignableTo(existing, elementType) &&
+              ctx.typeSystem.isAssignableTo(elementType, existing))
+        )
+      ) {
+        elementTypes.push(elementType);
+      }
+    }
+
+    if (elementTypes.length === 0) {
+      return undefined;
+    }
+
+    if (elementTypes.length === 1) {
+      return elementTypes[0];
+    }
+
+    return { kind: "unionType", types: elementTypes };
+  }
 
   if (objectType.kind === "arrayType") {
     return objectType.elementType;

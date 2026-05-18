@@ -16,6 +16,7 @@ export {
   tryMapProjectedRuntimeMemberN,
   buildSubsetUnionType,
   withoutNarrowedBinding,
+  emitCurrentNarrowingReceiverAst,
   applyBinding,
   buildExprBinding,
   buildProjectedExprBinding,

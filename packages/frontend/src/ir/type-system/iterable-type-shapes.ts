@@ -34,16 +34,12 @@ const SYNC_ITERABLE_TS_NAMES = new Set([
   "ReadonlySet",
   "Map",
   "ReadonlyMap",
-  "IEnumerable",
-  "IEnumerable_1",
 ]);
 
 const ASYNC_ITERABLE_TS_NAMES = new Set([
   "AsyncIterable",
   "AsyncIterableIterator",
   "AsyncGenerator",
-  "IAsyncEnumerable",
-  "IAsyncEnumerable_1",
 ]);
 
 const normalizeIterableOperand = (
@@ -98,19 +94,22 @@ const deriveTupleIterationElementType = (
 const getReferenceTypeNames = (
   state: TypeSystemState,
   type: Extract<IrType, { kind: "referenceType" }>
-): { readonly tsName: string; readonly clrName: string | undefined } => {
+): {
+  readonly sourceName: string;
+  readonly iterableShape?: Extract<
+    IrType,
+    { kind: "referenceType" }
+  >["iterableShape"];
+} => {
   const normalized = normalizeToNominal(state, type);
   const entry = normalized
     ? state.unifiedCatalog.getByTypeId(normalized.typeId)
     : undefined;
 
   return {
-    tsName: entry?.typeId.tsName ?? normalized?.typeId.tsName ?? type.name,
-    clrName:
-      entry?.typeId.clrName ??
-      normalized?.typeId.clrName ??
-      type.typeId?.clrName ??
-      type.resolvedClrType,
+    sourceName:
+      entry?.typeId.sourceName ?? normalized?.typeId.sourceName ?? type.name,
+    iterableShape: type.iterableShape ?? entry?.iterableShape,
   };
 };
 
@@ -122,20 +121,30 @@ const tryGetKnownReferenceIterableShape = (
   state: TypeSystemState,
   type: Extract<IrType, { kind: "referenceType" }>
 ): IterableShape | undefined => {
-  const { tsName, clrName } = getReferenceTypeNames(state, type);
-  const normalizedTsName = normalizeIterableTypeName(tsName);
-  const clrBaseName = normalizeIterableTypeName(
-    clrName?.split(".").pop()?.replace(/`1$/, "")
-  );
+  const { sourceName, iterableShape } = getReferenceTypeNames(state, type);
+  if (iterableShape) {
+    const elementType =
+      type.typeArguments?.[iterableShape.elementTypeParameterIndex];
+    if (elementType) {
+      return {
+        mode: iterableShape.mode,
+        elementType,
+      };
+    }
+  }
+
+  const normalizedSourceName = normalizeIterableTypeName(sourceName);
   const firstTypeArg = type.typeArguments?.[0];
   const secondTypeArg = type.typeArguments?.[1];
 
   if (
-    (SYNC_ITERABLE_TS_NAMES.has(normalizedTsName ?? "") ||
-      clrBaseName === "IEnumerable") &&
+    SYNC_ITERABLE_TS_NAMES.has(normalizedSourceName ?? "") &&
     firstTypeArg
   ) {
-    if (normalizedTsName === "Map" || normalizedTsName === "ReadonlyMap") {
+    if (
+      normalizedSourceName === "Map" ||
+      normalizedSourceName === "ReadonlyMap"
+    ) {
       return firstTypeArg && secondTypeArg
         ? {
             mode: "sync",
@@ -154,8 +163,7 @@ const tryGetKnownReferenceIterableShape = (
   }
 
   if (
-    (ASYNC_ITERABLE_TS_NAMES.has(normalizedTsName ?? "") ||
-      clrBaseName === "IAsyncEnumerable") &&
+    ASYNC_ITERABLE_TS_NAMES.has(normalizedSourceName ?? "") &&
     firstTypeArg
   ) {
     return {
@@ -176,23 +184,14 @@ export const getKnownIterableCarrierMode = (
     return undefined;
   }
 
-  const { tsName, clrName } = getReferenceTypeNames(state, normalized);
-  const normalizedTsName = normalizeIterableTypeName(tsName);
-  const clrBaseName = normalizeIterableTypeName(
-    clrName?.split(".").pop()?.replace(/`1$/, "")
-  );
+  const { sourceName } = getReferenceTypeNames(state, normalized);
+  const normalizedSourceName = normalizeIterableTypeName(sourceName);
 
-  if (
-    SYNC_ITERABLE_TS_NAMES.has(normalizedTsName ?? "") ||
-    clrBaseName === "IEnumerable"
-  ) {
+  if (SYNC_ITERABLE_TS_NAMES.has(normalizedSourceName ?? "")) {
     return "sync";
   }
 
-  if (
-    ASYNC_ITERABLE_TS_NAMES.has(normalizedTsName ?? "") ||
-    clrBaseName === "IAsyncEnumerable"
-  ) {
+  if (ASYNC_ITERABLE_TS_NAMES.has(normalizedSourceName ?? "")) {
     return "async";
   }
 

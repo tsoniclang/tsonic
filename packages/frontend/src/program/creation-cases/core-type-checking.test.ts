@@ -25,7 +25,7 @@ describe("Program Creation – core type checking", function () {
         projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "clr",
+        surface: "core",
       });
 
       expect(result.ok).to.equal(true);
@@ -48,7 +48,7 @@ describe("Program Creation – core type checking", function () {
         projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "clr",
+        surface: "core",
       });
 
       expect(result.ok).to.equal(true);
@@ -71,7 +71,7 @@ describe("Program Creation – core type checking", function () {
         projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "clr",
+        surface: "core",
       });
 
       expect(result.ok).to.equal(true);

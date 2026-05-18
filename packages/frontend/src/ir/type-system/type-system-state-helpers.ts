@@ -104,23 +104,23 @@ export const addUndefinedToType = (type: IrType): IrType => {
  * Resolve a surface name to a canonical TypeId.
  *
  * Order:
- * 1) AliasTable (primitives/globals/System.* canonicalization)
+ * 1) AliasTable (primitives/globals/provider aliases)
  * 2) UnifiedTypeCatalog source-authored tsName
- * 3) UnifiedTypeCatalog assembly tsName
- * 4) UnifiedTypeCatalog by clrName
+ * 3) UnifiedTypeCatalog external tsName
+ * 4) UnifiedTypeCatalog by targetName
  *
  * Canonical aliases must win over source-authored global wrapper declarations.
  * Example:
  * - source `interface String extends String$instance, __String$views {}`
- * - canonical alias `String -> System.String`
+ * - canonical alias `String -> external String carrier`
  *
- * Member lookup on `string` / `String` must resolve against the canonical CLR
+ * Member lookup on `string` / `String` must resolve against the canonical target
  * entry so instance members like `IndexOf` and `Substring` remain available.
  *
  * IMPORTANT (airplane-grade):
  * Resolution must be arity-aware when type arguments are present. Facade
- * types often omit the `_N` generic arity suffix (e.g. `IList<T>` is a
- * facade over `IList_1<T>`). When `arity` is provided and the direct
+ * types often omit the `_N` generic arity suffix (e.g. `ExternalList<T>` is a
+ * facade over `ExternalList_1<T>`). When `arity` is provided and the direct
  * resolution doesn't match, we deterministically try `<name>_<arity>`.
  */
 export const resolveTypeIdByName = (
@@ -155,12 +155,12 @@ export const resolveTypeIdByName = (
       "source"
       ? canonicalTsNameCandidate
       : undefined;
-  const assemblyTsNameCandidate =
+  const externalTsNameCandidate =
     tsNameCandidate &&
     state.unifiedCatalog.getByTypeId(tsNameCandidate)?.origin !== "source"
       ? tsNameCandidate
       : undefined;
-  const canonicalAssemblyTsNameCandidate =
+  const canonicalExternalTsNameCandidate =
     canonicalTsNameCandidate &&
     state.unifiedCatalog.getByTypeId(canonicalTsNameCandidate)?.origin !==
       "source"
@@ -181,13 +181,13 @@ export const resolveTypeIdByName = (
 
   pushCandidate(state.aliasTable.get(name));
   pushCandidate(sourceTsNameCandidate);
-  pushCandidate(assemblyTsNameCandidate);
-  pushCandidate(state.unifiedCatalog.resolveClrName(name));
+  pushCandidate(externalTsNameCandidate);
+  pushCandidate(state.unifiedCatalog.resolveTargetName(name));
   if (canonicalName !== name) {
     pushCandidate(state.aliasTable.get(canonicalName));
     pushCandidate(canonicalSourceTsNameCandidate);
-    pushCandidate(canonicalAssemblyTsNameCandidate);
-    pushCandidate(state.unifiedCatalog.resolveClrName(canonicalName));
+    pushCandidate(canonicalExternalTsNameCandidate);
+    pushCandidate(state.unifiedCatalog.resolveTargetName(canonicalName));
   }
 
   if (arity === undefined) {
@@ -220,14 +220,14 @@ export const resolveTypeIdByName = (
 
     pushSuffixedCandidate(state.aliasTable.get(suffixed));
     pushSuffixedCandidate(state.unifiedCatalog.resolveTsName(suffixed));
-    pushSuffixedCandidate(state.unifiedCatalog.resolveClrName(suffixed));
+    pushSuffixedCandidate(state.unifiedCatalog.resolveTargetName(suffixed));
     if (canonicalSuffixed) {
       pushSuffixedCandidate(state.aliasTable.get(canonicalSuffixed));
       pushSuffixedCandidate(
         state.unifiedCatalog.resolveTsName(canonicalSuffixed)
       );
       pushSuffixedCandidate(
-        state.unifiedCatalog.resolveClrName(canonicalSuffixed)
+        state.unifiedCatalog.resolveTargetName(canonicalSuffixed)
       );
     }
 
@@ -242,7 +242,7 @@ export const resolveSourceReferenceFQName = (
   state: TypeSystemState,
   type: Extract<IrType, { kind: "referenceType" }>
 ): string | undefined => {
-  if (type.resolvedClrType || type.name.includes(".")) {
+  if (type.targetQualifiedName || type.name.includes(".")) {
     return undefined;
   }
 
@@ -318,8 +318,8 @@ export const normalizeToNominal = (
     const arity = type.typeArguments?.length;
     const sourceFqName = resolveSourceReferenceFQName(state, type);
     const typeId =
-      (type.resolvedClrType
-        ? resolveTypeIdByName(state, type.resolvedClrType, arity)
+      (type.targetQualifiedName
+        ? resolveTypeIdByName(state, type.targetQualifiedName, arity)
         : undefined) ??
       (sourceFqName
         ? resolveTypeIdByName(state, sourceFqName, arity)
@@ -343,7 +343,7 @@ export const normalizeToNominal = (
   }
 
   if (type.kind === "arrayType") {
-    const arrayTypeId = resolveTypeIdByName(state, "System.Array", 0);
+    const arrayTypeId = resolveTypeIdByName(state, "Array", 0);
     if (!arrayTypeId) return undefined;
     return { typeId: arrayTypeId, typeArgs: [] };
   }
@@ -351,7 +351,7 @@ export const normalizeToNominal = (
   if (type.kind === "dictionaryType") {
     const dictionaryTypeId = resolveTypeIdByName(
       state,
-      "System.Collections.Generic.Dictionary`2",
+      "Dictionary_2",
       2
     );
     if (!dictionaryTypeId) return undefined;
@@ -368,11 +368,11 @@ export const normalizeToNominal = (
 // must erase for deterministic IR typing and call inference.
 //
 // Example (generated bindings for Tsonic source):
-//   import type { ExtensionMethods as __TsonicExt_Ef } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
+//   import type { ExtensionMethods as __TsonicExt_Query } from "@acme/query/extensions.js";
 //   readonly Tenants: __TsonicExt_Ef<...>;
 //
-// These wrapper types have no CLR identity. For the compiler, the only meaningful
-// runtime/CLR shape is the inner type argument.
+// These wrapper types have no target identity. For the compiler, the only meaningful
+// runtime/target shape is the inner type argument.
 export const stripTsonicExtensionWrappers = (type: IrType): IrType => {
   if (type.kind === "referenceType") {
     if (

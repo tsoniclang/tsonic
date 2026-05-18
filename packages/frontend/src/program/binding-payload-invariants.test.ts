@@ -37,14 +37,14 @@ describe("dotnet binding payload architecture invariants", () => {
     const requiredConsumers = [
       "program/metadata.ts",
       "program/binding-registry-loading.ts",
-      "resolver/clr-bindings-package-resolution.ts",
-      "ir/type-system/internal/universe/clr-catalog.ts",
+      "resolver/external-bindings-package-resolution.ts",
+      "ir/type-system/internal/universe/external-catalog.ts",
       "ir/type-system/internal/type-converter/references-structural-bindings.ts",
     ];
 
     const missingImport = requiredConsumers.filter((file) => {
       const text = readFileSync(join(srcRoot, file), "utf8");
-      return !/from\s+["'][^"']*dotnet-binding-payload\.js["']/.test(text);
+      return !/from\s+["'][^"']*external-binding-payload\.js["']/.test(text);
     });
 
     expect(missingImport).to.deep.equal([]);
@@ -53,7 +53,7 @@ describe("dotnet binding payload architecture invariants", () => {
   it("confines direct dotnet payload field access to the validation and helper boundary", () => {
     const allowedDirectAccess = new Set([
       "program/binding-types.ts",
-      "program/dotnet-binding-payload.ts",
+      "program/external-binding-payload.ts",
       "ir/type-system/internal/universe/raw-bindings-types.ts",
     ]);
 

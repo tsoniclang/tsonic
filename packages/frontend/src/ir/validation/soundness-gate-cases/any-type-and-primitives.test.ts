@@ -11,7 +11,11 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { validateIrSoundness } from "../soundness-gate.js";
+import {
+  validateCapabilityAcceptability,
+  validateIrSoundness,
+  validateUniversalHygiene,
+} from "../soundness-gate.js";
 import { IrModule } from "../../types.js";
 import { createModuleWithType } from "./test-helpers.js";
 
@@ -33,7 +37,9 @@ describe("IR Soundness Gate", () => {
         elementType: { kind: "anyType" },
       });
 
-      const result = validateIrSoundness([module]);
+      const result = validateIrSoundness([module], {
+        knownReferenceTypes: new Set(["Foo", "Bar"]),
+      });
 
       expect(result.ok).to.be.false;
       expect(result.diagnostics[0]?.code).to.equal("TSN7414");
@@ -95,13 +101,100 @@ describe("IR Soundness Gate", () => {
         ],
       });
 
-      const result = validateIrSoundness([module]);
+      const result = validateIrSoundness([module], {
+        knownReferenceTypes: new Set(["Foo", "Bar"]),
+      });
 
       expect(result.ok).to.be.false;
       expect(result.diagnostics[0]?.code).to.equal("TSN7414");
       expect(result.diagnostics[0]?.message).to.include(
         "cannot be emitted as a runtime storage type"
       );
+    });
+
+    it("should keep universal hygiene separate from capability acceptability", () => {
+      const module = createModuleWithType({
+        kind: "intersectionType",
+        types: [
+          { kind: "referenceType", name: "Foo" },
+          { kind: "referenceType", name: "Bar" },
+        ],
+      });
+
+      const options = {
+        knownReferenceTypes: new Set(["Foo", "Bar"]),
+      };
+      const universal = validateUniversalHygiene([module], options);
+      const capability = validateCapabilityAcceptability([module], options);
+
+      expect(universal.ok).to.equal(true);
+      expect(
+        universal.diagnostics.some((diagnostic) =>
+          diagnostic.message.includes("runtime storage type")
+        )
+      ).to.equal(false);
+      expect(capability.ok).to.equal(false);
+      expect(capability.diagnostics[0]?.message).to.include(
+        "runtime storage type"
+      );
+    });
+
+    it("should allow expression-only intersection metadata for overload sets", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "identifier",
+              name: "overloaded",
+              inferredType: {
+                kind: "intersectionType",
+                types: [
+                  {
+                    kind: "functionType",
+                    parameters: [
+                      {
+                        kind: "parameter",
+                        pattern: { kind: "identifierPattern", name: "value" },
+                        type: { kind: "primitiveType", name: "string" },
+                        isOptional: false,
+                        isRest: false,
+                        passing: "value",
+                      },
+                    ],
+                    returnType: { kind: "primitiveType", name: "string" },
+                  },
+                  {
+                    kind: "functionType",
+                    parameters: [
+                      {
+                        kind: "parameter",
+                        pattern: { kind: "identifierPattern", name: "value" },
+                        type: { kind: "primitiveType", name: "int" },
+                        isOptional: false,
+                        isRest: false,
+                        passing: "value",
+                      },
+                    ],
+                    returnType: { kind: "primitiveType", name: "int" },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.equal(true);
     });
   });
 

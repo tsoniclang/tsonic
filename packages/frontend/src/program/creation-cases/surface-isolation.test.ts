@@ -1,6 +1,6 @@
 /**
- * Tests for surface isolation: CLR vs JS surface member visibility,
- * Array.from/RangeError exposure, array mutators, and CLR string members
+ * Tests for surface isolation: core vs JS surface member visibility,
+ * Array.from/RangeError exposure, array mutators, and core string members
  */
 
 import { describe, it } from "mocha";
@@ -14,7 +14,7 @@ import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js
 describe("Program Creation – surface isolation", function () {
   this.timeout(90_000);
 
-  it("should allow mutable array index writes in clr surface mode", () => {
+  it("should allow mutable array index writes in core surface mode", () => {
     const fixture = materializeFrontendFixture([
       "fragments/surface-isolation/custom-clr-surface",
       "program/creation/surface-isolation/clr-array-write",
@@ -37,7 +37,7 @@ describe("Program Creation – surface isolation", function () {
     }
   });
 
-  it("should keep JS surface free of CLR string members", () => {
+  it("should keep JS surface free of core string members", () => {
     const fixture = materializeFrontendFixture([
       "fragments/surface-isolation/custom-js-surface",
       "program/creation/surface-isolation/js-no-clr-members",
@@ -141,7 +141,7 @@ describe("Program Creation – surface isolation", function () {
     }
   });
 
-  it("should keep RangeError out of clr surface", () => {
+  it("should keep RangeError out of core surface", () => {
     const fixture = materializeFrontendFixture([
       "fragments/surface-isolation/custom-clr-surface",
       "program/creation/surface-isolation/clr-no-rangeerror",
@@ -156,7 +156,7 @@ describe("Program Creation – surface isolation", function () {
         projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "clr",
+        surface: "core",
       });
 
       expect(result.ok).to.equal(true);
@@ -197,7 +197,7 @@ describe("Program Creation – surface isolation", function () {
         projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "clr",
+        surface: "core",
       });
 
       expect(okResult.ok).to.equal(true);
@@ -210,7 +210,7 @@ describe("Program Creation – surface isolation", function () {
     }
   });
 
-  it("should expose CLR string members on clr surface via @tsonic/globals", () => {
+  it("should expose core string members via @tsonic/globals", () => {
     const fixture = materializeFrontendFixture([
       "fragments/surface-isolation/custom-clr-surface",
       "program/creation/surface-isolation/clr-string-members",
@@ -225,14 +225,14 @@ describe("Program Creation – surface isolation", function () {
         projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "clr",
+        surface: "core",
       });
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
       expect(
         result.value.declarationSourceFiles.some((sourceFile) =>
-          sourceFile.fileName.endsWith("__clr_globals__.d.ts")
+            sourceFile.fileName.endsWith("__core_globals__.d.ts")
         )
       ).to.equal(false);
       expect(

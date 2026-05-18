@@ -31,6 +31,7 @@ import {
   getMembersFromType,
   memberValueType,
 } from "./internal/type-converter/type-operators.js";
+import { extractNominalStructuralMembers } from "./inference-declarations-structural.js";
 import {
   isOverloadStubImplementation,
   isOverloadSurfaceDeclaration,
@@ -39,8 +40,8 @@ import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js
 
 const CATCH_VARIABLE_EXCEPTION_TYPE: IrReferenceType = {
   kind: "referenceType",
-  name: "System.Exception",
-  resolvedClrType: "global::System.Exception",
+  name: "Error",
+  targetQualifiedName: "core:Error",
 };
 
 const isCatchVariableDeclaration = (
@@ -392,11 +393,15 @@ const buildNominalReferenceType = (
       ? resolveTypeIdByName(state, declInfo.fqName, arity)
       : undefined) ??
     (simpleName ? resolveTypeIdByName(state, simpleName, arity) : undefined);
+  const structuralMembers = extractNominalStructuralMembers(state, declaration);
 
   return {
     kind: "referenceType",
     name: declInfo.fqName ?? simpleName ?? "unknown",
-    ...(typeId ? { typeId, resolvedClrType: typeId.clrName } : {}),
+    ...(typeId ? { typeId, targetQualifiedName: typeId.targetName } : {}),
+    ...(structuralMembers
+      ? { structuralMembers, structuralOrigin: "namedReference" as const }
+      : {}),
   };
 };
 

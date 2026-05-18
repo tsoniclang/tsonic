@@ -101,7 +101,7 @@ describe("Destructuring Pattern Lowering", () => {
       const itemType: IrType = {
         kind: "referenceType",
         name: "Item",
-        resolvedClrType: "Item",
+        targetQualifiedName: "Item",
         structuralMembers: [
           {
             kind: "propertySignature",
@@ -230,7 +230,7 @@ describe("Destructuring Pattern Lowering", () => {
       const containerType: IrType = {
         kind: "referenceType",
         name: "Container",
-        resolvedClrType: "Container",
+        targetQualifiedName: "Container",
         structuralMembers: [
           {
             kind: "propertySignature",
@@ -297,7 +297,7 @@ describe("Destructuring Pattern Lowering", () => {
       const innerObjType: IrType = {
         kind: "referenceType",
         name: "Inner",
-        resolvedClrType: "Inner",
+        targetQualifiedName: "Inner",
         structuralMembers: [
           {
             kind: "propertySignature",
@@ -311,7 +311,7 @@ describe("Destructuring Pattern Lowering", () => {
       const outerObjType: IrType = {
         kind: "referenceType",
         name: "Outer",
-        resolvedClrType: "Outer",
+        targetQualifiedName: "Outer",
         structuralMembers: [
           {
             kind: "propertySignature",

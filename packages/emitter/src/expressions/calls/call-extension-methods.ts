@@ -34,6 +34,7 @@ import {
 } from "./call-array-interop.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { adaptEmittedExpressionAst } from "../expected-type-adaptation.js";
+import { maybeConvertTypedCharToStringAst } from "../post-emission-adaptation.js";
 
 const preserveReceiverTypeAssertionAst = (
   receiverExpr: IrExpression,
@@ -120,6 +121,16 @@ const adaptExtensionReceiverAst = (
       ? (resolveEffectiveExpressionType(receiverExpr.expression, context) ??
         receiverExpr.expression.inferredType)
       : receiverType;
+  const [charReceiverAst, charReceiverContext] =
+    maybeConvertTypedCharToStringAst(
+      adaptationSourceType,
+      receiverAst,
+      context,
+      expectedReceiverType
+    );
+  if (charReceiverAst !== receiverAst) {
+    return [charReceiverAst, charReceiverContext];
+  }
 
   if (
     adaptationSourceType &&

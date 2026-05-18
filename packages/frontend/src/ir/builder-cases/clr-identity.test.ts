@@ -78,7 +78,7 @@ describe("IR Builder", function () {
         expect(resolvedType?.kind).to.not.equal("unknownType");
         if (resolvedType?.kind === "referenceType") {
           expect(resolvedType.name).to.equal("Date$instance");
-          expect(resolvedType.resolvedClrType).to.equal(
+          expect(resolvedType.targetQualifiedName).to.equal(
             "Acme.Js.internal.Date$instance"
           );
         }
@@ -174,7 +174,7 @@ describe("IR Builder", function () {
         expect(attachmentsType.elementType.name).to.equal(
           "Acme.Core.Attachment"
         );
-        expect(attachmentsType.elementType.resolvedClrType).to.equal(
+        expect(attachmentsType.elementType.targetQualifiedName).to.equal(
           "Acme.Core.Attachment"
         );
       } finally {
@@ -247,7 +247,7 @@ describe("IR Builder", function () {
         if (!okType || okType.kind !== "referenceType") return;
 
         expect(okType.name).to.equal("Acme.Core.Ok__Alias_1");
-        expect(okType.resolvedClrType).to.equal("Acme.Core.Ok__Alias`1");
+        expect(okType.targetQualifiedName).to.equal("Acme.Core.Ok__Alias`1");
       } finally {
         fixture.cleanup();
       }

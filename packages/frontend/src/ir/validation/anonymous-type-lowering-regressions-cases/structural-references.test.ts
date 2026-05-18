@@ -17,7 +17,7 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
       typeId: {
         stableId: "Test.Router",
         tsName: "Router",
-        clrName: "Test.Router",
+        targetName: "Test.Router",
       },
       structuralMembers: [],
     } as unknown as IrReferenceType;
@@ -264,7 +264,7 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
       typeId: {
         stableId: "Test.SiteContext",
         tsName: "SiteContext",
-        clrName: "Test.SiteContext",
+        targetName: "Test.SiteContext",
       },
       structuralMembers: [],
     } as unknown as IrReferenceType;
@@ -275,7 +275,7 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
       typeId: {
         stableId: "Test.PageContext",
         tsName: "PageContext",
-        clrName: "Test.PageContext",
+        targetName: "Test.PageContext",
       },
       structuralMembers: [],
     } as unknown as IrReferenceType;
@@ -765,7 +765,7 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
   });
 
   it("does not encode incidental object sharing in structural carrier shape signatures", () => {
-    const sharedElement: IrType = { kind: "referenceType", name: "int" };
+    const sharedElement: IrType = { kind: "primitiveType", name: "int" };
     const sharedShape: IrType = {
       kind: "objectType",
       members: [
@@ -791,14 +791,14 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
         {
           kind: "propertySignature",
           name: "x",
-          type: { kind: "referenceType", name: "int" },
+          type: { kind: "primitiveType", name: "int" },
           isOptional: false,
           isReadonly: false,
         },
         {
           kind: "propertySignature",
           name: "y",
-          type: { kind: "referenceType", name: "int" },
+          type: { kind: "primitiveType", name: "int" },
           isOptional: false,
           isReadonly: false,
         },

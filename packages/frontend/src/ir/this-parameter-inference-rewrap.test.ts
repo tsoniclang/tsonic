@@ -16,9 +16,9 @@ import { expect } from "chai";
 import * as ts from "typescript";
 import { buildIrModule } from "./builder.js";
 import { createProgramContext } from "./program-context.js";
-import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
+import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
-import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
 
 describe("this: parameter inference + Rewrap erasure", () => {
@@ -72,9 +72,9 @@ describe("this: parameter inference + Rewrap erasure", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
-      metadata: new DotnetMetadataRegistry(),
+      metadata: new ExternalMetadataRegistry(),
       bindings: new BindingRegistry(),
-      clrResolver: createClrBindingsResolver("/test"),
+      externalResolver: createExternalBindingsResolver("/test"),
       binding: createBinding(checker),
     };
 

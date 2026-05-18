@@ -192,7 +192,7 @@ export const isDefinitelyValueType = (type: IrType): boolean => {
     if (TS_VALUE_TYPE_REFERENCE_NAMES.has(base.name)) {
       return true;
     }
-    const clr = base.resolvedClrType;
+    const clr = base.targetQualifiedName;
     if (clr && CLR_VALUE_TYPES.has(clr)) {
       return true;
     }
@@ -419,8 +419,8 @@ export const resolveTypeAlias = (
       (importedBindingTypeName
         ? stripGlobalPrefix(importedBindingTypeName)
         : undefined) ??
-      type.resolvedClrType ??
-      type.typeId?.clrName ??
+      type.targetQualifiedName ??
+      type.typeId?.targetName ??
       (type.name.includes(".") ? stripGlobalPrefix(type.name) : undefined);
     if (fqnCandidate && fqnCandidate.includes(".")) {
       const namespace = fqnCandidate.slice(0, fqnCandidate.lastIndexOf("."));
@@ -442,8 +442,8 @@ export const resolveTypeAlias = (
   }
 
   const qualifiedAliasCandidates = [
-    type.resolvedClrType,
-    type.typeId?.clrName,
+    type.targetQualifiedName,
+    type.typeId?.targetName,
     stripGlobalPrefix(type.name),
   ]
     .filter((candidate): candidate is string => !!candidate)

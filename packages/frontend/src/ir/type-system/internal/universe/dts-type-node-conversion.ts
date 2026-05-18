@@ -121,8 +121,8 @@ export const dtsTypeNodeToIrType = (
     const rawName = getRightmostQualifiedNameText(node.typeName);
     const baseName = stripTsBindgenInstanceSuffix(rawName);
 
-    // Utility: Record<K, V> should lower to dictionaryType in CLR bindings paths too.
-    // Without this, contextual object literals against imported CLR interfaces can carry
+    // Utility: Record<K, V> should lower to dictionaryType in external bindings paths too.
+    // Without this, contextual object literals against imported native target interfaces can carry
     // unresolved `referenceType("Record")` and fail IR soundness.
     if (baseName === "Record" && node.typeArguments?.length === 2) {
       const keyTypeNode = node.typeArguments[0];
@@ -143,7 +143,7 @@ export const dtsTypeNodeToIrType = (
       }
     }
 
-    // tsbindgen imports CLR numeric aliases from @tsonic/core as type references.
+    // tsbindgen imports native target numeric aliases from @tsonic/core as type references.
     // For IR purposes, `int` is a distinct primitive type (not referenceType).
     if (baseName === "int" && !node.typeArguments?.length) {
       return { kind: "primitiveType", name: "int" };
@@ -293,7 +293,7 @@ export const irTypeToSignatureKey = (type: IrType): string => {
     case "objectType":
       return "object";
     case "referenceType": {
-      const raw = type.resolvedClrType ?? type.name;
+      const raw = type.targetQualifiedName ?? type.name;
       const withoutArgs = raw.includes("[[")
         ? (raw.split("[[")[0] ?? raw)
         : raw;
@@ -303,7 +303,7 @@ export const irTypeToSignatureKey = (type: IrType): string => {
       );
       let simple = lastSep >= 0 ? withoutArgs.slice(lastSep + 1) : withoutArgs;
 
-      // Canonicalize CLR backtick arity: `Action`1` -> `Action_1`.
+      // Canonicalize external target backtick arity: `Name`1` -> `Name_1`.
       const backtickMatch = simple.match(/`(\d+)$/);
       if (backtickMatch && backtickMatch[1]) {
         simple = `${simple.slice(0, -backtickMatch[0].length)}_${backtickMatch[1]}`;
@@ -317,8 +317,8 @@ export const irTypeToSignatureKey = (type: IrType): string => {
       const argCount = type.typeArguments?.length ?? arity ?? 0;
 
       // Signature matching is used only to hydrate optional/rest flags from tsbindgen .d.ts
-      // into CLR metadata signatures. To keep matching robust across:
-      // - CLR names vs TS names
+      // into native target metadata signatures. To keep matching robust across:
+      // - native target names vs TS names
       // - generic instantiation encodings (Action_1[[...]] vs Action_1<T>)
       // we intentionally ignore concrete type argument *identities* and retain only arity.
       if (argCount <= 0) return simple;

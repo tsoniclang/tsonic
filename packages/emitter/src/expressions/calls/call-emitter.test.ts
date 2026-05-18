@@ -191,7 +191,7 @@ describe("call-emitter", () => {
     const promisesType = {
       kind: "referenceType" as const,
       name: "TimersPromises" as const,
-      resolvedClrType: "global::nodejs.TimersPromises",
+      targetQualifiedName: "global::nodejs.TimersPromises",
     };
 
     const context = createContext({
@@ -334,7 +334,7 @@ describe("call-emitter", () => {
           inferredType: {
             kind: "referenceType" as const,
             name: "Architecture" as const,
-            resolvedClrType: "System.Runtime.InteropServices.Architecture",
+            targetQualifiedName: "System.Runtime.InteropServices.Architecture",
           },
         },
         property: "toString",
@@ -392,12 +392,12 @@ describe("call-emitter", () => {
           returnType: {
             kind: "referenceType" as const,
             name: "ArrayPool_1",
-            resolvedClrType: "System.Buffers.ArrayPool`1",
+            targetQualifiedName: "System.Buffers.ArrayPool`1",
             typeArguments: [
               {
                 kind: "referenceType" as const,
                 name: "byte" as const,
-                resolvedClrType: "System.Byte",
+                targetQualifiedName: "System.Byte",
               },
             ],
           },
@@ -418,18 +418,18 @@ describe("call-emitter", () => {
         {
           kind: "referenceType" as const,
           name: "byte" as const,
-          resolvedClrType: "System.Byte",
+          targetQualifiedName: "System.Byte",
         },
       ],
       inferredType: {
         kind: "referenceType" as const,
         name: "ArrayPool_1",
-        resolvedClrType: "System.Buffers.ArrayPool`1",
+        targetQualifiedName: "System.Buffers.ArrayPool`1",
         typeArguments: [
           {
             kind: "referenceType" as const,
             name: "byte" as const,
-            resolvedClrType: "System.Byte",
+            targetQualifiedName: "System.Byte",
           },
         ],
       },

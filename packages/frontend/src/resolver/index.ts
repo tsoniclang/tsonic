@@ -6,13 +6,13 @@ export type { ResolvedModule } from "./types.js";
 export {
   resolveImport,
   resolveLocalImport,
-  resolveClrImport,
+  resolveExternalSurfaceImport,
 } from "./import-resolution.js";
 export { resolveModulePath } from "./path-resolution.js";
 export { getNamespaceFromPath } from "./namespace.js";
 export { getClassNameFromPath } from "./naming.js";
 export {
-  ClrBindingsResolver,
-  createClrBindingsResolver,
-  type ResolvedClrImport,
-} from "./clr-bindings-resolver.js";
+  ExternalBindingsResolver,
+  createExternalBindingsResolver,
+  type ResolvedExternalImport,
+} from "./external-bindings-resolver.js";

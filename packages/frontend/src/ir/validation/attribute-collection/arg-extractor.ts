@@ -168,7 +168,7 @@ export const tryExtractAttributeArg = (
     }
   }
 
-  // Arrays of compile-time constants are valid attribute arguments in C#.
+  // Arrays of compile-time constants are valid attribute arguments in target.
   // Example: [Index(new[] { "PropertyId", "Ts" })]
   if (expr.kind === "array") {
     const arr = expr as IrArrayExpression;
@@ -185,7 +185,7 @@ export const tryExtractAttributeArg = (
     return { kind: "array", elements };
   }
 
-  // typeof(SomeType) → C# typeof(SomeType) attribute argument
+  // typeof(SomeType) → target typeof(SomeType) attribute argument
   if (expr.kind === "unary" && expr.operator === "typeof") {
     const targetType = expr.expression.inferredType;
     if (targetType && targetType.kind !== "unknownType") {
@@ -220,18 +220,18 @@ export const tryExtractAttributeArg = (
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CLR TYPE RESOLUTION
+// TARGET TYPE RESOLUTION
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const resolveClrTypeForAttributeCtor = (
+export const resolveTargetTypeForAttributeCtor = (
   ctorIdent: IrIdentifierExpression,
   module: IrModule
 ): string | undefined => {
-  if (ctorIdent.resolvedClrType) return ctorIdent.resolvedClrType;
+  if (ctorIdent.targetQualifiedName) return ctorIdent.targetQualifiedName;
 
-  // Prefer CLR imports: these are the authoritative mapping for runtime type names.
+  // Prefer external-surface imports: these are the authoritative mapping for runtime type names.
   for (const imp of module.imports) {
-    if (!imp.isClr) continue;
+    if (imp.resolutionKind !== "externalSurface") continue;
     if (!imp.resolvedNamespace) continue;
     for (const spec of imp.specifiers) {
       if (spec.kind !== "named") continue;
@@ -247,14 +247,14 @@ export const makeAttributeType = (
   ctorIdent: IrIdentifierExpression,
   module: IrModule
 ): ParseResult<IrType> => {
-  const resolvedClrType = resolveClrTypeForAttributeCtor(ctorIdent, module);
-  if (resolvedClrType) {
+  const targetQualifiedName = resolveTargetTypeForAttributeCtor(ctorIdent, module);
+  if (targetQualifiedName) {
     return {
       kind: "ok",
       value: {
         kind: "referenceType",
         name: ctorIdent.name,
-        resolvedClrType,
+        targetQualifiedName,
       },
     };
   }
@@ -275,7 +275,7 @@ export const makeAttributeType = (
     diagnostic: createDiagnostic(
       "TSN4004",
       "error",
-      `Missing CLR binding for attribute constructor '${ctorIdent.name}'. Import the attribute type from a CLR bindings module (e.g., @tsonic/dotnet) or define it as a local class.`,
+      `Missing external binding for attribute constructor '${ctorIdent.name}'. Import the attribute type from a external bindings module (e.g., external bindings package) or define it as a local class.`,
       createLocation(module.filePath, ctorIdent.sourceSpan)
     ),
   };

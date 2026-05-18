@@ -18,7 +18,7 @@ import {
   stripNullish,
 } from "../core/semantic/type-resolution.js";
 import {
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   extractCalleeNameFromAst,
   sameConcreteTypeAstSurface,
   stripNullableTypeAst,
@@ -63,7 +63,7 @@ const isRuntimeUnionMemberProjectionAst = (
   );
 };
 
-const SYSTEM_ARRAY_TYPE_AST = clrTypeNameToTypeAst("System.Array");
+const SYSTEM_ARRAY_TYPE_AST = targetTypeNameToTypeAst("System.Array");
 
 const buildSafeJsStringIndexAst = (
   objectAst: CSharpExpressionAst,
@@ -252,7 +252,7 @@ export const emitComputedAccess = (
     ];
   }
 
-  // HARD GATE: clrIndexer + stringChar require Int32 proof
+  // HARD GATE: numericIndexer + stringChar require Int32 proof
   if (!hasInt32Proof(indexExpr)) {
     const propText = extractCalleeNameFromAst(propAst);
     throw new Error(

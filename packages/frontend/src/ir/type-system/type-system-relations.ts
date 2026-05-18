@@ -19,7 +19,6 @@ import {
   createLocalTypeIdentityState,
   irTypesEqual as compareIrTypes,
   localTypeIdentityKey,
-  referenceTypeHasClrIdentity,
 } from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type {
@@ -36,7 +35,7 @@ import {
 import { getIterableShape } from "./iterable-type-shapes.js";
 import { expandReferenceAlias } from "./type-alias-expansion.js";
 
-const CLR_NUMERIC_PRIMITIVE_NAMES = new Set([
+const SOURCE_NUMERIC_ALIAS_NAMES = new Set([
   "byte",
   "sbyte",
   "short",
@@ -50,31 +49,19 @@ const CLR_NUMERIC_PRIMITIVE_NAMES = new Set([
   "decimal",
 ]);
 
-const CLR_PRIMITIVE_ALIAS_NAMES = new Set(["int", "char"]);
+const SOURCE_PRIMITIVE_ALIAS_NAMES = new Set(["int", "char"]);
 
-const BROAD_OBJECT_CLR_NAMES = new Set([
-  "System.Object",
-  "global::System.Object",
-]);
 const aliasExpansionTypeArgKeyState = createLocalTypeIdentityState();
 
-const getClrPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
+const getPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
   if (type.kind === "primitiveType") {
-    return CLR_PRIMITIVE_ALIAS_NAMES.has(type.name)
+    return SOURCE_PRIMITIVE_ALIAS_NAMES.has(type.name)
       ? (type.name as "int" | "char")
       : undefined;
   }
 
   if (type.kind !== "referenceType") {
     return undefined;
-  }
-
-  const resolvedSimpleName = type.resolvedClrType?.split(".").pop();
-  if (resolvedSimpleName === "Int32" || resolvedSimpleName === "int") {
-    return "int";
-  }
-  if (resolvedSimpleName === "Char" || resolvedSimpleName === "char") {
-    return "char";
   }
 
   const simpleName = type.name.split(".").pop() ?? type.name;
@@ -90,7 +77,7 @@ const getClrPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
 
 const getNumericTypeName = (type: IrType): string | undefined => {
   if (type.kind === "primitiveType") {
-    return type.name === "number" || CLR_NUMERIC_PRIMITIVE_NAMES.has(type.name)
+    return type.name === "number" || SOURCE_NUMERIC_ALIAS_NAMES.has(type.name)
       ? type.name
       : undefined;
   }
@@ -99,13 +86,8 @@ const getNumericTypeName = (type: IrType): string | undefined => {
     return undefined;
   }
 
-  const clrSimpleName = type.resolvedClrType?.split(".").pop();
-  if (clrSimpleName && CLR_NUMERIC_PRIMITIVE_NAMES.has(clrSimpleName)) {
-    return clrSimpleName;
-  }
-
   const simpleName = type.name.split(".").pop() ?? type.name;
-  return CLR_NUMERIC_PRIMITIVE_NAMES.has(simpleName) ? simpleName : undefined;
+  return SOURCE_NUMERIC_ALIAS_NAMES.has(simpleName) ? simpleName : undefined;
 };
 
 const isNumericWideningAssignable = (
@@ -131,12 +113,12 @@ const isArrayInstanceTarget = (type: IrType): boolean => {
   }
 
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrSimpleName = type.resolvedClrType?.split(".").pop();
+  const targetSimpleName = type.targetQualifiedName?.split(".").pop();
   return (
     simpleName === "Array" ||
     simpleName === "ReadonlyArray" ||
-    clrSimpleName === "Array" ||
-    clrSimpleName === "ReadonlyArray"
+    targetSimpleName === "Array" ||
+    targetSimpleName === "ReadonlyArray"
   );
 };
 
@@ -150,12 +132,12 @@ const isArrayInstanceCandidate = (type: IrType): boolean => {
   }
 
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrSimpleName = type.resolvedClrType?.split(".").pop();
+  const targetSimpleName = type.targetQualifiedName?.split(".").pop();
   return (
     simpleName === "Array" ||
     simpleName === "ReadonlyArray" ||
-    clrSimpleName === "Array" ||
-    clrSimpleName === "ReadonlyArray"
+    targetSimpleName === "Array" ||
+    targetSimpleName === "ReadonlyArray"
   );
 };
 
@@ -169,7 +151,7 @@ const isBroadObjectTargetType = (type: IrType): boolean => {
     return true;
   }
 
-  return referenceTypeHasClrIdentity(type, BROAD_OBJECT_CLR_NAMES);
+  return simpleName === "Object" || type.typeId?.sourceName === "Object";
 };
 
 const isAssignableToBroadObjectTarget = (
@@ -345,7 +327,7 @@ const resolveAliasExpansion = (
     type.typeId ??
     resolveTypeIdByName(
       state,
-      type.resolvedClrType ?? type.name,
+      type.targetQualifiedName ?? type.name,
       type.typeArguments?.length ?? 0
     );
   if (!typeId) {
@@ -571,8 +553,8 @@ const isAssignableToInternal = (
   // Same type - always assignable
   if (typesEqual(source, target)) return true;
 
-  const sourcePrimitiveAlias = getClrPrimitiveAliasName(source);
-  const targetPrimitiveAlias = getClrPrimitiveAliasName(target);
+  const sourcePrimitiveAlias = getPrimitiveAliasName(source);
+  const targetPrimitiveAlias = getPrimitiveAliasName(target);
   if (
     sourcePrimitiveAlias &&
     targetPrimitiveAlias &&

@@ -101,7 +101,7 @@ export const resolveConfig = (
   projectRoot: string,
   entryFile?: string
 ): ResolvedConfig => {
-  const surface: SurfaceMode = workspaceConfig.surface ?? "clr";
+  const surface: SurfaceMode = workspaceConfig.surface ?? "core";
   const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
     workspaceRoot,
   });

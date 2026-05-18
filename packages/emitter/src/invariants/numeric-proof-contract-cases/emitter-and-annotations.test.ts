@@ -17,7 +17,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
   describe("Emitter contract enforcement", () => {
     it("emits without ICE when proof marker present", () => {
       const module = createModuleWithAccess({
-        accessKind: "clrIndexer",
+        accessKind: "numericIndexer",
         indexHasProof: true, // Pre-annotated with Int32 proof
         indexValue: 0,
         indexRaw: "0",
@@ -32,7 +32,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       // literal parsing to the emitter. Even literal 0 must have the proof
       // marker set by the proof pass, or the emitter ICEs.
       const module = createModuleWithAccess({
-        accessKind: "clrIndexer",
+        accessKind: "numericIndexer",
         indexHasProof: false, // NO proof marker
         indexValue: 0, // Even though it's 0
         indexRaw: "0",
@@ -47,7 +47,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
     it("ICE when proof marker missing - even for literal 1", () => {
       // REGRESSION GUARD: Same as above for literal 1
       const module = createModuleWithAccess({
-        accessKind: "clrIndexer",
+        accessKind: "numericIndexer",
         indexHasProof: false,
         indexValue: 1,
         indexRaw: "1",
@@ -64,9 +64,9 @@ describe("Numeric Proof Contract (Behavioral)", () => {
   // ============================================================================
 
   describe("Proof pass annotation", () => {
-    it("clrIndexer: valid index gets primitiveType(name='int')", () => {
+    it("numericIndexer: valid index gets primitiveType(name='int')", () => {
       const module = createModuleWithAccess({
-        accessKind: "clrIndexer",
+        accessKind: "numericIndexer",
         indexHasProof: false,
         indexValue: 0,
         indexRaw: "0",

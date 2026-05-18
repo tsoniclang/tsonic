@@ -94,13 +94,13 @@ export const getTypePackageInfo = (
     readonly workspaceRoot?: string;
   } = {}
 ): TypePackageInfo => {
-  const surface = options.surface ?? "clr";
+  const surface = options.surface ?? "core";
   const existingPackageSpecs = readExistingPackageSpecs(options.workspaceRoot);
   const resolveVersion = (name: string, fallback: string): string =>
     existingPackageSpecs.get(name) ?? fallback;
   const packages = [CLI_PACKAGE];
 
-  if (surface !== "clr") {
+  if (surface !== "core") {
     packages.push({
       name: surface,
       version: resolveVersion(surface, "latest"),
@@ -278,7 +278,7 @@ export const initWorkspace = (
   workspaceRoot: string,
   options: InitOptions = {}
 ): Result<void, string> => {
-  const surface = options.surface ?? "clr";
+  const surface = options.surface ?? "core";
 
   const workspaceConfigPath = join(workspaceRoot, "tsonic.workspace.json");
   if (existsSync(workspaceConfigPath)) {
@@ -336,7 +336,7 @@ export const initWorkspace = (
     });
 
     if (
-      surface !== "clr" &&
+      surface !== "core" &&
       !hasResolvedSurfaceProfile(surface, { workspaceRoot })
     ) {
       const bootstrapTypeRoots =
@@ -355,7 +355,7 @@ export const initWorkspace = (
 
       surfaceCapabilities = {
         mode: surface,
-        includesClr: false,
+        includesCore: false,
         resolvedModes: [surface],
         requiredTypeRoots: bootstrapTypeRoots,
         requiredNpmPackages: [surface],
@@ -436,7 +436,7 @@ export const initWorkspace = (
     if (!existsSync(appTsPath)) {
       writeFileSync(
         appTsPath,
-        surface === "clr" ? SAMPLE_MAIN_TS : SAMPLE_MAIN_TS_JS,
+        surface === "core" ? SAMPLE_MAIN_TS : SAMPLE_MAIN_TS_JS,
         "utf-8"
       );
     }

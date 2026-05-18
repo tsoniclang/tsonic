@@ -36,16 +36,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "js.Number",
-            assemblyName: "js",
+            targetName: "js.Number",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "toString",
+                targetName: "toString",
                 normalizedSignature:
                   "toString|(System.Double):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.Number",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.Number",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -53,8 +53,8 @@ describe("Binding Resolution in IR", () => {
             fields: [],
           },
           {
-            clrName: "System.Double",
-            assemblyName: "System.Private.CoreLib",
+            targetName: "System.Double",
+            ownerIdentity: "System.Private.CoreLib",
             methods: [],
             properties: [],
             fields: [],
@@ -115,16 +115,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "js.Boolean",
-            assemblyName: "js",
+            targetName: "js.Boolean",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "toString",
+                targetName: "toString",
                 normalizedSignature:
                   "toString|(System.Boolean):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.Boolean",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.Boolean",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -132,8 +132,8 @@ describe("Binding Resolution in IR", () => {
             fields: [],
           },
           {
-            clrName: "System.Boolean",
-            assemblyName: "System.Private.CoreLib",
+            targetName: "System.Boolean",
+            ownerIdentity: "System.Private.CoreLib",
             methods: [],
             properties: [],
             fields: [],
@@ -188,16 +188,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "System.String",
-            assemblyName: "js",
+            targetName: "System.String",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "trim",
+                targetName: "trim",
                 normalizedSignature:
                   "trim|(System.String):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.StringExtensions",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.StringExtensions",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -271,16 +271,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "js.Number",
-            assemblyName: "js",
+            targetName: "js.Number",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "toString",
+                targetName: "toString",
                 normalizedSignature:
                   "toString|(System.Double):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.Number",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.Number",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
                 emitSemantics: {
                   callStyle: "receiver",
@@ -291,8 +291,8 @@ describe("Binding Resolution in IR", () => {
             fields: [],
           },
           {
-            clrName: "System.Double",
-            assemblyName: "System.Private.CoreLib",
+            targetName: "System.Double",
+            ownerIdentity: "System.Private.CoreLib",
             methods: [],
             properties: [],
             fields: [],
@@ -357,25 +357,25 @@ describe("Binding Resolution in IR", () => {
         namespace: "System.Runtime.InteropServices",
         types: [
           {
-            clrName: "System.Runtime.InteropServices.Architecture",
-            assemblyName: "System.Runtime.InteropServices.RuntimeInformation",
+            targetName: "System.Runtime.InteropServices.Architecture",
+            ownerIdentity: "System.Runtime.InteropServices.RuntimeInformation",
             baseType: {
-              clrName: "System.Enum",
+              targetName: "System.Enum",
             },
             methods: [],
             properties: [],
             fields: [],
           },
           {
-            clrName: "System.Enum",
-            assemblyName: "System.Private.CoreLib",
+            targetName: "System.Enum",
+            ownerIdentity: "System.Private.CoreLib",
             methods: [
               {
-                clrName: "ToString",
+                targetName: "ToString",
                 normalizedSignature: "ToString|():System.String|static=false",
                 parameterCount: 0,
-                declaringClrType: "System.Enum",
-                declaringAssemblyName: "System.Private.CoreLib",
+                ownerQualifiedName: "System.Enum",
+                ownerIdentity: "System.Private.CoreLib",
               },
             ],
             properties: [],
@@ -442,15 +442,15 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "js.Number",
-            assemblyName: "js",
+            targetName: "js.Number",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "toString",
+                targetName: "toString",
                 normalizedSignature: "toString|():System.String|static=true",
                 parameterCount: 0,
-                declaringClrType: "js.Number",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.Number",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -501,22 +501,22 @@ describe("Binding Resolution in IR", () => {
         namespace: "Acme.Runtime",
         types: [
           {
-            clrName: "Acme.Runtime.Ambiguous",
-            assemblyName: "Acme.Runtime",
+            targetName: "Acme.Runtime.Ambiguous",
+            ownerIdentity: "Acme.Runtime",
             methods: [
               {
-                clrName: "ToString",
+                targetName: "ToString",
                 normalizedSignature: "ToString|():System.String|static=false",
                 parameterCount: 0,
-                declaringClrType: "Acme.Runtime.Ambiguous",
-                declaringAssemblyName: "Acme.Runtime",
+                ownerQualifiedName: "Acme.Runtime.Ambiguous",
+                ownerIdentity: "Acme.Runtime",
               },
               {
-                clrName: "toString",
+                targetName: "toString",
                 normalizedSignature: "toString|():System.String|static=false",
                 parameterCount: 0,
-                declaringClrType: "Acme.Runtime.Ambiguous",
-                declaringAssemblyName: "Acme.Runtime",
+                ownerQualifiedName: "Acme.Runtime.Ambiguous",
+                ownerIdentity: "Acme.Runtime",
               },
             ],
             properties: [],

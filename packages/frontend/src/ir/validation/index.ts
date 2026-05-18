@@ -3,8 +3,12 @@
  */
 
 export {
+  validateCapabilityAcceptability,
   validateIrSoundness,
+  validateUniversalHygiene,
+  type CapabilityValidationOptions,
   type SoundnessValidationResult,
+  type UniversalHygieneOptions,
 } from "./soundness-gate.js";
 
 export {

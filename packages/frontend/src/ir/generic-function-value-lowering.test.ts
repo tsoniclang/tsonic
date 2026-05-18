@@ -8,9 +8,9 @@ import {
   IrStatement,
   IrVariableDeclaration,
 } from "./types.js";
-import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
+import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
-import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
 
 const createTestModule = (source: string, fileName = "/test/test.ts") => {
@@ -55,9 +55,9 @@ const createTestModule = (source: string, fileName = "/test/test.ts") => {
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
-    metadata: new DotnetMetadataRegistry(),
+    metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
-    clrResolver: createClrBindingsResolver("/test"),
+    externalResolver: createExternalBindingsResolver("/test"),
     binding: createBinding(checker),
   };
 

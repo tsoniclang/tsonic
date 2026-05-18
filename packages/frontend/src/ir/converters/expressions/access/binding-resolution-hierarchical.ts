@@ -13,7 +13,7 @@ import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { MemberBinding } from "../../../../program/bindings.js";
 import type { BindingInternal } from "../../../binding/binding-types.js";
-import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
+import { tsbindgenTargetTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { extractTypeName } from "./member-resolution.js";
 
 /**
@@ -94,25 +94,25 @@ export const resolveHierarchicalBinding = (
   };
 
   const tryResolveOwnerMemberBinding = (
-    ownerAliasOrClrType: string | undefined,
-    preferredClrOwner?: string
+    ownerAliasOrTargetType: string | undefined,
+    preferredTargetOwner?: string
   ): IrMemberExpression["memberBinding"] => {
-    if (!ownerAliasOrClrType) return undefined;
+    if (!ownerAliasOrTargetType) return undefined;
     const overloads = registry.getMemberOverloads(
-      ownerAliasOrClrType,
+      ownerAliasOrTargetType,
       propertyName,
-      preferredClrOwner ?? ownerAliasOrClrType
+      preferredTargetOwner ?? ownerAliasOrTargetType
     );
     if (!overloads || overloads.length === 0) return undefined;
     return toIrMemberBinding(overloads);
   };
 
-  const getAliasesForExactClrType = (
-    clrType: string,
+  const getAliasesForExactTargetType = (
+    targetType: string,
     preference: "instance" | "static"
   ): readonly string[] => {
     const aliases = [...ctx.bindings.getTypesMap().values()]
-      .filter((type) => type.name === clrType)
+      .filter((type) => type.name === targetType)
       .map((type) => type.alias)
       .sort((left, right) => {
         const leftStatic = left.endsWith("$static");
@@ -192,7 +192,7 @@ export const resolveHierarchicalBinding = (
     return candidates;
   };
 
-  const getPreferredInstanceOwnerClrType = (
+  const getPreferredInstanceOwnerTargetType = (
     ownerAlias: string
   ): string | undefined => {
     const type = registry.getType(ownerAlias);
@@ -215,7 +215,7 @@ export const resolveHierarchicalBinding = (
       `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`;
     const targetKey = getTargetKey(first);
     if (overloads.some((m) => getTargetKey(m) !== targetKey)) {
-      // Unsafe: overloads map to different CLR targets.
+      // Unsafe: overloads map to different target members.
       return undefined;
     }
 
@@ -263,9 +263,9 @@ export const resolveHierarchicalBinding = (
 
       if (simpleBinding?.staticType) {
         const staticCandidates = [
-          ...getAliasesForExactClrType(simpleBinding.staticType, "static"),
+          ...getAliasesForExactTargetType(simpleBinding.staticType, "static"),
           simpleBinding.staticType,
-          tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
+          tsbindgenTargetTypeNameToTsTypeName(simpleBinding.staticType),
         ].filter(
           (candidate): candidate is string => typeof candidate === "string"
         );
@@ -283,9 +283,9 @@ export const resolveHierarchicalBinding = (
 
       if (simpleBinding) {
         const instanceCandidates = [
-          ...getAliasesForExactClrType(simpleBinding.type, "instance"),
+          ...getAliasesForExactTargetType(simpleBinding.type, "instance"),
           simpleBinding.type,
-          tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
+          tsbindgenTargetTypeNameToTsTypeName(simpleBinding.type),
         ].filter(
           (candidate): candidate is string => typeof candidate === "string"
         );
@@ -304,10 +304,10 @@ export const resolveHierarchicalBinding = (
       if (simpleBinding) {
         const sourceOwnedAliases = [
           simpleBinding.type
-            ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.type)
+            ? tsbindgenTargetTypeNameToTsTypeName(simpleBinding.type)
             : undefined,
           simpleBinding.staticType
-            ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType)
+            ? tsbindgenTargetTypeNameToTsTypeName(simpleBinding.staticType)
             : undefined,
         ].filter(
           (candidate): candidate is string => typeof candidate === "string"
@@ -323,11 +323,11 @@ export const resolveHierarchicalBinding = (
       }
     }
 
-    const resolvedClrBinding = tryResolveOwnerMemberBinding(
-      object.resolvedClrType
+    const resolvedTargetBinding = tryResolveOwnerMemberBinding(
+      object.targetQualifiedName
     );
-    if (resolvedClrBinding) {
-      return resolvedClrBinding;
+    if (resolvedTargetBinding) {
+      return resolvedTargetBinding;
     }
 
     const namespace = registry.getNamespace(object.name);
@@ -344,7 +344,7 @@ export const resolveHierarchicalBinding = (
 
     // Case 1b: object is a direct type import (like `Console` imported directly)
     // Check if the identifier is a type alias, and if so, look up the member
-    // First try by local name, then by original name (handles aliased imports like `import { String as ClrString }`)
+    // First try by local name, then by original name (handles aliased imports).
     if (
       isTypeLikeIdentifierName(object.name) ||
       isTypeLikeIdentifierName(object.originalName)
@@ -398,7 +398,7 @@ export const resolveHierarchicalBinding = (
     const overloads = registry.getMemberOverloads(
       objectTypeName,
       propertyName,
-      getPreferredInstanceOwnerClrType(objectTypeName)
+      getPreferredInstanceOwnerTargetType(objectTypeName)
     );
     if (!overloads || overloads.length === 0) continue;
     return toIrMemberBinding(overloads);
@@ -407,30 +407,30 @@ export const resolveHierarchicalBinding = (
   return undefined;
 };
 
-export const resolveExpectedClrTypeFromBindings = (
+export const resolveExpectedTargetTypeFromBindings = (
   raw: Record<string, unknown>,
   declaringTypeTsName: string
 ): string | undefined => {
-  const matchesDeclaringTsName = (clrTypeName: string): boolean => {
-    const tsName = tsbindgenClrTypeNameToTsTypeName(clrTypeName);
+  const matchesDeclaringTsName = (targetTypeName: string): boolean => {
+    const tsName = tsbindgenTargetTypeNameToTsTypeName(targetTypeName);
     return tsName === declaringTypeTsName;
   };
 
   // tsbindgen/full manifest shape
   const types = raw.types;
   if (Array.isArray(types)) {
-    const matchingClrTypes = new Set<string>();
+    const matchingTargetTypes = new Set<string>();
     for (const t of types) {
       if (!t || typeof t !== "object") continue;
-      const clrName = (t as { readonly clrName?: unknown }).clrName;
-      if (typeof clrName !== "string") continue;
-      if (matchesDeclaringTsName(clrName)) {
-        matchingClrTypes.add(clrName);
+      const targetName = (t as { readonly targetName?: unknown }).targetName;
+      if (typeof targetName !== "string") continue;
+      if (matchesDeclaringTsName(targetName)) {
+        matchingTargetTypes.add(targetName);
       }
     }
 
-    if (matchingClrTypes.size === 1) {
-      const [only] = matchingClrTypes;
+    if (matchingTargetTypes.size === 1) {
+      const [only] = matchingTargetTypes;
       return only;
     }
     return undefined;
@@ -442,18 +442,18 @@ export const resolveExpectedClrTypeFromBindings = (
     return undefined;
   }
 
-  const matchingClrTypes = new Set<string>();
+  const matchingTargetTypes = new Set<string>();
   for (const descriptor of Object.values(bindings)) {
     if (!descriptor || typeof descriptor !== "object") continue;
-    const clrType = (descriptor as { readonly type?: unknown }).type;
-    if (typeof clrType !== "string") continue;
-    if (matchesDeclaringTsName(clrType)) {
-      matchingClrTypes.add(clrType);
+    const targetType = (descriptor as { readonly type?: unknown }).type;
+    if (typeof targetType !== "string") continue;
+    if (matchesDeclaringTsName(targetType)) {
+      matchingTargetTypes.add(targetType);
     }
   }
 
-  if (matchingClrTypes.size === 1) {
-    const [only] = matchingClrTypes;
+  if (matchingTargetTypes.size === 1) {
+    const [only] = matchingTargetTypes;
     return only;
   }
   return undefined;

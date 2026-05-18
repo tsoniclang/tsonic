@@ -25,7 +25,10 @@ import {
   createDiagnostic,
   type Diagnostic,
 } from "../types/diagnostic.js";
-import { capability } from "../capabilities/backend-capabilities.js";
+import {
+  capability,
+  type FeatureKey,
+} from "../capabilities/backend-capabilities.js";
 import { getNodeLocation } from "./helpers.js";
 import {
   collectWrittenSymbols,
@@ -48,7 +51,7 @@ import { validateArrowEscapeHatch } from "./static-safety-arrow-rules.js";
 
 const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
-  capabilityName: string,
+  capabilityName: FeatureKey,
   fallback: Diagnostic
 ): Diagnostic => {
   const backendCapability = capability(
@@ -766,9 +769,8 @@ export const validateStaticSafety = (
 
         // TSN7419: 'never' cannot be used as a generic type argument.
         //
-        // This is airplane-grade: CLR has no bottom type usable as a generic argument.
-        // Allowing `Foo<never>` would either require inventing a fake CLR type or
-        // emitting invalid C# (void is not a legal generic argument).
+        // This is airplane-grade: the current native backend has no bottom
+        // runtime type usable as a generic argument.
         if (
           hasTypeArgs &&
           node.typeArguments?.some((a) => a.kind === ts.SyntaxKind.NeverKeyword)
@@ -847,7 +849,7 @@ export const validateStaticSafety = (
 
     // TSN7432:
     // Generic function values are supported for deterministic declaration/alias
-    // forms that can be lowered to C# generic method declarations:
+    // forms that can be lowered to native generic method declarations:
     // - direct generic function value declarations (`const` + never-reassigned `let`)
     // - direct generic function declarations (`function f<T>(...) { ... }`)
     // - deterministic alias declarations that point at supported symbols
@@ -869,7 +871,7 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            "Generic function values are only supported in deterministic declaration/alias forms that can lower to C# generic methods.",
+            "Generic function values are only supported in deterministic declaration/alias forms that can lower to native generic methods.",
             getNodeLocation(sourceFile, node),
             "Use `const f = <T>(...) => ...`, `let f = <T>(...) => ...` with no reassignments, or deterministic aliases like `const g = f`."
           )
@@ -891,7 +893,7 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            "Generic function declarations are only supported when their symbol remains deterministic in value positions and lowers to a C# generic method.",
+            "Generic function declarations are only supported when their symbol remains deterministic in value positions and lowers to native generic methods.",
             getNodeLocation(sourceFile, node),
             "Use a direct generic call (e.g., `f<T>(...)`) or deterministic const/never-reassigned let aliases."
           )

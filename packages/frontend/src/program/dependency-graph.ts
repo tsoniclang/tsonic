@@ -12,7 +12,7 @@ import { buildIr } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import type { CompilerOptions } from "./types.js";
 import type { BindingRegistry, TypeBinding } from "./bindings.js";
-import { discoverAndLoadClrBindings } from "./clr-bindings-discovery.js";
+import { discoverAndLoadExternalBindings } from "./external-bindings-discovery.js";
 import { validateProgram } from "../validation/orchestrator.js";
 import {
   getLocalResolutionBoundary,
@@ -40,15 +40,18 @@ import {
   type WorkspaceGraphEdge,
   type WorkspaceGraphSnapshot,
 } from "./workspace-fingerprint.js";
+import type { TargetRenderTable } from "../symbols/index.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly EmittableIrModule[];
   readonly entryModule: EmittableIrModule;
   readonly surfaceCapabilities: SurfaceCapabilities;
-  /** Type bindings loaded from CLR packages (for emitter bindingsRegistry) */
+  /** Type bindings loaded from external packages (for emitter bindingsRegistry) */
   readonly bindings: ReadonlyMap<string, TypeBinding>;
   /** Full binding registry for exact global/module/source binding lookups during emission. */
   readonly bindingRegistry: BindingRegistry;
+  /** Target render table keyed by neutral frontend symbol IDs. */
+  readonly targetRenderTable?: TargetRenderTable;
   /** Deterministic source/config/surface graph used for invalidation and cache keys. */
   readonly workspaceGraph: WorkspaceGraphSnapshot;
 };
@@ -693,9 +696,9 @@ export const buildModuleDependencyGraph = (
 
   const tsonicProgram = programResult.value;
 
-  // Load CLR bindings before IR building
+  // Load external bindings before IR building
   // This scans all imports and loads their bindings upfront
-  discoverAndLoadClrBindings(tsonicProgram, options.verbose);
+  discoverAndLoadExternalBindings(tsonicProgram, options.verbose);
   // Run source-level validation (imports, exports, unsupported features, generics)
   const validationCollector = validateProgram(tsonicProgram);
   if (validationCollector.diagnostics.length > 0) {
@@ -768,6 +771,7 @@ export const buildModuleDependencyGraph = (
       tsonicProgram.surfaceCapabilities ?? surfaceCapabilities,
     bindings: tsonicProgram.bindings.getEmitterTypeMap(),
     bindingRegistry: tsonicProgram.bindings,
+    targetRenderTable: tsonicProgram.targetSurfaceArtifacts?.renderTable,
     workspaceGraph: buildWorkspaceGraphSnapshot({
       projectRoot: options.projectRoot,
       sourceRoot: sourceRootAbs,

@@ -12,9 +12,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { buildIr } from "../builder.js";
-import { DotnetMetadataRegistry } from "../../dotnet-metadata.js";
+import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
-import { createClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
+import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
 
 describe("CLR member binding disambiguation (failure)", () => {
@@ -36,7 +36,7 @@ describe("CLR member binding disambiguation (failure)", () => {
           namespace: "nodejs.Http",
           types: [
             {
-              clrName: "nodejs.Http.NotServer",
+              targetName: "nodejs.Http.NotServer",
               methods: [],
               properties: [],
               fields: [],
@@ -130,16 +130,16 @@ describe("CLR member binding disambiguation (failure)", () => {
       namespace: "nodejs.Http",
       types: [
         {
-          clrName: "nodejs.Http.Server",
-          assemblyName: "nodejs",
+          targetName: "nodejs.Http.Server",
+          ownerIdentity: "nodejs",
           methods: [
             {
-              clrName: "listen",
+              targetName: "listen",
               normalizedSignature:
                 "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
               parameterCount: 2,
-              declaringClrType: "nodejs.Http.Server",
-              declaringAssemblyName: "nodejs",
+              ownerQualifiedName: "nodejs.Http.Server",
+              ownerIdentity: "nodejs",
             },
           ],
           properties: [],
@@ -152,16 +152,16 @@ describe("CLR member binding disambiguation (failure)", () => {
       namespace: "nodejs",
       types: [
         {
-          clrName: "nodejs.Server",
-          assemblyName: "nodejs",
+          targetName: "nodejs.Server",
+          ownerIdentity: "nodejs",
           methods: [
             {
-              clrName: "listen",
+              targetName: "listen",
               normalizedSignature:
                 "listen|(System.Int32,System.Action):nodejs.Server|static=false",
               parameterCount: 2,
-              declaringClrType: "nodejs.Server",
-              declaringAssemblyName: "nodejs",
+              ownerQualifiedName: "nodejs.Server",
+              ownerIdentity: "nodejs",
             },
           ],
           properties: [],
@@ -181,9 +181,9 @@ describe("CLR member binding disambiguation (failure)", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [dtsFile],
-      metadata: new DotnetMetadataRegistry(),
+      metadata: new ExternalMetadataRegistry(),
       bindings,
-      clrResolver: createClrBindingsResolver(tmpRoot),
+      externalResolver: createExternalBindingsResolver(tmpRoot),
       binding: createBinding(checker),
     };
 
@@ -194,7 +194,7 @@ describe("CLR member binding disambiguation (failure)", () => {
 
     expect(
       irResult.ok,
-      "IR build must fail on ambiguous CLR bindings"
+      "IR build must fail on ambiguous external bindings"
     ).to.equal(false);
 
     if (irResult.ok) return;
@@ -219,7 +219,7 @@ describe("CLR member binding disambiguation (failure)", () => {
           namespace: "nodejs.Http",
           types: [
             {
-              clrName: "nodejs.Http.Server",
+              targetName: "nodejs.Http.Server",
               methods: [],
               properties: [],
               fields: [],
@@ -314,8 +314,8 @@ describe("CLR member binding disambiguation (failure)", () => {
       namespace: "nodejs.Http",
       types: [
         {
-          clrName: "nodejs.Http.Server",
-          assemblyName: "nodejs",
+          targetName: "nodejs.Http.Server",
+          ownerIdentity: "nodejs",
           methods: [],
           properties: [],
           fields: [],
@@ -334,9 +334,9 @@ describe("CLR member binding disambiguation (failure)", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [dtsFile],
-      metadata: new DotnetMetadataRegistry(),
+      metadata: new ExternalMetadataRegistry(),
       bindings,
-      clrResolver: createClrBindingsResolver(tmpRoot),
+      externalResolver: createExternalBindingsResolver(tmpRoot),
       binding: createBinding(checker),
     };
 
@@ -345,7 +345,7 @@ describe("CLR member binding disambiguation (failure)", () => {
       rootNamespace: "TestApp",
     });
 
-    expect(irResult.ok, "IR build must fail on missing CLR bindings").to.equal(
+    expect(irResult.ok, "IR build must fail on missing external bindings").to.equal(
       false
     );
 

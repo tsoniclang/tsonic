@@ -1,5 +1,8 @@
 import { isKnownBuiltinReferenceType } from "./known-builtin-reference-types.js";
-import { capability } from "../../capabilities/backend-capabilities.js";
+import {
+  capability,
+  type FeatureKey,
+} from "../../capabilities/backend-capabilities.js";
 import {
   createDiagnostic,
   type Diagnostic,
@@ -16,11 +19,14 @@ import {
 import { validateExpression } from "./soundness-gate-expression-validation.js";
 
 type UnknownRootKind = "expressionInferredType";
-type IntersectionRootKind = "runtimeStorage" | "typeParameterConstraint";
+type IntersectionRootKind =
+  | "runtimeStorage"
+  | "typeParameterConstraint"
+  | "semanticMetadata";
 
 const unsupportedCapabilityDiagnostic = (
   ctx: ValidationContext,
-  capabilityName: string,
+  capabilityName: FeatureKey,
   fallbackCode: Diagnostic["code"],
   fallbackMessage: string,
   fallbackRemediation: string
@@ -55,15 +61,17 @@ export const validateType = (
   try {
     switch (type.kind) {
       case "anyType": {
-        ctx.diagnostics.push(
-          createDiagnostic(
-            "TSN7414",
-            "error",
-            `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'any' which is not supported.`,
-            moduleLocation(ctx),
-            "Ensure the type can be explicitly annotated or is a recognized type alias."
-          )
-        );
+        if (ctx.validationMode !== "capability") {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7414",
+              "error",
+              `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'any' which is not supported.`,
+              moduleLocation(ctx),
+              "Ensure the type can be explicitly annotated or is a recognized type alias."
+            )
+          );
+        }
         break;
       }
 
@@ -85,15 +93,17 @@ export const validateType = (
         break;
 
       case "objectType":
-        ctx.diagnostics.push(
-          createDiagnostic(
-            "TSN7421",
-            "error",
-            `Anonymous object type in ${typeContext} was not lowered to a named type. This is an internal compiler error.`,
-            moduleLocation(ctx),
-            "Please report this issue with a minimal reproduction."
-          )
-        );
+        if (ctx.validationMode !== "capability") {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7421",
+              "error",
+              `Anonymous object type in ${typeContext} was not lowered to a named type. This is an internal compiler error.`,
+              moduleLocation(ctx),
+              "Please report this issue with a minimal reproduction."
+            )
+          );
+        }
         type.members.forEach((member) => validateInterfaceMember(member, ctx));
         break;
 
@@ -102,15 +112,17 @@ export const validateType = (
           type.keyType.kind === "neverType" ||
           type.valueType.kind === "neverType"
         ) {
-          ctx.diagnostics.push(
-            createDiagnostic(
-              "TSN7419",
-              "error",
-              "'never' cannot be used as a generic type argument.",
-              moduleLocation(ctx),
-              "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
-            )
-          );
+          if (ctx.validationMode !== "capability") {
+            ctx.diagnostics.push(
+              createDiagnostic(
+                "TSN7419",
+                "error",
+                "'never' cannot be used as a generic type argument.",
+                moduleLocation(ctx),
+                "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
+              )
+            );
+          }
         }
         validateType(type.keyType, ctx, `${typeContext} key type`);
         validateType(type.valueType, ctx, `${typeContext} value type`);
@@ -124,13 +136,14 @@ export const validateType = (
 
       case "intersectionType":
         if (
+          ctx.enableCapabilityChecks &&
           (options.intersectionRootKind ?? "runtimeStorage") ===
           "runtimeStorage"
         ) {
           ctx.diagnostics.push(
             unsupportedCapabilityDiagnostic(
               ctx,
-              "intersection-as-storage",
+              "intersection-runtime-storage",
               "TSN7414",
               `Intersection type in ${typeContext} cannot be emitted as a runtime storage type.`,
               "Use a named interface/class that represents the required runtime shape, or keep the intersection only as a generic constraint."
@@ -147,21 +160,23 @@ export const validateType = (
         break;
 
       case "referenceType": {
-        const { name, resolvedClrType, typeId } = type;
+        const { name, targetQualifiedName, typeId } = type;
         if (
           type.structuralMembers !== undefined &&
           type.structuralMembers.length > 0 &&
           type.structuralOrigin === undefined
         ) {
-          ctx.diagnostics.push(
-            createDiagnostic(
-              "TSN7414",
-              "error",
-              `Reference type '${name}' in ${typeContext} has structural members without structural-origin metadata.`,
-              moduleLocation(ctx),
-              "Preserve whether the source used a named reference or a compiler-owned structural carrier before the soundness gate."
-            )
-          );
+          if (ctx.validationMode !== "capability") {
+            ctx.diagnostics.push(
+              createDiagnostic(
+                "TSN7414",
+                "error",
+                `Reference type '${name}' in ${typeContext} has structural members without structural-origin metadata.`,
+                moduleLocation(ctx),
+                "Preserve whether the source used a named reference or a compiler-owned structural carrier before the soundness gate."
+              )
+            );
+          }
         }
         const sameNamespaceName =
           ctx.namespace.length > 0 && name.startsWith(`${ctx.namespace}.`)
@@ -175,7 +190,7 @@ export const validateType = (
         ];
         const isResolvable =
           typeId !== undefined ||
-          resolvedClrType !== undefined ||
+          targetQualifiedName !== undefined ||
           (type.structuralMembers !== undefined &&
             type.structuralMembers.length > 0) ||
           candidateNames.some(
@@ -200,28 +215,32 @@ export const validateType = (
           );
 
         if (!isResolvable) {
-          ctx.diagnostics.push(
-            createDiagnostic(
-              "TSN7414",
-              "error",
-              `Unresolved reference type '${name}' in ${typeContext}. The type is not local, not imported, and has no CLR binding.`,
-              moduleLocation(ctx),
-              "Ensure the type is imported or defined locally, or that CLR bindings are available."
-            )
-          );
+          if (ctx.validationMode !== "capability") {
+            ctx.diagnostics.push(
+              createDiagnostic(
+                "TSN7414",
+                "error",
+                `Unresolved reference type '${name}' in ${typeContext}. The type is not local, not imported, and has no native target binding.`,
+                moduleLocation(ctx),
+                "Ensure the type is imported or defined locally, or that external bindings are available."
+              )
+            );
+          }
         }
 
         type.typeArguments?.forEach((typeArgument, index) => {
           if (typeArgument.kind === "neverType") {
-            ctx.diagnostics.push(
-              createDiagnostic(
-                "TSN7419",
-                "error",
-                "'never' cannot be used as a generic type argument.",
-                moduleLocation(ctx),
-                "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
-              )
-            );
+            if (ctx.validationMode !== "capability") {
+              ctx.diagnostics.push(
+                createDiagnostic(
+                  "TSN7419",
+                  "error",
+                  "'never' cannot be used as a generic type argument.",
+                  moduleLocation(ctx),
+                  "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
+                )
+              );
+            }
           }
           validateType(typeArgument, ctx, `${typeContext}<arg ${index}>`);
         });
@@ -242,15 +261,17 @@ export const validateType = (
         ) {
           break;
         }
-        ctx.diagnostics.push(
-          createDiagnostic(
-            "TSN7414",
-            "error",
-            `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'unknown' which must have been eliminated before emission.`,
-            moduleLocation(ctx),
-            "Replace explicit 'unknown' with a concrete type, and ensure unresolved placeholder types are eliminated before the soundness gate."
-          )
-        );
+        if (ctx.validationMode !== "capability") {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7414",
+              "error",
+              `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'unknown' which must have been eliminated before emission.`,
+              moduleLocation(ctx),
+              "Replace explicit 'unknown' with a concrete type, and ensure unresolved placeholder types are eliminated before the soundness gate."
+            )
+          );
+        }
         break;
     }
   } finally {

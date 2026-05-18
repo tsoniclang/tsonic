@@ -182,7 +182,7 @@ export const loadWorkspaceConfig = (
 
   if (
     config.surface !== undefined &&
-    config.surface.trim() !== "clr" &&
+    config.surface.trim() !== "core" &&
     !hasResolvedSurfaceProfile(config.surface, {
       workspaceRoot: dirname(configPath),
     })
@@ -249,7 +249,7 @@ export const loadWorkspaceConfig = (
   );
   if (!testMsbuildResult.ok) return testMsbuildResult;
 
-  resolveSurfaceCapabilities(config.surface ?? "clr", {
+  resolveSurfaceCapabilities(config.surface ?? "core", {
     workspaceRoot: dirname(configPath),
   });
 

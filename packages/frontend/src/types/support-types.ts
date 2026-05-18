@@ -1,8 +1,9 @@
 /**
  * Support Types Recognition - Detect and work with _support/types.d.ts marker types.
  *
- * This module provides type guards and helpers to recognize special CLR interop types
- * that don't have JavaScript equivalents: TSByRef, TSUnsafePointer, TSDelegate, etc.
+ * This module provides type guards and helpers to recognize special native
+ * interop marker types that do not have JavaScript equivalents: TSByRef,
+ * TSUnsafePointer, TSDelegate, etc.
  *
  * @see spec/support-types.md for complete documentation
  */
@@ -273,9 +274,9 @@ export const checkUnsupportedSupportType = (
 
   switch (info.kind) {
     case "TSUnsafePointer":
-      return "Unsafe pointers are not supported in Tsonic. Use IntPtr for opaque handles.";
+      return "Unsafe pointers are not supported in Tsonic. Use nint or nuint for opaque native handles.";
     case "TSFixed":
-      return "Fixed-size buffers (unsafe feature) are not supported. Use arrays or Span<T> instead.";
+      return "Fixed-size buffers (unsafe feature) are not supported. Use arrays or a safe buffer abstraction instead.";
     case "TSStackAlloc":
       return "stackalloc is not supported in Tsonic. Use heap-allocated arrays instead.";
     case "TSByRef":

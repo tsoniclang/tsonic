@@ -111,7 +111,7 @@ export type SignatureInfo = {
   readonly typeParameters?: readonly TypeParameterNode[];
   /**
    * Declaring type simple TS name (e.g., "Box" not "Test.Box").
-   * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
+   * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get target name.
    */
   readonly declaringTypeTsName?: string;
   readonly declaringTypeParameterNames?: readonly string[];

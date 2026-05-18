@@ -105,7 +105,7 @@ describe("Program Creation – package resolution", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "clr",
+        surface: "core",
       });
 
       expect(result.ok).to.equal(true);
@@ -129,7 +129,7 @@ describe("Program Creation – package resolution", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "clr",
+        surface: "core",
         typeRoots: [],
       });
 

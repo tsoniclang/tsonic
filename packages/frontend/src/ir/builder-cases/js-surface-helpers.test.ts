@@ -66,7 +66,7 @@ const writeFixtureJsSurface = (
       {
         schemaVersion: 1,
         id: "@fixture/js",
-        extends: ["clr"],
+        extends: ["core"],
         requiredTypeRoots: ["."],
       },
       null,
@@ -606,7 +606,7 @@ describe("IR Builder", function () {
         if (!firstParameterType) return;
 
         expect(JSON.stringify(firstParameterType)).to.not.include(
-          '"kind":"typeParameterType"'
+          '"name":"TElement"'
         );
         expect(firstParameterType.kind).to.equal("unionType");
         if (firstParameterType.kind !== "unionType") return;
@@ -720,7 +720,7 @@ describe("IR Builder", function () {
             kind: "referenceType",
             name: "byte",
           });
-          expect(firstSurfaceParameterType.typeId?.tsName).to.equal(
+          expect(firstSurfaceParameterType.typeId?.sourceName).to.equal(
             "TypedArrayInput"
           );
         }
@@ -1372,13 +1372,13 @@ describe("IR Builder", function () {
                   kind: "global",
                   assembly: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
-                  csharpName: "Timers.setInterval",
+                  targetMemberName: "Timers.setInterval",
                 },
                 clearInterval: {
                   kind: "global",
                   assembly: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
-                  csharpName: "Timers.clearInterval",
+                  targetMemberName: "Timers.clearInterval",
                 },
               },
             },
@@ -1400,16 +1400,16 @@ describe("IR Builder", function () {
               namespace: "Acme.ExternalRuntime",
               types: [
                 {
-                  clrName: "Acme.ExternalRuntime.Timers",
-                  assemblyName: "Acme.ExternalRuntime",
+                  targetName: "Acme.ExternalRuntime.Timers",
+                  ownerIdentity: "Acme.ExternalRuntime",
                   methods: [
                     {
-                      clrName: "setInterval",
+                      targetName: "setInterval",
                       normalizedSignature:
                         "setInterval|(System.Action,System.Double):System.Double|static=true",
                       parameterCount: 2,
-                      declaringClrType: "Acme.ExternalRuntime.Timers",
-                      declaringAssemblyName: "Acme.ExternalRuntime",
+                      ownerQualifiedName: "Acme.ExternalRuntime.Timers",
+                      ownerIdentity: "Acme.ExternalRuntime",
                       semanticSignature: {
                         parameters: [
                           {
@@ -1421,7 +1421,7 @@ describe("IR Builder", function () {
                             type: {
                               kind: "referenceType",
                               name: "System.Action",
-                              resolvedClrType: "System.Action",
+                              targetQualifiedName: "System.Action",
                             },
                             isOptional: false,
                             isRest: false,
@@ -1449,12 +1449,12 @@ describe("IR Builder", function () {
                       },
                     },
                     {
-                      clrName: "clearInterval",
+                      targetName: "clearInterval",
                       normalizedSignature:
                         "clearInterval|(System.Double):System.Void|static=true",
                       parameterCount: 1,
-                      declaringClrType: "Acme.ExternalRuntime.Timers",
-                      declaringAssemblyName: "Acme.ExternalRuntime",
+                      ownerQualifiedName: "Acme.ExternalRuntime.Timers",
+                      ownerIdentity: "Acme.ExternalRuntime",
                       semanticSignature: {
                         parameters: [
                           {
@@ -1493,7 +1493,7 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: ["clr"],
+              extends: ["core"],
               requiredTypeRoots: ["."],
             },
             null,
@@ -1567,20 +1567,20 @@ describe("IR Builder", function () {
         if (setIntervalCall.callee.kind !== "identifier") return;
 
         expect(setIntervalCall.callee.name).to.equal("setInterval");
-        expect(setIntervalCall.callee.resolvedClrType).to.equal(
+        expect(setIntervalCall.callee.targetQualifiedName).to.equal(
           "Acme.ExternalRuntime.Timers"
         );
-        expect(setIntervalCall.callee.resolvedAssembly).to.equal(
+        expect(setIntervalCall.callee.targetOwnerIdentity).to.equal(
           "Acme.ExternalRuntime"
         );
-        expect(setIntervalCall.callee.csharpName).to.equal(
+        expect(setIntervalCall.callee.targetMemberName).to.equal(
           "Timers.setInterval"
         );
         expect(setIntervalCall.parameterTypes).to.deep.equal([
           {
             kind: "referenceType",
             name: "System.Action",
-            resolvedClrType: "System.Action",
+            targetQualifiedName: "System.Action",
           },
           {
             kind: "primitiveType",
@@ -1591,7 +1591,7 @@ describe("IR Builder", function () {
           {
             kind: "referenceType",
             name: "System.Action",
-            resolvedClrType: "System.Action",
+            targetQualifiedName: "System.Action",
           },
           {
             kind: "primitiveType",
@@ -1614,7 +1614,7 @@ describe("IR Builder", function () {
         if (clearIntervalCall.kind !== "call") return;
         expect(clearIntervalCall.callee.kind).to.equal("identifier");
         if (clearIntervalCall.callee.kind !== "identifier") return;
-        expect(clearIntervalCall.callee.csharpName).to.equal(
+        expect(clearIntervalCall.callee.targetMemberName).to.equal(
           "Timers.clearInterval"
         );
       } finally {
@@ -1677,7 +1677,7 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: ["clr"],
+              extends: ["core"],
               requiredTypeRoots: ["."],
             },
             null,
@@ -1782,10 +1782,10 @@ describe("IR Builder", function () {
         expect(parseIntCall.callee.kind).to.equal("identifier");
         if (parseIntCall.callee.kind !== "identifier") return;
         expect(parseIntCall.callee.name).to.equal("parseInt");
-        expect(parseIntCall.callee.resolvedClrType).to.equal(
+        expect(parseIntCall.callee.targetQualifiedName).to.equal(
           "fixture.js.Globals.parseInt"
         );
-        expect(parseIntCall.callee.resolvedAssembly).to.equal("fixture.js");
+        expect(parseIntCall.callee.targetOwnerIdentity).to.equal("fixture.js");
 
         const logStmt = fn.body.statements[1];
         expect(logStmt?.kind).to.equal("expressionStatement");
@@ -1802,10 +1802,10 @@ describe("IR Builder", function () {
         expect(logCallee.object.kind).to.equal("identifier");
         if (logCallee.object.kind !== "identifier") return;
         expect(logCallee.object.name).to.equal("console");
-        expect(logCallee.object.resolvedClrType).to.equal(
+        expect(logCallee.object.targetQualifiedName).to.equal(
           "fixture.js.console.console"
         );
-        expect(logCallee.object.resolvedAssembly).to.equal("fixture.js");
+        expect(logCallee.object.targetOwnerIdentity).to.equal("fixture.js");
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
@@ -1869,7 +1869,7 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: ["clr"],
+              extends: ["core"],
               requiredTypeRoots: ["."],
             },
             null,
@@ -2006,10 +2006,10 @@ describe("IR Builder", function () {
         expect(callExpr.callee.kind).to.equal("identifier");
         if (callExpr.callee.kind !== "identifier") return;
 
-        expect(callExpr.callee.resolvedClrType).to.equal(
+        expect(callExpr.callee.targetQualifiedName).to.equal(
           "fixture.nodejs.TimersModule.setInterval"
         );
-        expect(callExpr.callee.resolvedAssembly).to.equal("fixture.nodejs");
+        expect(callExpr.callee.targetOwnerIdentity).to.equal("fixture.nodejs");
 
         expect(callExpr.parameterTypes?.[0]).to.deep.equal({
           kind: "functionType",
@@ -2093,7 +2093,7 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: ["clr"],
+              extends: ["core"],
               requiredTypeRoots: ["."],
             },
             null,
@@ -2356,7 +2356,7 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: ["clr"],
+              extends: ["core"],
               requiredTypeRoots: ["."],
             },
             null,
@@ -2552,7 +2552,7 @@ describe("IR Builder", function () {
         if (regexCtor.callee.kind !== "identifier") return;
 
         expect(regexCtor.callee.name).to.equal("RegExp");
-        expect(regexCtor.callee.resolvedClrType).to.equal("fixture.js.RegExp");
+        expect(regexCtor.callee.targetQualifiedName).to.equal("fixture.js.RegExp");
         expect(regexCtor.arguments).to.deep.equal([
           {
             kind: "literal",

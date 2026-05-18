@@ -4,7 +4,7 @@
  * When a type alias contains a union of object literal types, we generate
  * synthetic nominal interfaces for each object member. This enables:
  * - TSN7403 compliance (object literals have contextual nominal types)
- * - Proper C# emission (nominal types instead of anonymous objects)
+ * - Proper native emission (nominal types instead of anonymous objects)
  *
  * Example:
  *   type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };

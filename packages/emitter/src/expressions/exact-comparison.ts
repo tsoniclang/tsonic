@@ -288,7 +288,10 @@ const isExactRuntimeUnionFactoryCallToType = (
     return false;
   }
 
-  return sameTypeAstSurface(ast.expression.expression.type, targetType);
+  return sameTypeAstSurface(
+    stripNullableTypeAst(ast.expression.expression.type),
+    stripNullableTypeAst(targetType)
+  );
 };
 
 const isExactDefaultExpressionToType = (

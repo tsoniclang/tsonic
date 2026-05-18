@@ -14,7 +14,7 @@ import { emitExpressionAst } from "../expression-emitter.js";
 import {
   isExplicitViewProperty,
   extractInterfaceNameFromView,
-} from "@tsonic/frontend/types/explicit-views.js";
+} from "../core/semantic/explicit-views.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveTypeAlias,

@@ -31,9 +31,9 @@ export const isInterfaceReference = (
   };
 
   add(ref.name);
-  add(ref.resolvedClrType);
-  add(ref.typeId?.tsName);
-  add(ref.typeId?.clrName);
+  add(ref.targetQualifiedName);
+  add(ref.typeId?.sourceName);
+  add(ref.typeId?.targetName);
   for (const value of [...candidates]) {
     if (!value.includes(".")) continue;
     add(value.split(".").pop());

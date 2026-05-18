@@ -77,7 +77,7 @@ describe("materialized narrowing", () => {
         {
           kind: "referenceType",
           name: "BigInteger",
-          resolvedClrType: "System.Numerics.BigInteger",
+          targetQualifiedName: "System.Numerics.BigInteger",
         },
         { kind: "referenceType", name: "object", typeArguments: [] },
       ],
@@ -301,7 +301,7 @@ describe("materialized narrowing", () => {
           {
             kind: "referenceType",
             name: "object",
-            resolvedClrType: "System.Object",
+            targetQualifiedName: "System.Object",
           },
         ],
       },

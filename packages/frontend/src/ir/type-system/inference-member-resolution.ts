@@ -3,12 +3,12 @@
  *
  * Re-exports member lookup and resolution logic from sub-modules:
  * - inference-member-lookup: resolveMemberTypeNoDiag, typeOfMember
- * - inference-member-id: parseIndexerKeyClrType, getIndexerInfo, typeOfMemberId
+ * - inference-member-id: parseIndexerKeyTypeName, getIndexerInfo, typeOfMemberId
  */
 
 export { typeOfMember } from "./inference-member-lookup.js";
 export {
-  parseIndexerKeyClrType,
+  parseIndexerKeyTypeName,
   getIndexerInfo,
   typeOfMemberId,
 } from "./inference-member-id.js";

@@ -196,7 +196,7 @@ export type UtilityTypeName =
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Parameter passing mode for C# interop.
+ * Parameter passing mode for target interop.
  */
 export type ParameterMode = "value" | "ref" | "out" | "in";
 

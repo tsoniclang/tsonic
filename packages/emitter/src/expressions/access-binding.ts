@@ -285,9 +285,9 @@ export const tryEmitMemberBindingAccess = (
     const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
     if (isLocal) return false;
     if (
-      expr.object.resolvedClrType !== undefined ||
-      (expr.object.csharpName !== undefined &&
-        expr.object.resolvedAssembly !== undefined)
+      expr.object.targetQualifiedName !== undefined ||
+      (expr.object.targetMemberName !== undefined &&
+        expr.object.targetOwnerIdentity !== undefined)
     ) {
       return true;
     }

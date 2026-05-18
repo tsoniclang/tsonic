@@ -11,7 +11,7 @@ import {
 const regExpType: IrType = {
   kind: "referenceType",
   name: "RegExp",
-  resolvedClrType: "global::js.RegExp",
+  targetQualifiedName: "global::js.RegExp",
 };
 
 describe("runtime-union-member-mapping", () => {
@@ -38,7 +38,7 @@ describe("runtime-union-member-mapping", () => {
       actualMember: {
         kind: "referenceType",
         name: "PathSpec",
-        resolvedClrType: "Test.PathSpec",
+        targetQualifiedName: "Test.PathSpec",
       },
       actualMemberTypeAst: identifierType("string"),
       context,

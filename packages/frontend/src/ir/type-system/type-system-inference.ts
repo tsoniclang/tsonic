@@ -6,7 +6,7 @@
  * - inference-utilities.ts: shared helpers (deriveTypeFromNumericKind, unwrapParens, etc.)
  * - inference-expressions.ts: inferExpressionType, inferLambdaType
  * - inference-initializers.ts: tryInferTypeFromLiteralInitializer, tryInferReturnTypeFromCallExpression, tryInferTypeFromInitializer
- * - inference-member-resolution.ts: typeOfMember, typeOfMemberId, getIndexerInfo, parseIndexerKeyClrType
+ * - inference-member-resolution.ts: typeOfMember, typeOfMemberId, getIndexerInfo, parseIndexerKeyTypeName
  * - inference-declarations.ts: typeOfDecl, typeOfValueRead, hasTypeParameters, isTypeDecl, etc.
  *
  * DAG position: depends on type-system-state, type-system-relations, type-system-call-resolution
@@ -38,7 +38,7 @@ export {
 export {
   typeOfMember,
   typeOfMemberId,
-  parseIndexerKeyClrType,
+  parseIndexerKeyTypeName,
   getIndexerInfo,
 } from "./inference-member-resolution.js";
 

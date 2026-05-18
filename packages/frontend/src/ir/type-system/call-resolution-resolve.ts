@@ -210,7 +210,7 @@ export const resolveCall = (
   } = query;
 
   // Extension method scopes are modeled as TS-only wrapper types (e.g. __TsonicExt_Ef<T>).
-  // They must erase to their underlying CLR shapes for deterministic call inference.
+  // They must erase to their underlying native target shapes for deterministic call inference.
   const effectiveReceiverType = receiverType
     ? stripTsonicExtensionWrappers(receiverType)
     : undefined;
@@ -242,17 +242,17 @@ export const resolveCall = (
 
   if (
     rawSig.constructsDeclaringType &&
-    query.declaringClrType &&
+    query.declaringTargetType &&
     workingReturn.kind === "referenceType"
   ) {
     const arity = workingReturn.typeArguments?.length;
     const typeId =
-      resolveTypeIdByName(state, query.declaringClrType, arity) ??
-      resolveTypeIdByName(state, query.declaringClrType);
+      resolveTypeIdByName(state, query.declaringTargetType, arity) ??
+      resolveTypeIdByName(state, query.declaringTargetType);
     workingReturn = {
       ...workingReturn,
-      ...(typeId ? { typeId, resolvedClrType: typeId.clrName } : {}),
-      ...(!typeId ? { resolvedClrType: query.declaringClrType } : {}),
+      ...(typeId ? { typeId, targetQualifiedName: typeId.targetName } : {}),
+      ...(!typeId ? { targetQualifiedName: query.declaringTargetType } : {}),
     };
   }
 
@@ -261,7 +261,7 @@ export const resolveCall = (
       state,
       rawSig,
       effectiveReceiverType,
-      query.declaringClrType,
+      query.declaringTargetType,
       {
         workingParams,
         workingThisParam,

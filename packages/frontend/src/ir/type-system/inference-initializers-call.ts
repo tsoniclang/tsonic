@@ -24,6 +24,7 @@ import {
   inferLambdaType,
 } from "./inference-expressions.js";
 import { typeOfDecl } from "./inference-declarations.js";
+import { attachConstructedReferenceMetadata } from "./constructor-return-metadata.js";
 
 /**
  * Try to infer type from a variable declaration's literal initializer.
@@ -196,7 +197,12 @@ export const tryInferReturnTypeFromCallExpression = (
       });
 
       if (nestedResolved.returnType.kind !== "unknownType") {
-        argTypesWorking[index] = nestedResolved.returnType;
+        const constructorType = inferExpressionType(state, arg.expression, env);
+        argTypesWorking[index] =
+          attachConstructedReferenceMetadata(
+            nestedResolved.returnType,
+            constructorType
+          ) ?? nestedResolved.returnType;
       }
       continue;
     }

@@ -13,7 +13,7 @@ import { convertFunctionType } from "./functions.js";
 import type { Binding } from "../../../binding/index.js";
 import type { DeclId } from "../../../type-system/types.js";
 import {
-  normalizeSystemInternalQualifiedName,
+  normalizeProviderInternalQualifiedName,
   normalizeNamespaceAliasQualifiedName,
   normalizeExpandedAliasType,
   getTypeAliasBodyCache,
@@ -98,21 +98,22 @@ const buildSourceObjectAliasReference = (
   const stableSourceFilePath =
     resolveContainingSourcePackageStableFilePath(sourceFile.fileName) ??
     sourceFile.fileName.replace(/\\/g, "/");
-  const resolvedClrType = sourcePackageNamespace
+  const targetQualifiedName = sourcePackageNamespace
     ? `${sourcePackageNamespace}.${aliasName}__Alias`
     : undefined;
   const referenceBase: Extract<IrType, { kind: "referenceType" }> = {
     kind: "referenceType",
     name: aliasName,
     ...(refTypeArgs.length > 0 ? { typeArguments: refTypeArgs } : {}),
-    resolvedClrType,
-    ...(resolvedClrType
+    targetQualifiedName,
+    ...(targetQualifiedName
       ? {
           typeId: {
             stableId: `source-alias:${stableSourceFilePath}#${aliasName}`,
-            clrName: resolvedClrType,
-            assemblyName: sourcePackageNamespace ?? "source",
-            tsName: aliasName,
+            targetName: targetQualifiedName,
+            ownerIdentity: sourcePackageNamespace ?? "source",
+            sourceName: aliasName,
+            origin: "source",
           },
         }
       : {}),
@@ -247,7 +248,7 @@ export const handleTypeAliasDeclaration = (
   }
 
   if (ts.isFunctionTypeNode(declNode.type)) {
-    // CLR delegate types are NOMINAL in C#.
+    // native target delegate types are NOMINAL in target.
     if (declNode.getSourceFile().isDeclarationFile) {
       if (
         isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName) &&
@@ -322,7 +323,7 @@ export const handleTypeAliasDeclaration = (
     if (expanded) return expanded;
   }
 
-  // User-defined type aliases are TS-only and have no CLR identity.
+  // User-defined type aliases are TS-only and have no native target identity.
   if (!declNode.getSourceFile().isDeclarationFile) {
     const directExpanded = expandDirectAliasSyntax(
       declNode,
@@ -385,7 +386,7 @@ export const handleTypeAliasDeclaration = (
         if (ts.isTypeReferenceNode(t)) {
           const raw = entityNameToText(t.typeName);
           const normalized = normalizeNamespaceAliasQualifiedName(
-            normalizeSystemInternalQualifiedName(raw)
+            normalizeProviderInternalQualifiedName(raw)
           );
           if (normalized === expected) {
             found = normalized;

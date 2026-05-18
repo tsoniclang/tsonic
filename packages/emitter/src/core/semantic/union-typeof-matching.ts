@@ -27,9 +27,8 @@ const BROAD_OBJECT_CLR_NAMES = new Set([
 const referenceTypeofFact = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): ReturnType<typeof primitiveTypeFactFromName> =>
-  primitiveTypeFactFromName(
-    type.typeId?.clrName ?? type.resolvedClrType ?? type.name
-  );
+  primitiveTypeFactFromName(type.name) ??
+  primitiveTypeFactFromName(type.typeId?.sourceName ?? "");
 
 const genericTypeofTarget = (tag: string): IrType | undefined => {
   switch (tag) {
@@ -45,7 +44,7 @@ const genericTypeofTarget = (tag: string): IrType | undefined => {
       return {
         kind: "referenceType",
         name: "object",
-        resolvedClrType: "global::System.Object",
+        targetQualifiedName: "global::System.Object",
       };
     case "function":
       return {

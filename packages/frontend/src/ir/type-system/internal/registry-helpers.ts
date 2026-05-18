@@ -4,7 +4,7 @@
  * Re-exports extraction and inference logic from sub-modules:
  * - registry-helpers-inference: inferExpressionTypeSyntax, inferMemberType,
  *     convertMethodToSignature, convertMethodSignatureToIr
- * - registry-helpers-extraction: CLR name helpers, type parameter extraction,
+ * - registry-helpers-extraction: Target name helpers, type parameter extraction,
  *     member extraction, callable interface conversion, heritage extraction
  */
 
@@ -17,7 +17,7 @@ export {
 
 export {
   isWellKnownLibrary,
-  getCanonicalClrFQName,
+  getCanonicalTargetName,
   extractTypeParameters,
   getTypeNodeName,
   resolveHeritageTypeName,

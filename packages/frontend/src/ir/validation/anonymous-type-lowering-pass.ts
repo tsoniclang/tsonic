@@ -45,6 +45,7 @@ import {
 import type { LoweringContext } from "./anon-type-lower-types.js";
 
 import { lowerExpression, lowerStatement } from "./anon-type-ir-rewriting.js";
+import { createTypeSymbolId } from "../../symbols/index.js";
 
 /**
  * Result of anonymous type lowering pass
@@ -66,13 +67,14 @@ const lowerModule = (
     readonly generatedDeclarations: IrClassDeclaration[];
     readonly shapeToName: Map<string, string>;
     readonly shapeToExistingReference: Map<string, IrReferenceType>;
+    readonly declaredTypeReferences: ReadonlyMap<string, IrReferenceType>;
     readonly existingTypeNames: ReadonlySet<string>;
     readonly loweredTypeByIdentity: WeakMap<object, IrType>;
     readonly loweredReferenceByStableKey: Map<string, IrReferenceType>;
   }
 ): IrModule => {
   const localDeclaredTypeReferences =
-    collectLocalDeclaredTypeReferences(module);
+    collectLocalDeclaredTypeReferences(module, shared.declaredTypeReferences);
   const ctx: LoweringContext = {
     generatedDeclarations: shared.generatedDeclarations,
     shapeToName: shared.shapeToName,
@@ -111,19 +113,24 @@ const lowerModule = (
 };
 
 const collectLocalDeclaredTypeReferences = (
-  module: IrModule
+  module: IrModule,
+  declaredTypeReferences: ReadonlyMap<string, IrReferenceType>
 ): ReadonlyMap<string, IrReferenceType> => {
-  const references = new Map<string, IrReferenceType>();
+  const references = new Map<string, IrReferenceType>(declaredTypeReferences);
 
   for (const stmt of module.body) {
     switch (stmt.kind) {
       case "classDeclaration":
       case "interfaceDeclaration":
       case "enumDeclaration":
-        references.set(stmt.name, {
+        const targetQualifiedName = module.namespace
+          ? `${module.namespace}.${stmt.name}`
+          : stmt.name;
+        const reference: IrReferenceType = {
           kind: "referenceType",
           name: stmt.name,
-          resolvedClrType: `${module.namespace}.${stmt.name}`,
+          targetQualifiedName,
+          symbolId: createTypeSymbolId("source", targetQualifiedName),
           typeArguments:
             "typeParameters" in stmt
               ? stmt.typeParameters?.map(
@@ -133,8 +140,66 @@ const collectLocalDeclaredTypeReferences = (
                   })
                 )
               : undefined,
-        });
+        };
+        references.set(stmt.name, reference);
+        references.set(targetQualifiedName, reference);
         break;
+    }
+  }
+
+  return references;
+};
+
+const collectDeclaredTypeReferences = (
+  modules: readonly IrModule[]
+): ReadonlyMap<string, IrReferenceType> => {
+  const byQualifiedName = new Map<string, IrReferenceType>();
+  const simpleBuckets = new Map<string, IrReferenceType[]>();
+
+  const addReference = (
+    name: string,
+    namespace: string,
+    typeParameters?: readonly { readonly name: string }[]
+  ): void => {
+    const targetQualifiedName = namespace ? `${namespace}.${name}` : name;
+    const reference: IrReferenceType = {
+      kind: "referenceType",
+      name,
+      targetQualifiedName,
+      symbolId: createTypeSymbolId("source", targetQualifiedName),
+      typeArguments: typeParameters?.map(
+        (parameter): IrType => ({
+          kind: "typeParameterType",
+          name: parameter.name,
+        })
+      ),
+    };
+
+    byQualifiedName.set(targetQualifiedName, reference);
+    const bucket = simpleBuckets.get(name) ?? [];
+    bucket.push(reference);
+    simpleBuckets.set(name, bucket);
+  };
+
+  for (const module of modules) {
+    for (const stmt of module.body) {
+      switch (stmt.kind) {
+        case "classDeclaration":
+        case "interfaceDeclaration":
+          addReference(stmt.name, module.namespace, stmt.typeParameters);
+          break;
+        case "enumDeclaration":
+        case "typeAliasDeclaration":
+          addReference(stmt.name, module.namespace);
+          break;
+      }
+    }
+  }
+
+  const references = new Map<string, IrReferenceType>(byQualifiedName);
+  for (const [simpleName, bucket] of simpleBuckets) {
+    if (bucket.length === 1 && bucket[0]) {
+      references.set(simpleName, bucket[0]);
     }
   }
 
@@ -198,13 +263,13 @@ const registerExistingAnonymousReference = (
     members: type.structuralMembers,
   });
 
-  const resolvedClrType =
-    type.resolvedClrType ?? type.typeId?.clrName ?? undefined;
+  const targetQualifiedName =
+    type.targetQualifiedName ?? type.typeId?.targetName ?? undefined;
   const existing = shapeToExistingReference.get(signature);
   if (
     existing &&
-    existing.resolvedClrType !== undefined &&
-    resolvedClrType === undefined
+    existing.targetQualifiedName !== undefined &&
+    targetQualifiedName === undefined
   ) {
     return;
   }
@@ -213,7 +278,7 @@ const registerExistingAnonymousReference = (
     kind: "referenceType",
     name: type.name,
     typeArguments: type.typeArguments,
-    resolvedClrType,
+    targetQualifiedName,
     structuralMembers: type.structuralMembers,
     structuralOrigin: type.structuralOrigin ?? "compilerOwnedStructural",
   });
@@ -283,7 +348,7 @@ const collectAnonymousReferenceDeclarations = (
   }
   seen.add(value);
 
-  if (isAnonymousReferenceType(value) && value.resolvedClrType === undefined) {
+  if (isAnonymousReferenceType(value) && value.targetQualifiedName === undefined) {
     if (!declarationsByName.has(value.name)) {
       declarationsByName.set(value.name, {
         kind: "classDeclaration",
@@ -429,16 +494,16 @@ const shouldTraverseInferredTypeMetadata = (
   const record = owner as {
     readonly kind?: unknown;
     readonly importedFrom?: unknown;
-    readonly resolvedClrType?: unknown;
-    readonly resolvedAssembly?: unknown;
+    readonly targetQualifiedName?: unknown;
+    readonly targetOwnerIdentity?: unknown;
     readonly originalName?: unknown;
   };
 
   if (
     record.kind === "identifier" &&
     (record.importedFrom !== undefined ||
-      record.resolvedClrType !== undefined ||
-      record.resolvedAssembly !== undefined ||
+      record.targetQualifiedName !== undefined ||
+      record.targetOwnerIdentity !== undefined ||
       (typeof record.originalName === "string" &&
         record.originalName.startsWith('"') &&
         record.originalName.endsWith('"')))
@@ -501,6 +566,7 @@ export const runAnonymousTypeLoweringPass = (
   );
   const existingTypeNames = new Set<string>();
   const shapeToExistingReference = new Map<string, IrReferenceType>();
+  const declaredTypeReferences = collectDeclaredTypeReferences(inputModules);
   const existingReferenceTraversalSeen = new WeakSet<object>();
   for (const module of inputModules) {
     for (const stmt of module.body) {
@@ -520,7 +586,7 @@ export const runAnonymousTypeLoweringPass = (
                         name: parameter.name,
                       })
                     ) ?? undefined,
-                  resolvedClrType: `${module.namespace}.${stmt.name}`,
+                  targetQualifiedName: `${module.namespace}.${stmt.name}`,
                   structuralMembers: members,
                   structuralOrigin: "compilerOwnedStructural",
                 },
@@ -543,7 +609,7 @@ export const runAnonymousTypeLoweringPass = (
                       name: parameter.name,
                     })
                   ) ?? undefined,
-                resolvedClrType: `${module.namespace}.${stmt.name}`,
+                targetQualifiedName: `${module.namespace}.${stmt.name}`,
                 structuralMembers: stmt.members,
                 structuralOrigin: "compilerOwnedStructural",
               },
@@ -570,6 +636,7 @@ export const runAnonymousTypeLoweringPass = (
     generatedDeclarations: [] as IrClassDeclaration[],
     shapeToName: new Map<string, string>(),
     shapeToExistingReference,
+    declaredTypeReferences,
     existingTypeNames,
     loweredTypeByIdentity: new WeakMap<object, IrType>(),
     loweredReferenceByStableKey: new Map<string, IrReferenceType>(),

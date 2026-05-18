@@ -46,7 +46,7 @@ describe("type-resolution", () => {
           {
             kind: "referenceType",
             name: "__Anon_handler",
-            resolvedClrType: "Test.__Anon_handler",
+            targetQualifiedName: "Test.__Anon_handler",
           },
           context
         )
@@ -73,7 +73,7 @@ describe("type-resolution", () => {
           {
             kind: "referenceType",
             name: "__Rest_handler",
-            resolvedClrType: "Test.__Rest_handler",
+            targetQualifiedName: "Test.__Rest_handler",
           },
           context
         )
@@ -100,7 +100,7 @@ describe("type-resolution", () => {
           {
             kind: "referenceType",
             name: "Animal",
-            resolvedClrType: "Test.Animal",
+            targetQualifiedName: "Test.Animal",
           },
           context
         )

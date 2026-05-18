@@ -182,7 +182,7 @@ const getVisibleParameterOffset = (candidate: {
 
 const candidateAcceptsArgumentCount = (
   candidate: NonNullable<
-    ReturnType<ProgramContext["bindings"]["getClrMemberOverloads"]>
+    ReturnType<ProgramContext["bindings"]["getTargetMemberOverloads"]>
   >[number],
   argCount: number
 ): boolean => {
@@ -208,7 +208,7 @@ const candidateAcceptsArgumentCount = (
 
 const buildCandidatePassingModes = (
   candidate: NonNullable<
-    ReturnType<ProgramContext["bindings"]["getClrMemberOverloads"]>
+    ReturnType<ProgramContext["bindings"]["getTargetMemberOverloads"]>
   >[number],
   argCount: number
 ): readonly PassingMode[] => {
@@ -236,7 +236,7 @@ const buildCandidatePassingModes = (
 
 const scoreCandidateArgumentTypes = (
   candidate: NonNullable<
-    ReturnType<ProgramContext["bindings"]["getClrMemberOverloads"]>
+    ReturnType<ProgramContext["bindings"]["getTargetMemberOverloads"]>
   >[number],
   argTypes: readonly (IrType | undefined)[],
   argCount: number,
@@ -292,7 +292,7 @@ const uniqueModesFrom = (
   return uniqueModes;
 };
 
-export const extractArgumentPassingFromClrMemberOverloads = (
+export const extractArgumentPassingFromTargetMemberOverloads = (
   callee: ReturnType<typeof convertExpression>,
   argCount: number,
   ctx: ProgramContext,
@@ -302,7 +302,7 @@ export const extractArgumentPassingFromClrMemberOverloads = (
     return undefined;
   }
 
-  const overloads = ctx.bindings.getClrMemberOverloads(
+  const overloads = ctx.bindings.getTargetMemberOverloads(
     callee.memberBinding.assembly,
     callee.memberBinding.type,
     callee.memberBinding.member

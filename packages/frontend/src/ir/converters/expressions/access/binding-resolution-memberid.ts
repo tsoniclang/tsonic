@@ -2,7 +2,7 @@
  * MemberId-based binding resolution and extension method binding for
  * member access expressions.
  *
- * Handles CLR property/member binding resolution via Binding-resolved MemberId.
+ * Handles external property/member binding resolution via Binding-resolved MemberId.
  *
  * Split from binding-resolution.ts for file-size compliance (< 500 LOC).
  */
@@ -15,10 +15,11 @@ import { getSourceSpan } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { MemberId } from "../../../type-system/index.js";
 import type { MemberBinding } from "../../../../program/bindings.js";
-import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
+import { tsbindgenTargetTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
-import { extractRawDotnetBindingsPayload } from "../../../../program/dotnet-binding-payload.js";
+import { extractRawExternalBindingsPayload } from "../../../../program/external-binding-payload.js";
 import { extractTypeName } from "./member-resolution.js";
+import { resolveExpectedTargetTypeFromBindings } from "./binding-resolution-hierarchical.js";
 
 const nearestBindingsJsonCache = new Map<string, string | undefined>();
 const bindingsJsonPayloadCache = new Map<
@@ -87,13 +88,13 @@ const getWrapperBindingCandidates = (
   return candidates;
 };
 
-const getAliasesForExactClrType = (
+const getAliasesForExactTargetType = (
   ctx: ProgramContext,
-  clrType: string,
+  targetType: string,
   preference: "instance" | "static"
 ): readonly string[] => {
   const aliases = [...ctx.bindings.getTypesMap().values()]
-    .filter((type) => type.name === clrType)
+    .filter((type) => type.name === targetType)
     .map((type) => type.alias)
     .sort((left, right) => {
       const leftStatic = left.endsWith("$static");
@@ -113,7 +114,7 @@ const getAliasesForExactClrType = (
   return [...new Set(aliases)];
 };
 
-const getPreferredInstanceOwnerClrType = (
+const getPreferredInstanceOwnerTargetType = (
   ctx: ProgramContext,
   ownerAlias: string
 ): string | undefined => {
@@ -158,7 +159,7 @@ const findNearestBindingsJson = (filePath: string): string | undefined => {
     const candidate = join(currentDir, "bindings.json");
     if (existsSync(candidate)) {
       const raw = readBindingsJsonPayload(candidate);
-      if (raw && extractRawDotnetBindingsPayload(raw)) {
+      if (raw && extractRawExternalBindingsPayload(raw)) {
         nearestBindingsJsonCache.set(filePath, candidate);
         return candidate;
       }
@@ -187,23 +188,23 @@ const disambiguateOverloadsByDeclaringType = (
   const raw = readBindingsJsonPayload(bindingsPath);
   if (!raw) return undefined;
 
-  const expectedClrType = resolveExpectedClrTypeFromBindings(
+  const expectedTargetType = resolveExpectedTargetTypeFromBindings(
     raw,
     declaringTypeTsName
   );
-  if (!expectedClrType) return undefined;
+  if (!expectedTargetType) return undefined;
 
-  const filtered = overloads.filter((m) => m.binding.type === expectedClrType);
+  const filtered = overloads.filter(
+    (m) => m.binding.type === expectedTargetType
+  );
   return filtered.length > 0 ? filtered : undefined;
 };
-
-import { resolveExpectedClrTypeFromBindings } from "./binding-resolution-hierarchical.js";
 
 /**
  * Resolve hierarchical binding for a member access using Binding-resolved MemberId.
  *
  * Uses Binding-resolved MemberId when the frontend already has an exact TS
- * member symbol and needs the corresponding CLR binding target.
+ * member symbol and needs the corresponding external binding target.
  */
 export const resolveHierarchicalBindingFromMemberId = (
   node: ts.PropertyAccessExpression,
@@ -226,23 +227,23 @@ export const resolveHierarchicalBindingFromMemberId = (
   };
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
-  const preferredSourceOwnedClrOwner = ctx.bindings.hasSourceOwnedTypeAlias(
+  const preferredSourceOwnedTargetOwner = ctx.bindings.hasSourceOwnedTypeAlias(
     typeAlias
   )
-    ? getPreferredInstanceOwnerClrType(ctx, typeAlias)
+    ? getPreferredInstanceOwnerTargetType(ctx, typeAlias)
     : undefined;
   const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
   const bindingsPath =
     declSourceFilePath !== undefined
       ? findNearestBindingsJson(declSourceFilePath)
       : undefined;
-  const expectedClrOwner = (() => {
+  const expectedTargetOwner = (() => {
     if (!bindingsPath) {
       return undefined;
     }
 
     const raw = readBindingsJsonPayload(bindingsPath);
-    return raw ? resolveExpectedClrTypeFromBindings(raw, typeAlias) : undefined;
+    return raw ? resolveExpectedTargetTypeFromBindings(raw, typeAlias) : undefined;
   })();
   const staticOverloads = (() => {
     if (!ts.isIdentifier(node.expression)) return undefined;
@@ -253,9 +254,9 @@ export const resolveHierarchicalBindingFromMemberId = (
     if (!simpleBinding?.staticType) return undefined;
 
     const ownerCandidates = [
-      ...getAliasesForExactClrType(ctx, simpleBinding.staticType, "static"),
+      ...getAliasesForExactTargetType(ctx, simpleBinding.staticType, "static"),
       simpleBinding.staticType,
-      tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
+      tsbindgenTargetTypeNameToTsTypeName(simpleBinding.staticType),
     ].filter((candidate): candidate is string => typeof candidate === "string");
 
     for (const candidate of ownerCandidates) {
@@ -280,9 +281,9 @@ export const resolveHierarchicalBindingFromMemberId = (
     if (!simpleBinding?.type) return undefined;
 
     const ownerCandidates = [
-      ...getAliasesForExactClrType(ctx, simpleBinding.type, "instance"),
+      ...getAliasesForExactTargetType(ctx, simpleBinding.type, "instance"),
       simpleBinding.type,
-      tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
+      tsbindgenTargetTypeNameToTsTypeName(simpleBinding.type),
     ].filter((candidate): candidate is string => typeof candidate === "string");
 
     for (const candidate of ownerCandidates) {
@@ -308,10 +309,10 @@ export const resolveHierarchicalBindingFromMemberId = (
 
     const aliases = [
       simpleBinding.type
-        ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.type)
+        ? tsbindgenTargetTypeNameToTsTypeName(simpleBinding.type)
         : undefined,
       simpleBinding.staticType
-        ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType)
+        ? tsbindgenTargetTypeNameToTsTypeName(simpleBinding.staticType)
         : undefined,
     ].filter((candidate): candidate is string => typeof candidate === "string");
 
@@ -325,17 +326,17 @@ export const resolveHierarchicalBindingFromMemberId = (
 
   overloadsAll =
     overloadsAll ??
-    (expectedClrOwner
+    (expectedTargetOwner
       ? ctx.bindings.getMemberOverloads(
-          expectedClrOwner,
+          expectedTargetOwner,
           propertyName,
-          expectedClrOwner
+          expectedTargetOwner
         )
       : undefined) ??
     ctx.bindings.getMemberOverloads(
       typeAlias,
       propertyName,
-      preferredSourceOwnedClrOwner
+      preferredSourceOwnedTargetOwner
     );
   if (!overloadsAll || overloadsAll.length === 0) {
     if (ts.isIdentifier(node.expression)) {
@@ -345,9 +346,9 @@ export const resolveHierarchicalBindingFromMemberId = (
       );
       if (simpleBinding?.staticType) {
         const staticCandidates = [
-          ...getAliasesForExactClrType(ctx, simpleBinding.staticType, "static"),
+          ...getAliasesForExactTargetType(ctx, simpleBinding.staticType, "static"),
           simpleBinding.staticType,
-          tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
+          tsbindgenTargetTypeNameToTsTypeName(simpleBinding.staticType),
         ].filter(
           (candidate): candidate is string => typeof candidate === "string"
         );
@@ -377,7 +378,7 @@ export const resolveHierarchicalBindingFromMemberId = (
       const resolved = ctx.bindings.getMemberOverloads(
         candidate,
         propertyName,
-        getPreferredInstanceOwnerClrType(ctx, candidate)
+        getPreferredInstanceOwnerTargetType(ctx, candidate)
       );
       if (resolved && resolved.length > 0) {
         overloadsAll = resolved;
@@ -388,20 +389,20 @@ export const resolveHierarchicalBindingFromMemberId = (
 
   if (!overloadsAll || overloadsAll.length === 0) {
     // Airplane-grade rule: If this member resolves to a tsbindgen declaration,
-    // we MUST have a CLR binding; we must never guess member names via naming policy.
+    // we MUST have an external binding; we must never guess member names via naming policy.
     //
-    // We treat it as CLR-bound if:
+    // We treat it as external-bound if:
     // - The declaring type is a tsbindgen extension interface (`__Ext_*`), OR
     // - We can locate a bindings.json near the declaration source file.
-    const isClrBound =
+    const isExternalBound =
       declaringTypeName.startsWith("__Ext_") || bindingsPath !== undefined;
 
-    if (isClrBound && (!overloadsAll || overloadsAll.length === 0)) {
+    if (isExternalBound && (!overloadsAll || overloadsAll.length === 0)) {
       ctx.diagnostics.push(
         createDiagnostic(
           "TSN4004",
           "error",
-          `Missing CLR binding for '${typeAlias}.${propertyName}'.`,
+          `Missing external binding for '${typeAlias}.${propertyName}'.`,
           getSourceSpan(node),
           bindingsPath
             ? `No matching member binding was found in the loaded bindings for this tsbindgen declaration. (bindings.json: ${bindingsPath})`
@@ -448,7 +449,7 @@ export const resolveHierarchicalBindingFromMemberId = (
         ? findNearestBindingsJson(declSourceFilePath)
         : undefined;
 
-    // Only treat this as a CLR ambiguity when we can locate a bindings.json near the
+    // Only treat this as an external ambiguity when we can locate a bindings.json near the
     // TS declaration source (tsbindgen packages). Otherwise, fall back to "no binding"
     // and let local codepaths handle naming policy.
     if (bindingsPath) {
@@ -464,7 +465,7 @@ export const resolveHierarchicalBindingFromMemberId = (
         createDiagnostic(
           "TSN4003",
           "error",
-          `Ambiguous CLR binding for '${typeAlias}.${propertyName}'. Multiple CLR targets found: ${targets}.`,
+          `Ambiguous external binding for '${typeAlias}.${propertyName}'. Multiple target members found: ${targets}.`,
           getSourceSpan(node),
           `This usually indicates multiple tsbindgen packages export the same TS type/member alias. Ensure the correct package is imported, or regenerate bindings to avoid collisions. (bindings.json: ${bindingsPath})`
         )
@@ -508,7 +509,7 @@ export const resolveHierarchicalBindingFromMemberId = (
  *
  * tsbindgen emits extension methods as interface members on `__Ext_*` types, and users
  * opt in via `ExtensionMethods<TShape>`. At runtime those members do not exist, so we
- * must attach the underlying CLR binding so the emitter can lower the call to an
+ * must attach the underlying external binding so the emitter can lower the call to an
  * explicit static invocation.
  */
 export const resolveExtensionMethodsBinding = (
@@ -546,10 +547,10 @@ export const resolveExtensionMethodsBinding = (
     if (!sigId) return undefined;
 
     // IMPORTANT (airplane-grade): the same TS member name can exist in multiple extension
-    // namespaces (e.g., BCL async LINQ and EF Core both define ToArrayAsync). When the
+    // namespaces. When the
     // receiver expression is not an identifier, `resolvePropertyAccess` can key the member
     // entry off the member symbol itself, which merges declarations. Always anchor to the
-    // resolved signature's declaring type to choose the correct CLR extension binding.
+    // resolved signature's declaring type to choose the correct external extension binding.
     const sigDeclaringTypeName =
       ctx.binding.getDeclaringTypeNameOfSignature(sigId);
     sigDeclaringTypeNameForError = sigDeclaringTypeName;
@@ -639,7 +640,7 @@ export const resolveExtensionMethodsBinding = (
         }
 
         if (current.kind === ts.SyntaxKind.StringKeyword) return "String";
-        if (current.kind === ts.SyntaxKind.NumberKeyword) return "Double";
+        if (current.kind === ts.SyntaxKind.NumberKeyword) return "number";
         if (current.kind === ts.SyntaxKind.BooleanKeyword) return "Boolean";
 
         return undefined;
@@ -672,7 +673,7 @@ export const resolveExtensionMethodsBinding = (
 
   if (!resolved) {
     // Airplane-grade: if the TS surface indicates this member comes from an extension-method
-    // module, failing to attach a CLR binding would emit an instance call that cannot exist
+    // module, failing to attach an external binding would emit an instance call that cannot exist
     // at runtime. Treat as a hard error rather than miscompiling.
     if (
       declaringTypeName.startsWith("__Ext_") ||
@@ -694,7 +695,7 @@ export const resolveExtensionMethodsBinding = (
         createDiagnostic(
           "TSN4004",
           "error",
-          `Failed to resolve CLR extension-method binding for '${propertyName}' on '${declaringTypeName}'. ${detail}`,
+          `Failed to resolve external extension-method binding for '${propertyName}' on '${declaringTypeName}'. ${detail}`,
           getSourceSpan(node),
           "This indicates a mismatch between the generated .d.ts surface and bindings.json extension metadata. Regenerate bindings and ensure the correct packages are installed."
         )

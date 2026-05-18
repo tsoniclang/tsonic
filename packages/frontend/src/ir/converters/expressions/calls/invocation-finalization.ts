@@ -1,9 +1,6 @@
 import type { ProgramContext } from "../../../program-context.js";
 import type { IrExpression, IrType } from "../../../types.js";
-import {
-  referenceTypeHasClrIdentity,
-  referenceTypeIdentity,
-} from "../../../types/type-ops.js";
+import { referenceTypeIdentity } from "../../../types/type-ops.js";
 import {
   expandParameterTypesForArguments,
   substitutePolymorphicThis,
@@ -14,11 +11,6 @@ import {
   substituteTypeParameters,
   unifyTypeTemplate,
 } from "./call-site-analysis.js";
-
-const BROAD_EXACTNESS_LOSER_CLR_NAMES = new Set([
-  "System.Object",
-  "global::System.Object",
-]);
 
 const invocationFinalizationOpaqueTypeIds = new WeakMap<object, number>();
 let nextInvocationFinalizationOpaqueTypeId = 0;
@@ -489,7 +481,8 @@ export const shouldPreferExactMemberType = (
     if (type.kind === "referenceType") {
       return (
         type.name === "object" ||
-        referenceTypeHasClrIdentity(type, BROAD_EXACTNESS_LOSER_CLR_NAMES)
+        type.name === "Object" ||
+        type.typeId?.sourceName === "Object"
       );
     }
 

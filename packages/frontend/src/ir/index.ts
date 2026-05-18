@@ -6,11 +6,7 @@
  */
 
 export * from "./types.js";
-export {
-  getClrIdentityKey,
-  referenceTypeIdentity,
-  referenceTypeHasClrIdentity,
-} from "./types/index.js";
+export { referenceTypeIdentity } from "./types/index.js";
 export {
   buildIr,
   buildIrModule,

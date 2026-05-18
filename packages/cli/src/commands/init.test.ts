@@ -18,7 +18,7 @@ import { getTypePackageInfo, initWorkspace } from "./init.js";
 describe("Init Command", () => {
   describe("getTypePackageInfo", () => {
     describe("default (no options)", () => {
-      it("should return cli and clr surface packages", () => {
+      it("should return cli and core surface packages", () => {
         const result = getTypePackageInfo();
         const packageNames = result.packages.map((p) => p.name);
 
@@ -28,7 +28,7 @@ describe("Init Command", () => {
         expect(packageNames).to.not.include("@tsonic/core");
       });
 
-      it("should include clr surface type roots", () => {
+      it("should include core surface type roots", () => {
         const result = getTypePackageInfo();
         expect(result.typeRoots).to.deep.equal([
           "node_modules/@tsonic/globals",
@@ -277,7 +277,7 @@ describe("Init Command", () => {
           };
         };
         expect(manifest.kind).to.equal("tsonic-source-package");
-        expect(manifest.surfaces).to.deep.equal(["clr"]);
+        expect(manifest.surfaces).to.deep.equal(["core"]);
         expect(manifest.source?.exports?.["."]).to.equal("./src/App.ts");
         expect(manifest.source?.exports?.["./index.js"]).to.equal(
           "./src/App.ts"

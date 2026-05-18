@@ -6,7 +6,7 @@ import { EmitterContext } from "../types.js";
 import type { LocalTypeInfo } from "../emitter-types/core.js";
 import { resolveLocalTypeInfo } from "../core/semantic/type-resolution.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
-import { clrTypeNameToTypeAst } from "../core/format/backend-ast/utils.js";
+import { targetTypeNameToTypeAst } from "../core/format/backend-ast/utils.js";
 import { tryContextualTypeIdentityKey } from "../core/semantic/deterministic-type-keys.js";
 
 type StructuralReferenceMember = Extract<
@@ -53,7 +53,7 @@ type LocalStructuralMethodMember = {
 type StructuralReferenceMatch = {
   readonly key: string;
   readonly name: string;
-  readonly resolvedClrType: string;
+  readonly targetQualifiedName: string;
   readonly isExternal: boolean;
 };
 
@@ -364,13 +364,13 @@ const collectCanonicalStructuralMatches = (
   const matches = new Map<string, StructuralReferenceMatch>();
   const addMatch = (
     name: string,
-    resolvedClrType: string,
+    targetQualifiedName: string,
     isExternal: boolean
   ): void => {
-    matches.set(resolvedClrType, {
-      key: resolvedClrType,
+    matches.set(targetQualifiedName, {
+      key: targetQualifiedName,
       name,
-      resolvedClrType,
+      targetQualifiedName,
       isExternal,
     });
   };
@@ -494,7 +494,7 @@ export const resolveBindingBackedStructuralTypeAst = (
   }
 
   const match = [...matches.values()][0];
-  return match ? clrTypeNameToTypeAst(toGlobalClr(match.name)) : undefined;
+  return match ? targetTypeNameToTypeAst(toGlobalClr(match.name)) : undefined;
 };
 
 export const resolveCanonicalStructuralReferenceTypeAst = (
@@ -506,6 +506,6 @@ export const resolveCanonicalStructuralReferenceTypeAst = (
     collectCanonicalStructuralMatches(type, context)
   );
   return match
-    ? clrTypeNameToTypeAst(toGlobalClr(match.resolvedClrType))
+    ? targetTypeNameToTypeAst(toGlobalClr(match.targetQualifiedName))
     : undefined;
 };

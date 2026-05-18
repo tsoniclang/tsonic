@@ -59,7 +59,7 @@ const parseExtensionInterfaceName = (
 /**
  * Resolve an extension method binding target by extension interface name.
  *
- * @param extensionInterfaceName - e.g. "__Ext_System_Linq_IEnumerable_1"
+ * @param extensionInterfaceName - e.g. "__Ext_Query_Iterable_1"
  * @param methodTsName - e.g. "where"
  */
 export const resolveExtensionMethod = (
@@ -160,7 +160,7 @@ export const resolveExtensionMethodByKey = (
       }
     }
 
-    // If multiple candidates map to different CLR targets, treat as unresolved (unsafe).
+    // If multiple candidates map to different target members, treat as unresolved (unsafe).
     const first = filteredCandidates[0];
     if (!first) return { kind: "none" };
     const firstTarget = `${first.binding.type}::${first.binding.member}`;

@@ -1,7 +1,7 @@
-import {
-  getClrIdentityKey as getFrontendClrIdentityKey,
-  type IrType,
-} from "@tsonic/frontend";
+import type { IrType } from "@tsonic/frontend";
+import { getClrIdentityKey } from "../format/backend-ast/clr-identity.js";
+
+export { getClrIdentityKey } from "../format/backend-ast/clr-identity.js";
 
 type ReferenceIrType = Extract<IrType, { kind: "referenceType" }>;
 type PrimitiveIrType = Extract<IrType, { kind: "primitiveType" }>;
@@ -19,47 +19,71 @@ const REFERENCE_CLR_ALIASES: ReadonlyMap<string, string> = new Map([
   ["Object", "System.Object"],
   ["bool", "System.Boolean"],
   ["Boolean", "System.Boolean"],
+  ["uint8", "System.Byte"],
   ["byte", "System.Byte"],
   ["Byte", "System.Byte"],
+  ["int8", "System.SByte"],
   ["sbyte", "System.SByte"],
   ["SByte", "System.SByte"],
+  ["int16", "System.Int16"],
   ["short", "System.Int16"],
   ["Int16", "System.Int16"],
+  ["uint16", "System.UInt16"],
   ["ushort", "System.UInt16"],
   ["UInt16", "System.UInt16"],
+  ["int32", "System.Int32"],
   ["int", "System.Int32"],
   ["Int32", "System.Int32"],
+  ["uint32", "System.UInt32"],
   ["uint", "System.UInt32"],
   ["UInt32", "System.UInt32"],
+  ["int64", "System.Int64"],
   ["long", "System.Int64"],
   ["Int64", "System.Int64"],
+  ["uint64", "System.UInt64"],
   ["ulong", "System.UInt64"],
   ["UInt64", "System.UInt64"],
+  ["native-int", "System.IntPtr"],
   ["nint", "System.IntPtr"],
   ["IntPtr", "System.IntPtr"],
+  ["native-uint", "System.UIntPtr"],
   ["nuint", "System.UIntPtr"],
   ["UIntPtr", "System.UIntPtr"],
+  ["float32", "System.Single"],
   ["float", "System.Single"],
   ["Single", "System.Single"],
+  ["float64", "System.Double"],
   ["double", "System.Double"],
   ["Double", "System.Double"],
   ["decimal", "System.Decimal"],
   ["Decimal", "System.Decimal"],
+  ["float16", "System.Half"],
+  ["half", "System.Half"],
+  ["int128", "System.Int128"],
+  ["uint128", "System.UInt128"],
   ["char", "System.Char"],
   ["Char", "System.Char"],
 ]);
 
-export const getClrIdentityKey = (
-  rawName: string,
-  typeArgumentArity = 0
-): string => getFrontendClrIdentityKey(rawName, typeArgumentArity);
+const toGlobalClrName = (name: string): string =>
+  name.startsWith("global::") ? name : `global::${name}`;
+
+export const getReferenceClrTargetName = (
+  type: ReferenceIrType
+): string | undefined => {
+  const rawName =
+    type.typeId?.targetName ??
+    type.targetQualifiedName ??
+    REFERENCE_CLR_ALIASES.get(type.name);
+  return rawName ? toGlobalClrName(rawName) : undefined;
+};
 
 export const getReferenceClrIdentityKey = (
   type: ReferenceIrType
 ): string | undefined => {
   const rawName =
-    type.typeId?.clrName ??
-    type.resolvedClrType ??
+    type.typeId?.targetName ??
+    type.targetQualifiedName ??
     REFERENCE_CLR_ALIASES.get(type.name);
   if (!rawName) {
     return undefined;

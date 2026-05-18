@@ -107,7 +107,7 @@ describe("IR Builder", function () {
         expect(errorMember.type.kind).to.equal("referenceType");
         if (errorMember.type.kind !== "referenceType") return;
         expect(errorMember.type.typeId).to.not.equal(undefined);
-        expect(errorMember.type.resolvedClrType).to.be.a("string");
+        expect(errorMember.type.targetQualifiedName).to.be.a("string");
         expect(parseCall.callee.inferredType?.kind).to.equal("functionType");
         if (parseCall.callee.inferredType?.kind !== "functionType") return;
         expect(parseCall.callee.inferredType.returnType.kind).to.not.equal(
@@ -393,6 +393,74 @@ describe("IR Builder", function () {
         );
 
         expect(result.ok).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves source module namespaces on imported class instanceof targets", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/values/base.ts": [
+            "export class TemplateValue {}",
+            "export class NilValue extends TemplateValue {}",
+          ].join("\n"),
+          "src/values/page.ts": [
+            'import { TemplateValue } from "./base.js";',
+            "export class PageValue extends TemplateValue {}",
+          ].join("\n"),
+          "src/index.ts": [
+            'import { NilValue } from "./values/base.js";',
+            'import { PageValue } from "./values/page.js";',
+            "type Value = NilValue | PageValue;",
+            "export function resolve(value: Value): void {",
+            "  let cur: Value = value;",
+            "  if (cur instanceof NilValue) return;",
+            "  if (cur instanceof PageValue) return;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "resolve"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const ifStatements = fn.body.statements.filter(
+          (
+            stmt
+          ): stmt is Extract<
+            IrFunctionDeclaration["body"]["statements"][number],
+            { kind: "ifStatement" }
+          > => stmt.kind === "ifStatement"
+        );
+        const targetNames = ifStatements.map((stmt) =>
+          stmt.condition.kind === "binary" &&
+          stmt.condition.operator === "instanceof" &&
+          stmt.condition.right.inferredType?.kind === "referenceType"
+            ? stmt.condition.right.inferredType.targetQualifiedName
+            : undefined
+        );
+
+        expect(targetNames).to.deep.equal([
+          "TestApp.values.NilValue",
+          "TestApp.values.PageValue",
+        ]);
       } finally {
         fixture.cleanup();
       }

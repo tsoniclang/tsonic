@@ -1,5 +1,6 @@
 import type { IrInterfaceMember, IrParameter } from "./helpers.js";
 import type { IrType } from "./ir-types.js";
+import { primitiveTypeFactFromName } from "./numeric-kind.js";
 import { isKnownBuiltinReferenceType } from "../validation/known-builtin-reference-types.js";
 
 export type IrSpreadTupleShape = {
@@ -178,6 +179,7 @@ const isRuntimeNullishMember = (type: IrType): boolean =>
 
 const INTRINSIC_REFERENCE_IDENTITIES: ReadonlyMap<string, string> = new Map([
   ["object", "intrinsic:object"],
+  ["Object", "intrinsic:object"],
   ["Array", "intrinsic:ts:Array"],
   ["ReadonlyArray", "intrinsic:ts:ReadonlyArray"],
   ["ArrayLike", "intrinsic:ts:ArrayLike"],
@@ -205,39 +207,6 @@ const INTRINSIC_REFERENCE_IDENTITIES: ReadonlyMap<string, string> = new Map([
   ["Float64Array", "intrinsic:js:Float64Array"],
   ["BigInt64Array", "intrinsic:js:BigInt64Array"],
   ["BigUint64Array", "intrinsic:js:BigUint64Array"],
-]);
-
-const CORE_REFERENCE_CLR_IDENTITIES: ReadonlyMap<string, string> = new Map([
-  ["bool", "System.Boolean"],
-  ["Boolean", "System.Boolean"],
-  ["byte", "System.Byte"],
-  ["Byte", "System.Byte"],
-  ["sbyte", "System.SByte"],
-  ["SByte", "System.SByte"],
-  ["short", "System.Int16"],
-  ["Int16", "System.Int16"],
-  ["ushort", "System.UInt16"],
-  ["UInt16", "System.UInt16"],
-  ["int", "System.Int32"],
-  ["Int32", "System.Int32"],
-  ["uint", "System.UInt32"],
-  ["UInt32", "System.UInt32"],
-  ["long", "System.Int64"],
-  ["Int64", "System.Int64"],
-  ["ulong", "System.UInt64"],
-  ["UInt64", "System.UInt64"],
-  ["nint", "System.IntPtr"],
-  ["IntPtr", "System.IntPtr"],
-  ["nuint", "System.UIntPtr"],
-  ["UIntPtr", "System.UIntPtr"],
-  ["float", "System.Single"],
-  ["Single", "System.Single"],
-  ["double", "System.Double"],
-  ["Double", "System.Double"],
-  ["decimal", "System.Decimal"],
-  ["Decimal", "System.Decimal"],
-  ["char", "System.Char"],
-  ["Char", "System.Char"],
 ]);
 
 const collectCanonicalRuntimeUnionFamilyMembers = (
@@ -295,14 +264,9 @@ export const referenceTypeIdentity = (
     return `id:${type.typeId.stableId}`;
   }
 
-  const clrName = type.typeId?.clrName ?? type.resolvedClrType;
-  if (clrName) {
-    return `clr:${getClrIdentityKey(clrName, type.typeArguments?.length ?? 0)}`;
-  }
-
-  const coreClrIdentity = CORE_REFERENCE_CLR_IDENTITIES.get(type.name);
-  if (coreClrIdentity && (type.typeArguments?.length ?? 0) === 0) {
-    return `clr:${getClrIdentityKey(coreClrIdentity)}`;
+  const symbolId = type.typeId?.symbolId ?? type.symbolId;
+  if (symbolId) {
+    return `symbol:${symbolId}`;
   }
 
   const intrinsicIdentity = INTRINSIC_REFERENCE_IDENTITIES.get(type.name);
@@ -310,114 +274,20 @@ export const referenceTypeIdentity = (
     return `${intrinsicIdentity}/${type.typeArguments?.length ?? 0}`;
   }
 
+  const sourcePrimitiveFact = primitiveTypeFactFromName(type.name);
+  if (sourcePrimitiveFact) {
+    const primitiveIdentity =
+      sourcePrimitiveFact.kind === "numeric"
+        ? `numeric:${sourcePrimitiveFact.numericKind}`
+        : sourcePrimitiveFact.kind;
+    return `source-primitive:${primitiveIdentity}/${type.typeArguments?.length ?? 0}`;
+  }
+
   if (isKnownBuiltinReferenceType(type.name)) {
     return `builtin:${type.name}/${type.typeArguments?.length ?? 0}`;
   }
 
   return undefined;
-};
-
-export const stripGlobalClrAlias = (name: string): string =>
-  name.startsWith("global::") ? name.slice("global::".length) : name;
-
-const parseSurfaceGenericIdentity = (
-  rawName: string
-): { readonly name: string; readonly arity: number } | undefined => {
-  const openIndex = rawName.indexOf("<");
-  if (openIndex < 0 || !rawName.endsWith(">")) {
-    return undefined;
-  }
-
-  const argumentList = rawName.slice(openIndex + 1, -1);
-  const arity = countTopLevelGenericArguments(argumentList);
-  return arity === undefined
-    ? undefined
-    : { name: rawName.slice(0, openIndex), arity };
-};
-
-const countTopLevelGenericArguments = (
-  argumentList: string
-): number | undefined => {
-  let depth = 0;
-  let count = 1;
-  let hasContent = false;
-
-  for (const char of argumentList) {
-    if (char === "<") {
-      depth += 1;
-      hasContent = true;
-      continue;
-    }
-
-    if (char === ">") {
-      depth -= 1;
-      if (depth < 0) {
-        return undefined;
-      }
-      continue;
-    }
-
-    if (char === "," && depth === 0) {
-      count += 1;
-      continue;
-    }
-
-    if (!/\s/.test(char)) {
-      hasContent = true;
-    }
-  }
-
-  return depth === 0 && hasContent ? count : undefined;
-};
-
-const parseClrIdentity = (
-  rawName: string
-): { readonly name: string; readonly arity: number | undefined } => {
-  const normalizedName = stripGlobalClrAlias(rawName.trim());
-  const surfaceGeneric = parseSurfaceGenericIdentity(normalizedName);
-  const identityName = surfaceGeneric?.name ?? normalizedName;
-  const genericMatch = /^(.*)`([0-9]+)$/.exec(identityName);
-  if (!genericMatch) {
-    return { name: identityName, arity: surfaceGeneric?.arity };
-  }
-
-  return {
-    name: genericMatch[1] ?? identityName,
-    arity: Number(genericMatch[2]),
-  };
-};
-
-export const getClrIdentityKey = (
-  rawName: string,
-  typeArgumentArity = 0
-): string => {
-  const parsed = parseClrIdentity(rawName);
-  const arity = parsed.arity ?? typeArgumentArity;
-  return `${parsed.name}/${arity}`;
-};
-
-export const referenceTypeHasClrIdentity = (
-  type: Extract<IrType, { kind: "referenceType" }>,
-  rawNames: Iterable<string>
-): boolean => {
-  const typeKey = type.typeId?.clrName
-    ? getClrIdentityKey(type.typeId.clrName, type.typeArguments?.length ?? 0)
-    : type.resolvedClrType
-      ? getClrIdentityKey(type.resolvedClrType, type.typeArguments?.length ?? 0)
-      : undefined;
-  if (!typeKey) {
-    return false;
-  }
-
-  for (const rawName of rawNames) {
-    if (
-      typeKey === getClrIdentityKey(rawName, type.typeArguments?.length ?? 0)
-    ) {
-      return true;
-    }
-  }
-
-  return false;
 };
 
 const coarseParameterRecursionIdentity = (param: IrParameter): string => {
@@ -603,7 +473,6 @@ const getReferenceTypeAsyncWrapperKind = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): "generic" | "nongeneric" | undefined => {
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrName = (type.resolvedClrType ?? type.name).replace(/^global::/, "");
   const typeArgumentCount = type.typeArguments?.length ?? 0;
 
   const isPromiseLike =
@@ -612,22 +481,10 @@ const getReferenceTypeAsyncWrapperKind = (
     return typeArgumentCount === 1 ? "generic" : undefined;
   }
 
-  const isTaskLike =
-    simpleName === "Task" ||
-    simpleName === "ValueTask" ||
-    simpleName === "Task_1" ||
-    simpleName === "Task`1" ||
-    simpleName === "ValueTask_1" ||
-    simpleName === "ValueTask`1" ||
-    clrName === "System.Threading.Tasks.Task" ||
-    clrName === "System.Threading.Tasks.ValueTask" ||
-    clrName.startsWith("System.Threading.Tasks.Task`1") ||
-    clrName.startsWith("System.Threading.Tasks.ValueTask`1");
-  if (isTaskLike) {
-    if (typeArgumentCount === 1) {
-      return "generic";
-    }
-    return "nongeneric";
+  if (type.asyncWrapper) {
+    return type.asyncWrapper.resultTypeParameterIndex === undefined
+      ? "nongeneric"
+      : "generic";
   }
 
   return undefined;
@@ -646,7 +503,8 @@ export const getAwaitedIrType = (type: IrType): IrType | undefined => {
     return { kind: "voidType" };
   }
 
-  const inner = type.typeArguments?.[0];
+  const inner =
+    type.typeArguments?.[type.asyncWrapper?.resultTypeParameterIndex ?? 0];
   return inner;
 };
 

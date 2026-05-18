@@ -61,7 +61,7 @@ describe("Binding Resolution in IR", () => {
       if (writeLineAccess.object.object.kind !== "identifier") return;
 
       expect(writeLineAccess.object.object.name).to.equal("Console");
-      expect(writeLineAccess.object.object.resolvedClrType).to.equal(undefined);
+      expect(writeLineAccess.object.object.targetQualifiedName).to.equal(undefined);
       expect(writeLineAccess.object.memberBinding).to.equal(undefined);
     });
 
@@ -94,24 +94,24 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "js.console",
-            assemblyName: "js",
+            targetName: "js.console",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "error",
+                targetName: "error",
                 normalizedSignature:
                   "error|(System.Object[]):System.Void|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.console",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.console",
+                ownerIdentity: "js",
               },
               {
-                clrName: "log",
+                targetName: "log",
                 normalizedSignature:
                   "log|(System.Object[]):System.Void|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.console",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.console",
+                ownerIdentity: "js",
               },
             ],
             properties: [],
@@ -123,24 +123,24 @@ describe("Binding Resolution in IR", () => {
         namespace: "nodejs",
         types: [
           {
-            clrName: "nodejs.console",
-            assemblyName: "nodejs",
+            targetName: "nodejs.console",
+            ownerIdentity: "nodejs",
             methods: [
               {
-                clrName: "error",
+                targetName: "error",
                 normalizedSignature:
                   "error|(System.Object,System.Object[]):System.Void|static=true",
                 parameterCount: 2,
-                declaringClrType: "nodejs.console",
-                declaringAssemblyName: "nodejs",
+                ownerQualifiedName: "nodejs.console",
+                ownerIdentity: "nodejs",
               },
               {
-                clrName: "log",
+                targetName: "log",
                 normalizedSignature:
                   "log|(System.Object,System.Object[]):System.Void|static=true",
                 parameterCount: 2,
-                declaringClrType: "nodejs.console",
-                declaringAssemblyName: "nodejs",
+                ownerQualifiedName: "nodejs.console",
+                ownerIdentity: "nodejs",
               },
             ],
             properties: [],
@@ -152,16 +152,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "System",
         types: [
           {
-            clrName: "System.Console",
-            assemblyName: "System.Console",
+            targetName: "System.Console",
+            ownerIdentity: "System.Console",
             methods: [],
             properties: [
               {
-                clrName: "Error",
+                targetName: "Error",
                 normalizedSignature:
                   "Error|:System.IO.TextWriter|static=true|accessor=get",
-                declaringClrType: "System.Console",
-                declaringAssemblyName: "System.Console",
+                ownerQualifiedName: "System.Console",
+                ownerIdentity: "System.Console",
               },
             ],
             fields: [],
@@ -216,16 +216,16 @@ describe("Binding Resolution in IR", () => {
         namespace: "js",
         types: [
           {
-            clrName: "System.String",
-            assemblyName: "js",
+            targetName: "System.String",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "trim",
+                targetName: "trim",
                 normalizedSignature:
                   "trim|(System.String):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.StringExtensions",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.StringExtensions",
+                ownerIdentity: "js",
                 isExtensionMethod: true,
               },
             ],

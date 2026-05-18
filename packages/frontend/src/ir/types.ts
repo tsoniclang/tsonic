@@ -158,7 +158,7 @@ export { isStatement, isExpression } from "./types/guards.js";
 // Re-export numeric utilities
 export {
   TSONIC_TO_NUMERIC_KIND,
-  NUMERIC_KIND_TO_CSHARP,
+  NUMERIC_KIND_TO_TYPE_ALIAS,
   NUMERIC_RANGES,
   numericTypeFactFromName,
   booleanTypeFactFromName,

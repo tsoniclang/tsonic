@@ -17,7 +17,7 @@ describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("Type access and Records", () => {
-    it("treats dictionary Keys dot access as a declared CLR member", () => {
+    it("treats dictionary Keys dot access as a declared dictionary member", () => {
       const source = `
         export function readKey(settings: Record<string, unknown>): unknown {
           return settings.Keys;
@@ -54,15 +54,17 @@ describe("IR Builder", function () {
       expect(expression?.kind).to.equal("memberAccess");
       if (!expression || expression.kind !== "memberAccess") return;
       expect(expression.accessKind).to.equal(undefined);
-      expect(expression.inferredType).to.deep.equal({
+      expect(expression.inferredType).to.deep.include({
         kind: "referenceType",
-        name: "ICollection_1",
-        resolvedClrType: "System.Collections.Generic.ICollection",
-        typeArguments: [{ kind: "primitiveType", name: "string" }],
+        name: "Iterable",
       });
+      if (expression.inferredType?.kind !== "referenceType") return;
+      expect(expression.inferredType.typeArguments).to.deep.equal([
+        { kind: "primitiveType", name: "string" },
+      ]);
     });
 
-    it("treats dictionary Values dot access as a declared CLR member", () => {
+    it("treats dictionary Values dot access as a declared dictionary member", () => {
       const source = `
         export function readValue(settings: Record<string, unknown>): unknown {
           return settings.Values;
@@ -99,12 +101,14 @@ describe("IR Builder", function () {
       expect(expression?.kind).to.equal("memberAccess");
       if (!expression || expression.kind !== "memberAccess") return;
       expect(expression.accessKind).to.equal(undefined);
-      expect(expression.inferredType).to.deep.equal({
+      expect(expression.inferredType).to.deep.include({
         kind: "referenceType",
-        name: "ICollection_1",
-        resolvedClrType: "System.Collections.Generic.ICollection",
-        typeArguments: [{ kind: "unknownType", explicit: true }],
+        name: "Iterable",
       });
+      if (expression.inferredType?.kind !== "referenceType") return;
+      expect(expression.inferredType.typeArguments).to.deep.equal([
+        { kind: "unknownType", explicit: true },
+      ]);
     });
 
     it("treats string-key dictionary dot properties as dictionary keys", () => {
@@ -358,7 +362,7 @@ describe("IR Builder", function () {
       }
 
       const eventsIndex = finalReturn.expression.left;
-      expect(eventsIndex.accessKind).to.equal("clrIndexer");
+      expect(eventsIndex.accessKind).to.equal("numericIndexer");
       expect(eventsIndex.inferredType).to.deep.equal({
         kind: "primitiveType",
         name: "string",

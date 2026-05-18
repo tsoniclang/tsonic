@@ -75,10 +75,10 @@ const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
 /**
  * Unwrap `Interface<T>` in heritage clauses.
  *
- * Nominal CLR interface brands add internal `__tsonic_iface_*` members. We provide
+ * Nominal native target interface brands add internal `__tsonic_iface_*` members. We provide
  * `Interface<IFoo>` (from @tsonic/core/lang) to strip those at the TS layer.
  *
- * For IR + C# emission, we want the underlying CLR interface `IFoo`.
+ * For IR + target emission, we want the underlying native target interface `IFoo`.
  */
 const unwrapInterfaceHeritageType = (
   typeRef: ts.ExpressionWithTypeArguments

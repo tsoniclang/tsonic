@@ -66,7 +66,7 @@ describe("Reference Type Emission", () => {
                     },
                     isComputed: true,
                     isOptional: false,
-                    accessKind: "clrIndexer",
+                    accessKind: "numericIndexer",
                   },
                 },
               ],
@@ -135,7 +135,7 @@ describe("Reference Type Emission", () => {
                 type: {
                   kind: "referenceType",
                   name: "global::System.Collections.Generic.List",
-                  resolvedClrType: "global::System.Collections.Generic.List",
+                  targetQualifiedName: "global::System.Collections.Generic.List",
                   typeArguments: [
                     { kind: "referenceType", name: "MetricsRow" },
                   ],

@@ -225,7 +225,7 @@ describe("IR Builder", function () {
           elementType: { kind: "primitiveType", name: "string" },
           origin: "explicit",
         });
-        expect(initializer.accessKind).to.equal("clrIndexer");
+        expect(initializer.accessKind).to.equal("numericIndexer");
         expect(initializer.inferredType).to.deep.equal({
           kind: "primitiveType",
           name: "string",
@@ -341,7 +341,7 @@ describe("IR Builder", function () {
           elementType: { kind: "primitiveType", name: "string" },
           origin: "explicit",
         });
-        expect(initializer.accessKind).to.equal("clrIndexer");
+        expect(initializer.accessKind).to.equal("numericIndexer");
         expect(initializer.inferredType).to.deep.equal({
           kind: "primitiveType",
           name: "string",

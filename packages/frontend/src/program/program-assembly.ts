@@ -9,10 +9,10 @@ import * as path from "node:path";
 import { Result, ok, error } from "../types/result.js";
 import { DiagnosticsCollector } from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
-import { loadDotnetMetadata } from "./metadata.js";
+import { loadExternalMetadata } from "./metadata.js";
 import { loadBindings } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
-import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
 import {
   hasResolvedSurfaceProfile,
@@ -39,6 +39,7 @@ import {
 import { discoverProgramInputs } from "./program-input-discovery.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
 import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
+import { createTargetSurfaceArtifactsFromBindings } from "./target-surface-artifacts.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -153,7 +154,7 @@ export const createProgram = (
   filePaths: readonly string[],
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
-  const surface = options.surface ?? "clr";
+  const surface = options.surface ?? "core";
   const initialSurfaceResolveOptions = {
     projectRoot: options.projectRoot,
   };
@@ -186,7 +187,7 @@ export const createProgram = (
   });
 
   if (
-    surface !== "clr" &&
+    surface !== "core" &&
     !hasResolvedSurfaceProfile(surface, initialSurfaceResolveOptions)
   ) {
     if (!hasResolvedSurfaceProfile(surface, resolveFinalSurfaceOptions())) {
@@ -214,7 +215,7 @@ export const createProgram = (
       JSON.stringify(surfaceCapabilities.resolvedModes) ||
     JSON.stringify(finalSurfaceCapabilities.requiredTypeRoots) !==
       JSON.stringify(surfaceCapabilities.requiredTypeRoots) ||
-    finalSurfaceCapabilities.includesClr !== surfaceCapabilities.includesClr;
+    finalSurfaceCapabilities.includesCore !== surfaceCapabilities.includesCore;
 
   if (surfaceCapabilitiesChanged) {
     surfaceCapabilities = finalSurfaceCapabilities;
@@ -264,7 +265,7 @@ export const createProgram = (
     tsOptions
   );
 
-  // Create custom compiler host with virtual .NET module declarations
+  // Create custom compiler host with virtual external module declarations
   const host = ts.createCompilerHost(tsOptions);
   const originalRealpath = host.realpath?.bind(host);
   host.realpath = (fileName: string): string => {
@@ -277,17 +278,17 @@ export const createProgram = (
     return path.resolve(fileName);
   };
 
-  // Map of .NET namespace names to their declaration file paths
+  // Map of external namespace names to their declaration file paths
   const namespaceFiles = new Map<string, string>();
   for (const indexFile of namespaceIndexFiles) {
-    // Extract namespace name from path (e.g., /path/to/System/index.d.ts -> System)
+    // Extract namespace name from path (e.g., /path/to/External.Namespace/index.d.ts -> External.Namespace)
     const dirName = path.basename(path.dirname(indexFile));
     namespaceFiles.set(dirName, indexFile);
   }
 
   // Log namespace mappings when verbose
   if (options.verbose && namespaceFiles.size > 0) {
-    console.log(`Found ${namespaceFiles.size} .NET namespace declarations`);
+    console.log(`Found ${namespaceFiles.size} external namespace declarations`);
     for (const [ns, file] of namespaceFiles) {
       console.log(`  ${ns} -> ${file}`);
     }
@@ -301,7 +302,7 @@ export const createProgram = (
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ): ts.SourceFile | undefined => {
-    // Check if this is a .NET namespace being imported
+    // Check if this is an external namespace being imported
     const baseName = path.basename(fileName, path.extname(fileName));
     const declarationPath = namespaceFiles.get(baseName);
     if (declarationPath !== undefined && fileName.endsWith(".ts")) {
@@ -324,7 +325,7 @@ export const createProgram = (
     );
   };
 
-  // Override resolveModuleNames to handle .NET imports
+  // Override resolveModuleNames to handle external imports
   const hostWithResolve = host as ts.CompilerHost & {
     resolveModuleNames: (
       moduleNames: string[],
@@ -377,12 +378,12 @@ export const createProgram = (
         console.log(`Resolving module: ${moduleName} from ${containingFile}`);
       }
 
-      // Check if this is a .NET namespace
+      // Check if this is an external namespace
       const resolvedFile = namespaceFiles.get(moduleName);
       if (resolvedFile !== undefined) {
         if (options.verbose) {
           console.log(
-            `  Resolved .NET namespace ${moduleName} to ${resolvedFile}`
+            `  Resolved external namespace ${moduleName} to ${resolvedFile}`
           );
         }
         return {
@@ -396,7 +397,7 @@ export const createProgram = (
       //   - compiler/typeRoot-owned declarations, and
       //   - project-local installed copies
       // produces nominal identity splits inside TypeScript (e.g. two different
-      // Task / Stream / Exception hierarchies), which then surface as impossible
+      // deep external hierarchies), which then surface as impossible
       // overload failures and self-incompatible types.
       if (moduleName.startsWith("@tsonic/")) {
         const request = parseTsonicModuleRequest(moduleName);
@@ -602,27 +603,27 @@ export const createProgram = (
 
   // Declaration files for TypeRegistry:
   // include all declarations in the program. ProgramContext later filters out
-  // CLR metadata packages that are represented in the CLR catalog.
+  // external metadata packages that are represented in the external catalog.
   // This keeps surface support generic: custom non-@tsonic surface packages are
   // available to the frontend without any package-name allowlist.
   const declarationSourceFiles = program
     .getSourceFiles()
     .filter((sf) => sf.isDeclarationFile);
 
-  // Load .NET metadata files
-  const metadata = loadDotnetMetadata(typeRoots);
+  // Load external metadata files
+  const metadata = loadExternalMetadata(typeRoots);
 
   // Load binding manifests (from typeRoots - for ambient globals)
-  // Compiler-owned builtin: map TS `Error` to CLR `System.Exception`.
+  // Compiler-owned builtin: map TS `Error` to a core error abstraction.
   // This keeps `throw new Error(...)` usable in noLib mode without requiring
-  // consumers to import Exception explicitly.
+  // consumers to import a target exception type explicitly.
   if (!bindings.getBinding("Error")) {
     bindings.addBindings("tsonic:builtins", {
       bindings: {
         Error: {
           kind: "global",
-          assembly: "System.Private.CoreLib",
-          type: "System.Exception",
+          assembly: "tsonic.core",
+          type: "core:Error",
           typeSemantics: {
             contributesTypeIdentity: true,
           },
@@ -631,9 +632,10 @@ export const createProgram = (
     });
   }
 
-  // Create resolver for import-driven CLR namespace discovery
+  // Create resolver for import-driven external namespace discovery
   // Uses projectRoot (not sourceRoot) to resolve packages from node_modules
-  const clrResolver = createClrBindingsResolver(options.projectRoot);
+  const externalResolver = createExternalBindingsResolver(options.projectRoot);
+  const targetSurfaceArtifacts = createTargetSurfaceArtifactsFromBindings(bindings);
 
   // Create binding layer for symbol resolution
   // This replaces direct checker API calls throughout the pipeline
@@ -651,7 +653,8 @@ export const createProgram = (
     declarationSourceFiles,
     metadata,
     bindings,
-    clrResolver,
+    externalResolver,
     binding,
+    targetSurfaceArtifacts,
   });
 };

@@ -52,7 +52,6 @@ export const createModule = (
       kind: "import",
       source: "@tsonic/core/lang.js",
       isLocal: false,
-      isClr: false,
       specifiers: [
         {
           kind: "named",

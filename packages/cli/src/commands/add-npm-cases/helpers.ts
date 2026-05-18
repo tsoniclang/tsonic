@@ -12,7 +12,7 @@ export const writeWorkspaceConfig = (
       {
         $schema: "https://tsonic.org/schema/workspace/v1.json",
         dotnetVersion: "net10.0",
-        surface: options.surface ?? "clr",
+        surface: options.surface ?? "core",
         dotnet: {
           libraries: [],
           frameworkReferences: [],

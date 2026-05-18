@@ -57,7 +57,7 @@ ADD/RESTORE OPTIONS:
 PROJECT INIT OPTIONS:
   --skip-types              Skip installing type declarations
   --types-version <ver>     Version of type declarations to install
-  --surface <name>          Initialize workspace surface profile ("clr" or exact npm package name)
+  --surface <name>          Initialize workspace surface profile ("core" or exact npm package name)
 
 EXAMPLES:
   tsonic init

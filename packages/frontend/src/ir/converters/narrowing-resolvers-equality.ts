@@ -11,7 +11,13 @@ import { stableIrTypeKeyIfDeterministic, type IrType } from "../types.js";
 import { referenceTypeIdentity } from "../types/type-ops.js";
 import type { BindingInternal } from "../binding/binding-types.js";
 import { simpleBindingContributesTypeIdentity } from "../../program/binding-registry.js";
-import { tsbindgenClrTypeNameToTsTypeName } from "../../tsbindgen/names.js";
+import { tsbindgenTargetTypeNameToTsTypeName } from "../../tsbindgen/names.js";
+import {
+  resolveContainingSourcePackageNamespace,
+  resolveSourceFileNamespace,
+  resolveSourceFileOwnerIdentity,
+} from "../../program/source-file-identity.js";
+import { typeSymbolIdFromStableId } from "../../symbols/symbol-ids.js";
 import type { DeclId } from "../type-system/index.js";
 import {
   getAccessPathTarget,
@@ -217,11 +223,11 @@ export const resolveInstanceofTargetType = (
       return undefined;
     }
 
-    const identityClrType = simpleBinding.staticType ?? simpleBinding.type;
+    const identityTargetType = simpleBinding.staticType ?? simpleBinding.type;
     return {
       kind: "referenceType",
-      name: tsbindgenClrTypeNameToTsTypeName(identityClrType),
-      resolvedClrType: identityClrType,
+      name: tsbindgenTargetTypeNameToTsTypeName(identityTargetType),
+      targetQualifiedName: identityTargetType,
     };
   };
 
@@ -306,6 +312,58 @@ export const resolveInstanceofTargetType = (
     const declInfo = handleRegistryGetter.call(ctx.binding).getDecl(declId);
     if (!declInfo) {
       return undefined;
+    }
+
+    const declNode = (declInfo.valueDeclNode ?? declInfo.declNode) as
+      | ts.Declaration
+      | undefined;
+    if (
+      declInfo.kind === "class" &&
+      declNode &&
+      ts.isClassDeclaration(declNode) &&
+      declNode.name
+    ) {
+      const sourceFile = declNode.getSourceFile();
+      const normalizedFileName = sourceFile.fileName.replace(/\\/g, "/");
+      const isExternalPackageSource =
+        normalizedFileName.includes("/node_modules/");
+      if (!sourceFile.isDeclarationFile) {
+        const sourcePackageNamespace = resolveContainingSourcePackageNamespace(
+          sourceFile.fileName
+        );
+        const sourceNamespace =
+          sourcePackageNamespace ??
+          (!isExternalPackageSource
+            ? resolveSourceFileNamespace(
+                sourceFile.fileName,
+                ctx.sourceRoot,
+                ctx.rootNamespace
+              )
+            : undefined);
+        if (sourceNamespace) {
+          const simpleName = declNode.name.text;
+          const targetQualifiedName = `${sourceNamespace}.${simpleName}`;
+          const ownerIdentity = resolveSourceFileOwnerIdentity(
+            sourceFile.fileName,
+            ctx.sourceRoot,
+            ctx.rootNamespace
+          );
+          const stableId = `${ownerIdentity}:${targetQualifiedName}`;
+          return {
+            kind: "referenceType",
+            name: declNode.name.text,
+            targetQualifiedName,
+            typeId: {
+              stableId,
+              symbolId: typeSymbolIdFromStableId(stableId),
+              sourceName: declNode.name.text,
+              ownerIdentity,
+              targetName: targetQualifiedName,
+              origin: "source",
+            },
+          };
+        }
+      }
     }
 
     const nodes: (ts.TypeNode | undefined)[] = [
@@ -404,35 +462,40 @@ export const resolveInstanceofTargetType = (
   const unwrapped = unwrapExpr(expr);
 
   if (ts.isIdentifier(unwrapped)) {
-    const explicitBindingTarget =
-      tryResolveExplicitGlobalBindingTargetType(unwrapped);
-    if (explicitBindingTarget) {
-      return explicitBindingTarget;
-    }
-
     const declId = ctx.binding.resolveIdentifier(unwrapped);
+    let fallbackDeclTarget: IrType | undefined;
     if (declId) {
       const constructorTarget = tryResolveConstructTargetFromDecl(declId);
       if (constructorTarget) {
         return constructorTarget;
       }
 
-      const preferredDeclType = selectPreferredTargetType(
-        ctx.typeSystem.typeOfDecl(declId)
-      );
+      const declType = ctx.typeSystem.typeOfDecl(declId);
+      const preferredDeclType = selectPreferredTargetType(declType);
       if (preferredDeclType) {
-        return preferredDeclType;
+        if (preferredDeclType !== declType) {
+          return preferredDeclType;
+        }
+        fallbackDeclTarget ??= preferredDeclType;
       }
 
-      const preferredValueReadType = selectPreferredTargetType(
-        ctx.typeSystem.typeOfValueRead(declId)
-      );
+      const valueReadType = ctx.typeSystem.typeOfValueRead(declId);
+      const preferredValueReadType = selectPreferredTargetType(valueReadType);
       if (preferredValueReadType) {
-        return preferredValueReadType;
+        if (preferredValueReadType !== valueReadType) {
+          return preferredValueReadType;
+        }
+        fallbackDeclTarget ??= preferredValueReadType;
       }
     }
 
-    return undefined;
+    const explicitBindingTarget =
+      tryResolveExplicitGlobalBindingTargetType(unwrapped);
+    if (explicitBindingTarget) {
+      return explicitBindingTarget;
+    }
+
+    return fallbackDeclTarget;
   }
 
   const accessTarget = getAccessPathTarget(unwrapped, ctx);

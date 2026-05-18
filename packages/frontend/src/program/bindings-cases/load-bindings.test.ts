@@ -53,7 +53,7 @@ describe("Binding System", () => {
       });
     });
 
-    it("should load root-level global function bindings with csharpName", () => {
+    it("should load root-level global function bindings with targetMemberName", () => {
       fs.writeFileSync(
         path.join(tempDir, "package.json"),
         JSON.stringify(
@@ -89,13 +89,13 @@ describe("Binding System", () => {
                 kind: "global",
                 assembly: "js",
                 type: "js.Timers",
-                csharpName: "Timers.setInterval",
+                targetMemberName: "Timers.setInterval",
               },
               clearInterval: {
                 kind: "global",
                 assembly: "js",
                 type: "js.Timers",
-                csharpName: "Timers.clearInterval",
+                targetMemberName: "Timers.clearInterval",
               },
             },
           },
@@ -110,13 +110,13 @@ describe("Binding System", () => {
         kind: "global",
         assembly: "js",
         type: "js.Timers",
-        csharpName: "Timers.setInterval",
+        targetMemberName: "Timers.setInterval",
       });
       expect(registry.getBinding("clearInterval")).to.deep.equal({
         kind: "global",
         assembly: "js",
         type: "js.Timers",
-        csharpName: "Timers.clearInterval",
+        targetMemberName: "Timers.clearInterval",
       });
     });
 
@@ -419,7 +419,7 @@ describe("Binding System", () => {
       try {
         const registry = loadBindings([fixture.root]);
         const overload = registry
-          .getClrMemberOverloads("fixture.js", "fixture.js.Number", "toString")
+          .getTargetMemberOverloads("fixture.js", "fixture.js.Number", "toString")
           ?.find((candidate) => candidate.sourceOrigin !== undefined);
 
         expect(overload?.sourceOrigin).to.deep.equal({

@@ -90,16 +90,16 @@ describe("Binding System", () => {
         namespace: "js",
         types: [
           {
-            clrName: "js.console",
-            assemblyName: "js",
+            targetName: "js.console",
+            ownerIdentity: "js",
             methods: [
               {
-                clrName: "error",
+                targetName: "error",
                 normalizedSignature:
                   "error|(System.Object[]):System.Void|static=true",
                 parameterCount: 1,
-                declaringClrType: "js.console",
-                declaringAssemblyName: "js",
+                ownerQualifiedName: "js.console",
+                ownerIdentity: "js",
               },
             ],
             properties: [],
@@ -111,16 +111,16 @@ describe("Binding System", () => {
         namespace: "nodejs",
         types: [
           {
-            clrName: "nodejs.console",
-            assemblyName: "nodejs",
+            targetName: "nodejs.console",
+            ownerIdentity: "nodejs",
             methods: [
               {
-                clrName: "error",
+                targetName: "error",
                 normalizedSignature:
                   "error|(System.Object,System.Object[]):System.Void|static=true",
                 parameterCount: 2,
-                declaringClrType: "nodejs.console",
-                declaringAssemblyName: "nodejs",
+                ownerQualifiedName: "nodejs.console",
+                ownerIdentity: "nodejs",
               },
             ],
             properties: [],

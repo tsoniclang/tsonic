@@ -14,15 +14,15 @@ import type { ProgramContext } from "./program-context.js";
  * Extract the NumericKind from a type node if it references a known numeric alias.
  *
  * Examples:
- * - `int` → "Int32"
- * - `byte` → "Byte"
- * - `long` → "Int64"
+ * - `int` → int32
+ * - `byte` → uint8
+ * - `long` → int64
  * - `string` → undefined (not numeric)
  */
 export const getNumericKindFromTypeNode = (
   typeNode: ts.TypeNode
 ): NumericKind | undefined => {
-  // Handle type reference nodes (e.g., `int`, `byte`, `Int32`)
+  // Handle type reference nodes (e.g., `int`, `byte`)
   if (ts.isTypeReferenceNode(typeNode)) {
     const typeName = typeNode.typeName;
     if (ts.isIdentifier(typeName)) {

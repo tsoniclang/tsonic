@@ -23,12 +23,12 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "String" as const,
-              resolvedClrType: "System.String",
+              targetQualifiedName: "System.String",
             },
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "js.Uint8Array",
+              targetQualifiedName: "js.Uint8Array",
             },
           ],
         },
@@ -67,7 +67,7 @@ describe("Expression Emission", () => {
             type: {
               kind: "referenceType" as const,
               name: "String" as const,
-              resolvedClrType: "System.String",
+              targetQualifiedName: "System.String",
             },
           },
         ],
@@ -91,7 +91,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "js.Uint8Array",
+              targetQualifiedName: "js.Uint8Array",
             },
           ],
         },
@@ -149,7 +149,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "js.Uint8Array",
+              targetQualifiedName: "js.Uint8Array",
             },
           ],
         },
@@ -292,12 +292,12 @@ describe("Expression Emission", () => {
           name: "byte" as const,
           typeId: {
             stableId: "System.Private.CoreLib:System.Byte",
-            clrName: "System.Byte",
-            assemblyName: "System.Private.CoreLib",
-            tsName: "Byte",
+            targetName: "System.Byte",
+            ownerIdentity: "System.Private.CoreLib",
+            sourceName: "Byte",
           },
         },
-        accessKind: "clrIndexer" as const,
+        accessKind: "numericIndexer" as const,
         accessProtocol: {
           getterMember: "at",
           setterMember: "set",
@@ -311,9 +311,9 @@ describe("Expression Emission", () => {
           name: "byte" as const,
           typeId: {
             stableId: "System.Private.CoreLib:System.Byte",
-            clrName: "System.Byte",
-            assemblyName: "System.Private.CoreLib",
-            tsName: "Byte",
+            targetName: "System.Byte",
+            ownerIdentity: "System.Private.CoreLib",
+            sourceName: "Byte",
           },
         },
       },
@@ -322,9 +322,9 @@ describe("Expression Emission", () => {
         name: "byte" as const,
         typeId: {
           stableId: "System.Private.CoreLib:System.Byte",
-          clrName: "System.Byte",
-          assemblyName: "System.Private.CoreLib",
-          tsName: "Byte",
+          targetName: "System.Byte",
+          ownerIdentity: "System.Private.CoreLib",
+          sourceName: "Byte",
         },
       },
     } as const;
@@ -369,12 +369,12 @@ describe("Expression Emission", () => {
         name: "byte" as const,
         typeId: {
           stableId: "System.Private.CoreLib:System.Byte",
-          clrName: "System.Byte",
-          assemblyName: "System.Private.CoreLib",
-          tsName: "Byte",
+          targetName: "System.Byte",
+          ownerIdentity: "System.Private.CoreLib",
+          sourceName: "Byte",
         },
       },
-      accessKind: "clrIndexer" as const,
+      accessKind: "numericIndexer" as const,
       accessProtocol: {
         getterMember: "at",
       },

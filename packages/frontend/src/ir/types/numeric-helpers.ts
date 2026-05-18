@@ -1,12 +1,12 @@
 /**
  * Numeric Helper Functions for Literal Type Inference
  *
- * These functions determine whether a numeric literal is an integer (Int32)
- * or floating-point (Double) based on the raw lexeme.
+ * These functions determine whether a numeric literal is an integer (`int32`)
+ * or floating-point (`float64`) based on the raw lexeme.
  *
  * Key rule: The SOURCE TEXT determines the type, not the numeric value.
- * - Integer literals (42, 0xFF, 0b101) → Int32
- * - Floating literals (42.0, 3.14, 1e3) → Double
+ * - Integer literals (42, 0xFF, 0b101) → int32
+ * - Floating literals (42.0, 3.14, 1e3) → float64
  */
 
 import { NumericKind, NUMERIC_RANGES } from "./numeric-kind.js";
@@ -97,9 +97,9 @@ export const bigIntFitsInKind = (value: bigint, kind: NumericKind): boolean => {
  * Infer the numeric kind from a raw literal lexeme.
  *
  * Rules:
- * - Integer literals (no decimal, no exponent, fits in Int32) → Int32
- * - Integer literals (fits in Int64 but not Int32) → Int64
- * - Everything else (floating point, very large integers) → Double
+ * - Integer literals (no decimal, no exponent, fits in int32) → int32
+ * - Integer literals (fits in int64 but not int32) → int64
+ * - Everything else (floating point, very large integers) → float64
  *
  * This function is used at IR build time to attach numericIntent to literals.
  */
@@ -107,13 +107,13 @@ export const inferNumericKindFromRaw = (raw: string): NumericKind => {
   if (isValidIntegerLexeme(raw)) {
     const bigValue = parseBigIntFromRaw(raw);
     if (bigValue !== undefined) {
-      if (bigIntFitsInKind(bigValue, "Int32")) {
-        return "Int32";
+      if (bigIntFitsInKind(bigValue, "int32")) {
+        return "int32";
       }
-      if (bigIntFitsInKind(bigValue, "Int64")) {
-        return "Int64";
+      if (bigIntFitsInKind(bigValue, "int64")) {
+        return "int64";
       }
     }
   }
-  return "Double";
+  return "float64";
 };
