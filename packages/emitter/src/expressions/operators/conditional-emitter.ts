@@ -20,6 +20,11 @@ import { emitTypeAst } from "../../type-emitter.js";
 import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
+import {
+  buildRuntimeUnionLayout,
+  findRuntimeUnionAssignableMemberIndices,
+  findRuntimeUnionMemberIndices,
+} from "../../core/semantic/runtime-unions.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
 import {
@@ -29,6 +34,7 @@ import {
 import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-narrowing.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { stableTypeKeyFromAst } from "../../core/format/backend-ast/utils.js";
+import { maybeCastNumericToExpectedJsNumberAst } from "../post-emission-adaptation.js";
 
 const NUMERIC_CLR_NAMES = new Set([
   "System.SByte",
@@ -68,6 +74,24 @@ const isNumericIrType = (
       (resolved.name === "number" || resolved.name === "int")) ||
     (resolved.kind === "referenceType" &&
       referenceTypeHasClrIdentity(resolved, NUMERIC_CLR_NAMES))
+  );
+};
+
+const isJsNumberLikeIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" && resolved.name === "number") ||
+    (resolved.kind === "referenceType" &&
+      referenceTypeHasClrIdentity(resolved, [
+        "System.Double",
+        "global::System.Double",
+      ]))
   );
 };
 
@@ -274,6 +298,29 @@ export const emitConditional = (
     // `double` branch and can force invalid nullable `.Value` chains.
     return candidate;
   };
+  const castBranchToContextualJsNumber = (
+    branchExpr: IrExpression,
+    branchAst: CSharpExpressionAst,
+    branchContext: EmitterContext,
+    branchExpectedType: IrType | undefined
+  ): [CSharpExpressionAst, EmitterContext] => {
+    const numericExpectedType =
+      expectedType && isJsNumberLikeIrType(expectedType, context)
+        ? expectedType
+        : branchExpectedType;
+    if (!numericExpectedType) {
+      return [branchAst, branchContext];
+    }
+
+    const branchType =
+      resolveBranchType(branchExpr, branchContext) ?? branchExpr.inferredType;
+    return maybeCastNumericToExpectedJsNumberAst(
+      branchAst,
+      branchType,
+      branchContext,
+      numericExpectedType
+    );
+  };
 
   const deriveBranchExpectedType = (
     whenTrueContext: EmitterContext,
@@ -324,6 +371,35 @@ export const emitConditional = (
     if (contextualBranchType) {
       if (
         preciseBranchType &&
+        willCarryAsRuntimeUnion(contextualBranchType, context)
+      ) {
+        const [runtimeLayout] = buildRuntimeUnionLayout(
+          contextualBranchType,
+          context,
+          emitTypeAst
+        );
+        if (runtimeLayout) {
+          const directMemberIndices = findRuntimeUnionMemberIndices(
+            runtimeLayout.members,
+            preciseBranchType,
+            context
+          );
+          const assignableMemberIndices =
+            directMemberIndices.length === 1
+              ? directMemberIndices
+              : findRuntimeUnionAssignableMemberIndices(
+                  runtimeLayout.members,
+                  preciseBranchType,
+                  context
+                );
+          if (assignableMemberIndices.length === 1) {
+            return preciseBranchType;
+          }
+        }
+      }
+
+      if (
+        preciseBranchType &&
         isNumericIrType(preciseBranchType, context) &&
         isNumericIrType(contextualBranchType, context) &&
         !areIrTypesEquivalent(
@@ -338,6 +414,9 @@ export const emitConditional = (
             context
           ))
       ) {
+        if (isJsNumberLikeIrType(contextualBranchType, context)) {
+          return contextualBranchType;
+        }
         return preciseBranchType;
       }
       return contextualBranchType;
@@ -450,6 +529,13 @@ export const emitConditional = (
       rawTrueContext,
       branchExpectedType
     );
+    const [numericTrueAst, numericTrueContext] =
+      castBranchToContextualJsNumber(
+        expr.whenTrue,
+        trueAst,
+        trueContext,
+        branchExpectedType
+      );
 
     const [rawFalseAst, rawFalseContext] =
       polarity === "negative"
@@ -471,17 +557,24 @@ export const emitConditional = (
       rawFalseContext,
       branchExpectedType
     );
+    const [numericFalseAst, numericFalseContext] =
+      castBranchToContextualJsNumber(
+        expr.whenFalse,
+        falseAst,
+        falseContext,
+        branchExpectedType
+      );
 
     // Return context WITHOUT narrowing (don't leak)
     const finalContext: EmitterContext = {
-      ...falseContext,
+      ...numericFalseContext,
       tempVarId: Math.max(
-        trueContext.tempVarId ?? 0,
-        falseContext.tempVarId ?? 0
+        numericTrueContext.tempVarId ?? 0,
+        numericFalseContext.tempVarId ?? 0
       ),
       usings: new Set([
-        ...(trueContext.usings ?? []),
-        ...(falseContext.usings ?? []),
+        ...(numericTrueContext.usings ?? []),
+        ...(numericFalseContext.usings ?? []),
       ]),
       narrowedBindings: context.narrowedBindings,
     };
@@ -490,8 +583,8 @@ export const emitConditional = (
       {
         kind: "conditionalExpression",
         condition: condAst,
-        whenTrue: trueAst,
-        whenFalse: falseAst,
+        whenTrue: numericTrueAst,
+        whenFalse: numericFalseAst,
       },
       finalContext,
     ];
@@ -541,6 +634,12 @@ export const emitConditional = (
     rawTrueContext,
     branchExpectedType
   );
+  const [numericTrueAst, numericTrueContext] = castBranchToContextualJsNumber(
+    expr.whenTrue,
+    trueAst,
+    trueContext,
+    branchExpectedType
+  );
   const [rawFalseAst, rawFalseContext] = emitExpressionAst(
     expr.whenFalse,
     falsyBranchContext,
@@ -554,16 +653,22 @@ export const emitConditional = (
     rawFalseContext,
     branchExpectedType
   );
+  const [numericFalseAst, numericFalseContext] = castBranchToContextualJsNumber(
+    expr.whenFalse,
+    falseAst,
+    falseContext,
+    branchExpectedType
+  );
 
   const finalContext: EmitterContext = {
-    ...falseContext,
+    ...numericFalseContext,
     tempVarId: Math.max(
-      trueContext.tempVarId ?? 0,
-      falseContext.tempVarId ?? 0
+      numericTrueContext.tempVarId ?? 0,
+      numericFalseContext.tempVarId ?? 0
     ),
     usings: new Set([
-      ...(trueContext.usings ?? []),
-      ...(falseContext.usings ?? []),
+      ...(numericTrueContext.usings ?? []),
+      ...(numericFalseContext.usings ?? []),
     ]),
     narrowedBindings: condContext.narrowedBindings,
   };
@@ -572,8 +677,8 @@ export const emitConditional = (
     {
       kind: "conditionalExpression",
       condition: condAst,
-      whenTrue: trueAst,
-      whenFalse: falseAst,
+      whenTrue: numericTrueAst,
+      whenFalse: numericFalseAst,
     },
     finalContext,
   ];

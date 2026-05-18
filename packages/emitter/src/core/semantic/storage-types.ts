@@ -21,7 +21,7 @@ const SYSTEM_OBJECT_CLR_NAMES = new Set([
 const OBJECT_STORAGE_TYPE: IrType = {
   kind: "referenceType",
   name: "object",
-  resolvedClrType: "System.Object",
+  providerQualifiedName: "System.Object",
 };
 
 export const resolveRuntimeStorageArrayLikeElementType = (

@@ -5,9 +5,9 @@ import * as path from "node:path";
 import * as ts from "typescript";
 import type { TsonicProgram } from "../program.js";
 import { validateProgram } from "../validator.js";
-import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
+import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
-import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
 
 export { describe, it } from "mocha";
@@ -16,7 +16,8 @@ export { expect };
 export const createTestProgram = (
   source: string,
   fileName = "/test/index.ts",
-  extraFiles: Readonly<Record<string, string>> = {}
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
 ): TsonicProgram => {
   const allFiles = new Map<string, string>([
     [fileName, source],
@@ -88,31 +89,34 @@ export const createTestProgram = (
       projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
+      ...options,
     },
     sourceFiles: Array.from(sourceFiles.keys())
       .map((name) => program.getSourceFile(name))
       .filter((file): file is ts.SourceFile => file !== undefined),
     declarationSourceFiles: [],
-    metadata: new DotnetMetadataRegistry(),
+    metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
-    clrResolver: createClrBindingsResolver("/test"),
+    externalResolver: createExternalBindingsResolver("/test"),
     binding: createBinding(checker),
   };
 };
 
 export const collectCodes = (
   source: string,
-  extraFiles: Readonly<Record<string, string>> = {}
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
 ): readonly string[] =>
   validateProgram(
-    createTestProgram(source, "/test/index.ts", extraFiles)
+    createTestProgram(source, "/test/index.ts", extraFiles, options)
   ).diagnostics.map((d) => d.code);
 
 export const hasCode = (
   source: string,
   code: string,
-  extraFiles: Readonly<Record<string, string>> = {}
-): boolean => collectCodes(source, extraFiles).includes(code);
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
+): boolean => collectCodes(source, extraFiles, options).includes(code);
 
 export const collectCodesInTempProject = (
   source: string,
@@ -159,9 +163,9 @@ export const collectCodesInTempProject = (
         .map((fileName) => program.getSourceFile(fileName))
         .filter((file): file is ts.SourceFile => file !== undefined),
       declarationSourceFiles: [],
-      metadata: new DotnetMetadataRegistry(),
+      metadata: new ExternalMetadataRegistry(),
       bindings: new BindingRegistry(),
-      clrResolver: createClrBindingsResolver(tempDir),
+      externalResolver: createExternalBindingsResolver(tempDir),
       binding: createBinding(checker),
     }).diagnostics.map((diagnostic) => diagnostic.code);
   } finally {

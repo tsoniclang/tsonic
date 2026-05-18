@@ -27,7 +27,7 @@ describe("type-resolution", () => {
       const objectCarrier: IrType = {
         kind: "referenceType",
         name: "object",
-        resolvedClrType: "global::System.Object",
+        providerQualifiedName: "global::System.Object",
       };
 
       expect(

@@ -37,7 +37,7 @@ export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
  *
  * This function looks up the identifier's declaration and extracts the type
  * from the TypeNode, NOT from TypeScript's computed type. This ensures:
- * - CLR type aliases like `int`, `byte`, `long` are preserved
+ * - native target type aliases like `int`, `byte`, `long` are preserved
  * - Types are deterministic and don't depend on TypeScript inference
  *
  * For variables without explicit type annotation (e.g., `const x = createArray()`),

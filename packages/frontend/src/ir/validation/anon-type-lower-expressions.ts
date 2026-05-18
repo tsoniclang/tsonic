@@ -31,8 +31,8 @@ export const lowerExpression = (
       case "identifier": {
         if (!expr.declId || !expr.inferredType) return expr;
         if (
-          expr.resolvedClrType ||
-          expr.resolvedAssembly ||
+          expr.providerQualifiedName ||
+          expr.providerOwnerIdentity ||
           expr.importedFrom
         ) {
           return expr;

@@ -1,39 +1,39 @@
 /**
- * NumericKind - Represents all CLR numeric types that Tsonic supports.
+ * NumericKind - Represents all source-level numeric categories that Tsonic supports.
  *
  * This module provides:
  * - NumericKind type union
- * - Mapping from Tsonic type names to CLR kinds
+ * - Mapping from Tsonic type names to neutral numeric kinds
  * - Range bounds for compile-time literal validation
- * - C# binary operator promotion rules
+ * - Numeric promotion rules for Tsonic's current source semantics
  */
 
 /**
- * Represents all CLR numeric types that Tsonic supports.
- * These map to specific C# primitive types.
+ * Represents all numeric categories that Tsonic supports.
+ * These are source-level semantic facts, not target runtime type names.
  */
 export type NumericKind =
-  | "SByte" // System.SByte, -128 to 127
-  | "Byte" // System.Byte, 0 to 255
-  | "Int16" // System.Int16, short
-  | "UInt16" // System.UInt16, ushort
-  | "Int32" // System.Int32, int
-  | "UInt32" // System.UInt32, uint
-  | "Int64" // System.Int64, long
-  | "UInt64" // System.UInt64, ulong
-  | "Single" // System.Single, float
-  | "Double"; // System.Double, double
+  | "int8"
+  | "uint8"
+  | "int16"
+  | "uint16"
+  | "int32"
+  | "uint32"
+  | "int64"
+  | "uint64"
+  | "float32"
+  | "float64";
 
 export type NumericTypeFact = {
   readonly kind: "numeric";
   readonly numericKind:
     | NumericKind
-    | "Half"
-    | "Decimal"
-    | "IntPtr"
-    | "UIntPtr"
-    | "Int128"
-    | "UInt128";
+    | "float16"
+    | "decimal"
+    | "native-int"
+    | "native-uint"
+    | "int128"
+    | "uint128";
   readonly integral: boolean;
   readonly jsTypeof: "number";
 };
@@ -46,43 +46,42 @@ export type PrimitiveTypeFact =
     };
 
 /**
- * Maps Tsonic type alias names to CLR numeric kinds.
+ * Maps Tsonic type alias names to neutral numeric kinds.
  * Used to recognize numeric intent from TypeScript annotations.
  */
 export const TSONIC_TO_NUMERIC_KIND: ReadonlyMap<string, NumericKind> = new Map(
   [
-    ["sbyte", "SByte"],
-    ["byte", "Byte"],
-    ["short", "Int16"],
-    ["ushort", "UInt16"],
-    ["int", "Int32"],
-    ["uint", "UInt32"],
-    ["long", "Int64"],
-    ["ulong", "UInt64"],
-    ["float", "Single"],
-    ["double", "Double"],
+    ["sbyte", "int8"],
+    ["byte", "uint8"],
+    ["short", "int16"],
+    ["ushort", "uint16"],
+    ["int", "int32"],
+    ["uint", "uint32"],
+    ["long", "int64"],
+    ["ulong", "uint64"],
+    ["float", "float32"],
+    ["double", "float64"],
   ]
 );
 
 /**
- * Maps CLR numeric kinds back to C# type names for emission.
+ * Maps numeric kinds back to their Tsonic source aliases.
  */
-export const NUMERIC_KIND_TO_CSHARP: ReadonlyMap<NumericKind, string> = new Map(
-  [
-    ["SByte", "sbyte"],
-    ["Byte", "byte"],
-    ["Int16", "short"],
-    ["UInt16", "ushort"],
-    ["Int32", "int"],
-    ["UInt32", "uint"],
-    ["Int64", "long"],
-    ["UInt64", "ulong"],
-    ["Single", "float"],
-    ["Double", "double"],
-  ]
-);
+export const NUMERIC_KIND_TO_TYPE_ALIAS: ReadonlyMap<NumericKind, string> =
+  new Map([
+    ["int8", "sbyte"],
+    ["uint8", "byte"],
+    ["int16", "short"],
+    ["uint16", "ushort"],
+    ["int32", "int"],
+    ["uint32", "uint"],
+    ["int64", "long"],
+    ["uint64", "ulong"],
+    ["float32", "float"],
+    ["float64", "double"],
+  ]);
 
-const normalizeClrNumericName = (name: string): string => {
+const normalizeExternalNumericName = (name: string): string => {
   const withoutGlobal = name.startsWith("global::")
     ? name.slice("global::".length)
     : name;
@@ -108,52 +107,39 @@ const numericFactEntries = (
   names.map((name) => [name, numericFact(numericKind, integral)] as const);
 
 const NUMERIC_NAME_FACTS: ReadonlyMap<string, NumericTypeFact> = new Map([
-  ...numericFactEntries(["sbyte", "SByte", "System.SByte"], "SByte", true),
-  ...numericFactEntries(["byte", "Byte", "System.Byte"], "Byte", true),
-  ...numericFactEntries(["short", "Int16", "System.Int16"], "Int16", true),
-  ...numericFactEntries(["ushort", "UInt16", "System.UInt16"], "UInt16", true),
-  ...numericFactEntries(["int", "Int32", "System.Int32"], "Int32", true),
-  ...numericFactEntries(["uint", "UInt32", "System.UInt32"], "UInt32", true),
-  ...numericFactEntries(["long", "Int64", "System.Int64"], "Int64", true),
-  ...numericFactEntries(["ulong", "UInt64", "System.UInt64"], "UInt64", true),
-  ...numericFactEntries(["nint", "IntPtr", "System.IntPtr"], "IntPtr", true),
-  ...numericFactEntries(
-    ["nuint", "UIntPtr", "System.UIntPtr"],
-    "UIntPtr",
-    true
-  ),
-  ...numericFactEntries(["Int128", "System.Int128"], "Int128", true),
-  ...numericFactEntries(["UInt128", "System.UInt128"], "UInt128", true),
-  ...numericFactEntries(["half", "Half", "System.Half"], "Half", false),
-  ...numericFactEntries(["float", "Single", "System.Single"], "Single", false),
-  ...numericFactEntries(
-    ["number", "double", "Double", "System.Double"],
-    "Double",
-    false
-  ),
-  ...numericFactEntries(
-    ["decimal", "Decimal", "System.Decimal"],
-    "Decimal",
-    false
-  ),
+  ...numericFactEntries(["sbyte", "int8"], "int8", true),
+  ...numericFactEntries(["byte", "uint8"], "uint8", true),
+  ...numericFactEntries(["short", "int16"], "int16", true),
+  ...numericFactEntries(["ushort", "uint16"], "uint16", true),
+  ...numericFactEntries(["int", "int32"], "int32", true),
+  ...numericFactEntries(["uint", "uint32"], "uint32", true),
+  ...numericFactEntries(["long", "int64"], "int64", true),
+  ...numericFactEntries(["ulong", "uint64"], "uint64", true),
+  ...numericFactEntries(["nint"], "native-int", true),
+  ...numericFactEntries(["nuint"], "native-uint", true),
+  ...numericFactEntries(["int128"], "int128", true),
+  ...numericFactEntries(["uint128"], "uint128", true),
+  ...numericFactEntries(["half"], "float16", false),
+  ...numericFactEntries(["float", "float32"], "float32", false),
+  ...numericFactEntries(["number", "double", "float64"], "float64", false),
+  ...numericFactEntries(["decimal"], "decimal", false),
 ]);
 
 const BOOLEAN_NAME_FACTS: ReadonlyMap<string, PrimitiveTypeFact> = new Map([
   ["boolean", { kind: "boolean", jsTypeof: "boolean" }],
   ["bool", { kind: "boolean", jsTypeof: "boolean" }],
   ["Boolean", { kind: "boolean", jsTypeof: "boolean" }],
-  ["System.Boolean", { kind: "boolean", jsTypeof: "boolean" }],
 ]);
 
 export const numericTypeFactFromName = (
   name: string
 ): NumericTypeFact | undefined =>
-  NUMERIC_NAME_FACTS.get(normalizeClrNumericName(name));
+  NUMERIC_NAME_FACTS.get(normalizeExternalNumericName(name));
 
 export const booleanTypeFactFromName = (
   name: string
 ): PrimitiveTypeFact | undefined =>
-  BOOLEAN_NAME_FACTS.get(normalizeClrNumericName(name));
+  BOOLEAN_NAME_FACTS.get(normalizeExternalNumericName(name));
 
 export const primitiveTypeFactFromName = (
   name: string
@@ -169,40 +155,40 @@ export const NUMERIC_RANGES: ReadonlyMap<
   NumericKind,
   { readonly min: bigint; readonly max: bigint }
 > = new Map([
-  ["SByte", { min: -128n, max: 127n }],
-  ["Byte", { min: 0n, max: 255n }],
-  ["Int16", { min: -32768n, max: 32767n }],
-  ["UInt16", { min: 0n, max: 65535n }],
-  ["Int32", { min: -2147483648n, max: 2147483647n }],
-  ["UInt32", { min: 0n, max: 4294967295n }],
-  ["Int64", { min: -9223372036854775808n, max: 9223372036854775807n }],
-  ["UInt64", { min: 0n, max: 18446744073709551615n }],
-  ["Single", { min: 0n, max: 0n }], // Float validation handled separately
-  ["Double", { min: 0n, max: 0n }], // Float validation handled separately
+  ["int8", { min: -128n, max: 127n }],
+  ["uint8", { min: 0n, max: 255n }],
+  ["int16", { min: -32768n, max: 32767n }],
+  ["uint16", { min: 0n, max: 65535n }],
+  ["int32", { min: -2147483648n, max: 2147483647n }],
+  ["uint32", { min: 0n, max: 4294967295n }],
+  ["int64", { min: -9223372036854775808n, max: 9223372036854775807n }],
+  ["uint64", { min: 0n, max: 18446744073709551615n }],
+  ["float32", { min: 0n, max: 0n }], // Float validation handled separately
+  ["float64", { min: 0n, max: 0n }], // Float validation handled separately
 ]);
 
 /**
  * Check if a numeric kind is an integer type (not floating point).
  */
 export const isIntegerKind = (kind: NumericKind): boolean =>
-  kind !== "Single" && kind !== "Double";
+  kind !== "float32" && kind !== "float64";
 
 /**
  * Check if a numeric kind is a signed type.
  */
 export const isSignedKind = (kind: NumericKind): boolean =>
-  kind === "SByte" ||
-  kind === "Int16" ||
-  kind === "Int32" ||
-  kind === "Int64" ||
-  kind === "Single" ||
-  kind === "Double";
+  kind === "int8" ||
+  kind === "int16" ||
+  kind === "int32" ||
+  kind === "int64" ||
+  kind === "float32" ||
+  kind === "float64";
 
 /**
- * C# binary operator result type promotion.
+ * Numeric binary operator result type promotion.
  * Returns the result type when two numeric kinds are combined with +, -, *, /, %.
  *
- * Rules (per C# spec):
+ * Rules:
  * 1. If either is double, result is double
  * 2. If either is float, result is float
  * 3. If either is ulong, result is ulong
@@ -215,28 +201,28 @@ export const getBinaryResultKind = (
   left: NumericKind,
   right: NumericKind
 ): NumericKind => {
-  // Rule 1: double dominates
-  if (left === "Double" || right === "Double") return "Double";
+  // Rule 1: float64 dominates
+  if (left === "float64" || right === "float64") return "float64";
 
-  // Rule 2: float dominates (if no double)
-  if (left === "Single" || right === "Single") return "Single";
+  // Rule 2: float32 dominates (if no float64)
+  if (left === "float32" || right === "float32") return "float32";
 
-  // Rule 3: ulong dominates (if no floating)
-  if (left === "UInt64" || right === "UInt64") return "UInt64";
+  // Rule 3: uint64 dominates (if no floating)
+  if (left === "uint64" || right === "uint64") return "uint64";
 
-  // Rule 4: long dominates (if no ulong)
-  if (left === "Int64" || right === "Int64") return "Int64";
+  // Rule 4: int64 dominates (if no uint64)
+  if (left === "int64" || right === "int64") return "int64";
 
-  // Rule 5: uint + signed smaller type = long
-  const signedSmallerTypes = ["SByte", "Int16", "Int32"];
-  if (left === "UInt32" && signedSmallerTypes.includes(right)) return "Int64";
-  if (right === "UInt32" && signedSmallerTypes.includes(left)) return "Int64";
+  // Rule 5: uint32 + signed smaller type = int64
+  const signedSmallerTypes = ["int8", "int16", "int32"];
+  if (left === "uint32" && signedSmallerTypes.includes(right)) return "int64";
+  if (right === "uint32" && signedSmallerTypes.includes(left)) return "int64";
 
-  // Rule 6: uint dominates (if no above cases)
-  if (left === "UInt32" || right === "UInt32") return "UInt32";
+  // Rule 6: uint32 dominates (if no above cases)
+  if (left === "uint32" || right === "uint32") return "uint32";
 
-  // Rule 7: All smaller integer types promote to int
-  return "Int32";
+  // Rule 7: All smaller integer types promote to int32
+  return "int32";
 };
 
 /**
@@ -251,7 +237,7 @@ export const literalFitsInKind = (
   kind: NumericKind
 ): boolean => {
   // Floating point kinds - allow any number for now
-  if (kind === "Single" || kind === "Double") {
+  if (kind === "float32" || kind === "float64") {
     return true;
   }
 
@@ -282,31 +268,31 @@ export const isWideningConversion = (
   // Same type - always safe
   if (source === target) return true;
 
-  // Widening paths (simplified - C# has more complex rules)
+  // Widening paths for Tsonic numeric semantics.
   const wideningPaths: ReadonlyMap<NumericKind, readonly NumericKind[]> =
     new Map([
-      ["SByte", ["Int16", "Int32", "Int64", "Single", "Double"]],
+      ["int8", ["int16", "int32", "int64", "float32", "float64"]],
       [
-        "Byte",
+        "uint8",
         [
-          "Int16",
-          "UInt16",
-          "Int32",
-          "UInt32",
-          "Int64",
-          "UInt64",
-          "Single",
-          "Double",
+          "int16",
+          "uint16",
+          "int32",
+          "uint32",
+          "int64",
+          "uint64",
+          "float32",
+          "float64",
         ],
       ],
-      ["Int16", ["Int32", "Int64", "Single", "Double"]],
-      ["UInt16", ["Int32", "UInt32", "Int64", "UInt64", "Single", "Double"]],
-      ["Int32", ["Int64", "Single", "Double"]],
-      ["UInt32", ["Int64", "UInt64", "Single", "Double"]],
-      ["Int64", ["Single", "Double"]],
-      ["UInt64", ["Single", "Double"]],
-      ["Single", ["Double"]],
-      ["Double", []],
+      ["int16", ["int32", "int64", "float32", "float64"]],
+      ["uint16", ["int32", "uint32", "int64", "uint64", "float32", "float64"]],
+      ["int32", ["int64", "float32", "float64"]],
+      ["uint32", ["int64", "uint64", "float32", "float64"]],
+      ["int64", ["float32", "float64"]],
+      ["uint64", ["float32", "float64"]],
+      ["float32", ["float64"]],
+      ["float64", []],
     ]);
 
   const targets = wideningPaths.get(source);

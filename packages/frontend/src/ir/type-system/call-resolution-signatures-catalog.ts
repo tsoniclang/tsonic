@@ -54,7 +54,7 @@ const resolveDeclaringTypeCandidates = (
   state: TypeSystemState,
   declaringTypeTsName: string,
   arityHint: number | undefined,
-  declaringClrType: string | undefined
+  declaringTargetType: string | undefined
 ): readonly TypeId[] => {
   const candidates: TypeId[] = [];
   const pushCandidate = (candidate: TypeId | undefined): void => {
@@ -70,12 +70,12 @@ const resolveDeclaringTypeCandidates = (
   };
 
   pushCandidate(
-    declaringClrType
-      ? resolveTypeIdByName(state, declaringClrType, arityHint)
+    declaringTargetType
+      ? resolveTypeIdByName(state, declaringTargetType, arityHint)
       : undefined
   );
   pushCandidate(
-    declaringClrType ? resolveTypeIdByName(state, declaringClrType) : undefined
+    declaringTargetType ? resolveTypeIdByName(state, declaringTargetType) : undefined
   );
 
   for (const candidateName of enumerateEquivalentDeclaringTypeNames(
@@ -137,7 +137,7 @@ export const computeReceiverSubstitution = (
   declaringTypeTsName: string,
   _declaringMemberName: string,
   declaringTypeParameterNames?: readonly string[],
-  declaringClrType?: string
+  declaringTargetType?: string
 ): TypeSubstitutionMap | undefined => {
   const normalized = normalizeToNominal(state, receiverType);
   if (!normalized) {
@@ -152,7 +152,7 @@ export const computeReceiverSubstitution = (
     state,
     declaringTypeTsName,
     arityHint,
-    declaringClrType
+    declaringTargetType
   );
   const resolvedDeclaringTypeParameterNames =
     resolveDeclaringTypeParameterNames(

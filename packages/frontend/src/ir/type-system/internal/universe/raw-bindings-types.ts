@@ -1,31 +1,37 @@
 /**
- * Type Universe — Raw Bindings JSON Types & Factory Functions
+ * Type Universe — Raw External Binding JSON Types & Factory Functions
  *
  * Raw JSON type shapes matching tsbindgen <Namespace>/bindings.json,
- * factory functions for TypeId creation, and primitive ↔ nominal mappings.
+ * factory functions for TypeId creation.
  */
 
-import type { IrParameter, IrType } from "../../../types/index.js";
-import type { TypeId } from "./catalog-types.js";
+import type {
+  IrAsyncWrapperMetadata,
+  IrIterableShapeMetadata,
+  IrParameter,
+  IrType,
+} from "../../../types/index.js";
+import type { SourcePrimitiveName, TypeId } from "./catalog-types.js";
+import { typeSymbolIdFromStableId } from "../../../../symbols/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// RAW JSON TYPES — Shapes matching tsbindgen <Namespace>/bindings.json
+// RAW JSON TYPES — Shapes matching external <Namespace>/bindings.json
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Raw type entry from bindings.json.
  *
  * This is a superset of the historical metadata.json + bindings.json data:
- * - Type shape/kind/accessibility for the CLR type catalog
+ * - Type shape/kind/accessibility for the external type catalog
  * - Member signature metadata for semantic typing
- * - Binding target metadata (assembly/type/member) for codegen
+ * - Binding target metadata (owner/type/member) for codegen
  *
  * IMPORTANT: No `tsEmitName` fields exist. TS names are derived deterministically
- * from CLR reflection names (generics + nested types) and member CLR names.
+ * from provider target names (generics + nested types) and member target names.
  */
 export type RawBindingsType = {
   readonly stableId: string;
-  readonly clrName: string;
+  readonly targetName: string;
   readonly kind: string;
   readonly accessibility: string;
   readonly isAbstract: boolean;
@@ -40,19 +46,22 @@ export type RawBindingsType = {
   readonly constructors: readonly RawBindingsConstructor[];
   readonly baseType?: RawBindingsHeritageType;
   readonly interfaces?: readonly RawBindingsHeritageType[];
-  readonly assemblyName?: string;
+  readonly ownerIdentity?: string;
+  readonly sourcePrimitive?: SourcePrimitiveName;
+  readonly asyncWrapper?: IrAsyncWrapperMetadata;
+  readonly iterableShape?: IrIterableShapeMetadata;
   readonly metadataToken?: number;
 };
 
 export type RawBindingsHeritageType = {
   readonly stableId: string;
-  readonly clrName: string;
+  readonly targetName: string;
   readonly typeArguments?: readonly string[];
 };
 
 export type RawBindingsMethod = {
   readonly stableId: string;
-  readonly clrName: string;
+  readonly targetName: string;
   readonly normalizedSignature: string;
   readonly semanticSignature?: {
     readonly typeParameters?: readonly string[];
@@ -70,8 +79,8 @@ export type RawBindingsMethod = {
   readonly parameterCount: number;
   readonly isExtensionMethod: boolean;
   readonly sourceInterface?: string;
-  readonly declaringClrType?: string;
-  readonly declaringAssemblyName?: string;
+  readonly ownerQualifiedName?: string;
+  readonly ownerIdentity?: string;
   readonly parameterModifiers?: readonly {
     readonly index: number;
     readonly modifier: "ref" | "out" | "in";
@@ -81,7 +90,7 @@ export type RawBindingsMethod = {
 
 export type RawBindingsProperty = {
   readonly stableId: string;
-  readonly clrName: string;
+  readonly targetName: string;
   readonly normalizedSignature: string;
   readonly semanticType?: IrType;
   readonly semanticOptional?: boolean;
@@ -94,22 +103,22 @@ export type RawBindingsProperty = {
   readonly isIndexer: boolean;
   readonly hasGetter: boolean;
   readonly hasSetter: boolean;
-  readonly declaringClrType?: string;
-  readonly declaringAssemblyName?: string;
+  readonly ownerQualifiedName?: string;
+  readonly ownerIdentity?: string;
   readonly metadataToken?: number;
 };
 
 export type RawBindingsField = {
   readonly stableId: string;
-  readonly clrName: string;
+  readonly targetName: string;
   readonly normalizedSignature: string;
   readonly semanticType?: IrType;
   readonly semanticOptional?: boolean;
   readonly isStatic: boolean;
   readonly isReadOnly: boolean;
   readonly isLiteral: boolean;
-  readonly declaringClrType?: string;
-  readonly declaringAssemblyName?: string;
+  readonly ownerQualifiedName?: string;
+  readonly ownerIdentity?: string;
   readonly metadataToken?: number;
 };
 
@@ -121,20 +130,20 @@ export type RawBindingsConstructor = {
 
 export type RawTsbindgenBindingsFile = {
   readonly namespace: string;
-  readonly contributingAssemblies?: readonly string[];
-  readonly dotnetVersion?: string;
+  readonly contributingOwners?: readonly string[];
+  readonly targetRuntimeVersion?: string;
   readonly types: readonly RawBindingsType[];
 };
 
 export type RawBindingsFileV2 = {
   readonly namespace: string;
-  readonly contributingAssemblies?: readonly string[];
-  readonly dotnetVersion?: string;
+  readonly contributingOwners?: readonly string[];
+  readonly targetRuntimeVersion?: string;
   readonly semanticSurface: {
     readonly types: readonly unknown[];
     readonly exports?: Readonly<Record<string, unknown>>;
   };
-  readonly dotnet: {
+  readonly targetSurface: {
     readonly types: readonly RawBindingsType[];
     readonly exports?: Readonly<Record<string, unknown>>;
   };
@@ -156,84 +165,65 @@ export type RawBindingsPayload = {
  */
 export const makeTypeId = (
   stableId: string,
-  clrName: string,
-  assemblyName: string,
-  tsName: string
+  providerName: string,
+  ownerIdentity: string,
+  sourceName: string,
+  origin: "source" | "external" = "external"
 ): TypeId => ({
   stableId,
-  clrName,
-  assemblyName,
-  tsName,
+  providerName,
+  symbolId: typeSymbolIdFromStableId(stableId),
+  sourceName,
+  ownerIdentity,
+  origin,
 });
 
 /**
- * Parse a stableId into assemblyName and clrName.
+ * Transitional provider lookup accessor for code that still has to populate
+ * `IrReferenceType.providerQualifiedName` while symbol-table migration finishes.
+ *
+ * Keep direct reads of TypeId provider-local names inside this universe module.
+ */
+export const typeIdProviderLookupName = (typeId: TypeId): string =>
+  typeId.providerName;
+
+/**
+ * Parse a stableId into ownerIdentity and targetName.
  */
 export const parseStableId = (
   stableId: string
-): { assemblyName: string; clrName: string } | undefined => {
+): { ownerIdentity: string; targetName: string } | undefined => {
   const colonIndex = stableId.indexOf(":");
   if (colonIndex === -1) return undefined;
   return {
-    assemblyName: stableId.slice(0, colonIndex),
-    clrName: stableId.slice(colonIndex + 1),
+    ownerIdentity: stableId.slice(0, colonIndex),
+    targetName: stableId.slice(colonIndex + 1),
   };
 };
 
 /**
- * Resolve the canonical stableId for a raw CLR type entry.
+ * Resolve the canonical stableId for a raw external type entry.
  *
  * tsbindgen payloads should provide `stableId` directly. Some synthetic test
- * fixtures still only provide the canonical components (`assemblyName`,
- * `clrName`). When both components are present, the canonical stableId is
+ * fixtures still only provide the canonical components (`ownerIdentity`,
+ * `targetName`). When both components are present, the canonical stableId is
  * deterministic and identical to what tsbindgen would have emitted.
  */
 export const resolveRawTypeStableId = (
-  rawType: Pick<RawBindingsType, "stableId" | "assemblyName" | "clrName">
+  rawType: Pick<RawBindingsType, "stableId" | "ownerIdentity" | "targetName">
 ): string | undefined => {
   if (typeof rawType.stableId === "string" && rawType.stableId.length > 0) {
     return rawType.stableId;
   }
 
   if (
-    typeof rawType.assemblyName === "string" &&
-    rawType.assemblyName.length > 0 &&
-    typeof rawType.clrName === "string" &&
-    rawType.clrName.length > 0
+    typeof rawType.ownerIdentity === "string" &&
+    rawType.ownerIdentity.length > 0 &&
+    typeof rawType.targetName === "string" &&
+    rawType.targetName.length > 0
   ) {
-    return `${rawType.assemblyName}:${rawType.clrName}`;
+    return `${rawType.ownerIdentity}:${rawType.targetName}`;
   }
 
   return undefined;
 };
-
-// ═══════════════════════════════════════════════════════════════════════════
-// PRIMITIVE ↔ NOMINAL MAPPINGS
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Mapping from TS primitive type names to their CLR stableIds.
- *
- * This enables normalizing `primitiveType("string")` to the canonical
- * `System.String` nominal type for member lookups.
- */
-export const PRIMITIVE_TO_STABLE_ID: ReadonlyMap<string, string> = new Map([
-  ["string", "System.Private.CoreLib:System.String"],
-  ["number", "System.Private.CoreLib:System.Double"],
-  ["int", "System.Private.CoreLib:System.Int32"],
-  ["boolean", "System.Private.CoreLib:System.Boolean"],
-  ["char", "System.Private.CoreLib:System.Char"],
-]);
-
-/**
- * Mapping from CLR stableIds back to TS primitive type names.
- *
- * This enables the emitter to use primitive syntax when appropriate.
- */
-export const STABLE_ID_TO_PRIMITIVE: ReadonlyMap<string, string> = new Map([
-  ["System.Private.CoreLib:System.String", "string"],
-  ["System.Private.CoreLib:System.Double", "number"],
-  ["System.Private.CoreLib:System.Int32", "int"],
-  ["System.Private.CoreLib:System.Boolean", "boolean"],
-  ["System.Private.CoreLib:System.Char", "char"],
-]);

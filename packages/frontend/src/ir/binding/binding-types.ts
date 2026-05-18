@@ -129,14 +129,14 @@ export type Binding = {
   /**
    * Get the absolute source file path where a resolved member is declared.
    *
-   * Used to disambiguate tsbindgen bindings when multiple CLR types share the same
+   * Used to disambiguate tsbindgen bindings when multiple native target types share the same
    * TS alias (e.g., `Server.listen` exists on both `nodejs.Server` and `nodejs.Http.Server`).
    */
   getSourceFilePathOfMember(member: MemberId): string | undefined;
 
   /**
    * Get the fully-qualified name for a declaration.
-   * Used for override detection and .NET type identification.
+   * Used for override detection and external type identification.
    */
   getFullyQualifiedName(decl: DeclId): string | undefined;
 
@@ -169,7 +169,7 @@ export type Binding = {
    * overload signature (e.g., `__TsonicExtMethods_Microsoft_EntityFrameworkCore`).
    *
    * This is critical for airplane-grade extension method binding when the same method name
-   * exists in multiple extension namespaces (e.g., `ToArrayAsync` in BCL async LINQ vs EF Core).
+   * exists in multiple external extension namespaces.
    */
   getDeclaringTypeNameOfSignature(sig: SignatureId): string | undefined;
 
@@ -250,7 +250,7 @@ export type SignatureEntry = {
   readonly typeParameters?: readonly TypeParameterNode[];
   /**
    * Declaring type simple TS name (e.g., "Box" not "Test.Box").
-   * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
+   * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get target name.
    */
   readonly declaringTypeTsName?: string;
   readonly declaringTypeParameterNames?: readonly string[];

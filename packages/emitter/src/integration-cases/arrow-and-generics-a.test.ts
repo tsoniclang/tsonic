@@ -151,7 +151,7 @@ describe("End-to-End Integration", () => {
                   kind: "global",
                   assembly: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
-                  csharpName: "Timers.setInterval",
+                  providerMemberName: "Timers.setInterval",
                 },
               },
             },
@@ -165,16 +165,16 @@ describe("End-to-End Integration", () => {
                 namespace: "Acme.ExternalRuntime",
                 types: [
                   {
-                    clrName: "Acme.ExternalRuntime.Timers",
-                    assemblyName: "Acme.ExternalRuntime",
+                    targetName: "Acme.ExternalRuntime.Timers",
+                    ownerIdentity: "Acme.ExternalRuntime",
                     methods: [
                       {
-                        clrName: "setInterval",
+                        targetName: "setInterval",
                         normalizedSignature:
                           "setInterval|(System.Action,System.Double):System.Double|static=true",
                         parameterCount: 2,
-                        declaringClrType: "Acme.ExternalRuntime.Timers",
-                        declaringAssemblyName: "Acme.ExternalRuntime",
+                        ownerQualifiedName: "Acme.ExternalRuntime.Timers",
+                        ownerIdentity: "Acme.ExternalRuntime",
                         semanticSignature: {
                           parameters: [
                             {
@@ -186,7 +186,7 @@ describe("End-to-End Integration", () => {
                               type: {
                                 kind: "referenceType",
                                 name: "System.Action",
-                                resolvedClrType: "System.Action",
+                                providerQualifiedName: "System.Action",
                               },
                               isOptional: false,
                               isRest: false,
@@ -214,12 +214,12 @@ describe("End-to-End Integration", () => {
                         },
                       },
                       {
-                        clrName: "setInterval",
+                        targetName: "setInterval",
                         normalizedSignature:
                           "setInterval|(System.Action_1,System.Double,System.Object):System.Double|static=true",
                         parameterCount: 3,
-                        declaringClrType: "Acme.ExternalRuntime.Timers",
-                        declaringAssemblyName: "Acme.ExternalRuntime",
+                        ownerQualifiedName: "Acme.ExternalRuntime.Timers",
+                        ownerIdentity: "Acme.ExternalRuntime",
                         semanticSignature: {
                           typeParameters: ["T0"],
                           parameters: [
@@ -232,7 +232,7 @@ describe("End-to-End Integration", () => {
                               type: {
                                 kind: "referenceType",
                                 name: "Action_1",
-                                resolvedClrType: "System.Action`1",
+                                providerQualifiedName: "System.Action`1",
                                 typeArguments: [
                                   {
                                     kind: "typeParameterType",

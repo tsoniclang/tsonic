@@ -27,6 +27,18 @@ const readPackageName = (pkgJsonPath: string): string | undefined => {
   }
 };
 
+const readPackageVersion = (pkgJsonPath: string): string | undefined => {
+  if (!existsSync(pkgJsonPath)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as {
+      readonly version?: unknown;
+    };
+    return typeof parsed.version === "string" ? parsed.version : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const isSourcePackageRoot = (packageRoot: string): boolean => {
   const manifestPath = join(packageRoot, "tsonic.package.json");
   if (!existsSync(manifestPath)) return false;
@@ -139,12 +151,17 @@ export const resolveTsbindgenDllPath = (
     return { ok: true, value: absoluteExplicitDllPath };
   }
 
-  const tryResolveSiblingDll = (): string | null => {
+  type TsbindgenCandidate = {
+    readonly dllPath: string;
+    readonly packageRoot: string;
+    readonly version: string | undefined;
+  };
+
+  const tryResolveSiblingDll = (): TsbindgenCandidate | null => {
     const siblingRoot = tryResolveSiblingTsonicPackageRoot("@tsonic/tsbindgen");
     if (!siblingRoot) return null;
 
     const siblingDllCandidates = [
-      join(siblingRoot, "lib", "tsbindgen.dll"),
       join(
         siblingRoot,
         "artifacts",
@@ -163,20 +180,72 @@ export const resolveTsbindgenDllPath = (
         "net10.0",
         "tsbindgen.dll"
       ),
+      join(siblingRoot, "lib", "tsbindgen.dll"),
     ];
     const siblingDll = siblingDllCandidates.find((candidate) =>
       existsSync(candidate)
     );
-    return siblingDll ?? null;
+    return siblingDll
+      ? {
+          dllPath: siblingDll,
+          packageRoot: siblingRoot,
+          version: readPackageVersion(join(siblingRoot, "package.json")),
+        }
+      : null;
   };
 
-  const tryResolve = (req: ReturnType<typeof createRequire>): string | null => {
+  const cliRequiredTsbindgenVersion = (() => {
+    const cliPackageRoot = findNearestPackageRoot(fileURLToPath(import.meta.url));
+    if (!cliPackageRoot) return undefined;
+    const packageJsonPath = join(cliPackageRoot, "package.json");
+    if (!existsSync(packageJsonPath)) return undefined;
+
+    try {
+      const parsed = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+        readonly dependencies?: Record<string, unknown>;
+      };
+      const dependency = parsed.dependencies?.["@tsonic/tsbindgen"];
+      return typeof dependency === "string" &&
+        /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(dependency)
+        ? dependency
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const skippedIncompatible: string[] = [];
+  const acceptCandidate = (
+    candidate: TsbindgenCandidate | null
+  ): string | null => {
+    if (!candidate) return null;
+    if (
+      cliRequiredTsbindgenVersion !== undefined &&
+      candidate.version !== cliRequiredTsbindgenVersion
+    ) {
+      skippedIncompatible.push(
+        `${candidate.packageRoot} (found ${candidate.version ?? "unknown"}, required ${cliRequiredTsbindgenVersion})`
+      );
+      return null;
+    }
+    return candidate.dllPath;
+  };
+
+  const tryResolve = (
+    req: ReturnType<typeof createRequire>
+  ): TsbindgenCandidate | null => {
     try {
       const entryPath = req.resolve("@tsonic/tsbindgen");
       const pkgRoot = findNearestPackageRoot(entryPath);
       if (!pkgRoot) return null;
       const dllPath = join(pkgRoot, "lib", "tsbindgen.dll");
-      return existsSync(dllPath) ? dllPath : null;
+      return existsSync(dllPath)
+        ? {
+            dllPath,
+            packageRoot: pkgRoot,
+            version: readPackageVersion(join(pkgRoot, "package.json")),
+          }
+        : null;
     } catch {
       return null;
     }
@@ -194,22 +263,25 @@ export const resolveTsbindgenDllPath = (
       return null;
     }
 
-    return isPathWithin(resolveMonorepoRoot(), resolved) ? resolved : null;
+    return isPathWithin(resolveMonorepoRoot(), resolved.dllPath)
+      ? resolved
+      : null;
   })();
 
   const direct =
-    (projectReq ? tryResolve(projectReq) : null) ??
-    selfBundled ??
-    tryResolve(selfReq);
+    (projectReq ? acceptCandidate(tryResolve(projectReq)) : null) ??
+    acceptCandidate(tryResolveSiblingDll()) ??
+    acceptCandidate(selfBundled) ??
+    acceptCandidate(tryResolve(selfReq));
   if (direct) return { ok: true, value: direct };
-
-  const siblingDll = tryResolveSiblingDll();
-  if (siblingDll) return { ok: true, value: siblingDll };
 
   return {
     ok: false,
     error:
-      "tsbindgen not found. Install '@tsonic/tsbindgen' (recommended) or ensure it is available in node_modules.",
+      "tsbindgen not found. Install '@tsonic/tsbindgen' (recommended) or ensure it is available in node_modules." +
+      (skippedIncompatible.length > 0
+        ? `\nSkipped incompatible @tsonic/tsbindgen installs:\n${skippedIncompatible.join("\n")}`
+        : ""),
   };
 };
 

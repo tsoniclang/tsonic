@@ -6,9 +6,9 @@ import * as ts from "typescript";
 import { validateUnsupportedFeatures } from "../features.js";
 import { createDiagnosticsCollector } from "../../types/diagnostic.js";
 import type { TsonicProgram } from "../../program.js";
-import { DotnetMetadataRegistry } from "../../dotnet-metadata.js";
+import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
-import { createClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
+import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../../ir/binding/index.js";
 
 export type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
@@ -16,7 +16,8 @@ export type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
 export const createTestProgram = (
   source: string,
   fileName = "/test/index.ts",
-  extraFiles: Readonly<Record<string, string>> = {}
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
 ): TsonicProgram & { readonly sourceFile: ts.SourceFile } => {
   const allFiles = new Map<string, string>([
     [fileName, source],
@@ -92,14 +93,15 @@ export const createTestProgram = (
       projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
+      ...options,
     },
     sourceFiles: Array.from(sourceFiles.keys())
       .map((name) => program.getSourceFile(name))
       .filter((file): file is ts.SourceFile => file !== undefined),
     declarationSourceFiles: [],
-    metadata: new DotnetMetadataRegistry(),
+    metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
-    clrResolver: createClrBindingsResolver("/test"),
+    externalResolver: createExternalBindingsResolver("/test"),
     binding: createBinding(checker),
     sourceFile: entrySourceFile,
   };
@@ -107,12 +109,14 @@ export const createTestProgram = (
 
 export const runValidation = (
   sourceText: string,
-  extraFiles: Readonly<Record<string, string>> = {}
+  extraFiles: Readonly<Record<string, string>> = {},
+  options: Partial<TsonicProgram["options"]> = {}
 ): ValidationResult => {
   const testProgram = createTestProgram(
     sourceText,
     "/test/index.ts",
-    extraFiles
+    extraFiles,
+    options
   );
   return validateUnsupportedFeatures(
     testProgram.sourceFile,
@@ -172,9 +176,9 @@ export const runValidationInTempProject = (
           .map((fileName) => program.getSourceFile(fileName))
           .filter((file): file is ts.SourceFile => file !== undefined),
         declarationSourceFiles: [],
-        metadata: new DotnetMetadataRegistry(),
+        metadata: new ExternalMetadataRegistry(),
         bindings: new BindingRegistry(),
-        clrResolver: createClrBindingsResolver(tempDir),
+        externalResolver: createExternalBindingsResolver(tempDir),
         binding: createBinding(checker),
       },
       createDiagnosticsCollector()

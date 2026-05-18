@@ -30,7 +30,7 @@ import { getReadableMemberTypeForNarrowing } from "../narrowing-property-helpers
 import {
   NumericKind,
   getBinaryResultKind,
-  NUMERIC_KIND_TO_CSHARP,
+  NUMERIC_KIND_TO_TYPE_ALIAS,
   TSONIC_TO_NUMERIC_KIND,
 } from "../../types/numeric-kind.js";
 import type { ProgramContext } from "../../program-context.js";
@@ -41,28 +41,12 @@ const getNumericKindFromIrType = (
   if (!type) return undefined;
 
   if (type.kind === "primitiveType") {
-    if (type.name === "int") return "Int32";
-    if (type.name === "number") return "Double";
+    if (type.name === "int") return "int32";
+    if (type.name === "number") return "float64";
     return undefined;
   }
 
   if (type.kind === "referenceType") {
-    // Numeric proof pass can annotate using CLR kind names (e.g., "Int64").
-    if (
-      type.name === "SByte" ||
-      type.name === "Byte" ||
-      type.name === "Int16" ||
-      type.name === "UInt16" ||
-      type.name === "Int32" ||
-      type.name === "UInt32" ||
-      type.name === "Int64" ||
-      type.name === "UInt64" ||
-      type.name === "Single" ||
-      type.name === "Double"
-    ) {
-      return type.name;
-    }
-
     return TSONIC_TO_NUMERIC_KIND.get(type.name);
   }
 
@@ -70,12 +54,10 @@ const getNumericKindFromIrType = (
 };
 
 const numericKindToIrType = (kind: NumericKind): IrType => {
-  if (kind === "Int32") return { kind: "primitiveType", name: "int" };
-  if (kind === "Double") return { kind: "primitiveType", name: "number" };
+  if (kind === "int32") return { kind: "primitiveType", name: "int" };
+  if (kind === "float64") return { kind: "primitiveType", name: "number" };
 
-  // Use the canonical C# keyword spelling as the IR referenceType name
-  // (e.g., Int64 -> "long", UInt16 -> "ushort").
-  const alias = NUMERIC_KIND_TO_CSHARP.get(kind) ?? "double";
+  const alias = NUMERIC_KIND_TO_TYPE_ALIAS.get(kind) ?? "double";
   return { kind: "referenceType", name: alias };
 };
 
@@ -138,11 +120,7 @@ const hasStringKeyCarrier = (
   }
 
   const indexer = ctx.typeSystem.getIndexerInfo(nonNullishType);
-  return (
-    indexer?.keyClrType === "string" ||
-    indexer?.keyClrType === "System.String" ||
-    indexer?.keyClrType === "global::System.String"
-  );
+  return indexer?.keyTypeName === "string" || indexer?.keyTypeName === "String";
 };
 
 const hasKnownProperty = (
@@ -287,7 +265,7 @@ const deriveBinaryResultType = (
     const nonNullLeft = stripNullishFromUnion(leftType);
     if (!nonNullLeft) return rightType;
 
-    // Numeric special-case (airplane-grade, CLR-aligned):
+    // Numeric special-case (airplane-grade, native target-aligned):
     // Even though TS would typically model `A ?? B` as a union, in our numeric model
     // we allow implicit widening (e.g., `double? ?? int` → double). Preserve that
     // deterministically for numeric kinds.

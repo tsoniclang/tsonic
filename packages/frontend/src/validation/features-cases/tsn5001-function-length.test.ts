@@ -1,6 +1,16 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import type {
+  BackendCapability,
+  BackendCapabilityManifest,
+  FeatureKey,
+} from "../../capabilities/backend-capabilities.js";
 import { runValidation, hasDiagnostic } from "./test-helpers.js";
+
+const manifestWith = (
+  name: FeatureKey,
+  status: BackendCapability["status"]
+): BackendCapabilityManifest => new Map([[name, { name, status }]]);
 
 describe("validateUnsupportedFeatures", () => {
   describe("TSN5001", () => {
@@ -27,8 +37,30 @@ describe("validateUnsupportedFeatures", () => {
       `);
 
       expect(
-        hasDiagnostic(result, "TSN5001", "function.length is not supported")
+        hasDiagnostic(result, "TSN5001", "function.length requires")
       ).to.equal(true);
+    });
+
+    it("allows dynamic function.length when the active backend declares support", () => {
+      const result = runValidation(
+        `
+          type Handler = (value: string) => void;
+          declare function getHandler(): Handler;
+
+          export function arity(): number {
+            return getHandler().length;
+          }
+        `,
+        {},
+        {
+          backendCapabilities: manifestWith(
+            "dynamic-function-arity-introspection",
+            "supported"
+          ),
+        }
+      );
+
+      expect(hasDiagnostic(result, "TSN5001")).to.equal(false);
     });
 
     it("rejects JavaScript string and array length on the default surface", () => {

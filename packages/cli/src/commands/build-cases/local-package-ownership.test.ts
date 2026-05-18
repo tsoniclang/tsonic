@@ -44,7 +44,7 @@ const writeWorkspace = (workspaceRoot: string): void => {
   writeJson(join(workspaceRoot, "tsonic.workspace.json"), {
     $schema: "https://tsonic.org/schema/workspace/v1.json",
     dotnetVersion: "net10.0",
-    surface: "clr",
+    surface: "core",
   });
   mkdirSync(join(workspaceRoot, "node_modules"), { recursive: true });
 
@@ -80,7 +80,7 @@ const writeLibraryProject = (workspaceRoot: string): void => {
   writeJson(join(projectRoot, "tsonic.package.json"), {
     schemaVersion: 1,
     kind: "tsonic-source-package",
-    surfaces: ["clr"],
+    surfaces: ["core"],
     source: {
       namespace: "Acme.Lib",
       exports: {
@@ -148,7 +148,7 @@ const writeSourcePackageProject = (options: {
   writeJson(join(projectRoot, "tsonic.package.json"), {
     schemaVersion: 1,
     kind: "tsonic-source-package",
-    surfaces: ["clr"],
+    surfaces: ["core"],
     source: {
       namespace: options.namespace,
       exports: {
@@ -221,7 +221,7 @@ const writeReexportSourcePackageProject = (options: {
   writeJson(join(projectRoot, "tsonic.package.json"), {
     schemaVersion: 1,
     kind: "tsonic-source-package",
-    surfaces: ["clr"],
+    surfaces: ["core"],
     source: {
       namespace: options.namespace,
       exports: {
@@ -326,7 +326,7 @@ const writeAppProject = (
   const workspaceConfig = {
     $schema: "https://tsonic.org/schema/workspace/v1.json",
     dotnetVersion: "net10.0",
-    surface: "clr",
+    surface: "core",
   };
 
   return {
@@ -540,7 +540,7 @@ describe("build command (local package ownership)", function () {
       const workspaceConfig = {
         $schema: "https://tsonic.org/schema/workspace/v1.json",
         dotnetVersion: "net10.0",
-        surface: "clr",
+        surface: "core",
       };
       const topProjectRoot = join(workspaceRoot, "packages", "top");
       const result = buildCommand(
@@ -707,7 +707,7 @@ describe("build command (local package ownership)", function () {
       const workspaceConfig = {
         $schema: "https://tsonic.org/schema/workspace/v1.json",
         dotnetVersion: "net10.0",
-        surface: "clr",
+        surface: "core",
       };
       const topProjectRoot = join(workspaceRoot, "packages", "top");
       const result = buildCommand(
@@ -858,7 +858,7 @@ describe("build command (local package ownership)", function () {
           {
             $schema: "https://tsonic.org/schema/workspace/v1.json",
             dotnetVersion: "net10.0",
-            surface: "clr",
+            surface: "core",
           },
           {
             rootNamespace: "Acme.App",

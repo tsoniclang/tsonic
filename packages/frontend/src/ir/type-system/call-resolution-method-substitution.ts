@@ -48,6 +48,72 @@ export const resolveMethodTypeSubstitution = (
     next: IrType
   ): IrType | undefined =>
     choosePreferredEquivalentInferenceType(typeRelations, existing, next);
+  const selectExpectedReturnSubstitution = ():
+    | Map<string, IrType>
+    | undefined => {
+    if (!query.expectedReturnType) {
+      return undefined;
+    }
+
+    const expectedCandidates = collectExpectedReturnCandidates(
+      state,
+      query.expectedReturnType
+    );
+    let matched: Map<string, IrType> | undefined;
+
+    for (const candidate of expectedCandidates) {
+      const inferred = inferMethodTypeArgsFromArguments(
+        state,
+        methodTypeParams,
+        [workingReturn],
+        [candidate]
+      );
+      if (!inferred || inferred.size === 0) continue;
+
+      let conflictsWithExisting = false;
+      for (const [name, inferredType] of inferred) {
+        const existing = callSubst.get(name);
+        if (existing && !mergeSubstitutionType(existing, inferredType)) {
+          conflictsWithExisting = true;
+          break;
+        }
+      }
+      if (conflictsWithExisting) continue;
+
+      if (matched && !mapEntriesEqual(matched, inferred)) {
+        matched = undefined;
+        break;
+      }
+      matched = inferred;
+    }
+
+    return matched;
+  };
+  const mergeSubstitution = (
+    inferred: ReadonlyMap<string, IrType>,
+    contextLabel: string
+  ): MethodTypeSubstitutionResult | undefined => {
+    for (const [name, inferredType] of inferred) {
+      const existing = callSubst.get(name);
+      if (existing) {
+        const merged = mergeSubstitutionType(existing, inferredType);
+        if (!merged) {
+          emitDiagnostic(
+            state,
+            "TSN5202",
+            `Conflicting type argument inference for '${name}'${contextLabel}`,
+            site
+          );
+          return { kind: "error" };
+        }
+        callSubst.set(name, merged);
+        continue;
+      }
+      callSubst.set(name, inferredType);
+    }
+
+    return undefined;
+  };
 
   if (query.explicitTypeArgs) {
     for (
@@ -98,6 +164,17 @@ export const resolveMethodTypeSubstitution = (
     }
   }
 
+  if (rawSig.declaringMemberName === "constructor") {
+    const matched = selectExpectedReturnSubstitution();
+    if (matched) {
+      const mergeError = mergeSubstitution(
+        matched,
+        " (expected constructor return context)"
+      );
+      if (mergeError) return mergeError;
+    }
+  }
+
   if (query.argTypes) {
     const paramsForInferenceBase =
       callSubst.size > 0
@@ -129,78 +206,21 @@ export const resolveMethodTypeSubstitution = (
     }
 
     for (const [name, inferredType] of inferred) {
-      const existing = callSubst.get(name);
-      if (existing) {
-        const merged = mergeSubstitutionType(existing, inferredType);
-        if (!merged) {
-          emitDiagnostic(
-            state,
-            "TSN5202",
-            `Conflicting type argument inference for '${name}'`,
-            site
-          );
-          return { kind: "error" };
-        }
-        callSubst.set(name, merged);
-        continue;
-      }
-      callSubst.set(name, inferredType);
+      const mergeError = mergeSubstitution(
+        new Map([[name, inferredType]]),
+        ""
+      );
+      if (mergeError) return mergeError;
     }
   }
 
-  if (query.expectedReturnType) {
-    const expectedCandidates = collectExpectedReturnCandidates(
-      state,
-      query.expectedReturnType
+  const matched = selectExpectedReturnSubstitution();
+  if (matched) {
+    const mergeError = mergeSubstitution(
+      matched,
+      " (expected return context)"
     );
-    let matched: Map<string, IrType> | undefined;
-
-    for (const candidate of expectedCandidates) {
-      const inferred = inferMethodTypeArgsFromArguments(
-        state,
-        methodTypeParams,
-        [workingReturn],
-        [candidate]
-      );
-      if (!inferred || inferred.size === 0) continue;
-
-      let conflictsWithExisting = false;
-      for (const [name, inferredType] of inferred) {
-        const existing = callSubst.get(name);
-        if (existing && !mergeSubstitutionType(existing, inferredType)) {
-          conflictsWithExisting = true;
-          break;
-        }
-      }
-      if (conflictsWithExisting) continue;
-
-      if (matched && !mapEntriesEqual(matched, inferred)) {
-        matched = undefined;
-        break;
-      }
-      matched = inferred;
-    }
-
-    if (matched) {
-      for (const [name, inferredType] of matched) {
-        const existing = callSubst.get(name);
-        if (existing) {
-          const merged = mergeSubstitutionType(existing, inferredType);
-          if (!merged) {
-            emitDiagnostic(
-              state,
-              "TSN5202",
-              `Conflicting type argument inference for '${name}' (expected return context)`,
-              site
-            );
-            return { kind: "error" };
-          }
-          callSubst.set(name, merged);
-          continue;
-        }
-        callSubst.set(name, inferredType);
-      }
-    }
+    if (mergeError) return mergeError;
   }
 
   for (const typeParameter of methodTypeParams) {

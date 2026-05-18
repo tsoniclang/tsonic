@@ -2,7 +2,7 @@
  * ProgramContext type definition and package-resolution helpers.
  *
  * Contains the ProgramContext type and helper functions for resolving
- * package roots, package info, and CLR metadata discovery.
+ * package roots, package info, and external metadata discovery.
  */
 
 import * as fs from "node:fs";
@@ -11,13 +11,17 @@ import * as ts from "typescript";
 import type { Binding } from "./binding/index.js";
 import type { TypeAuthority } from "./type-system/type-system.js";
 import type { IrType } from "./types.js";
-import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
+import type { ExternalMetadataRegistry } from "../external-metadata.js";
 import type { BindingRegistry } from "../program/bindings.js";
-import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import type { ExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import type { SurfaceMode } from "../program/types.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
+import type {
+  TargetSurfaceArtifacts,
+  TargetSurfaceProvider,
+} from "../symbols/index.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
@@ -104,19 +108,22 @@ export type ProgramContext = {
   readonly typeSystem: TypeAuthority;
 
   /**
-   * .NET metadata registry for imported types.
+   * external metadata registry for imported types.
    */
-  readonly metadata: DotnetMetadataRegistry;
+  readonly metadata: ExternalMetadataRegistry;
 
   /**
-   * CLR bindings from tsbindgen.
+   * external bindings from tsbindgen.
    */
   readonly bindings: BindingRegistry;
 
   /**
-   * CLR namespace resolver for import-driven discovery.
+   * external namespace resolver for import-driven discovery.
    */
-  readonly clrResolver: ClrBindingsResolver;
+  readonly externalResolver: ExternalBindingsResolver;
+
+  readonly targetSurfaceArtifacts?: TargetSurfaceArtifacts;
+  readonly targetSurfaceProvider?: TargetSurfaceProvider;
 
   /**
    * Lexical type environment for deterministic flow typing.
@@ -145,8 +152,8 @@ export type ProgramContext = {
   readonly accessEnv?: ReadonlyMap<string, IrType>;
 
   /**
-   * Depth while converting a lambda body whose contextual type is a CLR
-   * expression tree, such as Expression<Func<T, TResult>>.
+   * Depth while converting a lambda body whose contextual type is an external
+   * expression-tree wrapper around a callable type.
    */
   readonly expressionTreeLambdaDepth?: number;
 
@@ -154,7 +161,7 @@ export type ProgramContext = {
    * IR conversion diagnostics emitted by converters (non-TypeSystem).
    *
    * Converters should record deterministic, airplane-grade failures here
-   * instead of guessing (e.g., ambiguous CLR bindings).
+   * instead of guessing (e.g., ambiguous external bindings).
    *
    * Collected by `buildIr()` and treated as compilation errors.
    */
@@ -294,7 +301,7 @@ export const getPackageInfo = (
   }
 };
 
-export const packageHasClrMetadata = (
+export const packageHasExternalMetadata = (
   pkgRoot: string,
   _packageInfoCache: Map<
     string,

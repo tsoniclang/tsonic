@@ -14,7 +14,7 @@ import {
   nullableType,
 } from "../core/format/backend-ast/builders.js";
 import {
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   sameConcreteTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
@@ -28,7 +28,7 @@ import { buildNativeArrayInteropWrapAst } from "./array-interop.js";
 import { hasSourceDeclaredMember } from "./access-resolution-types.js";
 import { surfaceMemberReadsArrayLength } from "../core/semantic/surface-member-semantics.js";
 
-const SYSTEM_ARRAY_TYPE_AST = clrTypeNameToTypeAst("System.Array");
+const SYSTEM_ARRAY_TYPE_AST = targetTypeNameToTypeAst("System.Array");
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst

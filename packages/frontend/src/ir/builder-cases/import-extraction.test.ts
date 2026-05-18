@@ -55,7 +55,7 @@ describe("IR Builder", function () {
 
         expect(firstImport.source).to.equal("./models/User.ts");
         expect(firstImport.isLocal).to.equal(true);
-        expect(firstImport.isClr).to.equal(false);
+        expect(firstImport.resolutionKind).to.not.equal("externalSurface");
 
         expect(secondImport.source).to.equal("./utils.ts");
         const firstSpec = secondImport.specifiers[0];
@@ -64,27 +64,28 @@ describe("IR Builder", function () {
       }
     });
 
-    it("should attach resolvedClrValue for tsbindgen flattened named exports", () => {
+    it("should attach providerValue for tsbindgen flattened named exports", () => {
       const source = `
         import { buildSite } from "@demo/pkg/Demo.js";
+        void buildSite;
       `;
 
       const { testProgram, ctx, options } = createTestProgram(source);
 
-      // Stub CLR resolution for this unit test (no filesystem / node resolution).
+      // Stub external resolution for this unit test (no filesystem / node resolution).
       (
-        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
-      ).clrResolver = {
+        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+      ).externalResolver = {
         resolve: (s: string) =>
           s === "@demo/pkg/Demo.js"
             ? {
-                isClr: true,
+                kind: "externalSurface",
                 packageName: "@demo/pkg",
                 resolvedNamespace: "Demo",
                 bindingsPath: "/x/bindings.json",
-                assembly: "Demo",
+                ownerIdentity: "Demo",
               }
-            : { isClr: false },
+            : { kind: "notExternalSurface" },
       };
 
       // Provide a minimal tsbindgen bindings.json excerpt with exports.
@@ -94,9 +95,9 @@ describe("IR Builder", function () {
         exports: {
           buildSite: {
             kind: "method",
-            clrName: "buildSite",
-            declaringClrType: "Demo.BuildSite",
-            declaringAssemblyName: "Demo",
+            targetName: "buildSite",
+            ownerQualifiedName: "Demo.BuildSite",
+            ownerIdentity: "Demo",
           },
         },
       });
@@ -111,7 +112,7 @@ describe("IR Builder", function () {
 
       const imp = result.value.imports[0];
       if (!imp) throw new Error("Missing imports");
-      expect(imp.isClr).to.equal(true);
+      expect(imp.resolutionKind).to.equal("externalSurface");
       expect(imp.resolvedNamespace).to.equal("Demo");
 
       const spec = imp.specifiers[0];
@@ -119,42 +120,42 @@ describe("IR Builder", function () {
         throw new Error("Missing named specifier");
       expect(spec.name).to.equal("buildSite");
       expect(spec.isType).to.not.equal(true);
-      expect(spec.resolvedClrValue).to.deep.equal({
-        declaringClrType: "Demo.BuildSite",
-        declaringAssemblyName: "Demo",
+      expect(spec.providerValue).to.deep.equal({
+        ownerQualifiedName: "Demo.BuildSite",
+        ownerIdentity: "Demo",
         memberName: "buildSite",
       });
     });
 
-    it("should attach resolvedClrType for CLR type imports used as values", () => {
+    it("should attach providerQualifiedName for external type imports used as values", () => {
       const source = `
-        import { Task as TaskValue } from "@tsonic/dotnet/System.Threading.Tasks.js";
+        import { Task as TaskValue } from "@demo/async/Async.Tasks.js";
       `;
 
       const { testProgram, ctx, options } = createTestProgram(source);
 
       (
-        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
-      ).clrResolver = {
+        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+      ).externalResolver = {
         resolve: (s: string) =>
-          s === "@tsonic/dotnet/System.Threading.Tasks.js"
+          s === "@demo/async/Async.Tasks.js"
             ? {
-                isClr: true,
-                packageName: "@tsonic/dotnet",
-                resolvedNamespace: "System.Threading.Tasks",
+                kind: "externalSurface",
+                packageName: "@demo/async",
+                resolvedNamespace: "Async.Tasks",
                 bindingsPath: "/x/tasks.bindings.json",
-                assembly: "System.Runtime",
+                ownerIdentity: "Async.Runtime",
               }
-            : { isClr: false },
+            : { kind: "notExternalSurface" },
       };
 
       ctx.bindings.addBindings("/x/tasks.bindings.json", {
-        namespace: "System.Threading.Tasks",
+        namespace: "Async.Tasks",
         types: [
           {
             alias: "Task",
-            clrName: "System.Threading.Tasks.Task",
-            assemblyName: "System.Runtime",
+            targetName: "Async.Tasks.Task",
+            ownerIdentity: "Async.Runtime",
             kind: "Class",
             methods: [],
             properties: [],
@@ -181,14 +182,14 @@ describe("IR Builder", function () {
       expect(spec.name).to.equal("Task");
       expect(spec.localName).to.equal("TaskValue");
       expect(spec.isType).to.not.equal(true);
-      expect(spec.resolvedClrType).to.equal("System.Threading.Tasks.Task");
-      expect(spec.resolvedClrValue).to.equal(undefined);
+      expect(spec.providerQualifiedName).to.equal("Async.Tasks.Task");
+      expect(spec.providerValue).to.equal(undefined);
     });
 
-    it("prefers the imported CLR facade namespace over internal re-export declaration owners", () => {
+    it("prefers the imported external facade namespace over internal re-export declaration owners", () => {
       const source = `
-        import { Console } from "@tsonic/dotnet/System.js";
-        void Console.WriteLine;
+        import { Widget } from "@demo/surface/Public.js";
+        void Widget.run;
       `;
 
       const { testProgram, ctx, options } = createTestProgram(source);
@@ -198,30 +199,30 @@ describe("IR Builder", function () {
       );
       const declPath = fixture.path("Internal/internal/index.d.ts");
       const internalBindingsPath = fixture.path("Internal/bindings.json");
-      const systemBindingsPath = fixture.path("System/bindings.json");
+      const publicBindingsPath = fixture.path("Public/bindings.json");
 
       (
-        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
-      ).clrResolver = {
+        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+      ).externalResolver = {
         resolve: (s: string) =>
-          s === "@tsonic/dotnet/System.js"
+          s === "@demo/surface/Public.js"
             ? {
-                isClr: true,
-                packageName: "@tsonic/dotnet",
-                resolvedNamespace: "System",
-                bindingsPath: systemBindingsPath,
-                assembly: "System.Console",
+                kind: "externalSurface",
+                packageName: "@demo/surface",
+                resolvedNamespace: "Public",
+                bindingsPath: publicBindingsPath,
+                ownerIdentity: "Public.Runtime",
               }
-            : { isClr: false },
+            : { kind: "notExternalSurface" },
       };
 
-      ctx.bindings.addBindings(systemBindingsPath, {
-        namespace: "System",
+      ctx.bindings.addBindings(publicBindingsPath, {
+        namespace: "Public",
         types: [
           {
-            alias: "Console",
-            clrName: "System.Console",
-            assemblyName: "System.Console",
+            alias: "Widget",
+            targetName: "Public.Widget",
+            ownerIdentity: "Public.Runtime",
             kind: "Class",
             methods: [],
             properties: [],
@@ -233,9 +234,9 @@ describe("IR Builder", function () {
         namespace: "Internal",
         types: [
           {
-            alias: "Console",
-            clrName: "Internal.Console",
-            assemblyName: "System.Private.CoreLib",
+            alias: "Widget",
+            targetName: "Internal.Widget",
+            ownerIdentity: "Internal.Runtime",
             kind: "Class",
             methods: [],
             properties: [],
@@ -262,22 +263,22 @@ describe("IR Builder", function () {
 
         const imp = result.value.imports[0];
         if (!imp) throw new Error("Missing import");
-        expect(imp.resolvedNamespace).to.equal("System");
+        expect(imp.resolvedNamespace).to.equal("Public");
 
         const spec = imp.specifiers[0];
         if (!spec || spec.kind !== "named") {
           throw new Error("Missing named specifier");
         }
 
-        expect(spec.name).to.equal("Console");
+        expect(spec.name).to.equal("Widget");
         expect(spec.isType).to.not.equal(true);
-        expect(spec.resolvedClrType).to.equal("System.Console");
+        expect(spec.providerQualifiedName).to.equal("Public.Widget");
       } finally {
         fixture.cleanup();
       }
     });
 
-    it("attaches CLR identities for installed declaration-package facade imports", () => {
+    it("attaches external identities for installed declaration-package facade imports", () => {
       const fixture = materializeImportExtractionFixture([
         "fragments/surface-isolation/custom-clr-surface",
         "declaration-package-facade",
@@ -288,7 +289,7 @@ describe("IR Builder", function () {
         projectRoot: tempDir,
         sourceRoot: fixture.path("app/src"),
         rootNamespace: "TestApp",
-        surface: "clr",
+        surface: "core",
       });
       expect(programResult.ok).to.equal(true);
       if (!programResult.ok) {
@@ -318,8 +319,8 @@ describe("IR Builder", function () {
         types: [
           {
             alias: "Console",
-            clrName: "System.Console",
-            assemblyName: "System.Console",
+            targetName: "System.Console",
+            ownerIdentity: "System.Console",
             kind: "Class",
             methods: [],
             properties: [],
@@ -327,8 +328,8 @@ describe("IR Builder", function () {
           },
           {
             alias: "DateTimeOffset",
-            clrName: "System.DateTimeOffset",
-            assemblyName: "System.Runtime",
+            targetName: "System.DateTimeOffset",
+            ownerIdentity: "System.Runtime",
             kind: "Class",
             methods: [],
             properties: [],
@@ -347,7 +348,7 @@ describe("IR Builder", function () {
         if (!imp) throw new Error("Missing import");
 
         expect(imp.isLocal).to.equal(true);
-        expect(imp.isClr).to.equal(false);
+        expect(imp.resolutionKind).to.not.equal("externalSurface");
         expect(imp.resolvedNamespace).to.equal("System");
 
         const consoleImport = imp.specifiers[0];
@@ -360,35 +361,36 @@ describe("IR Builder", function () {
         }
 
         expect(consoleImport.localName).to.equal("DotnetConsole");
-        expect(consoleImport.resolvedClrType).to.equal("System.Console");
-        expect(consoleImport.resolvedClrValue).to.equal(undefined);
-        expect(dateImport.resolvedClrType).to.equal("System.DateTimeOffset");
+        expect(consoleImport.providerQualifiedName).to.equal("System.Console");
+        expect(consoleImport.providerValue).to.equal(undefined);
+        expect(dateImport.providerQualifiedName).to.equal("System.DateTimeOffset");
       } finally {
         fixture.cleanup();
       }
     });
 
-    it("should error if a CLR namespace value import lacks tsbindgen exports mapping", () => {
+    it("should error if a external namespace value import lacks tsbindgen exports mapping", () => {
       const source = `
         import { buildSite } from "@demo/pkg/Demo.js";
+        void buildSite;
       `;
 
       const { testProgram, ctx, options } = createTestProgram(source);
 
-      // Stub CLR resolution for this unit test (no filesystem / node resolution).
+      // Stub external resolution for this unit test (no filesystem / node resolution).
       (
-        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
-      ).clrResolver = {
+        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+      ).externalResolver = {
         resolve: (s: string) =>
           s === "@demo/pkg/Demo.js"
             ? {
-                isClr: true,
+                kind: "externalSurface",
                 packageName: "@demo/pkg",
                 resolvedNamespace: "Demo",
                 bindingsPath: "/x/bindings.json",
-                assembly: "Demo",
+                ownerIdentity: "Demo",
               }
-            : { isClr: false },
+            : { kind: "notExternalSurface" },
       };
 
       // Provide a minimal tsbindgen bindings.json excerpt WITHOUT exports.
@@ -421,9 +423,9 @@ describe("IR Builder", function () {
       (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
       (
-        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
-      ).clrResolver = {
-        resolve: () => ({ isClr: false }),
+        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+      ).externalResolver = {
+        resolve: () => ({ kind: "notExternalSurface" }),
       };
       ctx.bindings.addBindings("/x/node-modules.json", {
         bindings: {
@@ -443,8 +445,8 @@ describe("IR Builder", function () {
         namespace: "nodejs",
         types: [
           {
-            clrName: "nodejs.path",
-            assemblyName: "nodejs",
+            targetName: "nodejs.path",
+            ownerIdentity: "nodejs",
             methods: [],
             properties: [],
             fields: [],
@@ -463,11 +465,11 @@ describe("IR Builder", function () {
       const imp = result.value.imports[0];
       if (!imp) throw new Error("Missing import");
       expect(imp.source).to.equal("node:path");
-      expect(imp.resolvedClrType).to.equal("nodejs.path");
+      expect(imp.providerQualifiedName).to.equal("nodejs.path");
       const spec = imp.specifiers[0];
       if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
       expect(spec.name).to.equal("join");
-      expect(spec.resolvedClrValue).to.equal(undefined);
+      expect(spec.providerValue).to.equal(undefined);
     });
 
     it("treats source-package node subpath imports as module-bound values without TSN4004", () => {
@@ -485,9 +487,9 @@ describe("IR Builder", function () {
       (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
       (
-        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
-      ).clrResolver = {
-        resolve: () => ({ isClr: false }),
+        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+      ).externalResolver = {
+        resolve: () => ({ kind: "notExternalSurface" }),
       };
       ctx.bindings.addBindings("/x/node-modules.json", {
         bindings: {
@@ -507,8 +509,8 @@ describe("IR Builder", function () {
         namespace: "nodejs.Http",
         types: [
           {
-            clrName: "nodejs.Http.http",
-            assemblyName: "nodejs",
+            targetName: "nodejs.Http.http",
+            ownerIdentity: "nodejs",
             methods: [],
             properties: [],
             fields: [],
@@ -527,14 +529,14 @@ describe("IR Builder", function () {
       const imp = result.value.imports[0];
       if (!imp) throw new Error("Missing import");
       expect(imp.source).to.equal("@tsonic/nodejs/http.js");
-      expect(imp.resolvedClrType).to.equal("nodejs.Http.http");
+      expect(imp.providerQualifiedName).to.equal("nodejs.Http.http");
       const spec = imp.specifiers[0];
       if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
       expect(spec.name).to.equal("createServer");
-      expect(spec.resolvedClrValue).to.equal(undefined);
+      expect(spec.providerValue).to.equal(undefined);
     });
 
-    it("does not globally hijack module-bound named value imports to unrelated CLR types", () => {
+    it("does not globally hijack module-bound named value imports to unrelated external types", () => {
       const source = `
         import { Buffer } from "@tsonic/nodejs/buffer.js";
         void Buffer;
@@ -549,9 +551,9 @@ describe("IR Builder", function () {
       (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
       (
-        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
-      ).clrResolver = {
-        resolve: () => ({ isClr: false }),
+        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+      ).externalResolver = {
+        resolve: () => ({ kind: "notExternalSurface" }),
       };
       ctx.bindings.addBindings("/x/node-modules.json", {
         bindings: {
@@ -567,8 +569,8 @@ describe("IR Builder", function () {
         namespace: "System",
         types: [
           {
-            clrName: "System.Buffer",
-            assemblyName: "System.Runtime",
+            targetName: "System.Buffer",
+            ownerIdentity: "System.Runtime",
             methods: [],
             properties: [],
             fields: [],
@@ -585,16 +587,16 @@ describe("IR Builder", function () {
 
       const imp = result.value.imports[0];
       if (!imp) throw new Error("Missing import");
-      expect(imp.resolvedClrType).to.equal("nodejs.buffer");
+      expect(imp.providerQualifiedName).to.equal("nodejs.buffer");
 
       const spec = imp.specifiers[0];
       if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
       expect(spec.name).to.equal("Buffer");
-      expect(spec.resolvedClrType).to.equal(undefined);
-      expect(spec.resolvedClrValue).to.equal(undefined);
+      expect(spec.providerQualifiedName).to.equal(undefined);
+      expect(spec.providerValue).to.equal(undefined);
     });
 
-    it("prefers installed source-package imports over CLR resolution", () => {
+    it("prefers installed source-package imports over external resolution", () => {
       const fixture = materializeImportExtractionFixture([
         "fragments/minimal-surfaces/tsonic-js",
         "source-package-preferred-over-clr",
@@ -627,16 +629,19 @@ describe("IR Builder", function () {
         (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
         (
           ctx as unknown as {
-            clrResolver: { resolve: (specifier: string) => unknown };
+            externalResolver: { resolve: (specifier: string) => unknown };
           }
-        ).clrResolver = {
+        ).externalResolver = {
           resolve: (specifier: string) =>
             specifier === "@tsonic/nodejs/process.js"
               ? {
-                  isClr: true as const,
+                  kind: "externalSurface" as const,
+                  packageName: "@tsonic/nodejs",
                   resolvedNamespace: "process",
+                  bindingsPath: "/x/process.bindings.json",
+                  ownerIdentity: "nodejs",
                 }
-              : { isClr: false as const },
+              : { kind: "notExternalSurface" as const },
         };
 
         const result = buildIrModule(sourceFile, testProgram, options, ctx);
@@ -648,9 +653,9 @@ describe("IR Builder", function () {
         if (!imp) throw new Error("Missing import");
         expect(imp.source).to.equal("@tsonic/nodejs/process.js");
         expect(imp.isLocal).to.equal(true);
-        expect(imp.isClr).to.equal(false);
+        expect(imp.resolutionKind).to.not.equal("externalSurface");
         expect(imp.resolvedNamespace).to.equal(undefined);
-        expect(imp.resolvedClrType).to.equal(undefined);
+        expect(imp.providerQualifiedName).to.equal(undefined);
         expect(imp.resolvedPath).to.equal(
           fixture.path("app/node_modules/@tsonic/nodejs/src/process-module.ts")
         );
@@ -659,7 +664,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("resolves module-bound import type clauses to owning CLR types", () => {
+    it("resolves module-bound import type clauses to owning external types", () => {
       const source = `
         import type { IncomingMessage, ServerResponse } from "node:http";
         let req: IncomingMessage | undefined;
@@ -724,17 +729,17 @@ describe("IR Builder", function () {
         }
 
         expect(incoming.isType).to.equal(true);
-        expect(incoming.resolvedClrType).to.equal(
+        expect(incoming.providerQualifiedName).to.equal(
           "nodejs.Http.IncomingMessage"
         );
         expect(response.isType).to.equal(true);
-        expect(response.resolvedClrType).to.equal("nodejs.Http.ServerResponse");
+        expect(response.providerQualifiedName).to.equal("nodejs.Http.ServerResponse");
       } finally {
         fixture.cleanup();
       }
     });
 
-    it("preserves installed source-package redirect metadata without CLR bindings", () => {
+    it("preserves installed source-package redirect metadata without external bindings", () => {
       const fixture = materializeImportExtractionFixture([
         "fragments/minimal-surfaces/tsonic-js",
         "source-package-redirect",
@@ -779,8 +784,8 @@ describe("IR Builder", function () {
         const imp = result.value.imports[0];
         if (!imp) throw new Error("Missing import");
         expect(imp.isLocal).to.equal(true);
-        expect(imp.isClr).to.equal(false);
-        expect(imp.resolvedClrType).to.equal(undefined);
+        expect(imp.resolutionKind).to.not.equal("externalSurface");
+        expect(imp.providerQualifiedName).to.equal(undefined);
         expect(imp.resolvedNamespace).to.equal(undefined);
         expect(imp.resolvedPath).to.equal(
           fixture.path("app/node_modules/@tsonic/nodejs/src/http/index.ts")
@@ -797,14 +802,14 @@ describe("IR Builder", function () {
           throw new Error("Missing named import specifiers");
         }
 
-        expect(incoming.resolvedClrType).to.equal(undefined);
-        expect(response.resolvedClrType).to.equal(undefined);
+        expect(incoming.providerQualifiedName).to.equal(undefined);
+        expect(response.providerQualifiedName).to.equal(undefined);
       } finally {
         fixture.cleanup();
       }
     });
 
-    it("preserves node alias source-package redirect metadata without CLR bindings", () => {
+    it("preserves node alias source-package redirect metadata without external bindings", () => {
       const fixture = materializeImportExtractionFixture([
         "fragments/minimal-surfaces/tsonic-js",
         "node-alias-source-package-redirect",
@@ -854,8 +859,8 @@ describe("IR Builder", function () {
 
         expect(pathImport.source).to.equal("node:path");
         expect(pathImport.isLocal).to.equal(true);
-        expect(pathImport.isClr).to.equal(false);
-        expect(pathImport.resolvedClrType).to.equal(undefined);
+        expect(pathImport.resolutionKind).to.not.equal("externalSurface");
+        expect(pathImport.providerQualifiedName).to.equal(undefined);
         expect(pathImport.resolvedNamespace).to.equal(undefined);
         expect(pathImport.resolvedPath).to.equal(
           fixture.path("app/node_modules/@tsonic/nodejs/src/path.ts")
@@ -863,8 +868,8 @@ describe("IR Builder", function () {
 
         expect(httpImport.source).to.equal("node:http");
         expect(httpImport.isLocal).to.equal(true);
-        expect(httpImport.isClr).to.equal(false);
-        expect(httpImport.resolvedClrType).to.equal(undefined);
+        expect(httpImport.resolutionKind).to.not.equal("externalSurface");
+        expect(httpImport.providerQualifiedName).to.equal(undefined);
         expect(httpImport.resolvedNamespace).to.equal(undefined);
         expect(httpImport.resolvedPath).to.equal(
           fixture.path("app/node_modules/@tsonic/nodejs/src/http/index.ts")
@@ -888,13 +893,13 @@ describe("IR Builder", function () {
         }
 
         expect(createServer.isType).to.equal(false);
-        expect(createServer.resolvedClrValue).to.equal(undefined);
+        expect(createServer.providerValue).to.equal(undefined);
         expect(incoming.isType).to.equal(true);
-        expect(incoming.resolvedClrType).to.equal(undefined);
+        expect(incoming.providerQualifiedName).to.equal(undefined);
         expect(server.isType).to.equal(true);
-        expect(server.resolvedClrType).to.equal(undefined);
+        expect(server.providerQualifiedName).to.equal(undefined);
         expect(response.isType).to.equal(true);
-        expect(response.resolvedClrType).to.equal(undefined);
+        expect(response.providerQualifiedName).to.equal(undefined);
 
         const serverDecl = result.value.body.find(
           (
@@ -915,7 +920,7 @@ describe("IR Builder", function () {
           (part): part is Extract<typeof part, { kind: "referenceType" }> =>
             part.kind === "referenceType"
         );
-        expect(importedServerType?.typeId?.assemblyName).to.equal(
+        expect(importedServerType?.typeId?.ownerIdentity).to.equal(
           "@tsonic/nodejs"
         );
 
@@ -945,8 +950,8 @@ describe("IR Builder", function () {
           throw new Error("Expected source-package function parameter types");
         }
 
-        expect(requestType.typeId?.assemblyName).to.equal("@tsonic/nodejs");
-        expect(responseType.typeId?.assemblyName).to.equal("@tsonic/nodejs");
+        expect(requestType.typeId?.ownerIdentity).to.equal("@tsonic/nodejs");
+        expect(responseType.typeId?.ownerIdentity).to.equal("@tsonic/nodejs");
       } finally {
         fixture.cleanup();
       }
@@ -972,7 +977,7 @@ describe("IR Builder", function () {
         const firstImport = imports[0];
         if (!firstImport) throw new Error("Missing import");
         // Without an actual package with bindings.json, this is NOT detected as .NET
-        expect(firstImport.isClr).to.equal(false);
+        expect(firstImport.resolutionKind).to.not.equal("externalSurface");
         expect(firstImport.resolvedNamespace).to.equal(undefined);
       }
     });
@@ -1033,7 +1038,7 @@ describe("IR Builder", function () {
             throw new Error("Expected referenceType return");
           }
 
-          expect(overload.returnType.typeId?.clrName).to.equal(
+          expect(overload.returnType.typeId?.providerName).to.equal(
             "TestApp.net.Server"
           );
         }

@@ -10,76 +10,32 @@ import { normalizedUnionType } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
 
 /**
- * tsbindgen emits qualified names for core System primitives inside internal
- * extension bucket signatures, e.g. `System_Internal.Boolean`.
- *
- * For IR purposes these must canonicalize to the compiler's surface primitive
- * / numeric alias names so:
- * - deterministic lambda typing can use `boolean`/`int` etc
- * - the IR soundness gate does not treat these as unresolved reference types
- *
- * This is the boundary translation from the tsbindgen surface name to
- * Tsonic's canonical IR type names.
+ * Generated declaration surfaces can refer to imported namespace objects via
+ * a local `*_Internal` alias. IR type conversion only needs the exported type
+ * name; semantic primitive lowering is handled by symbol provenance and binding
+ * metadata, not by provider-name tables here.
  */
-export const normalizeSystemInternalQualifiedName = (
-  typeName: string
-): string => {
-  const prefix = "System_Internal.";
-  if (!typeName.startsWith(prefix)) return typeName;
+const normalizeSourceWrapperName = (typeName: string): string | undefined => {
+  switch (typeName) {
+    case "String":
+      return "string";
+    case "Number":
+      return "number";
+    case "Boolean":
+      return "boolean";
+    default:
+      return undefined;
+  }
+};
 
-  const inner = typeName.slice(prefix.length);
-  const mapped = (() => {
-    switch (inner) {
-      // TS primitives
-      case "Boolean":
-        return "boolean";
-      case "String":
-        return "string";
-      case "Char":
-        return "char";
+export const normalizeProviderInternalQualifiedName = (typeName: string): string => {
+  const lastDot = typeName.lastIndexOf(".");
+  if (lastDot <= 0) return typeName;
 
-      // Distinct CLR numeric aliases (from @tsonic/core)
-      case "SByte":
-        return "sbyte";
-      case "Byte":
-        return "byte";
-      case "Int16":
-        return "short";
-      case "UInt16":
-        return "ushort";
-      case "Int32":
-        return "int";
-      case "UInt32":
-        return "uint";
-      case "Int64":
-        return "long";
-      case "UInt64":
-        return "ulong";
-      case "Int128":
-        return "int128";
-      case "UInt128":
-        return "uint128";
-      case "Half":
-        return "half";
-      case "Single":
-        return "float";
-      case "Double":
-        return "double";
-      case "Decimal":
-        return "decimal";
-      case "IntPtr":
-        return "nint";
-      case "UIntPtr":
-        return "nuint";
-
-      default:
-        return undefined;
-    }
-  })();
-
-  // If we don't recognize the alias, strip the namespace import prefix and
-  // keep the exported type name (e.g. System_Internal.Exception -> Exception).
-  return mapped ?? inner;
+  const prefix = typeName.slice(0, lastDot);
+  if (!prefix.endsWith("_Internal")) return typeName;
+  const inner = typeName.slice(lastDot + 1);
+  return normalizeSourceWrapperName(inner) ?? inner;
 };
 
 /**

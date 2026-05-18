@@ -6,7 +6,7 @@ import {
   CSHARP_PREDEFINED_TYPE_KEYWORDS,
   astTypeMatchesClrIdentity,
   clrNameMatchesClrIdentity,
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   extractCalleeNameFromAst,
   getIdentifierTypeLeafName,
   getIdentifierTypeName,
@@ -58,11 +58,11 @@ describe("backend-ast utils", () => {
     );
 
     for (const keyword of expectedKeywords) {
-      expect(clrTypeNameToTypeAst(keyword)).to.deep.equal({
+      expect(targetTypeNameToTypeAst(keyword)).to.deep.equal({
         kind: "predefinedType",
         keyword,
       });
-      expect(clrTypeNameToTypeAst(`global::${keyword}`)).to.deep.equal({
+      expect(targetTypeNameToTypeAst(`global::${keyword}`)).to.deep.equal({
         kind: "predefinedType",
         keyword,
       });
@@ -71,18 +71,18 @@ describe("backend-ast utils", () => {
 
   it("normalizes CLR generic arity/backing names into structured identifier AST nodes", () => {
     expect(
-      clrTypeNameToTypeAst("System.Collections.Generic.List`1")
+      targetTypeNameToTypeAst("System.Collections.Generic.List`1")
     ).to.deep.equal(identifierType("System.Collections.Generic.List"));
 
-    expect(clrTypeNameToTypeAst("global::Outer+Inner`2")).to.deep.equal(
+    expect(targetTypeNameToTypeAst("global::Outer+Inner`2")).to.deep.equal(
       identifierType("global::Outer.Inner")
     );
 
-    expect(clrTypeNameToTypeAst("global::System.Int128")).to.deep.equal(
+    expect(targetTypeNameToTypeAst("global::System.Int128")).to.deep.equal(
       identifierType("global::System.Int128")
     );
 
-    expect(clrTypeNameToTypeAst("System.Half")).to.deep.equal(
+    expect(targetTypeNameToTypeAst("System.Half")).to.deep.equal(
       identifierType("System.Half")
     );
   });

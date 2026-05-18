@@ -5,7 +5,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFiles } from "./emitter.js";
-import { assumeEmittableIrModule, type IrModule } from "@tsonic/frontend";
+import { assumeEmittableIrModule } from "./test-ir-strict.js";
+import type { IrModule } from "@tsonic/frontend";
 import { createJsSurfaceBindingRegistry } from "./expressions/index-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();

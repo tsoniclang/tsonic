@@ -4,8 +4,8 @@
  * This module handles proving that numeric narrowing expressions are sound:
  * - Literal value proofs (via proveLiteral from analysis)
  * - Identifier proofs (via proven variables/parameters)
- * - Binary/unary operation proofs (via C# promotion rules)
- * - Call/member access proofs (via CLR return types)
+ * - Binary/unary operation proofs (via source numeric promotion rules)
+ * - Call/member access proofs (via native target return types)
  * - Conditional and nullish coalescing proofs
  *
  * CRITICAL: If a narrowing cannot be proven, a diagnostic is emitted.
@@ -102,7 +102,7 @@ export const proveNarrowing = (
       return undefined;
     }
 
-    // Identifier not in proven scope - check if it has numeric intent from CLR
+    // Identifier not in proven scope - check if it has numeric intent from native target
     const identKind = getNumericKindFromType(innerExpr.inferredType);
     if (identKind !== undefined) {
       if (
@@ -156,7 +156,7 @@ export const proveNarrowing = (
           "error",
           `Binary '${leftKind} ${innerExpr.operator} ${rightKind}' produces ${resultKind}, not ${targetKind}`,
           innerExpr.sourceSpan ?? location,
-          `C# promotion rules: ${leftKind} ${innerExpr.operator} ${rightKind} = ${resultKind}. ` +
+          `Numeric promotion rules: ${leftKind} ${innerExpr.operator} ${rightKind} = ${resultKind}. ` +
             `Cast operands to ${targetKind} first if needed.`
         )
       );
@@ -176,7 +176,7 @@ export const proveNarrowing = (
       getNumericKindFromType(innerExpr.inferredType) ??
       (innerExpr.inferredType?.kind === "primitiveType" &&
       innerExpr.inferredType.name === "number"
-        ? "Double"
+        ? "float64"
         : undefined);
     if (
       inferredBinaryKind !== undefined &&
@@ -285,7 +285,7 @@ export const proveNarrowing = (
     return undefined;
   }
 
-  // Case 6: Inner expression is a call with known return type from CLR
+  // Case 6: Inner expression is a call with known return type from native target
   if (innerExpr.kind === "call") {
     const returnKind = getNumericKindFromType(innerExpr.inferredType);
     if (returnKind !== undefined && returnKind === targetKind) {
@@ -296,7 +296,7 @@ export const proveNarrowing = (
           : "unknown";
       return {
         kind: targetKind,
-        source: { type: "dotnetReturn", method: methodName, returnKind },
+        source: { type: "externalReturn", method: methodName, returnKind },
       };
     }
   }
@@ -312,7 +312,7 @@ export const proveNarrowing = (
       return {
         kind: targetKind,
         source: {
-          type: "dotnetReturn",
+          type: "externalReturn",
           method: propName,
           returnKind: memberKind,
         },

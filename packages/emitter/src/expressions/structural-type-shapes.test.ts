@@ -32,7 +32,7 @@ const bytesType: IrType = {
 const enumerableType: IrType = {
   kind: "referenceType",
   name: "IEnumerable_1",
-  resolvedClrType: "global::System.Collections.Generic.IEnumerable",
+  providerQualifiedName: "global::System.Collections.Generic.IEnumerable",
   typeArguments: [numberType],
 };
 

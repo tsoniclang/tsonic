@@ -23,8 +23,8 @@ export const resolveExactGlobalBindingFqn = (
     );
   }
 
-  if (descriptor.csharpName) {
-    return `global::${descriptor.assembly}.${descriptor.csharpName}`;
+  if (descriptor.providerMemberName) {
+    return `global::${descriptor.assembly}.${descriptor.providerMemberName}`;
   }
 
   return normalizeClrQualifiedName(

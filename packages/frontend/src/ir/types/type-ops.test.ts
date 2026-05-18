@@ -274,17 +274,23 @@ describe("type-ops", () => {
     expect(stableIrTypeKey(left)).to.equal(stableIrTypeKey(right));
   });
 
-  it("canonicalizes CLR reference identities in stable keys", () => {
+  it("canonicalizes provider reference identities in stable keys", () => {
+    const stableTypeId = {
+      stableId: "provider:provider.Span`1",
+      providerName: "provider.Span`1",
+      ownerIdentity: "provider",
+      sourceName: "Span",
+    };
     const emittedSurface: IrType = {
       kind: "referenceType",
       name: "Span",
-      resolvedClrType: "global::System.Span<int>",
+      typeId: stableTypeId,
       typeArguments: [{ kind: "primitiveType", name: "int" }],
     };
     const metadataSurface: IrType = {
       kind: "referenceType",
       name: "Span_1",
-      resolvedClrType: "System.Span`1",
+      typeId: stableTypeId,
       typeArguments: [{ kind: "primitiveType", name: "int" }],
     };
 
@@ -293,15 +299,15 @@ describe("type-ops", () => {
     );
   });
 
-  it("uses TypeId stable IDs before CLR display names", () => {
+  it("uses TypeId stable IDs before provider display names", () => {
     const left: IrType = {
       kind: "referenceType",
       name: "Widget",
       typeId: {
         stableId: "package-a:Acme.Widget",
-        clrName: "Acme.Widget",
-        assemblyName: "PackageA",
-        tsName: "Widget",
+        providerName: "Acme.Widget",
+        ownerIdentity: "PackageA",
+        sourceName: "Widget",
       },
     };
     const right: IrType = {
@@ -309,9 +315,9 @@ describe("type-ops", () => {
       name: "Widget",
       typeId: {
         stableId: "package-b:Acme.Widget",
-        clrName: "Acme.Widget",
-        assemblyName: "PackageB",
-        tsName: "Widget",
+        providerName: "Acme.Widget",
+        ownerIdentity: "PackageB",
+        sourceName: "Widget",
       },
     };
 
@@ -492,7 +498,7 @@ describe("type-ops", () => {
           {
             kind: "referenceType",
             name: "byte",
-            resolvedClrType: "System.Byte",
+            providerQualifiedName: "System.Byte",
           },
         ],
       ])
@@ -505,7 +511,7 @@ describe("type-ops", () => {
     );
   });
 
-  it("unwraps Promise/Task/ValueTask wrappers", () => {
+  it("unwraps async wrappers declared by source-semantic metadata", () => {
     const payload: IrType = { kind: "primitiveType", name: "int" };
 
     const promiseType: IrType = {
@@ -515,14 +521,14 @@ describe("type-ops", () => {
     };
     const taskType: IrType = {
       kind: "referenceType",
-      name: "System.Threading.Tasks.Task_1",
-      resolvedClrType: "System.Threading.Tasks.Task`1[[System.Int32]]",
+      name: "ExternalAsync_1",
+      asyncWrapper: { resultTypeParameterIndex: 0 },
       typeArguments: [payload],
     };
     const valueTaskType: IrType = {
       kind: "referenceType",
-      name: "ValueTask_1",
-      resolvedClrType: "System.Threading.Tasks.ValueTask`1[[System.Int32]]",
+      name: "AlternateAsync_1",
+      asyncWrapper: { resultTypeParameterIndex: 0 },
       typeArguments: [payload],
     };
     const plainType: IrType = {
@@ -537,17 +543,17 @@ describe("type-ops", () => {
     expect(unwrapAsyncWrapperType(plainType)).to.equal(undefined);
   });
 
-  it("treats non-generic Task and ValueTask as awaitable void wrappers", () => {
+  it("treats non-generic async metadata wrappers as awaitable void wrappers", () => {
     const taskType: IrType = {
       kind: "referenceType",
-      name: "Task",
-      resolvedClrType: "System.Threading.Tasks.Task",
+      name: "ExternalAsyncAction",
+      asyncWrapper: {},
       typeArguments: [],
     };
     const valueTaskType: IrType = {
       kind: "referenceType",
-      name: "ValueTask",
-      resolvedClrType: "System.Threading.Tasks.ValueTask",
+      name: "AlternateAsyncAction",
+      asyncWrapper: {},
       typeArguments: [],
     };
 
@@ -561,19 +567,19 @@ describe("type-ops", () => {
     expect(unwrapAsyncWrapperType(valueTaskType)).to.equal(undefined);
   });
 
-  it("unwraps fully-qualified Task and ValueTask wrappers using type arguments", () => {
+  it("unwraps metadata async wrappers using explicit result argument positions", () => {
     const payload: IrType = { kind: "primitiveType", name: "string" };
     const taskType: IrType = {
       kind: "referenceType",
-      name: "System.Threading.Tasks.Task",
-      resolvedClrType: "global::System.Threading.Tasks.Task",
-      typeArguments: [payload],
+      name: "ExternalAsync",
+      asyncWrapper: { resultTypeParameterIndex: 1 },
+      typeArguments: [{ kind: "primitiveType", name: "boolean" }, payload],
     };
     const valueTaskType: IrType = {
       kind: "referenceType",
-      name: "System.Threading.Tasks.ValueTask",
-      resolvedClrType: "global::System.Threading.Tasks.ValueTask",
-      typeArguments: [payload],
+      name: "AlternateAsync",
+      asyncWrapper: { resultTypeParameterIndex: 1 },
+      typeArguments: [{ kind: "primitiveType", name: "int" }, payload],
     };
 
     expect(isAwaitableIrType(taskType)).to.equal(true);
@@ -592,7 +598,7 @@ describe("type-ops", () => {
   });
 
   it("does not encode incidental object sharing in stable type keys", () => {
-    const sharedElement: IrType = { kind: "referenceType", name: "int" };
+    const sharedElement: IrType = { kind: "primitiveType", name: "int" };
     const sharedTuple: IrType = {
       kind: "tupleType",
       elementTypes: [sharedElement, sharedElement],
@@ -600,8 +606,8 @@ describe("type-ops", () => {
     const distinctTuple: IrType = {
       kind: "tupleType",
       elementTypes: [
-        { kind: "referenceType", name: "int" },
-        { kind: "referenceType", name: "int" },
+        { kind: "primitiveType", name: "int" },
+        { kind: "primitiveType", name: "int" },
       ],
     };
 

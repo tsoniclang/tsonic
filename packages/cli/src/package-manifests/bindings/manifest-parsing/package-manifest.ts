@@ -137,7 +137,7 @@ const buildNormalizedManifest = (
       sourceManifest: "tsonic-package",
       packageName,
       packageVersion,
-      surfaceMode: "clr",
+      surfaceMode: "core",
       requiredTypeRoots,
       ...(assemblyName ? { assemblyName } : {}),
       runtimePackages: [...runtimeSet].sort((a, b) =>

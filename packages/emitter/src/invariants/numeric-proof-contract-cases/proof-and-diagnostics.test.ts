@@ -17,10 +17,10 @@ import {
 } from "./helpers.js";
 
 describe("Numeric Proof Contract (Behavioral)", () => {
-  describe("clrIndexer access (requires Int32 proof)", () => {
+  describe("numericIndexer access (requires Int32 proof)", () => {
     it("double literal (1.5) triggers TSN5107", () => {
       const module = createModuleWithAccess({
-        accessKind: "clrIndexer",
+        accessKind: "numericIndexer",
         indexHasProof: false,
         indexValue: 1.5,
         indexRaw: "1.5",
@@ -34,7 +34,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
 
     it("unproven identifier triggers TSN5107", () => {
       const module = createModuleWithIdentifierIndex({
-        accessKind: "clrIndexer",
+        accessKind: "numericIndexer",
         indexName: "i",
         indexHasInt32Type: false,
       });
@@ -47,7 +47,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
 
     it("integer literal (0) passes and gets marker", () => {
       const module = createModuleWithAccess({
-        accessKind: "clrIndexer",
+        accessKind: "numericIndexer",
         indexHasProof: false,
         indexValue: 0,
         indexRaw: "0",
@@ -74,7 +74,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
 
     it("proven identifier passes", () => {
       const module = createModuleWithIdentifierIndex({
-        accessKind: "clrIndexer",
+        accessKind: "numericIndexer",
         indexName: "i",
         indexHasInt32Type: true,
       });
@@ -216,9 +216,9 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       expect(result.diagnostics[0]?.message).to.include("accessKind=undefined");
     });
 
-    it("REGRESSION: referenceType without resolvedClrType defaults to clrIndexer (safe)", () => {
+    it("REGRESSION: referenceType without providerQualifiedName defaults to numericIndexer (safe)", () => {
       // This test guards against unsafe dictionary misclassification.
-      // If a referenceType lacks resolvedClrType, classification defaults to clrIndexer
+      // If a referenceType lacks providerQualifiedName, classification defaults to numericIndexer
       // (not "unknown") which is SAFE: it requires Int32 proof for the index.
       // This is the conservative safe behavior - Dictionary would fail at compile time
       // if accessed with a non-Int32 key, which is better than runtime unsoundness.
@@ -233,19 +233,19 @@ describe("Numeric Proof Contract (Behavioral)", () => {
         object: {
           kind: "identifier",
           name: "list",
-          // referenceType WITHOUT resolvedClrType (e.g., tsbindgen type)
+          // referenceType WITHOUT providerQualifiedName (e.g., tsbindgen type)
           inferredType: {
             kind: "referenceType",
             name: "List",
-            // resolvedClrType is MISSING - defaults to clrIndexer (safe)
+            // providerQualifiedName is MISSING - defaults to numericIndexer (safe)
           },
         },
         property: indexExpr,
         isComputed: true,
         isOptional: false,
-        // accessKind is clrIndexer because classifyComputedAccess defaults to it
-        // when resolvedClrType is missing on a referenceType
-        accessKind: "clrIndexer",
+        // accessKind is numericIndexer because classifyComputedAccess defaults to it
+        // when providerQualifiedName is missing on a referenceType
+        accessKind: "numericIndexer",
         inferredType: { kind: "primitiveType", name: "number" },
       };
 
@@ -276,7 +276,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       const result = runNumericProofPass([module]);
 
       // Should PASS because:
-      // 1. accessKind is clrIndexer (default for referenceType without resolvedClrType)
+      // 1. accessKind is numericIndexer (default for referenceType without providerQualifiedName)
       // 2. index is literal 0, which is valid Int32
       expect(result.ok).to.be.true;
 

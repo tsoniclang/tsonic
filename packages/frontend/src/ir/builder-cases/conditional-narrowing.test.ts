@@ -147,7 +147,7 @@ describe("IR Builder", function () {
           return;
         }
 
-        expect(fallbackInit.inferredType.typeId?.tsName).to.equal("Page");
+        expect(fallbackInit.inferredType.typeId?.sourceName).to.equal("Page");
 
         const selectedDecl = pickFn.body.statements.find(
           (stmt): stmt is IrVariableDeclaration =>

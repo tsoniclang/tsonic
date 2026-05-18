@@ -1,29 +1,29 @@
 import { expect } from "chai";
 import { buildUnifiedUniverse } from "./unified-universe.js";
-import type { AssemblyTypeCatalog, TypeId, NominalEntry } from "./types.js";
+import type { ExternalTypeCatalog, TypeId, NominalEntry } from "./types.js";
 import type {
   TypeRegistry,
   TypeRegistryEntry,
   MemberInfo,
 } from "../type-registry.js";
 
-const emptyAssemblyCatalog = (): AssemblyTypeCatalog => ({
+const emptyAssemblyCatalog = (): ExternalTypeCatalog => ({
   entries: new Map(),
   tsNameToTypeId: new Map(),
-  clrNameToTypeId: new Map(),
+  providerNameToTypeId: new Map(),
   namespaceToTypeIds: new Map(),
 });
 
 const makeAssemblyTypeId = (
   stableId: string,
-  clrName: string,
-  assemblyName: string,
+  providerName: string,
+  ownerIdentity: string,
   tsName: string
 ): TypeId => ({
   stableId,
-  clrName,
-  assemblyName,
-  tsName,
+  providerName,
+  ownerIdentity: ownerIdentity,
+  sourceName: tsName,
 });
 
 const makeRegistry = (entry: TypeRegistryEntry): TypeRegistry => ({
@@ -165,7 +165,7 @@ describe("buildUnifiedUniverse", () => {
       typeParameters: [],
       heritage: [],
       members: new Map(),
-      origin: "assembly",
+      origin: "external",
       accessibility: "public",
       isAbstract: false,
       isSealed: false,
@@ -176,8 +176,8 @@ describe("buildUnifiedUniverse", () => {
       makeRegistry(entry),
       {
         entries: new Map([[errorTypeId.stableId, assemblyEntry]]),
-        tsNameToTypeId: new Map([[errorTypeId.tsName, errorTypeId]]),
-        clrNameToTypeId: new Map([[errorTypeId.clrName, errorTypeId]]),
+        tsNameToTypeId: new Map([[errorTypeId.sourceName, errorTypeId]]),
+        providerNameToTypeId: new Map([[errorTypeId.providerName, errorTypeId]]),
         namespaceToTypeIds: new Map(),
       },
       "project"

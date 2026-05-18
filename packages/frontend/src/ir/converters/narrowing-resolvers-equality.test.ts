@@ -1,5 +1,7 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/index.js";
@@ -36,6 +38,7 @@ const createMockContext = (options: {
     receiver: IrType,
     member: { readonly kind: "byName"; readonly name: string }
   ) => IrType;
+  readonly getDecl?: (declId: DeclId) => unknown;
   readonly getType?: (
     name: string
   ) => { readonly alias: string; readonly name: string } | undefined;
@@ -43,10 +46,20 @@ const createMockContext = (options: {
     name: string,
     kind: "global" | "module"
   ) => SimpleBindingDescriptor | undefined;
+  readonly sourceRoot?: string;
 }): ProgramContext =>
   ({
+    rootNamespace: "Test",
+    sourceRoot: options.sourceRoot ?? "/workspace/src",
     binding: {
       resolveIdentifier: options.resolveIdentifier,
+      ...(options.getDecl
+        ? {
+            _getHandleRegistry: () => ({
+              getDecl: options.getDecl,
+            }),
+          }
+        : {}),
     },
     typeSystem: {
       typeOfDecl:
@@ -117,7 +130,7 @@ describe("narrowing-resolvers-equality", () => {
           ? {
               kind: "referenceType",
               name: "Readable",
-              resolvedClrType: "Test.Readable",
+              providerQualifiedName: "Test.Readable",
             }
           : {
               kind: "unknownType",
@@ -127,7 +140,7 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "Readable",
-      resolvedClrType: "Test.Readable",
+      providerQualifiedName: "Test.Readable",
     });
   });
 
@@ -160,7 +173,7 @@ describe("narrowing-resolvers-equality", () => {
           ? {
               kind: "referenceType",
               name: "ECDsa",
-              resolvedClrType: "System.Security.Cryptography.ECDsa",
+              providerQualifiedName: "System.Security.Cryptography.ECDsa",
             }
           : {
               kind: "unknownType",
@@ -171,7 +184,7 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "ECDsa",
-      resolvedClrType: "System.Security.Cryptography.ECDsa",
+      providerQualifiedName: "System.Security.Cryptography.ECDsa",
     });
   });
 
@@ -202,7 +215,189 @@ describe("narrowing-resolvers-equality", () => {
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "Uint8Array",
-      resolvedClrType: "js.Uint8Array",
+      providerQualifiedName: "js.Uint8Array",
     });
+  });
+
+  it("prefers lexical constructor identity over same-name global binding metadata", () => {
+    const bufferDecl = makeDeclId(6);
+    const targetExpr = extractInstanceofRight("value instanceof Buffer");
+    const ctx = createMockContext({
+      resolveIdentifier: (node) =>
+        node.text === "Buffer" ? bufferDecl : undefined,
+      typeOfDecl: () => ({
+        kind: "referenceType",
+        name: "BufferConstructor",
+      }),
+      typeOfMember: (_receiver, member) =>
+        member.name === "prototype"
+          ? {
+              kind: "referenceType",
+              name: "Buffer",
+              providerQualifiedName: "Test.Buffer",
+            }
+          : {
+              kind: "unknownType",
+            },
+      getExactBindingByKind: (name, kind) =>
+        name === "Buffer" && kind === "global"
+          ? {
+              kind: "global",
+              assembly: "System",
+              type: "System.Buffer",
+              staticType: "System.Buffer",
+              typeSemantics: {
+                contributesTypeIdentity: true,
+              },
+            }
+          : undefined,
+    });
+
+    expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
+      kind: "referenceType",
+      name: "Buffer",
+      providerQualifiedName: "Test.Buffer",
+    });
+  });
+
+  it("derives local source class instanceof targets from declaration identity", () => {
+    const bufferDecl = makeDeclId(7);
+    const targetExpr = extractInstanceofRight("value instanceof Buffer");
+    const sourceFile = ts.createSourceFile(
+      "/workspace/src/index.ts",
+      "class Buffer {}",
+      ts.ScriptTarget.ES2022,
+      true,
+      ts.ScriptKind.TS
+    );
+    const classDecl = sourceFile.statements.find(ts.isClassDeclaration);
+    if (!classDecl) {
+      throw new Error("Expected class declaration");
+    }
+    const ctx = createMockContext({
+      resolveIdentifier: (node) =>
+        node.text === "Buffer" ? bufferDecl : undefined,
+      getDecl: () => ({
+        kind: "class",
+        fqName: "Buffer",
+        declNode: classDecl,
+        valueDeclNode: classDecl,
+      }),
+      typeOfDecl: () => ({
+        kind: "referenceType",
+        name: "Buffer",
+        providerQualifiedName: "System.Buffer",
+      }),
+      getExactBindingByKind: (name, kind) =>
+        name === "Buffer" && kind === "global"
+          ? {
+              kind: "global",
+              assembly: "System",
+              type: "System.Buffer",
+              staticType: "System.Buffer",
+              typeSemantics: {
+                contributesTypeIdentity: true,
+              },
+            }
+          : undefined,
+    });
+
+    expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
+      kind: "referenceType",
+      name: "Buffer",
+      providerQualifiedName: "Test.Buffer",
+      typeId: {
+        stableId: "Test:Test.Buffer",
+        providerName: "Test.Buffer",
+        symbolId: "type-stable:Test%3ATest.Buffer",
+        sourceName: "Buffer",
+        ownerIdentity: "Test",
+        origin: "source",
+      },
+    });
+  });
+
+  it("derives installed source-package class instanceof targets from source-package identity", () => {
+    const regexpDecl = makeDeclId(8);
+    fs.mkdirSync(path.join(process.cwd(), ".temp"), { recursive: true });
+    const fixtureRoot = fs.mkdtempSync(
+      path.join(process.cwd(), ".temp/narrowing-source-package-")
+    );
+    const packageRoot = path.join(fixtureRoot, "app/node_modules/@fixture/js");
+    const sourceRoot = path.join(packageRoot, "src");
+    const sourcePath = path.join(sourceRoot, "regexp.ts");
+
+    try {
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify({ name: "@fixture/js" })
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic.package.json"),
+        JSON.stringify({
+          kind: "tsonic-source-package",
+          source: {
+            namespace: "fixture.js",
+            exports: { ".": "./src/regexp.ts" },
+          },
+        })
+      );
+
+      const sourceText = "export class RegExp {}";
+      fs.writeFileSync(sourcePath, sourceText);
+      const sourceFile = ts.createSourceFile(
+        sourcePath,
+        sourceText,
+        ts.ScriptTarget.ES2022,
+        true,
+        ts.ScriptKind.TS
+      );
+      const classDecl = sourceFile.statements.find(ts.isClassDeclaration);
+      if (!classDecl) {
+        throw new Error("Expected class declaration");
+      }
+
+      const targetExpr = extractInstanceofRight("value instanceof RegExp");
+      const ctx = createMockContext({
+        resolveIdentifier: (node) =>
+          node.text === "RegExp" ? regexpDecl : undefined,
+        getDecl: () => ({
+          kind: "class",
+          fqName: "RegExp",
+          declNode: classDecl,
+          valueDeclNode: classDecl,
+        }),
+        typeOfDecl: () => ({
+          kind: "referenceType",
+          name: "RegExp",
+          providerQualifiedName: "Test.RegExp",
+        }),
+      });
+
+      const target = resolveInstanceofTargetType(targetExpr, {
+        ...ctx,
+        projectRoot: path.join(fixtureRoot, "app"),
+        sourceRoot: path.join(fixtureRoot, "app/src"),
+        rootNamespace: "Test",
+      } as ProgramContext);
+
+      expect(target).to.deep.include({
+        kind: "referenceType",
+        name: "RegExp",
+        providerQualifiedName: "fixture.js.RegExp",
+      });
+      expect(
+        target && target.kind === "referenceType" ? target.typeId : undefined
+      ).to.deep.include({
+        stableId: "@fixture/js:fixture.js.RegExp",
+        sourceName: "RegExp",
+        ownerIdentity: "@fixture/js",
+        providerName: "fixture.js.RegExp",
+        origin: "source",
+      });
+    } finally {
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 });

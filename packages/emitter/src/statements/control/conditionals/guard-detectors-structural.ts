@@ -14,6 +14,7 @@ import type {
 } from "../../../core/format/backend-ast/types.js";
 import { splitRuntimeNullishUnionMembers } from "../../../core/semantic/type-resolution.js";
 import {
+  buildRuntimeUnionLayout,
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
@@ -29,7 +30,11 @@ import {
 import { normalizeInstanceofTargetType } from "../../../core/semantic/instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
 import { buildSubsetUnionType } from "./branch-context.js";
-import type { GuardInfo, InstanceofGuardInfo } from "./guard-types.js";
+import type {
+  GuardInfo,
+  InstanceofGuardInfo,
+  RuntimeUnionFrame,
+} from "./guard-types.js";
 import {
   resolveGuardRuntimeUnionFrame,
   buildRenameNarrowedMap,
@@ -59,6 +64,26 @@ const preserveIncomingNarrowedBindings = (
   }
 
   return { ...emittedContext, narrowedBindings };
+};
+
+const resolveLayoutRuntimeUnionFrame = (
+  type: IrType | undefined,
+  context: EmitterContext
+): RuntimeUnionFrame | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const [layout] = buildRuntimeUnionLayout(type, context, emitTypeAst);
+  if (!layout) {
+    return undefined;
+  }
+
+  return {
+    members: layout.members,
+    candidateMemberNs: layout.members.map((_, index) => index + 1),
+    runtimeUnionArity: layout.members.length,
+  };
 };
 
 const getPredicateReceiverAstFromExistingBinding = (
@@ -332,12 +357,22 @@ export const tryResolveInstanceofGuard = (
   });
   const runtimeUnionFrame =
     currentType && inferredRhsType
-      ? resolveGuardRuntimeUnionFrame(
+      ? (resolveGuardRuntimeUnionFrame(
           originalName,
           currentType,
           target.kind === "identifier" ? target : undefined,
           context
-        )
+        ) ??
+        (carrierSourceType
+          ? resolveGuardRuntimeUnionFrame(
+              originalName,
+              carrierSourceType,
+              target.kind === "identifier" ? target : undefined,
+              context
+            )
+          : undefined) ??
+        resolveLayoutRuntimeUnionFrame(currentType, context) ??
+        resolveLayoutRuntimeUnionFrame(carrierSourceType, context))
       : undefined;
   const runtimeMatchIndices =
     runtimeUnionFrame && inferredRhsType

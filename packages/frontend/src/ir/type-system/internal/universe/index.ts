@@ -2,14 +2,14 @@
  * Universe Module — Unified Type Catalog
  *
  * This module exports the unified type catalog that merges source-authored
- * types (from TypeRegistry) and assembly-authored types (from CLR metadata).
+ * types (from TypeRegistry) and external-authored types (from target metadata).
  *
- * INVARIANT INV-CLR: All nominal type identities come from ONE unified catalog.
+ * INVARIANT INV-NOMINAL: All nominal type identities come from ONE unified catalog.
  * No type query is allowed to "fall back" to parallel logic or parallel stores.
  *
  * Exports:
  * - Types: TypeId, NominalEntry, MemberEntry, etc.
- * - Builders: buildUnifiedUniverse, buildAliasTable, loadClrCatalog
+ * - Builders: buildUnifiedUniverse, buildAliasTable, loadExternalCatalog
  * - Resolution: resolveTypeName, validateStdlibTypes
  * - Queries: getTypeId, lookupMemberWithInheritance
  */
@@ -32,7 +32,7 @@ export type {
   ParameterMode,
   ConstructorEntry,
   FieldEntry,
-  AssemblyTypeCatalog,
+  ExternalTypeCatalog,
   UnifiedTypeCatalog,
   RawBindingsType,
   RawBindingsMethod,
@@ -48,22 +48,20 @@ export type {
 export {
   makeTypeId,
   parseStableId,
-  PRIMITIVE_TO_STABLE_ID,
-  STABLE_ID_TO_PRIMITIVE,
 } from "./types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CLR CATALOG
+// target CATALOG
 // ═══════════════════════════════════════════════════════════════════════════
 
 export {
-  loadClrCatalog,
+  loadExternalCatalog,
   loadSinglePackageBindings,
   getTypeByStableId,
   getTypeByTsName,
-  getTypeByClrName,
+  getTypeByTargetName,
   getMemberByTsName,
-} from "./clr-catalog.js";
+} from "./external-catalog.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // UNIFIED UNIVERSE
@@ -90,7 +88,7 @@ export {
   isStdlibTypeName,
   getPrimitiveNames,
   getGlobalNames,
-  normalizeToClrName,
+  normalizeToTargetName,
   getInstanceInterfaceName,
 } from "./alias-table.js";
 

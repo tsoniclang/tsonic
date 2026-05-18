@@ -1,5 +1,5 @@
 /**
- * Declaration file classification, bindings resolution, CLR identity,
+ * Declaration file classification, bindings resolution, target identity,
  * and type-alias erasure/recursion analysis helpers.
  *
  * Split from references-structural.ts for file-size compliance (< 500 LOC).
@@ -9,19 +9,23 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import * as ts from "typescript";
 import type { DeclId } from "../../../type-system/types.js";
-import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
-import { extractRawDotnetBindingTypes } from "../../../../program/dotnet-binding-payload.js";
+import { tsbindgenTargetTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
+import { extractRawExternalBindingTypes } from "../../../../program/external-binding-payload.js";
 import { resolveContainingSourcePackageNamespace } from "../../../../program/source-file-identity.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import { getTypeAliasRecursionCache } from "./references-normalize.js";
+import {
+  isWellKnownSymbolPropertyName,
+  tryResolveDeterministicPropertyName,
+} from "../../../syntax/property-names.js";
 
 /**
  * Check whether a declaration file is a Tsonic-generated bindings artifact.
  *
- * We only apply aggressive declaration-file type-alias erasure to these files.
- * Airplane-grade rule: Never erase type aliases from tsbindgen-produced stdlib
- * packages (e.g., @tsonic/dotnet, @tsonic/core). Those aliases often encode CLR
- * nominal types (interfaces, delegates, indexers) and must remain NOMINAL.
+   * We only apply aggressive declaration-file type-alias erasure to these files.
+   * Airplane-grade rule: Never erase type aliases from external provider packages.
+   * Those aliases often encode nominal types (interfaces, delegates, indexers)
+   * and must remain NOMINAL.
  */
 export const isTsonicBindingsDeclarationFile = (fileName: string): boolean => {
   // Cross-platform: handle both POSIX and Windows paths.
@@ -31,7 +35,7 @@ export const isTsonicBindingsDeclarationFile = (fileName: string): boolean => {
   );
 };
 
-const bindingAliasClrIdentityCache = new Map<
+const bindingAliasTargetIdentityCache = new Map<
   string,
   ReadonlyMap<string, string>
 >();
@@ -109,32 +113,32 @@ const findOwningBindingsJson = (fileName: string): string | undefined => {
   return undefined;
 };
 
-const buildBindingAliasClrIdentityMap = (
+const buildBindingAliasTargetIdentityMap = (
   bindingsPath: string
 ): ReadonlyMap<string, string> => {
-  const cached = bindingAliasClrIdentityCache.get(bindingsPath);
+  const cached = bindingAliasTargetIdentityCache.get(bindingsPath);
   if (cached) return cached;
 
-  const aliasToClr = new Map<string, string>();
+  const aliasToTarget = new Map<string, string>();
 
   try {
     const raw = JSON.parse(readFileSync(bindingsPath, "utf-8")) as unknown;
-    const types = extractRawDotnetBindingTypes(raw);
+    const types = extractRawExternalBindingTypes(raw);
     if (types) {
       for (const type of types) {
         if (!type || typeof type !== "object") continue;
-        const clrName = (type as { readonly clrName?: unknown }).clrName;
-        if (typeof clrName !== "string" || clrName.trim().length === 0) {
+        const targetName = (type as { readonly targetName?: unknown }).targetName;
+        if (typeof targetName !== "string" || targetName.trim().length === 0) {
           continue;
         }
 
-        const tsAlias = tsbindgenClrTypeNameToTsTypeName(clrName);
-        const lastDot = clrName.lastIndexOf(".");
+        const tsAlias = tsbindgenTargetTypeNameToTsTypeName(targetName);
+        const lastDot = targetName.lastIndexOf(".");
         if (lastDot <= 0) continue;
 
-        const namespace = clrName.slice(0, lastDot);
-        aliasToClr.set(tsAlias, clrName);
-        aliasToClr.set(`${namespace}.${tsAlias}`, clrName);
+        const namespace = targetName.slice(0, lastDot);
+        aliasToTarget.set(tsAlias, targetName);
+        aliasToTarget.set(`${namespace}.${tsAlias}`, targetName);
       }
     }
   } catch (error) {
@@ -145,11 +149,11 @@ const buildBindingAliasClrIdentityMap = (
     );
   }
 
-  bindingAliasClrIdentityCache.set(bindingsPath, aliasToClr);
-  return aliasToClr;
+  bindingAliasTargetIdentityCache.set(bindingsPath, aliasToTarget);
+  return aliasToTarget;
 };
 
-export const resolveSourceClrIdentity = (
+export const resolveSourceTargetIdentity = (
   declId: DeclId | undefined,
   binding: Binding
 ): string | undefined => {
@@ -188,9 +192,9 @@ export const resolveSourceClrIdentity = (
 
   const bindingsPath = findOwningBindingsJson(sourceFile.fileName);
   if (bindingsPath) {
-    const exactClrName =
-      buildBindingAliasClrIdentityMap(bindingsPath).get(fqName);
-    return exactClrName ?? fqName;
+    const exactTargetName =
+      buildBindingAliasTargetIdentityMap(bindingsPath).get(fqName);
+    return exactTargetName ?? fqName;
   }
 
   if (fqName.includes(".")) {
@@ -334,6 +338,27 @@ export const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
     sourceFile.isDeclarationFile && isTsonicBindingsDeclarationFile(fileName);
   const isSourcePackageFile =
     !sourceFile.isDeclarationFile && isTsonicSourcePackageFile(fileName);
+  const hasExplicitSourceProtocolMember = (): boolean => {
+    const members = ts.isInterfaceDeclaration(decl)
+      ? decl.members
+      : ts.isClassDeclaration(decl)
+        ? decl.members
+        : ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type)
+          ? decl.type.members
+          : undefined;
+
+    if (!members) {
+      return false;
+    }
+
+    return members.some((member) => {
+      if (!("name" in member)) {
+        return false;
+      }
+      const name = tryResolveDeterministicPropertyName(member.name);
+      return name !== undefined && isWellKnownSymbolPropertyName(name);
+    });
+  };
 
   // Skip external library types, but keep first-party/source-package bindings
   // extractable even when they are installed under node_modules.
@@ -349,9 +374,12 @@ export const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
   if (
     (!isSourceBindingsDecl &&
       !isSourcePackageFile &&
+      !hasExplicitSourceProtocolMember() &&
       fileName.includes("node_modules")) ||
     fileName.includes("lib.") ||
-    (sourceFile.isDeclarationFile && !isSourceBindingsDecl)
+    (sourceFile.isDeclarationFile &&
+      !isSourceBindingsDecl &&
+      !hasExplicitSourceProtocolMember())
   ) {
     return false;
   }

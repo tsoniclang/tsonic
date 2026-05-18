@@ -2,6 +2,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as path from "node:path";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
+import { ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES } from "./test-backend-capabilities.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 import type {
   IrFunctionDeclaration,
@@ -39,6 +40,7 @@ describe("Dependency Graph", function () {
         projectRoot: tempDir,
         sourceRoot: path.join(tempDir, "src"),
         rootNamespace: "App",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
         surface: "@tsonic/js",
         verbose: false,
       });

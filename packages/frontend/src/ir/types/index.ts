@@ -106,6 +106,8 @@ export type {
 // Type system types
 export type {
   IrType,
+  IrAsyncWrapperMetadata,
+  IrIterableShapeMetadata,
   IrPrimitiveType,
   IrReferenceType,
   IrTypeParameterType,
@@ -157,6 +159,7 @@ export type {
 } from "./numeric-kind.js";
 export type {
   IrPhase,
+  BackendTargetId,
   PhasedIrModule,
   PhasedIrStatement,
   PhasedIrExpression,
@@ -172,6 +175,7 @@ export type {
   EmittableIrType,
 } from "./phases.js";
 export {
+  defineBackendTargetId,
   assumeIrPhase,
   assumeIrModulesPhase,
   assumeEmittableIrModule,
@@ -179,7 +183,7 @@ export {
 } from "./phases.js";
 export {
   TSONIC_TO_NUMERIC_KIND,
-  NUMERIC_KIND_TO_CSHARP,
+  NUMERIC_KIND_TO_TYPE_ALIAS,
   NUMERIC_RANGES,
   numericTypeFactFromName,
   booleanTypeFactFromName,
@@ -219,9 +223,7 @@ export {
 
 export {
   type IrSpreadTupleShape,
-  getClrIdentityKey,
   referenceTypeIdentity,
-  referenceTypeHasClrIdentity,
   isAwaitableIrType,
   getAwaitedIrType,
   getSpreadTupleShape,

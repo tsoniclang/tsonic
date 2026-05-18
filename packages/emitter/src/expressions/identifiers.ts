@@ -32,11 +32,14 @@ import {
 } from "./identifier-storage.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { stripNullish } from "../core/semantic/type-resolution.js";
+import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import {
   isExpectedIntegralIrType,
+  maybeCastNumericToExpectedJsNumberAst,
   maybeCastNumericToExpectedIntegralAst,
 } from "./post-emission-adaptation.js";
+import { resolveCoreTargetTypeName } from "../core/semantic/target-symbols.js";
 
 /**
  * Emit an identifier as CSharpExpressionAst
@@ -46,14 +49,11 @@ export const emitIdentifier = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  const maybeWrapLocalIntegralCast = (
+  const maybeWrapLocalNumericCast = (
     identifierAst: CSharpExpressionAst,
     currentContext: EmitterContext
   ): [CSharpExpressionAst, EmitterContext] => {
-    if (
-      !expectedType ||
-      !isExpectedIntegralIrType(expectedType, currentContext)
-    ) {
+    if (!expectedType) {
       return [identifierAst, currentContext];
     }
 
@@ -62,7 +62,16 @@ export const emitIdentifier = (
       return [identifierAst, currentContext];
     }
 
-    return maybeCastNumericToExpectedIntegralAst(
+    if (isExpectedIntegralIrType(expectedType, currentContext)) {
+      return maybeCastNumericToExpectedIntegralAst(
+        identifierAst,
+        storageType,
+        currentContext,
+        expectedType
+      );
+    }
+
+    return maybeCastNumericToExpectedJsNumberAst(
       identifierAst,
       storageType,
       currentContext,
@@ -166,11 +175,30 @@ export const emitIdentifier = (
                 context
               )
             : [false, context];
+        const sameSourceCarrierAlias =
+          !!expectedType &&
+          !!narrowed.sourceType &&
+          runtimeUnionAliasReferencesMatch(
+            stripNullish(narrowed.sourceType),
+            stripNullish(expectedType),
+            context
+          );
+        const localStorageType = context.localValueTypes?.get(expr.name);
+        const localStorageAlreadyCarriesExpectedTarget =
+          !!expectedType &&
+          !!localStorageType &&
+          (willCarryAsRuntimeUnion(stripNullish(localStorageType), context) ||
+            runtimeUnionAliasReferencesMatch(
+              stripNullish(localStorageType),
+              stripNullish(expectedType),
+              context
+            ));
         const canReuseOriginalCarrierForExpectedTarget =
           !!expectedType &&
           !!narrowed.sourceType &&
+          localStorageAlreadyCarriesExpectedTarget &&
           !isBroadStorageTarget(expectedType, context) &&
-          sameSourceCarrierSurface;
+          (sameSourceCarrierSurface || sameSourceCarrierAlias);
         if (canReuseOriginalCarrierForExpectedTarget) {
           const originalCarrier =
             narrowed.storageExprAst ??
@@ -255,7 +283,7 @@ export const emitIdentifier = (
     expectedType
   );
   if (storageFallback) {
-    return [storageFallback, context];
+    return maybeWrapLocalNumericCast(storageFallback, context);
   }
 
   // Lexical remap for locals/parameters (prevents C# CS0136 shadowing errors).
@@ -278,7 +306,7 @@ export const emitIdentifier = (
 
   const remappedLocal = context.localNameMap?.get(expr.name);
   if (remappedLocal) {
-    return maybeWrapLocalIntegralCast(
+    return maybeWrapLocalNumericCast(
       identifierExpression(remappedLocal),
       context
     );
@@ -334,21 +362,25 @@ export const emitIdentifier = (
     return [identifierExpression(memberName), context];
   }
 
-  // Use custom C# name from binding if specified (with global:: prefix)
-  if (expr.csharpName && expr.resolvedAssembly) {
-    const fqn = `global::${expr.resolvedAssembly}.${expr.csharpName}`;
+  // Use target member name from binding if specified (with global:: prefix)
+  if (expr.providerMemberName && expr.providerOwnerIdentity) {
+    const fqn = `global::${expr.providerOwnerIdentity}.${expr.providerMemberName}`;
     return [identifierExpression(fqn), context];
   }
 
   // Use resolved binding if available (from binding manifest) with global:: prefix.
   // Normalize nested CLR type syntax (Outer+Inner`1) before emitting.
-  if (expr.resolvedClrType) {
-    const fqn = normalizeClrQualifiedName(expr.resolvedClrType, true);
+  if (expr.providerQualifiedName) {
+    const fqn = normalizeClrQualifiedName(
+      resolveCoreTargetTypeName(expr.providerQualifiedName) ??
+        expr.providerQualifiedName,
+      true
+    );
     return [identifierExpression(fqn), context];
   }
 
   // Fallback: use identifier as-is (escape C# keywords)
-  return maybeWrapLocalIntegralCast(
+  return maybeWrapLocalNumericCast(
     identifierExpression(escapeCSharpIdentifier(expr.name)),
     context
   );

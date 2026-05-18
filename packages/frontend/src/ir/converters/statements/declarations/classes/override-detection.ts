@@ -6,19 +6,22 @@
 
 import * as ts from "typescript";
 import type { ProgramContext } from "../../../../program-context.js";
-import type { IrParameter, IrType } from "../../../../types.js";
-import type { DotnetMemberMetadata } from "../../../../../dotnet-metadata.js";
+import type { IrParameter } from "../../../../types.js";
+import {
+  externalSignatureTypeKey,
+  type ExternalMemberMetadata,
+} from "../../../../../external-metadata.js";
 import { resolveHeritageReferenceType } from "../../../heritage-reference-type.js";
 
 export type OverrideInfo = {
   readonly isOverride: boolean;
   readonly isShadow: boolean;
   /**
-   * Required C# accessibility for an override against a CLR base member.
+   * Required target accessibility for an override against a native target base member.
    *
-   * CLR `protected internal` members must be overridden as `protected` in
+   * native target `protected internal` members must be overridden as `protected` in
    * generated source when the override is emitted from a different assembly.
-   * TypeScript cannot express these CLR distinctions directly, so we
+   * TypeScript cannot express these native target distinctions directly, so we
    * normalize them from bindings metadata here.
    */
   readonly requiredAccessibility?:
@@ -45,16 +48,16 @@ export const detectOverride = (
   }
 
   const heritageType = resolveHeritageReferenceType(superClass, ctx);
-  const heritageClrName =
+  const heritageTargetName =
     heritageType.kind === "referenceType"
-      ? (heritageType.resolvedClrType ?? heritageType.typeId?.clrName)
+      ? heritageType.providerQualifiedName
       : undefined;
 
-  if (heritageClrName && ctx.metadata.getTypeMetadata(heritageClrName)) {
-    return detectDotNetOverride(
+  if (heritageTargetName && ctx.metadata.getTypeMetadata(heritageTargetName)) {
+    return detectExternalOverride(
       memberName,
       memberKind,
-      heritageClrName,
+      heritageTargetName,
       ctx,
       parameters
     );
@@ -83,7 +86,7 @@ export const detectOverride = (
     : baseClassName;
 
   if (qualifiedName && ctx.metadata.getTypeMetadata(qualifiedName)) {
-    return detectDotNetOverride(
+    return detectExternalOverride(
       memberName,
       memberKind,
       qualifiedName,
@@ -106,7 +109,7 @@ export const detectOverride = (
 };
 
 /**
- * Get full property access name (e.g., "System.Collections.Generic.List")
+ * Get full property access name (e.g., "Provider.Collections.Generic.List")
  */
 const getFullPropertyAccessName = (
   expr: ts.PropertyAccessExpression
@@ -127,9 +130,9 @@ const getFullPropertyAccessName = (
 };
 
 /**
- * Detect override for .NET base classes using metadata
+ * Detect override for external base classes using metadata
  */
-const detectDotNetOverride = (
+const detectExternalOverride = (
   memberName: string,
   memberKind: "method" | "property",
   qualifiedName: string,
@@ -137,26 +140,19 @@ const detectDotNetOverride = (
   parameters?: readonly IrParameter[]
 ): OverrideInfo => {
   const toOverrideAccessibility = (
-    visibility: DotNetVisibility | undefined
+    visibility: ExternalVisibility | undefined
   ): OverrideInfo["requiredAccessibility"] =>
     visibility === "protected internal" ? "protected" : visibility;
 
   if (memberKind === "method" && parameters) {
     const parameterTypes: string[] = [];
     for (const p of parameters) {
-      const token = irTypeToDotnetSignatureType(p.type);
+      const token = externalSignatureTypeKey(p.type);
       if (!token) {
         return { isOverride: false, isShadow: false };
       }
 
-      // CLR byref uses '&' in signatures; include it for ref/out/in.
-      parameterTypes.push(
-        p.passing === "value"
-          ? token
-          : token.endsWith("&")
-            ? token
-            : `${token}&`
-      );
+      parameterTypes.push(token);
     }
 
     const modifiersKey = buildParameterModifiersKey(parameters);
@@ -197,7 +193,7 @@ const detectDotNetOverride = (
   return { isOverride: false, isShadow: false };
 };
 
-type DotNetVisibility = NonNullable<DotnetMemberMetadata["visibility"]>;
+type ExternalVisibility = NonNullable<ExternalMemberMetadata["visibility"]>;
 
 const buildParameterModifiersKey = (params: readonly IrParameter[]): string => {
   const mods: Array<{ index: number; modifier: string }> = [];
@@ -213,56 +209,4 @@ const buildParameterModifiersKey = (params: readonly IrParameter[]): string => {
     .sort((a, b) => a.index - b.index)
     .map((m) => `${m.index}:${m.modifier}`)
     .join(",");
-};
-
-const irTypeToDotnetSignatureType = (
-  type: IrType | undefined
-): string | undefined => {
-  if (!type) return undefined;
-
-  // Signature tokens mirror tsbindgen `canonicalSignature` types:
-  // - Non-generic CLR types use fully-qualified CLR names (e.g., System.String)
-  // - Generic CLR types use TS surface tokens (e.g., List_1, Dictionary_2)
-  // - Type parameters use their name (e.g., T)
-  // - Arrays use `[]` suffix (e.g., System.Type[])
-  // - Byref uses `&` suffix and is handled at the parameter level.
-  switch (type.kind) {
-    case "primitiveType": {
-      switch (type.name) {
-        case "string":
-          return "System.String";
-        case "number":
-          return "System.Double";
-        case "boolean":
-          return "System.Boolean";
-        case "int":
-          return "System.Int32";
-        case "char":
-          return "System.Char";
-        default:
-          return undefined;
-      }
-    }
-    case "typeParameterType":
-      return type.name;
-    case "arrayType": {
-      const el = irTypeToDotnetSignatureType(type.elementType);
-      return el ? `${el}[]` : undefined;
-    }
-    case "referenceType": {
-      const clrName = type.resolvedClrType ?? type.typeId?.clrName;
-      if (!clrName) return undefined;
-
-      // Generic CLR type names use `\u0060` (or '`') arity suffix; signatures use Foo_1 tokens.
-      if (clrName.includes("\u0060") || clrName.includes("`")) {
-        const lastDot = clrName.lastIndexOf(".");
-        const simple = lastDot >= 0 ? clrName.slice(lastDot + 1) : clrName;
-        return simple.replace(/\u0060(\d+)/g, "_$1").replace(/`(\d+)/g, "_$1");
-      }
-
-      return clrName;
-    }
-    default:
-      return undefined;
-  }
 };

@@ -59,8 +59,7 @@ export const buildIrModule = (
       ctx
     );
 
-    // Validate class implements patterns
-    // TypeScript interfaces are nominalized to C# classes, so "implements" is invalid
+    // Validate class implements patterns.
     const implementsDiagnostics = validateClassImplements(sourceFile, ctx);
     const firstImplementsDiagnostic = implementsDiagnostics[0];
     if (firstImplementsDiagnostic) {

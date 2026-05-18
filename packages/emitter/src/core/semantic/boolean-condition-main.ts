@@ -30,6 +30,7 @@ import {
   coerceClrPrimitiveToPrimitiveType,
   emitRuntimeTruthinessConditionAst,
   isBooleanType,
+  identifierType,
   identifierExpr,
   isInherentlyBooleanExpression,
   predefinedType,
@@ -189,6 +190,26 @@ export const toBooleanConditionAst = (
               operatorToken: "!=",
               left: emittedAst,
               right: charLiteral("\0"),
+            },
+          },
+          context,
+        ];
+
+      case "bigint":
+        return [
+          {
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "binaryExpression",
+              operatorToken: "!=",
+              left: emittedAst,
+              right: {
+                kind: "memberAccessExpression",
+                expression: typeReferenceExpr(
+                  identifierType("global::System.Numerics.BigInteger")
+                ),
+                memberName: "Zero",
+              },
             },
           },
           context,

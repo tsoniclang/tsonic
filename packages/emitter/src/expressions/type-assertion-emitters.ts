@@ -349,7 +349,7 @@ export const emitTypeAssertion = (
           const clrName = getIdentifierTypeName(importBinding.typeAst);
           return {
             ...target,
-            ...(clrName ? { resolvedClrType: clrName } : {}),
+            ...(clrName ? { providerQualifiedName: clrName } : {}),
             structuralOrigin: target.structuralOrigin ?? "namedReference",
             structuralMembers: target.structuralMembers ?? aliasType.members,
           };
@@ -684,7 +684,10 @@ export const emitTypeAssertion = (
     return emitExpressionAst(
       transparentSourceExpression,
       context,
-      resolveEmissionExpectedType(expectedType)
+      willCarryAsRuntimeUnion(expectedType, context) &&
+        !willCarryAsRuntimeUnion(runtimeAssertionTarget, context)
+        ? runtimeAssertionTarget
+        : resolveEmissionExpectedType(expectedType)
     );
   }
 
@@ -1259,6 +1262,16 @@ export const emitTypeAssertion = (
               areIrTypesEquivalent(actualType, expectedType, adaptationContext)
             ) {
               return [_ast, adaptationContext];
+            }
+
+            if (willCarryAsRuntimeUnion(expectedType, adaptationContext)) {
+              return adaptValueToExpectedTypeAst({
+                valueAst: _ast,
+                actualType,
+                context: adaptationContext,
+                expectedType,
+                allowUnionNarrowing: false,
+              });
             }
 
             const [expectedTypeAst, nextContext] = emitTypeAst(

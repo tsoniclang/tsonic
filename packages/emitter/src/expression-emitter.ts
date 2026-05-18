@@ -97,7 +97,7 @@ export const emitExpressionAst = (
         return emitCall(normalizedExpr, context, expectedType);
 
       case "new":
-        return emitNew(normalizedExpr, context);
+        return emitNew(normalizedExpr, context, expectedType);
 
       case "binary":
         return emitBinary(normalizedExpr, context, expectedType);

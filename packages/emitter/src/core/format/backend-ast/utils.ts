@@ -5,13 +5,13 @@
  * going through the printer.
  */
 
-import { getClrIdentityKey as getFrontendClrIdentityKey } from "@tsonic/frontend";
 import type {
   CSharpExpressionAst,
   CSharpPredefinedTypeKeyword,
   CSharpQualifiedNameAst,
   CSharpTypeAst,
 } from "./types.js";
+import { getClrIdentityKey } from "./clr-identity.js";
 
 const CSHARP_PREDEFINED_TYPE_KEYWORD_LIST: readonly CSharpPredefinedTypeKeyword[] =
   [
@@ -196,7 +196,7 @@ export const normalizeClrQualifiedName = (
   return hasGlobal || forceGlobal ? `global::${sanitized}` : sanitized;
 };
 
-export const clrTypeNameToTypeAst = (clrName: string): CSharpTypeAst => {
+export const targetTypeNameToTypeAst = (clrName: string): CSharpTypeAst => {
   const normalized = normalizeClrQualifiedName(clrName);
   const hasGlobal = normalized.startsWith("global::");
   const sanitized = hasGlobal
@@ -307,7 +307,7 @@ const canonicalNamedTypeKey = (
     baseName.includes(".") ||
     metadataArity !== undefined;
   if (isClrShapedName) {
-    return `clr:${getFrontendClrIdentityKey(
+    return `clr:${getClrIdentityKey(
       normalizeClrIdentityInput(body),
       arity
     )}<${argumentKeys.join(",")}>`;
@@ -363,7 +363,7 @@ export const stableClrIdentityKeyFromName = (
   clrName: string,
   typeArgumentArity = 0
 ): string => {
-  return `clr:${getFrontendClrIdentityKey(
+  return `clr:${getClrIdentityKey(
     normalizeClrIdentityInput(clrName),
     typeArgumentArity
   )}`;

@@ -140,8 +140,8 @@ export const getOrCreateDeclId = (
   // IMPORTANT:
   // Some symbols (notably tsbindgen facades) intentionally merge a value export
   // and a type export under the same name, e.g.:
-  //   export const Task: typeof Internal.Task;
-  //   export type Task<T1 = __> = ... Internal.Task_1<T1> ...
+  //   export const ExternalAsync: typeof Internal.ExternalAsync;
+  //   export type ExternalAsync<T1 = __> = ... Internal.ExternalAsync_1<T1> ...
   //
   // For expression identifiers we want the value declaration, while for type
   // references we must be able to access the type declaration. We capture both.
@@ -776,7 +776,7 @@ export const resolveTypeReference = (
   //   type Foo<T> = Bar<T>
   //
   // This is required for tsbindgen facades, where ergonomic types are often
-  // exported as aliases to arity-qualified internal CLR types.
+  // exported as aliases to arity-qualified internal native target types.
   //
   // DETERMINISTIC: AST inspection only (no ts.Type queries).
   const seen = new Set<ts.Symbol>();

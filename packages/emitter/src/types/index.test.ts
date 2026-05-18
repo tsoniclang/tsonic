@@ -48,6 +48,14 @@ describe("Type Emission", () => {
               isRest: false,
               passing: "value",
             },
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "d" },
+              type: { kind: "primitiveType", name: "bigint" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
           ],
           returnType: { kind: "voidType" },
           body: { kind: "blockStatement", statements: [] },
@@ -64,6 +72,7 @@ describe("Type Emission", () => {
     expect(result).to.include("string a");
     expect(result).to.include("double b");
     expect(result).to.include("bool c");
+    expect(result).to.include("global::System.Numerics.BigInteger d");
   });
 
   it("should emit async functions with Task types", () => {
@@ -427,7 +436,7 @@ describe("Type Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "MyApp.Router",
+      providerQualifiedName: "MyApp.Router",
     };
 
     const module: IrModule = {

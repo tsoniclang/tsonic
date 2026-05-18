@@ -2,21 +2,18 @@
  * Reference type converter — main convertTypeReference entry point.
  *
  * Handles primitive checks, Array/ReadonlyArray, conditional utilities,
- * Record expansion, mapped utilities, CLR erasure wrappers, parameter
+ * Record expansion, mapped utilities, native target erasure wrappers, parameter
  * modifiers, and delegates to alias/declaration body handling.
  */
 
 import * as ts from "typescript";
 import { IrType, IrDictionaryType } from "../../../types.js";
-import {
-  buildSubstitutionFromExplicitTypeArgs,
-  substituteIrType,
-} from "../../../types/ir-substitution.js";
+import { substituteIrType } from "../../../types/ir-substitution.js";
 import {
   isPrimitiveTypeName,
   getPrimitiveType,
-  isClrPrimitiveTypeName,
-  getClrPrimitiveType,
+  isCorePrimitiveTypeName,
+  getCorePrimitiveType,
 } from "./primitives.js";
 import {
   isExpandableUtilityType,
@@ -27,13 +24,13 @@ import {
 } from "./utility-types.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import {
-  normalizeSystemInternalQualifiedName,
+  normalizeProviderInternalQualifiedName,
   normalizeNamespaceAliasQualifiedName,
   classifyDictionaryKeyTypeNode,
 } from "./references-normalize.js";
 import {
   extractStructuralMembersFromDeclarations,
-  resolveSourceClrIdentity,
+  resolveSourceTargetIdentity,
   tryConvertPureIndexSignatureToDictionary,
 } from "./references-structural.js";
 import {
@@ -52,7 +49,7 @@ export const convertTypeReference = (
 ): IrType => {
   const rawTypeName = entityNameToText(node.typeName);
   const typeName = normalizeNamespaceAliasQualifiedName(
-    normalizeSystemInternalQualifiedName(rawTypeName)
+    normalizeProviderInternalQualifiedName(rawTypeName)
   );
 
   // Check for primitive type names
@@ -60,16 +57,15 @@ export const convertTypeReference = (
     return getPrimitiveType(typeName);
   }
 
-  // Check for CLR primitive type names (e.g., int from @tsonic/core)
-  if (isClrPrimitiveTypeName(typeName)) {
-    return getClrPrimitiveType(typeName);
+  // Check for core source primitive aliases (e.g., int from @tsonic/core)
+  if (isCorePrimitiveTypeName(typeName)) {
+    return getCorePrimitiveType(typeName);
   }
 
   if (typeName === "JsPrimitive" || typeName === "JsValue") {
     return {
       kind: "referenceType",
       name: typeName,
-      resolvedClrType: "global::System.Object",
       structuralOrigin: "namedReference",
     };
   }
@@ -118,8 +114,8 @@ export const convertTypeReference = (
     if (expanded) return expanded;
   }
 
-  // tsbindgen's `CLROf<T>` is a conditional type used to coerce ergonomic primitives
-  if (typeName === "CLROf" && node.typeArguments?.length === 1) {
+  // tsbindgen's `native targetOf<T>` is a conditional type used to coerce ergonomic primitives
+  if (typeName === "native targetOf" && node.typeArguments?.length === 1) {
     const inner = node.typeArguments[0];
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
@@ -249,7 +245,7 @@ export const convertTypeReference = (
       .getDecl(declId);
     return declInfo?.fqName ?? typeName;
   })();
-  const resolvedClrType = resolveSourceClrIdentity(declId, binding);
+  const providerQualifiedName = resolveSourceTargetIdentity(declId, binding);
 
   // ExtensionMethods wrapper erasure for resolved names
   if (
@@ -276,13 +272,26 @@ export const convertTypeReference = (
     const formalTypeParameters =
       declaringType?.typeParameters?.map((parameter) => parameter.name.text) ??
       [];
-    const substitution =
-      convertedTypeArguments && convertedTypeArguments.length > 0
-        ? buildSubstitutionFromExplicitTypeArgs(
-            convertedTypeArguments,
-            formalTypeParameters
-          )
-        : undefined;
+    const substitution = (() => {
+      if (formalTypeParameters.length === 0) {
+        return undefined;
+      }
+
+      const map = new Map<string, IrType>();
+      for (
+        let i = 0;
+        i < Math.min(formalTypeParameters.length, convertedTypeArguments?.length ?? 0);
+        i++
+      ) {
+        const formal = formalTypeParameters[i];
+        const explicit = convertedTypeArguments?.[i];
+        if (formal && explicit) {
+          map.set(formal, explicit);
+        }
+      }
+
+      return map.size > 0 ? map : undefined;
+    })();
     if (!substitution || substitution.size === 0) {
       return structuralMembers;
     }
@@ -325,7 +334,7 @@ export const convertTypeReference = (
     kind: "referenceType",
     name: resolvedName,
     typeArguments: convertedTypeArguments,
-    resolvedClrType,
+    providerQualifiedName,
     structuralOrigin: "namedReference",
     ...(substitutedStructuralMembers
       ? { structuralMembers: substitutedStructuralMembers }

@@ -57,8 +57,8 @@ describe("Module Resolver", () => {
       bindings.addBindings("/test/nodejs-types.json", {
         namespace: "nodejs",
         types: moduleNames.map((moduleName) => ({
-          clrName: `nodejs.${moduleName}`,
-          assemblyName: "nodejs",
+          targetName: `nodejs.${moduleName}`,
+          ownerIdentity: "nodejs",
           methods: [],
           properties: [],
           fields: [],
@@ -97,7 +97,7 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(true);
       if (result.ok) {
         expect(result.value.isLocal).to.equal(true);
-        expect(result.value.isClr).to.equal(false);
+        expect(result.value.resolutionKind).to.equal("local");
         expect(result.value.resolvedPath).to.equal(
           path.join(tempDir, "src", "models", "User.ts")
         );
@@ -257,7 +257,7 @@ describe("Module Resolver", () => {
         expect(result.ok).to.equal(true);
         if (result.ok) {
           expect(result.value.isLocal).to.equal(true);
-          expect(result.value.isClr).to.equal(false);
+          expect(result.value.resolutionKind).to.equal("local");
           expect(result.value.isSourcePackage).to.equal(undefined);
           expect(result.value.resolvedPath).to.equal(
             path.join(packageRoot, "System.d.ts")
@@ -268,9 +268,9 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should prefer direct source-package imports over CLR resolution", () => {
+    it("should prefer direct source-package imports over external-surface resolution", () => {
       const fixture = materializeResolveImportFixture(
-        "source-package-over-clr"
+        "source-package-over-external-surface"
       );
 
       try {
@@ -287,14 +287,17 @@ describe("Module Resolver", () => {
           {
             projectRoot,
             surface: "@tsonic/js",
-            clrResolver: {
+            externalResolver: {
               resolve: (specifier: string) =>
                 specifier === "@tsonic/nodejs/process.js"
                   ? {
-                      isClr: true as const,
+                      kind: "externalSurface" as const,
+                      packageName: "@tsonic/nodejs",
                       resolvedNamespace: "process",
+                      bindingsPath: "/test/bindings.json",
+                      ownerIdentity: "process",
                     }
-                  : { isClr: false as const },
+                  : { kind: "notExternalSurface" as const },
             } as never,
           }
         );
@@ -303,7 +306,7 @@ describe("Module Resolver", () => {
         if (result.ok) {
           expect(result.value.isLocal).to.equal(true);
           expect(result.value.isSourcePackage).to.equal(true);
-          expect(result.value.isClr).to.equal(false);
+          expect(result.value.resolutionKind).to.equal("local");
           expect(result.value.resolvedPath).to.equal(processEntry);
         }
       } finally {
@@ -342,7 +345,7 @@ describe("Module Resolver", () => {
         if (result.ok) {
           expect(result.value.isLocal).to.equal(true);
           expect(result.value.isSourcePackage).to.equal(true);
-          expect(result.value.isClr).to.equal(false);
+          expect(result.value.resolutionKind).to.equal("local");
           expect(result.value.resolvedPath).to.equal(netEntry);
         }
       } finally {
@@ -561,8 +564,8 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(true);
       if (result.ok) {
         expect(result.value.isLocal).to.equal(false);
-        expect(result.value.isClr).to.equal(false);
-        expect(result.value.resolvedClrType).to.equal("nodejs.fs");
+        expect(result.value.resolutionKind).to.equal("externalSurface");
+        expect(result.value.providerQualifiedName).to.equal("nodejs.fs");
       }
     });
 
@@ -578,7 +581,7 @@ describe("Module Resolver", () => {
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
-        expect(result.value.resolvedClrType).to.equal("nodejs.url");
+        expect(result.value.providerQualifiedName).to.equal("nodejs.url");
       }
     });
 
@@ -594,7 +597,7 @@ describe("Module Resolver", () => {
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
-        expect(result.value.resolvedClrType).to.equal("nodejs.path");
+        expect(result.value.providerQualifiedName).to.equal("nodejs.path");
       }
     });
 
@@ -627,10 +630,10 @@ describe("Module Resolver", () => {
       ] as const;
       const bindings = createNodeBindings(
         cases[0][1],
-        cases.slice(1).map(([, resolvedClrType]) => resolvedClrType)
+        cases.slice(1).map(([, providerQualifiedName]) => providerQualifiedName)
       );
 
-      for (const [specifier, resolvedClrType] of cases) {
+      for (const [specifier, providerQualifiedName] of cases) {
         const result = resolveImport(
           specifier,
           path.join(tempDir, "src", "index.ts"),
@@ -642,10 +645,10 @@ describe("Module Resolver", () => {
         if (!result.ok) continue;
 
         expect(result.value.isLocal, specifier).to.equal(false);
-        expect(result.value.isClr, specifier).to.equal(false);
-        expect(result.value.resolvedAssembly, specifier).to.equal("nodejs");
-        expect(result.value.resolvedClrType, specifier).to.equal(
-          resolvedClrType
+        expect(result.value.resolutionKind, specifier).to.equal("externalSurface");
+        expect(result.value.providerOwnerIdentity, specifier).to.equal("nodejs");
+        expect(result.value.providerQualifiedName, specifier).to.equal(
+          providerQualifiedName
         );
       }
     });
@@ -680,8 +683,8 @@ describe("Module Resolver", () => {
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
-        expect(result.value.resolvedClrType).to.equal("nodejs.console");
-        expect(result.value.resolvedAssembly).to.equal("nodejs");
+        expect(result.value.providerQualifiedName).to.equal("nodejs.console");
+        expect(result.value.providerOwnerIdentity).to.equal("nodejs");
       }
     });
 

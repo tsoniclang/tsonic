@@ -123,7 +123,7 @@ const buildMetaPlans = (
           ok: false,
           error:
             `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
-            `It is required by meta-package root '${node.packageId}', which must produce real CLR bindings.\n` +
+            `It is required by meta-package root '${node.packageId}', which must produce real external bindings.\n` +
             `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
         };
       }

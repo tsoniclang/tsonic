@@ -198,7 +198,7 @@ const walkTypeRefs = (
           name: type.runtimeCarrierName,
           ...(type.runtimeCarrierNamespace
             ? {
-                resolvedClrType: `${type.runtimeCarrierNamespace}.${type.runtimeCarrierName}`,
+                providerQualifiedName: `${type.runtimeCarrierNamespace}.${type.runtimeCarrierName}`,
               }
             : {}),
           ...(type.runtimeCarrierTypeArguments &&
@@ -241,9 +241,9 @@ export const collectPublicLocalTypes = (
   ): string | undefined => {
     const candidates = [
       ref.name,
-      ref.resolvedClrType,
-      ref.typeId?.clrName,
-      ref.typeId?.tsName,
+      ref.providerQualifiedName,
+      ref.typeId?.providerName,
+      ref.typeId?.sourceName,
     ];
 
     for (const candidate of candidates) {

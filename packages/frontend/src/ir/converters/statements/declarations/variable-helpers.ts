@@ -14,7 +14,7 @@ import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Check if a variable statement is at module level (not inside a function).
- * Module-level variables become static fields in C# and need explicit types.
+ * Module-level variables become static fields in target and need explicit types.
  */
 export const isModuleLevelVariable = (node: ts.VariableStatement): boolean => {
   // Walk up the parent chain to check if we're inside a function/method

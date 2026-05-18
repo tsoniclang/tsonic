@@ -15,6 +15,7 @@ import type {
   CSharpPredefinedTypeKeyword,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 
 const PRIMITIVE_TYPE_MAP: Record<string, CSharpPredefinedTypeKeyword> = {
   number: "double",
@@ -37,6 +38,9 @@ export const emitPrimitiveType = (
   type: Extract<IrType, { kind: "primitiveType" }>,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
+  if (type.name === "bigint") {
+    return [identifierType("global::System.Numerics.BigInteger"), context];
+  }
   const keyword = PRIMITIVE_TYPE_MAP[type.name] ?? "object";
   return [{ kind: "predefinedType", keyword }, context];
 };

@@ -103,7 +103,7 @@ describe("Numeric Proof Invariants", () => {
       // const doubled = mapToInt(numbers, (n: int) => (n * 2) as int);
       const arrowBody = narrowTo(
         createBinary(ident("n"), "*", numLiteral(2)),
-        "Int32"
+        "int32"
       );
       const arrow = createArrowFunction("n", "int", arrowBody);
 
@@ -119,7 +119,7 @@ describe("Numeric Proof Invariants", () => {
       // Test that nested arrow functions correctly scope parameters
       const innerBody = narrowTo(
         createBinary(ident("x"), "+", ident("y")),
-        "Int32"
+        "int32"
       );
       const innerArrow = createArrowFunction("y", "int", innerBody);
       const outerArrow = createArrowFunction("x", "int", innerArrow);
@@ -138,7 +138,7 @@ describe("Numeric Proof Invariants", () => {
       // because n itself is not proven as Int32
       const arrowBody = narrowTo(
         createBinary(ident("n"), "*", numLiteral(2)),
-        "Int32"
+        "int32"
       );
       const arrow = createArrowFunction("n", "number", arrowBody);
 
@@ -156,13 +156,13 @@ describe("Numeric Proof Invariants", () => {
       // const x = 1 as int;
       // const fn = (n: int) => (x + n) as int;  // x should be visible inside arrow
       const module = createModule([
-        createVarDecl("x", narrowTo(numLiteral(1), "Int32")),
+        createVarDecl("x", narrowTo(numLiteral(1), "int32")),
         createVarDecl(
           "fn",
           createArrowFunction(
             "n",
             "int",
-            narrowTo(createBinary(ident("x"), "+", ident("n")), "Int32")
+            narrowTo(createBinary(ident("x"), "+", ident("n")), "int32")
           )
         ),
       ]);
@@ -178,7 +178,7 @@ describe("Numeric Proof Invariants", () => {
       // const fn = (n: int) => ((n: int) => (n * 2) as int);
       const innerBody = narrowTo(
         createBinary(ident("n"), "*", numLiteral(2)),
-        "Int32"
+        "int32"
       );
       const innerArrow = createArrowFunction("n", "int", innerBody);
       const outerArrow = createArrowFunction("n", "int", innerArrow);
@@ -199,7 +199,7 @@ describe("Numeric Proof Invariants", () => {
             kind: "parameter",
             pattern: { kind: "identifierPattern", name: "delay" },
             type: { kind: "primitiveType", name: "int" },
-            initializer: narrowTo(numLiteral(1), "Int32"),
+            initializer: narrowTo(numLiteral(1), "int32"),
             isOptional: false,
             isRest: false,
             passing: "value",
@@ -214,7 +214,7 @@ describe("Numeric Proof Invariants", () => {
               kind: "parameter",
               pattern: { kind: "identifierPattern", name: "delay" },
               type: { kind: "primitiveType", name: "int" },
-              initializer: narrowTo(numLiteral(1), "Int32"),
+              initializer: narrowTo(numLiteral(1), "int32"),
               isOptional: false,
               isRest: false,
               passing: "value",
@@ -244,7 +244,7 @@ describe("Numeric Proof Invariants", () => {
       const initializer = processedArrow.parameters[0]?.initializer;
       expect(initializer?.kind).to.equal("numericNarrowing");
       if (initializer?.kind === "numericNarrowing") {
-        expect(initializer.proof?.kind).to.equal("Int32");
+        expect(initializer.proof?.kind).to.equal("int32");
       }
     });
 
@@ -256,7 +256,7 @@ describe("Numeric Proof Invariants", () => {
             kind: "parameter",
             pattern: { kind: "identifierPattern", name: "delay" },
             type: { kind: "primitiveType", name: "int" },
-            initializer: narrowTo(numLiteral(0), "Int32"),
+            initializer: narrowTo(numLiteral(0), "int32"),
             isOptional: false,
             isRest: false,
             passing: "value",
@@ -278,7 +278,7 @@ describe("Numeric Proof Invariants", () => {
               kind: "parameter",
               pattern: { kind: "identifierPattern", name: "delay" },
               type: { kind: "primitiveType", name: "int" },
-              initializer: narrowTo(numLiteral(0), "Int32"),
+              initializer: narrowTo(numLiteral(0), "int32"),
               isOptional: false,
               isRest: false,
               passing: "value",
@@ -308,7 +308,7 @@ describe("Numeric Proof Invariants", () => {
       const initializer = processedFn.parameters[0]?.initializer;
       expect(initializer?.kind).to.equal("numericNarrowing");
       if (initializer?.kind === "numericNarrowing") {
-        expect(initializer.proof?.kind).to.equal("Int32");
+        expect(initializer.proof?.kind).to.equal("int32");
       }
     });
 
@@ -353,7 +353,7 @@ describe("Numeric Proof Invariants", () => {
               thenStatement: block([
                 {
                   kind: "returnStatement",
-                  expression: narrowTo(ident("value"), "Int32"),
+                  expression: narrowTo(ident("value"), "int32"),
                 },
               ]),
             },
@@ -410,7 +410,7 @@ describe("Numeric Proof Invariants", () => {
               thenStatement: block([
                 {
                   kind: "returnStatement",
-                  expression: narrowTo(ident("value"), "Int32"),
+                  expression: narrowTo(ident("value"), "int32"),
                 },
               ]),
             },
@@ -471,7 +471,7 @@ describe("Numeric Proof Invariants", () => {
               thenStatement: block([
                 {
                   kind: "returnStatement",
-                  expression: narrowTo(ident("value"), "Int32"),
+                  expression: narrowTo(ident("value"), "int32"),
                 },
               ]),
             },

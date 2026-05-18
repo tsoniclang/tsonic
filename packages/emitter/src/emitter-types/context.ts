@@ -7,9 +7,9 @@ import { EmitterOptions, EmitterContext } from "./core.js";
 
 const getSurfaceCapabilities = (options: EmitterOptions) =>
   options.surfaceCapabilities ?? {
-    mode: options.surface ?? "clr",
-    includesClr: options.surface === undefined || options.surface === "clr",
-    resolvedModes: [options.surface ?? "clr"],
+    mode: options.surface ?? "core",
+    includesCore: options.surface === undefined || options.surface === "core",
+    resolvedModes: [options.surface ?? "core"],
     requiredTypeRoots: [],
     memberSemantics: {},
   };

@@ -1,5 +1,5 @@
 /**
- * Binding manifest loading - maps JS/TS names to CLR types/members
+ * Binding manifest loading - maps JS/TS names to external target types/members
  * See spec/bindings.md for full manifest format
  *
  * This barrel module re-exports all binding types, the registry, and loaders
@@ -36,12 +36,12 @@ export {
 } from "./binding-types.js";
 
 export {
-  isFirstPartyBindingsFileV2,
-  getDotnetBindingPayload,
-  extractRawDotnetBindingsPayload,
-  extractRawDotnetBindingTypes,
-  extractRawDotnetAssemblyName,
-} from "./dotnet-binding-payload.js";
+  isFirstPartyTargetBindingsFileV2,
+  getExternalBindingPayload,
+  extractRawExternalBindingsPayload,
+  extractRawExternalBindingTypes,
+  extractRawExternalOwnerIdentity,
+} from "./external-binding-payload.js";
 
 // ── Registry ───────────────────────────────────────────────────────────────
 export { BindingRegistry } from "./binding-registry.js";

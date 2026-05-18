@@ -16,6 +16,11 @@ import { parseTsonicModuleRequest } from "../../program/module-resolution.js";
 import { createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
 import { resolveImport } from "../../resolver.js";
+import {
+  memberSymbolIdFromStableId,
+  moduleSymbolIdFromStableId,
+  typeSymbolIdFromStableId,
+} from "../../symbols/index.js";
 
 const getSourceSpan = (
   node: ts.Node
@@ -33,13 +38,27 @@ const getSourceSpan = (
   }
 };
 
-const clrTypeNameToCSharp = (clr: string): string =>
-  clr.trim().replace(/`\d+/g, "").replace(/\+/g, ".");
+const normalizeProviderQualifiedTypeName = (targetName: string): string =>
+  targetName.trim().replace(/`\d+/g, "").replace(/\+/g, ".");
+
+const typeSymbolIdForExternalType = (
+  ownerIdentity: string,
+  providerQualifiedName: string,
+  stableId?: string
+) => typeSymbolIdFromStableId(stableId ?? `${ownerIdentity}:${providerQualifiedName}`);
+
+const typeBindingOwnerIdentity = (
+  type: TypeBinding,
+  fallbackOwnerIdentity: string | undefined
+): string =>
+  type.members[0]?.binding.assembly ??
+  fallbackOwnerIdentity ??
+  "external-surface";
 
 /**
  * Extract import declarations from source file.
  * Uses Binding layer to determine if each import is a type or value.
- * Uses ClrBindingsResolver to detect CLR namespace imports.
+ * Uses ExternalBindingsResolver to detect external namespace imports.
  */
 export const extractImports = (
   sourceFile: ts.SourceFile,
@@ -60,7 +79,7 @@ export const extractImports = (
         sourceFile.fileName,
         ctx.sourceRoot,
         {
-          clrResolver: ctx.clrResolver,
+          externalResolver: ctx.externalResolver,
           bindings: ctx.bindings,
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
@@ -74,21 +93,27 @@ export const extractImports = (
         resolvedImport.ok && resolvedImport.value.resolvedPath
           ? resolvedImport.value.resolvedPath
           : undefined;
-      const resolvedImportIsClr =
-        resolvedImport.ok && resolvedImport.value.isClr === true;
+      const resolvedImportIsExternalSurface =
+        resolvedImport.ok &&
+        resolvedImport.value.resolutionKind === "externalSurface";
       const isLocal = resolvedImport.ok
         ? resolvedImport.value.isLocal
         : source.startsWith(".") || source.startsWith("/") || isSourcePackage;
 
-      // Use import-driven resolution to detect CLR imports
+      // Use import-driven resolution to detect external imports
       // This works for any package that provides bindings.json
-      // Note: Bindings are loaded upfront by discoverAndLoadClrBindings()
+      // Note: Bindings are loaded upfront by discoverAndLoadExternalBindings()
       // in dependency-graph.ts before IR building starts.
-      const clrResolution = ctx.clrResolver.resolve(source);
-      const isClr =
-        resolvedImportIsClr || (!resolvedImport.ok && clrResolution.isClr);
-      const clrAssembly =
-        isClr && clrResolution.isClr ? clrResolution.assembly : undefined;
+      const externalResolution = ctx.externalResolver.resolve(source);
+      const isExternalSurfaceImport =
+        resolvedImportIsExternalSurface ||
+        (!resolvedImport.ok && externalResolution.kind === "externalSurface");
+      const externalOwnerIdentity =
+        isExternalSurfaceImport && externalResolution.kind === "externalSurface"
+          ? externalResolution.ownerIdentity
+          : resolvedImport.ok
+            ? resolvedImport.value.providerOwnerIdentity
+            : undefined;
 
       const getSourcePackageModuleBinding = (): ReturnType<
         ProgramContext["bindings"]["getBindingByKind"]
@@ -228,11 +253,17 @@ export const extractImports = (
           : undefined;
 
       const resolvedNamespace = (() => {
-        if (resolvedImportIsClr) {
+        if (
+          resolvedImportIsExternalSurface &&
+          resolvedImport.value.resolvedNamespace
+        ) {
           return resolvedImport.value.resolvedNamespace;
         }
-        if (isClr && clrResolution.isClr) {
-          return clrResolution.resolvedNamespace;
+        if (
+          isExternalSurfaceImport &&
+          externalResolution.kind === "externalSurface"
+        ) {
+          return externalResolution.resolvedNamespace;
         }
         if (declarationFacadeNamespace) {
           return declarationFacadeNamespace;
@@ -262,7 +293,7 @@ export const extractImports = (
         return readNamespaceFromBindingsJson(bindingsPath);
       };
 
-      const resolveClrTypeBindingForNamedImport = (
+      const resolveExternalTypeBindingForNamedImport = (
         exportName: string
       ): TypeBinding | undefined => {
         const matchesExportName = (type: TypeBinding): boolean => {
@@ -271,9 +302,9 @@ export const extractImports = (
           const simpleAliasMatch = type.alias?.match(/^(.+)_(\d+)$/);
           if (simpleAliasMatch?.[1] === exportName) return true;
 
-          const simpleClrName = type.name.split(".").pop() ?? type.name;
-          const normalizedClrName = simpleClrName.replace(/`\d+$/, "");
-          return normalizedClrName === exportName;
+          const simpleTargetName = type.name.split(".").pop() ?? type.name;
+          const normalizedTargetName = simpleTargetName.replace(/`\d+$/, "");
+          return normalizedTargetName === exportName;
         };
 
         const findExactInNamespace = (
@@ -302,16 +333,19 @@ export const extractImports = (
         return undefined;
       };
 
-      // Resolve CLR identities for named imports from both CLR namespace facades
-      // and module-bound surface facades (e.g. node:http -> @tsonic/nodejs/nodejs.Http.js).
-      //
-      // Type imports must carry their owning CLR type FQN into IR so the emitter
-      // never guesses between:
+      const importOwnerIdentity =
+        externalOwnerIdentity ??
+        (moduleBinding?.kind === "module" ? moduleBinding.assembly : undefined);
+
+      // Resolve target identities for named imports from both external namespace
+      // facades and module-bound surface facades (e.g. node:http ->
+      // @tsonic/nodejs/nodejs.Http.js). Type imports must carry their owning
+      // provider type into IR so the emitter never guesses between:
       //   - module object container types (e.g. nodejs.Http.http)
-      //   - exported CLR types (e.g. nodejs.Http.IncomingMessage)
+      //   - exported provider types (e.g. nodejs.Http.IncomingMessage)
       //
-      // Value imports from CLR namespace facades additionally need flattened
-      // declaring-type/member metadata because CLR namespaces cannot contain values.
+      // Value imports from external namespace facades additionally need flattened
+      // declaring-type/member metadata because external namespaces cannot contain values.
       const resolvedSpecifiers = specifiers.map((spec) => {
         if (spec.kind !== "named") {
           return spec;
@@ -321,31 +355,51 @@ export const extractImports = (
           resolveTsbindgenNamespaceForNamedImport(spec.name) ??
           resolvedNamespace;
         const resolvedTypeBinding = owningNamespace
-          ? resolveClrTypeBindingForNamedImport(spec.name)
+          ? resolveExternalTypeBindingForNamedImport(spec.name)
           : undefined;
         const isType = spec.isType === true;
 
         if (isType) {
           if (hasModuleBinding) {
+            const resolvedTypeName = resolvedTypeBinding?.name
+              ? normalizeProviderQualifiedTypeName(resolvedTypeBinding.name)
+              : owningNamespace
+                ? `${owningNamespace}.${spec.name}`
+                : spec.providerQualifiedName;
+            const ownerIdentity = resolvedTypeBinding
+              ? typeBindingOwnerIdentity(resolvedTypeBinding, importOwnerIdentity)
+              : (importOwnerIdentity ?? "external-surface");
             return {
               ...spec,
               isType: true,
-              resolvedClrType: resolvedTypeBinding?.name
-                ? clrTypeNameToCSharp(resolvedTypeBinding.name)
-                : owningNamespace
-                  ? `${owningNamespace}.${spec.name}`
-                  : spec.resolvedClrType,
+              providerQualifiedName: resolvedTypeName,
+              typeSymbolId: resolvedTypeName
+                ? typeSymbolIdForExternalType(
+                    ownerIdentity,
+                    resolvedTypeName,
+                    resolvedTypeBinding?.stableId
+                  )
+                : spec.typeSymbolId,
             };
           }
 
           if (owningNamespace || resolvedTypeBinding?.name) {
+            const ownerIdentity = resolvedTypeBinding
+              ? typeBindingOwnerIdentity(resolvedTypeBinding, importOwnerIdentity)
+              : (importOwnerIdentity ?? "external-surface");
+            const resolvedTypeName =
+              (resolvedTypeBinding?.name
+                ? normalizeProviderQualifiedTypeName(resolvedTypeBinding.name)
+                : undefined) ?? `${owningNamespace}.${spec.name}`;
             return {
               ...spec,
               isType: true,
-              resolvedClrType:
-                (resolvedTypeBinding?.name
-                  ? clrTypeNameToCSharp(resolvedTypeBinding.name)
-                  : undefined) ?? `${owningNamespace}.${spec.name}`,
+              providerQualifiedName: resolvedTypeName,
+              typeSymbolId: typeSymbolIdForExternalType(
+                ownerIdentity,
+                resolvedTypeName,
+                resolvedTypeBinding?.stableId
+              ),
             };
           }
 
@@ -360,27 +414,35 @@ export const extractImports = (
         }
 
         if (resolvedTypeBinding) {
+          const resolvedTypeName = normalizeProviderQualifiedTypeName(
+            resolvedTypeBinding.name
+          );
           return {
             ...spec,
-            resolvedClrType: clrTypeNameToCSharp(resolvedTypeBinding.name),
+            providerQualifiedName: resolvedTypeName,
+            typeSymbolId: typeSymbolIdForExternalType(
+              typeBindingOwnerIdentity(resolvedTypeBinding, importOwnerIdentity),
+              resolvedTypeName,
+              resolvedTypeBinding.stableId
+            ),
           };
         }
 
         const exp = ctx.bindings.getTsbindgenExport(owningNamespace, spec.name);
         if (!exp) {
-          // Airplane-grade: C# has no namespace-level values.
-          // If TS imports a *value* from a CLR namespace facade, we must have
-          // an explicit binding to a declaring CLR type + member (tsbindgen exports mapping),
-          // otherwise we would have to guess or emit invalid C#.
+          // Airplane-grade: external namespaces have no namespace-level values.
+          // If TS imports a value from an external namespace facade, there must
+          // be an explicit declaring type + member binding. Otherwise the
+          // compiler would have to guess.
           if (!hasModuleBinding) {
             const specNode = namedSpecifierNodes.get(spec.name);
             ctx.diagnostics.push(
               createDiagnostic(
                 "TSN4004",
                 "error",
-                `Missing CLR binding for named value import '${spec.name}' from namespace '${owningNamespace}'.`,
+                `Missing external binding for named value import '${spec.name}' from namespace '${owningNamespace}'.`,
                 specNode ? getSourceSpan(specNode) : getSourceSpan(node),
-                `This import refers to a value (function/const), but CLR namespaces cannot contain values. Regenerate bindings with tsbindgen so '${owningNamespace}/bindings.json' includes an 'exports' entry for '${spec.name}', or import the declaring container type and call it as a static member instead.`
+                `This import refers to a value (function/const), but external namespaces cannot contain values. Regenerate bindings with tsbindgen so '${owningNamespace}/bindings.json' includes an 'exports' entry for '${spec.name}', or import the declaring container type and call it as a static member instead.`
               )
             );
           }
@@ -389,29 +451,44 @@ export const extractImports = (
 
         return {
           ...spec,
-          resolvedClrValue: {
-            declaringClrType: exp.declaringClrType,
-            declaringAssemblyName: exp.declaringAssemblyName,
-            memberName: exp.clrName,
+          providerValue: {
+            ownerQualifiedName: exp.ownerQualifiedName,
+            ownerIdentity: exp.ownerIdentity,
+            memberName: exp.targetName,
           },
+          memberSymbolId: memberSymbolIdFromStableId(
+            `${exp.ownerIdentity}:${exp.ownerQualifiedName}.${exp.targetName}`
+          ),
         };
       });
-
-      // Assembly comes from CLR resolution (bindings.json) or module binding
-      const resolvedAssembly =
-        clrAssembly ??
-        (moduleBinding?.kind === "module" ? moduleBinding.assembly : undefined);
 
       imports.push({
         kind: "import",
         source,
         isLocal,
-        isClr,
+        isExternalSurface: isExternalSurfaceImport || hasModuleBinding,
+        resolutionKind: isLocal
+          ? "local"
+          : isExternalSurfaceImport || hasModuleBinding
+            ? "externalSurface"
+            : "phantomTypeOnly",
         resolvedPath,
         specifiers: resolvedSpecifiers,
         resolvedNamespace,
-        resolvedClrType: moduleBindingType,
-        resolvedAssembly,
+        providerQualifiedName: moduleBindingType,
+        providerOwnerIdentity: importOwnerIdentity,
+        typeSymbolId:
+          moduleBindingType && importOwnerIdentity
+            ? typeSymbolIdFromStableId(
+                `${importOwnerIdentity}:${moduleBindingType}`
+              )
+            : undefined,
+        moduleSymbolId:
+          moduleBindingType && importOwnerIdentity
+            ? moduleSymbolIdFromStableId(
+                `${importOwnerIdentity}:${moduleBindingType}`
+              )
+            : undefined,
       });
     }
     ts.forEachChild(node, visitor);

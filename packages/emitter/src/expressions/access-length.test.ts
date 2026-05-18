@@ -13,7 +13,7 @@ describe("access-length", () => {
       surface: "@tsonic/js",
       surfaceCapabilities: {
         mode: "@tsonic/js",
-        includesClr: false,
+        includesCore: false,
         resolvedModes: ["@tsonic/js"],
         requiredTypeRoots: [],
         memberSemantics: {

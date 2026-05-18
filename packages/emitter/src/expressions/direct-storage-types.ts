@@ -163,25 +163,25 @@ const tryConvertExactSurfaceTypeAstToIrType = (
           return {
             kind: "referenceType",
             name: "byte",
-            resolvedClrType: "global::System.Byte",
+            providerQualifiedName: "global::System.Byte",
           };
         case "sbyte":
           return {
             kind: "referenceType",
             name: "sbyte",
-            resolvedClrType: "global::System.SByte",
+            providerQualifiedName: "global::System.SByte",
           };
         case "short":
           return {
             kind: "referenceType",
             name: "short",
-            resolvedClrType: "global::System.Int16",
+            providerQualifiedName: "global::System.Int16",
           };
         case "ushort":
           return {
             kind: "referenceType",
             name: "ushort",
-            resolvedClrType: "global::System.UInt16",
+            providerQualifiedName: "global::System.UInt16",
           };
         case "int":
           return { kind: "primitiveType", name: "int" };
@@ -189,37 +189,37 @@ const tryConvertExactSurfaceTypeAstToIrType = (
           return {
             kind: "referenceType",
             name: "uint",
-            resolvedClrType: "global::System.UInt32",
+            providerQualifiedName: "global::System.UInt32",
           };
         case "long":
           return {
             kind: "referenceType",
             name: "long",
-            resolvedClrType: "global::System.Int64",
+            providerQualifiedName: "global::System.Int64",
           };
         case "ulong":
           return {
             kind: "referenceType",
             name: "ulong",
-            resolvedClrType: "global::System.UInt64",
+            providerQualifiedName: "global::System.UInt64",
           };
         case "nint":
           return {
             kind: "referenceType",
             name: "nint",
-            resolvedClrType: "global::System.IntPtr",
+            providerQualifiedName: "global::System.IntPtr",
           };
         case "nuint":
           return {
             kind: "referenceType",
             name: "nuint",
-            resolvedClrType: "global::System.UIntPtr",
+            providerQualifiedName: "global::System.UIntPtr",
           };
         case "float":
           return {
             kind: "referenceType",
             name: "float",
-            resolvedClrType: "global::System.Single",
+            providerQualifiedName: "global::System.Single",
           };
         case "double":
           return { kind: "primitiveType", name: "number" };
@@ -227,7 +227,7 @@ const tryConvertExactSurfaceTypeAstToIrType = (
           return {
             kind: "referenceType",
             name: "decimal",
-            resolvedClrType: "global::System.Decimal",
+            providerQualifiedName: "global::System.Decimal",
           };
         case "char":
           return { kind: "primitiveType", name: "char" };
@@ -256,16 +256,16 @@ const tryConvertExactSurfaceTypeAstToIrType = (
         .filter(
           (typeArgument): typeArgument is IrType => typeArgument !== undefined
         );
-      const resolvedClrType = `${
+      const providerQualifiedName = `${
         typeAst.name.aliasQualifier ? `${typeAst.name.aliasQualifier}::` : ""
       }${typeAst.name.segments.join(".")}`;
       const name =
         typeAst.name.segments[typeAst.name.segments.length - 1] ??
-        resolvedClrType;
+        providerQualifiedName;
       return {
         kind: "referenceType",
         name,
-        resolvedClrType,
+        providerQualifiedName,
         ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {}),
       };
     }
@@ -596,7 +596,20 @@ export const resolveDirectStorageExpressionType = (
     narrowed?.kind === "runtimeSubset" &&
     matchesStoredExpressionAst(ast, narrowed.storageExprAst)
   ) {
+    const originalStorageContext =
+      narrowKey && context.narrowedBindings?.has(narrowKey)
+        ? (() => {
+            const narrowedBindings = new Map(context.narrowedBindings);
+            narrowedBindings.delete(narrowKey);
+            return { ...context, narrowedBindings };
+          })()
+        : context;
+    const originalStorageType = resolveDirectStorageIrType(
+      expr,
+      originalStorageContext
+    );
     return (
+      originalStorageType ??
       narrowed.sourceType ??
       narrowed.type ??
       resolveDirectStorageIrType(expr, context)
@@ -759,7 +772,9 @@ export const resolveRuntimeCarrierExpressionAst = (
     );
   }
   if (narrowed?.kind === "runtimeSubset" && narrowed.storageExprAst) {
-    return narrowed.storageExprAst;
+    return hasRuntimeCarrierSurface(narrowed.storageExprAst)
+      ? narrowed.storageExprAst
+      : undefined;
   }
 
   if (expr.kind !== "identifier") {

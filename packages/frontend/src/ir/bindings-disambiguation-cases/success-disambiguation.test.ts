@@ -16,9 +16,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import { createProgramContext } from "../program-context.js";
-import { DotnetMetadataRegistry } from "../../dotnet-metadata.js";
+import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
-import { createClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
+import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
 
 describe("CLR member binding disambiguation (success)", () => {
@@ -123,16 +123,16 @@ describe("CLR member binding disambiguation (success)", () => {
       namespace: "Acme.Js",
       types: [
         {
-          clrName: "Acme.Js.console",
-          assemblyName: "Acme.Js",
+          targetName: "Acme.Js.console",
+          ownerIdentity: "Acme.Js",
           methods: [
             {
-              clrName: "log",
+              targetName: "log",
               normalizedSignature:
                 "log|(System.String):System.Void|static=false",
               parameterCount: 1,
-              declaringClrType: "Acme.Js.console",
-              declaringAssemblyName: "Acme.Js",
+              ownerQualifiedName: "Acme.Js.console",
+              ownerIdentity: "Acme.Js",
             },
           ],
           properties: [],
@@ -145,16 +145,16 @@ describe("CLR member binding disambiguation (success)", () => {
       namespace: "nodejs",
       types: [
         {
-          clrName: "nodejs.console",
-          assemblyName: "nodejs",
+          targetName: "nodejs.console",
+          ownerIdentity: "nodejs",
           methods: [
             {
-              clrName: "log",
+              targetName: "log",
               normalizedSignature:
                 "log|(System.String):System.Void|static=false",
               parameterCount: 1,
-              declaringClrType: "nodejs.console",
-              declaringAssemblyName: "nodejs",
+              ownerQualifiedName: "nodejs.console",
+              ownerIdentity: "nodejs",
             },
           ],
           properties: [],
@@ -174,9 +174,9 @@ describe("CLR member binding disambiguation (success)", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [dtsFile],
-      metadata: new DotnetMetadataRegistry(),
+      metadata: new ExternalMetadataRegistry(),
       bindings,
-      clrResolver: createClrBindingsResolver(tmpRoot),
+      externalResolver: createExternalBindingsResolver(tmpRoot),
       binding: createBinding(checker),
     };
 
@@ -238,7 +238,7 @@ describe("CLR member binding disambiguation (success)", () => {
           namespace: "nodejs.Http",
           types: [
             {
-              clrName: "nodejs.Http.Server",
+              targetName: "nodejs.Http.Server",
               methods: [],
               properties: [],
               fields: [],
@@ -332,16 +332,16 @@ describe("CLR member binding disambiguation (success)", () => {
       namespace: "nodejs.Http",
       types: [
         {
-          clrName: "nodejs.Http.Server",
-          assemblyName: "nodejs",
+          targetName: "nodejs.Http.Server",
+          ownerIdentity: "nodejs",
           methods: [
             {
-              clrName: "listen",
+              targetName: "listen",
               normalizedSignature:
                 "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
               parameterCount: 2,
-              declaringClrType: "nodejs.Http.Server",
-              declaringAssemblyName: "nodejs",
+              ownerQualifiedName: "nodejs.Http.Server",
+              ownerIdentity: "nodejs",
             },
           ],
           properties: [],
@@ -357,16 +357,16 @@ describe("CLR member binding disambiguation (success)", () => {
       namespace: "nodejs",
       types: [
         {
-          clrName: "nodejs.Server",
-          assemblyName: "nodejs",
+          targetName: "nodejs.Server",
+          ownerIdentity: "nodejs",
           methods: [
             {
-              clrName: "listen",
+              targetName: "listen",
               normalizedSignature:
                 "listen|(System.Int32,System.Action):nodejs.Server|static=false",
               parameterCount: 2,
-              declaringClrType: "nodejs.Server",
-              declaringAssemblyName: "nodejs",
+              ownerQualifiedName: "nodejs.Server",
+              ownerIdentity: "nodejs",
             },
           ],
           properties: [],
@@ -386,9 +386,9 @@ describe("CLR member binding disambiguation (success)", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [dtsFile],
-      metadata: new DotnetMetadataRegistry(),
+      metadata: new ExternalMetadataRegistry(),
       bindings,
-      clrResolver: createClrBindingsResolver(tmpRoot),
+      externalResolver: createExternalBindingsResolver(tmpRoot),
       binding: createBinding(checker),
     };
 

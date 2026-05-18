@@ -78,7 +78,7 @@ export const resolveFromBindingsManifest = (
     );
   }
   const surfaceMode =
-    (surfaceModeRaw as ManifestSurfaceMode | undefined)?.trim() ?? "clr";
+    (surfaceModeRaw as ManifestSurfaceMode | undefined)?.trim() ?? "core";
   const requiredTypeRoots = parseRequiredTypeRoots(
     manifest.requiredTypeRoots,
     "requiredTypeRoots",

@@ -41,7 +41,7 @@ const validateCharExpected = (
         ctx,
         `Invalid char literal: expected a single-character string, got length ${expr.value.length}.`,
         location,
-        `Use a single character like "A" for char, or call System.Char.Parse(...) for dynamic strings.`
+        `Use a single character like "A" for char, or call the target character parser for dynamic strings.`
       );
     }
     return;

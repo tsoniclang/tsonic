@@ -146,13 +146,15 @@ describe("IR Builder", function () {
         kind: "referenceType",
         name: "Promise",
         typeArguments: [{ kind: "voidType" }],
-        resolvedClrType: "TestApp.Promise",
+        providerQualifiedName: "TestApp.Promise",
       });
       expect(ctor.inferredType.typeId).to.deep.equal({
         stableId: "TestApp:TestApp.Promise",
-        clrName: "TestApp.Promise",
-        assemblyName: "TestApp",
-        tsName: "Promise",
+        providerName: "TestApp.Promise",
+        ownerIdentity: "TestApp",
+        sourceName: "Promise",
+        origin: "source",
+        symbolId: "type-stable:TestApp%3ATestApp.Promise",
       });
 
       const executor = ctor.arguments[0];
@@ -333,13 +335,15 @@ describe("IR Builder", function () {
         kind: "referenceType",
         name: "Promise",
         typeArguments: [{ kind: "voidType" }],
-        resolvedClrType: "TestApp.Promise",
+        providerQualifiedName: "TestApp.Promise",
       });
       expect(ctor.inferredType.typeId).to.deep.equal({
         stableId: "TestApp:TestApp.Promise",
-        clrName: "TestApp.Promise",
-        assemblyName: "TestApp",
-        tsName: "Promise",
+        providerName: "TestApp.Promise",
+        ownerIdentity: "TestApp",
+        sourceName: "Promise",
+        origin: "source",
+        symbolId: "type-stable:TestApp%3ATestApp.Promise",
       });
 
       const mainFn = module.body.find(

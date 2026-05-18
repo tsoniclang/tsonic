@@ -8,19 +8,19 @@ import {
 } from "./profiles.js";
 
 describe("Frontend Surface Profiles", () => {
-  it("should resolve clr capabilities", () => {
-    const caps = resolveSurfaceCapabilities("clr");
-    expect(caps.includesClr).to.equal(true);
-    expect(caps.resolvedModes).to.deep.equal(["clr"]);
+  it("should resolve core capabilities", () => {
+    const caps = resolveSurfaceCapabilities("core");
+    expect(caps.includesCore).to.equal(true);
+    expect(caps.resolvedModes).to.deep.equal(["core"]);
     expect(caps.requiredTypeRoots).to.deep.equal([
       "node_modules/@tsonic/globals",
     ]);
   });
 
-  it("should default to clr when mode is undefined", () => {
+  it("should default to core when mode is undefined", () => {
     const caps = resolveSurfaceCapabilities(undefined);
-    expect(caps.mode).to.equal("clr");
-    expect(caps.includesClr).to.equal(true);
+    expect(caps.mode).to.equal("core");
+    expect(caps.includesCore).to.equal(true);
     expect(caps.requiredTypeRoots).to.deep.equal([
       "node_modules/@tsonic/globals",
     ]);
@@ -29,7 +29,7 @@ describe("Frontend Surface Profiles", () => {
   it("should leave unresolved custom surfaces empty until a manifest is installed", () => {
     const caps = resolveSurfaceCapabilities("@acme/surface-web");
     expect(caps.mode).to.equal("@acme/surface-web");
-    expect(caps.includesClr).to.equal(false);
+    expect(caps.includesCore).to.equal(false);
     expect(caps.requiredTypeRoots).to.deep.equal([]);
   });
 
@@ -50,7 +50,7 @@ describe("Frontend Surface Profiles", () => {
         "@tsonic/js",
         "@acme/surface-web",
       ]);
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.requiredTypeRoots).to.not.include(
         "node_modules/@tsonic/dotnet"
       );
@@ -86,7 +86,7 @@ describe("Frontend Surface Profiles", () => {
       const jsRoot = fixture.path("app/node_modules/@tsonic/js");
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.resolvedModes).to.deep.equal(["@tsonic/js"]);
       expect(caps.requiredTypeRoots).to.deep.equal([resolve(jsRoot, "types")]);
       expect(hasResolvedSurfaceProfile("@tsonic/js", { projectRoot })).to.equal(
@@ -217,7 +217,7 @@ describe("Frontend Surface Profiles", () => {
       const caps = resolveSurfaceCapabilities("@tsonic/nodejs", {
         projectRoot,
       });
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.requiredTypeRoots).to.deep.equal([]);
       expect(
         hasResolvedSurfaceProfile("@tsonic/nodejs", { projectRoot })
@@ -239,7 +239,7 @@ describe("Frontend Surface Profiles", () => {
       const caps = resolveSurfaceCapabilities("@acme/surface-node", {
         projectRoot,
       });
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.resolvedModes).to.deep.equal([
         "@tsonic/js",
         "@acme/surface-node",
@@ -275,7 +275,7 @@ describe("Frontend Surface Profiles", () => {
       const caps = resolveSurfaceCapabilities("@tsonic/nodejs", {
         projectRoot,
       });
-      expect(caps.includesClr).to.equal(false);
+      expect(caps.includesCore).to.equal(false);
       expect(caps.resolvedModes).to.deep.equal([
         "@tsonic/js",
         "@tsonic/nodejs",

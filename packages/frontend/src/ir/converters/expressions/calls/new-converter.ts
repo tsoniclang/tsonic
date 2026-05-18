@@ -13,6 +13,7 @@ import {
 } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { IrType } from "../../../types.js";
+import { attachConstructedReferenceMetadata } from "../../../type-system/constructor-return-metadata.js";
 import type { ProgramContext } from "../../../program-context.js";
 import {
   type CallSiteArgModifier,
@@ -25,37 +26,6 @@ import {
   normalizeFinalizedInvocationArguments,
 } from "./invocation-finalization.js";
 import { buildSourceBackedConstructorParameterTypes } from "./source-backed-constructor-metadata.js";
-
-const attachConstructorCalleeIdentity = (
-  resolvedReturnType: IrType | undefined,
-  calleeType: IrType | undefined
-): IrType | undefined => {
-  if (
-    !resolvedReturnType ||
-    resolvedReturnType.kind !== "referenceType" ||
-    resolvedReturnType.typeId ||
-    resolvedReturnType.resolvedClrType
-  ) {
-    return resolvedReturnType;
-  }
-
-  if (
-    !calleeType ||
-    calleeType.kind !== "referenceType" ||
-    (!calleeType.typeId && !calleeType.resolvedClrType)
-  ) {
-    return resolvedReturnType;
-  }
-
-  return {
-    ...resolvedReturnType,
-    name: calleeType.name,
-    ...(calleeType.typeId ? { typeId: calleeType.typeId } : {}),
-    ...(calleeType.resolvedClrType
-      ? { resolvedClrType: calleeType.resolvedClrType }
-      : {}),
-  };
-};
 
 /**
  * Convert new expression
@@ -231,14 +201,14 @@ export const convertNewExpression = (
     ? typeSystem.resolveCall({
         sigId,
         argumentCount,
-        declaringClrType:
-          callee.kind === "identifier" ? callee.resolvedClrType : undefined,
+        declaringTargetType:
+          callee.kind === "identifier" ? callee.providerQualifiedName : undefined,
         explicitTypeArgs,
         argTypes,
         expectedReturnType: expectedType,
       })
     : lambdaContextResolved;
-  const finalReturnType = attachConstructorCalleeIdentity(
+  const finalReturnType = attachConstructedReferenceMetadata(
     finalResolved?.returnType,
     callee.inferredType
   );

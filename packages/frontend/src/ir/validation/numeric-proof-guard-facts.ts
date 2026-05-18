@@ -1,7 +1,7 @@
 /**
- * Numeric Proof Guard Facts — Int32 guard fact collection from conditional expressions
+ * Numeric Proof Guard Facts — source-int guard fact collection from conditional expressions
  *
- * Extracts Int32 guard facts from expressions like:
+ * Extracts source-int guard facts from expressions like:
  * - Number.isInteger(x) — proves x is integer
  * - x >= min && x <= max — proves bounds
  *
@@ -30,7 +30,7 @@ export type ProofContext = {
   readonly provenParameters: Map<string, NumericKind>;
 };
 
-type Int32GuardFact = {
+type IntegerRangeGuardFact = {
   readonly integerChecked: boolean;
   readonly lowerBound?: bigint;
   readonly upperBound?: bigint;
@@ -51,7 +51,7 @@ export const moduleLocation = (ctx: ProofContext): SourceLocation => ({
   length: 1,
 });
 
-const INT32_RANGE = NUMERIC_RANGES.get("Int32");
+const SOURCE_INT_RANGE = NUMERIC_RANGES.get("int32");
 
 export const cloneProofContext = (ctx: ProofContext): ProofContext => ({
   ...ctx,
@@ -103,7 +103,7 @@ const memberAccessName = (expr: IrExpression): string | undefined => {
 
 const extractNumberIsIntegerFact = (
   expr: IrExpression
-): readonly [string, Int32GuardFact] | undefined => {
+): readonly [string, IntegerRangeGuardFact] | undefined => {
   if (expr.kind !== "call" || expr.arguments.length !== 1) {
     return undefined;
   }
@@ -123,9 +123,9 @@ const extractNumberIsIntegerFact = (
   return [arg.name, { integerChecked: true }];
 };
 
-const extractInt32BoundFact = (
+const extractIntegerRangeBoundFact = (
   expr: IrExpression
-): readonly [string, Int32GuardFact] | undefined => {
+): readonly [string, IntegerRangeGuardFact] | undefined => {
   if (expr.kind !== "binary") {
     return undefined;
   }
@@ -207,10 +207,10 @@ const extractNumericPredicateFact = (
   };
 };
 
-const mergeInt32GuardFact = (
-  left: Int32GuardFact | undefined,
-  right: Int32GuardFact
-): Int32GuardFact => ({
+const mergeIntegerRangeGuardFact = (
+  left: IntegerRangeGuardFact | undefined,
+  right: IntegerRangeGuardFact
+): IntegerRangeGuardFact => ({
   integerChecked: (left?.integerChecked ?? false) || right.integerChecked,
   lowerBound:
     left?.lowerBound === undefined
@@ -230,20 +230,20 @@ const mergeInt32GuardFact = (
           : right.upperBound,
 });
 
-const collectInt32GuardFactsInTruthyCondition = (
+const collectIntegerRangeGuardFactsInTruthyCondition = (
   expr: IrExpression
-): ReadonlyMap<string, Int32GuardFact> => {
+): ReadonlyMap<string, IntegerRangeGuardFact> => {
   if (expr.kind === "logical" && expr.operator === "&&") {
-    const out = new Map<string, Int32GuardFact>();
-    for (const [name, fact] of collectInt32GuardFactsInTruthyCondition(
+    const out = new Map<string, IntegerRangeGuardFact>();
+    for (const [name, fact] of collectIntegerRangeGuardFactsInTruthyCondition(
       expr.left
     )) {
       out.set(name, fact);
     }
-    for (const [name, fact] of collectInt32GuardFactsInTruthyCondition(
+    for (const [name, fact] of collectIntegerRangeGuardFactsInTruthyCondition(
       expr.right
     )) {
-      out.set(name, mergeInt32GuardFact(out.get(name), fact));
+      out.set(name, mergeIntegerRangeGuardFact(out.get(name), fact));
     }
     return out;
   }
@@ -253,7 +253,7 @@ const collectInt32GuardFactsInTruthyCondition = (
     return new Map([[integerFact[0], integerFact[1]]]);
   }
 
-  const boundFact = extractInt32BoundFact(expr);
+  const boundFact = extractIntegerRangeBoundFact(expr);
   if (boundFact) {
     return new Map([[boundFact[0], boundFact[1]]]);
   }
@@ -261,15 +261,15 @@ const collectInt32GuardFactsInTruthyCondition = (
   return new Map();
 };
 
-export const withInt32ProofsFromTruthyCondition = (
+export const withSourceIntProofsFromTruthyCondition = (
   ctx: ProofContext,
   condition: IrExpression
 ): ProofContext => {
-  if (!INT32_RANGE) {
+  if (!SOURCE_INT_RANGE) {
     return ctx;
   }
 
-  const facts = collectInt32GuardFactsInTruthyCondition(condition);
+  const facts = collectIntegerRangeGuardFactsInTruthyCondition(condition);
   if (facts.size === 0) {
     const predicateFact = extractNumericPredicateFact(condition);
     if (!predicateFact) {
@@ -287,10 +287,10 @@ export const withInt32ProofsFromTruthyCondition = (
       fact.integerChecked &&
       fact.lowerBound !== undefined &&
       fact.upperBound !== undefined &&
-      fact.lowerBound >= INT32_RANGE.min &&
-      fact.upperBound <= INT32_RANGE.max
+      fact.lowerBound >= SOURCE_INT_RANGE.min &&
+      fact.upperBound <= SOURCE_INT_RANGE.max
     ) {
-      next.provenVariables.set(name, "Int32");
+      next.provenVariables.set(name, "int32");
     }
   }
 

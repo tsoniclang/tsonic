@@ -1,7 +1,7 @@
 /**
  * Numeric Invariants: Binary Operation Type Promotion
  *
- * INVARIANT 4: Binary operations follow C# promotion rules (TSN5103)
+ * INVARIANT 4: Binary operations follow source numeric promotion rules (TSN5103)
  *
  * Also covers conditional expression branch promotion validation.
  */
@@ -31,10 +31,10 @@ describe("Numeric Proof Invariants", () => {
           narrowTo(
             binaryExpr(
               "+",
-              narrowTo(numLiteral(1), "Int32"),
-              narrowTo(numLiteral(2), "Int32")
+              narrowTo(numLiteral(1), "int32"),
+              narrowTo(numLiteral(2), "int32")
             ),
-            "Int32"
+            "int32"
           )
         ),
       ]);
@@ -46,17 +46,17 @@ describe("Numeric Proof Invariants", () => {
     });
 
     it("should REJECT Int32 + Double narrowed to Int32 (promotes to Double)", () => {
-      // const x = (1 as int) + (2.0 as double) as int;  // ERROR: Double + Int32 = Double
+      // const x = (1 as int) + (2.0 as number) as int;  // ERROR: float64 + int32 = float64
       const module = createModule([
         createVarDecl(
           "x",
           narrowTo(
             binaryExpr(
               "+",
-              narrowTo(numLiteral(1), "Int32"),
-              narrowTo(numLiteral(2.0, "2.0"), "Double")
+              narrowTo(numLiteral(1), "int32"),
+              narrowTo(numLiteral(2.0, "2.0"), "float64")
             ),
-            "Int32"
+            "int32"
           )
         ),
       ]);
@@ -69,17 +69,17 @@ describe("Numeric Proof Invariants", () => {
     });
 
     it("should ACCEPT Int32 + Int64 narrowed to Int64 (promotion)", () => {
-      // const x = (1 as int) + (2 as long) as long;  // Int32 + Int64 = Int64
+      // const x = (1 as int) + (2 as long) as long;  // int32 + int64 = int64
       const module = createModule([
         createVarDecl(
           "x",
           narrowTo(
             binaryExpr(
               "+",
-              narrowTo(numLiteral(1), "Int32"),
-              narrowTo(numLiteral(2), "Int64")
+              narrowTo(numLiteral(1), "int32"),
+              narrowTo(numLiteral(2), "int64")
             ),
-            "Int64"
+            "int64"
           )
         ),
       ]);
@@ -118,7 +118,7 @@ describe("Numeric Proof Invariants", () => {
               right: numericCall("toDoubleB"),
               inferredType: { kind: "primitiveType", name: "number" },
             },
-            "Int64"
+            "int64"
           )
         ),
       ]);
@@ -156,7 +156,7 @@ describe("Numeric Proof Invariants", () => {
               ),
               { kind: "primitiveType", name: "number" }
             ),
-            "Int32"
+            "int32"
           )
         ),
       ]);
@@ -173,10 +173,10 @@ describe("Numeric Proof Invariants", () => {
       expect(init?.kind).to.equal("numericNarrowing");
       if (init?.kind !== "numericNarrowing") return;
 
-      expect(init.proof?.kind).to.equal("Int32");
+      expect(init.proof?.kind).to.equal("int32");
       expect(init.proof?.source).to.deep.equal({
         type: "narrowing",
-        from: "Int32",
+        from: "int32",
       });
     });
 
@@ -197,7 +197,7 @@ describe("Numeric Proof Invariants", () => {
               numLiteral(1.5, "1.5"),
               { kind: "primitiveType", name: "number" }
             ),
-            "Int32"
+            "int32"
           )
         ),
       ]);
@@ -207,7 +207,7 @@ describe("Numeric Proof Invariants", () => {
       expect(result.diagnostics).to.have.length(1);
       expect(result.diagnostics[0]?.code).to.equal("TSN5103");
       expect(result.diagnostics[0]?.message).to.contain(
-        "Conditional expression produces Double"
+        "Conditional expression produces float64"
       );
     });
   });

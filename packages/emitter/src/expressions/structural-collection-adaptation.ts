@@ -34,6 +34,7 @@ import { normalizeStructuralEmissionType } from "../core/semantic/type-resolutio
 import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
 import { isBroadObjectSlotType } from "../core/semantic/broad-object-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { collectStructuralProperties } from "./structural-property-model.js";
 import {
   isExactArrayCreationToType,
@@ -804,7 +805,8 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     const canPreferDirectIterableCast =
       expectedType !== undefined &&
       isSimpleElementCast(effectiveElementAst, itemIdentifier) &&
-      isBroadObjectSlotType(sourceIterable.elementType, currentContext);
+      isBroadObjectSlotType(sourceIterable.elementType, currentContext) &&
+      !willCarryAsRuntimeUnion(expectedType, currentContext);
     if (canPreferDirectIterableCast && expectedType) {
       const [targetIterableTypeAst, targetIterableContext] = emitTypeAst(
         normalizeStructuralCarrierEmissionType(expectedType, currentContext),
@@ -880,25 +882,25 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     }
   }
 
-  const targetValueType = getDictionaryValueType(expectedType, context);
+  const providerValueType = getDictionaryValueType(expectedType, context);
   const sourceValueType = getDictionaryValueType(sourceType, context);
-  if (!targetValueType || !sourceValueType) {
+  if (!providerValueType || !sourceValueType) {
     return undefined;
   }
   const emissionTargetValueType = normalizeStructuralCarrierEmissionType(
-    targetValueType,
+    providerValueType,
     context
   );
 
   let currentContext = context;
-  const [targetValueTypeAst, valueTypeContext] = emitTypeAst(
+  const [providerValueTypeAst, valueTypeContext] = emitTypeAst(
     emissionTargetValueType,
     currentContext
   );
   currentContext = valueTypeContext;
   const dictTypeAst: CSharpTypeAst = identifierType(
     "global::System.Collections.Generic.Dictionary",
-    [{ kind: "predefinedType", keyword: "string" }, targetValueTypeAst]
+    [{ kind: "predefinedType", keyword: "string" }, providerValueTypeAst]
   );
   const sourceTemp = allocateLocalName("__dict", currentContext);
   currentContext = sourceTemp.context;
@@ -919,7 +921,7 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     entryValueAst,
     sourceValueType,
     currentContext,
-    targetValueType,
+    providerValueType,
     upcastFn
   ) ?? [undefined, currentContext];
   currentContext = adaptedContext;

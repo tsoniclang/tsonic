@@ -66,6 +66,26 @@ describe("Reference Type Emission", () => {
   });
 
   describe("Known Builtin Types", () => {
+    it("emits JsValue as nullable object even when it carries target identity", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "JsValue",
+          providerQualifiedName: "global::Tsonic.Runtime.JsValue",
+          typeId: {
+            stableId: "core:JsValue",
+            providerName: "global::Tsonic.Runtime.JsValue",
+            ownerIdentity: "core",
+            sourceName: "JsValue",
+            origin: "source",
+          },
+        },
+        baseContext
+      );
+
+      expect(printType(typeAst)).to.equal("object?");
+    });
+
     it("should emit Array<T> as native T[] array", () => {
       const module = createModuleWithType({
         kind: "referenceType",

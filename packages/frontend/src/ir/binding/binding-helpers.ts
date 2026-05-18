@@ -311,7 +311,7 @@ export const isReadonlyMember = (decl: ts.Declaration | undefined): boolean => {
  * Store the declaring type as a **simple TS name**
  * (identifier text like "Box"), NOT a TS "fully qualified name". TypeSystem
  * uses UnifiedTypeCatalog.resolveTsName() to resolve this to the proper
- * CLR FQ name for inheritance substitution.
+ * target name for inheritance substitution.
  *
  * @param decl The signature declaration (method, function, etc.)
  * @returns { typeTsName, memberName } or undefined if not a member
@@ -354,7 +354,7 @@ export const extractDeclaringIdentity = (
     //
     // In this case, method signatures live under a TypeLiteralNode whose parent is
     // the variable declaration for `Foo`. We still need declaring identity so
-    // TypeSystem can apply airplane-grade overload correction using CLR metadata.
+    // TypeSystem can apply airplane-grade overload correction using external metadata.
     if (ts.isTypeLiteralNode(parent)) {
       const container = parent.parent;
       if (

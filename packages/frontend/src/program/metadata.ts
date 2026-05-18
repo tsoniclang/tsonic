@@ -1,19 +1,127 @@
 /**
- * .NET semantic registry loading
+ * External semantic registry loading.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  DotnetMetadataRegistry,
-  TsbindgenBindingsFile,
-} from "../dotnet-metadata.js";
-import type { BindingFile } from "./binding-types.js";
-import { getDotnetBindingPayload } from "./dotnet-binding-payload.js";
+  ExternalMetadataRegistry,
+  ExternalBindingsFile,
+  ExternalBindingsMethod,
+  ExternalBindingsProperty,
+  ExternalBindingsType,
+} from "../external-metadata.js";
+import type { BindingFile, BindingSemanticSignature } from "./binding-types.js";
+import { getExternalBindingPayload } from "./external-binding-payload.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
 
+type RawExternalBindingsFile = {
+  readonly namespace?: unknown;
+  readonly types?: readonly RawExternalBindingsType[];
+};
+
+type RawExternalBindingsType = {
+  readonly targetName?: unknown;
+  readonly kind?: unknown;
+  readonly baseType?: { readonly targetName?: unknown };
+  readonly interfaces?: readonly { readonly targetName?: unknown }[];
+  readonly methods?: readonly RawExternalBindingsMethod[];
+  readonly properties?: readonly RawExternalBindingsProperty[];
+};
+
+type RawExternalBindingsMethod = {
+  readonly targetName?: unknown;
+  readonly isStatic?: boolean;
+  readonly isVirtual?: boolean;
+  readonly isSealed?: boolean;
+  readonly isAbstract?: boolean;
+  readonly parameterCount?: number;
+  readonly visibility?: string;
+  readonly canonicalSignature?: string;
+  readonly semanticSignature?: BindingSemanticSignature;
+  readonly parameterModifiers?: readonly { index: number; modifier: string }[];
+};
+
+type RawExternalBindingsProperty = {
+  readonly targetName?: unknown;
+  readonly isStatic?: boolean;
+  readonly isVirtual?: boolean;
+  readonly isSealed?: boolean;
+  readonly isAbstract?: boolean;
+  readonly visibility?: string;
+};
+
+const asString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.length > 0 ? value : undefined;
+
+const toExternalBindingsFile = (
+  payload: RawExternalBindingsFile
+): ExternalBindingsFile => {
+  const types: ExternalBindingsType[] = [];
+
+  for (const type of payload.types ?? []) {
+    const targetName = asString(type.targetName);
+    if (!targetName) continue;
+
+    const methods: ExternalBindingsMethod[] = [];
+    for (const method of type.methods ?? []) {
+      const targetMethodName = asString(method.targetName);
+      if (!targetMethodName) continue;
+      methods.push({
+        targetName: targetMethodName,
+        isStatic: method.isStatic,
+        isVirtual: method.isVirtual,
+        isSealed: method.isSealed,
+        isAbstract: method.isAbstract,
+        parameterCount: method.parameterCount,
+        visibility: method.visibility,
+        canonicalSignature: method.canonicalSignature,
+        semanticSignature: method.semanticSignature,
+        parameterModifiers: method.parameterModifiers,
+      });
+    }
+
+    const properties: ExternalBindingsProperty[] = [];
+    for (const property of type.properties ?? []) {
+      const targetPropertyName = asString(property.targetName);
+      if (!targetPropertyName) continue;
+      properties.push({
+        targetName: targetPropertyName,
+        isStatic: property.isStatic,
+        isVirtual: property.isVirtual,
+        isSealed: property.isSealed,
+        isAbstract: property.isAbstract,
+        visibility: property.visibility,
+      });
+    }
+
+    const baseTypeName = asString(type.baseType?.targetName);
+    types.push({
+      targetName,
+      kind: asString(type.kind),
+      baseType: baseTypeName ? { targetName: baseTypeName } : undefined,
+      interfaces: (type.interfaces ?? [])
+        .map((candidate) => {
+          const interfaceTargetName = asString(candidate.targetName);
+          return interfaceTargetName ? { targetName: interfaceTargetName } : undefined;
+        })
+        .filter(
+          (candidate): candidate is { readonly targetName: string } =>
+            candidate !== undefined
+        ),
+      methods,
+      properties,
+    });
+  }
+
+  return {
+    namespace: asString(payload.namespace) ?? "",
+    types,
+  };
+};
+
 /**
- * Recursively scan a directory for tsbindgen `<Namespace>/bindings.json` files.
+ * Recursively scan a directory for target binding manifest files.
  */
 const scanForBindingsFiles = (dir: string): readonly string[] => {
   if (!fs.existsSync(dir)) {
@@ -55,7 +163,7 @@ const isSourcePackageRoot = (packageRoot: string): boolean => {
 };
 
 const loadMetadataFromPackage = (
-  registry: DotnetMetadataRegistry,
+  registry: ExternalMetadataRegistry,
   packageRoot: string,
   visited: Set<string>,
   forceDependencyTraversal = false
@@ -74,18 +182,18 @@ const loadMetadataFromPackage = (
   const bindingsFiles = sourcePackageRoot
     ? []
     : scanForBindingsFiles(absoluteRoot);
-  let discoveredClrBindingsInPackage = false;
+  let discoveredExternalBindingsInPackage = false;
 
   for (const bindingsPath of bindingsFiles) {
     try {
       const content = fs.readFileSync(bindingsPath, "utf-8");
       const parsed = JSON.parse(content) as unknown;
-      const dotnetPayload = getDotnetBindingPayload(parsed as BindingFile);
-      if (dotnetPayload) {
-        discoveredClrBindingsInPackage = true;
+      const externalPayload = getExternalBindingPayload(parsed as BindingFile);
+      if (externalPayload) {
+        discoveredExternalBindingsInPackage = true;
         registry.loadBindingsFile(
           bindingsPath,
-          dotnetPayload as TsbindgenBindingsFile
+          toExternalBindingsFile(externalPayload as RawExternalBindingsFile)
         );
       }
     } catch (err) {
@@ -102,7 +210,7 @@ const loadMetadataFromPackage = (
   const shouldTraverseDependencies =
     forceDependencyTraversal ||
     sourcePackageRoot ||
-    discoveredClrBindingsInPackage ||
+    discoveredExternalBindingsInPackage ||
     hasBindingsManifest ||
     hasSurfaceManifest;
 
@@ -153,15 +261,15 @@ const loadMetadataFromPackage = (
 };
 
 /**
- * Load .NET semantic info from configured type roots.
+ * Load external semantic info from configured type roots.
  *
  * tsbindgen emits a single manifest per namespace: `<Namespace>/bindings.json`.
  * This loader scans the configured type roots and loads all discovered manifests.
  */
-export const loadDotnetMetadata = (
+export const loadExternalMetadata = (
   typeRoots: readonly string[]
-): DotnetMetadataRegistry => {
-  const registry = new DotnetMetadataRegistry();
+): ExternalMetadataRegistry => {
+  const registry = new ExternalMetadataRegistry();
   const visited = new Set<string>();
 
   for (const typeRoot of typeRoots) {

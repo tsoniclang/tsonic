@@ -88,7 +88,7 @@ const createInstalledJsSourceSurfaceWorkspace = (): {
 };
 
 describe("Config (surfaces and type roots)", () => {
-  it("should default surface to clr", () => {
+  it("should default surface to core", () => {
     const result = resolveConfig(
       makeWorkspaceConfig(),
       makeProjectConfig(),
@@ -96,7 +96,7 @@ describe("Config (surfaces and type roots)", () => {
       WORKSPACE_ROOT,
       PROJECT_ROOT
     );
-    expect(result.surface).to.equal("clr");
+    expect(result.surface).to.equal("core");
   });
 
   it("should resolve @tsonic/js surface from workspace config", () => {
@@ -224,7 +224,7 @@ describe("Config (surfaces and type roots)", () => {
     }
   });
 
-  it("should default typeRoots to clr surface roots", () => {
+  it("should default typeRoots to core surface roots", () => {
     const result = resolveConfig(
       makeWorkspaceConfig({ dotnet: {} }),
       makeProjectConfig(),

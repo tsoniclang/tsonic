@@ -278,15 +278,38 @@ export const getReferenceLoweringStableKey = (
 ): string | undefined => {
   const baseKey =
     type.typeId?.stableId ??
-    type.typeId?.clrName ??
-    type.resolvedClrType ??
+    type.providerQualifiedName ??
     undefined;
   if (!baseKey) return undefined;
 
+  const trySerializeTypeArgument = (arg: IrType): string | undefined => {
+    try {
+      return serializeType(arg);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.startsWith("Cannot serialize identity-less reference type ")
+      ) {
+        return undefined;
+      }
+      throw err;
+    }
+  };
+
   const typeArgsKey =
     type.typeArguments && type.typeArguments.length > 0
-      ? `<${type.typeArguments.map((arg) => serializeType(arg)).join(",")}>`
+      ? (() => {
+          const serializedArgs = type.typeArguments.map(trySerializeTypeArgument);
+          if (serializedArgs.some((arg) => arg === undefined)) {
+            return undefined;
+          }
+          return `<${serializedArgs.join(",")}>`;
+        })()
       : "";
+
+  if (typeArgsKey === undefined) {
+    return undefined;
+  }
 
   return `${baseKey}${typeArgsKey}`;
 };

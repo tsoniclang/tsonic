@@ -9,7 +9,7 @@ export type { ProofContext } from "./numeric-proof-guard-facts.js";
 export {
   moduleLocation,
   cloneProofContext,
-  withInt32ProofsFromTruthyCondition,
+  withSourceIntProofsFromTruthyCondition,
 } from "./numeric-proof-guard-facts.js";
 
 export {

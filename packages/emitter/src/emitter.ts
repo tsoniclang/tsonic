@@ -10,7 +10,6 @@
 import * as path from "node:path";
 import {
   type Diagnostic,
-  type EmittableIrModule,
   type IrModule,
 } from "@tsonic/frontend";
 import { EmitterOptions, JsonAotRegistry } from "./types.js";
@@ -28,6 +27,7 @@ import {
   generateRuntimeUnionFile,
 } from "./generated-files.js";
 import { createRuntimeUnionRegistry } from "./core/semantic/runtime-union-registry.js";
+import type { CSharpEmittableIrModule } from "./target.js";
 
 /**
  * Result of batch emission
@@ -40,7 +40,7 @@ export type EmitResult =
  * Emit a complete C# file from an IR module
  */
 export const emitCSharpFile = (
-  module: EmittableIrModule,
+  module: CSharpEmittableIrModule,
   options: Partial<EmitterOptions> = {}
 ): string => {
   return emitModule(module, options);
@@ -51,7 +51,7 @@ export const emitCSharpFile = (
  * Returns an error if there are file name collisions after normalization.
  */
 export const emitCSharpFiles = (
-  modules: readonly EmittableIrModule[],
+  modules: readonly CSharpEmittableIrModule[],
   options: Partial<EmitterOptions> = {}
 ): EmitResult => {
   const referenceModules = options.referenceModules ?? modules;

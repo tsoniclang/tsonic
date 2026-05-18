@@ -18,9 +18,13 @@ import { emitCSharpName } from "../../naming-policy.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { identifierType } from "../format/backend-ast/builders.js";
 import {
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   globallyQualifyTypeAst,
 } from "../format/backend-ast/utils.js";
+import {
+  getTargetMemberRenderInfo,
+  getTargetTypeRenderInfo,
+} from "./target-symbols.js";
 
 const projectedSourcePackagePathCache = new Map<string, string | null>();
 
@@ -92,7 +96,7 @@ const tryProjectSourcePackagePathToModuleKey = (
  * NOTE: No using statements are collected. All type/member references
  * are emitted as fully-qualified global:: names.
  *
- * - CLR imports: Build ImportBindings with fully-qualified global:: CLR names
+ * - external imports: Build ImportBindings with fully-qualified global:: CLR names
  * - Local module imports: Build ImportBindings with fully-qualified CLR names
  */
 export const processImports = (
@@ -201,20 +205,19 @@ export const processImports = (
   ): { localName: string; importBinding: ImportBinding } | null => {
     const inferredNamespace =
       resolvedNamespace ??
-      (spec.kind === "named" && spec.resolvedClrType
+      (spec.kind === "named" && spec.providerQualifiedName
         ? (() => {
-            const lastDot = spec.resolvedClrType.lastIndexOf(".");
+            const lastDot = spec.providerQualifiedName.lastIndexOf(".");
             return lastDot > 0
-              ? spec.resolvedClrType.slice(0, lastDot)
+              ? spec.providerQualifiedName.slice(0, lastDot)
               : undefined;
           })()
         : undefined) ??
-      (spec.kind === "named" && spec.resolvedClrValue
+      (spec.kind === "named" && spec.providerValue
         ? (() => {
-            const lastDot =
-              spec.resolvedClrValue.declaringClrType.lastIndexOf(".");
+            const lastDot = spec.providerValue.ownerQualifiedName.lastIndexOf(".");
             return lastDot > 0
-              ? spec.resolvedClrValue.declaringClrType.slice(0, lastDot)
+              ? spec.providerValue.ownerQualifiedName.slice(0, lastDot)
               : undefined;
           })()
         : undefined);
@@ -225,12 +228,12 @@ export const processImports = (
 
     if (spec.kind === "named") {
       const isType = spec.isType === true;
-      if (!isType && !spec.resolvedClrType && !spec.resolvedClrValue) {
+      if (!isType && !spec.providerQualifiedName && !spec.providerValue) {
         return null;
       }
     }
 
-    return createClrImportBinding(spec, inferredNamespace);
+    return createClrImportBinding(spec, inferredNamespace, context);
   };
 
   const updatedContext = imports.reduce((ctx, imp) => {
@@ -241,12 +244,17 @@ export const processImports = (
     // those we must resolve through the inlined source graph so named re-exports
     // bind to the actual generated container/type locations rather than the
     // coarse module binding root from `bindings.json`.
-    if (imp.resolvedClrType && !imp.isLocal) {
-      const moduleClrType = `global::${imp.resolvedClrType}`;
+    if (imp.providerQualifiedName && !imp.isLocal) {
+      const moduleClrType = `global::${imp.providerQualifiedName}`;
       for (const spec of imp.specifiers) {
         const binding = createModuleImportBinding(
           spec,
-          moduleClrType,
+          imp.typeSymbolId
+            ? `global::${
+                getTargetTypeRenderInfo(ctx, imp.typeSymbolId)?.qualifiedName ??
+                imp.providerQualifiedName
+              }`
+            : moduleClrType,
           imp.resolvedNamespace
         );
         registerImportBinding(spec, binding);
@@ -319,10 +327,10 @@ export const processImports = (
       // No module map = single file compilation, no import bindings needed
     }
 
-    // CLR imports (from @tsonic/dotnet/* or similar packages)
-    if (imp.isClr && imp.resolvedNamespace) {
+    // external imports (from @tsonic/dotnet/* or similar packages)
+    if (imp.resolutionKind === "externalSurface" && imp.resolvedNamespace) {
       for (const spec of imp.specifiers) {
-        const binding = createClrImportBinding(spec, imp.resolvedNamespace);
+        const binding = createClrImportBinding(spec, imp.resolvedNamespace, ctx);
         registerImportBinding(spec, binding);
       }
       return ctx;
@@ -348,13 +356,14 @@ export const processImports = (
  */
 const createClrImportBinding = (
   spec: IrImportSpecifier,
-  namespace: string
+  namespace: string,
+  context: EmitterContext
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
   const namespaceFqn = `global::${namespace}`;
   const createTypeBinding = (clrName: string): ImportBinding => ({
     kind: "type",
-    typeAst: clrTypeNameToTypeAst(clrName),
+    typeAst: targetTypeNameToTypeAst(clrName),
   });
 
   if (spec.kind === "named") {
@@ -362,12 +371,15 @@ const createClrImportBinding = (
     const isType = spec.isType === true;
 
     if (isType) {
+      const typeRenderInfo = getTargetTypeRenderInfo(context, spec.typeSymbolId);
       // Type import: preserve the type as AST instead of rendering text eagerly
       return {
         localName,
         importBinding: createTypeBinding(
-          spec.resolvedClrType
-            ? `global::${spec.resolvedClrType}`
+          typeRenderInfo
+            ? `global::${typeRenderInfo.qualifiedName}`
+            : spec.providerQualifiedName
+            ? `global::${spec.providerQualifiedName}`
             : `${namespaceFqn}.${spec.name}`
         ),
       };
@@ -375,27 +387,34 @@ const createClrImportBinding = (
       // Value import:
       // - If tsbindgen provided a flattened export mapping, bind directly to
       //   the declaring CLR type + member.
-      if (spec.resolvedClrValue) {
+      if (spec.providerValue) {
+        const memberRenderInfo = getTargetMemberRenderInfo(
+          context,
+          spec.memberSymbolId
+        );
         return {
           localName,
           importBinding: {
             kind: "value",
-            clrName: `global::${spec.resolvedClrValue.declaringClrType}`,
-            member: spec.resolvedClrValue.memberName,
+            clrName: `global::${
+              memberRenderInfo?.ownerQualifiedName ??
+              spec.providerValue.ownerQualifiedName
+            }`,
+            member: memberRenderInfo?.memberName ?? spec.providerValue.memberName,
           },
         };
       }
-      if (spec.resolvedClrType) {
+      if (spec.providerQualifiedName) {
         return {
           localName,
           importBinding: {
             kind: "namespace",
-            clrName: `global::${spec.resolvedClrType}`,
+            clrName: `global::${spec.providerQualifiedName}`,
           },
         };
       }
       throw new Error(
-        `ICE: Missing resolvedClrValue for CLR value import '${spec.name}' from '${namespace}'.`
+        `ICE: Missing target value symbol for external value import '${spec.name}' from '${namespace}'.`
       );
     }
   }
@@ -411,7 +430,7 @@ const createClrImportBinding = (
     };
   }
 
-  // Default imports not supported for CLR namespaces
+  // Default imports not supported for external namespaces
   return null;
 };
 
@@ -589,19 +608,19 @@ const createModuleImportBinding = (
   }
 
   if (spec.kind === "named") {
-    if (spec.resolvedClrType) {
+    if (spec.providerQualifiedName) {
       return {
         localName,
         importBinding: {
           kind: "namespace",
-          clrName: `global::${spec.resolvedClrType}`,
+          clrName: `global::${spec.providerQualifiedName}`,
         },
       };
     }
 
     if (spec.isType === true) {
-      const clrName = spec.resolvedClrType
-        ? `global::${spec.resolvedClrType}`
+      const clrName = spec.providerQualifiedName
+        ? `global::${spec.providerQualifiedName}`
         : clrNamespace
           ? `global::${clrNamespace}.${spec.name}`
           : undefined;
@@ -614,7 +633,7 @@ const createModuleImportBinding = (
         localName,
         importBinding: {
           kind: "type",
-          typeAst: clrTypeNameToTypeAst(clrName),
+          typeAst: targetTypeNameToTypeAst(clrName),
         },
       };
     }

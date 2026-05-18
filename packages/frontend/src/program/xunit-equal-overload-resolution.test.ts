@@ -1,6 +1,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
+import { ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES } from "./test-backend-capabilities.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 import type {
   IrExpressionStatement,
@@ -95,6 +96,7 @@ const buildFixtureGraph = (fixtureName: string) => {
     projectRoot,
     sourceRoot: fixture.path("app/src"),
     rootNamespace: "TestApp",
+        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     surface: "@tsonic/js",
   });
   return { fixture, result };

@@ -1,5 +1,5 @@
 /**
- * CLR name helpers, type parameter extraction, member extraction from
+ * Target name helpers, type parameter extraction, member extraction from
  * declarations/aliased object types, callable interface conversion,
  * method signature conversion, and heritage clause extraction.
  *
@@ -8,7 +8,7 @@
 
 import * as ts from "typescript";
 import type { IrType } from "../../types/index.js";
-import { normalizeToClrName } from "./universe/alias-table.js";
+import { normalizeToTargetName } from "./universe/alias-table.js";
 import { isOverloadStubImplementation } from "../../syntax/overload-stubs.js";
 import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
 import type {
@@ -28,60 +28,55 @@ import {
 } from "../../../program/source-file-identity.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CANONICAL CLR NAME HELPERS
+// CANONICAL TARGET NAME HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Check if a source file is from a well-known Tsonic library.
- * Only CLR-authored libraries should canonicalize global wrapper names to
- * their System.* identities.
- *
- * First-party source packages like `@tsonic/js` and `@tsonic/nodejs` are
- * authoritative semantic surfaces and must retain their own namespaces
- * (`js.Array`, `js.String`, etc.) instead of collapsing onto `System.*`.
+ * Compiler-owned libraries can canonicalize global wrapper names when the
+ * active external catalog defines a target identity.
  */
 export const isWellKnownLibrary = (fileName: string): boolean => {
   return (
     fileName.includes("@tsonic/globals") ||
-    fileName.includes("@tsonic/core") ||
-    fileName.includes("@tsonic/dotnet")
+    fileName.includes("@tsonic/core")
   );
 };
 
 /**
- * Get the canonical CLR FQ name for a type from a well-known library.
+ * Get the canonical target name for a type from a well-known library.
  * Returns undefined if the type should use its default FQ name.
  *
  * Handles:
- * - Global types: String → System.String, Array → System.Array
- * - $instance companions: String$instance → System.String$instance
- * - Core primitives: int → System.Int32, etc. (handled via type aliases)
+ * - Global types: String → provider string, Array → provider array
+ * - $instance companions: String$instance → provider string$instance
+ * - Core primitives: int → provider int32, etc. (handled via type aliases)
  */
-export const getCanonicalClrFQName = (
+export const getCanonicalTargetName = (
   simpleName: string,
   isFromWellKnownLib: boolean
 ): string | undefined => {
   if (!isFromWellKnownLib) return undefined;
 
   // Check direct mapping (String, Array, Number, etc.)
-  const directMapping = normalizeToClrName(simpleName);
+  const directMapping = normalizeToTargetName(simpleName);
   if (directMapping !== simpleName) return directMapping;
 
-  // Handle $instance companions - they map to System.X$instance
+  // Handle $instance companions through the same catalog-backed name mapping.
   if (simpleName.endsWith("$instance")) {
     const baseName = simpleName.slice(0, -9); // Remove "$instance"
-    const baseClrName = normalizeToClrName(baseName);
-    if (baseClrName !== baseName) {
-      return `${baseClrName}$instance`;
+    const baseTargetName = normalizeToTargetName(baseName);
+    if (baseTargetName !== baseName) {
+      return `${baseTargetName}$instance`;
     }
   }
 
-  // Handle __X$views companions - they map to System.X$views
+  // Handle __X$views companions through the same catalog-backed name mapping.
   if (simpleName.includes("$views")) {
     const baseName = simpleName.replace("__", "").replace("$views", "");
-    const baseClrName = normalizeToClrName(baseName);
-    if (baseClrName !== baseName) {
-      return `${baseClrName}$views`;
+    const baseTargetName = normalizeToTargetName(baseName);
+    if (baseTargetName !== baseName) {
+      return `${baseTargetName}$views`;
     }
   }
 
@@ -197,8 +192,8 @@ export const resolveHeritageTypeName = (
 
   if (!simpleName) return undefined;
 
-  // Canonicalize well-known runtime types to CLR FQ names.
-  const canonical = getCanonicalClrFQName(
+  // Canonicalize well-known runtime types to target names.
+  const canonical = getCanonicalTargetName(
     simpleName,
     sourceFile ? isWellKnownLibrary(sourceFile.fileName) : false
   );

@@ -12,7 +12,7 @@ import { normalizeRuntimeUnionCarrierNames } from "../../runtime-union-cases/hel
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  resolvedClrType: "Tsonic.Runtime.JsValue",
+  providerQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 describe("Expression Emission", () => {
@@ -26,7 +26,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            resolvedClrType: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -40,7 +40,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const pathSpecType: IrType = {
@@ -55,7 +55,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
       ],
     };
@@ -110,7 +110,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            resolvedClrType: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -124,7 +124,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const pathSpecType: IrType = {
@@ -139,7 +139,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
       ],
     };
@@ -196,7 +196,7 @@ describe("Expression Emission", () => {
           type: {
             kind: "referenceType",
             name: "Request",
-            resolvedClrType: "Test.Request",
+            providerQualifiedName: "Test.Request",
           },
           initializer: undefined,
           isOptional: false,
@@ -210,7 +210,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const pathSpecType: IrType = {
@@ -225,7 +225,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::js.RegExp",
+          providerQualifiedName: "global::js.RegExp",
         },
       ],
     };
@@ -276,7 +276,7 @@ describe("Expression Emission", () => {
     const bindOptionsType: IrType = {
       kind: "referenceType",
       name: "BindOptions",
-      resolvedClrType: "Test.BindOptions",
+      providerQualifiedName: "Test.BindOptions",
     };
 
     const broadType: IrType = {
@@ -355,7 +355,7 @@ describe("Expression Emission", () => {
     const bytesType: IrType = {
       kind: "referenceType",
       name: "Bytes",
-      resolvedClrType: "Test.Bytes",
+      providerQualifiedName: "Test.Bytes",
     };
 
     const broadType: IrType = {
@@ -423,7 +423,7 @@ describe("Expression Emission", () => {
     const bytesType: IrType = {
       kind: "referenceType",
       name: "Bytes",
-      resolvedClrType: "Test.Bytes",
+      providerQualifiedName: "Test.Bytes",
     };
 
     const broadType: IrType = {
@@ -479,7 +479,7 @@ describe("Expression Emission", () => {
     const bindOptionsType: IrType = {
       kind: "referenceType",
       name: "BindOptions",
-      resolvedClrType: "Test.BindOptions",
+      providerQualifiedName: "Test.BindOptions",
     };
 
     const broadType: IrType = {
@@ -557,5 +557,159 @@ describe("Expression Emission", () => {
     expect(rendered).to.not.include(
       "((global::Tsonic.Internal.Union<int, Test.BindOptions>?)value).Match"
     );
+  });
+
+  it("passes the original alias carrier into broad predicate parameters after complement narrowing", () => {
+    const rsaType: IrType = {
+      kind: "referenceType",
+      name: "RSA",
+      providerQualifiedName: "Test.RSA",
+    };
+    const dsaType: IrType = {
+      kind: "referenceType",
+      name: "DSA",
+      providerQualifiedName: "Test.DSA",
+    };
+    const ecDsaType: IrType = {
+      kind: "referenceType",
+      name: "ECDsa",
+      providerQualifiedName: "Test.ECDsa",
+    };
+    const nullType: IrType = { kind: "primitiveType", name: "null" };
+    const nativeKeyType: IrType = {
+      kind: "unionType",
+      types: [rsaType, dsaType, ecDsaType, nullType],
+      runtimeUnionLayout: "carrierSlotOrder",
+      runtimeCarrierFamilyKey: "runtime-union:alias:Test.NativeAsymmetricKey",
+      runtimeCarrierName: "NativeAsymmetricKey",
+      runtimeCarrierNamespace: "Test",
+      runtimeCarrierTypeParameters: [],
+    };
+    const nativeKeyRef: IrType = {
+      kind: "referenceType",
+      name: "NativeAsymmetricKey",
+      providerQualifiedName: "Test.NativeAsymmetricKey",
+    };
+    const remainingKeyTypes: IrType = {
+      kind: "unionType",
+      types: [dsaType, ecDsaType],
+      runtimeUnionLayout: "carrierSlotOrder",
+      runtimeCarrierFamilyKey: "runtime-union:anonymous:remaining-key-types",
+      runtimeCarrierName: "Union2_RemainingKeyTypes",
+      runtimeCarrierNamespace: "Tsonic.Internal",
+    };
+    const narrowedPredicateArgumentType: IrType = {
+      kind: "unionType",
+      types: [nullType, ecDsaType],
+    };
+    const predicateType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "value" },
+          type: nativeKeyRef,
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "primitiveType", name: "boolean" },
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "call",
+        callee: {
+          kind: "identifier",
+          name: "isEcDsaKey",
+          inferredType: predicateType,
+        },
+        arguments: [
+          {
+            kind: "typeAssertion",
+            expression: {
+              kind: "identifier",
+              name: "nativeKeyData",
+              inferredType: narrowedPredicateArgumentType,
+            },
+            targetType: narrowedPredicateArgumentType,
+            inferredType: narrowedPredicateArgumentType,
+          },
+        ],
+        isOptional: false,
+        inferredType: { kind: "primitiveType", name: "boolean" },
+        parameterTypes: [nativeKeyType],
+        surfaceParameterTypes: [nativeKeyRef],
+        narrowing: {
+          kind: "typePredicate",
+          argIndex: 0,
+          targetType: ecDsaType,
+        },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+          moduleMap: new Map([
+            [
+              "src/key-object.ts",
+              {
+                namespace: "Test",
+                className: "KeyObject",
+                filePath: "src/key-object.ts",
+                hasRuntimeContainer: true,
+                hasTypeCollision: false,
+                exportedValueKinds: undefined,
+                localTypes: new Map([
+                  [
+                    "NativeAsymmetricKey",
+                    {
+                      kind: "typeAlias",
+                      typeParameters: [],
+                      type: nativeKeyType,
+                    },
+                  ],
+                ]),
+              },
+            ],
+          ]),
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localValueTypes: storageCarrierMap([["nativeKeyData", nativeKeyType]]),
+        valueSymbols: new Map([
+          [
+            "isEcDsaKey",
+            {
+              kind: "function",
+              csharpName: "isEcDsaKey",
+              type: predicateType,
+            },
+          ],
+        ]),
+        narrowedBindings: new Map([
+          [
+            "nativeKeyData",
+            {
+              kind: "runtimeSubset",
+              runtimeMemberNs: [2, 3],
+              runtimeUnionArity: 4,
+              sourceMembers: [rsaType, dsaType, ecDsaType, nullType],
+              sourceCandidateMemberNs: [1, 2, 3, 4],
+              type: remainingKeyTypes,
+              sourceType: nativeKeyType,
+            },
+          ],
+        ]),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.equal("isEcDsaKey(nativeKeyData)");
   });
 });

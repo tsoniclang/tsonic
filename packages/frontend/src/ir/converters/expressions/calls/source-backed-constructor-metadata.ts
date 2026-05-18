@@ -13,7 +13,7 @@ import {
 } from "../../../type-system/type-system-call-resolution.js";
 import { addUndefinedToType } from "../../../type-system/type-system-state-helpers.js";
 import { resolveImport } from "../../../../resolver/import-resolution.js";
-import { getClrIdentityKey } from "../../../types/type-ops.js";
+import { externalSurfaceTypesMatch } from "../../../../program/external-surface-type-identity.js";
 
 export type SourceBackedConstructorParameterTypes = {
   readonly parameterTypes: readonly (IrType | undefined)[];
@@ -62,8 +62,8 @@ const getSourceFileForPath = (
   );
 };
 
-const clrBindingTypesMatch = (left: string, right: string): boolean =>
-  getClrIdentityKey(left) === getClrIdentityKey(right);
+const targetBindingTypesMatch = (left: string, right: string): boolean =>
+  externalSurfaceTypesMatch(left, right);
 
 const resolveReferencedClassDeclaration = (
   expression: ts.Expression,
@@ -233,7 +233,7 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
         declaration.getSourceFile().fileName,
         ctx.sourceRoot,
         {
-          clrResolver: ctx.clrResolver,
+          externalResolver: ctx.externalResolver,
           bindings: ctx.bindings,
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
@@ -261,8 +261,8 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
 
   if (
     callee.kind !== "identifier" ||
-    !callee.resolvedAssembly ||
-    !callee.resolvedClrType
+    !callee.providerOwnerIdentity ||
+    !callee.providerQualifiedName
   ) {
     return undefined;
   }
@@ -270,8 +270,8 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
   const binding = ctx.bindings.getExactBindingByKind(callee.name, "global");
   if (
     !binding ||
-    binding.assembly !== callee.resolvedAssembly ||
-    !clrBindingTypesMatch(binding.type, callee.resolvedClrType) ||
+    binding.assembly !== callee.providerOwnerIdentity ||
+    !targetBindingTypesMatch(binding.type, callee.providerQualifiedName) ||
     !binding.sourceImport
   ) {
     return undefined;
@@ -282,7 +282,7 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
     sourceNode.getSourceFile().fileName,
     ctx.sourceRoot,
     {
-      clrResolver: ctx.clrResolver,
+      externalResolver: ctx.externalResolver,
       bindings: ctx.bindings,
       projectRoot: ctx.projectRoot,
       surface: ctx.surface,

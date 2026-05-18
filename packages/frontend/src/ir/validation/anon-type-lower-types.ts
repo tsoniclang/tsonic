@@ -30,33 +30,37 @@ import { getOrCreateObjectTypeReference } from "./anon-type-declaration-synthesi
 // Safe because all exports are const arrow functions (no top-level execution).
 import { lowerExpression } from "./anon-type-ir-rewriting.js";
 
-const canonicalClrNameFromReference = (
+const canonicalTargetNameFromReference = (
   type: IrReferenceType | undefined
-): string | undefined => type?.resolvedClrType ?? type?.typeId?.clrName;
+): string | undefined => type?.providerQualifiedName;
 
 const enrichReferenceIdentityMetadata = (
   reference: IrReferenceType,
   source: IrReferenceType,
   localDeclaredReference: IrReferenceType | undefined
 ): IrReferenceType => {
-  const resolvedClrType =
-    reference.resolvedClrType ??
-    canonicalClrNameFromReference(source) ??
-    canonicalClrNameFromReference(localDeclaredReference);
+  const providerQualifiedName =
+    reference.providerQualifiedName ??
+    canonicalTargetNameFromReference(source) ??
+    canonicalTargetNameFromReference(localDeclaredReference);
   const typeId =
     reference.typeId ?? source.typeId ?? localDeclaredReference?.typeId;
+  const symbolId =
+    reference.symbolId ?? source.symbolId ?? localDeclaredReference?.symbolId;
 
   if (
-    reference.resolvedClrType === resolvedClrType &&
-    reference.typeId === typeId
+    reference.providerQualifiedName === providerQualifiedName &&
+    reference.typeId === typeId &&
+    reference.symbolId === symbolId
   ) {
     return reference;
   }
 
   return {
     ...reference,
-    ...(resolvedClrType !== undefined ? { resolvedClrType } : {}),
+    ...(providerQualifiedName !== undefined ? { providerQualifiedName } : {}),
     ...(typeId !== undefined ? { typeId } : {}),
+    ...(symbolId !== undefined ? { symbolId } : {}),
   };
 };
 
@@ -202,7 +206,7 @@ export const lowerType = (
 
     case "referenceType": {
       const localDeclaredReference =
-        type.resolvedClrType === undefined
+        type.providerQualifiedName === undefined
           ? ctx.localDeclaredTypeReferences.get(type.name)
           : undefined;
       const cachedByIdentity = ctx.loweredTypeByIdentity.get(type);

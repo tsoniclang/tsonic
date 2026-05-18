@@ -30,14 +30,14 @@ import {
 } from "../types/numeric-kind.js";
 
 /**
- * Maximum absolute value for a 32-bit float (Single).
+ * Maximum absolute value for a 32-bit float.
  * Used for validating literal narrowing to float.
  */
 const MAX_FLOAT_ABS = 3.4028235e38;
 
 /**
  * Result of numeric expression classification.
- * - NumericKind: Expression definitely produces that CLR numeric value
+ * - NumericKind: Expression definitely produces that numeric category
  * - "Unknown": Cannot determine at compile time (e.g., untyped identifier, complex call)
  */
 export type NumericExprKind = NumericKind | "Unknown";
@@ -52,21 +52,21 @@ const numericKindFromFact = (
   fact: ReturnType<typeof numericTypeFactFromName> | undefined
 ): NumericKind | undefined => {
   switch (fact?.numericKind) {
-    case "SByte":
-    case "Byte":
-    case "Int16":
-    case "UInt16":
-    case "Int32":
-    case "UInt32":
-    case "Int64":
-    case "UInt64":
-    case "Single":
-    case "Double":
+    case "int8":
+    case "uint8":
+    case "int16":
+    case "uint16":
+    case "int32":
+    case "uint32":
+    case "int64":
+    case "uint64":
+    case "float32":
+    case "float64":
       return fact.numericKind;
-    case "Half":
-      return "Single";
-    case "Decimal":
-      return "Double";
+    case "float16":
+      return "float32";
+    case "decimal":
+      return "float64";
     default:
       return undefined;
   }
@@ -82,7 +82,7 @@ const classifyNumericType = (type: IrType | undefined): NumericExprKind => {
 
   if (type?.kind === "referenceType") {
     const fact = numericTypeFactFromName(
-      type.typeId?.clrName ?? type.resolvedClrType ?? type.name
+      type.typeId?.sourceName ?? type.providerQualifiedName ?? type.name
     );
     if (fact?.kind === "numeric") {
       const exactKind =
@@ -102,7 +102,7 @@ const classifyNumericType = (type: IrType | undefined): NumericExprKind => {
  * This function propagates numeric kind through:
  * - Literals (via numericIntent)
  * - Identifiers with primitiveType(name="int") or primitiveType(name="number")
- * - Arithmetic operations (uses C# promotion rules)
+ * - Arithmetic operations (uses Tsonic numeric promotion rules)
  * - Unary +/- (preserves operand kind)
  * - Ternary (requires both branches to have same kind)
  * - Parentheses (pass through)
@@ -115,7 +115,7 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
     case "literal": {
       // Check numericIntent on literal expressions
       if (typeof expr.value === "number" && expr.numericIntent) {
-        return expr.numericIntent === "Int32" ? "Int32" : "Double";
+        return expr.numericIntent === "int32" ? "int32" : "float64";
       }
       // Non-numeric literals
       return "Unknown";
@@ -130,9 +130,9 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
       if (expr.operator === "+" || expr.operator === "-") {
         return classifyNumericExpr(expr.expression);
       }
-      // Bitwise NOT (~) produces Int32
+      // Bitwise NOT (~) produces int32
       if (expr.operator === "~") {
-        return "Int32";
+        return "int32";
       }
       return "Unknown";
     }
@@ -150,7 +150,7 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
         return "Unknown";
       }
 
-      // Use C# binary promotion rules.
+      // Use Tsonic numeric promotion rules.
       const resultKind = getBinaryResultKind(leftKind, rightKind);
 
       return resultKind;
@@ -163,14 +163,11 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
 
       if (trueKind === falseKind) return trueKind;
       // Mismatched branches - use promotion
-      if (trueKind === "Double" || falseKind === "Double") return "Double";
+      if (trueKind === "float64" || falseKind === "float64") return "float64";
       return "Unknown";
     }
 
     case "numericNarrowing": {
-      // numericNarrowing has explicit targetKind
-      if (expr.targetKind === "Int32") return "Int32";
-      if (expr.targetKind === "Double") return "Double";
       return expr.targetKind;
     }
 
@@ -196,14 +193,14 @@ export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
 /**
  * Check if an expression has explicit double intent.
  * This is true when:
- * - It's a numericNarrowing with targetKind "Double" (i.e., `42 as number`)
- * - It's a literal with numericIntent "Double" (i.e., `42.0`)
+ * - It's a numericNarrowing with targetKind `float64` (i.e., `42 as number`)
+ * - It's a literal with numericIntent `float64` (i.e., `42.0`)
  *
  * Used to exempt explicit casts from TSN5110 errors.
  */
 export const hasExplicitDoubleIntent = (expr: IrExpression): boolean => {
-  // Case 1: numericNarrowing targeting Double (e.g., `42 as number`, `42 as double`)
-  if (expr.kind === "numericNarrowing" && expr.targetKind === "Double") {
+  // Case 1: numericNarrowing targeting float64 (e.g., `42 as number`, `42 as double`)
+  if (expr.kind === "numericNarrowing" && expr.targetKind === "float64") {
     return true;
   }
 
@@ -211,7 +208,7 @@ export const hasExplicitDoubleIntent = (expr: IrExpression): boolean => {
   if (
     expr.kind === "literal" &&
     typeof expr.value === "number" &&
-    expr.numericIntent === "Double"
+    expr.numericIntent === "float64"
   ) {
     return true;
   }
@@ -242,8 +239,8 @@ export const moduleLocation = (ctx: CoercionContext): SourceLocation => ({
  * Returns undefined if the type is not a numeric type.
  *
  * Maps:
- * - primitiveType("number") → "Double"
- * - primitiveType("int") → "Int32"
+ * - primitiveType("number") → float64
+ * - primitiveType("int") → int32
  * - referenceType with name in TSONIC_TO_NUMERIC_KIND → corresponding kind
  */
 export const getExpectedNumericKind = (
@@ -267,21 +264,16 @@ export const getExpectedNumericKind = (
 
   // primitiveType mapping
   if (baseType.kind === "primitiveType") {
-    if (baseType.name === "number") return "Double";
-    if (baseType.name === "int") return "Int32";
+    if (baseType.name === "number") return "float64";
+    if (baseType.name === "int") return "int32";
     // Check if it's a known numeric type alias
     const kind = TSONIC_TO_NUMERIC_KIND.get(baseType.name);
     if (kind) return kind;
   }
 
-  // referenceType mapping (CLR types like Int32, Double, etc.)
+  // referenceType mapping through Tsonic numeric aliases.
   if (baseType.kind === "referenceType") {
     const name = baseType.name;
-    // Direct CLR type names
-    if (name === "Int32" || name === "int") return "Int32";
-    if (name === "Double" || name === "double") return "Double";
-    if (name === "Int64" || name === "long") return "Int64";
-    if (name === "Single" || name === "float") return "Single";
     // Check the mapping table
     const kind = TSONIC_TO_NUMERIC_KIND.get(name.toLowerCase());
     if (kind) return kind;
@@ -350,7 +342,7 @@ export const tryGetTupleElementType = (
  * Check if an expression needs coercion to match an expected numeric type.
  *
  * Returns true (error) only for NARROWING conversions.
- * Widening conversions (e.g., Int32 → Double) are implicitly allowed.
+ * Widening conversions (e.g., int32 → float64) are implicitly allowed.
  *
  * Rules:
  * - Same kind → OK
@@ -375,7 +367,7 @@ export const needsCoercion = (
     return false;
   }
 
-  // Widening conversion → OK (e.g., Int32 → Double)
+  // Widening conversion → OK (e.g., int32 → float64)
   if (isWideningConversion(actualKind, expectedKind)) {
     return false;
   }
@@ -387,17 +379,17 @@ export const needsCoercion = (
   }
 
   // Allow constant-literal narrowing when the literal fits the target type.
-  // This mirrors C#'s constant expression conversion rules and is ONLY allowed for literals.
+  // This mirrors Tsonic constant-expression conversion rules and is ONLY allowed for literals.
   const allowConstantLiteralNarrowing = (v: number): boolean => {
     // Integer target kinds: require safe integer, integral value, and in-range.
     if (
-      expectedKind === "SByte" ||
-      expectedKind === "Byte" ||
-      expectedKind === "Int16" ||
-      expectedKind === "UInt16" ||
-      expectedKind === "UInt32" ||
-      expectedKind === "UInt64" ||
-      expectedKind === "Int64"
+      expectedKind === "int8" ||
+      expectedKind === "uint8" ||
+      expectedKind === "int16" ||
+      expectedKind === "uint16" ||
+      expectedKind === "uint32" ||
+      expectedKind === "uint64" ||
+      expectedKind === "int64"
     ) {
       if (
         Number.isSafeInteger(v) &&
@@ -409,7 +401,7 @@ export const needsCoercion = (
     }
 
     // Float target kind: allow finite values in float range.
-    if (expectedKind === "Single") {
+    if (expectedKind === "float32") {
       if (Number.isFinite(v) && Math.abs(v) <= MAX_FLOAT_ABS) {
         return true;
       }

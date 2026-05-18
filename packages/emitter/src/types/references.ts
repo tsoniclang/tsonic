@@ -23,7 +23,7 @@ import {
 } from "../core/format/backend-ast/builders.js";
 import {
   clrNameMatchesClrIdentity,
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   isCSharpPredefinedTypeKeyword,
 } from "../core/format/backend-ast/utils.js";
 import {
@@ -50,6 +50,12 @@ import {
 } from "../core/semantic/runtime-unions.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import {
+  getTargetTypeRenderInfo,
+  resolveCoreTargetTypeName,
+} from "../core/semantic/target-symbols.js";
+import { getReferenceClrTargetName } from "../core/semantic/clr-type-identity.js";
+import { isJsValueReferenceType } from "../core/semantic/broad-object-types.js";
 
 /**
  * Check if a type name indicates an unsupported support type.
@@ -98,6 +104,11 @@ const isQualifiedClrIdentity = (name: string | undefined): boolean => {
 const isSystemObjectClrIdentity = (name: string | undefined): boolean =>
   clrNameMatchesClrIdentity(name, ["System.Object"]);
 
+const isJsPrimitiveReferenceType = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): boolean =>
+  type.name === "JsPrimitive" || type.typeId?.sourceName === "JsPrimitive";
+
 const getDeclaringTypeParameterAsts = (
   context: EmitterContext
 ): readonly CSharpTypeAst[] =>
@@ -112,7 +123,24 @@ export const emitReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const { name, typeArguments, resolvedClrType, typeId } = type;
+  const { name, typeArguments, providerQualifiedName, typeId } = type;
+  if (isJsPrimitiveReferenceType(type)) {
+    return [{ kind: "predefinedType", keyword: "object" }, context];
+  }
+
+  if (isJsValueReferenceType(type)) {
+    return [
+      nullableType({ kind: "predefinedType", keyword: "object" }),
+      context,
+    ];
+  }
+
+  const coreTargetType = resolveCoreTargetTypeName(
+    providerQualifiedName ?? typeId?.providerName ?? name
+  );
+  if (coreTargetType) {
+    return [identifierType(coreTargetType), context];
+  }
 
   const resolvedAlias = resolveTypeAlias(type, context, {
     preserveObjectTypeAliases: true,
@@ -191,6 +219,19 @@ export const emitReferenceType = (
     return [importedTypeAst, context];
   }
 
+  const symbolRenderInfo = getTargetTypeRenderInfo(
+    context,
+    type.symbolId ?? typeId?.symbolId
+  );
+  if (symbolRenderInfo && !currentModuleLocalResolution) {
+    const typeAst = targetTypeNameToTypeAst(toGlobalClr(symbolRenderInfo.qualifiedName));
+    if (typeArguments && typeArguments.length > 0) {
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [attachTypeArgumentsIfSupported(typeAst, typeArgAsts), newContext];
+    }
+    return [typeAst, context];
+  }
+
   const structuralReference = resolveStructuralReferenceType(type, context);
   if (
     structuralReference &&
@@ -213,7 +254,7 @@ export const emitReferenceType = (
                 name: paramName,
               }))
             : undefined,
-        resolvedClrType: undefined,
+        providerQualifiedName: undefined,
         typeId: undefined,
       },
       context
@@ -361,17 +402,6 @@ export const emitReferenceType = (
 
   // NOTE: Map and Set must be explicitly imported (not ambient)
 
-  if (name === "JsPrimitive") {
-    return [{ kind: "predefinedType", keyword: "object" }, context];
-  }
-
-  if (name === "JsValue") {
-    return [
-      nullableType({ kind: "predefinedType", keyword: "object" }),
-      context,
-    ];
-  }
-
   // Map PromiseLike to Task
   if (name === "PromiseLike") {
     const firstArg = typeArguments?.[0];
@@ -413,6 +443,19 @@ export const emitReferenceType = (
     return [identifierType(exactBclValueType), context];
   }
 
+  const numericKindTargetType =
+    !providerQualifiedName && !typeId ? getReferenceClrTargetName(type) : undefined;
+  if (numericKindTargetType) {
+    if (typeArguments && typeArguments.length > 0) {
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [
+        identifierTypeWithArgs(numericKindTargetType, typeArgAsts),
+        newContext,
+      ];
+    }
+    return [identifierType(numericKindTargetType), context];
+  }
+
   // Type parameters in scope can be emitted directly
   if (context.typeParameters?.has(name)) {
     const mappedName = context.typeParameterNameMap?.get(name) ?? name;
@@ -420,7 +463,7 @@ export const emitReferenceType = (
   }
 
   // Source-package local types compiled in this program must win over imported CLR
-  // metadata names. Imported aliases/interfaces often carry a nominal resolvedClrType,
+  // metadata names. Imported aliases/interfaces often carry a nominal providerQualifiedName,
   // but if their real definition is present in moduleMap we need to emit from that
   // local definition instead of treating them as precompiled external CLR types.
   //
@@ -478,8 +521,8 @@ export const emitReferenceType = (
   }
 
   // Check if this type is imported - use pre-computed type AST directly.
-  // Exact source/CLR import bindings are authoritative for imported simple names.
-  // resolvedClrType can carry stale nominal identity when frontend/binding paths
+  // Exact source/external import bindings are authoritative for imported simple names.
+  // providerQualifiedName can carry stale nominal identity when frontend/binding paths
   // collapse same-named exported types from sibling modules; the explicit import
   // contract must win in that case.
   //
@@ -489,11 +532,11 @@ export const emitReferenceType = (
   if (
     (!currentModuleLocalType ||
       context.preferResolvedLocalClrIdentity ||
-      isSystemObjectClrIdentity(resolvedClrType)) &&
-    isQualifiedClrIdentity(resolvedClrType)
+      isSystemObjectClrIdentity(providerQualifiedName)) &&
+    isQualifiedClrIdentity(providerQualifiedName)
   ) {
-    const typeAst = clrTypeNameToTypeAst(
-      toGlobalClr(resolvedClrType as string)
+    const typeAst = targetTypeNameToTypeAst(
+      toGlobalClr(providerQualifiedName as string)
     );
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
@@ -611,8 +654,8 @@ export const emitReferenceType = (
   // declarations a chance to win. Source packages such as @tsonic/js are allowed
   // to define a real exported class named Array, and that must not be erased to T[].
   if (name === "Array" || name === "ReadonlyArray" || name === "ArrayLike") {
-    if (resolvedClrType) {
-      return [clrTypeNameToTypeAst(toGlobalClr(resolvedClrType)), context];
+    if (providerQualifiedName) {
+      return [targetTypeNameToTypeAst(toGlobalClr(providerQualifiedName)), context];
     }
     const firstArg = typeArguments?.[0];
     if (!firstArg) {
@@ -636,7 +679,7 @@ export const emitReferenceType = (
   // When present, this is the authoritative source for CLR emission and
   // avoids relying on emitter-side registry plumbing for basic type names.
   if (typeId) {
-    const typeAst = clrTypeNameToTypeAst(toGlobalClr(typeId.clrName));
+    const typeAst = targetTypeNameToTypeAst(toGlobalClr(typeId.providerName));
 
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
@@ -653,7 +696,7 @@ export const emitReferenceType = (
     const regBinding = context.bindingsRegistry?.get(candidate);
     if (!regBinding) continue;
 
-    const typeAst = clrTypeNameToTypeAst(toGlobalClr(regBinding.name));
+    const typeAst = targetTypeNameToTypeAst(toGlobalClr(regBinding.name));
 
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
@@ -700,6 +743,6 @@ export const emitReferenceType = (
   // Hard failure: unresolved external reference type
   // This should never happen if the IR soundness gate is working correctly
   throw new Error(
-    `ICE: Unresolved reference type '${name}' (no resolvedClrType, no import binding, no registry binding, not local; structuralMembers=${type.structuralMembers?.length ?? 0}; typeId=${type.typeId?.clrName ?? "none"})`
+    `ICE: Unresolved reference type '${name}' (no providerQualifiedName, no import binding, no registry binding, not local; structuralMembers=${type.structuralMembers?.length ?? 0}; typeId=${type.typeId?.providerName ?? "none"})`
   );
 };

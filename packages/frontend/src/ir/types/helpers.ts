@@ -84,10 +84,10 @@ export type IrParameter = {
   readonly initializer?: IrExpression;
   readonly isOptional: boolean;
   readonly isRest: boolean;
-  readonly passing: "value" | "ref" | "out" | "in"; // C# parameter passing mode
-  /** True when this parameter is the extension-method receiver (`this` parameter in C#). */
+  readonly passing: "value" | "ref" | "out" | "in";
+  /** True when this parameter is the extension-method receiver. */
   readonly isExtensionReceiver?: boolean;
-  /** C# attributes to emit before the parameter */
+  /** Attributes to emit before the parameter. */
   readonly attributes?: readonly IrAttribute[];
 };
 

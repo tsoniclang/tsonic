@@ -31,6 +31,7 @@ import {
   tryInferTypeFromLiteralInitializer,
   tryInferReturnTypeFromCallExpression,
 } from "./inference-initializers-call.js";
+import { attachConstructedReferenceMetadata } from "./constructor-return-metadata.js";
 
 export const tryInferTypeFromInitializer = (
   state: TypeSystemState,
@@ -163,9 +164,20 @@ export const tryInferTypeFromInitializer = (
           explicitTypeArgs: nestedExplicitTypeArgs,
         });
 
-        return nestedResolved.returnType.kind === "unknownType"
-          ? undefined
-          : nestedResolved.returnType;
+        if (nestedResolved.returnType.kind === "unknownType") {
+          return undefined;
+        }
+        const nestedConstructorType = inferExpressionType(
+          state,
+          arg.expression,
+          new Map()
+        );
+        return (
+          attachConstructedReferenceMetadata(
+            nestedResolved.returnType,
+            nestedConstructorType
+          ) ?? nestedResolved.returnType
+        );
       }
 
       return undefined;
@@ -179,9 +191,14 @@ export const tryInferTypeFromInitializer = (
       argTypes,
     });
 
-    return resolved.returnType.kind === "unknownType"
-      ? undefined
-      : resolved.returnType;
+    if (resolved.returnType.kind === "unknownType") {
+      return undefined;
+    }
+    const constructorType = inferExpressionType(state, init.expression, new Map());
+    return (
+      attachConstructedReferenceMetadata(resolved.returnType, constructorType) ??
+      resolved.returnType
+    );
   }
 
   if (ts.isIdentifier(init)) {

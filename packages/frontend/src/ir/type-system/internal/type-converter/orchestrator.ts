@@ -306,7 +306,7 @@ export const convertType = (
 
   // Mapped types
   //
-  // Direct mapped syntax is TS-only and has no first-class CLR type equivalent.
+  // Direct mapped syntax is TS-only and has no first-class native target type equivalent.
   // For deterministic AOT lowering we treat it as `unknown` at IR level
   // (which emits to `object?`) instead of falling back to anyType/ICE.
   if (ts.isMappedTypeNode(typeNode)) {
@@ -340,7 +340,7 @@ export const convertType = (
 
   // Type operators
   // - `readonly T[]` should behave like `T[]` at the IR level (we do not model
-  //   readonly-ness in emitted C# types).
+  //   readonly-ness in emitted target types).
   // - `keyof T` is lowered deterministically when key information can be
   //   recovered from structural IR type data.
   if (ts.isTypeOperatorNode(typeNode)) {

@@ -2,15 +2,16 @@
   "namespace": "System",
   "types": [
     {
-      "clrName": "System.String",
+      "targetName": "System.String",
       "kind": "Class",
       "methods": [
         {
-          "clrName": "Trim",
+          "targetName": "Trim",
           "parameterCount": 0,
           "canonicalSignature": "():System.String"
         }
-      ]
+      ],
+      "sourcePrimitive": "string"
     }
   ]
 }

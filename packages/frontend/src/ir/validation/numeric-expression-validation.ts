@@ -39,17 +39,17 @@ export const emitCoercionError = (
   const actualName =
     actualKind === "Unknown"
       ? "unknown numeric"
-      : actualKind === "Double"
+      : actualKind === "float64"
         ? "double"
-        : actualKind === "Single"
+        : actualKind === "float32"
           ? "float"
-          : actualKind.toLowerCase();
+          : actualKind;
   const expectedName =
-    expectedKind === "Double"
+    expectedKind === "float64"
       ? "number"
-      : expectedKind === "Int32"
+      : expectedKind === "int32"
         ? "int"
-        : String(expectedKind).toLowerCase();
+        : String(expectedKind);
 
   ctx.diagnostics.push(
     createDiagnostic(
@@ -184,7 +184,7 @@ export const validateExpression = (
     }
 
     case "stackalloc": {
-      // stackalloc size must be Int32 (C# stackalloc array length uses int)
+      // stackalloc size must be source int
       validateExpression(
         expr.size,
         { kind: "primitiveType", name: "int" },

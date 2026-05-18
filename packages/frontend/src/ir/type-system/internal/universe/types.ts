@@ -2,11 +2,16 @@
  * Type Universe Type Definitions
  *
  * This module defines the types for the unified type catalog that merges
- * source-authored types (from TS AST) and assembly-authored types (from
- * CLR metadata in bindings.json).
+ * source-authored types (from TS AST) and external-authored types (from
+ * target metadata in bindings.json).
  *
  * FACADE: re-exports from catalog-types and raw-bindings-types.
  */
+
+export type {
+  IrAsyncWrapperMetadata,
+  IrIterableShapeMetadata,
+} from "../../../types/index.js";
 
 export type {
   TypeId,
@@ -22,7 +27,7 @@ export type {
   ParameterMode,
   ConstructorEntry,
   FieldEntry,
-  AssemblyTypeCatalog,
+  ExternalTypeCatalog,
   UnifiedTypeCatalog,
 } from "./catalog-types.js";
 
@@ -43,6 +48,5 @@ export {
   makeTypeId,
   parseStableId,
   resolveRawTypeStableId,
-  PRIMITIVE_TO_STABLE_ID,
-  STABLE_ID_TO_PRIMITIVE,
+  typeIdProviderLookupName,
 } from "./raw-bindings-types.js";

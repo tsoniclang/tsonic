@@ -477,7 +477,7 @@ const resolveSourcePackageImportFromRoot = (
   if (!surfaces.ok) return surfaces;
 
   const activeModes = new Set(
-    resolveSurfaceCapabilities(activeSurface ?? "clr", {
+    resolveSurfaceCapabilities(activeSurface ?? "core", {
       projectRoot,
     }).resolvedModes
   );
@@ -487,7 +487,7 @@ const resolveSourcePackageImportFromRoot = (
       createDiagnostic(
         "TSN1004",
         "error",
-        `Source package '${parsedSpecifier.packageName}' is not compatible with surface '${activeSurface ?? "clr"}'`,
+        `Source package '${parsedSpecifier.packageName}' is not compatible with surface '${activeSurface ?? "core"}'`,
         undefined,
         `Supported surfaces: ${surfaces.value.join(", ")}`
       )

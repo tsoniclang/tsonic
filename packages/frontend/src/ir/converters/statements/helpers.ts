@@ -24,9 +24,9 @@ import {
 /**
  * Optional class fields (`foo?: T`) are semantically `T | undefined` in TS.
  *
- * For value types, this is the only correct way to emit nullable C# (`T?`).
+ * For value types, this is the only correct way to emit nullable target (`T?`).
  * We encode this deterministically in IR so the existing union emitter can
- * map it to C# nullability correctly.
+ * map it to target nullability correctly.
  */
 export const makeOptionalType = (t: IrType): IrType => {
   if (t.kind === "unionType") {
@@ -108,7 +108,7 @@ export const convertParameters = (
     let isExtensionReceiver = false;
 
     // Detect wrapper types:
-    // - thisarg<T> marks an extension-method receiver parameter (emits C# `this`)
+    // - thisarg<T> marks an extension-method receiver parameter (emits target `this`)
     // - ref<T>/out<T>/in<T>/inref<T> marks passing mode (unwraps to T)
     //
     // Wrappers may be nested; unwrap repeatedly.

@@ -25,7 +25,7 @@ export type SurfaceMemberSemanticsMap = Readonly<
 
 export type SurfaceCapabilities = {
   readonly mode: SurfaceMode;
-  readonly includesClr: boolean;
+  readonly includesCore: boolean;
   readonly resolvedModes: readonly SurfaceMode[];
   readonly requiredTypeRoots: readonly string[];
   readonly memberSemantics?: SurfaceMemberSemanticsMap;
@@ -54,8 +54,8 @@ type ResolveSurfaceOptions = {
 };
 
 const BUILTIN_SURFACE_PROFILES: Readonly<Record<string, SurfaceProfile>> = {
-  clr: {
-    mode: "clr",
+  core: {
+    mode: "core",
     extends: [],
     requiredTypeRoots: ["node_modules/@tsonic/globals"],
     memberSemantics: {},
@@ -100,9 +100,9 @@ const isBuiltInSurfaceMode = (value: string): boolean =>
   BUILTIN_SURFACE_MODE_SET.has(value);
 
 const normalizeSurfaceMode = (mode: SurfaceMode | undefined): SurfaceMode => {
-  if (typeof mode !== "string") return "clr";
+  if (typeof mode !== "string") return "core";
   const trimmed = mode.trim();
-  return trimmed.length > 0 ? trimmed : "clr";
+  return trimmed.length > 0 ? trimmed : "core";
 };
 
 type ResolvedSurfacePackage = {
@@ -202,7 +202,7 @@ const tryResolveSiblingSurfacePackage = (
 
 const getSurfacePackageName = (mode: SurfaceMode): string | undefined => {
   const trimmed = mode.trim();
-  if (trimmed.length === 0 || trimmed === "clr") return undefined;
+  if (trimmed.length === 0 || trimmed === "core") return undefined;
   return trimmed;
 };
 
@@ -445,7 +445,7 @@ const normalizeExtendsMode = (
 ): SurfaceMode => {
   const trimmedParent = parentMode.trim();
   if (trimmedParent.length === 0) return trimmedParent;
-  if (trimmedParent === "clr" || trimmedParent.includes("/")) {
+  if (trimmedParent === "core" || trimmedParent.includes("/")) {
     return trimmedParent;
   }
   const scopedMatch = mode.match(/^(@[^/]+)\/[^/]+$/);
@@ -572,7 +572,7 @@ export const resolveSurfaceCapabilities = (
   const chain = resolveProfileChain(normalizedMode, options);
   return {
     mode: normalizedMode,
-    includesClr: chain.some((profile) => profile.mode === "clr"),
+    includesCore: chain.some((profile) => profile.mode === "core"),
     resolvedModes: chain.map((profile) => profile.mode),
     requiredTypeRoots: mergeUnique(
       chain.map((profile) => profile.requiredTypeRoots)

@@ -136,12 +136,7 @@ const stubConvertType = (node: ts.TypeNode, _binding: Binding): IrType => {
     return { kind: "primitiveType", name: "boolean" };
   }
   if (node.kind === ts.SyntaxKind.BigIntKeyword) {
-    return {
-      kind: "referenceType",
-      name: "BigInteger",
-      typeArguments: [],
-      resolvedClrType: "System.Numerics.BigInteger",
-    };
+    return { kind: "primitiveType", name: "bigint" };
   }
   if (node.kind === ts.SyntaxKind.UndefinedKeyword) {
     return { kind: "primitiveType", name: "undefined" };

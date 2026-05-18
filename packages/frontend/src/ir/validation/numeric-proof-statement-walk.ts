@@ -13,7 +13,7 @@ import { IrModule, IrStatement } from "../types.js";
 import {
   type ProofContext,
   cloneProofContext,
-  withInt32ProofsFromTruthyCondition,
+  withSourceIntProofsFromTruthyCondition,
   getNumericKindFromType,
   inferNumericKind,
 } from "./numeric-proof-analysis.js";
@@ -97,7 +97,7 @@ const processStatement = <T extends IrStatement>(
         if (d.name.kind === "identifierPattern") {
           // If a variable has an explicit numeric type annotation, that type is authoritative.
           // We must not "re-prove" it from the initializer, or we'll incorrectly treat
-          // `let x: long = 1;` as Int32 (because `1` is an Int32 literal by lexeme).
+          // `let x: long = 1;` as source int (because `1` is a source-int literal by lexeme).
           const declaredKind = getNumericKindFromType(d.type);
           if (declaredKind !== undefined) {
             ctx.provenVariables.set(d.name.name, declaredKind);
@@ -201,7 +201,7 @@ const processStatement = <T extends IrStatement>(
 
     case "ifStatement": {
       const processedCondition = processExpr(stmt.condition, ctx);
-      const thenCtx = withInt32ProofsFromTruthyCondition(
+      const thenCtx = withSourceIntProofsFromTruthyCondition(
         cloneProofContext(ctx),
         processedCondition
       );

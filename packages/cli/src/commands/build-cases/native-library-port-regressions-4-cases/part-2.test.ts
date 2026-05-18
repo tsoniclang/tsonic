@@ -66,7 +66,7 @@ describe("build command (native library port regressions)", function () {
     skipIfNativeAotUnavailable(this);
   });
 
-  it("builds JS-surface array wrapper members in source ports without CLR bindings", () => {
+  it("builds JS-surface array wrapper members in source ports without external bindings", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-js-array-wrapper-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });

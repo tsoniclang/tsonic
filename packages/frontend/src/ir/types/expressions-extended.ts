@@ -22,9 +22,9 @@ import type { IrExpression } from "./expressions-core.js";
  * - The proof system validates that narrowing operations are sound
  *
  * Examples:
- * - `10 as int` → IrNumericNarrowingExpression(literal 10, targetKind: "Int32")
- * - `x as byte` → IrNumericNarrowingExpression(identifier x, targetKind: "Byte")
- * - `42 as number` → IrNumericNarrowingExpression(literal 42, targetKind: "Double")
+ * - `10 as int` → IrNumericNarrowingExpression(literal 10, targetKind: int32)
+ * - `x as byte` → IrNumericNarrowingExpression(identifier x, targetKind: uint8)
+ * - `42 as number` → IrNumericNarrowingExpression(literal 42, targetKind: float64)
  *
  * NOTE: Despite the name "Narrowing", this node also handles widening conversions.
  * A future rename to IrNumericConversionExpression may be appropriate.
@@ -33,7 +33,7 @@ export type IrNumericNarrowingExpression = {
   readonly kind: "numericNarrowing";
   /** The expression being narrowed */
   readonly expression: IrExpression;
-  /** The target CLR numeric kind */
+  /** The target numeric kind */
   readonly targetKind: NumericKind;
   /** Type after narrowing (always a number with numericIntent set) */
   readonly inferredType: IrType;
@@ -64,7 +64,7 @@ export type ProofSource =
   | { readonly type: "literal"; readonly value: number | bigint }
   | { readonly type: "parameter"; readonly name: string }
   | {
-      readonly type: "dotnetReturn";
+      readonly type: "externalReturn";
       readonly method: string;
       readonly returnKind: NumericKind;
     }
@@ -86,7 +86,7 @@ export type ProofSource =
  * Represents a non-numeric type assertion (x as T).
  *
  * This captures the explicit user intent to cast between types.
- * Emits as C# throwing cast: (T)x
+ * Emits as a target throwing cast.
  *
  * For safe (nullable) casts, use trycast<T>(x) which creates IrTryCastExpression.
  *
@@ -120,15 +120,15 @@ export type IrTypeAssertionExpression = {
  * Represents an interface upcast (asinterface<T>(x)).
  *
  * Airplane-grade rule:
- * - This must never emit an explicit runtime cast in C#.
+ * - This must never emit an explicit runtime cast in the target.
  * - It exists to let TypeScript treat a value as an interface (or other nominal type)
- *   when the value's declared TS type is narrower (e.g., DbSet<TEntity> vs IQueryable<TEntity>).
+ *   when the value's declared TS type is narrower than the contextual contract.
  *
- * Emits as the underlying expression `x` (type-only), relying on contextual typing in C#:
- * - `const q = asinterface<IQueryable<T>>(db.Events);` → `global::System.Linq.IQueryable<T> q = db.Events;`
+ * Emits as the underlying expression `x` (type-only), relying on target contextual typing:
+ * - `const q = asinterface<Query<T>>(source.items);` → a typed local assignment
  *
- * NOTE: If you need to access members that are implemented explicitly on the CLR type,
- * prefer assigning to a typed local first (so C# has the interface static type).
+ * NOTE: If you need to access members that are implemented explicitly on the target type,
+ * prefer assigning to a typed local first.
  */
 export type IrAsInterfaceExpression = {
   readonly kind: "asinterface";
@@ -144,14 +144,14 @@ export type IrAsInterfaceExpression = {
 /**
  * Represents a safe cast operation (trycast<T>(x)).
  *
- * Emits as C# safe cast: x as T
+ * Emits as a target safe cast.
  * Returns T | null (null if cast fails).
  *
- * This is the C# "as" keyword behavior - returns null on failure instead of throwing.
+ * Returns null on failure instead of throwing.
  *
  * Examples:
- * - `trycast<Person>(obj)` → `obj as Person` in C#
- * - `trycast<string>(value)` → `value as string` in C#
+ * - `trycast<Person>(obj)` → safe-cast Person
+ * - `trycast<string>(value)` → safe-cast string
  */
 export type IrTryCastExpression = {
   readonly kind: "trycast";
@@ -167,10 +167,10 @@ export type IrTryCastExpression = {
 /**
  * Represents a stack allocation operation (stackalloc<T>(size)).
  *
- * Emits as C# stackalloc expression: `stackalloc T[size]`.
+ * Emits as target stack allocation.
  *
  * Example:
- * - `stackalloc<int>(256)` → `stackalloc int[256]` in C#
+ * - `stackalloc<int>(256)` → native stack allocation of 256 ints
  */
 export type IrStackAllocExpression = {
   readonly kind: "stackalloc";
@@ -178,7 +178,7 @@ export type IrStackAllocExpression = {
   readonly elementType: IrType;
   /** Number of elements to allocate */
   readonly size: IrExpression;
-  /** Inferred type is Span<T> */
+  /** Inferred type is the active target's stack buffer abstraction. */
   readonly inferredType: IrType;
   readonly sourceSpan?: SourceLocation;
 };
@@ -186,10 +186,10 @@ export type IrStackAllocExpression = {
 /**
  * Represents a default value intrinsic (defaultof<T>()).
  *
- * Emits as C# default expression: `default(T)`.
+ * Emits as target default-value expression.
  *
  * Example:
- * - `defaultof<int>()` → `default(int)` in C#
+ * - `defaultof<int>()` → default int value
  */
 export type IrDefaultOfExpression = {
   readonly kind: "defaultof";
@@ -221,11 +221,11 @@ export type IrNameOfExpression = {
 /**
  * Represents a compile-time sizeof intrinsic.
  *
- * Emits as C# `sizeof(T)`.
+ * Emits as target `sizeof(T)`.
  *
  * Examples:
  * - `sizeof<int>()` → `sizeof(int)`
- * - `sizeof<Guid>()` → `sizeof(global::System.Guid)`
+ * - `sizeof<NativeId>()` → target sizeof expression for the source type
  */
 export type IrSizeOfExpression = {
   readonly kind: "sizeof";

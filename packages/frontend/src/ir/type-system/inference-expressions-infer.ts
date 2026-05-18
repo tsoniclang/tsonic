@@ -22,6 +22,7 @@ import type { TypeSystemState } from "./type-system-state.js";
 import { stripNullishForInference } from "./type-system-state.js";
 import { typesEqual } from "./type-system-relations.js";
 import { convertTypeNode, resolveCall } from "./type-system-call-resolution.js";
+import { attachConstructedReferenceMetadata } from "./constructor-return-metadata.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 import {
   unwrapParens,
@@ -357,9 +358,14 @@ export const inferExpressionType = (
       argTypes: argTypesWorking,
     });
 
-    return resolved.returnType.kind === "unknownType"
-      ? undefined
-      : resolved.returnType;
+    if (resolved.returnType.kind === "unknownType") {
+      return undefined;
+    }
+    const constructorType = inferExpressionType(state, unwrapped.expression, env);
+    return attachConstructedReferenceMetadata(
+      resolved.returnType,
+      constructorType
+    );
   }
 
   if (ts.isPropertyAccessExpression(unwrapped)) {

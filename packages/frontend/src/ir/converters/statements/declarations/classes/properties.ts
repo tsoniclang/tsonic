@@ -98,13 +98,13 @@ export const convertProperty = (
     if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
       return isEcmaPrivate ? "private" : declaredAccessibility;
     }
-    // Airplane-grade: always emit CLR-required accessibility for overrides.
-    // TS may not represent CLR access cleanly, but C# compilation enforces the truth.
+    // Airplane-grade: always emit native target-required accessibility for overrides.
+    // TS may not represent native target access cleanly, but target compilation enforces the truth.
     return overrideInfo.requiredAccessibility;
   })();
 
   // Detect wrapper types:
-  // - field<T> marks a TS class property that should emit as a C# field (no accessors).
+  // - field<T> marks a TS class property that should emit as a target field (no accessors).
   //
   // Wrappers may be nested; unwrap repeatedly.
   let emitAsField = false;
@@ -145,7 +145,7 @@ export const convertProperty = (
       createDiagnostic(
         "TSN6204",
         "error",
-        "`field<T>` cannot be used on an overriding property. C# fields cannot override base members.",
+        "`field<T>` cannot be used on an overriding property. target fields cannot override base members.",
         getSourceLocation(sf, node.getStart(sf), node.getWidth(sf)),
         "Remove the `field<T>` marker or override as a property instead."
       )

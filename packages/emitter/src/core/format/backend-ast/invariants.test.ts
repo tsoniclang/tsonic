@@ -105,15 +105,18 @@ describe("backend-ast architecture invariants", () => {
     expect(typeDefinitionText).to.not.include("literalExpression");
   });
 
-  it("delegates CLR identity parsing to the frontend identity helper", () => {
+  it("owns CLR identity parsing inside the C# backend AST layer", () => {
     const backendAstUtils = readFileSync(
       join(emitterRoot, "core/format/backend-ast/utils.ts"),
       "utf8"
     );
-
-    expect(backendAstUtils).to.include(
-      "getClrIdentityKey as getFrontendClrIdentityKey"
+    const clrIdentity = readFileSync(
+      join(emitterRoot, "core/format/backend-ast/clr-identity.ts"),
+      "utf8"
     );
+
+    expect(backendAstUtils).to.not.include("@tsonic/frontend");
+    expect(clrIdentity).to.include("export const getClrIdentityKey");
     expect(backendAstUtils).to.not.match(
       /export const stableClrIdentityKeyFromName[\s\S]*?genericMatch/
     );

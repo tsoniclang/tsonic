@@ -628,10 +628,12 @@ describe("IR Builder", function () {
           return;
         }
         expect(inheritedSurfaceElementType.typeId).to.deep.equal({
-          stableId: "TestApp:System.Byte",
-          clrName: "System.Byte",
-          assemblyName: "TestApp",
-          tsName: "byte",
+          stableId: "TestApp:byte",
+          providerName: "byte",
+          ownerIdentity: "TestApp",
+          sourceName: "byte",
+          origin: "source",
+          symbolId: "type-stable:TestApp%3Abyte",
         });
         expect(callExpr.surfaceParameterTypes[1].types).to.deep.equal([
           { kind: "primitiveType", name: "int" },
@@ -734,7 +736,7 @@ describe("IR Builder", function () {
         expect(callExpr.parameterTypes[0].typeArguments).to.deep.equal([
           { kind: "primitiveType", name: "number" },
         ]);
-        expect(callExpr.parameterTypes[0].typeId?.tsName).to.equal("Iterable");
+        expect(callExpr.parameterTypes[0].typeId?.sourceName).to.equal("Iterable");
         expect(callExpr.parameterTypes?.[1]?.kind).to.equal("unionType");
         expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal(
           "referenceType"
@@ -763,10 +765,12 @@ describe("IR Builder", function () {
           return;
         }
         expect(iterableSurfaceElementType.typeId).to.deep.equal({
-          stableId: "TestApp:System.Byte",
-          clrName: "System.Byte",
-          assemblyName: "TestApp",
-          tsName: "byte",
+          stableId: "TestApp:byte",
+          providerName: "byte",
+          ownerIdentity: "TestApp",
+          sourceName: "byte",
+          origin: "source",
+          symbolId: "type-stable:TestApp%3Abyte",
         });
         expect(callExpr.parameterTypes[1].types).to.deep.equal([
           { kind: "primitiveType", name: "int" },
@@ -894,10 +898,12 @@ describe("IR Builder", function () {
           return;
         }
         expect(arrayLiteralSurfaceElementType.typeId).to.deep.equal({
-          stableId: "TestApp:System.Byte",
-          clrName: "System.Byte",
-          assemblyName: "TestApp",
-          tsName: "byte",
+          stableId: "TestApp:byte",
+          providerName: "byte",
+          ownerIdentity: "TestApp",
+          sourceName: "byte",
+          origin: "source",
+          symbolId: "type-stable:TestApp%3Abyte",
         });
       } finally {
         fixture.cleanup();
@@ -1094,7 +1100,7 @@ describe("IR Builder", function () {
         expect(dataAccessType?.kind).to.equal("referenceType");
         if (dataAccessType?.kind === "referenceType") {
           expect(dataAccessType.name).to.equal("Channel");
-          expect(dataAccessType.resolvedClrType).to.equal(
+          expect(dataAccessType.providerQualifiedName).to.equal(
             "fixture.domain.Channel"
           );
         }
@@ -1425,7 +1431,7 @@ describe("IR Builder", function () {
           return;
         }
 
-        expect(fallbackInit.inferredType.typeId?.tsName).to.equal("Date");
+        expect(fallbackInit.inferredType.typeId?.sourceName).to.equal("Date");
 
         const selectedDecl = wrapFn.body.statements.find(
           (stmt): stmt is IrVariableDeclaration =>

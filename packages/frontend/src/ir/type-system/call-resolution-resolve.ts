@@ -37,6 +37,7 @@ import { applyReceiverSubstitution } from "./call-resolution-receiver-substituti
 import { resolveMethodTypeSubstitution } from "./call-resolution-method-substitution.js";
 import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 import { referenceTypeIdentity } from "../types/type-ops.js";
+import { typeIdProviderLookupName } from "./internal/universe/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // resolveCall — Main entry point for call resolution
@@ -210,7 +211,7 @@ export const resolveCall = (
   } = query;
 
   // Extension method scopes are modeled as TS-only wrapper types (e.g. __TsonicExt_Ef<T>).
-  // They must erase to their underlying CLR shapes for deterministic call inference.
+  // They must erase to their underlying native target shapes for deterministic call inference.
   const effectiveReceiverType = receiverType
     ? stripTsonicExtensionWrappers(receiverType)
     : undefined;
@@ -242,17 +243,19 @@ export const resolveCall = (
 
   if (
     rawSig.constructsDeclaringType &&
-    query.declaringClrType &&
+    query.declaringTargetType &&
     workingReturn.kind === "referenceType"
   ) {
     const arity = workingReturn.typeArguments?.length;
     const typeId =
-      resolveTypeIdByName(state, query.declaringClrType, arity) ??
-      resolveTypeIdByName(state, query.declaringClrType);
+      resolveTypeIdByName(state, query.declaringTargetType, arity) ??
+      resolveTypeIdByName(state, query.declaringTargetType);
     workingReturn = {
       ...workingReturn,
-      ...(typeId ? { typeId, resolvedClrType: typeId.clrName } : {}),
-      ...(!typeId ? { resolvedClrType: query.declaringClrType } : {}),
+      ...(typeId
+        ? { typeId, providerQualifiedName: typeIdProviderLookupName(typeId) }
+        : {}),
+      ...(!typeId ? { providerQualifiedName: query.declaringTargetType } : {}),
     };
   }
 
@@ -261,7 +264,7 @@ export const resolveCall = (
       state,
       rawSig,
       effectiveReceiverType,
-      query.declaringClrType,
+      query.declaringTargetType,
       {
         workingParams,
         workingThisParam,

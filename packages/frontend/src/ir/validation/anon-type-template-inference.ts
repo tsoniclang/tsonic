@@ -418,7 +418,7 @@ export const getOrCreateObjectTypeReference = (
             })
           )
         : undefined,
-    resolvedClrType: undefined,
+    providerQualifiedName: undefined,
     structuralMembers: objectType.members,
     structuralOrigin: "compilerOwnedStructural",
   };

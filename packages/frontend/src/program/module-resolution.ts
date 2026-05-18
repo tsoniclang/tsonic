@@ -27,7 +27,7 @@ export const readPackageName = (pkgJsonPath: string): string | undefined => {
 
 /**
  * Read the root namespace from a package's native source-package metadata or
- * CLR bindings payload.
+ * external bindings payload.
  */
 export const createReadPackageRootNamespace = (
   packageRootNamespaceCache: Map<string, string | null>
@@ -66,7 +66,7 @@ export const createReadPackageRootNamespace = (
         }
       } catch (error) {
         throw new Error(
-          `Failed to read CLR bindings metadata '${candidate}': ${
+          `Failed to read external bindings metadata '${candidate}': ${
             error instanceof Error ? error.message : String(error)
           }`
         );

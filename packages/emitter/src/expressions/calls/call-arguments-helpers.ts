@@ -120,7 +120,7 @@ const buildTupleSpreadElementAccess = (
   isComputed: true,
   isOptional: false,
   inferredType,
-  accessKind: "clrIndexer",
+  accessKind: "numericIndexer",
 });
 
 const buildTupleSpreadSlice = (

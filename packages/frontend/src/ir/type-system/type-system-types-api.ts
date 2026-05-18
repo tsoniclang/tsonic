@@ -107,16 +107,21 @@ export type TypeAuthority = {
   tryTypeOfMember(receiver: IrType, member: MemberRef): IrType | undefined;
 
   /**
-   * Get CLR indexer information for a receiver type (if any).
+   * Get provider indexer information for a receiver type (if any).
    *
-   * Used to deterministically lower computed access (`obj[key]`) using CLR metadata
-   * rather than heuristics. This includes string-keyed indexers from ASP.NET Core
-   * collections like IQueryCollection / IHeaderDictionary.
+   * Used to deterministically classify computed access (`obj[key]`) from
+   * provider metadata rather than heuristics.
    */
   getIndexerInfo(
     receiver: IrType,
     site?: Site
-  ): { readonly keyClrType: string; readonly valueType: IrType } | undefined;
+  ):
+    | {
+        readonly keyTypeName: string;
+        readonly keyType: IrType;
+        readonly valueType: IrType;
+      }
+    | undefined;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Call Resolution — THE HEART OF DETERMINISM
@@ -139,7 +144,7 @@ export type TypeAuthority = {
    * Resolve the best semantic overload candidate from a candidate set.
    *
    * Binding may provide multiple arity-compatible candidates when the TypeScript
-   * layer cannot faithfully distinguish CLR/native-first-party surfaces. This
+   * layer cannot faithfully distinguish native target/native-first-party surfaces. This
    * method lets TypeSystem remain the authority for final semantic selection.
    */
   selectBestCallCandidate(
@@ -181,10 +186,10 @@ export type TypeAuthority = {
   collectNarrowingCandidates(type: IrType): readonly IrType[];
 
   /**
-   * Convert a CLR delegate nominal type (Func/Action/custom delegates) into a function type.
+   * Convert an external callable nominal type into a function type.
    *
    * Used for deterministic lambda contextual typing and generic inference when
-   * signatures use delegate types (e.g., LINQ's Func<T, bool>).
+   * signatures use callable nominal types.
    */
   delegateToFunctionType(type: IrType): IrFunctionType | undefined;
 
@@ -201,7 +206,7 @@ export type TypeAuthority = {
    * - ReturnType/Parameters: F must be single function
    * - NonNullable: Works on any type
    * - Exclude/Extract: Works on any types
-   * - Awaited: Recursive on Promise<T>, Task<T>, ValueTask<T>
+   * - Awaited: recursive async-wrapper unwrapping
    * - Record: K must be string/number or literal union
    *
    * Returns unknownType + TSN7414 diagnostic on constraint violation.
@@ -276,7 +281,7 @@ export type TypeAuthority = {
    * Get the type of a member by its handle.
    *
    * Used by property access fallback when TypeSystem.typeOfMember() can't resolve
-   * the member through TypeRegistry/NominalEnv (e.g., CLR-bound members).
+   * the member through TypeRegistry/NominalEnv (e.g., external-bound members).
    *
    * Returns unknownType if member not found or has no type annotation.
    */
@@ -285,7 +290,7 @@ export type TypeAuthority = {
   /**
    * Get the fully-qualified name of a declaration.
    *
-   * Used to detect aliased imports (e.g., `import { String as ClrString }`).
+   * Used to detect aliased imports (e.g., `import { String as ExternalString }`).
    * Returns undefined if no fqName is available.
    */
   getFQNameOfDecl(declId: DeclId): string | undefined;
@@ -421,10 +426,10 @@ export type TypeSystemConfig = {
   readonly convertTypeNode: (node: unknown) => IrType;
 
   /**
-   * Unified type catalog for CLR assembly type lookups.
+   * Unified type catalog for native target assembly type lookups.
    *
    * When provided, member lookups will fall through to this catalog
-   * for types not found in TypeRegistry (e.g., System.String, System.Int32).
+   * for types not found in TypeRegistry (e.g., provider string, provider int32).
    * This enables method chain type recovery for built-in types.
    *
    * Optional during migration; will become required when migration completes.
@@ -435,7 +440,7 @@ export type TypeSystemConfig = {
    * Alias table mapping surface names to canonical TypeIds.
    *
    * This is required for the canonical identity invariant:
-   * - "string" and "System.String" unify to the same TypeId (stableId)
+   * - "string" and "provider string" unify to the same TypeId (stableId)
    */
   readonly aliasTable: AliasTable;
 

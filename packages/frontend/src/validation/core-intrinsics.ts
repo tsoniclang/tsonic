@@ -75,7 +75,7 @@ export const validateCoreIntrinsics = (
     ) {
       const nameNode = node.name;
       if (nameNode && CORE_TYPES_TYPE_NAMES.has(nameNode.text)) {
-        // Project source cannot define these; they map to CLR keywords/emission.
+        // Project source cannot define these; they are compiler-owned intrinsics.
         current = report(
           current,
           nameNode,

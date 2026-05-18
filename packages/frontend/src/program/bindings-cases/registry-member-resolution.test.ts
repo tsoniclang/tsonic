@@ -28,13 +28,13 @@ describe("Binding System", () => {
         namespace: "Acme.Runtime",
         types: [
           {
-            clrName: "Acme.Runtime.console",
-            assemblyName: "Acme.Runtime",
+            targetName: "Acme.Runtime.console",
+            ownerIdentity: "Acme.Runtime",
             methods: [
               {
-                clrName: "log",
-                declaringClrType: "Acme.Runtime.console",
-                declaringAssemblyName: "Acme.Runtime",
+                targetName: "log",
+                ownerQualifiedName: "Acme.Runtime.console",
+                ownerIdentity: "Acme.Runtime",
               },
             ],
             properties: [],
@@ -67,20 +67,20 @@ describe("Binding System", () => {
         namespace: "Acme.Runtime",
         types: [
           {
-            clrName: "Acme.Runtime.Array`1",
-            assemblyName: "Acme.Runtime",
+            targetName: "Acme.Runtime.Array`1",
+            ownerIdentity: "Acme.Runtime",
             methods: [
               {
-                clrName: "map",
-                declaringClrType: "Acme.Runtime.Array`1",
-                declaringAssemblyName: "Acme.Runtime",
+                targetName: "map",
+                ownerQualifiedName: "Acme.Runtime.Array`1",
+                ownerIdentity: "Acme.Runtime",
               },
             ],
             properties: [
               {
-                clrName: "length",
-                declaringClrType: "Acme.Runtime.Array`1",
-                declaringAssemblyName: "Acme.Runtime",
+                targetName: "length",
+                ownerQualifiedName: "Acme.Runtime.Array`1",
+                ownerIdentity: "Acme.Runtime",
               },
             ],
             fields: [],
@@ -118,31 +118,31 @@ describe("Binding System", () => {
         namespace: "Acme.Runtime",
         types: [
           {
-            clrName: "Acme.Runtime.Array`1",
-            assemblyName: "Acme.Runtime",
+            targetName: "Acme.Runtime.Array`1",
+            ownerIdentity: "Acme.Runtime",
             methods: [
               {
-                clrName: "push",
-                declaringClrType: "Acme.Runtime.Array`1",
-                declaringAssemblyName: "Acme.Runtime",
+                targetName: "push",
+                ownerQualifiedName: "Acme.Runtime.Array`1",
+                ownerIdentity: "Acme.Runtime",
               },
               {
-                clrName: "join",
-                declaringClrType: "Acme.Runtime.Array`1",
-                declaringAssemblyName: "Acme.Runtime",
+                targetName: "join",
+                ownerQualifiedName: "Acme.Runtime.Array`1",
+                ownerIdentity: "Acme.Runtime",
               },
             ],
             properties: [],
             fields: [],
           },
           {
-            clrName: "Acme.Runtime.ArrayStatics",
-            assemblyName: "Acme.Runtime",
+            targetName: "Acme.Runtime.ArrayStatics",
+            ownerIdentity: "Acme.Runtime",
             methods: [
               {
-                clrName: "from",
-                declaringClrType: "Acme.Runtime.ArrayStatics",
-                declaringAssemblyName: "Acme.Runtime",
+                targetName: "from",
+                ownerQualifiedName: "Acme.Runtime.ArrayStatics",
+                ownerIdentity: "Acme.Runtime",
               },
             ],
             properties: [],
@@ -167,14 +167,14 @@ describe("Binding System", () => {
         namespace: "Acme.Core",
         types: [
           {
-            clrName: "Acme.Core.Widget",
-            assemblyName: "Acme.Core",
+            targetName: "Acme.Core.Widget",
+            ownerIdentity: "Acme.Core",
             methods: [],
             properties: [
               {
-                clrName: "Name",
-                declaringClrType: "Acme.Core.Widget",
-                declaringAssemblyName: "Acme.Core",
+                targetName: "Name",
+                ownerQualifiedName: "Acme.Core.Widget",
+                ownerIdentity: "Acme.Core",
               },
             ],
             fields: [],
@@ -183,10 +183,10 @@ describe("Binding System", () => {
       });
 
       const byAlias = registry.getType("Widget");
-      const byClrName = registry.getType("Acme.Core.Widget");
+      const byTargetName = registry.getType("Acme.Core.Widget");
 
       expect(byAlias?.name).to.equal("Acme.Core.Widget");
-      expect(byClrName?.alias).to.equal("Widget");
+      expect(byTargetName?.alias).to.equal("Widget");
     });
 
     it("should keep explicit tsbindgen aliases disambiguated when simple names collide", () => {
@@ -196,29 +196,29 @@ describe("Binding System", () => {
         namespace: "Acme",
         types: [
           {
-            clrName: "Acme.domain.ChannelFolderWithItems",
+            targetName: "Acme.domain.ChannelFolderWithItems",
             alias: "Acme.domain.ChannelFolderWithItems",
-            assemblyName: "Acme",
+            ownerIdentity: "Acme",
             methods: [],
             properties: [
               {
-                clrName: "folder",
-                declaringClrType: "Acme.domain.ChannelFolderWithItems",
-                declaringAssemblyName: "Acme",
+                targetName: "folder",
+                ownerQualifiedName: "Acme.domain.ChannelFolderWithItems",
+                ownerIdentity: "Acme",
               },
             ],
             fields: [],
           },
           {
-            clrName: "Acme.repo.ChannelFolderWithItems",
+            targetName: "Acme.repo.ChannelFolderWithItems",
             alias: "Acme.repo.ChannelFolderWithItems",
-            assemblyName: "Acme",
+            ownerIdentity: "Acme",
             methods: [],
             properties: [
               {
-                clrName: "folder",
-                declaringClrType: "Acme.repo.ChannelFolderWithItems",
-                declaringAssemblyName: "Acme",
+                targetName: "folder",
+                ownerQualifiedName: "Acme.repo.ChannelFolderWithItems",
+                ownerIdentity: "Acme",
               },
             ],
             fields: [],
@@ -258,14 +258,14 @@ describe("Binding System", () => {
         namespace: "Acme.Core",
         types: [
           {
-            clrName: "Acme.Core.Widget",
-            assemblyName: "Acme.Core",
+            targetName: "Acme.Core.Widget",
+            ownerIdentity: "Acme.Core",
             methods: [],
             properties: [
               {
-                clrName: "Name",
-                declaringClrType: "Acme.Core.Widget",
-                declaringAssemblyName: "Acme.Core",
+                targetName: "Name",
+                ownerQualifiedName: "Acme.Core.Widget",
+                ownerIdentity: "Acme.Core",
               },
             ],
             fields: [],
@@ -287,14 +287,14 @@ describe("Binding System", () => {
         namespace: "Acme.Core",
         types: [
           {
-            clrName: "Acme.Core.Ok__Alias`1",
-            assemblyName: "Acme.Core",
+            targetName: "Acme.Core.Ok__Alias`1",
+            ownerIdentity: "Acme.Core",
             methods: [],
             properties: [
               {
-                clrName: "success",
-                declaringClrType: "Acme.Core.Ok__Alias`1",
-                declaringAssemblyName: "Acme.Core",
+                targetName: "success",
+                ownerQualifiedName: "Acme.Core.Ok__Alias`1",
+                ownerIdentity: "Acme.Core",
               },
             ],
             fields: [],
@@ -322,15 +322,15 @@ describe("Binding System", () => {
         namespace: "System.Linq",
         types: [
           {
-            clrName: "System.Linq.Enumerable",
-            assemblyName: "System.Linq",
+            targetName: "System.Linq.Enumerable",
+            ownerIdentity: "System.Linq",
             methods: [
               {
-                clrName: "Where",
+                targetName: "Where",
                 normalizedSignature:
                   "Where|(IEnumerable_1,Func_2):IEnumerable_1|static=true",
-                declaringClrType: "System.Linq.Enumerable",
-                declaringAssemblyName: "System.Linq",
+                ownerQualifiedName: "System.Linq.Enumerable",
+                ownerIdentity: "System.Linq",
                 isExtensionMethod: true,
               },
             ],

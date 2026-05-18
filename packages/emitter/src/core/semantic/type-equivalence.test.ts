@@ -85,18 +85,18 @@ describe("type-equivalence", () => {
     const left: IrType = {
       kind: "referenceType",
       name: "Span",
-      resolvedClrType: "global::System.Span",
+      providerQualifiedName: "global::System.Span",
       typeArguments: [{ kind: "primitiveType", name: "int" }],
     };
     const right: IrType = {
       kind: "referenceType",
       name: "Span_1",
-      resolvedClrType: "System.Span`1",
+      providerQualifiedName: "System.Span`1",
       typeId: {
         stableId: "System.Private.CoreLib:System.Span`1",
-        clrName: "System.Span`1",
-        assemblyName: "System.Private.CoreLib",
-        tsName: "Span_1",
+        providerName: "System.Span`1",
+        ownerIdentity: "System.Private.CoreLib",
+        sourceName: "Span_1",
       },
       typeArguments: [{ kind: "primitiveType", name: "int" }],
     };
@@ -108,7 +108,7 @@ describe("type-equivalence", () => {
     const left: IrType = {
       kind: "referenceType",
       name: "Dictionary",
-      resolvedClrType:
+      providerQualifiedName:
         "global::System.Collections.Generic.Dictionary<string, int>",
       typeArguments: [
         { kind: "primitiveType", name: "string" },
@@ -118,7 +118,7 @@ describe("type-equivalence", () => {
     const right: IrType = {
       kind: "referenceType",
       name: "Dictionary_2",
-      resolvedClrType: "System.Collections.Generic.Dictionary`2",
+      providerQualifiedName: "System.Collections.Generic.Dictionary`2",
       typeArguments: [
         { kind: "primitiveType", name: "string" },
         { kind: "primitiveType", name: "int" },
@@ -139,18 +139,18 @@ describe("type-equivalence", () => {
     const narrowedBranchType: IrType = {
       kind: "referenceType",
       name: "Error",
-      resolvedClrType: "js.Error",
+      providerQualifiedName: "js.Error",
     };
     const sourceBackedBranchType: IrType = {
       kind: "referenceType",
       name: "Error",
-      resolvedClrType: "js.Error",
+      providerQualifiedName: "js.Error",
       structuralMembers: [messageMember],
       typeId: {
         stableId: "@tsonic/js:js.Error",
-        clrName: "js.Error",
-        assemblyName: "@tsonic/js",
-        tsName: "Error",
+        providerName: "js.Error",
+        ownerIdentity: "@tsonic/js",
+        sourceName: "Error",
       },
     };
 
@@ -165,9 +165,9 @@ describe("type-equivalence", () => {
       name: "Widget",
       typeId: {
         stableId: "package-a:Widget",
-        clrName: "Acme.Widget",
-        assemblyName: "PackageA",
-        tsName: "Widget",
+        providerName: "Acme.Widget",
+        ownerIdentity: "PackageA",
+        sourceName: "Widget",
       },
     };
     const right: IrType = {
@@ -175,9 +175,9 @@ describe("type-equivalence", () => {
       name: "Widget",
       typeId: {
         stableId: "package-b:Widget",
-        clrName: "Acme.Widget",
-        assemblyName: "PackageB",
-        tsName: "Widget",
+        providerName: "Acme.Widget",
+        ownerIdentity: "PackageB",
+        sourceName: "Widget",
       },
     };
 
@@ -317,12 +317,12 @@ describe("type-equivalence", () => {
       elementType: {
         kind: "referenceType",
         name: "Item",
-        resolvedClrType: "Fixture.repo.Item",
+        providerQualifiedName: "Fixture.repo.Item",
         typeId: {
           stableId: "@fixture/channels:Fixture.repo.Item",
-          clrName: "Fixture.repo.Item",
-          assemblyName: "@fixture/channels",
-          tsName: "Item",
+          providerName: "Fixture.repo.Item",
+          ownerIdentity: "@fixture/channels",
+          sourceName: "Item",
         },
         structuralMembers: [idMember],
       },
@@ -332,12 +332,12 @@ describe("type-equivalence", () => {
       elementType: {
         kind: "referenceType",
         name: "Item",
-        resolvedClrType: "Fixture.domain.Item",
+        providerQualifiedName: "Fixture.domain.Item",
         typeId: {
           stableId: "@fixture/channels:Fixture.domain.Item",
-          clrName: "Fixture.domain.Item",
-          assemblyName: "@fixture/channels",
-          tsName: "Item",
+          providerName: "Fixture.domain.Item",
+          ownerIdentity: "@fixture/channels",
+          sourceName: "Item",
         },
         structuralMembers: [idMember],
       },
@@ -350,7 +350,7 @@ describe("type-equivalence", () => {
     const left: IrType = {
       kind: "referenceType",
       name: "Uint8Array",
-      resolvedClrType: "js.Uint8Array",
+      providerQualifiedName: "js.Uint8Array",
     };
     const right: IrType = { kind: "primitiveType", name: "string" };
 

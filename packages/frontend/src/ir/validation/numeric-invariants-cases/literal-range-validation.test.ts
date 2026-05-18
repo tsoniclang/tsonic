@@ -23,7 +23,7 @@ describe("Numeric Proof Invariants", () => {
       const module = createModule([
         createVarDecl(
           "x",
-          narrowTo(numLiteral(2147483647, "2147483647"), "Int32")
+          narrowTo(numLiteral(2147483647, "2147483647"), "int32")
         ),
       ]);
 
@@ -38,7 +38,7 @@ describe("Numeric Proof Invariants", () => {
       const module = createModule([
         createVarDecl(
           "x",
-          narrowTo(numLiteral(2147483648, "2147483648"), "Int32")
+          narrowTo(numLiteral(2147483648, "2147483648"), "int32")
         ),
       ]);
 
@@ -54,7 +54,7 @@ describe("Numeric Proof Invariants", () => {
       const module = createModule([
         createVarDecl(
           "x",
-          narrowTo(numLiteral(-2147483649, "-2147483649"), "Int32")
+          narrowTo(numLiteral(-2147483649, "-2147483649"), "int32")
         ),
       ]);
 
@@ -68,7 +68,7 @@ describe("Numeric Proof Invariants", () => {
     it("should ACCEPT Byte literal in valid range", () => {
       // const x = 255 as byte;  // Max Byte
       const module = createModule([
-        createVarDecl("x", narrowTo(numLiteral(255, "255"), "Byte")),
+        createVarDecl("x", narrowTo(numLiteral(255, "255"), "uint8")),
       ]);
 
       const result = runNumericProofPass([module]);
@@ -80,7 +80,7 @@ describe("Numeric Proof Invariants", () => {
     it("should REJECT Byte literal out of range", () => {
       // const x = 256 as byte;  // Max Byte + 1 = OVERFLOW
       const module = createModule([
-        createVarDecl("x", narrowTo(numLiteral(256, "256"), "Byte")),
+        createVarDecl("x", narrowTo(numLiteral(256, "256"), "uint8")),
       ]);
 
       const result = runNumericProofPass([module]);
@@ -93,7 +93,7 @@ describe("Numeric Proof Invariants", () => {
     it("should REJECT float literal narrowed to integer type", () => {
       // const x = 3.14 as int;  // Float cannot narrow to Int32
       const module = createModule([
-        createVarDecl("x", narrowTo(numLiteral(3.14, "3.14"), "Int32")),
+        createVarDecl("x", narrowTo(numLiteral(3.14, "3.14"), "int32")),
       ]);
 
       const result = runNumericProofPass([module]);
@@ -110,7 +110,7 @@ describe("Numeric Proof Invariants", () => {
       const module = createModule([
         createVarDecl(
           "x",
-          narrowTo(numLiteral(9007199254740991, "9007199254740991"), "Int64")
+          narrowTo(numLiteral(9007199254740991, "9007199254740991"), "int64")
         ),
       ]);
 
@@ -125,7 +125,7 @@ describe("Numeric Proof Invariants", () => {
       const module = createModule([
         createVarDecl(
           "x",
-          narrowTo(numLiteral(9007199254740992, "9007199254740992"), "Int64")
+          narrowTo(numLiteral(9007199254740992, "9007199254740992"), "int64")
         ),
       ]);
 
@@ -141,7 +141,7 @@ describe("Numeric Proof Invariants", () => {
       const module = createModule([
         createVarDecl(
           "x",
-          narrowTo(numLiteral(-9007199254740991, "-9007199254740991"), "Int64")
+          narrowTo(numLiteral(-9007199254740991, "-9007199254740991"), "int64")
         ),
       ]);
 
@@ -156,7 +156,7 @@ describe("Numeric Proof Invariants", () => {
       const module = createModule([
         createVarDecl(
           "x",
-          narrowTo(numLiteral(-9007199254740992, "-9007199254740992"), "Int64")
+          narrowTo(numLiteral(-9007199254740992, "-9007199254740992"), "int64")
         ),
       ]);
 

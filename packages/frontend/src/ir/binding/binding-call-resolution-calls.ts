@@ -83,7 +83,7 @@ export const resolveCallSignature = (
     return current;
   };
 
-  const CLR_NUMERIC_ALIAS_NAMES = new Set([
+  const TARGET_NUMERIC_ALIAS_NAMES = new Set([
     "sbyte",
     "short",
     "int",
@@ -112,15 +112,11 @@ export const resolveCallSignature = (
     "ReadonlySet",
     "Map",
     "ReadonlyMap",
-    "IEnumerable",
-    "IEnumerable_1",
   ]);
   const KNOWN_ASYNC_ITERABLE_TYPE_NAMES = new Set([
     "AsyncIterable",
     "AsyncIterableIterator",
     "AsyncGenerator",
-    "IAsyncEnumerable",
-    "IAsyncEnumerable_1",
   ]);
 
   const getEntityNameLeaf = (name: ts.EntityName): string =>
@@ -387,7 +383,7 @@ export const resolveCallSignature = (
     return modes.size === 1 ? [...modes][0] : undefined;
   };
 
-  const getExplicitClrPrimitiveAlias = (
+  const getExplicitTargetPrimitiveAlias = (
     typeNode: ts.TypeNode | undefined
   ): string | undefined => {
     if (!typeNode) return undefined;
@@ -397,7 +393,7 @@ export const resolveCallSignature = (
     if (!ts.isTypeReferenceNode(node)) return undefined;
 
     const alias = getEntityNameLeaf(node.typeName);
-    if (alias === "char" || CLR_NUMERIC_ALIAS_NAMES.has(alias)) {
+    if (alias === "char" || TARGET_NUMERIC_ALIAS_NAMES.has(alias)) {
       return alias;
     }
 
@@ -464,14 +460,14 @@ export const resolveCallSignature = (
         continue;
       }
 
-      if (getExplicitClrPrimitiveAlias(typeNode) === "char") {
+      if (getExplicitTargetPrimitiveAlias(typeNode) === "char") {
         classes.add("char");
         continue;
       }
 
       if (
         ts.isArrayTypeNode(typeNode) &&
-        getExplicitClrPrimitiveAlias(typeNode.elementType) === "char"
+        getExplicitTargetPrimitiveAlias(typeNode.elementType) === "char"
       ) {
         classes.add("char");
       }
@@ -559,7 +555,7 @@ export const resolveCallSignature = (
       if (isStringTypeNode(returnTypeNode)) {
         return "string";
       }
-      if (getExplicitClrPrimitiveAlias(returnTypeNode) === "char") {
+      if (getExplicitTargetPrimitiveAlias(returnTypeNode) === "char") {
         return undefined;
       }
       return checkerStringEvidence;
@@ -677,13 +673,13 @@ export const resolveCallSignature = (
     return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
   };
 
-  const getExplicitArgumentClrPrimitiveAlias = (
+  const getExplicitArgumentTargetPrimitiveAlias = (
     arg: ts.Expression
   ): string | undefined => {
     const expr = stripParens(arg);
 
     if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
-      return getExplicitClrPrimitiveAlias(expr.type);
+      return getExplicitTargetPrimitiveAlias(expr.type);
     }
 
     if (ts.isIdentifier(expr)) {
@@ -696,7 +692,7 @@ export const resolveCallSignature = (
       const aliases = new Set<string>();
       for (const decl of resolvedSym.getDeclarations() ?? []) {
         const typeNode = getTypeNodeFromDeclaration(decl);
-        const alias = getExplicitClrPrimitiveAlias(typeNode);
+        const alias = getExplicitTargetPrimitiveAlias(typeNode);
         if (alias) {
           aliases.add(alias);
         }
@@ -721,7 +717,7 @@ export const resolveCallSignature = (
       const aliases = new Set<string>();
       for (const decl of resolvedSymbol.getDeclarations() ?? []) {
         const typeNode = getTypeNodeFromDeclaration(decl);
-        const alias = getExplicitClrPrimitiveAlias(typeNode);
+        const alias = getExplicitTargetPrimitiveAlias(typeNode);
         if (alias) {
           aliases.add(alias);
         }
@@ -734,7 +730,7 @@ export const resolveCallSignature = (
       const returnTypeNode = getReturnTypeNode(
         signature?.getDeclaration() as ts.SignatureDeclaration | undefined
       );
-      return getExplicitClrPrimitiveAlias(returnTypeNode);
+      return getExplicitTargetPrimitiveAlias(returnTypeNode);
     }
 
     return undefined;
@@ -748,7 +744,7 @@ export const resolveCallSignature = (
     if (seen.has(expr)) return false;
     seen.add(expr);
 
-    if (getExplicitArgumentClrPrimitiveAlias(expr)) {
+    if (getExplicitArgumentTargetPrimitiveAlias(expr)) {
       return false;
     }
 
@@ -1017,7 +1013,7 @@ export const resolveCallSignature = (
     return merged;
   };
 
-  const paramClrAliasForArgIndex = (
+  const paramTargetAliasForArgIndex = (
     entry: SignatureEntry,
     argIndex: number
   ): string | undefined => {
@@ -1026,7 +1022,7 @@ export const resolveCallSignature = (
     const param = direct ?? params[params.length - 1];
     if (!param) return undefined;
     if (!direct && !param.isRest) return undefined;
-    return getExplicitClrPrimitiveAlias(
+    return getExplicitTargetPrimitiveAlias(
       param.typeNode as ts.TypeNode | undefined
     );
   };
@@ -1046,7 +1042,7 @@ export const resolveCallSignature = (
       return true;
     }
 
-    return getExplicitClrPrimitiveAlias(typeNode) === "double";
+    return getExplicitTargetPrimitiveAlias(typeNode) === "double";
   };
 
   const paramClassForArgIndex = (
@@ -1063,11 +1059,11 @@ export const resolveCallSignature = (
     if (isStringTypeNode(typeNode)) {
       return "string";
     }
-    if (getExplicitClrPrimitiveAlias(typeNode) === "char") {
+    if (getExplicitTargetPrimitiveAlias(typeNode) === "char") {
       return "char";
     }
     if (typeNode && ts.isArrayTypeNode(typeNode)) {
-      return getExplicitClrPrimitiveAlias(typeNode.elementType) === "char"
+      return getExplicitTargetPrimitiveAlias(typeNode.elementType) === "char"
         ? "char"
         : "other";
     }
@@ -1183,7 +1179,7 @@ export const resolveCallSignature = (
   const wantsStringAt: number[] = [];
   const wantsIterableAt = new Map<number, "sync" | "async">();
   const wantsBroadNumberAt: number[] = [];
-  const wantsExactClrAliasAt = new Map<number, string>();
+  const wantsExactTargetAliasAt = new Map<number, string>();
   const objectLiteralArgs = new Map<number, readonly string[]>();
 
   for (let i = 0; i < args.length; i++) {
@@ -1200,9 +1196,9 @@ export const resolveCallSignature = (
       wantsIterableAt.set(i, explicitIterableMode);
     }
 
-    const exactClrAlias = getExplicitArgumentClrPrimitiveAlias(arg);
-    if (exactClrAlias) {
-      wantsExactClrAliasAt.set(i, exactClrAlias);
+    const exactTargetAlias = getExplicitArgumentTargetPrimitiveAlias(arg);
+    if (exactTargetAlias) {
+      wantsExactTargetAliasAt.set(i, exactTargetAlias);
     } else if (hasBroadNumberEvidence(arg)) {
       wantsBroadNumberAt.push(i);
     }
@@ -1217,7 +1213,7 @@ export const resolveCallSignature = (
     wantsStringAt.length === 0 &&
     wantsIterableAt.size === 0 &&
     wantsBroadNumberAt.length === 0 &&
-    wantsExactClrAliasAt.size === 0 &&
+    wantsExactTargetAliasAt.size === 0 &&
     objectLiteralArgs.size === 0
   ) {
     return resolvedId;
@@ -1345,12 +1341,12 @@ export const resolveCallSignature = (
     }
   }
 
-  for (const [argIndex, exactClrAlias] of wantsExactClrAliasAt) {
+  for (const [argIndex, exactTargetAlias] of wantsExactTargetAliasAt) {
     const matching = remaining.filter((candidate) => {
       const entry = ctx.signatureMap.get(candidate.id);
       return (
         entry !== undefined &&
-        paramClrAliasForArgIndex(entry, argIndex) === exactClrAlias
+        paramTargetAliasForArgIndex(entry, argIndex) === exactTargetAlias
       );
     });
     if (matching.length > 0) {

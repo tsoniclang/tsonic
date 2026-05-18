@@ -53,20 +53,6 @@ const KNOWN_VALUE_LIKE_REFERENCE_NAMES = new Set([
   "bool",
   "boolean",
   "char",
-  "Int128",
-  "UInt128",
-  "SByte",
-  "Byte",
-  "Int16",
-  "UInt16",
-  "Int32",
-  "UInt32",
-  "Int64",
-  "UInt64",
-  "Half",
-  "Single",
-  "Double",
-  "Decimal",
   "Boolean",
   "Char",
 ]);
@@ -129,7 +115,7 @@ const typeofGenericTarget = (tag: string): IrType | undefined => {
       return {
         kind: "referenceType",
         name: "object",
-        resolvedClrType: "global::System.Object",
+        providerQualifiedName: "core:Object",
       };
     case "function":
       return {
@@ -167,9 +153,9 @@ const matchesTypeofTag = (type: IrType, tag: string): boolean => {
     case "dictionaryType":
       return tag === "object";
     case "referenceType": {
-      const fact = primitiveTypeFactFromName(
-        type.typeId?.clrName ?? type.resolvedClrType ?? type.name
-      );
+      const fact =
+        primitiveTypeFactFromName(type.name) ??
+        primitiveTypeFactFromName(type.typeId?.sourceName ?? "");
       if (tag === "number" || tag === "boolean") {
         return fact?.jsTypeof === tag;
       }
@@ -279,12 +265,12 @@ const isArrayLikeCandidate = (type: IrType): boolean => {
   }
 
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrSimpleName = type.resolvedClrType?.split(".").pop();
+  const targetSimpleName = type.providerQualifiedName?.split(".").pop();
   return (
     simpleName === "Array" ||
     simpleName === "ReadonlyArray" ||
-    clrSimpleName === "Array" ||
-    clrSimpleName === "ReadonlyArray"
+    targetSimpleName === "Array" ||
+    targetSimpleName === "ReadonlyArray"
   );
 };
 

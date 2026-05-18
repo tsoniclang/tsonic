@@ -1,6 +1,6 @@
 import {
   baseContext,
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   createModuleWithType,
   describe,
   emitModule,
@@ -9,14 +9,15 @@ import {
   it,
   printType,
 } from "./helpers.js";
+import { typeSymbolIdFromStableId } from "@tsonic/frontend";
 import type { IrModule } from "./helpers.js";
 describe("Reference Type Emission", () => {
   describe("Pre-resolved CLR Types", () => {
-    it("should use resolvedClrType when present", () => {
+    it("should use providerQualifiedName when present", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Action",
-        resolvedClrType: "global::System.Action",
+        providerQualifiedName: "global::System.Action",
       });
 
       const result = emitModule(module);
@@ -24,11 +25,11 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::System.Action");
     });
 
-    it("should use resolvedClrType with type arguments", () => {
+    it("should use providerQualifiedName with type arguments", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Func",
-        resolvedClrType: "global::System.Func",
+        providerQualifiedName: "global::System.Func",
         typeArguments: [
           { kind: "primitiveType", name: "string" },
           { kind: "primitiveType", name: "number" },
@@ -40,11 +41,11 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::System.Func<string, double>");
     });
 
-    it("should sanitize CLR metadata generic names in resolvedClrType", () => {
+    it("should sanitize CLR metadata generic names in providerQualifiedName", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Ok",
-        resolvedClrType: "Jotster.Core.types.Ok__Alias`1",
+        providerQualifiedName: "Jotster.Core.types.Ok__Alias`1",
         typeArguments: [{ kind: "primitiveType", name: "string" }],
       });
 
@@ -54,12 +55,12 @@ describe("Reference Type Emission", () => {
       expect(result).to.not.include("Ok__Alias`1");
     });
 
-    it("keeps same-module local types unqualified even when resolvedClrType is present", () => {
+    it("keeps same-module local types unqualified even when providerQualifiedName is present", () => {
       const [typeAst] = emitReferenceType(
         {
           kind: "referenceType",
           name: "Wrapper",
-          resolvedClrType: "Test.Wrapper",
+          providerQualifiedName: "Test.Wrapper",
           typeArguments: [{ kind: "primitiveType", name: "string" }],
         },
         {
@@ -81,6 +82,55 @@ describe("Reference Type Emission", () => {
 
       expect(printType(typeAst)).to.equal("Wrapper<string>");
     });
+
+    it("keeps same-module local source types ahead of stale target render identities", () => {
+      const processModuleSymbolId = typeSymbolIdFromStableId(
+        "external:System.Diagnostics.ProcessModule"
+      );
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "ProcessModule",
+          providerQualifiedName: "System.Diagnostics.ProcessModule",
+          symbolId: processModuleSymbolId,
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "Demo.Pkg",
+          localTypes: new Map([
+            [
+              "ProcessModule",
+              {
+                kind: "class",
+                typeParameters: [],
+                members: [],
+                implements: [],
+              },
+            ],
+          ]),
+          options: {
+            ...baseContext.options,
+            rootNamespace: "Demo.Pkg",
+            targetRenderTable: {
+              types: new Map([
+                [
+                  processModuleSymbolId,
+                  {
+                    symbolId: processModuleSymbolId,
+                    qualifiedName: "System.Diagnostics.ProcessModule",
+                    ownerIdentity: "System.Diagnostics",
+                  },
+                ],
+              ]),
+              members: new Map(),
+              modules: new Map(),
+            },
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("ProcessModule");
+    });
   });
 
   describe("Imported Type Identity", () => {
@@ -96,7 +146,8 @@ describe("Reference Type Emission", () => {
             kind: "import",
             source: "@jotster/core/Jotster.Core.js",
             isLocal: false,
-            isClr: true,
+            isExternalSurface: true,
+            resolutionKind: "externalSurface",
             resolvedNamespace: "Jotster.Core",
             specifiers: [
               {
@@ -104,7 +155,7 @@ describe("Reference Type Emission", () => {
                 name: "Channel",
                 localName: "Channel",
                 isType: true,
-                resolvedClrType: "Jotster.Core.db.entities.Channel",
+                providerQualifiedName: "Jotster.Core.db.entities.Channel",
               },
             ],
           },
@@ -146,7 +197,8 @@ describe("Reference Type Emission", () => {
             kind: "import",
             source: "@jotster/core/Jotster.Core.types.js",
             isLocal: false,
-            isClr: true,
+            isExternalSurface: true,
+            resolutionKind: "externalSurface",
             resolvedNamespace: "Jotster.Core.types",
             specifiers: [
               {
@@ -154,7 +206,7 @@ describe("Reference Type Emission", () => {
                 name: "Ok",
                 localName: "Ok",
                 isType: true,
-                resolvedClrType: "Jotster.Core.types.Ok__Alias`1",
+                providerQualifiedName: "Jotster.Core.types.Ok__Alias`1",
               },
             ],
           },
@@ -202,7 +254,7 @@ describe("Reference Type Emission", () => {
               "MetricName",
               {
                 kind: "type",
-                typeAst: clrTypeNameToTypeAst("string"),
+                typeAst: targetTypeNameToTypeAst("string"),
               },
             ],
           ]),
@@ -231,7 +283,7 @@ describe("Reference Type Emission", () => {
               "MetricName",
               {
                 kind: "type",
-                typeAst: clrTypeNameToTypeAst("string"),
+                typeAst: targetTypeNameToTypeAst("string"),
               },
             ],
           ]),
@@ -253,15 +305,14 @@ describe("Reference Type Emission", () => {
             kind: "import",
             source: "node:http",
             isLocal: false,
-            isClr: false,
-            resolvedClrType: "nodejs.Http.http",
+            providerQualifiedName: "nodejs.Http.http",
             specifiers: [
               {
                 kind: "named",
                 name: "IncomingMessage",
                 localName: "IncomingMessage",
                 isType: true,
-                resolvedClrType: "nodejs.Http.IncomingMessage",
+                providerQualifiedName: "nodejs.Http.IncomingMessage",
               },
             ],
           },
@@ -304,7 +355,6 @@ describe("Reference Type Emission", () => {
             kind: "import",
             source: "./incoming-message.ts",
             isLocal: true,
-            isClr: false,
             resolvedPath: "/src/http/incoming-message.ts",
             specifiers: [
               {
@@ -361,7 +411,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "RequestHandler",
-          resolvedClrType: "demo.expresslike.RequestHandler",
+          providerQualifiedName: "demo.expresslike.RequestHandler",
         },
         {
           ...baseContext,
@@ -397,12 +447,12 @@ describe("Reference Type Emission", () => {
       expect(printType(typeAst)).to.equal("string");
     });
 
-    it("keeps explicit imported type bindings authoritative over stale resolvedClrType", () => {
+    it("keeps explicit imported type bindings authoritative over stale providerQualifiedName", () => {
       const [typeAst] = emitReferenceType(
         {
           kind: "referenceType",
           name: "Server",
-          resolvedClrType: "nodejs.http.Server",
+          providerQualifiedName: "nodejs.http.Server",
         },
         {
           ...baseContext,
@@ -412,7 +462,7 @@ describe("Reference Type Emission", () => {
               "Server",
               {
                 kind: "type",
-                typeAst: clrTypeNameToTypeAst("global::nodejs.net.Server"),
+                typeAst: targetTypeNameToTypeAst("global::nodejs.net.Server"),
               },
             ],
           ]),
@@ -427,7 +477,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "Server",
-          resolvedClrType: "nodejs.http.Server",
+          providerQualifiedName: "nodejs.http.Server",
         },
         {
           ...baseContext,
@@ -439,7 +489,7 @@ describe("Reference Type Emission", () => {
                 kind: "value",
                 clrName: "global::nodejs.net.server",
                 member: "Server",
-                typeAst: clrTypeNameToTypeAst("global::nodejs.net.Server"),
+                typeAst: targetTypeNameToTypeAst("global::nodejs.net.Server"),
               },
             ],
           ]),
@@ -454,7 +504,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "Object",
-          resolvedClrType: "System.Object",
+          providerQualifiedName: "System.Object",
         },
         {
           ...baseContext,
@@ -500,12 +550,12 @@ describe("Reference Type Emission", () => {
       expect(printType(typeAst)).to.equal("global::System.Object");
     });
 
-    it("keeps System.Object resolvedClrType authoritative over same-namespace local collisions", () => {
+    it("keeps System.Object providerQualifiedName authoritative over same-namespace local collisions", () => {
       const [typeAst] = emitReferenceType(
         {
           kind: "referenceType",
           name: "Object",
-          resolvedClrType: "System.Object",
+          providerQualifiedName: "System.Object",
         },
         {
           ...baseContext,
@@ -549,9 +599,9 @@ describe("Reference Type Emission", () => {
           name: "Server",
           typeId: {
             stableId: "nodejs:nodejs.net.Server",
-            clrName: "nodejs.net.Server",
-            assemblyName: "nodejs",
-            tsName: "Server",
+            providerName: "nodejs.net.Server",
+            ownerIdentity: "nodejs",
+            sourceName: "Server",
           },
         },
         {
@@ -562,7 +612,7 @@ describe("Reference Type Emission", () => {
               "Server",
               {
                 kind: "type",
-                typeAst: clrTypeNameToTypeAst("global::nodejs.net.Server"),
+                typeAst: targetTypeNameToTypeAst("global::nodejs.net.Server"),
               },
             ],
           ]),
@@ -630,12 +680,12 @@ describe("Reference Type Emission", () => {
       expect(printType(typeAst)).to.equal("global::nodejs.net.Server");
     });
 
-    it("ignores bare resolvedClrType names when a source-local type exists", () => {
+    it("ignores bare providerQualifiedName names when a source-local type exists", () => {
       const [typeAst] = emitReferenceType(
         {
           kind: "referenceType",
           name: "ArrayBuffer",
-          resolvedClrType: "ArrayBuffer",
+          providerQualifiedName: "ArrayBuffer",
         },
         {
           ...baseContext,
@@ -677,7 +727,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "js.TypedArrayBase",
-          resolvedClrType: "js.TypedArrayBase",
+          providerQualifiedName: "js.TypedArrayBase",
         },
         {
           ...baseContext,
@@ -719,7 +769,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "Object$instance",
-          resolvedClrType: "System.Object",
+          providerQualifiedName: "System.Object",
         },
         {
           ...baseContext,

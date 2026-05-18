@@ -7,7 +7,7 @@
  *
  * Supported manifest contracts (airplane-grade):
  * - `tsonic.package.json` (native source-package metadata)
- * - `tsonic.bindings.json` (CLR bindings metadata)
+ * - `tsonic.bindings.json` (external bindings metadata)
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

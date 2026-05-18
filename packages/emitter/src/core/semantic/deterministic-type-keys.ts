@@ -199,7 +199,7 @@ const contextualReferenceTypeIdentityKey = (
   const rawIdentity =
     getReferenceNominalIdentityKey(type, context) ??
     type.typeId?.stableId ??
-    type.typeId?.tsName ??
+    type.typeId?.sourceName ??
     type.name;
   const rawReferenceKey = `ref:${rawIdentity}`;
   if (state.activeReferenceKeys.has(rawReferenceKey)) {

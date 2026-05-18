@@ -132,7 +132,7 @@ const readTsonicDependencyNames = (packageRoot: string): readonly string[] => {
 
 const getSurfacePackageName = (mode: string): string | undefined => {
   const trimmed = mode.trim();
-  if (trimmed.length === 0 || trimmed === "clr") {
+  if (trimmed.length === 0 || trimmed === "core") {
     return undefined;
   }
 

@@ -17,7 +17,6 @@ import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { withParameterTypeEnv } from "../type-env.js";
 import type { ProgramContext } from "../../program-context.js";
 import { getReturnExpressionExpectedType } from "../return-expression-types.js";
-import { referenceTypeHasClrIdentity } from "../../types/type-ops.js";
 
 const isNullishPrimitive = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
@@ -57,12 +56,8 @@ const isExpressionTreeReferenceType = (type: IrType | undefined): boolean => {
   if (!type || type.kind !== "referenceType") return false;
   if (type.typeArguments?.length !== 1) return false;
   return (
-    type.typeId?.tsName === "Expression_1" ||
-    type.name === "Expression_1" ||
-    referenceTypeHasClrIdentity(type, [
-      "System.Linq.Expressions.Expression`1",
-      "System.Linq.Expressions.Expression_1",
-    ])
+    type.typeId?.sourceName === "Expression_1" ||
+    type.name === "Expression_1"
   );
 };
 
@@ -179,7 +174,7 @@ const convertLambdaParameters = (
     let isExtensionReceiver = false;
 
     // Detect wrapper types (explicit annotation only):
-    // - thisarg<T> marks an extension-method receiver parameter (emits C# `this`)
+    // - thisarg<T> marks an extension-method receiver parameter (emits target `this`)
     // - ref<T>/out<T>/in<T> wrapper types mark passing mode (unwrap to T)
     while (
       actualType &&

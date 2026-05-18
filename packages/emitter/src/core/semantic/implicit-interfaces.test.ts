@@ -254,7 +254,7 @@ describe("implicit-interfaces", () => {
       {
         kind: "referenceType",
         name: "IParser",
-        resolvedClrType: "Test.IParser",
+        providerQualifiedName: "Test.IParser",
       },
     ]);
   });
@@ -321,7 +321,7 @@ describe("implicit-interfaces", () => {
             {
               kind: "referenceType",
               name: "IDisposable",
-              resolvedClrType: "System.IDisposable",
+              providerQualifiedName: "System.IDisposable",
             },
           ],
         },
@@ -334,7 +334,7 @@ describe("implicit-interfaces", () => {
         {
           kind: "referenceType",
           name: "IDisposable",
-          resolvedClrType: "System.IDisposable",
+          providerQualifiedName: "System.IDisposable",
         },
       ],
       createContext(localTypes)
@@ -342,7 +342,7 @@ describe("implicit-interfaces", () => {
 
     expect(matches).to.have.length(1);
     expect(matches[0]?.isExplicit).to.equal(true);
-    expect(matches[0]?.ref.resolvedClrType).to.equal("System.IDisposable");
+    expect(matches[0]?.ref.providerQualifiedName).to.equal("System.IDisposable");
     expect(
       matches[0]?.methodMatches.map((match) => match.classMember.name)
     ).to.deep.equal(["Dispose"]);

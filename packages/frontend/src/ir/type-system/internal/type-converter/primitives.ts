@@ -1,8 +1,8 @@
 /**
  * Primitive type conversion
  *
- * INVARIANT A: "number" always emits as C# "double". No exceptions.
- * INVARIANT B: "int" always emits as C# "int". No exceptions.
+ * INVARIANT A: "number" is a distinct source numeric primitive.
+ * INVARIANT B: "int" is a distinct source numeric primitive.
  *
  * These are distinct types, not decorated versions of each other.
  */
@@ -12,13 +12,13 @@ import { IrType, IrPrimitiveType } from "../../../types.js";
 import { explicitUnknownType } from "../../types.js";
 
 /**
- * CLR numeric type names from @tsonic/core.
+ * Source primitive aliases from @tsonic/core.
  * When user writes `: int`, it becomes primitiveType(name="int"), NOT referenceType.
  *
  * Note: `int` and `char` are supported as distinct primitives.
- * Other CLR numerics remain as referenceType for now and are handled by the emitter.
+ * Other sized numeric aliases remain referenceType at this layer.
  */
-export const CLR_PRIMITIVE_TYPE_SET = new Set(["int", "char"]);
+export const CORE_PRIMITIVE_TYPE_SET = new Set(["int", "char"]);
 
 /**
  * Convert TypeScript primitive keyword to IR type
@@ -32,12 +32,7 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
     case ts.SyntaxKind.BooleanKeyword:
       return { kind: "primitiveType", name: "boolean" };
     case ts.SyntaxKind.BigIntKeyword:
-      return {
-        kind: "referenceType",
-        name: "BigInteger",
-        typeArguments: [],
-        resolvedClrType: "System.Numerics.BigInteger",
-      };
+      return { kind: "primitiveType", name: "bigint" };
     case ts.SyntaxKind.SymbolKeyword:
       // TypeScript `symbol` is lowered as an opaque object identity handle.
       // This keeps AOT semantics deterministic without introducing JS runtime symbol
@@ -57,7 +52,7 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
       return { kind: "neverType" };
     case ts.SyntaxKind.ObjectKeyword:
       // TypeScript `object` keyword as a constraint: T extends object
-      // This maps to C# `class` constraint (reference type)
+      // This maps to target `class` constraint (reference type)
       // We emit it as a referenceType so the emitter can handle it
       return { kind: "referenceType", name: "object", typeArguments: [] };
     default:
@@ -66,31 +61,36 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
 };
 
 /**
- * Check if a type name is a TS primitive type (string, number, boolean, null, undefined)
+ * Check if a type name is a TS primitive type.
  */
 export const isPrimitiveTypeName = (
   typeName: string
-): typeName is "string" | "number" | "boolean" | "null" | "undefined" => {
-  return ["string", "number", "boolean", "null", "undefined"].includes(
+): typeName is
+  | "string"
+  | "number"
+  | "boolean"
+  | "bigint"
+  | "null"
+  | "undefined" => {
+  return ["string", "number", "boolean", "bigint", "null", "undefined"].includes(
     typeName
   );
 };
 
 /**
- * Check if a type name is a CLR primitive type (int)
- * These come from @tsonic/core and are compiler-known primitives.
+ * Check if a type name is a core source primitive alias.
  */
-export const isClrPrimitiveTypeName = (
+export const isCorePrimitiveTypeName = (
   typeName: string
 ): typeName is "int" | "char" => {
-  return CLR_PRIMITIVE_TYPE_SET.has(typeName);
+  return CORE_PRIMITIVE_TYPE_SET.has(typeName);
 };
 
 /**
  * Get primitive type IR representation for a TS primitive type name
  */
 export const getPrimitiveType = (
-  typeName: "string" | "number" | "boolean" | "null" | "undefined"
+  typeName: "string" | "number" | "boolean" | "bigint" | "null" | "undefined"
 ): IrPrimitiveType => {
   return {
     kind: "primitiveType",
@@ -99,9 +99,9 @@ export const getPrimitiveType = (
 };
 
 /**
- * Get primitive type IR representation for a CLR primitive type name
+ * Get primitive type IR representation for a core source primitive alias.
  */
-export const getClrPrimitiveType = (
+export const getCorePrimitiveType = (
   typeName: "int" | "char"
 ): IrPrimitiveType => {
   return {

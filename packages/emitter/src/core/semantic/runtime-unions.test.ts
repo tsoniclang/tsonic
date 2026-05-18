@@ -39,12 +39,20 @@ const property = (
   isReadonly: false,
 });
 
+const testTypeId = (targetName: string) => ({
+  stableId: `Test:${targetName}`,
+  providerName: targetName,
+  ownerIdentity: "Test",
+  sourceName: targetName.split(".").pop() ?? targetName,
+  origin: "source" as const,
+});
+
 describe("runtime-unions", () => {
   it("orders structural union members by semantic shape instead of carrier name", () => {
     const successMember: IrType = {
       kind: "referenceType",
       name: "__Anon_success",
-      resolvedClrType: "Test.__Anon_success",
+      providerQualifiedName: "Test.__Anon_success",
       structuralMembers: [
         property("success", { kind: "literalType", value: true }),
         property("rendered", { kind: "primitiveType", name: "string" }),
@@ -54,7 +62,7 @@ describe("runtime-unions", () => {
     const errorMember: IrType = {
       kind: "referenceType",
       name: "RenderResult__0",
-      resolvedClrType: "Test.RenderResult__0",
+      providerQualifiedName: "Test.RenderResult__0",
       structuralMembers: [
         property("success", { kind: "literalType", value: false }),
         property("error", { kind: "primitiveType", name: "string" }),
@@ -81,12 +89,12 @@ describe("runtime-unions", () => {
     const repoItem: IrType = {
       kind: "referenceType",
       name: "Item",
-      resolvedClrType: "Fixture.Channels.repo.Item",
+      providerQualifiedName: "Fixture.Channels.repo.Item",
       typeId: {
         stableId: "source:@fixture/channels:repo.Item",
-        tsName: "Item",
-        clrName: "Fixture.Channels.repo.Item",
-        assemblyName: "@fixture/channels",
+        sourceName: "Item",
+        providerName: "Fixture.Channels.repo.Item",
+        ownerIdentity: "@fixture/channels",
       },
       structuralMembers: [
         property("id", { kind: "primitiveType", name: "int" }),
@@ -95,12 +103,12 @@ describe("runtime-unions", () => {
     const domainItem: IrType = {
       kind: "referenceType",
       name: "Item",
-      resolvedClrType: "Fixture.Channels.domain.Item",
+      providerQualifiedName: "Fixture.Channels.domain.Item",
       typeId: {
         stableId: "source:@fixture/channels:domain.Item",
-        tsName: "Item",
-        clrName: "Fixture.Channels.domain.Item",
-        assemblyName: "@fixture/channels",
+        sourceName: "Item",
+        providerName: "Fixture.Channels.domain.Item",
+        ownerIdentity: "@fixture/channels",
       },
       structuralMembers: [
         property("id", { kind: "primitiveType", name: "int" }),
@@ -141,7 +149,7 @@ describe("runtime-unions", () => {
     const bindOptions: IrType = {
       kind: "referenceType",
       name: "BindOptions",
-      resolvedClrType: "Test.BindOptions",
+      providerQualifiedName: "Test.BindOptions",
       structuralMembers: [
         property("fd", { kind: "primitiveType", name: "int" }),
         property("port", { kind: "primitiveType", name: "int" }),
@@ -194,7 +202,7 @@ describe("runtime-unions", () => {
         {
           kind: "referenceType",
           name: "TypedArrayInput",
-          resolvedClrType: "Test.TypedArrayInput",
+          providerQualifiedName: "Test.TypedArrayInput",
           typeArguments: [{ kind: "typeParameterType", name: "TElement" }],
         },
       ],
@@ -260,7 +268,7 @@ describe("runtime-unions", () => {
       {
         kind: "referenceType",
         name: "MiddlewareLike",
-        resolvedClrType: "Test.MiddlewareLike",
+        providerQualifiedName: "Test.MiddlewareLike",
       },
       context,
       emitTypeAst
@@ -308,7 +316,7 @@ describe("runtime-unions", () => {
       {
         kind: "referenceType",
         name: "MiddlewareLike",
-        resolvedClrType: "Test.MiddlewareLike",
+        providerQualifiedName: "Test.MiddlewareLike",
       },
       internalContext,
       emitTypeAst
@@ -322,7 +330,7 @@ describe("runtime-unions", () => {
       {
         kind: "referenceType",
         name: "MiddlewareLike",
-        resolvedClrType: "Test.MiddlewareLike",
+        providerQualifiedName: "Test.MiddlewareLike",
       },
       publicContext,
       emitTypeAst
@@ -342,7 +350,7 @@ describe("runtime-unions", () => {
     const bindOptions: IrType = {
       kind: "referenceType",
       name: "BindOptions",
-      resolvedClrType: "Test.BindOptions",
+      providerQualifiedName: "Test.BindOptions",
       structuralMembers: [
         property("fd", { kind: "primitiveType", name: "int" }),
         property("port", { kind: "primitiveType", name: "int" }),
@@ -416,7 +424,7 @@ describe("runtime-unions", () => {
           elementType: {
             kind: "referenceType",
             name: "object",
-            resolvedClrType: "System.Object",
+            providerQualifiedName: "System.Object",
           },
           origin: "explicit",
         },
@@ -425,7 +433,7 @@ describe("runtime-unions", () => {
           elementType: {
             kind: "referenceType",
             name: "object",
-            resolvedClrType: "System.Object",
+            providerQualifiedName: "System.Object",
           },
           origin: "explicit",
         },
@@ -451,17 +459,17 @@ describe("runtime-unions", () => {
     const anyArrayValue: IrType = {
       kind: "referenceType",
       name: "AnyArrayValue",
-      resolvedClrType: "Test.AnyArrayValue",
+      providerQualifiedName: "Test.AnyArrayValue",
     };
     const pageArrayValue: IrType = {
       kind: "referenceType",
       name: "PageArrayValue",
-      resolvedClrType: "Test.PageArrayValue",
+      providerQualifiedName: "Test.PageArrayValue",
     };
     const stringValue: IrType = {
       kind: "referenceType",
       name: "StringValue",
-      resolvedClrType: "Test.StringValue",
+      providerQualifiedName: "Test.StringValue",
     };
 
     const sourceCarrier = stampRuntimeUnionAliasCarrier(
@@ -512,7 +520,8 @@ describe("runtime-unions", () => {
     const stringValue: IrType = {
       kind: "referenceType",
       name: "StringValue",
-      resolvedClrType: "Test.StringValue",
+      providerQualifiedName: "Test.StringValue",
+      typeId: testTypeId("Test.StringValue"),
       structuralMembers: [
         property("value", { kind: "primitiveType", name: "string" }),
       ],
@@ -520,7 +529,8 @@ describe("runtime-unions", () => {
     const pageArrayValue: IrType = {
       kind: "referenceType",
       name: "PageArrayValue",
-      resolvedClrType: "Test.PageArrayValue",
+      providerQualifiedName: "Test.PageArrayValue",
+      typeId: testTypeId("Test.PageArrayValue"),
       structuralMembers: [
         property("value", {
           kind: "arrayType",
@@ -531,12 +541,14 @@ describe("runtime-unions", () => {
     const anyArrayValue: IrType = {
       kind: "referenceType",
       name: "AnyArrayValue",
-      resolvedClrType: "Test.AnyArrayValue",
+      providerQualifiedName: "Test.AnyArrayValue",
+      typeId: testTypeId("Test.AnyArrayValue"),
       structuralMembers: [
         property("value", {
           kind: "referenceType",
           name: "List",
-          resolvedClrType: "System.Collections.Generic.List",
+          providerQualifiedName: "System.Collections.Generic.List",
+          typeId: testTypeId("System.Collections.Generic.List"),
           typeArguments: [{ kind: "primitiveType", name: "string" }],
         }),
       ],
@@ -582,7 +594,8 @@ describe("runtime-unions", () => {
     const stringValue: IrType = {
       kind: "referenceType",
       name: "StringValue",
-      resolvedClrType: "Test.StringValue",
+      providerQualifiedName: "Test.StringValue",
+      typeId: testTypeId("Test.StringValue"),
       structuralMembers: [
         property("value", { kind: "primitiveType", name: "string" }),
       ],
@@ -590,7 +603,8 @@ describe("runtime-unions", () => {
     const pageArrayValue: IrType = {
       kind: "referenceType",
       name: "PageArrayValue",
-      resolvedClrType: "Test.PageArrayValue",
+      providerQualifiedName: "Test.PageArrayValue",
+      typeId: testTypeId("Test.PageArrayValue"),
       structuralMembers: [
         property("value", {
           kind: "arrayType",
@@ -601,12 +615,14 @@ describe("runtime-unions", () => {
     const anyArrayValue: IrType = {
       kind: "referenceType",
       name: "AnyArrayValue",
-      resolvedClrType: "Test.AnyArrayValue",
+      providerQualifiedName: "Test.AnyArrayValue",
+      typeId: testTypeId("Test.AnyArrayValue"),
       structuralMembers: [
         property("value", {
           kind: "referenceType",
           name: "List",
-          resolvedClrType: "System.Collections.Generic.List",
+          providerQualifiedName: "System.Collections.Generic.List",
+          typeId: testTypeId("System.Collections.Generic.List"),
           typeArguments: [{ kind: "primitiveType", name: "string" }],
         }),
       ],
@@ -624,7 +640,7 @@ describe("runtime-unions", () => {
     const carrierReference: IrType = {
       kind: "referenceType",
       name: "Value",
-      resolvedClrType: "Test.Value",
+      providerQualifiedName: "Test.Value",
     };
     const effectiveType: IrType = {
       kind: "unionType",
@@ -673,7 +689,7 @@ describe("runtime-unions", () => {
         {
           kind: "referenceType",
           name: "IEnumerable",
-          resolvedClrType: "System.Collections.Generic.IEnumerable",
+          providerQualifiedName: "System.Collections.Generic.IEnumerable",
           typeArguments: [{ kind: "primitiveType", name: "number" }],
         },
         { kind: "primitiveType", name: "int" },
@@ -691,7 +707,7 @@ describe("runtime-unions", () => {
         {
           kind: "referenceType",
           name: "byte",
-          resolvedClrType: "System.Byte",
+          providerQualifiedName: "System.Byte",
         },
       ]
     );
@@ -709,6 +725,36 @@ describe("runtime-unions", () => {
     );
 
     expect(genericLayout?.carrierName).to.equal(specializedLayout?.carrierName);
+  });
+
+  it("uses alias type parameters instead of union members for open named carrier references", () => {
+    const genericUnion = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        { kind: "primitiveType", name: "int" },
+        {
+          kind: "arrayType",
+          elementType: { kind: "typeParameterType", name: "TElement" },
+        },
+      ]),
+      {
+        aliasName: "TypedArrayInput",
+        fullyQualifiedName: "js.TypedArrayInput",
+        namespaceName: "js",
+        typeParameters: ["TElement"],
+      }
+    );
+
+    const context = createContext({ rootNamespace: "Test" });
+    const [layout] = buildRuntimeUnionLayout(
+      genericUnion,
+      context,
+      emitTypeAst
+    );
+
+    expect(layout).to.not.equal(undefined);
+    expect(printType(buildRuntimeUnionTypeAst(layout!))).to.equal(
+      "global::js.TypedArrayInput<TElement>"
+    );
   });
 
   it("maps runtime-union carrier generic void arguments to object", () => {
@@ -730,13 +776,13 @@ describe("runtime-unions", () => {
     const interfaceOptions: IrType = {
       kind: "referenceType",
       name: "InterfaceOptions",
-      resolvedClrType: "Test.InterfaceOptions",
+      providerQualifiedName: "Test.InterfaceOptions",
     };
 
     const readable: IrType = {
       kind: "referenceType",
       name: "Readable",
-      resolvedClrType: "Test.Readable",
+      providerQualifiedName: "Test.Readable",
     };
 
     const sourceType: IrType = {
@@ -776,7 +822,7 @@ describe("runtime-unions", () => {
     const interfaceOptionsMember: IrType = {
       kind: "referenceType",
       name: "InterfaceOptions",
-      resolvedClrType: "Test.InterfaceOptions",
+      providerQualifiedName: "Test.InterfaceOptions",
       structuralMembers: [
         property("input", { kind: "referenceType", name: "Readable" }),
       ],
@@ -785,7 +831,7 @@ describe("runtime-unions", () => {
     const targetType: IrType = {
       kind: "referenceType",
       name: "InterfaceOptions",
-      resolvedClrType: "Test.InterfaceOptions",
+      providerQualifiedName: "Test.InterfaceOptions",
     };
 
     const context = createContext({ rootNamespace: "Test" });
@@ -839,7 +885,7 @@ describe("runtime-unions", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {
@@ -868,7 +914,7 @@ describe("runtime-unions", () => {
     expect(recursiveArray.elementType).to.deep.equal({
       kind: "referenceType",
       name: "object",
-      resolvedClrType: "System.Object",
+      providerQualifiedName: "System.Object",
     });
   });
 
@@ -882,7 +928,7 @@ describe("runtime-unions", () => {
 
     pathSpec.types.push(
       { kind: "primitiveType", name: "string" },
-      { kind: "referenceType", name: "RegExp", resolvedClrType: "Test.RegExp" },
+      { kind: "referenceType", name: "RegExp", providerQualifiedName: "Test.RegExp" },
       {
         kind: "arrayType",
         elementType: pathSpec,
@@ -899,7 +945,7 @@ describe("runtime-unions", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const sourceUnion: IrType = {
@@ -949,7 +995,7 @@ describe("runtime-unions", () => {
       {
         kind: "referenceType",
         name: "Router",
-        resolvedClrType: "Test.Router",
+        providerQualifiedName: "Test.Router",
       },
       {
         kind: "arrayType",
@@ -988,7 +1034,7 @@ describe("runtime-unions", () => {
     expect(recursiveArray.elementType).to.deep.equal({
       kind: "referenceType",
       name: "object",
-      resolvedClrType: "System.Object",
+      providerQualifiedName: "System.Object",
     });
     expect(recursiveArray.storageErasedElementType).to.deep.equal(
       middlewareLikeRef
@@ -1004,7 +1050,7 @@ describe("runtime-unions", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
     const middlewareParamRef: IrType = {
       kind: "referenceType",
@@ -1093,7 +1139,7 @@ describe("runtime-unions", () => {
       const pathSpecRef: IrType = {
         kind: "referenceType",
         name: "PathSpec",
-        resolvedClrType: "Other.PathSpec",
+        providerQualifiedName: "Other.PathSpec",
       };
 
       // The union as the frontend would emit it: string | PathSpec
@@ -1110,7 +1156,7 @@ describe("runtime-unions", () => {
           {
             kind: "referenceType",
             name: "RegExp",
-            resolvedClrType: "Other.RegExp",
+            providerQualifiedName: "Other.RegExp",
           },
         ],
       };

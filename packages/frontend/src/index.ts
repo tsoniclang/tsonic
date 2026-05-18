@@ -26,9 +26,10 @@ export * from "./symbol-table.js";
 export * from "./dependency-graph.js";
 export * from "./surface/profiles.js";
 export * from "./capabilities/backend-capabilities.js";
+export * from "./symbols/index.js";
 export * from "./ir/index.js";
 export * from "./ir/validation/index.js";
-export * from "./dotnet-metadata.js";
+export * from "./external-metadata.js";
 
 import { createProgram, TsonicProgram, CompilerOptions } from "./program.js";
 import { validateProgram } from "./validator.js";

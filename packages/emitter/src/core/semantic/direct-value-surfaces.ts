@@ -219,7 +219,7 @@ const tryConvertSurfaceTypeAstToIrType = (
       if (typeArguments?.some((type) => type === undefined)) {
         return undefined;
       }
-      const resolvedClrType = `${
+      const providerQualifiedName = `${
         concreteTypeAst.name.aliasQualifier
           ? `${concreteTypeAst.name.aliasQualifier}::`
           : ""
@@ -227,11 +227,11 @@ const tryConvertSurfaceTypeAstToIrType = (
       const name =
         concreteTypeAst.name.segments[
           concreteTypeAst.name.segments.length - 1
-        ] ?? resolvedClrType;
+        ] ?? providerQualifiedName;
       return {
         kind: "referenceType",
         name,
-        resolvedClrType,
+        providerQualifiedName,
         ...(typeArguments && typeArguments.length > 0
           ? { typeArguments: typeArguments as readonly IrType[] }
           : {}),
@@ -546,7 +546,10 @@ export const resolveDirectValueSurfaceType = (
     );
   }
 
-  return context.localValueTypes?.get(originalName);
+  return (
+    context.localValueTypes?.get(originalName) ??
+    context.localSemanticTypes?.get(originalName)
+  );
 };
 
 export const resolveDirectRuntimeCarrierType = (

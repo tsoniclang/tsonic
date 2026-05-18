@@ -161,7 +161,7 @@ const convertTypeParameters = (
         param.type.typeArguments &&
         param.type.typeArguments.length > 0
       ) {
-        // Set passing mode (both "in" and "inref" map to C# "in")
+        // Set passing mode (both "in" and "inref" map to target "in")
         passing =
           typeName === "in" || typeName === "inref"
             ? "in"

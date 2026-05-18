@@ -62,9 +62,11 @@ import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-
 import { buildRuntimeUnionLayout } from "../../../core/semantic/runtime-unions.js";
 import {
   booleanLiteral,
+  identifierExpression,
   nullLiteral,
 } from "../../../core/format/backend-ast/builders.js";
 import { applyIrBranchNarrowings } from "./ir-branch-narrowings.js";
+import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
 type GuardResult = [readonly CSharpStatementAst[], EmitterContext] | undefined;
@@ -431,7 +433,24 @@ export const tryEmitArrayIsArrayGuard = (
           emittedTargetAst,
           condCtxAfterCond
         );
+  const activeNarrowedBinding =
+    arrayIsArrayGuard.targetExpr.kind === "identifier"
+      ? condCtxAfterCond.narrowedBindings?.get(arrayIsArrayGuard.originalName)
+      : undefined;
+  const originalIdentifierCarrierAst =
+    arrayIsArrayGuard.targetExpr.kind === "identifier" &&
+    activeNarrowedBinding?.kind !== "rename" &&
+    directStorageType &&
+    willCarryAsRuntimeUnion(directStorageType, condCtxAfterCond)
+      ? identifierExpression(
+          emitRemappedLocalName(
+            arrayIsArrayGuard.targetExpr.name,
+            condCtxAfterCond
+          )
+        )
+      : undefined;
   const runtimeCarrierAst =
+    originalIdentifierCarrierAst ??
     (identifierCarrierStorageType &&
     willCarryAsRuntimeUnion(identifierCarrierStorageType, condCtxAfterCond)
       ? resolveRuntimeCarrierExpressionAst(

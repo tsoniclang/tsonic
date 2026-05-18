@@ -30,7 +30,7 @@ const SYSTEM_OBJECT_CLR_NAMES = new Set([
 
 const isDynamicJsonValueTarget = (type: IrType | undefined): boolean =>
   type?.kind === "referenceType" &&
-  (type.name === "JsValue" || type.typeId?.tsName === "JsValue");
+  (type.name === "JsValue" || type.typeId?.sourceName === "JsValue");
 
 const isConcreteGlobalJsonParseTarget = (
   type: IrType | undefined

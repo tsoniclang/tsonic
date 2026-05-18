@@ -7,7 +7,11 @@ import {
   type Diagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
-import { capability } from "../capabilities/backend-capabilities.js";
+import {
+  capability,
+  isCapabilityUnavailable,
+  type FeatureKey,
+} from "../capabilities/backend-capabilities.js";
 import {
   resolveSurfaceCapabilities,
   surfaceIncludesJs,
@@ -17,9 +21,12 @@ import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-lite
 
 const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
-  capabilityName: string,
+  capabilityName: FeatureKey,
   fallback: Diagnostic
-): Diagnostic => {
+): Diagnostic | undefined => {
+  if (!isCapabilityUnavailable(program.options.backendCapabilities, capabilityName)) {
+    return undefined;
+  }
   const backendCapability = capability(
     program.options.backendCapabilities,
     capabilityName
@@ -530,7 +537,7 @@ export const validateUnsupportedFeatures = (
     if (ts.isWithStatement(node)) {
       addUnsupported(
         node,
-        "'with' statement is not supported in strict NativeAOT mode.",
+        "'with' statement is not supported in deterministic native-safe mode.",
         "Use explicit lexical names."
       );
     }
@@ -631,7 +638,7 @@ export const validateUnsupportedFeatures = (
         addUnsupported(
           node,
           `JavaScript surface member '${elementAccess.name}' is not available in the active surface.`,
-          "Use an explicit CLR/domain API, or compile with a surface that provides JavaScript APIs."
+          "Use an explicit domain/native API, or compile with a surface that provides JavaScript APIs."
         );
       }
 
@@ -641,7 +648,7 @@ export const validateUnsupportedFeatures = (
           addUnsupported(
             node,
             `JavaScript surface API '${globalApi}' is not available in the active surface.`,
-            "Use an explicit CLR/domain API, or compile with a surface that provides JavaScript APIs."
+            "Use an explicit domain/native API, or compile with a surface that provides JavaScript APIs."
           );
         }
       }
@@ -652,7 +659,7 @@ export const validateUnsupportedFeatures = (
           addUnsupported(
             node,
             `JavaScript surface API '${globalApi}' is not available in the active surface.`,
-            "Use an explicit CLR/domain API, or compile with a surface that provides JavaScript APIs."
+            "Use an explicit domain/native API, or compile with a surface that provides JavaScript APIs."
           );
         }
       }
@@ -673,20 +680,20 @@ export const validateUnsupportedFeatures = (
     }
 
     if (isUnsupportedFunctionLengthAccess(node, checker)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createBackendCapabilityDiagnostic(
-          program,
-          "function-length",
-          createDiagnostic(
-            "TSN5001",
-            "error",
-            "JavaScript function.length is not supported in emitted Tsonic code.",
-            getNodeLocation(sourceFile, node),
-            "Model handler shape with explicit tagged types or separate APIs."
-          )
+      const diagnostic = createBackendCapabilityDiagnostic(
+        program,
+        "dynamic-function-arity-introspection",
+        createDiagnostic(
+          "TSN5001",
+          "error",
+          "JavaScript function.length requires a statically proven function carrier.",
+          getNodeLocation(sourceFile, node),
+          "Use function.length only on identifiers or this-bound functions whose callable type is known at compile time."
         )
       );
+      if (diagnostic) {
+        currentCollector = addDiagnostic(currentCollector, diagnostic);
+      }
     }
 
     ts.forEachChild(node, visitor);

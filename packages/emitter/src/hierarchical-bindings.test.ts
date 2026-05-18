@@ -8,9 +8,9 @@ import { expect } from "chai";
 import * as ts from "typescript";
 import {
   buildIrModule,
-  DotnetMetadataRegistry,
+  ExternalMetadataRegistry,
   BindingRegistry,
-  createClrBindingsResolver,
+  createExternalBindingsResolver,
   createBinding,
   createProgramContext,
 } from "@tsonic/frontend";
@@ -99,9 +99,9 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
-      metadata: new DotnetMetadataRegistry(),
+      metadata: new ExternalMetadataRegistry(),
       bindings,
-      clrResolver: createClrBindingsResolver("/test"),
+      externalResolver: createExternalBindingsResolver("/test"),
     };
 
     // Phase 5: Create ProgramContext for this compilation
@@ -246,9 +246,9 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
-      metadata: new DotnetMetadataRegistry(),
+      metadata: new ExternalMetadataRegistry(),
       bindings,
-      clrResolver: createClrBindingsResolver("/test"),
+      externalResolver: createExternalBindingsResolver("/test"),
     };
 
     // Phase 5: Create ProgramContext for this compilation

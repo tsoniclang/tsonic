@@ -13,7 +13,7 @@ import type { Binding } from "../binding/index.js";
 
 /**
  * Check if a type reference is the struct marker
- * (used to mark types as C# value types)
+ * (used to mark types as native value types)
  * Uses TypeSystem for symbol resolution.
  */
 const isStructMarker = (
@@ -35,7 +35,7 @@ const isStructMarker = (
 
 /**
  * Check if a declaration represents a TypeScript interface
- * (which Tsonic nominalizes to a C# class)
+ * (which Tsonic nominalizes for native emission)
  * Uses TypeSystem.isInterfaceDecl().
  */
 const isNominalizedInterface = (
@@ -48,7 +48,7 @@ const isNominalizedInterface = (
 
 /**
  * Check if a declaration represents a type alias for an object type
- * (which Tsonic nominalizes to a C# class)
+ * (which Tsonic nominalizes for native emission)
  * Uses TypeSystem.isTypeAliasToObjectLiteral().
  */
 const isNominalizedTypeAlias = (
@@ -91,9 +91,8 @@ const validateClassDeclaration = (
       isNominalizedInterface(identifierDeclId, ctx.typeSystem) ||
       isNominalizedTypeAlias(identifierDeclId, ctx.typeSystem)
     ) {
-      // Tsonic supports `implements` in the TypeScript surface language even when the
-      // nominal type is emitted as a C# class or interface. The emitter is responsible
-      // for selecting a valid C# representation.
+      // Tsonic supports `implements` in the TypeScript surface language. The
+      // emitter is responsible for selecting a valid native representation.
       continue;
     }
   }

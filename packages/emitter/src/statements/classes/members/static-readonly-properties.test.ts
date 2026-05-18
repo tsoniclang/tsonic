@@ -36,7 +36,7 @@ describe("Static readonly property emission", () => {
         kind: "literal",
         value: 0,
         raw: "0",
-        numericIntent: "Int32",
+        numericIntent: "int32",
       },
       isStatic: true,
       isReadonly: true,

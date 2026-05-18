@@ -37,6 +37,7 @@ import {
   normalizeToNominal,
   resolveSourceReferenceFQName,
 } from "./type-system-state.js";
+import { typeIdProviderLookupName } from "./internal/universe/types.js";
 import { typesEqual } from "./type-system-relations.js";
 import { resolveInstalledSourcePackageNamespace } from "../../program/source-file-identity.js";
 
@@ -276,10 +277,10 @@ const attachTypeIdsImpl = (
       const sourceFqName = resolveSourceReferenceFQName(state, type);
       const typeId =
         type.typeId ??
-        (type.resolvedClrType
+        (type.providerQualifiedName
           ? resolveTypeIdByName(
               state,
-              type.resolvedClrType,
+              type.providerQualifiedName,
               type.typeArguments?.length
             )
           : undefined) ??
@@ -289,10 +290,19 @@ const attachTypeIdsImpl = (
         (!sourceFqName
           ? resolveTypeIdByName(state, type.name, type.typeArguments?.length)
           : undefined);
+      const catalogEntry = typeId
+        ? state.unifiedCatalog.getByTypeId(typeId)
+        : undefined;
 
       const attached = {
         ...type,
         ...(typeId ? { typeId } : {}),
+        ...(type.asyncWrapper ?? catalogEntry?.asyncWrapper
+          ? { asyncWrapper: type.asyncWrapper ?? catalogEntry?.asyncWrapper }
+          : {}),
+        ...(type.iterableShape ?? catalogEntry?.iterableShape
+          ? { iterableShape: type.iterableShape ?? catalogEntry?.iterableShape }
+          : {}),
       };
       cache.set(type, attached);
 
@@ -523,7 +533,7 @@ const preferInstalledSourceSurfaceAliasTypeId = (
   return {
     ...type,
     typeId: aliasTypeId,
-    resolvedClrType: aliasTypeId.clrName,
+    providerQualifiedName: typeIdProviderLookupName(aliasTypeId),
   };
 };
 
@@ -532,7 +542,7 @@ const preferInstalledSourceSurfaceAliasTypeId = (
  *
  * The underlying converter is syntax-only; this wrapper re-attaches the
  * nominal identity from the UnifiedUniverse so downstream passes (including
- * the emitter) can resolve CLR types without re-driving a parallel lookup.
+ * the emitter) can resolve native target types without re-driving a parallel lookup.
  */
 export const convertTypeNode = (
   state: TypeSystemState,
@@ -554,10 +564,10 @@ export const convertTypeNode = (
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Convert a nominal CLR delegate type to an IrFunctionType by reading its Invoke signature.
+ * Convert a nominal native target delegate type to an IrFunctionType by reading its Invoke signature.
  *
  * This is used for deterministic lambda typing when the expected type is a delegate
- * (e.g., custom delegates from CLR metadata).
+ * (e.g., custom delegates from external metadata).
  */
 export const delegateToFunctionType = (
   state: TypeSystemState,
@@ -566,9 +576,8 @@ export const delegateToFunctionType = (
   // Expression<TDelegate> wrapper: treat as its underlying delegate type for
   // deterministic lambda contextual typing.
   //
-  // This models C#'s implicit lambda conversion to Expression<Func<...>>:
-  // the TypeScript surface uses Expression<TDelegate>, but lambdas should be
-  // typed against the delegate shape.
+  // The TypeScript surface uses Expression<TDelegate>, but lambdas should be
+  // typed against the underlying callable shape.
   if (
     type.kind === "referenceType" &&
     type.name === "Expression_1" &&

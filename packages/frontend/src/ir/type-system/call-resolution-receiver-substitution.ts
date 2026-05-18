@@ -97,7 +97,7 @@ export const applyReceiverSubstitution = (
   state: TypeSystemState,
   rawSig: RawSignatureInfo,
   effectiveReceiverType: IrType | undefined,
-  exactDeclaringClrType: string | undefined,
+  exactDeclaringTargetType: string | undefined,
   signature: WorkingSignature
 ): WorkingSignature => {
   let { workingParams, workingThisParam, workingReturn, workingPredicate } =
@@ -114,7 +114,7 @@ export const applyReceiverSubstitution = (
       rawSig.declaringTypeTsName,
       rawSig.declaringMemberName,
       rawSig.declaringTypeParameterNames,
-      exactDeclaringClrType
+      exactDeclaringTargetType
     );
 
     if (

@@ -1,29 +1,29 @@
 /**
  * tsbindgen naming helpers.
  *
- * These utilities encode the deterministic mapping rules between CLR reflection
+ * These utilities encode the deterministic mapping rules between provider
  * names and the TypeScript identifiers produced by tsbindgen.
  *
  * IMPORTANT: These are NOT "naming transforms" (no casing policy). They are
- * structural encodings required to represent CLR generics and nested types in TS.
+ * structural encodings required to represent provider generics and nested types in TS.
  */
 
 /**
- * Convert a CLR full type name to the tsbindgen TS type identifier.
+ * Convert a provider full type name to the tsbindgen TS type identifier.
  *
  * Examples:
- * - "System.String" -> "String"
- * - "System.Collections.Generic.List`1" -> "List_1"
- * - "System.Collections.Generic.List`1+Enumerator" -> "List_1_Enumerator"
+ * - "provider string" -> "String"
+ * - "Provider.Collections.List`1" -> "List_1"
+ * - "Provider.Collections.List`1+Enumerator" -> "List_1_Enumerator"
  */
-export const tsbindgenClrTypeNameToTsTypeName = (
-  clrFullName: string
+export const tsbindgenTargetTypeNameToTsTypeName = (
+  providerFullName: string
 ): string => {
   // Some signatures may include generic instantiation suffixes (e.g. "[[T]]").
   // Those never appear in type declarations as part of the exported identifier.
-  const withoutInstantiation = clrFullName.includes("[[")
-    ? (clrFullName.split("[[")[0] ?? clrFullName)
-    : clrFullName;
+  const withoutInstantiation = providerFullName.includes("[[")
+    ? (providerFullName.split("[[")[0] ?? providerFullName)
+    : providerFullName;
 
   const lastDot = withoutInstantiation.lastIndexOf(".");
   const simple =
@@ -33,7 +33,7 @@ export const tsbindgenClrTypeNameToTsTypeName = (
 
   return (
     simple
-      // Nested CLR types use '+', TS uses '_' between segments.
+      // Nested provider types use '+', TS uses '_' between segments.
       .replace(/\+/g, "_")
       // Generic arity markers use '`N', TS uses '_N'.
       .replace(/`(\d+)/g, "_$1")

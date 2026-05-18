@@ -1,6 +1,6 @@
 /**
  * Tests for module import resolution, type alias resolution,
- * and identifier renaming with csharpName in IR conversion
+ * and identifier renaming with providerMemberName in IR conversion
  */
 
 import { describe, it } from "mocha";
@@ -48,8 +48,8 @@ describe("Binding Resolution in IR", () => {
       const fsImport = module.imports[0];
       if (!fsImport) throw new Error("No import found");
       expect(fsImport.source).to.equal("fs");
-      expect(fsImport.resolvedClrType).to.equal("Tsonic.NodeApi.fs");
-      expect(fsImport.resolvedAssembly).to.equal("Tsonic.NodeApi");
+      expect(fsImport.providerQualifiedName).to.equal("Tsonic.NodeApi.fs");
+      expect(fsImport.providerOwnerIdentity).to.equal("Tsonic.NodeApi");
     });
 
     it("should handle imports without bindings", () => {
@@ -115,8 +115,8 @@ describe("Binding Resolution in IR", () => {
     });
   });
 
-  describe("Identifier Renaming with csharpName", () => {
-    it("should use csharpName when provided in binding", () => {
+  describe("Identifier Renaming with providerMemberName", () => {
+    it("should use providerMemberName when provided in binding", () => {
       const source = `
         export function test() {
           console.log("hello");
@@ -130,7 +130,7 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "System",
             type: "System.Console",
-            csharpName: "Console",
+            providerMemberName: "Console",
           },
         },
       });
@@ -166,16 +166,16 @@ describe("Binding Resolution in IR", () => {
 
       if (memberExpr.kind !== "memberAccess") return;
 
-      // Check that the identifier has csharpName set
+      // Check that the identifier has providerMemberName set
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.csharpName).to.equal("Console");
-      expect(consoleExpr.resolvedClrType).to.equal("System.Console");
-      expect(consoleExpr.resolvedAssembly).to.equal("System");
+      expect(consoleExpr.providerMemberName).to.equal("Console");
+      expect(consoleExpr.providerQualifiedName).to.equal("System.Console");
+      expect(consoleExpr.providerOwnerIdentity).to.equal("System");
     });
 
-    it("should work without csharpName (use resolvedClrType)", () => {
+    it("should work without providerMemberName (use providerQualifiedName)", () => {
       const source = `
         export function test() {
           Math.sqrt(4);
@@ -189,7 +189,7 @@ describe("Binding Resolution in IR", () => {
             kind: "global",
             assembly: "Tsonic.Runtime",
             type: "Tsonic.Runtime.Math",
-            // No csharpName specified
+            // No providerMemberName specified
           },
         },
       });
@@ -219,9 +219,9 @@ describe("Binding Resolution in IR", () => {
       const mathExpr = memberExpr.object as IrIdentifierExpression;
       expect(mathExpr.kind).to.equal("identifier");
       expect(mathExpr.name).to.equal("Math");
-      expect(mathExpr.csharpName).to.equal(undefined); // No csharpName
-      expect(mathExpr.resolvedClrType).to.equal("Tsonic.Runtime.Math");
-      expect(mathExpr.resolvedAssembly).to.equal("Tsonic.Runtime");
+      expect(mathExpr.providerMemberName).to.equal(undefined); // No providerMemberName
+      expect(mathExpr.providerQualifiedName).to.equal("Tsonic.Runtime.Math");
+      expect(mathExpr.providerOwnerIdentity).to.equal("Tsonic.Runtime");
     });
   });
 });

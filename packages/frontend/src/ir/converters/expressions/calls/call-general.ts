@@ -40,7 +40,7 @@ import {
   applyCallSiteArgumentModifiers,
   extractArgumentPassing,
   extractArgumentPassingFromBinding,
-  extractArgumentPassingFromClrMemberOverloads,
+  extractArgumentPassingFromTargetMemberOverloads,
 } from "./call-site-analysis.js";
 import {
   collectResolutionArguments,
@@ -51,7 +51,7 @@ import { resolveHeritageReferenceType } from "../../heritage-reference-type.js";
 import { getBoundGlobalCallParameterTypes } from "./bound-global-call-parameters.js";
 import { resolveImport } from "../../../../resolver.js";
 import { readSourcePackageMetadata } from "../../../../program/source-package-metadata.js";
-import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
+import { tsbindgenTargetTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import {
   containsTypeParameter,
   deriveInvocationTypeSubstitutions,
@@ -63,12 +63,9 @@ import {
   normalizeFinalizedInvocationArguments,
   selectDeterministicSourceBackedParameterType,
 } from "./invocation-finalization.js";
-import {
-  getClrIdentityKey,
-  referenceTypeHasClrIdentity,
-  referenceTypeIdentity,
-} from "../../../types/type-ops.js";
+import { referenceTypeIdentity } from "../../../types/type-ops.js";
 import { selectUnionArm } from "../../union-arm-selection.js";
+import { externalSurfaceTypesMatch } from "../../../../program/external-surface-type-identity.js";
 
 const stripParentheses = (expr: ts.Expression): ts.Expression => {
   let current = expr;
@@ -78,8 +75,8 @@ const stripParentheses = (expr: ts.Expression): ts.Expression => {
   return current;
 };
 
-const clrBindingTypesMatch = (left: string, right: string): boolean =>
-  getClrIdentityKey(left) === getClrIdentityKey(right);
+const targetBindingTypesMatch = (left: string, right: string): boolean =>
+  externalSurfaceTypesMatch(left, right);
 
 const isStableNamedAggregateContextType = (
   type: IrType | undefined
@@ -93,19 +90,15 @@ const isExpressionTreeContextType = (type: IrType | undefined): boolean => {
   if (!type || type.kind !== "referenceType") return false;
   if (type.typeArguments?.length !== 1) return false;
   return (
-    type.typeId?.tsName === "Expression_1" ||
-    type.name === "Expression_1" ||
-    referenceTypeHasClrIdentity(type, [
-      "System.Linq.Expressions.Expression`1",
-      "System.Linq.Expressions.Expression_1",
-    ])
+    type.typeId?.sourceName === "Expression_1" ||
+    type.name === "Expression_1"
   );
 };
 
 const createDynamicJsonValueType = (): IrType => ({
   kind: "referenceType",
   name: "JsValue",
-  resolvedClrType: "global::System.Object",
+  providerQualifiedName: "core:Object",
   structuralOrigin: "namedReference",
 });
 
@@ -391,13 +384,12 @@ const collectSourceBackedReceiverOwnerAliases = (
   pushAlias(receiverType.name);
   pushAlias(receiverType.name.split(".").pop() ?? receiverType.name);
 
-  if (receiverType.resolvedClrType) {
-    pushAlias(tsbindgenClrTypeNameToTsTypeName(receiverType.resolvedClrType));
-    pushAlias(receiverType.resolvedClrType);
+  if (receiverType.providerQualifiedName) {
+    pushAlias(tsbindgenTargetTypeNameToTsTypeName(receiverType.providerQualifiedName));
+    pushAlias(receiverType.providerQualifiedName);
   }
 
-  pushAlias(receiverType.typeId?.tsName);
-  pushAlias(receiverType.typeId?.clrName);
+  pushAlias(receiverType.typeId?.sourceName);
 
   return aliases;
 };
@@ -407,9 +399,9 @@ const resolveSourceBackedMemberSourceOrigin = (
   memberName: string,
   ctx: ProgramContext
 ): SourceBackedSourceOrigin | undefined => {
-  const preferredClrOwner =
-    typeof receiverType.resolvedClrType === "string"
-      ? receiverType.resolvedClrType
+  const preferredTargetOwner =
+    typeof receiverType.providerQualifiedName === "string"
+      ? receiverType.providerQualifiedName
       : undefined;
 
   for (const ownerAlias of collectSourceBackedReceiverOwnerAliases(
@@ -418,7 +410,7 @@ const resolveSourceBackedMemberSourceOrigin = (
     const overloads = ctx.bindings.getMemberOverloads(
       ownerAlias,
       memberName,
-      preferredClrOwner
+      preferredTargetOwner
     );
     const sourceOrigin = overloads
       ?.map((candidate) => candidate.sourceOrigin)
@@ -742,7 +734,7 @@ const resolveSourceBackedExportSourceTarget = (
         sourceFile.fileName,
         ctx.sourceRoot,
         {
-          clrResolver: ctx.clrResolver,
+          externalResolver: ctx.externalResolver,
           bindings: ctx.bindings,
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
@@ -783,13 +775,13 @@ const resolveSourceBackedPackageExportSourceTarget = (
   receiverType: Extract<IrType, { kind: "referenceType" }>,
   ctx: ProgramContext
 ): SourceBackedExportSourceTarget | undefined => {
-  const packageName = receiverType.typeId?.assemblyName;
+  const packageName = receiverType.typeId?.ownerIdentity;
   if (!packageName || !packageName.startsWith("@tsonic/")) {
     return undefined;
   }
 
   const exportName =
-    receiverType.typeId?.tsName ??
+    receiverType.typeId?.sourceName ??
     receiverType.name.split(".").pop() ??
     receiverType.name;
   if (!exportName) {
@@ -893,15 +885,15 @@ const resolveSourceBackedIdentifierGlobalTarget = (
   callee: Extract<IrCallExpression["callee"], { kind: "identifier" }>,
   ctx: ProgramContext
 ): SourceBackedIdentifierGlobalTarget | undefined => {
-  if (!callee.resolvedAssembly || !callee.resolvedClrType) {
+  if (!callee.providerOwnerIdentity || !callee.providerQualifiedName) {
     return undefined;
   }
 
   const binding = ctx.bindings.getExactBindingByKind(callee.name, "global");
   if (
     !binding ||
-    binding.assembly !== callee.resolvedAssembly ||
-    !clrBindingTypesMatch(binding.type, callee.resolvedClrType) ||
+    binding.assembly !== callee.providerOwnerIdentity ||
+    !targetBindingTypesMatch(binding.type, callee.providerQualifiedName) ||
     !binding.sourceImport
   ) {
     return undefined;
@@ -912,7 +904,7 @@ const resolveSourceBackedIdentifierGlobalTarget = (
     node.getSourceFile().fileName,
     ctx.sourceRoot,
     {
-      clrResolver: ctx.clrResolver,
+      externalResolver: ctx.externalResolver,
       bindings: ctx.bindings,
       projectRoot: ctx.projectRoot,
       surface: ctx.surface,
@@ -970,7 +962,7 @@ const resolveSourceBackedClassDeclarationByName = (
     ctx.sourceRoot,
     ctx.sourceRoot,
     {
-      clrResolver: ctx.clrResolver,
+      externalResolver: ctx.externalResolver,
       bindings: ctx.bindings,
       projectRoot: ctx.projectRoot,
       surface: ctx.surface,
@@ -1328,7 +1320,7 @@ const resolveSourceBackedMemberAccessTarget = (
       node.getSourceFile().fileName,
       ctx.sourceRoot,
       {
-        clrResolver: ctx.clrResolver,
+        externalResolver: ctx.externalResolver,
         bindings: ctx.bindings,
         projectRoot: ctx.projectRoot,
         surface: ctx.surface,
@@ -2541,7 +2533,7 @@ export const getSourceBackedCallParameterTypes = (
     return undefined;
   }
 
-  const overloads = ctx.bindings.getClrMemberOverloads(
+  const overloads = ctx.bindings.getTargetMemberOverloads(
     callee.memberBinding.assembly,
     callee.memberBinding.type,
     callee.memberBinding.member
@@ -2824,7 +2816,7 @@ const getExplicitExtensionReceiverExpectedType = (
     return finalResolved.thisParameterType;
   }
 
-  const overloads = ctx.bindings.getClrMemberOverloads(
+  const overloads = ctx.bindings.getTargetMemberOverloads(
     binding.assembly,
     binding.type,
     binding.member
@@ -2891,7 +2883,7 @@ export const convertCallExpression = (
     callee.kind === "memberAccess"
       ? callee.object.inferredType
       : getEnclosingClassSuperType(node, ctx);
-  const exactDeclaringClrType =
+  const exactDeclaringTargetType =
     callee.kind === "memberAccess" ? callee.memberBinding?.type : undefined;
 
   // Resolve call (two-pass):
@@ -2928,7 +2920,7 @@ export const convertCallExpression = (
         typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
       )
     : undefined;
-  const usesAuthoritativeSurfaceBindings = ctx.surface !== "clr";
+  const usesAuthoritativeSurfaceBindings = ctx.surface !== "core";
   const boundGlobalCallParameterTypes = getBoundGlobalCallParameterTypes(
     callee,
     argumentCount,
@@ -2976,7 +2968,7 @@ export const convertCallExpression = (
           sigId,
           argumentCount,
           receiverType: receiverIrType,
-          declaringClrType: exactDeclaringClrType,
+          declaringTargetType: exactDeclaringTargetType,
           explicitTypeArgs,
           expectedReturnType: expectedType,
         })
@@ -3206,7 +3198,7 @@ export const convertCallExpression = (
       ? typeSystem.selectBestCallCandidate(sigId, candidateSigIds, {
           argumentCount,
           receiverType: receiverIrType,
-          declaringClrType: exactDeclaringClrType,
+          declaringTargetType: exactDeclaringTargetType,
           explicitTypeArgs,
           argTypes: argTypesForInference,
           expectedReturnType: expectedType,
@@ -3337,7 +3329,7 @@ export const convertCallExpression = (
       ? typeSystem.selectBestCallCandidate(sigId, candidateSigIds, {
           argumentCount: finalResolutionArgumentCount,
           receiverType: receiverIrType,
-          declaringClrType: exactDeclaringClrType,
+          declaringTargetType: exactDeclaringTargetType,
           explicitTypeArgs,
           argTypes: finalResolutionArgTypes,
           expectedReturnType: expectedType,
@@ -3700,8 +3692,8 @@ export const convertCallExpression = (
     finalCallee,
     node.arguments.length
   );
-  const argumentPassingFromClrOverloads =
-    extractArgumentPassingFromClrMemberOverloads(
+  const argumentPassingFromTargetOverloads =
+    extractArgumentPassingFromTargetMemberOverloads(
       finalCallee,
       node.arguments.length,
       ctx,
@@ -3709,7 +3701,7 @@ export const convertCallExpression = (
     );
   const argumentPassing =
     argumentPassingFromBinding ??
-    argumentPassingFromClrOverloads ??
+    argumentPassingFromTargetOverloads ??
     (finalResolved
       ? finalResolved.parameterModes.slice(0, node.arguments.length)
       : extractArgumentPassing(node, ctx));

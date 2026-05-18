@@ -1690,8 +1690,8 @@ const preserveBindingPackageRootOrder = (
  * Load bindings from a package directory and recursively from its dependencies.
  *
  * This supports the common "namespace facade" layout:
- * - `System.d.ts` (or `index.d.ts`) at the package root
- * - `System/bindings.json` (or `index/bindings.json`) next to the namespace's `internal/index.d.ts`
+ * - `<Namespace>.d.ts` (or `index.d.ts`) at the package root
+ * - `<Namespace>/bindings.json` (or `index/bindings.json`) next to the namespace's `internal/index.d.ts`
  *
  * Some packages may also provide a root-level `bindings.json` (simple/global bindings).
  */
@@ -1736,7 +1736,7 @@ const loadBindingsFromPackage = (
     .map((e) => e.name);
 
   for (const facadeFile of facadeFiles) {
-    // e.g., "System.d.ts" → "System"
+    // e.g., "Provider.d.ts" → "Provider"
     const namespaceName = facadeFile.slice(0, -".d.ts".length);
     const namespaceDir = path.join(absoluteRoot, namespaceName);
     const bindingsPath = path.join(namespaceDir, "bindings.json");
@@ -1864,11 +1864,11 @@ export const loadBindingsFromPath = (
 };
 
 /**
- * Load all CLR bindings discovered by the resolver.
+ * Load all external bindings discovered by the resolver.
  * This should be called AFTER createProgram but BEFORE IR building
  * to ensure all bindings are available during IR construction.
  *
- * Note: The ClrBindingsResolver tracks discovered binding paths via caching,
+ * Note: The ExternalBindingsResolver tracks discovered binding paths via caching,
  * so this loads bindings for any imports that were already resolved.
  */
 export const loadAllDiscoveredBindings = (

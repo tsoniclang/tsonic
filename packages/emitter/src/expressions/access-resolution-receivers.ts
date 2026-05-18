@@ -21,7 +21,7 @@ import {
   identifierType,
 } from "../core/format/backend-ast/builders.js";
 import {
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   sameConcreteTypeAstSurface,
   sameTypeAstSurface,
   stripNullableTypeAst,
@@ -51,7 +51,7 @@ import type {
 } from "../core/format/backend-ast/types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
-const SYSTEM_ARRAY_TYPE_AST = clrTypeNameToTypeAst("System.Array");
+const SYSTEM_ARRAY_TYPE_AST = targetTypeNameToTypeAst("System.Array");
 import { tryEmitExactComparisonTargetAst } from "./exact-comparison.js";
 import {
   isObjectTypeAst,

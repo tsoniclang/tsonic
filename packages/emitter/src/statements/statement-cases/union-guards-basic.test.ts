@@ -13,7 +13,7 @@ describe("Statement Emission", () => {
     const unionReference: IrType = {
       kind: "referenceType",
       name: "Union_2",
-      resolvedClrType: "global::Tsonic.Runtime.Union_2",
+      providerQualifiedName: "global::Tsonic.Runtime.Union_2",
       typeArguments: [okType, errType],
     };
     const unionWrapper: IrType = {

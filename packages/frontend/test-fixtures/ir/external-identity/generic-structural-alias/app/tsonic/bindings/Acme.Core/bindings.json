@@ -1,0 +1,12 @@
+{
+  "namespace": "Acme.Core",
+  "types": [
+    {
+      "targetName": "Acme.Core.Ok__Alias`1",
+      "ownerIdentity": "Acme.Core",
+      "methods": [],
+      "properties": [],
+      "fields": []
+    }
+  ]
+}

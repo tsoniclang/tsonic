@@ -143,7 +143,7 @@ const getFunctionValueSignature = (
   const calleeType = expr.callee.inferredType;
   if (!calleeType || calleeType.kind !== "functionType") return undefined;
 
-  if (expr.callee.kind === "identifier" && expr.callee.resolvedClrType) {
+  if (expr.callee.kind === "identifier" && expr.callee.providerQualifiedName) {
     return undefined;
   }
 
@@ -1104,6 +1104,40 @@ const resolveExplicitNullishSurfaceExpectedType = (opts: {
     : undefined;
 };
 
+const resolveExplicitNonNullishOptionalExpectedType = (opts: {
+  readonly arg: IrExpression;
+  readonly selectedExpectedType: IrType | undefined;
+  readonly surfaceExpectedType: IrType | undefined;
+  readonly runtimeExpectedType: IrType | undefined;
+  readonly actualArgumentType: IrType | undefined;
+}): IrType | undefined => {
+  const {
+    arg,
+    selectedExpectedType,
+    surfaceExpectedType,
+    runtimeExpectedType,
+    actualArgumentType,
+  } = opts;
+  if (!selectedExpectedType || !runtimeExpectedType) {
+    return undefined;
+  }
+  if (isExplicitRuntimeNullishArgument(arg)) {
+    return undefined;
+  }
+  if (
+    !hasRuntimeNullishSurface(runtimeExpectedType) &&
+    !hasRuntimeNullishSurface(surfaceExpectedType)
+  ) {
+    return undefined;
+  }
+  if (actualArgumentType && hasRuntimeNullishSurface(actualArgumentType)) {
+    return undefined;
+  }
+  return surfaceExpectedType
+    ? stripNullish(surfaceExpectedType)
+    : stripNullish(selectedExpectedType);
+};
+
 const shouldPreserveOptionalSurfaceRawEmission = (opts: {
   readonly arg: IrExpression;
   readonly selectedExpectedType: IrType | undefined;
@@ -1381,6 +1415,16 @@ const selectCollectionMaterializationActualArgumentType = (opts: {
       ? arg.sourceBackedReturnType
       : undefined;
   const sourceType = sourceBackedReturnType ?? preferredSourceType;
+  const semanticSourceType = sourceType ?? arg.inferredType;
+  if (
+    semanticSourceType &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    isBroadObjectSlotType(selectedActualType, context) &&
+    !isBroadObjectSlotType(semanticSourceType, context)
+  ) {
+    return semanticSourceType;
+  }
+
   return sourceType &&
     hasMismatchedCollectionElementCarrier(sourceType, expectedType, context)
     ? sourceType
@@ -1999,7 +2043,7 @@ const resolveActualFunctionTypeForArgument = (
 const broadObjectIrType: IrType = {
   kind: "referenceType",
   name: "object",
-  resolvedClrType: "System.Object",
+  providerQualifiedName: "System.Object",
 };
 
 const resolveGenericBroadObjectFallbackExpectedType = (
@@ -2330,6 +2374,14 @@ const emitFunctionValueCallArguments = (
           arg,
           surfaceExpectedType: surfaceParameterType,
         });
+      const explicitNonNullishOptionalExpectedType =
+        resolveExplicitNonNullishOptionalExpectedType({
+          arg,
+          selectedExpectedType,
+          surfaceExpectedType: surfaceParameterType,
+          runtimeExpectedType,
+          actualArgumentType: preEmitStorageAwareArgumentType,
+        });
       const preservedSurfaceRuntimeType =
         preserveOptionalSurfaceCarrierPassThrough
           ? surfaceParameterType
@@ -2341,6 +2393,7 @@ const emitFunctionValueCallArguments = (
             ? surfaceParameterType
             : undefined;
       const finalExpectedType =
+        explicitNonNullishOptionalExpectedType ??
         explicitNullishSurfaceExpectedType ??
         preservedSurfaceRuntimeType ??
         resolveFinalCallArgumentExpectedType(
@@ -2350,10 +2403,10 @@ const emitFunctionValueCallArguments = (
           currentContext
         ) ??
         runtimeExpectedType ??
-        contextualExpectedType;
+          contextualExpectedType;
       const adaptationExpectedType = resolveAdaptationExpectedType(
         selectedExpectedType,
-        finalExpectedType,
+        explicitNonNullishOptionalExpectedType ?? finalExpectedType,
         surfaceParameterType,
         currentContext
       );
@@ -2365,7 +2418,9 @@ const emitFunctionValueCallArguments = (
         currentContext
       );
       const rawEmitExpectedTypeCandidate =
+        explicitNonNullishOptionalExpectedType ??
         explicitNullishSurfaceExpectedType ??
+        preservedSurfaceRuntimeType ??
         (shouldPreserveOptionalSurfaceRawEmission({
           arg,
           selectedExpectedType,
@@ -2917,6 +2972,16 @@ const preservesSurfaceRuntimeMaterialization = (
     return true;
   }
 
+  if (
+    runtimeUnionCarrierSurfacesDiffer(
+      surfaceExpectedType,
+      runtimeExpectedType,
+      context
+    )
+  ) {
+    return false;
+  }
+
   const surfaceHasRuntimeNullish =
     splitRuntimeNullishUnionMembers(surfaceExpectedType)?.hasRuntimeNullish ??
     false;
@@ -3184,6 +3249,14 @@ const emitCallArguments = (
         arg,
         surfaceExpectedType: surfaceParameterType,
       });
+    const explicitNonNullishOptionalExpectedType =
+      resolveExplicitNonNullishOptionalExpectedType({
+        arg,
+        selectedExpectedType: expectedType,
+        surfaceExpectedType: surfaceParameterType,
+        runtimeExpectedType: normalizedRuntime,
+        actualArgumentType: preEmitStorageAwareArgumentType,
+      });
     const preservedSurfaceRuntimeType =
       preserveOptionalSurfaceCarrierPassThrough
         ? surfaceParameterType
@@ -3192,9 +3265,10 @@ const emitCallArguments = (
               surfaceExpectedType: surfaceParameterType,
               context: currentContext,
             })
-          ? surfaceParameterType
-          : undefined;
+        ? surfaceParameterType
+        : undefined;
     const finalExpectedType =
+      explicitNonNullishOptionalExpectedType ??
       explicitNullishSurfaceExpectedType ??
       genericBroadObjectFallbackType ??
       preservedSurfaceRuntimeType ??
@@ -3207,7 +3281,7 @@ const emitCallArguments = (
       contextualExpectedType;
     const adaptationExpectedType = resolveAdaptationExpectedType(
       expectedType,
-      finalExpectedType,
+      explicitNonNullishOptionalExpectedType ?? finalExpectedType,
       surfaceParameterType,
       currentContext
     );
@@ -3219,7 +3293,9 @@ const emitCallArguments = (
       currentContext
     );
     const rawEmitExpectedTypeCandidate =
+      explicitNonNullishOptionalExpectedType ??
       explicitNullishSurfaceExpectedType ??
+      preservedSurfaceRuntimeType ??
       (shouldPreserveOptionalSurfaceRawEmission({
         arg,
         selectedExpectedType: expectedType,

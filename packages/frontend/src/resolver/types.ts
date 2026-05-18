@@ -6,11 +6,11 @@ export type ResolvedModule = {
   readonly resolvedPath: string;
   readonly isLocal: boolean;
   readonly isSourcePackage?: boolean;
-  readonly isClr: boolean;
+  readonly resolutionKind: "local" | "externalSurface" | "phantomTypeOnly";
   readonly originalSpecifier: string;
-  // For CLR imports: the CLR namespace (e.g., "System" from "@scope/pkg/System")
+  // For external-surface imports: the source-facing namespace from the package subpath.
   readonly resolvedNamespace?: string;
-  // For module bindings (Node.js APIs mapped to CLR types)
-  readonly resolvedClrType?: string; // e.g., "Tsonic.NodeApi.fs"
-  readonly resolvedAssembly?: string; // e.g., "Tsonic.NodeApi"
+  // For module bindings mapped to target surface symbols.
+  readonly providerQualifiedName?: string;
+  readonly providerOwnerIdentity?: string;
 };

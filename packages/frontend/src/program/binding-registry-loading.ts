@@ -6,9 +6,9 @@
  * parameter.  All pure utility helpers used only during loading live here too.
  */
 
-import { tsbindgenClrTypeNameToTsTypeName } from "../tsbindgen/names.js";
-// eslint-disable-next-line no-restricted-imports -- binding loader needs the raw CLR signature parser during manifest ingestion.
-import { parseMethodSignature } from "../ir/type-system/internal/universe/clr-raw-converter.js";
+import { tsbindgenTargetTypeNameToTsTypeName } from "../tsbindgen/names.js";
+// eslint-disable-next-line no-restricted-imports -- binding loader needs the raw provider signature parser during manifest ingestion.
+import { parseMethodSignature } from "../ir/type-system/internal/universe/external-raw-converter.js";
 import type {
   MemberBinding,
   TypeBinding,
@@ -18,7 +18,7 @@ import type {
   BindingFile,
 } from "./binding-types.js";
 import { isFullBindingManifest } from "./binding-types.js";
-import { getDotnetBindingPayload } from "./dotnet-binding-payload.js";
+import { getExternalBindingPayload } from "./external-binding-payload.js";
 
 // ---------------------------------------------------------------------------
 // MutableRegistryState – writable view into BindingRegistry maps
@@ -38,8 +38,8 @@ export type MutableRegistryState = {
   readonly typeLookupAliasMap: Map<string, string>;
   readonly members: Map<string, MemberBinding>;
   readonly memberOverloads: Map<string, MemberBinding[]>;
-  readonly clrMemberOverloads: Map<string, MemberBinding[]>;
-  readonly clrTypeNamesByAlias: Map<string, Set<string>>;
+  readonly targetMemberOverloads: Map<string, MemberBinding[]>;
+  readonly targetTypeNamesByAlias: Map<string, Set<string>>;
   readonly extensionMethods: Map<
     string,
     Map<string, Map<string, MemberBinding[]>>
@@ -47,34 +47,34 @@ export type MutableRegistryState = {
   readonly tsbindgenExports: Map<string, Map<string, TsbindgenExport>>;
   readonly tsSupertypes: Map<string, Set<string>>;
   readonly tsBaseTypes: Map<string, string>;
-  readonly clrTypeNames: Set<string>;
+  readonly targetTypeNames: Set<string>;
 };
 
 // ---------------------------------------------------------------------------
 // Pure utility helpers
 // ---------------------------------------------------------------------------
 
-export const makeClrMemberKey = (
+export const makeTargetMemberKey = (
   assembly: string,
-  clrType: string,
-  clrMember: string
-): string => `${assembly}:${clrType}::${clrMember}`;
+  targetType: string,
+  targetMember: string
+): string => `${assembly}:${targetType}::${targetMember}`;
 
 /**
- * Extract CLR namespace key ('.' -> '_') from a full CLR type name.
- * Example: "System.Linq.Enumerable" -> "System_Linq"
+ * Extract external namespace key ('.' -> '_') from a full target type name.
+ * Example: "Provider.Linq.Enumerable" -> "Provider_Linq"
  */
-export const extractNamespaceKey = (clrType: string): string | undefined => {
-  const lastDot = clrType.lastIndexOf(".");
+export const extractNamespaceKey = (targetType: string): string | undefined => {
+  const lastDot = targetType.lastIndexOf(".");
   if (lastDot <= 0) return undefined;
-  return clrType.slice(0, lastDot).replace(/\./g, "_");
+  return targetType.slice(0, lastDot).replace(/\./g, "_");
 };
 
 /**
  * Extract the extension receiver TS type name from a tsbindgen normalized signature.
  *
  * Format: "Name|(ParamTypes):ReturnType|static=true"
- * Example: "Where|(IEnumerable_1,Func_2):IEnumerable_1|static=true"
+ * Example: "Where|(ProviderIterable_1,Func_2):ProviderIterable_1|static=true"
  *
  * Returns the first parameter type name (stripped of byref suffix and namespace prefix).
  */
@@ -98,7 +98,7 @@ export const extractExtensionReceiverType = (
 
 /**
  * Split a comma-delimited type list, respecting nested bracket depth.
- * tsbindgen signatures use CLR-style nested generic brackets in some contexts.
+ * Binding-provider signatures can use nested generic brackets in some contexts.
  */
 const splitSignatureTypeList = (str: string): string[] => {
   const result: string[] = [];
@@ -240,6 +240,17 @@ const mergeOptionalMetadataObject = <T extends object>(
   return merged as T;
 };
 
+const getTypeStableIds = (type: TypeBinding): readonly string[] => {
+  const ids = new Set<string>();
+  if (type.stableId !== undefined) {
+    ids.add(type.stableId);
+  }
+  for (const stableId of type.stableIds ?? []) {
+    ids.add(stableId);
+  }
+  return Array.from(ids).sort();
+};
+
 const mergeMemberBinding = (
   existing: MemberBinding,
   incoming: MemberBinding,
@@ -261,6 +272,13 @@ const mergeMemberBinding = (
       alias,
       "kind"
     ) as MemberBinding["kind"],
+    stableId: mergeOptionalField(
+      existing.stableId,
+      incoming.stableId,
+      context,
+      alias,
+      "stableId"
+    ),
     signature: mergeOptionalField(
       existing.signature,
       incoming.signature,
@@ -443,8 +461,14 @@ const mergeTypeBinding = (
     );
   }
 
+  const stableIds = Array.from(
+    new Set([...getTypeStableIds(existing), ...getTypeStableIds(incoming)])
+  ).sort();
+
   return {
     ...existing,
+    stableId: stableIds.length === 1 ? stableIds[0] : undefined,
+    stableIds,
     members: mergeMemberBindings(
       existing.members,
       incoming.members,
@@ -578,15 +602,15 @@ const remapRegisteredTypeAlias = (
     state.typeLookupAliasMap.set(lookupAlias, toAlias);
   }
 
-  const clrNames = state.clrTypeNamesByAlias.get(fromAlias);
-  if (clrNames) {
+  const targetNames = state.targetTypeNamesByAlias.get(fromAlias);
+  if (targetNames) {
     const destinationNames =
-      state.clrTypeNamesByAlias.get(toAlias) ?? new Set();
-    for (const clrName of clrNames) {
-      destinationNames.add(clrName);
+      state.targetTypeNamesByAlias.get(toAlias) ?? new Set();
+    for (const targetName of targetNames) {
+      destinationNames.add(targetName);
     }
-    state.clrTypeNamesByAlias.set(toAlias, destinationNames);
-    state.clrTypeNamesByAlias.delete(fromAlias);
+    state.targetTypeNamesByAlias.set(toAlias, destinationNames);
+    state.targetTypeNamesByAlias.delete(fromAlias);
   }
 
   const directBaseType = state.tsBaseTypes.get(fromAlias);
@@ -811,23 +835,23 @@ export const addBindingsToState = (
     state.memberOverloads.set(key, existing);
   };
 
-  const addClrMemberOverload = (member: MemberBinding): void => {
+  const addTargetMemberOverload = (member: MemberBinding): void => {
     if (member.kind !== "method") return;
 
-    const clrTargetKey = makeClrMemberKey(
+    const targetMemberKey = makeTargetMemberKey(
       member.binding.assembly,
       member.binding.type,
       member.binding.member
     );
-    const existing = state.clrMemberOverloads.get(clrTargetKey) ?? [];
-    upsertMemberBinding(existing, member, clrTargetKey);
-    state.clrMemberOverloads.set(clrTargetKey, existing);
+    const existing = state.targetMemberOverloads.get(targetMemberKey) ?? [];
+    upsertMemberBinding(existing, member, targetMemberKey);
+    state.targetMemberOverloads.set(targetMemberKey, existing);
   };
 
-  const recordClrTypeAlias = (alias: string, clrName: string): void => {
-    const names = state.clrTypeNamesByAlias.get(alias) ?? new Set<string>();
-    names.add(clrName);
-    state.clrTypeNamesByAlias.set(alias, names);
+  const recordTargetTypeAlias = (alias: string, targetName: string): void => {
+    const names = state.targetTypeNamesByAlias.get(alias) ?? new Set<string>();
+    names.add(targetName);
+    state.targetTypeNamesByAlias.set(alias, names);
   };
 
   const setPreferredSimpleBinding = (
@@ -862,7 +886,7 @@ export const addBindingsToState = (
         }
         const existing = state.types.get(type.alias);
         const merged = mergeTypeBinding(existing, type, `${ns.alias}`);
-        state.clrTypeNames.add(merged.name);
+        state.targetTypeNames.add(merged.name);
         state.types.set(merged.alias, merged);
         if (!state.typeLookupAliasMap.has(type.name)) {
           state.typeLookupAliasMap.set(type.name, merged.alias);
@@ -873,29 +897,29 @@ export const addBindingsToState = (
             merged.alias
           );
         }
-        const simpleClrName = merged.name.split(".").pop();
+        const simpleTargetName = merged.name.split(".").pop();
         if (
-          simpleClrName &&
-          simpleClrName !== merged.alias &&
-          !state.types.has(simpleClrName) &&
-          !state.typeLookupAliasMap.has(simpleClrName)
+          simpleTargetName &&
+          simpleTargetName !== merged.alias &&
+          !state.types.has(simpleTargetName) &&
+          !state.typeLookupAliasMap.has(simpleTargetName)
         ) {
-          state.typeLookupAliasMap.set(simpleClrName, merged.alias);
+          state.typeLookupAliasMap.set(simpleTargetName, merged.alias);
         }
-        recordClrTypeAlias(merged.alias, merged.name);
+        recordTargetTypeAlias(merged.alias, merged.name);
 
         // Index members for quick lookup (keyed by "typeAlias.memberAlias")
         for (const member of merged.members) {
           const key = `${merged.alias}.${member.alias}`;
           state.members.set(key, member);
           addMemberOverload(key, member);
-          addClrMemberOverload(member);
+          addTargetMemberOverload(member);
         }
       }
     }
   } else {
-    const dotnetPayload = getDotnetBindingPayload(manifest);
-    if (!dotnetPayload) {
+    const externalPayload = getExternalBindingPayload(manifest);
+    if (!externalPayload) {
       if (!("bindings" in manifest)) {
         return;
       }
@@ -925,24 +949,30 @@ export const addBindingsToState = (
       return;
     }
 
-    const manifestNamespace = dotnetPayload.namespace;
-    // tsbindgen format: convert to internal format
+    const manifestNamespace = externalPayload.namespace;
+    // External binding format: convert to internal format
     const namespaceTypes: TypeBinding[] = [];
     const derivedAliasCounts = new Map<string, number>();
 
-    for (const tsbType of dotnetPayload.types) {
-      const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
+    for (const tsbType of externalPayload.types) {
+      const derivedAlias = tsbindgenTargetTypeNameToTsTypeName(
+        tsbType.targetName
+      );
       derivedAliasCounts.set(
         derivedAlias,
         (derivedAliasCounts.get(derivedAlias) ?? 0) + 1
       );
     }
 
-    for (const tsbType of dotnetPayload.types) {
+    for (const tsbType of externalPayload.types) {
       // Create members from methods, properties, and fields
       const members: MemberBinding[] = [];
 
       for (const method of tsbType.methods) {
+        const methodOwnerIdentity =
+          method.ownerIdentity ?? tsbType.ownerIdentity;
+        const methodOwnerTargetName =
+          method.ownerQualifiedName ?? tsbType.targetName;
         const parsedSemanticSignature =
           method.semanticSignature ??
           (method.normalizedSignature
@@ -978,18 +1008,18 @@ export const addBindingsToState = (
             : undefined);
         const memberBinding: MemberBinding = {
           kind: "method",
-          name: method.clrName,
-          // No naming policy: TS member names are the CLR names as authored.
-          alias: method.clrName,
+          stableId: method.stableId,
+          name: method.targetName,
+          // No naming policy: TS member names are the provider names as authored.
+          alias: method.targetName,
           signature: method.normalizedSignature,
           semanticSignature: parsedSemanticSignature,
           overloadFamily: method.overloadFamily,
           parameterCount: method.parameterCount,
           binding: {
-            assembly: method.declaringAssemblyName,
-            type: method.declaringClrType,
-            // member = clrName (what C# emits, e.g., "Add")
-            member: method.clrName,
+            assembly: methodOwnerIdentity,
+            type: methodOwnerTargetName,
+            member: method.targetName,
           },
           // Include parameter modifiers for ref/out/in parameters
           parameterModifiers: method.parameterModifiers,
@@ -1003,14 +1033,14 @@ export const addBindingsToState = (
 
         members.push(memberBinding);
 
-        addClrMemberOverload(memberBinding);
+        addTargetMemberOverload(memberBinding);
 
         // Index extension methods by (declaring namespace, receiver type, method name).
         if (method.isExtensionMethod && method.normalizedSignature) {
           const receiverTypeName = extractExtensionReceiverType(
             method.normalizedSignature
           );
-          const namespaceKey = extractNamespaceKey(method.declaringClrType);
+          const namespaceKey = extractNamespaceKey(methodOwnerTargetName);
           if (receiverTypeName && namespaceKey) {
             const nsMap =
               state.extensionMethods.get(namespaceKey) ??
@@ -1037,49 +1067,59 @@ export const addBindingsToState = (
       }
 
       for (const prop of tsbType.properties) {
+        const propOwnerIdentity = prop.ownerIdentity ?? tsbType.ownerIdentity;
+        const propOwnerTargetName =
+          prop.ownerQualifiedName ?? tsbType.targetName;
         members.push({
           kind: "property",
+          stableId: prop.stableId,
           signature: prop.normalizedSignature,
           semanticType: prop.semanticType,
           semanticOptional: prop.semanticOptional,
-          name: prop.clrName,
-          alias: prop.clrName,
+          name: prop.targetName,
+          alias: prop.targetName,
           binding: {
-            assembly: prop.declaringAssemblyName,
-            type: prop.declaringClrType,
-            member: prop.clrName,
+            assembly: propOwnerIdentity,
+            type: propOwnerTargetName,
+            member: prop.targetName,
           },
           emitSemantics: prop.emitSemantics,
         });
       }
 
       for (const field of tsbType.fields) {
+        const fieldOwnerIdentity = field.ownerIdentity ?? tsbType.ownerIdentity;
+        const fieldOwnerTargetName =
+          field.ownerQualifiedName ?? tsbType.targetName;
         // Fields are treated as properties for binding purposes
         members.push({
           kind: "property",
+          stableId: field.stableId,
           signature: field.normalizedSignature,
           semanticType: field.semanticType,
           semanticOptional: field.semanticOptional,
-          name: field.clrName,
-          alias: field.clrName,
+          name: field.targetName,
+          alias: field.targetName,
           binding: {
-            assembly: field.declaringAssemblyName,
-            type: field.declaringClrType,
-            member: field.clrName,
+            assembly: fieldOwnerIdentity,
+            type: fieldOwnerTargetName,
+            member: field.targetName,
           },
           emitSemantics: field.emitSemantics,
         });
       }
 
-      const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
+      const derivedAlias = tsbindgenTargetTypeNameToTsTypeName(
+        tsbType.targetName
+      );
       const tsAlias = tsbType.alias ?? derivedAlias;
       const uniqueDerivedAlias =
         (derivedAliasCounts.get(derivedAlias) ?? 0) === 1;
 
-      // Record CLR inheritance relationships (base type + interfaces) so extension-method
-      // binding lookup can follow the CLR graph deterministically.
-      const baseAlias = tsbType.baseType?.clrName
-        ? tsbindgenClrTypeNameToTsTypeName(tsbType.baseType.clrName)
+      // Record target inheritance relationships (base type + interfaces) so extension-method
+      // binding lookup can follow the provider graph deterministically.
+      const baseAlias = tsbType.baseType?.targetName
+        ? tsbindgenTargetTypeNameToTsTypeName(tsbType.baseType.targetName)
         : undefined;
       if (baseAlias) {
         setBaseType(state, tsAlias, baseAlias);
@@ -1087,8 +1127,10 @@ export const addBindingsToState = (
       }
 
       for (const iface of tsbType.interfaces ?? []) {
-        if (!iface?.clrName) continue;
-        const ifaceAlias = tsbindgenClrTypeNameToTsTypeName(iface.clrName);
+        if (!iface?.targetName) continue;
+        const ifaceAlias = tsbindgenTargetTypeNameToTsTypeName(
+          iface.targetName
+        );
         addSupertype(state, tsAlias, ifaceAlias);
       }
 
@@ -1106,9 +1148,10 @@ export const addBindingsToState = (
         }
       })();
 
-      // Create TypeBinding - TS alias is derived deterministically from CLR name.
+      // Create TypeBinding - TS alias is derived deterministically from provider target name.
       const rawTypeBinding: TypeBinding = {
-        name: tsbType.clrName,
+        stableId: tsbType.stableId,
+        name: tsbType.targetName,
         alias: tsAlias,
         kind: kindFromBindings,
         members,
@@ -1127,9 +1170,12 @@ export const addBindingsToState = (
         typeBinding,
         `${manifestNamespace}`
       );
-      state.clrTypeNames.add(tsbType.clrName);
-      if (!state.typeLookupAliasMap.has(tsbType.clrName)) {
-        state.typeLookupAliasMap.set(tsbType.clrName, mergedTypeBinding.alias);
+      state.targetTypeNames.add(tsbType.targetName);
+      if (!state.typeLookupAliasMap.has(tsbType.targetName)) {
+        state.typeLookupAliasMap.set(
+          tsbType.targetName,
+          mergedTypeBinding.alias
+        );
       }
       if (!mergedTypeBinding.alias.includes(".")) {
         state.typeLookupAliasMap.set(
@@ -1141,10 +1187,10 @@ export const addBindingsToState = (
 
       // Index the type by its TS name.
       state.types.set(mergedTypeBinding.alias, mergedTypeBinding);
-      recordClrTypeAlias(mergedTypeBinding.alias, mergedTypeBinding.name);
+      recordTargetTypeAlias(mergedTypeBinding.alias, mergedTypeBinding.name);
 
       if (tsAlias !== mergedTypeBinding.alias) {
-        recordClrTypeAlias(tsAlias, mergedTypeBinding.name);
+        recordTargetTypeAlias(tsAlias, mergedTypeBinding.name);
       }
 
       const registeredDerivedAlias =
@@ -1155,13 +1201,13 @@ export const addBindingsToState = (
       if (registeredDerivedAlias) {
         state.types.set(derivedAlias, mergedTypeBinding);
         state.typeLookupAliasMap.set(derivedAlias, mergedTypeBinding.alias);
-        recordClrTypeAlias(derivedAlias, mergedTypeBinding.name);
+        recordTargetTypeAlias(derivedAlias, mergedTypeBinding.name);
       }
 
       // Also index by simple name if ts alias has arity suffix (e.g., "List_1" -> also index as "List")
       // This is needed because TS exports both List_1 and List as aliases, and TS code uses List<T>
       // IMPORTANT: Only set if not already present - non-generic versions should take precedence
-      // (e.g., Action should resolve to System.Action, not System.Action`9)
+      // over generated high-arity generic aliases.
       const arityMatch = derivedAlias.match(/^(.+)_(\d+)$/);
       const simpleAlias = arityMatch ? arityMatch[1] : null;
       const registeredSimpleAlias =
@@ -1172,7 +1218,7 @@ export const addBindingsToState = (
         state.types.set(simpleAlias, mergedTypeBinding);
       }
       if (registeredSimpleAlias && simpleAlias) {
-        recordClrTypeAlias(simpleAlias, mergedTypeBinding.name);
+        recordTargetTypeAlias(simpleAlias, mergedTypeBinding.name);
       }
 
       // Index members for direct lookup.
@@ -1205,7 +1251,7 @@ export const addBindingsToState = (
         if (member.binding.type !== mergedTypeBinding.name) {
           const explicitOwnerAlias =
             state.typeLookupAliasMap.get(member.binding.type) ??
-            tsbindgenClrTypeNameToTsTypeName(member.binding.type);
+            tsbindgenTargetTypeNameToTsTypeName(member.binding.type);
 
           if (
             explicitOwnerAlias &&
@@ -1217,7 +1263,7 @@ export const addBindingsToState = (
             const explicitOwnerKey = `${explicitOwnerAlias}.${member.alias}`;
             state.members.set(explicitOwnerKey, member);
             addMemberOverload(explicitOwnerKey, member);
-            recordClrTypeAlias(explicitOwnerAlias, member.binding.type);
+            recordTargetTypeAlias(explicitOwnerAlias, member.binding.type);
 
             if (!state.typeLookupAliasMap.has(member.binding.type)) {
               state.typeLookupAliasMap.set(
@@ -1231,15 +1277,15 @@ export const addBindingsToState = (
     }
 
     // Optional flattened named exports.
-    // These are stable value exports for CLR namespace facade modules and are
+    // These are stable value exports for external namespace facade modules and are
     // resolved by Tsonic during import binding (so `import { x }` maps to
-    // `global::<DeclaringType>.<member>` in C#).
-    if (dotnetPayload.exports) {
+    // the provider-owned target member).
+    if (externalPayload.exports) {
       const nsExports =
         state.tsbindgenExports.get(manifestNamespace) ??
         new Map<string, TsbindgenExport>();
 
-      for (const [exportName, exp] of Object.entries(dotnetPayload.exports)) {
+      for (const [exportName, exp] of Object.entries(externalPayload.exports)) {
         nsExports.set(exportName, exp);
       }
 

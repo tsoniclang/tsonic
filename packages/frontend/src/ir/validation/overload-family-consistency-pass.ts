@@ -217,7 +217,7 @@ const reportMissingOrMismatchedMethod = (
       createDiagnostic(
         "TSN4005",
         "error",
-        `Method '${ownerDescription}.${targetMember.name}' does not preserve required emitted CLR member '${targetPublicName}'.`,
+        `Method '${ownerDescription}.${targetMember.name}' does not preserve required emitted native target member '${targetPublicName}'.`,
         { file: filePath, line: 1, column: 1, length: 1 },
         `A matching signature exists only if the surviving member emits '${targetPublicName}' after overload collection.`
       )
@@ -232,7 +232,7 @@ const reportMissingOrMismatchedMethod = (
     createDiagnostic(
       "TSN4005",
       "error",
-      `Overload family mismatch for '${ownerDescription}.${targetMember.name}'. Matching signatures must emit the same CLR member name '${targetPublicName}'.`,
+      `Overload family mismatch for '${ownerDescription}.${targetMember.name}'. Matching signatures must emit the same native target member name '${targetPublicName}'.`,
       { file: filePath, line: 1, column: 1, length: 1 },
       `Found signature-compatible member(s) emitting ${actualNames.map((name) => `'${name}'`).join(", ")}.`
     )
@@ -251,7 +251,7 @@ const reportAmbiguousMethodMatch = (
       "error",
       `Method '${ownerDescription}.${targetMember.name}' matches multiple surviving members after overload collection.`,
       { file: filePath, line: 1, column: 1, length: 1 },
-      `Keep the emitted CLR surface one-to-one per signature.`
+      `Keep the emitted native target surface one-to-one per signature.`
     )
   );
 };

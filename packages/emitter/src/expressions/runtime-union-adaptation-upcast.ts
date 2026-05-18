@@ -504,6 +504,38 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
     return nestedRuntimeUnionAdaptation;
   }
 
+  const directSurfaceActualType = resolveDirectValueSurfaceType(ast, context);
+  if (
+    directSurfaceActualType &&
+    !areIrTypesEquivalent(
+      resolveComparableType(directSurfaceActualType, context),
+      resolveComparableType(actualType, context),
+      context
+    )
+  ) {
+    const directSurfaceAdaptation = maybeAdaptRuntimeUnionExpressionAst(
+      ast,
+      directSurfaceActualType,
+      context,
+      memberType,
+      visited
+    );
+    if (directSurfaceAdaptation) {
+      return directSurfaceAdaptation;
+    }
+  }
+
+  const directRuntimeMaterialization = tryBuildRuntimeMaterializationAst(
+    ast,
+    actualType,
+    memberType,
+    context,
+    emitTypeAst
+  );
+  if (directRuntimeMaterialization) {
+    return directRuntimeMaterialization;
+  }
+
   const exactActualSurface = (() => {
     try {
       return emitTypeAst(actualType, context);
@@ -600,6 +632,20 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
     context
   );
   if (!memberEmissionCompatible) {
+    const [memberRuntimeLayout, memberRuntimeLayoutContext] =
+      buildRuntimeUnionLayout(memberType, context, emitTypeAst);
+    if (memberRuntimeLayout) {
+      const reifiedMember = tryBuildRuntimeReificationPlan(
+        ast,
+        memberType,
+        memberRuntimeLayoutContext,
+        emitTypeAst
+      );
+      if (reifiedMember) {
+        return [reifiedMember.value, reifiedMember.context];
+      }
+      return undefined;
+    }
     if (canUseRuntimeUnionMemberCast(actualType, context)) {
       return [
         {
@@ -632,6 +678,21 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
 
   if (memberEmissionCompatible) {
     return [ast, context];
+  }
+
+  const [memberRuntimeLayout, memberRuntimeLayoutContext] =
+    buildRuntimeUnionLayout(memberType, context, emitTypeAst);
+  if (memberRuntimeLayout) {
+    const reifiedMember = tryBuildRuntimeReificationPlan(
+      ast,
+      memberType,
+      memberRuntimeLayoutContext,
+      emitTypeAst
+    );
+    if (reifiedMember) {
+      return [reifiedMember.value, reifiedMember.context];
+    }
+    return undefined;
   }
 
   if (canUseRuntimeUnionMemberCast(actualType, context)) {
@@ -708,6 +769,17 @@ const maybeAdaptTopLevelNullishOptionalUnionAst = (
     !expectedNullishSplit?.hasRuntimeNullish
   ) {
     return undefined;
+  }
+
+  try {
+    const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+      expectedType,
+      context
+    );
+    if (isExactExpressionToType(ast, expectedTypeAst)) {
+      return [ast, expectedTypeContext];
+    }
+  } catch {
   }
 
   const nonNullishActualType = stripNullish(actualType);
@@ -1346,11 +1418,20 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
             nextVisited
           )
         : undefined;
+      const selectedValueAst = nestedExactSurfaceAdaptation?.[0] ?? ast;
+      const runtimeLayoutTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
+      if (isExactExpressionToType(selectedValueAst, runtimeLayoutTypeAst)) {
+        return [
+          selectedValueAst,
+          nestedExactSurfaceAdaptation?.[1] ?? layoutContext,
+        ];
+      }
+
       return [
         buildRuntimeUnionFactoryCallAst(
-          buildRuntimeUnionTypeAst(runtimeLayout),
+          runtimeLayoutTypeAst,
           exactSurfaceIndex + 1,
-          nestedExactSurfaceAdaptation?.[0] ?? ast
+          selectedValueAst
         ),
         nestedExactSurfaceAdaptation?.[1] ?? layoutContext,
       ];
@@ -1393,12 +1474,13 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
           : undefined);
 
       if (selectedValueAst) {
+        const runtimeLayoutTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
+        if (isExactExpressionToType(selectedValueAst, runtimeLayoutTypeAst)) {
+          return [selectedValueAst, selectedValue?.[1] ?? layoutContext];
+        }
+
         return [
-          buildRuntimeUnionFactoryCallAst(
-            buildRuntimeUnionTypeAst(runtimeLayout),
-            selectedIndex + 1,
-            selectedValueAst
-          ),
+          buildRuntimeUnionFactoryCallAst(runtimeLayoutTypeAst, selectedIndex + 1, selectedValueAst),
           selectedValue?.[1] ?? layoutContext,
         ];
       }
@@ -1426,12 +1508,13 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   if (materializedMemberCandidates.length === 1) {
     const [candidate] = materializedMemberCandidates;
     if (candidate) {
+      const runtimeLayoutTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
+      if (isExactExpressionToType(candidate.value[0], runtimeLayoutTypeAst)) {
+        return candidate.value;
+      }
+
       return [
-        buildRuntimeUnionFactoryCallAst(
-          buildRuntimeUnionTypeAst(runtimeLayout),
-          candidate.index + 1,
-          candidate.value[0]
-        ),
+        buildRuntimeUnionFactoryCallAst(runtimeLayoutTypeAst, candidate.index + 1, candidate.value[0]),
         candidate.value[1],
       ];
     }
@@ -1494,11 +1577,21 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
             nextVisited
           )
         : undefined;
+      const selectedValueAst =
+        directMemberValue?.[0] ?? nestedMemberAdaptation?.[0] ?? ast;
+      const runtimeLayoutTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
+      if (isExactExpressionToType(selectedValueAst, runtimeLayoutTypeAst)) {
+        return [
+          selectedValueAst,
+          directMemberValue?.[1] ?? nestedMemberAdaptation?.[1] ?? layoutContext,
+        ];
+      }
+
       return [
         buildRuntimeUnionFactoryCallAst(
-          buildRuntimeUnionTypeAst(runtimeLayout),
+          runtimeLayoutTypeAst,
           directIndex + 1,
-          directMemberValue?.[0] ?? nestedMemberAdaptation?.[0] ?? ast
+          selectedValueAst
         ),
         directMemberValue?.[1] ?? nestedMemberAdaptation?.[1] ?? layoutContext,
       ];
@@ -1573,9 +1666,14 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
             : undefined);
 
         if (selectedValueAst) {
+          const runtimeLayoutTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
+          if (isExactExpressionToType(selectedValueAst, runtimeLayoutTypeAst)) {
+            return [selectedValueAst, directMemberValue?.[1] ?? layoutContext];
+          }
+
           return [
             buildRuntimeUnionFactoryCallAst(
-              buildRuntimeUnionTypeAst(runtimeLayout),
+              runtimeLayoutTypeAst,
               directIndex + 1,
               selectedValueAst
             ),
@@ -1675,6 +1773,9 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
 
     const unionTypeContext = numericAdjusted[1];
     const concreteUnionTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
+    if (isExactExpressionToType(numericAdjusted[0], concreteUnionTypeAst)) {
+      return numericAdjusted;
+    }
 
     return [
       buildRuntimeUnionFactoryCallAst(

@@ -1,4 +1,5 @@
 import {
+  createUnsupportedCapabilityDiagnostic,
   type IrModule,
   type IrIfBranchPlan,
   type IrIfGuardShape,
@@ -6,6 +7,7 @@ import {
   type ValidationContext,
   createDiagnostic,
   moduleLocation,
+  shouldReportUnsupportedCapability,
 } from "./soundness-gate-shared.js";
 import { validateExpression } from "./soundness-gate-expression-validation.js";
 import {
@@ -93,6 +95,83 @@ const validateIfBranchPlan = (
   }
 };
 
+const validateCallableCapabilities = (
+  label: string,
+  value: {
+    readonly isAsync: boolean;
+    readonly isGenerator: boolean;
+    readonly attributes?: readonly unknown[];
+  },
+  ctx: ValidationContext
+): void => {
+  if (
+    value.isGenerator &&
+    value.isAsync &&
+    shouldReportUnsupportedCapability(ctx, "async-iteration")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "async-iteration",
+        "TSN5001",
+        `${label} uses async iteration, which is not supported by the active backend.`,
+        "Use a backend that declares async-iteration support, or rewrite this function as a supported async or generator shape."
+      )
+    );
+  } else if (
+    value.isGenerator &&
+    shouldReportUnsupportedCapability(ctx, "generators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "generators",
+        "TSN5001",
+        `${label} uses generator syntax, which is not supported by the active backend.`,
+        "Use a backend that declares generator support, or rewrite this function to return an explicit collection."
+      )
+    );
+  }
+
+  if (
+    value.attributes !== undefined &&
+    value.attributes.length > 0 &&
+    shouldReportUnsupportedCapability(ctx, "method-decorators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "method-decorators",
+        "TSN5001",
+        `${label} has metadata attributes, which are not supported by the active backend.`,
+        "Use a backend that declares callable metadata-attribute support, or remove the attributes."
+      )
+    );
+  }
+};
+
+const validateTypeDeclarationAttributes = (
+  label: string,
+  attributes: readonly unknown[] | undefined,
+  ctx: ValidationContext
+): void => {
+  if (
+    attributes !== undefined &&
+    attributes.length > 0 &&
+    shouldReportUnsupportedCapability(ctx, "class-decorators")
+  ) {
+    ctx.diagnostics.push(
+      createUnsupportedCapabilityDiagnostic(
+        ctx,
+        "class-decorators",
+        "TSN5001",
+        `${label} has metadata attributes, which are not supported by the active backend.`,
+        "Use a backend that declares type metadata-attribute support, or remove the attributes."
+      )
+    );
+  }
+};
+
 export const validateStatement = (
   stmt: IrStatement,
   ctx: ValidationContext
@@ -109,6 +188,7 @@ export const validateStatement = (
       break;
 
     case "functionDeclaration":
+      validateCallableCapabilities(`Function '${stmt.name}'`, stmt, ctx);
       stmt.typeParameters?.forEach((typeParameter) =>
         validateTypeParameter(typeParameter, ctx)
       );
@@ -118,6 +198,12 @@ export const validateStatement = (
       break;
 
     case "classDeclaration":
+      validateTypeDeclarationAttributes(`Class '${stmt.name}'`, stmt.attributes, ctx);
+      validateTypeDeclarationAttributes(
+        `Class constructor for '${stmt.name}'`,
+        stmt.ctorAttributes,
+        ctx
+      );
       stmt.typeParameters?.forEach((typeParameter) =>
         validateTypeParameter(typeParameter, ctx)
       );
@@ -130,6 +216,11 @@ export const validateStatement = (
       stmt.members.forEach((member) => {
         switch (member.kind) {
           case "methodDeclaration":
+            validateCallableCapabilities(
+              `Method '${member.name}'`,
+              member,
+              ctx
+            );
             member.typeParameters?.forEach((typeParameter) =>
               validateTypeParameter(typeParameter, ctx)
             );
@@ -146,12 +237,42 @@ export const validateStatement = (
             }
             break;
           case "propertyDeclaration":
+            if (
+              member.attributes !== undefined &&
+              member.attributes.length > 0 &&
+              shouldReportUnsupportedCapability(ctx, "method-decorators")
+            ) {
+              ctx.diagnostics.push(
+                createUnsupportedCapabilityDiagnostic(
+                  ctx,
+                  "method-decorators",
+                  "TSN5001",
+                  `Property '${member.name}' has metadata attributes, which are not supported by the active backend.`,
+                  "Use a backend that declares member metadata-attribute support, or remove the attributes."
+                )
+              );
+            }
             validateType(member.type, ctx, `property '${member.name}'`);
             if (member.initializer) {
               validateExpression(member.initializer, ctx);
             }
             break;
           case "constructorDeclaration":
+            if (
+              member.attributes !== undefined &&
+              member.attributes.length > 0 &&
+              shouldReportUnsupportedCapability(ctx, "method-decorators")
+            ) {
+              ctx.diagnostics.push(
+                createUnsupportedCapabilityDiagnostic(
+                  ctx,
+                  "method-decorators",
+                  "TSN5001",
+                  `Constructor for '${stmt.name}' has metadata attributes, which are not supported by the active backend.`,
+                  "Use a backend that declares callable metadata-attribute support, or remove the attributes."
+                )
+              );
+            }
             member.parameters.forEach((parameter) =>
               validateParameter(parameter, ctx)
             );
@@ -164,6 +285,11 @@ export const validateStatement = (
       break;
 
     case "interfaceDeclaration":
+      validateTypeDeclarationAttributes(
+        `Interface '${stmt.name}'`,
+        stmt.attributes,
+        ctx
+      );
       stmt.typeParameters?.forEach((typeParameter) =>
         validateTypeParameter(typeParameter, ctx)
       );

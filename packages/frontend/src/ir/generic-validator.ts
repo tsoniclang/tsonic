@@ -40,5 +40,5 @@ export const checkForSymbolIndexSignature = (
  *   Variadic parameters are handled via tuple specialisations
  *
  * - checkForRecursiveStructuralAlias (TSN7201)
- *   Recursive structural aliases emit as C# classes with nullable refs
+ *   Recursive structural aliases emit as native nominal carriers with nullable refs
  */

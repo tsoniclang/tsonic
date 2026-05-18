@@ -7,7 +7,7 @@ import { createContext } from "../../emitter-types/context.js";
 const mkRef = (name: string): IrType => ({
   kind: "referenceType",
   name,
-  resolvedClrType: `Test.${name}`,
+  providerQualifiedName: `Test.${name}`,
 });
 
 describe("union-semantics", () => {

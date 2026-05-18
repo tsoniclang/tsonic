@@ -51,7 +51,7 @@ type OverloadMarker =
   | {
       readonly kind: "method";
       readonly ownerName: string;
-      readonly targetMemberName: string;
+      readonly providerMemberName: string;
       readonly familyName: string;
       readonly sourceSpan?: SourceLocation;
     };
@@ -509,7 +509,7 @@ const tryDetectOverloadMarker = (
       value: {
         kind: "method",
         ownerName: root.value.name,
-        targetMemberName: methodTarget.value,
+        providerMemberName: methodTarget.value,
         familyName: familyTarget.value,
         sourceSpan: call.sourceSpan,
       },
@@ -576,20 +576,20 @@ const canonicalizeCallableType = (
 
 const belongsToCurrentProject = (
   type: Extract<IrType, { kind: "referenceType" }>,
-  projectAssemblyName: string
+  projectOwnerIdentity: string
 ): boolean =>
-  type.typeId?.assemblyName === projectAssemblyName ||
+  type.typeId?.ownerIdentity === projectOwnerIdentity ||
   (!type.typeId &&
-    !!type.resolvedClrType &&
-    type.resolvedClrType.startsWith(`${projectAssemblyName}.`)) ||
-  (!type.typeId && !type.resolvedClrType);
+    !!type.providerQualifiedName &&
+    type.providerQualifiedName.startsWith(`${projectOwnerIdentity}.`)) ||
+  (!type.typeId && !type.providerQualifiedName);
 
 const normalizeComparableInterfaceMember = (
   member: Extract<
     NonNullable<Extract<IrType, { kind: "objectType" }>["members"]>[number],
     { kind: "propertySignature" } | { kind: "methodSignature" }
   >,
-  projectAssemblyName: string,
+  projectOwnerIdentity: string,
   activeTypes: ReadonlySet<IrType>
 ): typeof member => {
   if (member.kind === "propertySignature") {
@@ -597,7 +597,7 @@ const normalizeComparableInterfaceMember = (
       ...member,
       type: normalizeComparableType(
         member.type,
-        projectAssemblyName,
+        projectOwnerIdentity,
         activeTypes
       ),
     };
@@ -610,7 +610,7 @@ const normalizeComparableInterfaceMember = (
       type: parameter.type
         ? normalizeComparableType(
             parameter.type,
-            projectAssemblyName,
+            projectOwnerIdentity,
             activeTypes
           )
         : parameter.type,
@@ -618,7 +618,7 @@ const normalizeComparableInterfaceMember = (
     returnType: member.returnType
       ? normalizeComparableType(
           member.returnType,
-          projectAssemblyName,
+          projectOwnerIdentity,
           activeTypes
         )
       : member.returnType,
@@ -627,7 +627,7 @@ const normalizeComparableInterfaceMember = (
 
 const normalizeComparableType = (
   type: IrType,
-  projectAssemblyName: string,
+  projectOwnerIdentity: string,
   activeTypes: ReadonlySet<IrType> = new Set()
 ): IrType => {
   if (activeTypes.has(type)) {
@@ -652,21 +652,21 @@ const normalizeComparableType = (
         ...type,
         elementType: normalizeComparableType(
           type.elementType,
-          projectAssemblyName,
+          projectOwnerIdentity,
           nextActiveTypes
         ),
         tuplePrefixElementTypes: type.tuplePrefixElementTypes?.map(
           (elementType) =>
             normalizeComparableType(
               elementType,
-              projectAssemblyName,
+              projectOwnerIdentity,
               nextActiveTypes
             )
         ),
         tupleRestElementType: type.tupleRestElementType
           ? normalizeComparableType(
               type.tupleRestElementType,
-              projectAssemblyName,
+              projectOwnerIdentity,
               nextActiveTypes
             )
           : type.tupleRestElementType,
@@ -678,7 +678,7 @@ const normalizeComparableType = (
         elementTypes: type.elementTypes.map((elementType) =>
           normalizeComparableType(
             elementType,
-            projectAssemblyName,
+            projectOwnerIdentity,
             nextActiveTypes
           )
         ),
@@ -689,12 +689,12 @@ const normalizeComparableType = (
         ...type,
         keyType: normalizeComparableType(
           type.keyType,
-          projectAssemblyName,
+          projectOwnerIdentity,
           nextActiveTypes
         ),
         valueType: normalizeComparableType(
           type.valueType,
-          projectAssemblyName,
+          projectOwnerIdentity,
           nextActiveTypes
         ),
       };
@@ -707,14 +707,14 @@ const normalizeComparableType = (
           type: parameter.type
             ? normalizeComparableType(
                 parameter.type,
-                projectAssemblyName,
+                projectOwnerIdentity,
                 nextActiveTypes
               )
             : parameter.type,
         })),
         returnType: normalizeComparableType(
           type.returnType,
-          projectAssemblyName,
+          projectOwnerIdentity,
           nextActiveTypes
         ),
       };
@@ -725,7 +725,7 @@ const normalizeComparableType = (
         members: type.members.map((member) =>
           normalizeComparableInterfaceMember(
             member,
-            projectAssemblyName,
+            projectOwnerIdentity,
             nextActiveTypes
           )
         ),
@@ -735,14 +735,14 @@ const normalizeComparableType = (
       const normalizedArguments = type.typeArguments?.map((typeArgument) =>
         normalizeComparableType(
           typeArgument,
-          projectAssemblyName,
+          projectOwnerIdentity,
           nextActiveTypes
         )
       );
       const normalizedMembers = type.structuralMembers?.map((member) =>
         normalizeComparableInterfaceMember(
           member,
-          projectAssemblyName,
+          projectOwnerIdentity,
           nextActiveTypes
         )
       );
@@ -750,7 +750,7 @@ const normalizeComparableType = (
       if (
         normalizedMembers &&
         normalizedMembers.length > 0 &&
-        belongsToCurrentProject(type, projectAssemblyName)
+        belongsToCurrentProject(type, projectOwnerIdentity)
       ) {
         return {
           kind: "objectType",
@@ -772,7 +772,7 @@ const normalizeComparableType = (
       return {
         ...type,
         types: type.types.map((member) =>
-          normalizeComparableType(member, projectAssemblyName, nextActiveTypes)
+          normalizeComparableType(member, projectOwnerIdentity, nextActiveTypes)
         ),
       };
 
@@ -780,7 +780,7 @@ const normalizeComparableType = (
       return {
         ...type,
         types: type.types.map((member) =>
-          normalizeComparableType(member, projectAssemblyName, nextActiveTypes)
+          normalizeComparableType(member, projectOwnerIdentity, nextActiveTypes)
         ),
       };
   }
@@ -797,7 +797,7 @@ const parametersMatchExactly = (
   leftTypeParameters: CallableLike["typeParameters"],
   right: readonly IrParameter[],
   rightTypeParameters: CallableLike["typeParameters"],
-  projectAssemblyName: string
+  projectOwnerIdentity: string
 ): boolean => {
   if (left.length !== right.length) {
     return false;
@@ -828,10 +828,10 @@ const parametersMatchExactly = (
     );
 
     const normalizedLeftType = leftType
-      ? normalizeComparableType(leftType, projectAssemblyName)
+      ? normalizeComparableType(leftType, projectOwnerIdentity)
       : undefined;
     const normalizedRightType = rightType
-      ? normalizeComparableType(rightType, projectAssemblyName)
+      ? normalizeComparableType(rightType, projectOwnerIdentity)
       : undefined;
 
     if (!normalizedLeftType || !normalizedRightType) {
@@ -852,7 +852,7 @@ const parametersMatchExactly = (
 const callableMatchesExactly = (
   left: CallableLike,
   right: CallableLike,
-  projectAssemblyName: string
+  projectOwnerIdentity: string
 ): boolean => {
   const leftTypeParameters = left.typeParameters;
   const rightTypeParameters = right.typeParameters;
@@ -868,7 +868,7 @@ const callableMatchesExactly = (
       leftTypeParameters,
       right.parameters,
       rightTypeParameters,
-      projectAssemblyName
+      projectOwnerIdentity
     )
   ) {
     return false;
@@ -883,8 +883,8 @@ const callableMatchesExactly = (
     rightTypeParameters
   );
   return irTypesEqual(
-    normalizeComparableType(leftReturn ?? VOID_TYPE, projectAssemblyName),
-    normalizeComparableType(rightReturn ?? VOID_TYPE, projectAssemblyName)
+    normalizeComparableType(leftReturn ?? VOID_TYPE, projectOwnerIdentity),
+    normalizeComparableType(rightReturn ?? VOID_TYPE, projectOwnerIdentity)
   );
 };
 
@@ -1037,7 +1037,7 @@ const getOrCreateMethodFamilyState = (
 
 const findUniqueRealMethodTarget = (
   classDeclaration: IrClassDeclaration,
-  targetMemberName: string
+  providerMemberName: string
 ): ClassMethodEntry | "missing" | "ambiguous" => {
   const matches: ClassMethodEntry[] = [];
   for (
@@ -1047,7 +1047,7 @@ const findUniqueRealMethodTarget = (
   ) {
     const member = classDeclaration.members[memberIndex];
     if (!member || member.kind !== "methodDeclaration") continue;
-    if (member.name !== targetMemberName) continue;
+    if (member.name !== providerMemberName) continue;
     matches.push({ memberIndex, declaration: member });
   }
 
@@ -1142,7 +1142,7 @@ const collectModuleOverloads = (
   module: IrModule,
   diagnostics: Diagnostic[]
 ): CollectedOverloads | undefined => {
-  const projectAssemblyName =
+  const projectOwnerIdentity =
     module.namespace.split(".")[0] ?? module.namespace;
   const apiNames = getOverloadsApiLocalNames(module);
 
@@ -1283,7 +1283,7 @@ const collectModuleOverloads = (
           callableMatchesExactly(
             targetEntry.declaration,
             publicSignature.declaration,
-            projectAssemblyName
+            projectOwnerIdentity
           )
         ) {
           matchingSignatureIndices.push(signatureIndex);
@@ -1361,7 +1361,7 @@ const collectModuleOverloads = (
 
     const methodTarget = findUniqueRealMethodTarget(
       classEntry.declaration,
-      marker.targetMemberName
+      marker.providerMemberName
     );
     if (methodTarget === "missing" || methodTarget === "ambiguous") {
       diagnostics.push(
@@ -1369,8 +1369,8 @@ const collectModuleOverloads = (
           "TSN4005",
           "error",
           methodTarget === "missing"
-            ? `Overload marker target method '${marker.ownerName}.${marker.targetMemberName}' was not found.`
-            : `Overload marker target method '${marker.ownerName}.${marker.targetMemberName}' is ambiguous.`,
+            ? `Overload marker target method '${marker.ownerName}.${marker.providerMemberName}' was not found.`
+            : `Overload marker target method '${marker.ownerName}.${marker.providerMemberName}' is ambiguous.`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
@@ -1413,7 +1413,7 @@ const collectModuleOverloads = (
         createDiagnostic(
           "TSN4005",
           "error",
-          `Overload marker target '${marker.ownerName}.${marker.targetMemberName}' cannot point at the stub implementation '${marker.familyName}'. Bind a separate real body method instead.`,
+          `Overload marker target '${marker.ownerName}.${marker.providerMemberName}' cannot point at the stub implementation '${marker.familyName}'. Bind a separate real body method instead.`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
@@ -1432,7 +1432,7 @@ const collectModuleOverloads = (
         createDiagnostic(
           "TSN4005",
           "error",
-          `Real body '${marker.ownerName}.${marker.targetMemberName}' must match static/async/generator modifiers of stub '${marker.ownerName}.${marker.familyName}'.`,
+          `Real body '${marker.ownerName}.${marker.providerMemberName}' must match static/async/generator modifiers of stub '${marker.ownerName}.${marker.familyName}'.`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
@@ -1452,7 +1452,7 @@ const collectModuleOverloads = (
         callableMatchesExactly(
           methodTarget.declaration,
           publicSignature.declaration,
-          projectAssemblyName
+          projectOwnerIdentity
         )
       ) {
         matchingSignatureIndices.push(signatureIndex);
@@ -1465,8 +1465,8 @@ const collectModuleOverloads = (
           "TSN4005",
           "error",
           matchingSignatureIndices.length === 0
-            ? `Real body '${marker.ownerName}.${marker.targetMemberName}' does not match any public overload signature on stub '${marker.ownerName}.${marker.familyName}'.`
-            : `Real body '${marker.ownerName}.${marker.targetMemberName}' matches multiple public overload signatures on stub '${marker.ownerName}.${marker.familyName}'. Make the signature unique.`,
+            ? `Real body '${marker.ownerName}.${marker.providerMemberName}' does not match any public overload signature on stub '${marker.ownerName}.${marker.familyName}'.`
+            : `Real body '${marker.ownerName}.${marker.providerMemberName}' matches multiple public overload signatures on stub '${marker.ownerName}.${marker.familyName}'. Make the signature unique.`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );

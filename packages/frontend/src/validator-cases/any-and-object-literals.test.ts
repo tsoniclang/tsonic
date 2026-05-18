@@ -9,8 +9,18 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import type {
+  BackendCapability,
+  BackendCapabilityManifest,
+  FeatureKey,
+} from "../capabilities/backend-capabilities.js";
 import { validateProgram } from "../validator.js";
 import { createTestProgram } from "./helpers.js";
+
+const manifestWith = (
+  name: FeatureKey,
+  status: BackendCapability["status"]
+): BackendCapabilityManifest => new Map([[name, { name, status }]]);
 
 describe("Static Safety Validation", () => {
   describe("TSN7401 - 'any' type banned", () => {
@@ -156,6 +166,31 @@ describe("Static Safety Validation", () => {
       expect(nativeAotDiag?.message).to.include(
         "Array.isArray cannot narrow a broad runtime value"
       );
+    });
+
+    it("should allow broad Array.isArray narrowing when the active backend declares support", () => {
+      const source = `
+        declare function parseJsonValueText(value: string): unknown;
+
+        export function count(value: string): number {
+          const parsed = parseJsonValueText(value);
+          if (!Array.isArray(parsed)) {
+            return -1;
+          }
+
+          return parsed.length;
+        }
+      `;
+
+      const program = createTestProgram(source, "test.ts", {
+        backendCapabilities: manifestWith("broad-array-narrowing", "supported"),
+      });
+      const diagnostics = validateProgram(program);
+
+      const nativeSafetyDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5001"
+      );
+      expect(nativeSafetyDiag).to.equal(undefined);
     });
 
     it("should allow Array.isArray narrowing over unions with concrete array arms", () => {

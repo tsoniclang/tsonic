@@ -42,23 +42,6 @@ export const convertTsDiagnostic = (
 
   const message = ts.flattenDiagnosticMessageText(tsDiag.messageText, "\n");
 
-  // Ignore "type used as value" errors for .NET types
-  // These are handled by the Tsonic compiler
-  if (
-    message.includes("only refers to a type, but is being used as a value") &&
-    tsDiag.file
-  ) {
-    // Check if this is a .NET import
-    const sourceText = tsDiag.file.getText();
-    if (
-      sourceText.includes('from "System') ||
-      sourceText.includes('from "Microsoft') ||
-      sourceText.includes('from "Windows')
-    ) {
-      return null; // Ignore - will be handled by Tsonic
-    }
-  }
-
   const severity =
     tsDiag.category === ts.DiagnosticCategory.Error
       ? "error"

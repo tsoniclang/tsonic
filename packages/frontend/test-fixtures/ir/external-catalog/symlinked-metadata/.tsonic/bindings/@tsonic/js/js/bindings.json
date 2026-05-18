@@ -1,0 +1,20 @@
+{
+  "namespace": "js",
+  "types": [
+    {
+      "stableId": "js:js.console",
+      "targetName": "js.console",
+      "kind": "class",
+      "accessibility": "public",
+      "isAbstract": false,
+      "isSealed": false,
+      "isStatic": true,
+      "arity": 0,
+      "methods": [],
+      "properties": [],
+      "fields": [],
+      "constructors": [],
+      "ownerIdentity": "js"
+    }
+  ]
+}

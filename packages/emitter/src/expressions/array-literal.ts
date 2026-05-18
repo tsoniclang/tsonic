@@ -336,9 +336,9 @@ export const emitArray = (
 
         if (allNumbers) {
           const hasDouble = literals.some(
-            (lit) => lit.numericIntent === "Double"
+            (lit) => lit.numericIntent === "float64"
           );
-          const hasLong = literals.some((lit) => lit.numericIntent === "Int64");
+          const hasLong = literals.some((lit) => lit.numericIntent === "int64");
 
           if (hasDouble) {
             elementTypeAst = { kind: "predefinedType", keyword: "double" };

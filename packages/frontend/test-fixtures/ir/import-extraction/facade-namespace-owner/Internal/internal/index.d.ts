@@ -1,1 +1,1 @@
-export declare const Console: { WriteLine(value: string): void };
+export declare const Widget: { run(value: string): void };

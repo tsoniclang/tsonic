@@ -125,7 +125,7 @@ export {
 } from "./printer.js";
 
 export {
-  clrTypeNameToTypeAst,
+  targetTypeNameToTypeAst,
   extractCalleeNameFromAst,
   getIdentifierTypeLeafName,
   getIdentifierTypeName,

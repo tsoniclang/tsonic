@@ -237,7 +237,7 @@ const resolveExportOwnerFromSourceFile = (
         sourceFile.fileName,
         ctx.sourceRoot,
         {
-          clrResolver: ctx.clrResolver,
+          externalResolver: ctx.externalResolver,
           bindings: ctx.bindings,
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
@@ -332,7 +332,7 @@ export const resolveAmbientGlobalSourceOwner = (
       declaration.getSourceFile().fileName,
       ctx.sourceRoot,
       {
-        clrResolver: ctx.clrResolver,
+        externalResolver: ctx.externalResolver,
         bindings: ctx.bindings,
         projectRoot: ctx.projectRoot,
         surface: ctx.surface,

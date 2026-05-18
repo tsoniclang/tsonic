@@ -344,7 +344,10 @@ const isCharIrType = (
   const resolved = resolveTypeAlias(stripNullish(type), context);
   return (
     (resolved.kind === "primitiveType" && resolved.name === "char") ||
-    (resolved.kind === "referenceType" && resolved.name === "char")
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "char" ||
+        resolved.name === "Char" ||
+        getReferenceClrIdentityKey(resolved) === "System.Char/0"))
   );
 };
 
@@ -357,7 +360,9 @@ const expectsStringIrType = (
   return (
     (resolved.kind === "primitiveType" && resolved.name === "string") ||
     (resolved.kind === "referenceType" &&
-      (resolved.name === "string" || resolved.name === "String"))
+      (resolved.name === "string" ||
+        resolved.name === "String" ||
+        getReferenceClrIdentityKey(resolved) === "System.String/0"))
   );
 };
 
@@ -372,11 +377,22 @@ export const maybeConvertCharToStringAst = (
   ast: CSharpExpressionAst,
   context: EmitterContext,
   expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] =>
+  maybeConvertTypedCharToStringAst(
+    resolveEffectiveExpressionType(expr, context) ?? expr.inferredType,
+    ast,
+    context,
+    expectedType
+  );
+
+export const maybeConvertTypedCharToStringAst = (
+  actualType: IrType | undefined,
+  ast: CSharpExpressionAst,
+  context: EmitterContext,
+  expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] => {
   if (!expectsStringIrType(expectedType, context)) return [ast, context];
-  if (!isCharIrType(resolveEffectiveExpressionType(expr, context), context)) {
-    return [ast, context];
-  }
+  if (!isCharIrType(actualType, context)) return [ast, context];
   if (isParameterlessToStringInvocation(ast)) return [ast, context];
 
   return [
@@ -399,10 +415,56 @@ export const maybeConvertCharToStringAst = (
 
 const referenceNumericFact = (
   type: Extract<IrType, { kind: "referenceType" }>
-): ReturnType<typeof numericTypeFactFromName> =>
-  numericTypeFactFromName(
-    type.typeId?.clrName ?? type.resolvedClrType ?? type.name
-  );
+): ReturnType<typeof numericTypeFactFromName> => {
+  const sourceFact =
+    numericTypeFactFromName(type.name) ??
+    (type.providerQualifiedName
+      ? numericTypeFactFromName(type.providerQualifiedName)
+      : undefined) ??
+    (type.typeId?.providerName
+      ? numericTypeFactFromName(type.typeId.providerName)
+      : undefined);
+  if (sourceFact) {
+    return sourceFact;
+  }
+
+  switch (getReferenceClrIdentityKey(type)) {
+    case "System.SByte/0":
+      return numericTypeFactFromName("int8");
+    case "System.Byte/0":
+      return numericTypeFactFromName("uint8");
+    case "System.Int16/0":
+      return numericTypeFactFromName("int16");
+    case "System.UInt16/0":
+      return numericTypeFactFromName("uint16");
+    case "System.Int32/0":
+      return numericTypeFactFromName("int32");
+    case "System.UInt32/0":
+      return numericTypeFactFromName("uint32");
+    case "System.Int64/0":
+      return numericTypeFactFromName("int64");
+    case "System.UInt64/0":
+      return numericTypeFactFromName("uint64");
+    case "System.IntPtr/0":
+      return numericTypeFactFromName("native-int");
+    case "System.UIntPtr/0":
+      return numericTypeFactFromName("native-uint");
+    case "System.Single/0":
+      return numericTypeFactFromName("float32");
+    case "System.Double/0":
+      return numericTypeFactFromName("float64");
+    case "System.Decimal/0":
+      return numericTypeFactFromName("decimal");
+    case "System.Half/0":
+      return numericTypeFactFromName("float16");
+    case "System.Int128/0":
+      return numericTypeFactFromName("int128");
+    case "System.UInt128/0":
+      return numericTypeFactFromName("uint128");
+    default:
+      return undefined;
+  }
+};
 
 export const isExpectedIntegralIrType = (
   type: IrType | undefined,
@@ -484,28 +546,40 @@ const resolveNumericFactoryTypeName = (
   }
 
   switch (resolved.name) {
+    case "uint8":
     case "byte":
       return "global::System.Byte";
+    case "int8":
     case "sbyte":
       return "global::System.SByte";
+    case "int16":
     case "short":
       return "global::System.Int16";
+    case "uint16":
     case "ushort":
       return "global::System.UInt16";
+    case "int32":
     case "int":
       return "global::System.Int32";
+    case "uint32":
     case "uint":
       return "global::System.UInt32";
+    case "int64":
     case "long":
       return "global::System.Int64";
+    case "uint64":
     case "ulong":
       return "global::System.UInt64";
+    case "native-int":
     case "nint":
       return "global::System.IntPtr";
+    case "native-uint":
     case "nuint":
       return "global::System.UIntPtr";
+    case "float32":
     case "float":
       return "global::System.Single";
+    case "float64":
     case "double":
       return "global::System.Double";
     case "decimal":
@@ -593,6 +667,10 @@ const canSkipSameFamilyIntegralCast = (
     !expectedNumericTypeName ||
     actualNumericTypeName !== expectedNumericTypeName
   ) {
+    return false;
+  }
+
+  if (requiresCastForPromotedSmallIntegralSurface(ast, expectedType, context)) {
     return false;
   }
 
@@ -691,33 +769,41 @@ const resolveIntegralTargetKind = (
   }
 
   switch (resolved.name) {
+    case "int8":
     case "sbyte":
     case "SByte":
       return "sbyte";
+    case "uint8":
     case "byte":
     case "Byte":
       return "byte";
+    case "int16":
     case "short":
     case "Int16":
       return "short";
+    case "uint16":
     case "ushort":
     case "UInt16":
       return "ushort";
+    case "int32":
     case "int":
     case "Int32":
       return "int";
+    case "uint32":
     case "uint":
     case "UInt32":
       return "uint";
+    case "int64":
     case "long":
     case "Int64":
       return "long";
+    case "uint64":
     case "ulong":
     case "UInt64":
       return "ulong";
   }
 
-  switch (resolved.resolvedClrType) {
+  switch (resolved.providerQualifiedName) {
     case "System.SByte":
     case "global::System.SByte":
       return "sbyte";
@@ -843,6 +929,62 @@ const isImplicitIntegralLiteralForExpectedType = (
     default:
       return false;
   }
+};
+
+const SMALL_INTEGRAL_TARGET_KINDS = new Set<IntegralTargetKind>([
+  "sbyte",
+  "byte",
+  "short",
+  "ushort",
+]);
+
+const CSHARP_INTEGRAL_PROMOTION_BINARY_OPERATORS = new Set([
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "&",
+  "|",
+  "^",
+  "<<",
+  ">>",
+  ">>>",
+]);
+
+const hasPromotedIntegralSurfaceAst = (ast: CSharpExpressionAst): boolean => {
+  switch (ast.kind) {
+    case "parenthesizedExpression":
+      return hasPromotedIntegralSurfaceAst(ast.expression);
+    case "binaryExpression":
+      return CSHARP_INTEGRAL_PROMOTION_BINARY_OPERATORS.has(ast.operatorToken);
+    case "prefixUnaryExpression":
+      return ast.operatorToken === "+" ||
+        ast.operatorToken === "-" ||
+        ast.operatorToken === "~"
+        ? true
+        : hasPromotedIntegralSurfaceAst(ast.operand);
+    case "conditionalExpression":
+      return (
+        hasPromotedIntegralSurfaceAst(ast.whenTrue) ||
+        hasPromotedIntegralSurfaceAst(ast.whenFalse)
+      );
+    default:
+      return false;
+  }
+};
+
+const requiresCastForPromotedSmallIntegralSurface = (
+  ast: CSharpExpressionAst,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  const targetKind = resolveIntegralTargetKind(expectedType, context);
+  return (
+    targetKind !== undefined &&
+    SMALL_INTEGRAL_TARGET_KINDS.has(targetKind) &&
+    hasPromotedIntegralSurfaceAst(ast)
+  );
 };
 
 const isObjectTypeAst = (
@@ -1025,7 +1167,16 @@ export const maybeCastNumericToExpectedIntegralAst = (
   if (!isIntegralNumericSourceIrType(actualType, context)) {
     return [ast, context];
   }
-  if (isAssignable(actualType, expectedType)) return [unboxedAst, context];
+  if (
+    isAssignable(actualType, expectedType) &&
+    !requiresCastForPromotedSmallIntegralSurface(
+      unboxedAst,
+      expectedType,
+      context
+    )
+  ) {
+    return [unboxedAst, context];
+  }
 
   const [typeAst, newContext] = emitTypeAst(expectedType, context);
   const castSourceAst = unboxedAst;
@@ -1055,11 +1206,14 @@ const isJsNumberIrType = (
 ): boolean => {
   if (!type) return false;
   const resolved = resolveTypeAlias(stripNullish(type), context);
+  const isJsNumberFact = (
+    fact: ReturnType<typeof numericTypeFactFromName>
+  ): boolean => fact?.kind === "numeric" && fact.numericKind === "float64";
   return (
     (resolved.kind === "primitiveType" &&
-      numericTypeFactFromName(resolved.name)?.kind === "numeric") ||
+      isJsNumberFact(numericTypeFactFromName(resolved.name))) ||
     (resolved.kind === "referenceType" &&
-      referenceNumericFact(resolved)?.kind === "numeric")
+      isJsNumberFact(referenceNumericFact(resolved)))
   );
 };
 
@@ -1071,7 +1225,7 @@ export const isExpectedJsNumberIrType = (
   const resolved = resolveTypeAlias(stripNullish(type), context);
   const isDoubleLike = (
     fact: ReturnType<typeof numericTypeFactFromName>
-  ): boolean => fact?.kind === "numeric" && fact.numericKind === "Double";
+  ): boolean => fact?.kind === "numeric" && fact.numericKind === "float64";
   return (
     (resolved.kind === "primitiveType" &&
       isDoubleLike(numericTypeFactFromName(resolved.name))) ||
@@ -1092,6 +1246,17 @@ const isNumericLiteralAst = (ast: CSharpExpressionAst): boolean => {
   );
 };
 
+const isRuntimeUnionFactoryCallAst = (ast: CSharpExpressionAst): boolean => {
+  const current =
+    ast.kind === "parenthesizedExpression" ? ast.expression : ast;
+  return (
+    current.kind === "invocationExpression" &&
+    current.expression.kind === "memberAccessExpression" &&
+    /^From[1-9][0-9]*$/.test(current.expression.memberName) &&
+    current.expression.expression.kind === "typeReferenceExpression"
+  );
+};
+
 export const maybeCastNumericToExpectedJsNumberAst = (
   ast: CSharpExpressionAst,
   actualType: IrType | undefined,
@@ -1103,6 +1268,7 @@ export const maybeCastNumericToExpectedJsNumberAst = (
     !actualType ||
     !isExpectedJsNumberIrType(expectedType, context) ||
     !isNumericSourceIrType(actualType, context) ||
+    isRuntimeUnionFactoryCallAst(ast) ||
     isNumericLiteralAst(ast) ||
     isNumericFactoryCreateCheckedAst(ast, expectedType, context) ||
     areIrTypesEquivalent(

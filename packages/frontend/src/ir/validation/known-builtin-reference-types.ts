@@ -23,8 +23,6 @@ export const KNOWN_BUILTIN_REFERENCE_TYPES = new Set([
   "IteratorResult",
   "Error",
   "Object",
-  "IntPtr",
-  "UIntPtr",
 ]);
 
 export const isKnownBuiltinReferenceType = (name: string): boolean =>

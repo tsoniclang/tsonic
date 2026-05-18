@@ -6,7 +6,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFiles, emitModule } from "../../emitter.js";
-import { assumeEmittableIrModule, IrModule } from "@tsonic/frontend";
+import { assumeEmittableIrModule } from "../../test-ir-strict.js";
+import type { IrModule } from "@tsonic/frontend";
 import {
   createJsSurfaceBindingRegistry,
   jsSurfaceCapabilities,
@@ -372,7 +373,7 @@ describe("Module Generation", () => {
           returnType: {
             kind: "referenceType",
             name: "RuntimeValue",
-            resolvedClrType: "MyApp.RuntimeValue",
+            providerQualifiedName: "MyApp.RuntimeValue",
           },
           body: {
             kind: "blockStatement",

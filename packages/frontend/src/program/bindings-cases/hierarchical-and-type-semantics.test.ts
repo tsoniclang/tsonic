@@ -164,16 +164,16 @@ describe("Binding System", () => {
         namespace: "Microsoft.EntityFrameworkCore",
         types: [
           {
-            clrName: "Microsoft.EntityFrameworkCore.DbContext",
-            assemblyName: "Microsoft.EntityFrameworkCore",
+            targetName: "Microsoft.EntityFrameworkCore.DbContext",
+            ownerIdentity: "Microsoft.EntityFrameworkCore",
             kind: "Class",
             methods: [],
             properties: [],
             fields: [],
           },
           {
-            clrName: "Microsoft.EntityFrameworkCore.DbSet`1",
-            assemblyName: "Microsoft.EntityFrameworkCore",
+            targetName: "Microsoft.EntityFrameworkCore.DbSet`1",
+            ownerIdentity: "Microsoft.EntityFrameworkCore",
             kind: "Class",
             methods: [],
             properties: [],
@@ -186,9 +186,9 @@ describe("Binding System", () => {
         namespace: "Microsoft.EntityFrameworkCore",
         types: [
           {
-            clrName:
+            targetName:
               "Microsoft.EntityFrameworkCore.SqliteDbContextOptionsBuilderExtensions",
-            assemblyName: "Microsoft.EntityFrameworkCore.Sqlite",
+            ownerIdentity: "Microsoft.EntityFrameworkCore.Sqlite",
             kind: "Class",
             methods: [],
             properties: [],
@@ -219,8 +219,8 @@ describe("Binding System", () => {
         namespace: "Acme.Tools",
         types: [
           {
-            clrName: "Acme.Tools.Widget",
-            assemblyName: "Acme.Tools",
+            targetName: "Acme.Tools.Widget",
+            ownerIdentity: "Acme.Tools",
             kind: "Class",
             methods: [],
             properties: [],
@@ -234,9 +234,9 @@ describe("Binding System", () => {
           namespace: "Acme.Tools",
           types: [
             {
-              clrName: "Acme.Tools.OtherWidget",
+              targetName: "Acme.Tools.OtherWidget",
               alias: "Widget",
-              assemblyName: "Acme.Tools",
+              ownerIdentity: "Acme.Tools",
               kind: "Class",
               methods: [],
               properties: [],
@@ -454,13 +454,13 @@ describe("Binding System", () => {
         namespace: "System.Linq",
         types: [
           {
-            clrName: "System.Linq.Enumerable",
-            assemblyName: "System.Linq",
+            targetName: "System.Linq.Enumerable",
+            ownerIdentity: "System.Linq",
             methods: [
               {
-                clrName: "Where",
-                declaringClrType: "System.Linq.Enumerable",
-                declaringAssemblyName: "System.Linq",
+                targetName: "Where",
+                ownerQualifiedName: "System.Linq.Enumerable",
+                ownerIdentity: "System.Linq",
                 normalizedSignature:
                   "Where|(IEnumerable_1,Func_2):IEnumerable_1|static=true",
                 parameterCount: 2,
@@ -470,9 +470,9 @@ describe("Binding System", () => {
                 },
               },
               {
-                clrName: "ToList",
-                declaringClrType: "System.Linq.Enumerable",
-                declaringAssemblyName: "System.Linq",
+                targetName: "ToList",
+                ownerQualifiedName: "System.Linq.Enumerable",
+                ownerIdentity: "System.Linq",
                 normalizedSignature:
                   "ToList|(IEnumerable_1):List_1|static=true",
                 parameterCount: 1,
@@ -484,9 +484,9 @@ describe("Binding System", () => {
             ],
             properties: [
               {
-                clrName: "Shared",
-                declaringClrType: "System.Buffers.ArrayPool`1",
-                declaringAssemblyName: "System.Memory",
+                targetName: "Shared",
+                ownerQualifiedName: "System.Buffers.ArrayPool`1",
+                ownerIdentity: "System.Memory",
                 emitSemantics: {
                   callableStaticAccessorKind: "property",
                 },
@@ -494,9 +494,9 @@ describe("Binding System", () => {
             ],
             fields: [
               {
-                clrName: "Empty",
-                declaringClrType: "System.Memory`1",
-                declaringAssemblyName: "System.Memory",
+                targetName: "Empty",
+                ownerQualifiedName: "System.Memory`1",
+                ownerIdentity: "System.Memory",
                 emitSemantics: {
                   callableStaticAccessorKind: "field",
                 },
@@ -520,7 +520,7 @@ describe("Binding System", () => {
         "field"
       );
       expect(
-        registry.getClrMemberOverloads(
+        registry.getTargetMemberOverloads(
           "System.Linq",
           "System.Linq.Enumerable",
           "ToList"
@@ -537,9 +537,9 @@ describe("Binding System", () => {
         }
       ): void => {
         const emptyProperty = {
-          clrName: "Empty",
-          declaringClrType: "System.ArraySegment`1",
-          declaringAssemblyName: "System.Private.CoreLib",
+          targetName: "Empty",
+          ownerQualifiedName: "System.ArraySegment`1",
+          ownerIdentity: "System.Private.CoreLib",
           normalizedSignature: "Empty|:ArraySegment_1|static=true|accessor=get",
           ...(emitSemantics ? { emitSemantics } : {}),
         };
@@ -548,8 +548,8 @@ describe("Binding System", () => {
           namespace: "System",
           types: [
             {
-              clrName: "System.ArraySegment`1",
-              assemblyName: "System.Private.CoreLib",
+              targetName: "System.ArraySegment`1",
+              ownerIdentity: "System.Private.CoreLib",
               kind: "Struct",
               methods: [],
               properties: [emptyProperty],
@@ -596,15 +596,15 @@ describe("Binding System", () => {
         namespace: "System",
         types: [
           {
-            clrName: "System.ArraySegment`1",
-            assemblyName: "System.Private.CoreLib",
+            targetName: "System.ArraySegment`1",
+            ownerIdentity: "System.Private.CoreLib",
             kind: "Struct",
             methods: [],
             properties: [
               {
-                clrName: "Empty",
-                declaringClrType: "System.ArraySegment`1",
-                declaringAssemblyName: "System.Private.CoreLib",
+                targetName: "Empty",
+                ownerQualifiedName: "System.ArraySegment`1",
+                ownerIdentity: "System.Private.CoreLib",
                 normalizedSignature:
                   "Empty|:ArraySegment_1|static=true|accessor=get",
                 emitSemantics: {
@@ -622,15 +622,15 @@ describe("Binding System", () => {
           namespace: "System",
           types: [
             {
-              clrName: "System.ArraySegment`1",
-              assemblyName: "System.Private.CoreLib",
+              targetName: "System.ArraySegment`1",
+              ownerIdentity: "System.Private.CoreLib",
               kind: "Struct",
               methods: [],
               properties: [
                 {
-                  clrName: "Empty",
-                  declaringClrType: "System.ArraySegment`1",
-                  declaringAssemblyName: "System.Private.CoreLib",
+                  targetName: "Empty",
+                  ownerQualifiedName: "System.ArraySegment`1",
+                  ownerIdentity: "System.Private.CoreLib",
                   normalizedSignature:
                     "Empty|:ArraySegment_1|static=true|accessor=get",
                   emitSemantics: {
@@ -647,6 +647,71 @@ describe("Binding System", () => {
       );
     });
 
+    it("should merge extension surfaces that share target names but have distinct stable identities", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/first/System.Collections.Generic/bindings.json", {
+        namespace: "System.Collections.Generic",
+        types: [
+          {
+            stableId:
+              "System.Private.CoreLib:System.Collections.Generic.CollectionExtensions",
+            targetName: "System.Collections.Generic.CollectionExtensions",
+            ownerIdentity: "System.Private.CoreLib",
+            kind: "Class",
+            methods: [
+              {
+                stableId:
+                  "System.Private.CoreLib:System.Collections.Generic.CollectionExtensions::TryAdd(IDictionary_2,TKey,TValue):System.Boolean",
+                targetName: "TryAdd",
+                normalizedSignature:
+                  "TryAdd|(IDictionary_2,TKey,TValue):System.Boolean|static=true",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      registry.addBindings("/second/System.Collections.Generic/bindings.json", {
+        namespace: "System.Collections.Generic",
+        types: [
+          {
+            stableId:
+              "Microsoft.Extensions.DependencyModel:System.Collections.Generic.CollectionExtensions",
+            targetName: "System.Collections.Generic.CollectionExtensions",
+            ownerIdentity: "Microsoft.Extensions.DependencyModel",
+            kind: "Class",
+            methods: [
+              {
+                stableId:
+                  "Microsoft.Extensions.DependencyModel:System.Collections.Generic.CollectionExtensions::GetDefaultGroup(IEnumerable_1):RuntimeAssetGroup",
+                targetName: "GetDefaultGroup",
+                normalizedSignature:
+                  "GetDefaultGroup|(IEnumerable_1):RuntimeAssetGroup|static=true",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const type = registry.getType("CollectionExtensions");
+      expect(type?.stableId).to.equal(undefined);
+      expect(type?.stableIds).to.deep.equal([
+        "Microsoft.Extensions.DependencyModel:System.Collections.Generic.CollectionExtensions",
+        "System.Private.CoreLib:System.Collections.Generic.CollectionExtensions",
+      ]);
+      expect(type?.members.map((member) => member.alias)).to.deep.equal([
+        "TryAdd",
+        "GetDefaultGroup",
+      ]);
+    });
+
     it("should expose tsbindgen namespace types for namespace-scoped import identity", () => {
       const registry = new BindingRegistry();
 
@@ -654,8 +719,8 @@ describe("Binding System", () => {
         namespace: "System.Collections.Generic",
         types: [
           {
-            clrName: "System.Collections.Generic.IEnumerable`1",
-            assemblyName: "System.Runtime",
+            targetName: "System.Collections.Generic.IEnumerable`1",
+            ownerIdentity: "System.Runtime",
             kind: "Interface",
             methods: [],
             properties: [],

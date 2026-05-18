@@ -559,12 +559,10 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("result.set(");
       expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
       expect(csharp).to.include(
-        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => (double)__item), offset);"
+        "result.set(global::Test.TypedArrayInput<byte>.From2(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => (double)__item)), offset);"
       );
       expect(csharp).not.to.include("result.set(buffer, offset);");
-      expect(csharp).not.to.include(
-        "global::Tsonic.Internal.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
-      );
+      expect(csharp).not.to.include("(global::Test.TypedArrayInput<byte>)");
       expect(csharp).not.to.include(
         "global::Tsonic.Internal.Union<int, double>.From1(offset)"
       );
@@ -673,11 +671,9 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "copy.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__private_data.__tsonic_symbol_iterator(), __item => (double)__item));"
+        "copy.set(global::Test.TypedArrayInput<byte>.From2(global::System.Linq.Enumerable.Select<byte, double>(buffer.__private_data.__tsonic_symbol_iterator(), __item => (double)__item)));"
       );
-      expect(csharp).not.to.include(
-        "global::Tsonic.Internal.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
-      );
+      expect(csharp).not.to.include("(global::Test.TypedArrayInput<byte>)");
       expect(csharp).not.to.include(
         "buffer._data.__tsonic_symbol_iterator(), __item => (double)__item).__tsonic_symbol_iterator()"
       );

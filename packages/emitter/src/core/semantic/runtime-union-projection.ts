@@ -13,7 +13,10 @@ import {
   buildRuntimeUnionTypeAst,
   type RuntimeUnionLayout,
 } from "./runtime-unions.js";
-import { stripNullableTypeAst } from "../format/backend-ast/utils.js";
+import {
+  sameTypeAstSurface,
+  stripNullableTypeAst,
+} from "../format/backend-ast/utils.js";
 import {
   buildRuntimeUnionMemberIndexByAstKey,
   findMappedRuntimeUnionMemberIndex,
@@ -42,22 +45,49 @@ const isRuntimeUnionMemberProjectionAst = (
   );
 };
 
+const isExactRuntimeUnionFactoryValueAst = (
+  valueAst: CSharpExpressionAst,
+  unionTypeAst: CSharpTypeAst
+): boolean => {
+  let target = valueAst;
+  while (target.kind === "parenthesizedExpression") {
+    target = target.expression;
+  }
+
+  return (
+    target.kind === "invocationExpression" &&
+    target.expression.kind === "memberAccessExpression" &&
+    /^From[1-9][0-9]*$/.test(target.expression.memberName) &&
+    target.expression.expression.kind === "typeReferenceExpression" &&
+    sameTypeAstSurface(
+      stripNullableTypeAst(target.expression.expression.type),
+      stripNullableTypeAst(unionTypeAst)
+    )
+  );
+};
+
 export const buildRuntimeUnionFactoryCallAst = (
   unionTypeAst: ReturnType<typeof buildRuntimeUnionTypeAst>,
   memberIndex: number,
   valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
+): CSharpExpressionAst => {
+  if (isExactRuntimeUnionFactoryValueAst(valueAst, unionTypeAst)) {
+    return valueAst;
+  }
+
+  return {
+    kind: "invocationExpression",
     expression: {
-      kind: "typeReferenceExpression",
-      type: stripNullableTypeAst(unionTypeAst),
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "typeReferenceExpression",
+        type: stripNullableTypeAst(unionTypeAst),
+      },
+      memberName: `From${memberIndex}`,
     },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
-});
+    arguments: [valueAst],
+  };
+};
 
 export const buildRuntimeUnionMatchAst = (
   valueAst: CSharpExpressionAst,

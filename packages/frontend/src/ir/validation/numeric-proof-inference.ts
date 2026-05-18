@@ -57,7 +57,7 @@ export const getNumericKindFromType = (
 
   // Check for primitiveType(name="int") - distinct integer primitive
   if (type.kind === "primitiveType" && type.name === "int") {
-    return "Int32";
+    return "int32";
   }
 
   // Check for referenceType with known numeric type name (e.g., long, float, byte)
@@ -73,9 +73,9 @@ export const getNumericKindFromType = (
  * Try to infer the numeric kind of an expression.
  * Returns undefined if the expression's numeric kind cannot be determined.
  *
- * For literals: follows C# semantics where integer-looking literals default to int.
- * A literal is Int32 if: no decimal point, no exponent, fits in Int32 range.
- * Otherwise it's Double.
+ * For literals: integer-looking literals default to int.
+ * A literal is int32 if: no decimal point, no exponent, fits in int32 range.
+ * Otherwise it's float64.
  */
 export const inferNumericKind = (
   expr: IrExpression,
@@ -106,23 +106,23 @@ export const inferNumericKind = (
           return typeKind;
         }
 
-        // For bare literals, follow C# semantics:
-        // Integer-looking literals (no decimal, no exponent) are Int32/Int64 if in range
-        // Otherwise, they're Double
+        // For bare literals:
+        // Integer-looking literals (no decimal, no exponent) are int32/int64 if in range.
+        // Otherwise, they're float64.
         if (expr.raw !== undefined && isValidIntegerLexeme(expr.raw)) {
           const bigValue = parseBigIntFromRaw(expr.raw);
           if (bigValue !== undefined) {
-            if (bigIntFitsInKind(bigValue, "Int32")) {
-              return "Int32";
+            if (bigIntFitsInKind(bigValue, "int32")) {
+              return "int32";
             }
-            if (bigIntFitsInKind(bigValue, "Int64")) {
-              return "Int64";
+            if (bigIntFitsInKind(bigValue, "int64")) {
+              return "int64";
             }
           }
         }
 
-        // Floating-point or out-of-range integer literals are Double
-        return "Double";
+        // Floating-point or out-of-range integer literals are float64.
+        return "float64";
       }
       return undefined;
     }
@@ -138,7 +138,7 @@ export const inferNumericKind = (
       if (paramKind !== undefined) {
         return paramKind;
       }
-      // Check inferredType for CLR-typed identifiers
+      // Check inferredType for native target-typed identifiers
       return getNumericKindFromType(expr.inferredType);
     }
 
@@ -153,7 +153,7 @@ export const inferNumericKind = (
     }
 
     case "binary": {
-      // Binary operators follow C# promotion rules
+      // Binary operators follow Tsonic numeric promotion rules.
       const leftKind = inferNumericKind(expr.left, ctx);
       const rightKind = inferNumericKind(expr.right, ctx);
       if (leftKind !== undefined && rightKind !== undefined) {
@@ -201,7 +201,7 @@ export const inferNumericKind = (
     }
 
     case "call": {
-      // Check if the call has a numeric return type from CLR metadata
+      // Check if the call has a numeric return type from external metadata
       return getNumericKindFromType(expr.inferredType);
     }
 

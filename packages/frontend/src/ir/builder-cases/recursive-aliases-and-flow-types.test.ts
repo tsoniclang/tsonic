@@ -59,7 +59,7 @@ describe("IR Builder", function () {
           expect(type?.kind).to.equal("referenceType");
           if (!type || type.kind !== "referenceType") return;
           expect(type.name).to.equal(expectedName);
-          expect(type.typeId?.tsName).to.equal(expectedName);
+          expect(type.typeId?.sourceName).to.equal(expectedName);
         };
 
         assertAliasReference(combineFn.parameters[0]?.type, "PathSpec");
@@ -107,7 +107,7 @@ describe("IR Builder", function () {
         expect(mountFn.parameters[0]?.type?.kind).to.equal("referenceType");
         if (mountFn.parameters[0]?.type?.kind === "referenceType") {
           expect(mountFn.parameters[0].type.name).to.equal("MiddlewareLike");
-          expect(mountFn.parameters[0].type.typeId?.tsName).to.equal(
+          expect(mountFn.parameters[0].type.typeId?.sourceName).to.equal(
             "MiddlewareLike"
           );
         }
@@ -123,7 +123,7 @@ describe("IR Builder", function () {
               "MiddlewareLike"
             );
             expect(
-              mountFn.parameters[1].type.elementType.typeId?.tsName
+              mountFn.parameters[1].type.elementType.typeId?.sourceName
             ).to.equal("MiddlewareLike");
           }
         }

@@ -268,7 +268,6 @@ describe("Module Map", () => {
             kind: "import" as const,
             source: "./path.js",
             isLocal: true,
-            isClr: false,
             resolvedPath: "src/path.ts",
             specifiers: [
               {
@@ -337,7 +336,6 @@ describe("Module Map", () => {
             kind: "import" as const,
             source: "./process-module.ts",
             isLocal: true,
-            isClr: false,
             resolvedPath:
               "/tmp/project/node_modules/@tsonic/nodejs/src/process-module.ts",
             specifiers: [
@@ -398,7 +396,6 @@ describe("Module Map", () => {
             kind: "import" as const,
             source: "./key-object.ts",
             isLocal: true,
-            isClr: false,
             resolvedPath:
               "/tmp/project/node_modules/@tsonic/nodejs/src/crypto/key-object.ts",
             specifiers: [

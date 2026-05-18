@@ -78,8 +78,8 @@ export const resolveTypeMemberIndexFqn = (
     return undefined;
   }
 
-  if (resolved.resolvedClrType) {
-    return stripGlobalPrefix(resolved.resolvedClrType);
+  if (resolved.providerQualifiedName) {
+    return stripGlobalPrefix(resolved.providerQualifiedName);
   }
 
   const bindingName = receiverBindingName ?? resolved.name;

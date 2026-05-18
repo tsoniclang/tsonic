@@ -15,8 +15,16 @@ import { printRuntimeUnionCarrierTypeForIrType } from "../../runtime-union-cases
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  resolvedClrType: "Tsonic.Runtime.JsValue",
+  providerQualifiedName: "Tsonic.Runtime.JsValue",
 };
+
+const testTypeId = (targetName: string) => ({
+  stableId: `Test:${targetName}`,
+  providerName: targetName,
+  ownerIdentity: "Test",
+  sourceName: targetName.split(".").pop() ?? targetName,
+  origin: "source" as const,
+});
 
 describe("Expression Emission", () => {
   it("should lower union-rest function value calls with contextual array members", () => {
@@ -141,7 +149,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "Router",
-          resolvedClrType: "Test.Router",
+          providerQualifiedName: "Test.Router",
         },
         {
           kind: "arrayType",
@@ -216,7 +224,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "Router",
-          resolvedClrType: "Test.Router",
+          providerQualifiedName: "Test.Router",
         },
         {
           kind: "arrayType",
@@ -305,7 +313,8 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      providerQualifiedName: "Test.Router",
+      typeId: testTypeId("Test.Router"),
     };
 
     const middlewareParamRef: IrType = {
@@ -427,7 +436,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      resolvedClrType: "Test.Router",
+      providerQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {
@@ -458,7 +467,7 @@ describe("Expression Emission", () => {
       isComputed: true,
       isOptional: false,
       inferredType: middlewareLike,
-      accessKind: "clrIndexer",
+      accessKind: "numericIndexer",
     };
 
     const [result] = emitExpressionAst(expr, {
@@ -490,7 +499,12 @@ describe("Expression Emission", () => {
             },
             type: {
               kind: "arrayType",
-              elementType: middlewareLike,
+              elementType: {
+                kind: "referenceType",
+                name: "object",
+                providerQualifiedName: "System.Object",
+              },
+              storageErasedElementType: middlewareLike,
               origin: "explicit",
             },
           },

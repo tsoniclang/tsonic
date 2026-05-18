@@ -399,7 +399,7 @@ export function inferTypeFromValueExpression(
         type.typeArguments.length >= 1
       ) {
         const promiseLikeName =
-          type.typeId?.tsName ?? type.name.split(".").pop() ?? type.name;
+          type.typeId?.sourceName ?? type.name.split(".").pop() ?? type.name;
         if (
           promiseLikeName === "Promise" ||
           promiseLikeName === "PromiseLike" ||

@@ -45,7 +45,7 @@ export const createJsSurfaceBindingRegistry = (
 export const jsSurfaceCapabilities: EmitterContext["options"]["surfaceCapabilities"] =
   {
     mode: "@tsonic/js",
-    includesClr: false,
+    includesCore: false,
     resolvedModes: ["@tsonic/js"],
     requiredTypeRoots: [],
     memberSemantics: {

@@ -14,7 +14,7 @@ export type {
 export { emitReferenceType } from "../references.js";
 export { emitTypeAst } from "../emitter.js";
 export type { EmitterContext } from "../../types.js";
-export { clrTypeNameToTypeAst } from "../../core/format/backend-ast/utils.js";
+export { targetTypeNameToTypeAst } from "../../core/format/backend-ast/utils.js";
 export { printType } from "../../core/format/backend-ast/printer.js";
 import type { IrModule, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";

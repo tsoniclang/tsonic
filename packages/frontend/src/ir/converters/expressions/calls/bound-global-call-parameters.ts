@@ -56,22 +56,22 @@ export const getBoundGlobalCallParameterTypes = (
 ): BoundGlobalCallParameterTypes => {
   if (
     callee.kind !== "identifier" ||
-    !callee.resolvedAssembly ||
-    !callee.resolvedClrType ||
-    !callee.csharpName
+    !callee.providerOwnerIdentity ||
+    !callee.providerQualifiedName ||
+    !callee.providerMemberName
   ) {
     return undefined;
   }
 
-  const memberName = callee.csharpName.split(".").pop();
+  const memberName = callee.providerMemberName.split(".").pop();
   if (!memberName) {
     return undefined;
   }
 
   const overloads = ctx.bindings
-    .getClrMemberOverloads(
-      callee.resolvedAssembly,
-      callee.resolvedClrType,
+    .getTargetMemberOverloads(
+      callee.providerOwnerIdentity,
+      callee.providerQualifiedName,
       memberName
     )
     ?.filter(

@@ -1073,7 +1073,7 @@ export const tryBuildRuntimeReificationPlan = (
           {
             condition: {
               kind: "isExpression",
-              expression: valueAst,
+              expression: boxValueAst(valueAst),
               pattern: {
                 kind: "typePattern",
                 type: concreteUnionTypeAst,
@@ -1082,7 +1082,7 @@ export const tryBuildRuntimeReificationPlan = (
             value: {
               kind: "castExpression",
               type: concreteUnionTypeAst,
-              expression: valueAst,
+              expression: boxValueAst(valueAst),
             },
             context: unionTypeContext,
           },

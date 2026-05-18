@@ -4,10 +4,10 @@
  * This registry stores IrType, not ts.TypeNode.
  * Types are converted at registration time, making queries deterministic.
  *
- * CANONICAL CLR IDENTITY: Well-known runtime types from compiler core globals,
- * Tsonic surface packages, @tsonic/core, and @tsonic/dotnet are registered
- * with canonical CLR FQ names
- * (e.g., String → System.String, String$instance → System.String$instance).
+ * CANONICAL native target IDENTITY: Well-known runtime types from compiler core globals,
+ * Tsonic surface packages, @tsonic/core, and external binding packages are registered
+ * with canonical target names
+ * (e.g., String → provider string, String$instance → provider string$instance).
  *
  * FACADE: This module re-exports from registry-helpers.ts and registry-builder.ts.
  * Type declarations are kept here so that all consumers can import from one path.

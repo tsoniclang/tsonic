@@ -37,7 +37,7 @@ import {
 // - ReturnType/Parameters: F must be function type
 // - NonNullable: Works on any type
 // - Exclude/Extract: Works on any types
-// - Awaited: Recursive on Promise<T>, Task<T>, ValueTask<T>
+// - Awaited: recursive async-wrapper unwrapping
 // - Record: K must be finite literal union (string/number infinite → dictionary)
 // ─────────────────────────────────────────────────────────────────────────
 

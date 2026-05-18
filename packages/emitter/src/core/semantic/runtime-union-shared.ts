@@ -25,7 +25,7 @@ export const UNKNOWN_TYPE: IrType = { kind: "unknownType" };
 export const BROAD_OBJECT_TYPE: IrType = {
   kind: "referenceType",
   name: "object",
-  resolvedClrType: "System.Object",
+  providerQualifiedName: "System.Object",
 };
 
 export const isRuntimeUnionTypeName = (name: string): boolean => {
@@ -47,8 +47,8 @@ export const getRuntimeUnionReferenceMembers = (
 ): readonly IrType[] | undefined => {
   if (
     (isRuntimeUnionTypeName(type.name) ||
-      (type.resolvedClrType
-        ? isRuntimeUnionTypeName(type.resolvedClrType)
+      (type.providerQualifiedName
+        ? isRuntimeUnionTypeName(type.providerQualifiedName)
         : false)) &&
     type.typeArguments &&
     type.typeArguments.length >= 2

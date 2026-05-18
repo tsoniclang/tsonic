@@ -10,6 +10,7 @@ import { emitTypeAst } from "../../type-emitter.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import {
   findExactRuntimeUnionMemberIndices,
+  findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "./runtime-union-matching.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
@@ -21,9 +22,9 @@ import {
   type EmitExprAstFn,
   buildUnionNarrowAst,
   buildSubsetUnionType,
-  withoutNarrowedBinding,
   applyBinding,
   buildProjectedExprBinding,
+  emitCurrentNarrowingReceiverAst,
   narrowTypeByNotAssignableTarget,
   currentNarrowedType,
   resolveRuntimeUnionFrame,
@@ -49,13 +50,13 @@ export const applyInstanceofRefinement = (
 
     if (
       normalized.kind === "referenceType" &&
-      !normalized.resolvedClrType &&
-      "resolvedClrType" in expr &&
-      typeof expr.resolvedClrType === "string"
+      !normalized.providerQualifiedName &&
+      "providerQualifiedName" in expr &&
+      typeof expr.providerQualifiedName === "string"
     ) {
       return {
         ...normalized,
-        resolvedClrType: expr.resolvedClrType,
+        providerQualifiedName: expr.providerQualifiedName,
       };
     }
 
@@ -76,10 +77,6 @@ export const applyInstanceofRefinement = (
         : getMemberAccessNarrowKey(target);
     if (!originalName) return undefined;
 
-    const [lhsAst, ctxAfterLhs] = emitExprAst(
-      target,
-      withoutNarrowedBinding(context, originalName)
-    );
     const inferredRhsType = resolveExactInstanceofTargetType(condition.right);
     if (!inferredRhsType) {
       return undefined;
@@ -95,6 +92,12 @@ export const applyInstanceofRefinement = (
     const runtimeUnionFrame =
       currentType &&
       resolveRuntimeUnionFrame(originalName, currentType, context);
+    const [lhsAst, ctxAfterLhs] = emitCurrentNarrowingReceiverAst(
+      originalName,
+      target,
+      context,
+      emitExprAst
+    );
     const runtimeMatchIndices =
       runtimeUnionFrame && inferredRhsType
         ? findRuntimeUnionInstanceofMemberIndices(
@@ -306,6 +309,55 @@ export const applyPredicateCallRefinement = (
         );
   if (!narrowedType) {
     return undefined;
+  }
+
+  if (branch === "falsy") {
+    const runtimeUnionFrame = resolveRuntimeUnionFrame(
+      bindingKey,
+      currentType,
+      context
+    );
+    const matchingRuntimeMemberIndices = runtimeUnionFrame
+      ? findRuntimeUnionMemberIndices(
+          runtimeUnionFrame.members,
+          narrowing.targetType,
+          context
+        )
+      : [];
+    const [matchingRuntimeMemberIndex] = matchingRuntimeMemberIndices;
+    const matchingRuntimeMemberN =
+      matchingRuntimeMemberIndex !== undefined
+        ? runtimeUnionFrame?.candidateMemberNs[matchingRuntimeMemberIndex]
+        : undefined;
+    if (
+      runtimeUnionFrame &&
+      matchingRuntimeMemberIndices.length === 1 &&
+      matchingRuntimeMemberN !== undefined
+    ) {
+      const [receiverAst, receiverContext] = emitCurrentNarrowingReceiverAst(
+        bindingKey,
+        target,
+        context,
+        emitExprAst
+      );
+      const complementBinding = buildRuntimeUnionComplementBinding(
+        receiverAst,
+        runtimeUnionFrame,
+        currentType,
+        narrowedType,
+        matchingRuntimeMemberN,
+        receiverContext,
+        resolveRuntimeSubsetSourceInfo(
+          bindingKey,
+          currentType,
+          runtimeUnionFrame,
+          context
+        )
+      );
+      if (complementBinding) {
+        return applyBinding(bindingKey, complementBinding, receiverContext);
+      }
+    }
   }
 
   return applyDirectTypeNarrowing(

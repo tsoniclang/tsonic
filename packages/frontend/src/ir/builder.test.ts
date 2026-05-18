@@ -1,7 +1,7 @@
 import "./builder-cases/call-inference-generics/alias-cache.test.js";
 import "./builder-cases/call-inference-generics/context-threading.test.js";
-import "./builder-cases/clr-identity.test.js";
-import "./builder-cases/clr-iterable-overload-resolution.test.js";
+import "./builder-cases/external-identity.test.js";
+import "./builder-cases/external-iterable-overload-resolution.test.js";
 import "./builder-cases/conditional-narrowing.test.js";
 import "./builder-cases/contextual-typing-middleware.test.js";
 import "./builder-cases/expression-conversion.test.js";

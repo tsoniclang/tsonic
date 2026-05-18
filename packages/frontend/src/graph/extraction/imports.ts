@@ -25,7 +25,7 @@ export const extractImport = (
     sourceFile.fileName,
     program.options.sourceRoot,
     {
-      clrResolver: program.clrResolver,
+      externalResolver: program.externalResolver,
       bindings: program.bindings,
       projectRoot: program.options.projectRoot,
       surface: program.options.surface,
@@ -72,8 +72,8 @@ export const extractImport = (
         ? result.value.isSourcePackage
           ? "source_package"
           : "local"
-        : result.value.isClr
-          ? "clr"
+        : result.value.resolutionKind === "externalSurface"
+          ? "external_surface"
           : "node_module",
       specifier,
       resolvedPath: result.value.resolvedPath || undefined,

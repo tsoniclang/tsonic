@@ -14,7 +14,7 @@
  * - TSN7413: Dictionary key must be string, number, or symbol
  * - TSN7430: Arrow function requires explicit types (escape hatch)
  *
- * This ensures NativeAOT-compatible, predictable-performance output.
+ * This ensures deterministic native-safe, predictable-performance output.
  *
  * Facade: re-exports from sub-modules.
  */

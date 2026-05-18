@@ -23,7 +23,7 @@ import {
   resolveExtensionMethodByKey,
   isTypeOrSubtype,
 } from "./binding-registry-resolution.js";
-import { makeClrMemberKey } from "./binding-registry-loading.js";
+import { makeTargetMemberKey } from "./binding-registry-loading.js";
 import { addBindingsToState } from "./binding-registry-loading.js";
 
 // ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ export const simpleBindingContributesTypeIdentity = (
   return false;
 };
 
-const getSimpleBindingIdentityClrType = (
+const getSimpleBindingIdentityTargetType = (
   descriptor: SimpleBindingDescriptor
 ): string => descriptor.staticType ?? descriptor.type;
 
@@ -71,25 +71,25 @@ export class BindingRegistry {
   // Hierarchical format: namespace/type/member bindings
   private readonly namespaces = new Map<string, NamespaceBinding>();
   private readonly types = new Map<string, TypeBinding>(); // Flat lookup by TS name
-  private readonly typeLookupAliasMap = new Map<string, string>(); // CLR FQN or qualified TS alias -> canonical TS alias
+  private readonly typeLookupAliasMap = new Map<string, string>(); // Provider FQN or qualified TS alias -> canonical TS alias
   private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
   private readonly memberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by "type.member"
-  private readonly clrMemberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by CLR target key
-  private readonly clrTypeNamesByAlias = new Map<string, Set<string>>();
+  private readonly targetMemberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by provider target key
+  private readonly targetTypeNamesByAlias = new Map<string, Set<string>>();
   private readonly tsbindgenExports = new Map<
     string,
     Map<string, TsbindgenExport>
   >();
   private readonly tsSupertypes = new Map<string, Set<string>>();
   private readonly tsBaseTypes = new Map<string, string>();
-  private readonly clrTypeNames = new Set<string>();
+  private readonly targetTypeNames = new Set<string>();
 
   /**
    * Extension method index for instance-style calls.
    *
    * Keyed by:
-   * - declaring namespace key (CLR namespace with '.' replaced by '_', e.g. "System_Linq")
-   * - receiver TS type name (e.g. "IEnumerable_1")
+   * - declaring namespace key (external namespace with '.' replaced by '_', e.g. "System_Linq")
+   * - receiver TS type name (e.g. "ProviderIterable_1")
    * - method TS name (e.g. "where")
    *
    * Values are one or more candidates (overloads share the same target).
@@ -104,7 +104,7 @@ export class BindingRegistry {
     return {
       types: this.types,
       memberOverloads: this.memberOverloads,
-      clrTypeNamesByAlias: this.clrTypeNamesByAlias,
+      targetTypeNamesByAlias: this.targetTypeNamesByAlias,
       extensionMethods: this.extensionMethods,
       tsSupertypes: this.tsSupertypes,
       tsBaseTypes: this.tsBaseTypes,
@@ -112,7 +112,7 @@ export class BindingRegistry {
       simpleGlobalBindings: this.simpleGlobalBindings,
       simpleModuleBindings: this.simpleModuleBindings,
       typeLookupAliasMap: this.typeLookupAliasMap,
-      clrTypeNames: this.clrTypeNames,
+      targetTypeNames: this.targetTypeNames,
     };
   }
 
@@ -133,13 +133,13 @@ export class BindingRegistry {
         typeLookupAliasMap: this.typeLookupAliasMap,
         members: this.members,
         memberOverloads: this.memberOverloads,
-        clrMemberOverloads: this.clrMemberOverloads,
-        clrTypeNamesByAlias: this.clrTypeNamesByAlias,
+        targetMemberOverloads: this.targetMemberOverloads,
+        targetTypeNamesByAlias: this.targetTypeNamesByAlias,
         extensionMethods: this.extensionMethods,
         tsbindgenExports: this.tsbindgenExports,
         tsSupertypes: this.tsSupertypes,
         tsBaseTypes: this.tsBaseTypes,
-        clrTypeNames: this.clrTypeNames,
+        targetTypeNames: this.targetTypeNames,
       },
       _filePath,
       manifest
@@ -197,10 +197,10 @@ export class BindingRegistry {
   }
 
   /**
-   * Check whether a CLR type name exists in loaded bindings.
+   * Check whether a target type name exists in loaded bindings.
    */
-  hasClrTypeName(clrTypeName: string): boolean {
-    return this.clrTypeNames.has(clrTypeName);
+  hasTargetTypeName(targetTypeName: string): boolean {
+    return this.targetTypeNames.has(targetTypeName);
   }
 
   /**
@@ -221,35 +221,35 @@ export class BindingRegistry {
   getMemberOverloads(
     typeAlias: string,
     memberAlias: string,
-    preferredClrOwner?: string
+    preferredTargetOwner?: string
   ): readonly MemberBinding[] | undefined {
     return resolveMemberOverloads(
       this.state,
       typeAlias,
       memberAlias,
-      preferredClrOwner
+      preferredTargetOwner
     );
   }
 
   /**
-   * Look up all member bindings for a CLR member target.
+   * Look up all member bindings for a provider member target.
    *
-   * Keyed by declaring assembly, CLR type, and CLR member name.
+   * Keyed by declaring owner, target type, and target member name.
    */
-  getClrMemberOverloads(
+  getTargetMemberOverloads(
     assembly: string,
-    clrType: string,
-    clrMember: string
+    targetType: string,
+    targetMember: string
   ): readonly MemberBinding[] | undefined {
-    return this.clrMemberOverloads.get(
-      makeClrMemberKey(assembly, clrType, clrMember)
+    return this.targetMemberOverloads.get(
+      makeTargetMemberKey(assembly, targetType, targetMember)
     );
   }
 
   /**
    * Resolve an extension method binding target by extension interface name.
    *
-   * @param extensionInterfaceName - e.g. "__Ext_System_Linq_IEnumerable_1"
+   * @param extensionInterfaceName - e.g. "__Ext_Query_Iterable_1"
    * @param methodTsName - e.g. "where"
    */
   resolveExtensionMethod(
@@ -287,13 +287,33 @@ export class BindingRegistry {
   }
 
   /**
-   * Look up a tsbindgen flattened named export by CLR namespace + export name.
+   * Look up a tsbindgen flattened named export by external namespace + export name.
    */
   getTsbindgenExport(
     namespace: string,
     exportName: string
   ): TsbindgenExport | undefined {
     return this.tsbindgenExports.get(namespace)?.get(exportName);
+  }
+
+  getAllTsbindgenExports(): readonly (readonly [
+    namespace: string,
+    exportName: string,
+    descriptor: TsbindgenExport,
+  ])[] {
+    const result: (readonly [
+      namespace: string,
+      exportName: string,
+      descriptor: TsbindgenExport,
+    ])[] = [];
+
+    for (const [namespace, exports] of this.tsbindgenExports) {
+      for (const [exportName, descriptor] of exports) {
+        result.push([namespace, exportName, descriptor]);
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -340,12 +360,12 @@ export class BindingRegistry {
       if (!simpleBindingContributesTypeIdentity(descriptor)) {
         continue;
       }
-      const identityClrType = getSimpleBindingIdentityClrType(descriptor);
+      const identityTargetType = getSimpleBindingIdentityTargetType(descriptor);
 
       if (!result.has(alias)) {
         result.set(alias, {
           alias,
-          name: identityClrType,
+          name: identityTargetType,
           kind: "class",
           members: [],
         });
@@ -368,12 +388,12 @@ export class BindingRegistry {
     this.typeLookupAliasMap.clear();
     this.members.clear();
     this.memberOverloads.clear();
-    this.clrMemberOverloads.clear();
-    this.clrTypeNamesByAlias.clear();
+    this.targetMemberOverloads.clear();
+    this.targetTypeNamesByAlias.clear();
     this.extensionMethods.clear();
     this.tsbindgenExports.clear();
     this.tsSupertypes.clear();
     this.tsBaseTypes.clear();
-    this.clrTypeNames.clear();
+    this.targetTypeNames.clear();
   }
 }
