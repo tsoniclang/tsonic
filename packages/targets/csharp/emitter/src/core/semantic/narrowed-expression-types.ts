@@ -17,6 +17,7 @@ import {
   getRuntimeUnionAliasReferenceKey,
   runtimeUnionAliasReferencesMatch,
 } from "./runtime-union-alias-identity.js";
+import { isCompilerTransparentTypeAssertion } from "./transparent-expressions.js";
 
 const withOptionalUndefined = (type: IrType): IrType => {
   if (
@@ -529,7 +530,24 @@ export const resolveEffectiveExpressionType = (
   expr: IrExpression,
   context: EmitterContext
 ): IrType | undefined => {
-  if (expr.kind === "typeAssertion" || expr.kind === "asinterface") {
+  if (expr.kind === "typeAssertion") {
+    if (isCompilerTransparentTypeAssertion(expr)) {
+      const expressionType =
+        resolveEffectiveExpressionType(expr.expression, context) ??
+        expr.expression.inferredType;
+      if (
+        expressionType &&
+        expressionType !== stripNullish(expressionType) &&
+        areIrTypesEquivalent(stripNullish(expressionType), expr.targetType, context)
+      ) {
+        return expressionType;
+      }
+    }
+
+    return expr.targetType;
+  }
+
+  if (expr.kind === "asinterface") {
     return expr.targetType;
   }
 

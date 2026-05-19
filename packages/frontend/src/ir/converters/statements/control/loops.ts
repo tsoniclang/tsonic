@@ -135,16 +135,9 @@ const normalizeForIteration = (
   return type;
 };
 
-const deriveTupleIterationElementType = (
-  elementTypes: readonly IrType[]
-): IrType | undefined => {
-  if (elementTypes.length === 0) return undefined;
-  if (elementTypes.length === 1) return elementTypes[0];
-  return { kind: "unionType", types: elementTypes };
-};
-
 const deriveForOfElementType = (
-  type: IrType | undefined
+  type: IrType | undefined,
+  ctx: ProgramContext
 ): IrType | undefined => {
   const normalized = normalizeForIteration(type);
   if (!normalized) return undefined;
@@ -153,7 +146,7 @@ const deriveForOfElementType = (
     const memberElementTypes: IrType[] = [];
 
     for (const member of normalized.types) {
-      const memberElementType = deriveForOfElementType(member);
+      const memberElementType = deriveForOfElementType(member, ctx);
       if (!memberElementType) {
         return undefined;
       }
@@ -167,51 +160,11 @@ const deriveForOfElementType = (
     return normalizedUnionType(memberElementTypes);
   }
 
-  if (normalized.kind === "arrayType") {
-    return normalized.elementType;
-  }
-
-  if (normalized.kind === "tupleType") {
-    return deriveTupleIterationElementType(normalized.elementTypes);
-  }
-
   if (normalized.kind === "primitiveType" && normalized.name === "string") {
     return { kind: "primitiveType", name: "string" };
   }
 
-  if (
-    normalized.kind === "referenceType" &&
-    normalized.typeArguments &&
-    normalized.typeArguments.length > 0
-  ) {
-    const [firstTypeArg, secondTypeArg] = normalized.typeArguments;
-    switch (normalized.name) {
-      case "Array":
-      case "ReadonlyArray":
-      case "Iterable":
-      case "IterableIterator":
-      case "Iterator":
-      case "AsyncIterable":
-      case "AsyncIterableIterator":
-      case "Generator":
-      case "AsyncGenerator":
-      case "Set":
-      case "ReadonlySet":
-        return firstTypeArg;
-      case "Map":
-      case "ReadonlyMap":
-        return firstTypeArg && secondTypeArg
-          ? {
-              kind: "tupleType",
-              elementTypes: [firstTypeArg, secondTypeArg],
-            }
-          : undefined;
-      default:
-        return undefined;
-    }
-  }
-
-  return undefined;
+  return ctx.typeSystem.getIterableShape(normalized)?.elementType;
 };
 
 /**
@@ -319,7 +272,7 @@ export const convertForOfStatement = (
   // This is required for correct boolean-context lowering (e.g., `if (s)` for strings).
   let bodyCtx = ctx;
   if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
-    const elementType = deriveForOfElementType(expression.inferredType);
+    const elementType = deriveForOfElementType(expression.inferredType, ctx);
     if (elementType) {
       bodyCtx = withVariableTypeEnv(ctx, [firstDecl], {
         kind: "variableDeclaration",

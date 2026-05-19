@@ -305,7 +305,19 @@ describe("validateUnsupportedFeatures", () => {
       ).to.equal(false);
     });
 
-    it("rejects TypeScript abstract class modifiers", () => {
+    it("allows TypeScript abstract class declarations", () => {
+      const result = runValidation(`
+        export abstract class Base {
+          run(): void {}
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", "class modifier 'abstract'")
+      ).to.equal(false);
+    });
+
+    it("rejects TypeScript abstract class members", () => {
       const result = runValidation(`
         export abstract class Base {
           abstract run(): void;

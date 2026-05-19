@@ -83,7 +83,7 @@ export const emitTypedDefaultAst = (
   const nullableBase = singleNonNullish ?? stripNullish(expectedType);
   const resolvedBase = resolveTypeAlias(nullableBase, context);
 
-  if (singleNonNullish && isDefinitelyValueType(resolvedBase)) {
+  if (singleNonNullish && isDefinitelyValueType(resolvedBase, context)) {
     const [underlyingTypeAst, nextContext] = emitTypeAst(nullableBase, context);
     return [
       {

@@ -18,6 +18,7 @@ import {
   finalizeInvocationMetadata,
   getAuthoritativeDirectCalleeParameterTypes,
   getDirectStructuralMemberType,
+  invocationTypesEquivalent,
 } from "../converters/expressions/calls/invocation-finalization.js";
 
 export type CallResolutionRefreshResult = {
@@ -198,6 +199,73 @@ const cohereAwaitedSourceBackedReturnType = (
         typeArguments: [awaitedInferredType],
       }
     : awaitedInferredType;
+};
+
+type CallRestParameter = NonNullable<
+  Extract<IrExpression, { kind: "call" }>["restParameter"]
+>;
+
+const extensionReceiverParameterIsHidden = (
+  callee: IrExpression,
+  visibleArgumentCount: number,
+  parameterTypes: readonly (IrType | undefined)[] | undefined,
+  ctx: ProgramContext
+): boolean => {
+  if (
+    callee.kind !== "memberAccess" ||
+    !callee.memberBinding?.isExtensionMethod ||
+    !parameterTypes ||
+    parameterTypes.length !== visibleArgumentCount + 1
+  ) {
+    return false;
+  }
+
+  const receiverParameterType = parameterTypes[0];
+  const receiverExpectedType = callee.memberBinding.receiverExpectedType;
+  if (!receiverParameterType || !receiverExpectedType) {
+    return false;
+  }
+
+  return invocationTypesEquivalent(receiverParameterType, receiverExpectedType, ctx);
+};
+
+const stripHiddenExtensionReceiverParameter = (
+  callee: IrExpression,
+  visibleArgumentCount: number,
+  parameterTypes: readonly (IrType | undefined)[] | undefined,
+  ctx: ProgramContext
+): readonly (IrType | undefined)[] | undefined =>
+  extensionReceiverParameterIsHidden(
+    callee,
+    visibleArgumentCount,
+    parameterTypes,
+    ctx
+  )
+    ? parameterTypes?.slice(1)
+    : parameterTypes;
+
+const stripHiddenExtensionReceiverRestParameter = (
+  restParameter: CallRestParameter | undefined,
+  strippedParameterTypes: readonly (IrType | undefined)[] | undefined,
+  originalParameterTypes: readonly (IrType | undefined)[] | undefined
+): CallRestParameter | undefined => {
+  if (
+    !restParameter ||
+    !originalParameterTypes ||
+    !strippedParameterTypes ||
+    originalParameterTypes.length === strippedParameterTypes.length
+  ) {
+    return restParameter;
+  }
+
+  if (restParameter.index === 0) {
+    return restParameter;
+  }
+
+  return {
+    ...restParameter,
+    index: restParameter.index - 1,
+  };
 };
 
 const sameSourceSpan = (
@@ -626,6 +694,44 @@ const refreshExpression = (
         finalizedInvocationMetadata.sourceBackedReturnType,
         ctx
       );
+      const visibleParameterTypes = stripHiddenExtensionReceiverParameter(
+        callee,
+        arguments_.length,
+        finalizedInvocationMetadata.parameterTypes,
+        ctx
+      );
+      const visibleSurfaceParameterTypes =
+        stripHiddenExtensionReceiverParameter(
+          callee,
+          arguments_.length,
+          finalizedInvocationMetadata.surfaceParameterTypes,
+          ctx
+        );
+      const visibleSourceBackedParameterTypes =
+        stripHiddenExtensionReceiverParameter(
+          callee,
+          arguments_.length,
+          finalizedInvocationMetadata.sourceBackedParameterTypes,
+          ctx
+        );
+      const visibleSourceBackedSurfaceParameterTypes =
+        stripHiddenExtensionReceiverParameter(
+          callee,
+          arguments_.length,
+          finalizedInvocationMetadata.sourceBackedSurfaceParameterTypes,
+          ctx
+        );
+      const visibleRestParameter = stripHiddenExtensionReceiverRestParameter(
+        refreshedRestParameter,
+        visibleParameterTypes,
+        finalizedInvocationMetadata.parameterTypes
+      );
+      const visibleSurfaceRestParameter =
+        stripHiddenExtensionReceiverRestParameter(
+          refreshedSurfaceRestParameter,
+          visibleSurfaceParameterTypes,
+          finalizedInvocationMetadata.surfaceParameterTypes
+        );
 
       return {
         ...expr,
@@ -636,15 +742,13 @@ const refreshExpression = (
           coherentSourceBackedReturnType ?? resolved?.returnType,
           resolved?.hasDeclaredReturnType
         ),
-        parameterTypes: finalizedInvocationMetadata.parameterTypes,
-        surfaceParameterTypes:
-          finalizedInvocationMetadata.surfaceParameterTypes,
-        restParameter: refreshedRestParameter,
-        surfaceRestParameter: refreshedSurfaceRestParameter,
-        sourceBackedParameterTypes:
-          finalizedInvocationMetadata.sourceBackedParameterTypes,
+        parameterTypes: visibleParameterTypes,
+        surfaceParameterTypes: visibleSurfaceParameterTypes,
+        restParameter: visibleRestParameter,
+        surfaceRestParameter: visibleSurfaceRestParameter,
+        sourceBackedParameterTypes: visibleSourceBackedParameterTypes,
         sourceBackedSurfaceParameterTypes:
-          finalizedInvocationMetadata.sourceBackedSurfaceParameterTypes,
+          visibleSourceBackedSurfaceParameterTypes,
         sourceBackedReturnType: coherentSourceBackedReturnType,
       };
     }

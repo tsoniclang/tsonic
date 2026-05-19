@@ -126,15 +126,13 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
     ).to.equal(true);
   });
 
-  it("emits anonymous carriers referenced only through awaited inferred metadata", () => {
+  it("emits anonymous carriers for inline shapes referenced only through awaited inferred metadata", () => {
     const module = createTestModule(`
-      type HandlerControl = {
+      async function invokeHandlers(): Promise<{
         ended: boolean;
         control?: string | null;
         error?: object;
-      };
-
-      async function invokeHandlers(): Promise<HandlerControl> {
+      }> {
         return { ended: false, control: "route", error: undefined };
       }
 

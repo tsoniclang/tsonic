@@ -977,6 +977,26 @@ describe("May 14 downstream contract coverage", () => {
     expect(csharp).to.not.include("return consume(value);");
   });
 
+  it("projects optional external struct parameters after terminating nullish guards", () => {
+    const csharp = compileToCSharp(`
+      import type { int } from "@tsonic/core/types.js";
+      import type { CancellationToken } from "@tsonic/dotnet/System.Threading.js";
+
+      declare function consume(value: CancellationToken): int;
+
+      export function read(value?: CancellationToken): int {
+        if (value === undefined) {
+          return -1;
+        }
+
+        return consume(value);
+      }
+    `);
+
+    expect(csharp).to.include("return consume(value.Value);");
+    expect(csharp).to.not.include("return consume(value);");
+  });
+
   it("projects optional value-type parameters inside narrowed ternary branches", () => {
     const csharp = compileToCSharp(`
       import type { int } from "@tsonic/core/types.js";

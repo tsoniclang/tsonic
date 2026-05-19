@@ -8,6 +8,7 @@ import {
   hasExportModifier,
   convertTypeParameters,
   hasDeclareModifier,
+  hasAbstractModifier,
 } from "../../helpers.js";
 import { convertAccessorProperty, convertProperty } from "./properties.js";
 import { convertMethod } from "./methods.js";
@@ -224,6 +225,7 @@ export const convertClassDeclaration = (
     implements: implementsTypes,
     members: finalMembers,
     isExported: hasExportModifier(node),
+    isAbstract: hasAbstractModifier(node) || undefined,
     isStruct,
   };
 };

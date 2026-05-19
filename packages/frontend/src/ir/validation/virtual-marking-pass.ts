@@ -40,6 +40,7 @@ export type VirtualMarkingResult = {
 type MemberOverrideUpdate = {
   readonly isOverride?: true;
   readonly isShadow?: true;
+  readonly accessibility?: IrMethodDeclaration["accessibility"];
 };
 
 type LocalOverridePlan = {
@@ -406,7 +407,7 @@ const analyzeLocalOverrides = (
     }
 
     if (member.kind === "methodDeclaration") {
-      if (member.isStatic) {
+      if (member.isStatic || member.accessibility === "private") {
         continue;
       }
       baseMethods.push({ index, member });
@@ -414,7 +415,7 @@ const analyzeLocalOverrides = (
     }
 
     if (member.kind === "propertyDeclaration") {
-      if (member.isStatic) {
+      if (member.isStatic || member.accessibility === "private") {
         continue;
       }
       baseProperties.push({ index, member });
@@ -449,7 +450,10 @@ const analyzeLocalOverrides = (
         )
       );
       if (matchedBaseMethod) {
-        methodUpdates.set(index, { isOverride: true });
+        methodUpdates.set(index, {
+          isOverride: true,
+          accessibility: matchedBaseMethod.member.accessibility,
+        });
         overriddenBaseMethodIndices.add(matchedBaseMethod.index);
       } else {
         methodUpdates.set(index, { isShadow: true });
@@ -477,7 +481,10 @@ const analyzeLocalOverrides = (
         )
       );
       if (matchedBaseProperty) {
-        propertyUpdates.set(index, { isOverride: true });
+        propertyUpdates.set(index, {
+          isOverride: true,
+          accessibility: matchedBaseProperty.member.accessibility,
+        });
         overriddenBasePropertyIndices.add(matchedBaseProperty.index);
       } else {
         propertyUpdates.set(index, { isShadow: true });
@@ -512,6 +519,7 @@ const applyMethodUpdate = (
 
   return {
     ...rest,
+    ...(update?.accessibility ? { accessibility: update.accessibility } : {}),
     ...(update?.isOverride ? { isOverride: true } : {}),
     ...(update?.isShadow ? { isShadow: true } : {}),
     ...(isVirtual || member.isVirtual ? { isVirtual: true } : {}),
@@ -536,6 +544,7 @@ const applyPropertyUpdate = (
 
   return {
     ...rest,
+    ...(update?.accessibility ? { accessibility: update.accessibility } : {}),
     ...(update?.isOverride ? { isOverride: true } : {}),
     ...(update?.isShadow ? { isShadow: true } : {}),
     ...(isVirtual || member.isVirtual ? { isVirtual: true } : {}),

@@ -197,7 +197,7 @@ const supportsDeterministicTruthyNullishRefinement = (
   context: EmitterContext
 ): boolean => {
   const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (isDefinitelyValueType(resolved)) {
+  if (isDefinitelyValueType(resolved, context)) {
     return false;
   }
 
@@ -388,7 +388,7 @@ export const applySimpleNullableRefinement = (
       targetExpr: operand,
       strippedType: stripped,
       narrowsInThen: isNotEqual,
-      isValueType: isDefinitelyValueType(stripped),
+      isValueType: isDefinitelyValueType(stripped, context),
     };
   })();
   if (!nullableGuard) {
@@ -499,7 +499,7 @@ export const applySimpleNullableRefinement = (
     sourceType ??
     storageType;
   const isValueTypeNullishRefinement =
-    nullableGuard.isValueType || isDefinitelyValueType(strippedType);
+    nullableGuard.isValueType || isDefinitelyValueType(strippedType, context);
   const bindingSourceType = isValueTypeNullishRefinement
     ? currentType
     : (carrierType ?? sourceType);

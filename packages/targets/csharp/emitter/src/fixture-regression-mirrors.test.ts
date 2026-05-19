@@ -98,10 +98,10 @@ describe("End-to-End Integration", () => {
         'string[] parts = global::System.Linq.Enumerable.ToArray(global::js.String.split(path, "/"));'
       );
       expect(csharp).to.include(
-        'string[]? maybeMatch = global::js.String.match(path, "docs");'
+        'string[]? maybeMatch = global::js.String.match(path, global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("docs"));'
       );
       expect(csharp).to.include(
-        'string[][] allMatches = global::System.Linq.Enumerable.ToArray(global::js.String.matchAll("a-a", "a"));'
+        'string[][] allMatches = global::System.Linq.Enumerable.ToArray(global::js.String.matchAll("a-a", global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("a")));'
       );
       expect(csharp).to.include(
         'return global::Tsonic.Internal.ArrayInterop.WrapArray(parts).join(",");'

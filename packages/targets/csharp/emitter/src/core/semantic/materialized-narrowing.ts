@@ -45,6 +45,7 @@ import { canPreferAnonymousStructuralTarget } from "../../expressions/structural
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { isBroadObjectSlotType } from "./broad-object-types.js";
 import { referenceTypeHasClrIdentity } from "./clr-type-identity.js";
+import { referenceTypeEmitsAsNativeInterface } from "./native-interfaces.js";
 
 const JS_NUMBER_MATERIALIZATION_CLR_NAMES = new Set([
   "System.Double",
@@ -649,6 +650,27 @@ export const materializeDirectNarrowingAst = (
   const sourceWasParameterModifierWrapped = comparableSourceType !== sourceType;
 
   if (
+    referenceTypeEmitsAsNativeInterface(
+      materializationNarrowedType,
+      context
+    ) ||
+    referenceTypeEmitsAsNativeInterface(comparableEmissionTargetType, context)
+  ) {
+    const [targetTypeAst, nextContext] = emitTypeAst(
+      materializationNarrowedType,
+      context
+    );
+    return [
+      {
+        kind: "castExpression",
+        type: targetTypeAst,
+        expression: sourceAst,
+      },
+      nextContext,
+    ];
+  }
+
+  if (
     runtimeUnionAliasReferencesMatch(
       comparableSourceType,
       comparableNarrowedType,
@@ -892,7 +914,7 @@ export const materializeDirectNarrowingAst = (
   if (
     splitSource?.hasRuntimeNullish &&
     splitSource.nonNullishMembers.length === 1 &&
-    isDefinitelyValueType(resolvedTarget)
+    isDefinitelyValueType(resolvedTarget, context)
   ) {
     const [baseMember] = splitSource.nonNullishMembers;
     if (

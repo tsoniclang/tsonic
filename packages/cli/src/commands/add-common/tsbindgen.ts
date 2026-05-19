@@ -1,4 +1,6 @@
+import { spawn } from "node:child_process";
 import type { Result } from "../../types.js";
+import { buildDotnetProcessEnv } from "../../dotnet/nuget-config.js";
 import { defaultExec, type AddCommandOptions, type Exec } from "./shared.js";
 
 export type TsbindgenClosureOutput = {
@@ -83,5 +85,59 @@ export const tsbindgenGenerate = (
     const msg = result.stderr || result.stdout || "Unknown error";
     return { ok: false, error: `tsbindgen generate failed:\n${msg}` };
   }
+  return { ok: true, value: undefined };
+};
+
+export const tsbindgenGenerateAsync = async (
+  projectRoot: string,
+  tsbindgenDllPath: string,
+  args: readonly string[],
+  options: AddCommandOptions
+): Promise<Result<void, string>> => {
+  const policyArgs: string[] = [];
+
+  if (!options.strict) {
+    policyArgs.push("--allow-constructor-constraint-loss");
+  }
+
+  const stdio = options.verbose ? "inherit" : "pipe";
+  const child = spawn(
+    "dotnet",
+    [tsbindgenDllPath, "generate", ...policyArgs, ...args],
+    {
+      cwd: projectRoot,
+      stdio,
+      env: buildDotnetProcessEnv(projectRoot),
+    }
+  );
+
+  let stdout = "";
+  let stderr = "";
+  if (!options.verbose) {
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+  }
+
+  const exit = await new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (code, signal) => resolve({ code, signal }));
+  });
+
+  if (exit.code !== 0) {
+    const detail =
+      exit.signal !== null
+        ? `terminated by signal ${exit.signal}`
+        : `exited with code ${exit.code ?? "unknown"}`;
+    const msg = stderr || stdout || detail;
+    return { ok: false, error: `tsbindgen generate failed:\n${msg}` };
+  }
+
   return { ok: true, value: undefined };
 };

@@ -187,6 +187,7 @@ export const emitClassDeclaration = (
     stmt.isExported || promotedToPublic ? "public" : "internal";
 
   const modifiers: string[] = [accessibility];
+  if (!stmt.isStruct && stmt.isAbstract) modifiers.push("abstract");
   if (needsUnsafe) modifiers.push("unsafe");
 
   const escapedClassName = escapeCSharpIdentifier(stmt.name);

@@ -18,6 +18,7 @@ import {
   resolveLocalTypeInfo,
   resolveBindingBackedPropertySignatures,
 } from "./property-lookup-resolution.js";
+import { localInterfaceInfoEmitsAsNative } from "./native-interfaces.js";
 
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;
@@ -92,7 +93,8 @@ export const hasDeterministicPropertyMembership = (
     return knownProps.some((member) => member.name === propertyName);
   }
 
-  const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+  const resolvedLocalInfo = resolveLocalTypeInfo(resolved, context);
+  const localInfo = resolvedLocalInfo?.info;
   if (localInfo?.kind === "class") {
     return localInfo.members.some(
       (member) =>
@@ -215,7 +217,8 @@ export const isTypeOnlyStructuralTarget = (
     return false;
   }
 
-  const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+  const resolvedLocalInfo = resolveLocalTypeInfo(resolved, context);
+  const localInfo = resolvedLocalInfo?.info;
   if (
     localInfo?.kind === "class" &&
     !isCompilerGeneratedStructuralCarrierType(resolved)
@@ -228,7 +231,12 @@ export const isTypeOnlyStructuralTarget = (
   }
 
   if (localInfo?.kind === "interface") {
-    return true;
+    return !localInterfaceInfoEmitsAsNative(
+      localInfo,
+      resolvedLocalInfo?.namespace,
+      resolvedLocalInfo?.name,
+      context
+    );
   }
 
   if (localInfo?.kind === "typeAlias") {

@@ -14,6 +14,7 @@ import {
   resolveTypeAlias,
   getPropertyType,
   isDefinitelyValueType,
+  splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../../../core/semantic/type-resolution.js";
 import {
@@ -465,6 +466,23 @@ export const tryResolveSimpleNullableGuard = (
   const effectiveType =
     resolveEffectiveExpressionType(operand, context) ?? operand.inferredType;
   const idType = (() => {
+    if (storageType && splitRuntimeNullishUnionMembers(storageType)?.hasRuntimeNullish) {
+      const storageStripped = stripNullish(storageType);
+      const semanticStripped = semanticType ? stripNullish(semanticType) : undefined;
+      const effectiveStripped = effectiveType
+        ? stripNullish(effectiveType)
+        : undefined;
+      const semanticMatches =
+        !semanticStripped ||
+        areIrTypesEquivalent(storageStripped, semanticStripped, context);
+      const effectiveMatches =
+        !effectiveStripped ||
+        areIrTypesEquivalent(storageStripped, effectiveStripped, context);
+      if (semanticMatches && effectiveMatches) {
+        return storageType;
+      }
+    }
+
     const semanticOrStorageType = semanticType ?? storageType;
     if (!semanticOrStorageType) {
       return effectiveType;
@@ -486,15 +504,13 @@ export const tryResolveSimpleNullableGuard = (
   if (stripped === idType) return undefined; // Not a nullable type
 
   // Check if it's a value type that needs .Value
-  const isValueType = isDefinitelyValueType(stripped);
-
   return {
     key,
     targetExpr: operand,
     sourceType: idType,
     strippedType: stripped,
     narrowsInThen: isNotEqual,
-    isValueType,
+    isValueType: isDefinitelyValueType(stripped, context),
   };
 };
 
