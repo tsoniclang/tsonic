@@ -5,24 +5,63 @@ import {
 } from "../types/ir-substitution.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { resolveTypeIdByName } from "./type-system-state.js";
+import type { TypeId } from "./internal/universe/types.js";
+
+const collectAliasResolutionCandidates = (
+  state: TypeSystemState,
+  type: IrReferenceType
+): readonly TypeId[] => {
+  const candidates: TypeId[] = [];
+  const pushCandidate = (candidate: TypeId | undefined): void => {
+    if (!candidate) {
+      return;
+    }
+    if (
+      candidates.some((existing) => existing.stableId === candidate.stableId)
+    ) {
+      return;
+    }
+    candidates.push(candidate);
+  };
+
+  pushCandidate(type.typeId);
+  pushCandidate(
+    resolveTypeIdByName(
+      state,
+      type.providerQualifiedName ?? type.name,
+      type.typeArguments?.length ?? 0
+    )
+  );
+  if (type.typeId?.ownerIdentity && type.typeId.sourceName) {
+    pushCandidate(
+      resolveTypeIdByName(
+        state,
+        `${type.typeId.ownerIdentity}.${type.typeId.sourceName}`,
+        type.typeArguments?.length ?? 0
+      )
+    );
+  }
+  pushCandidate(resolveTypeIdByName(state, type.name, type.typeArguments?.length ?? 0));
+
+  return candidates;
+};
 
 export const expandReferenceAlias = (
   state: TypeSystemState,
   type: IrReferenceType
 ): IrType | undefined => {
-  const typeId =
-    type.typeId ??
-    resolveTypeIdByName(
-      state,
-      type.providerQualifiedName ?? type.name,
-      type.typeArguments?.length ?? 0
-    );
-  if (!typeId) {
+  const entry = collectAliasResolutionCandidates(state, type)
+    .map((typeId) => state.unifiedCatalog.getByTypeId(typeId))
+    .find((candidate) => candidate?.aliasedType);
+  if (!entry?.aliasedType) {
     return undefined;
   }
 
-  const entry = state.unifiedCatalog.getByTypeId(typeId);
-  if (!entry?.aliasedType) {
+  if (
+    entry.aliasedType.kind === "objectType" &&
+    type.structuralOrigin === "namedReference" &&
+    (type.structuralMembers?.length ?? 0) > 0
+  ) {
     return undefined;
   }
 

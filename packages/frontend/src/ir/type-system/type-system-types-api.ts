@@ -20,6 +20,7 @@ import type {
 } from "./types.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
+import type { IterableShape } from "./iterable-type-shapes.js";
 import type { SurfaceCapabilities } from "../../surface/profiles.js";
 
 import type {
@@ -192,6 +193,15 @@ export type TypeAuthority = {
    * signatures use callable nominal types.
    */
   delegateToFunctionType(type: IrType): IrFunctionType | undefined;
+
+  /**
+   * Resolve the element type and mode of a sync/async iterable carrier.
+   *
+   * This uses the same nominal catalog and inheritance-aware logic as call
+   * resolution, so frontend loop typing does not duplicate target-specific
+   * collection-name lists.
+   */
+  getIterableShape(type: IrType | undefined): IterableShape | undefined;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Utility Type Expansion

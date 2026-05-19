@@ -86,6 +86,7 @@ import {
 } from "../core/semantic/broad-object-types.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import { resolveRuntimeStorageType } from "../core/semantic/storage-types.js";
+import { referenceTypeEmitsAsNativeInterface } from "../core/semantic/native-interfaces.js";
 
 // ---------------------------------------------------------------------------
 // Polymorphic-this helpers (used by orchestrator and emitTypeAssertion)
@@ -1223,6 +1224,23 @@ export const emitTypeAssertion = (
     return degenerateDuplicateUnionAst;
   }
 
+  if (
+    referenceTypeEmitsAsNativeInterface(
+      resolvedAssertionTarget,
+      sourceLayoutContext
+    ) ||
+    referenceTypeEmitsAsNativeInterface(runtimeTarget, sourceLayoutContext)
+  ) {
+    return [
+      {
+        kind: "castExpression",
+        type: runtimeTargetTypeAst,
+        expression: castSourceAst,
+      },
+      runtimeTargetTypeContext,
+    ];
+  }
+
   const adaptedUnionAst = mustPreserveDirectStorageCast
     ? undefined
     : adaptValueToExpectedTypeAst({
@@ -1365,8 +1383,7 @@ export const emitAsInterface = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  void expectedType;
-  return emitExpressionAst(expr.expression, context);
+  return emitExpressionAst(expr.expression, context, expectedType);
 };
 
 // ---------------------------------------------------------------------------

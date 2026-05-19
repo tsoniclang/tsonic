@@ -44,8 +44,21 @@ const argumentMayBeNullish = (
   }
 
   const transparentArg = unwrapTransparentExpression(arg);
+  const effectiveType = resolveEffectiveExpressionType(
+    transparentArg,
+    context
+  );
+  if (
+    effectiveType &&
+    effectiveType.kind !== "unknownType" &&
+    effectiveType.kind !== "anyType"
+  ) {
+    return (
+      splitRuntimeNullishUnionMembers(effectiveType)?.hasRuntimeNullish ?? false
+    );
+  }
+
   const candidateTypes = [
-    resolveEffectiveExpressionType(transparentArg, context),
     transparentArg.inferredType,
     arg.inferredType,
     transparentArg.kind === "identifier"

@@ -10,9 +10,11 @@ import type {
   IrType,
   IrStatement,
   IrClassDeclaration,
+  IrClassMember,
   IrInterfaceDeclaration,
   IrEnumDeclaration,
   IrTypeAliasDeclaration,
+  IrTypeParameter,
 } from "@tsonic/frontend";
 import type { LocalTypeInfo } from "../../types.js";
 
@@ -83,6 +85,7 @@ const extractLocalTypeInfo = (
 const buildClassInfo = (stmt: IrClassDeclaration): LocalTypeInfo => ({
   kind: "class",
   isExported: stmt.isExported,
+  isStruct: stmt.isStruct,
   typeParameters: stmt.typeParameters?.map((tp) => tp.name) ?? [],
   members: stmt.members,
   superClass: stmt.superClass,
@@ -95,6 +98,7 @@ const buildClassInfo = (stmt: IrClassDeclaration): LocalTypeInfo => ({
 const buildInterfaceInfo = (stmt: IrInterfaceDeclaration): LocalTypeInfo => ({
   kind: "interface",
   isExported: stmt.isExported,
+  isStruct: stmt.isStruct,
   typeParameters: stmt.typeParameters?.map((tp) => tp.name) ?? [],
   members: stmt.members,
   extends: stmt.extends,
@@ -115,6 +119,7 @@ const buildEnumInfo = (stmt: IrEnumDeclaration): LocalTypeInfo => ({
 const buildTypeAliasInfo = (stmt: IrTypeAliasDeclaration): LocalTypeInfo => ({
   kind: "typeAlias",
   isExported: stmt.isExported,
+  isStruct: stmt.isStruct,
   typeParameters: stmt.typeParameters?.map((tp) => tp.name) ?? [],
   type: stmt.type,
 });
@@ -374,6 +379,189 @@ export const collectPublicLocalTypes = (
         break;
       case "enum":
         break;
+    }
+  }
+
+  return result;
+};
+
+export const structuralInterfaceContractKey = (
+  namespace: string,
+  name: string
+): string => `${namespace}::${name}`;
+
+const normalizeModulePath = (filePath: string): string => {
+  let normalized = filePath.replace(/\\/g, "/");
+  if (normalized.endsWith(".ts")) {
+    normalized = normalized.slice(0, -3);
+  }
+
+  const segments: string[] = [];
+  for (const segment of normalized.split("/")) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments.join("/");
+};
+
+const getReferenceLeafNameForContract = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): string => {
+  if (ref.typeId?.sourceName) {
+    return ref.typeId.sourceName.split(".").pop() ?? ref.typeId.sourceName;
+  }
+  if (ref.providerQualifiedName) {
+    return ref.providerQualifiedName.split(".").pop() ?? ref.providerQualifiedName;
+  }
+  return ref.name.split(".").pop() ?? ref.name;
+};
+
+const collectTypeParameterConstraints = (
+  typeParameters: readonly IrTypeParameter[] | undefined,
+  onReference: (ref: Extract<IrType, { kind: "referenceType" }>) => void
+): void => {
+  for (const typeParameter of typeParameters ?? []) {
+    walkTypeRefs(typeParameter.constraint, onReference);
+  }
+};
+
+const collectMemberTypeParameterConstraints = (
+  member: IrClassMember,
+  onReference: (ref: Extract<IrType, { kind: "referenceType" }>) => void
+): void => {
+  if (member.kind !== "methodDeclaration") return;
+  collectTypeParameterConstraints(member.typeParameters, onReference);
+};
+
+const collectStatementTypeParameterConstraints = (
+  statement: IrStatement,
+  onReference: (ref: Extract<IrType, { kind: "referenceType" }>) => void
+): void => {
+  switch (statement.kind) {
+    case "functionDeclaration":
+    case "interfaceDeclaration":
+    case "typeAliasDeclaration":
+      collectTypeParameterConstraints(statement.typeParameters, onReference);
+      return;
+    case "classDeclaration":
+      collectTypeParameterConstraints(statement.typeParameters, onReference);
+      for (const member of statement.members) {
+        collectMemberTypeParameterConstraints(member, onReference);
+      }
+      return;
+    default:
+      return;
+  }
+};
+
+export const collectStructuralInterfaceContracts = (
+  modules: readonly IrModule[]
+): ReadonlySet<string> => {
+  const moduleInfos = modules.map((module) => ({
+    module,
+    normalizedPath: normalizeModulePath(module.filePath),
+    localTypes: buildLocalTypes(module),
+  }));
+  const moduleByPath = new Map(
+    moduleInfos.map((info) => [info.normalizedPath, info] as const)
+  );
+  const typeByFullyQualifiedName = new Map<
+    string,
+    { readonly namespace: string; readonly name: string; readonly info: LocalTypeInfo }
+  >();
+
+  for (const { module, localTypes } of moduleInfos) {
+    for (const [name, info] of localTypes) {
+      typeByFullyQualifiedName.set(`${module.namespace}.${name}`, {
+        namespace: module.namespace,
+        name,
+        info,
+      });
+    }
+  }
+
+  const result = new Set<string>();
+
+  for (const { module, localTypes } of moduleInfos) {
+    const resolveReference = (
+      ref: Extract<IrType, { kind: "referenceType" }>
+    ):
+      | {
+          readonly namespace: string;
+          readonly name: string;
+          readonly info: LocalTypeInfo;
+        }
+      | undefined => {
+      const directCandidates = [
+        ref.providerQualifiedName,
+        ref.typeId?.providerName,
+        ref.typeId?.sourceName,
+        ref.name.includes(".") ? ref.name : undefined,
+      ];
+      for (const candidate of directCandidates) {
+        if (!candidate) continue;
+        const direct = typeByFullyQualifiedName.get(candidate);
+        if (direct) return direct;
+      }
+
+      if (!ref.name.includes(".")) {
+        const local = localTypes.get(ref.name);
+        if (local) {
+          return { namespace: module.namespace, name: ref.name, info: local };
+        }
+      }
+
+      const importedName = getReferenceLeafNameForContract(ref);
+      for (const imp of module.imports) {
+        const spec = imp.specifiers.find(
+          (candidate) =>
+            candidate.kind === "named" &&
+            candidate.isType === true &&
+            candidate.localName === importedName
+        );
+        if (!spec || spec.kind !== "named") continue;
+
+        const importedNamespace = imp.resolvedNamespace;
+        if (importedNamespace) {
+          const imported = typeByFullyQualifiedName.get(
+            `${importedNamespace}.${spec.name}`
+          );
+          if (imported) return imported;
+        }
+
+        const importedPath = imp.resolvedPath
+          ? normalizeModulePath(imp.resolvedPath)
+          : undefined;
+        const importedModule = importedPath
+          ? moduleByPath.get(importedPath)
+          : undefined;
+        const importedInfo = importedModule?.localTypes.get(spec.name);
+        if (importedModule && importedInfo) {
+          return {
+            namespace: importedModule.module.namespace,
+            name: spec.name,
+            info: importedInfo,
+          };
+        }
+      }
+
+      return undefined;
+    };
+
+    for (const statement of module.body) {
+      collectStatementTypeParameterConstraints(statement, (ref) => {
+        const resolved = resolveReference(ref);
+        if (resolved?.info.kind !== "interface") return;
+        result.add(
+          structuralInterfaceContractKey(resolved.namespace, resolved.name)
+        );
+      });
     }
   }
 

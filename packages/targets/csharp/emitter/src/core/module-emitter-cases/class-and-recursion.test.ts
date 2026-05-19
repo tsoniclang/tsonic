@@ -79,6 +79,34 @@ describe("Module Generation", () => {
     expect(result).to.include('$"Hello, I\'m {this.name}"');
   });
 
+  it("should emit an abstract class", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/Service.ts",
+      namespace: "MyApp",
+      className: "Service",
+      isStaticContainer: false,
+      imports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "Service",
+          members: [],
+          isStruct: false,
+          isAbstract: true,
+          isExported: true,
+          implements: [],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("public abstract class Service");
+    expect(result).not.to.include("abstract struct Service");
+  });
+
   it("hoists instance-bound property initializers into constructors", () => {
     const module: IrModule = {
       kind: "module",

@@ -41,7 +41,7 @@ export const runCli = async (args: string[]): Promise<number> => {
     return workspaceContext.code;
   }
 
-  const workspaceCommandExitCode = runWorkspaceMutationCommand(
+  const workspaceCommandExitCode = await runWorkspaceMutationCommand(
     parsed,
     workspaceContext.workspaceConfigPath
   );

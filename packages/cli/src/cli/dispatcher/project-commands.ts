@@ -113,6 +113,10 @@ const restoreDependenciesIfNeeded = (
     return { ok: true, value: rawWorkspaceConfig };
   }
 
+  if (parsed.options.noRestore) {
+    return { ok: true, value: rawWorkspaceConfig };
+  }
+
   const restoreResult = restoreCommand(workspaceConfigPath, {
     verbose: parsed.options.verbose,
     quiet: parsed.options.quiet,

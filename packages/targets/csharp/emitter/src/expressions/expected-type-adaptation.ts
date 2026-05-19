@@ -1227,7 +1227,7 @@ const preferNarrowedEffectiveActualType = (
       effectiveExpressionType,
       context
     ) &&
-    isDefinitelyValueType(resolveTypeAlias(directNullableBase, context))
+    isDefinitelyValueType(resolveTypeAlias(directNullableBase, context), context)
   ) {
     const expectedRetainsRuntimeNullish = expectedType
       ? (splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ??

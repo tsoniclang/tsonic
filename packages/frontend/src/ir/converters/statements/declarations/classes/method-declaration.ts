@@ -19,6 +19,7 @@ import {
 } from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 import { getReturnExpressionExpectedType } from "../../../return-expression-types.js";
+import { inferDeterministicBlockReturnType } from "../return-type-inference.js";
 
 /**
  * Convert method declaration to IR
@@ -63,17 +64,23 @@ export const convertMethod = (
     !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
   );
   const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
+  const body = node.body
+    ? convertBlockStatement(node.body, bodyCtx, returnExpressionType)
+    : undefined;
+  const effectiveReturnType =
+    returnType ??
+    (body && !node.asteriskToken
+      ? inferDeterministicBlockReturnType(body)
+      : undefined);
 
   return {
     kind: "methodDeclaration",
     name: memberName,
     typeParameters: convertTypeParameters(node.typeParameters, ctx),
     parameters,
-    returnType,
+    returnType: effectiveReturnType,
     // Pass return type to body for contextual typing of return statements
-    body: node.body
-      ? convertBlockStatement(node.body, bodyCtx, returnExpressionType)
-      : undefined,
+    body,
     isStatic: hasStaticModifier(node),
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword

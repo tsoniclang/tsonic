@@ -7,7 +7,7 @@ import { addNpmCommand } from "../../commands/add-npm.js";
 import { addPackageCommand } from "../../commands/add-package.js";
 import { addNugetCommand } from "../../commands/add-nuget.js";
 import { removeNugetCommand } from "../../commands/remove-nuget.js";
-import { restoreCommand } from "../../commands/restore.js";
+import { restoreCommandAsync } from "../../commands/restore.js";
 import { updateNugetCommand } from "../../commands/update-nuget.js";
 import { applyPackageManifestWorkspaceOverlay } from "../../package-manifests/bindings.js";
 import type { TsonicWorkspaceConfig } from "../../types.js";
@@ -110,10 +110,10 @@ export const loadWorkspaceCommandContext = (
   return { workspaceConfigPath, workspaceRoot, rawWorkspaceConfig };
 };
 
-export const runWorkspaceMutationCommand = (
+export const runWorkspaceMutationCommand = async (
   parsed: ParsedCliArgs,
   workspaceConfigPath: string
-): number | null => {
+): Promise<number | null> => {
   if (parsed.command === "add:npm") {
     const packageSpec = parsed.positionals[0];
     if (!packageSpec) {
@@ -267,7 +267,7 @@ export const runWorkspaceMutationCommand = (
   }
 
   if (parsed.command === "restore") {
-    const result = restoreCommand(workspaceConfigPath, {
+    const result = await restoreCommandAsync(workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,

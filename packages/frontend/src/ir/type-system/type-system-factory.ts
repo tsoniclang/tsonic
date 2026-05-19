@@ -58,6 +58,7 @@ import {
   typeFromSyntax as infTypeFromSyntax,
 } from "./type-system-inference.js";
 import { resolveMemberTypeNoDiag } from "./inference-member-lookup.js";
+import { getIterableShape as iterGetIterableShape } from "./iterable-type-shapes.js";
 
 import { expandUtility as utExpandUtility } from "./type-system-utilities.js";
 
@@ -209,6 +210,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     collectNarrowingCandidates: (type) =>
       crCollectNarrowingCandidates(state, type),
     delegateToFunctionType: (type) => crDelegateToFunctionType(state, type),
+    getIterableShape: (type) => iterGetIterableShape(state, type),
 
     // Utility type expansion (utilities module)
     expandUtility: (name, args, site) =>

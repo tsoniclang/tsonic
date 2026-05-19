@@ -259,6 +259,17 @@ export const hasDeclareModifier = (node: ts.Node): boolean => {
 };
 
 /**
+ * Check if node has abstract modifier.
+ */
+export const hasAbstractModifier = (node: ts.Node): boolean => {
+  if (!ts.canHaveModifiers(node)) return false;
+  const modifiers = ts.getModifiers(node);
+  return (
+    modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false
+  );
+};
+
+/**
  * Check if node has readonly modifier
  */
 export const hasReadonlyModifier = (node: ts.Node): boolean => {

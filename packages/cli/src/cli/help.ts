@@ -47,6 +47,7 @@ GENERATE/BUILD/RUN OPTIONS:
   -O, --optimize <level>    Optimization: size or speed
   -k, --keep-temp           Keep build artifacts
   --no-generate             Build/run from existing generated output (do not re-run generate)
+  --no-restore              Use existing restored bindings; do not run workspace restore first
   --no-aot                  Disable NativeAOT and build managed output
   --no-strip                Keep debug symbols
   -L, --lib <path>          External library path (repeatable)

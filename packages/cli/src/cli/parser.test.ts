@@ -246,6 +246,11 @@ describe("CLI Parser", () => {
         expect(result.options.noGenerate).to.equal(true);
       });
 
+      it("should parse --no-restore option", () => {
+        const result = parseArgs(["build", "--no-restore"]);
+        expect(result.options.noRestore).to.equal(true);
+      });
+
       it("should parse --no-strip option", () => {
         const result = parseArgs(["build", "--no-strip"]);
         expect(result.options.noStrip).to.equal(true);

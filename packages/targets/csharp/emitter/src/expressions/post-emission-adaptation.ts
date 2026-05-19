@@ -1334,6 +1334,31 @@ export const maybeBoxJsNumberAsObjectAst = (
     nullableNumericBaseType &&
     isJsNumberIrType(nullableNumericBaseType, context)
   ) {
+    const effectiveExpressionType = expr
+      ? resolveEffectiveExpressionType(expr, context)
+      : undefined;
+    if (
+      effectiveExpressionType &&
+      !splitRuntimeNullishUnionMembers(effectiveExpressionType)
+        ?.hasRuntimeNullish &&
+      isJsNumberIrType(effectiveExpressionType, context)
+    ) {
+      const widenedNumericAst: CSharpExpressionAst = {
+        kind: "castExpression",
+        type: { kind: "predefinedType", keyword: "double" },
+        expression: ast,
+      };
+
+      return [
+        {
+          kind: "castExpression",
+          type: { kind: "predefinedType", keyword: "object" },
+          expression: widenedNumericAst,
+        },
+        context,
+      ];
+    }
+
     const widenedNullableValueAst: CSharpExpressionAst = {
       kind: "castExpression",
       type: { kind: "predefinedType", keyword: "double" },

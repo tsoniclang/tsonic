@@ -1284,6 +1284,41 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("public new int SaveChanges()");
     });
 
+    it("casts broad values to native structural interfaces without materializing interfaces", () => {
+      const source = `
+        export interface Owned {
+          WorkspaceId: string;
+        }
+
+        export class WorkspaceRow {
+          WorkspaceId: string = "";
+        }
+
+        export function requireOwned<T extends Owned>(value: T): string {
+          return value.WorkspaceId;
+        }
+
+        export function isOwned(value: unknown): boolean {
+          if (value === undefined || value === null || typeof value !== "object") {
+            return false;
+          }
+
+          const candidate = value as Owned;
+          return typeof candidate.WorkspaceId === "string";
+        }
+
+        export function read(row: WorkspaceRow): string {
+          return requireOwned(row);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("public interface Owned");
+      expect(csharp).to.include("public class WorkspaceRow : Owned");
+      expect(csharp).to.include("var candidate = (Owned)value;");
+      expect(csharp).not.to.include("return new Owned");
+    });
+
     it("emits expression-tree object literal bodies as anonymous objects", () => {
       const source = `
         interface Expression_1<TDelegate> {}
@@ -3102,6 +3137,185 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("preserves installed source-package recursive Array.isArray element aliases", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/app.ts": `
+            import { matchesPathSpec } from "@fixture/router";
+
+            export function probe(requestPath: string): boolean {
+              return matchesPathSpec("/", requestPath);
+            }
+          `,
+          "node_modules/@fixture/router/package.json": JSON.stringify({
+            name: "@fixture/router",
+            version: "1.0.0",
+            type: "module",
+            exports: {
+              ".": {
+                default: "./src/index.ts",
+              },
+            },
+          }),
+          "node_modules/@fixture/router/tsonic.package.json": JSON.stringify({
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            supportedTargets: ["csharp"],
+            source: {
+              namespace: "fixture.router",
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          }),
+          "node_modules/@fixture/router/src/index.ts": `
+            export type PathSpec = string | RegExp | readonly PathSpec[];
+
+            export function matchesPathSpec(
+              pathSpec: PathSpec,
+              requestPath: string
+            ): boolean {
+              if (typeof pathSpec === "string") {
+                return pathSpec.length >= 0 && requestPath.length >= 0;
+              }
+
+              if (pathSpec instanceof RegExp) {
+                return pathSpec.test(requestPath);
+              }
+
+              if (Array.isArray(pathSpec)) {
+                for (let index = 0; index < pathSpec.length; index += 1) {
+                  if (matchesPathSpec(pathSpec[index]!, requestPath)) {
+                    return true;
+                  }
+                }
+
+                return false;
+              }
+
+              return false;
+            }
+          `,
+        },
+        "src/app.ts",
+        { surface: "@tsonic/js" },
+        { sourceRootRelativePath: "src", rootNamespace: "Probe" }
+      );
+
+      expect(csharp).to.include(
+        "if (matchesPathSpec((pathSpec.As1())[index], requestPath))"
+      );
+      expect(csharp).not.to.include(
+        "matchesPathSpec((object?)(pathSpec.As1())[index], requestPath)"
+      );
+    });
+
+    it("preserves installed source-package object aliases through generic map reads and array loops", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/app.ts": `
+            import { EventStore, getDescriptor } from "@fixture/source-aliases";
+
+            export function probe(): string {
+              const store = new EventStore();
+              store.add("ready", () => "ok");
+              return getDescriptor(1).stream;
+            }
+          `,
+          "node_modules/@fixture/source-aliases/package.json": JSON.stringify({
+            name: "@fixture/source-aliases",
+            version: "1.0.0",
+            type: "module",
+            exports: {
+              ".": {
+                default: "./src/index.ts",
+              },
+            },
+          }),
+          "node_modules/@fixture/source-aliases/tsonic.package.json":
+            JSON.stringify({
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@tsonic/js"],
+              supportedTargets: ["csharp"],
+              source: {
+                namespace: "fixture.sourcealiases",
+                exports: {
+                  ".": "./src/index.ts",
+                },
+              },
+            }),
+          "node_modules/@fixture/source-aliases/src/index.ts": `
+            import type { int } from "@tsonic/core/types.js";
+
+            type ListenerRegistration = {
+              original: () => string;
+              once: boolean;
+            };
+
+            type OpenDescriptor = {
+              stream: string;
+              appendMode: boolean;
+            };
+
+            const descriptors = new Map<int, OpenDescriptor>();
+
+            export function getDescriptor(fd: int): OpenDescriptor {
+              const descriptor = descriptors.get(fd);
+              if (descriptor === undefined) {
+                throw new Error("bad fd");
+              }
+
+              return descriptor;
+            }
+
+            export class EventStore {
+              listenersByEvent: Map<string, ListenerRegistration[]> =
+                new Map<string, ListenerRegistration[]>();
+
+              add(name: string, listener: () => string): void {
+                const existing = this.listenersByEvent.get(name) ?? [];
+                existing.push({ original: listener, once: false });
+                this.listenersByEvent.set(name, existing);
+              }
+
+              remove(name: string, listener: () => string): void {
+                const registrations = this.listenersByEvent.get(name);
+                if (registrations === undefined) {
+                  return;
+                }
+
+                const remaining: ListenerRegistration[] = [];
+                for (const registration of registrations) {
+                  if (registration.original === listener) {
+                    continue;
+                  }
+
+                  remaining.push(registration);
+                }
+
+                this.listenersByEvent.set(name, remaining);
+              }
+            }
+          `,
+        },
+        "src/app.ts",
+        { surface: "@tsonic/js" },
+        { sourceRootRelativePath: "src", rootNamespace: "Probe" }
+      );
+
+      expect(csharp).to.include("return descriptor;");
+      expect(csharp).to.include("foreach (var registration in registrations)");
+      expect(csharp).not.to.match(/Enumerable\.Select<global::Probe\.__Anon_/);
+      expect(csharp).not.to.match(
+        /\(global::Probe\.__Anon_[A-Za-z0-9_]+\)descriptor/
+      );
+      expect(csharp).not.to.match(
+        /\(global::Probe\.__Anon_[A-Za-z0-9_]+\[\]\)registrations/
+      );
+    });
+
     it("preserves runtime carrier slot numbers in typeof string guards over aliased unions", () => {
       const csharp = compileToCSharp(`
         import { FileInfo } from "@tsonic/dotnet/System.IO.js";
@@ -3544,6 +3758,82 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("rewraps direct constructor call arguments through source-package runtime-union surfaces", () => {
+      const csharp = normalizeRuntimeUnionCarrierNames(
+        compileProjectToCSharp(
+          {
+            "src/index.ts": `
+              import { RegExp, search } from "@fixture/js/index.js";
+
+              export function run(remainder: string): number {
+                return search(remainder, new RegExp("[/?#]"));
+              }
+            `,
+            "node_modules/@fixture/js/package.json": JSON.stringify(
+              { name: "@fixture/js", version: "1.0.0", type: "module" },
+              null,
+              2
+            ),
+            "node_modules/@fixture/js/tsonic.package.json": JSON.stringify(
+              {
+                schemaVersion: 1,
+                kind: "tsonic-source-package",
+                surfaces: ["core"],
+                source: {
+                  namespace: "fixturejs",
+                  exports: {
+                    "./index.js": "./src/index.ts",
+                  },
+                },
+              },
+              null,
+              2
+            ),
+            "node_modules/@fixture/js/src/index.ts": `
+              export class RegExp {
+                constructor(_pattern: string | RegExp) {}
+              }
+
+              export function search(_value: string, _pattern: string | RegExp): number {
+                return 0;
+              }
+            `,
+          },
+          "src/index.ts"
+        )
+      );
+
+      expect(csharp).to.include(
+        'global::fixturejs.index.search(remainder, global::Tsonic.Internal.Union<string, global::fixturejs.RegExp>.From2(new global::fixturejs.RegExp(global::Tsonic.Internal.Union<string, global::fixturejs.RegExp>.From1("[/?#]"))))'
+      );
+      expect(csharp).not.to.include(
+        "global::fixturejs.index.search(remainder, new global::fixturejs.RegExp"
+      );
+    });
+
+    it("aligns extension method parameter surfaces with visible arguments before runtime-union wrapping", () => {
+      const csharp = normalizeRuntimeUnionCarrierNames(
+        compileToCSharp(
+          `
+            export function run(remainder: string): number {
+              return remainder.search(/[/?#]/);
+            }
+          `,
+          "/test/test.ts",
+          {
+            surface: "@tsonic/js",
+          }
+        )
+      );
+
+      expect(csharp).to.include(
+        'global::js.String.search(remainder, global::Tsonic.Internal.Union<global::js.RegExp, string>.From1(new global::js.RegExp(global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("[/?#]"))))'
+      );
+      expect(csharp).not.to.include(
+        "global::js.String.search(remainder, new global::js.RegExp"
+      );
+    });
+
     it("projects typeof-excluded call arguments onto the surviving runtime-union subset", () => {
       const csharp = normalizeRuntimeUnionCarrierNames(
         compileProjectToCSharp(
@@ -3893,8 +4183,11 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("if (nextCount > rule.maxCount.Value)");
-      expect(csharp).to.include("String(rule.maxCount.Value)");
+      expect(csharp).to.include(
+        "global::js.Globals.String((object)(double)rule.maxCount.Value)"
+      );
       expect(csharp).not.to.include("rule.maxCount.Value.Value");
+      expect(csharp).not.to.include("(object)rule.maxCount.Value == null");
     });
 
     it("keeps source-package Uint8Array length reads direct inside array-like wrappers", () => {
@@ -4802,6 +5095,41 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/\.From1\(__item\)/);
     });
 
+    it("materializes callable-interface arrays into union-alias arrays in one projection", () => {
+      const csharp = compileToCSharp(`
+        class Request {}
+        class Response {}
+
+        interface RequestHandler {
+          (req: Request, res: Response): void;
+        }
+
+        interface ErrorRequestHandler {
+          (error: unknown, req: Request, res: Response): void;
+        }
+
+        class Router {}
+
+        type MiddlewareLike = RequestHandler | ErrorRequestHandler | Router;
+
+        declare function addMiddlewareLayer(handlers: MiddlewareLike[]): void;
+
+        export function use(handlers: RequestHandler[]): void {
+          addMiddlewareLayer(handlers);
+        }
+      `);
+
+      expect(csharp).to.match(
+        /Select<global::System\.Action<(?:global::Test\.)?Request, (?:global::Test\.)?Response>, global::Test\.MiddlewareLike>\(handlers,/
+      );
+      expect(csharp).not.to.include(
+        "Union<global::System.Action<global::Test.Request, global::Test.Response>"
+      );
+      expect(csharp).not.to.match(
+        /Select<global::System\.Action<global::Test\.Request, global::Test\.Response>, global::Test\.MiddlewareLike>\(\(global::Tsonic\.Internal\.Union/
+      );
+    });
+
     it("erases imported alias chains that end in callable interface aliases", () => {
       const csharp = compileProjectToCSharp(
         {
@@ -5660,7 +5988,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("(value.As1()) is global::js.Uint8Array");
     });
 
-    it("maps bare void value-slot members to object storage", () => {
+    it("specializes bare void value-slot generic aliases to object at use sites", () => {
       const csharp = compileToCSharp(`
         type Ok<T> = { success: true; data: T };
 
@@ -5669,7 +5997,8 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include("public required object data { get; set; }");
+      expect(csharp).to.include("public required T data { get; set; }");
+      expect(csharp).to.include("public static Ok__Alias<object> run()");
       expect(csharp).to.include("data = default(object)");
       expect(csharp).not.to.include("required void data");
       expect(csharp).not.to.include("default(void)");

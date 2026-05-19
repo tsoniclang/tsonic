@@ -80,7 +80,7 @@ describe("IR Builder", function () {
       expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
     });
 
-    it("contextually types awaited async return object literals against awaited return shapes", () => {
+    it("preserves named awaited async return aliases with structural metadata", () => {
       const source = `
         type HandlerControl = {
           ended: boolean;
@@ -133,12 +133,18 @@ describe("IR Builder", function () {
 
       const initializer = controlDecl.declarations[0]?.initializer;
       expect(initializer?.kind).to.equal("await");
-      expect(initializer?.inferredType?.kind).to.equal("objectType");
-      expect(
-        initializer?.inferredType?.kind === "objectType"
-          ? initializer.inferredType.members.map((member) => member.name)
-          : []
-      ).to.deep.equal(["ended", "control", "error"]);
+      expect(initializer?.inferredType?.kind).to.equal("referenceType");
+      if (initializer?.inferredType?.kind === "referenceType") {
+        expect(initializer.inferredType.name).to.equal("HandlerControl");
+        expect(initializer.inferredType.structuralOrigin).to.equal(
+          "namedReference"
+        );
+        expect(
+          initializer.inferredType.structuralMembers?.map(
+            (member) => member.name
+          ) ?? []
+        ).to.deep.equal(["ended", "control", "error"]);
+      }
     });
 
     it("preserves generic constructor parameter surfaces instead of degrading them to any", () => {

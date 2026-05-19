@@ -211,6 +211,13 @@ export type EmitterOptions = {
   readonly bindingRegistry?: FrontendBindingRegistry;
   /** Target render table keyed by frontend-neutral symbol IDs. */
   readonly targetRenderTable?: TargetRenderTable;
+  /**
+   * Property-only source interfaces that must emit as native target interfaces
+   * because they are used as generic/interface contracts.
+   *
+   * Key format: "<namespace>::<typeName>".
+   */
+  readonly structuralInterfaceContracts?: ReadonlySet<string>;
 };
 
 /**
@@ -276,6 +283,7 @@ export type LocalTypeInfo =
   | {
       readonly kind: "interface";
       readonly isExported?: boolean;
+      readonly isStruct?: boolean;
       readonly typeParameters: readonly string[];
       readonly members: readonly IrInterfaceMember[];
       readonly extends: readonly IrType[];
@@ -283,6 +291,7 @@ export type LocalTypeInfo =
   | {
       readonly kind: "class";
       readonly isExported?: boolean;
+      readonly isStruct?: boolean;
       readonly typeParameters: readonly string[];
       readonly members: readonly IrClassMember[];
       readonly superClass?: IrType;
@@ -296,6 +305,7 @@ export type LocalTypeInfo =
   | {
       readonly kind: "typeAlias";
       readonly isExported?: boolean;
+      readonly isStruct?: boolean;
       readonly typeParameters: readonly string[];
       readonly type: IrType;
     };

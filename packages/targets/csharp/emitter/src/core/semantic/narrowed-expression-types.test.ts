@@ -170,6 +170,65 @@ describe("narrowed-expression-types", () => {
     expect(result).to.deep.equal({ kind: "primitiveType", name: "string" });
   });
 
+  it("preserves nullable member semantics through compiler-authored transparent assertions", () => {
+    const intType: IrType = { kind: "primitiveType", name: "int" };
+    const optionalIntType: IrType = {
+      kind: "unionType",
+      types: [intType, { kind: "primitiveType", name: "undefined" }],
+    };
+    const sourceSpan = {
+      file: "test.ts",
+      line: 1,
+      column: 8,
+      length: 11,
+    };
+    const expr: IrExpression = {
+      kind: "typeAssertion",
+      expression: {
+        kind: "memberAccess",
+        object: {
+          kind: "identifier",
+          name: "query",
+          inferredType: {
+            kind: "referenceType",
+            name: "Query",
+            structuralOrigin: "namedReference",
+            structuralMembers: [
+              {
+                kind: "propertySignature",
+                name: "limit",
+                type: intType,
+                isOptional: true,
+                isReadonly: false,
+              },
+            ],
+          },
+        },
+        property: "limit",
+        isComputed: false,
+        isOptional: false,
+        inferredType: intType,
+        sourceSpan,
+      },
+      targetType: intType,
+      inferredType: intType,
+      sourceSpan,
+    };
+
+    const result = resolveEffectiveExpressionType(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+    });
+
+    expect(result).to.deep.equal(optionalIntType);
+  });
+
   it("uses target types for explicit interface and default expressions", () => {
     const context: EmitterContext = {
       indentLevel: 0,

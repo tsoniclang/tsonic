@@ -49,6 +49,37 @@ describe("IR Builder", function () {
       }
     });
 
+    it("infers deterministic unannotated function return types from IR returns", () => {
+      const source = `
+        export function choose(flag: boolean, value: string) {
+          if (flag) {
+            return value;
+          }
+
+          return value;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const func = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "choose"
+      );
+      expect(func).to.not.equal(undefined);
+      expect(func?.returnType).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+    });
+
     it("should convert variable declarations", () => {
       // Use explicit type annotation for object literal to avoid synthetic type generation
       const source = `
@@ -155,6 +186,70 @@ describe("IR Builder", function () {
         expect(cls.isExported).to.equal(true);
         expect(cls.members).to.have.length.greaterThan(0);
       }
+    });
+
+    it("should preserve abstract class declarations", () => {
+      const source = `
+        export abstract class Service {
+          start(): void {}
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const cls = result.value.body.find(
+        (stmt): stmt is IrClassDeclaration =>
+          stmt.kind === "classDeclaration" && stmt.name === "Service"
+      );
+      expect(cls).to.not.equal(undefined);
+      expect(cls?.isAbstract).to.equal(true);
+      expect(cls?.isStruct).to.equal(false);
+    });
+
+    it("infers deterministic unannotated method return types from IR returns", () => {
+      const source = `
+        export class Holder {
+          value: string;
+
+          read() {
+            return this.value;
+          }
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const cls = result.value.body.find(
+        (stmt): stmt is IrClassDeclaration =>
+          stmt.kind === "classDeclaration" && stmt.name === "Holder"
+      );
+      expect(cls).to.not.equal(undefined);
+      if (!cls) return;
+
+      const method = cls.members.find(
+        (member) => member.kind === "methodDeclaration" && member.name === "read"
+      );
+      expect(method?.kind).to.equal("methodDeclaration");
+      if (!method || method.kind !== "methodDeclaration") return;
+
+      expect(method.returnType).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
     });
 
     it("converts explicit constructor assignments to class fields", () => {

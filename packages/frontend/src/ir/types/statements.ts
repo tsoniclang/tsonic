@@ -78,6 +78,8 @@ export type IrClassDeclaration = {
   readonly implements: readonly IrType[];
   readonly members: readonly IrClassMember[];
   readonly isExported: boolean;
+  /** True when the source class declaration is abstract. */
+  readonly isAbstract?: boolean;
   /** True if this class should be emitted as a native value type. */
   readonly isStruct: boolean;
   /** Attributes to emit before the class declaration. */

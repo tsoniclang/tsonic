@@ -15,6 +15,7 @@ import {
 import { EmitterOptions, JsonAotRegistry } from "./types.js";
 import { emitModule } from "./core/format/module-emitter.js";
 import { buildModuleMap } from "./core/semantic/module-map.js";
+import { collectStructuralInterfaceContracts } from "./core/semantic/local-types.js";
 import { buildTypeMemberIndex } from "./core/semantic/type-member-index.js";
 import { buildTypeAliasIndex } from "./core/semantic/type-alias-index.js";
 import { validateNamingPolicyCollisions } from "./core/semantic/naming-collisions.js";
@@ -72,6 +73,8 @@ export const emitCSharpFiles = (
   const results = new Map<string, string>();
   const typeMemberIndex = buildTypeMemberIndex(referenceModules);
   const typeAliasIndex = buildTypeAliasIndex(referenceModules);
+  const structuralInterfaceContracts =
+    collectStructuralInterfaceContracts(referenceModules);
   const syntheticTypeNamespaces =
     buildSyntheticTypeNamespaceIndex(referenceModules);
   const duplicatePlan = planDuplicateTypeSuppression(modules);
@@ -123,6 +126,7 @@ export const emitCSharpFiles = (
       canonicalLocalTypeTargets: duplicatePlan.canonicalLocalTypeTargets,
       typeMemberIndex, // Pass type member index for member naming policy
       typeAliasIndex, // Pass type alias index for cross-module alias resolution
+      structuralInterfaceContracts, // Property-only interfaces used as contracts emit as native interfaces
       syntheticTypeNamespaces, // Synthetic cross-module type resolution (e.g. __tsonic/* anon types)
       jsonAotRegistry, // Pass JSON AOT registry for type collection
       runtimeUnionRegistry,

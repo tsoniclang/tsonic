@@ -16,6 +16,7 @@ import { runVirtualMarkingPass } from "./virtual-marking-pass.js";
 const unknownType: IrType = { kind: "unknownType" };
 const stringType: IrType = { kind: "primitiveType", name: "string" };
 const boolType: IrType = { kind: "primitiveType", name: "boolean" };
+const voidType: IrType = { kind: "voidType" };
 const objectType: IrType = { kind: "referenceType", name: "object" };
 const nullType: IrType = { kind: "primitiveType", name: "null" };
 const nullableStringType: IrType = {
@@ -56,6 +57,7 @@ const method = (
       | "isAsync"
       | "overloadFamily"
       | "typeParameters"
+      | "accessibility"
     >
   >
 ): IrMethodDeclaration => ({
@@ -67,7 +69,7 @@ const method = (
   isStatic: false,
   isAsync: options?.isAsync ?? false,
   isGenerator: false,
-  accessibility: "public",
+  accessibility: options?.accessibility ?? "public",
   isOverride: options?.isOverride,
   isShadow: options?.isShadow,
   isVirtual: options?.isVirtual,
@@ -79,7 +81,10 @@ const property = (
   name: string,
   type: IrType,
   options?: Partial<
-    Pick<IrPropertyDeclaration, "isOverride" | "isShadow" | "isVirtual">
+    Pick<
+      IrPropertyDeclaration,
+      "isOverride" | "isShadow" | "isVirtual" | "accessibility"
+    >
   >
 ): IrPropertyDeclaration => ({
   kind: "propertyDeclaration",
@@ -87,7 +92,7 @@ const property = (
   type,
   isStatic: false,
   isReadonly: false,
-  accessibility: "public",
+  accessibility: options?.accessibility ?? "public",
   isOverride: options?.isOverride,
   isShadow: options?.isShadow,
   isVirtual: options?.isVirtual,
@@ -199,6 +204,92 @@ describe("virtual-marking-pass", () => {
     expect(overrideEnd?.isOverride).to.equal(true);
     expect(overrideEnd?.returnType).to.deep.equal(unknownType);
     expect(derivedClass.members).to.have.length(2);
+  });
+
+  it("preserves local base method accessibility on overrides", () => {
+    const modules = [
+      createModule(
+        {
+          kind: "classDeclaration",
+          name: "Base",
+          implements: [],
+          members: [
+            method("configure", [parameter("value", stringType)], voidType, {
+              accessibility: "protected",
+            }),
+          ],
+          isExported: true,
+          isStruct: false,
+        },
+        {
+          kind: "classDeclaration",
+          name: "Derived",
+          superClass: { kind: "referenceType", name: "Base" },
+          implements: [],
+          members: [
+            method("configure", [parameter("value", stringType)], voidType),
+          ],
+          isExported: true,
+          isStruct: false,
+        }
+      ),
+    ];
+
+    const result = runVirtualMarkingPass(modules);
+    const transformedModule = result.modules[0];
+    if (!transformedModule) {
+      throw new Error("expected transformed module");
+    }
+
+    const derivedClass = getClass(transformedModule, "Derived");
+    const configure = derivedClass.members.find(
+      (member): member is IrMethodDeclaration =>
+        member.kind === "methodDeclaration" && member.name === "configure"
+    );
+
+    expect(configure?.isOverride).to.equal(true);
+    expect(configure?.accessibility).to.equal("protected");
+  });
+
+  it("preserves local base property accessibility on overrides", () => {
+    const modules = [
+      createModule(
+        {
+          kind: "classDeclaration",
+          name: "Base",
+          implements: [],
+          members: [
+            property("value", stringType, { accessibility: "protected" }),
+          ],
+          isExported: true,
+          isStruct: false,
+        },
+        {
+          kind: "classDeclaration",
+          name: "Derived",
+          superClass: { kind: "referenceType", name: "Base" },
+          implements: [],
+          members: [property("value", stringType)],
+          isExported: true,
+          isStruct: false,
+        }
+      ),
+    ];
+
+    const result = runVirtualMarkingPass(modules);
+    const transformedModule = result.modules[0];
+    if (!transformedModule) {
+      throw new Error("expected transformed module");
+    }
+
+    const derivedClass = getClass(transformedModule, "Derived");
+    const value = derivedClass.members.find(
+      (member): member is IrPropertyDeclaration =>
+        member.kind === "propertyDeclaration" && member.name === "value"
+    );
+
+    expect(value?.isOverride).to.equal(true);
+    expect(value?.accessibility).to.equal("protected");
   });
 
   it("marks incompatible same-name local methods as shadowing without bridges", () => {

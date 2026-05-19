@@ -150,6 +150,9 @@ export const parseArgs = (
       case "--no-generate":
         options.noGenerate = true;
         break;
+      case "--no-restore":
+        options.noRestore = true;
+        break;
       case "--no-strip":
         options.noStrip = true;
         break;

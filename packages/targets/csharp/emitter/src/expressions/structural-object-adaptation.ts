@@ -26,6 +26,7 @@ import {
   getIdentifierTypeLeafName,
 } from "../core/format/backend-ast/utils.js";
 import type { EmitterContext } from "../types.js";
+import { referenceTypeEmitsAsNativeInterface } from "../core/semantic/native-interfaces.js";
 import { hasNullishBranch } from "./exact-comparison.js";
 import { StructuralAdaptFn, UpcastFn } from "./structural-adaptation-types.js";
 import { buildInvokedLambdaExpressionAst } from "./invoked-lambda.js";
@@ -163,6 +164,32 @@ export const tryAdaptStructuralObjectExpressionAst = (
       return undefined;
     }
     return [emittedAst, context];
+  }
+
+  if (referenceTypeEmitsAsNativeInterface(strippedExpectedType, context)) {
+    const [targetTypeAst, nextContext] = emitTypeAst(
+      strippedExpectedType,
+      context
+    );
+    const safeTargetTypeAst =
+      targetTypeAst.kind === "nullableType"
+        ? targetTypeAst.underlyingType
+        : targetTypeAst;
+    if (
+      emittedAst.kind === "castExpression" &&
+      sameTypeAstSurface(emittedAst.type, safeTargetTypeAst)
+    ) {
+      return [emittedAst, nextContext];
+    }
+
+    return [
+      {
+        kind: "castExpression",
+        type: safeTargetTypeAst,
+        expression: emittedAst,
+      },
+      nextContext,
+    ];
   }
 
   const prefersAnonymousStructuralTarget =

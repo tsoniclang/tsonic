@@ -267,7 +267,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     ).to.equal(undefined);
   });
 
-  it("keeps named recursive aliases while lowering inline literals to compiler-owned carriers", () => {
+  it("keeps contextual named recursive aliases while lowering uncontextual inline literals to compiler-owned carriers", () => {
     const module = createTestModule(`
       type TreeNode = {
         child?: TreeNode;
@@ -275,9 +275,10 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
       };
 
       const leaf: TreeNode = { value: 42.0 };
+      const adHocLeaf = { value: 7.0 };
 
       export function main(): number {
-        return leaf.value;
+        return leaf.value + adHocLeaf.value;
       }
     `);
 
@@ -296,6 +297,19 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     );
     const leafType = leafDeclaration?.declarations[0]?.type;
     const leafInitializer = leafDeclaration?.declarations[0]?.initializer;
+    const adHocDeclaration = mainModule?.body.find(
+      (
+        stmt
+      ): stmt is Extract<
+        IrModule["body"][number],
+        { kind: "variableDeclaration" }
+      > =>
+        stmt.kind === "variableDeclaration" &&
+        stmt.declarations[0]?.name.kind === "identifierPattern" &&
+        stmt.declarations[0]?.name.name === "adHocLeaf"
+    );
+    const adHocType = adHocDeclaration?.declarations[0]?.type;
+    const adHocInitializer = adHocDeclaration?.declarations[0]?.initializer;
     const anonModule = lowered.modules.find(
       (candidate) =>
         candidate.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
@@ -305,13 +319,24 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     expect(
       leafType && leafType.kind === "referenceType" ? leafType.name : undefined
     ).to.equal("TreeNode");
-    expect(anonModule).to.not.equal(undefined);
     expect(
       leafInitializer &&
         leafInitializer.kind === "object" &&
-        leafInitializer.inferredType !== undefined &&
-        leafInitializer.inferredType.kind === "referenceType" &&
-        leafInitializer.inferredType.name
+        leafInitializer.inferredType?.kind === "referenceType"
+        ? leafInitializer.inferredType.name
+        : undefined
+    ).to.equal("TreeNode");
+    expect(anonModule).to.not.equal(undefined);
+    expect(adHocType?.kind).to.equal("referenceType");
+    expect(
+      adHocType && adHocType.kind === "referenceType" ? adHocType.name : undefined
+    ).to.match(/^__Anon_/);
+    expect(
+      adHocInitializer &&
+        adHocInitializer.kind === "object" &&
+        adHocInitializer.inferredType !== undefined &&
+        adHocInitializer.inferredType.kind === "referenceType" &&
+        adHocInitializer.inferredType.name
     ).to.match(/^__Anon_/);
   });
 });

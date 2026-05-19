@@ -176,6 +176,66 @@ const tryGetKnownReferenceIterableShape = (
   return undefined;
 };
 
+const tryGetInheritedReferenceIterableShape = (
+  state: TypeSystemState,
+  type: Extract<IrType, { kind: "referenceType" }>
+): IterableShape | undefined => {
+  const normalized = normalizeToNominal(state, type);
+  if (!normalized) {
+    return undefined;
+  }
+
+  for (const typeId of state.nominalEnv.getInheritanceChain(
+    normalized.typeId
+  )) {
+    if (typeId.stableId === normalized.typeId.stableId) {
+      continue;
+    }
+
+    const entry = state.unifiedCatalog.getByTypeId(typeId);
+    if (!entry) {
+      continue;
+    }
+
+    const substitution = state.nominalEnv.getInstantiation(
+      normalized.typeId,
+      normalized.typeArgs,
+      typeId
+    );
+    if (!substitution) {
+      continue;
+    }
+
+    const typeArguments = state.unifiedCatalog
+      .getTypeParameters(typeId)
+      .map(
+        (parameter): IrType =>
+          substitution.get(parameter.name) ?? {
+            kind: "typeParameterType",
+            name: parameter.name,
+          }
+      );
+
+    const inheritedType: Extract<IrType, { kind: "referenceType" }> = {
+      kind: "referenceType",
+      name: entry.typeId.sourceName,
+      typeId: entry.typeId,
+      typeArguments,
+      ...(entry.iterableShape ? { iterableShape: entry.iterableShape } : {}),
+    };
+
+    const inheritedShape = tryGetKnownReferenceIterableShape(
+      state,
+      inheritedType
+    );
+    if (inheritedShape) {
+      return inheritedShape;
+    }
+  }
+
+  return undefined;
+};
+
 export const getKnownIterableCarrierMode = (
   state: TypeSystemState,
   type: IrType | undefined
@@ -350,6 +410,14 @@ export const getIterableShape = (
   const knownShape = tryGetKnownReferenceIterableShape(state, normalized);
   if (knownShape) {
     return knownShape;
+  }
+
+  const inheritedShape = tryGetInheritedReferenceIterableShape(
+    state,
+    normalized
+  );
+  if (inheritedShape) {
+    return inheritedShape;
   }
 
   for (const returnType of resolveCallableMemberReturnTypes(

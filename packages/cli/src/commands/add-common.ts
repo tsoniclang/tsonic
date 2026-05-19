@@ -31,5 +31,6 @@ export {
 export type { TsbindgenClosureOutput } from "./add-common/tsbindgen.js";
 export {
   tsbindgenGenerate,
+  tsbindgenGenerateAsync,
   tsbindgenResolveClosure,
 } from "./add-common/tsbindgen.js";

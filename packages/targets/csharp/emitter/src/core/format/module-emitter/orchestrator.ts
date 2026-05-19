@@ -16,6 +16,7 @@ import { processImports } from "../../semantic/imports.js";
 import {
   buildLocalTypes,
   collectPublicLocalTypes,
+  collectStructuralInterfaceContracts,
 } from "../../semantic/local-types.js";
 import { analyzeMutableStorage } from "../../semantic/mutable-storage.js";
 import { generateHeader } from "./header.js";
@@ -60,7 +61,13 @@ export const emitModule = (
   module: IrModule,
   options: Partial<EmitterOptions> = {}
 ): string => {
-  const finalOptions: EmitterOptions = { ...defaultOptions, ...options };
+  const finalOptions: EmitterOptions = {
+    ...defaultOptions,
+    ...options,
+    structuralInterfaceContracts:
+      options.structuralInterfaceContracts ??
+      collectStructuralInterfaceContracts([module]),
+  };
   const baseContext = createContext(finalOptions);
 
   // Build local type index for property type lookup

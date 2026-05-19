@@ -242,6 +242,15 @@ export type CliOptions = {
    * into the generated directory (e.g. EF Core compiled models / interceptors).
    */
   noGenerate?: boolean;
+  /**
+   * Use the currently restored workspace dependency graph without invoking
+   * `tsonic restore` before a project command.
+   *
+   * Intended for orchestrators that run one workspace restore up front and then
+   * run independent project commands concurrently. Missing or stale generated
+   * bindings are still surfaced by the command that needs them.
+   */
+  noRestore?: boolean;
   noStrip?: boolean;
   lib?: string[]; // External library paths for .NET interop
   deps?: string[]; // Additional directories to probe for referenced assemblies/DLLs

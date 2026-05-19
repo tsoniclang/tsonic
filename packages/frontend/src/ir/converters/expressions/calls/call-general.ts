@@ -1644,6 +1644,8 @@ const scoreSourceSurfaceComplexity = (type: IrType | undefined): number => {
 };
 
 type SourceBackedSurfaceScore = {
+  readonly coversAllArguments: boolean;
+  readonly arityCoverageCount: number;
   readonly actualCoverageByIndex: readonly boolean[];
   readonly actualCoverageCount: number;
   readonly exactCount: number;
@@ -1656,6 +1658,7 @@ const scoreSourceBackedSurfaceCandidate = (
   candidateParameterTypes: readonly (IrType | undefined)[],
   selectedParameterTypes: readonly (IrType | undefined)[],
   actualArgTypes: readonly (IrType | undefined)[] | undefined,
+  argumentCount: number,
   ctx: ProgramContext
 ): SourceBackedSurfaceScore => {
   const containsAmbiguousSourceSurfaceType = (
@@ -1780,6 +1783,10 @@ const scoreSourceBackedSurfaceCandidate = (
   let nonBroadCount = 0;
   let complexity = 0;
   const actualCoverageByIndex: boolean[] = [];
+  const arityCoverageCount = Math.min(
+    candidateParameterTypes.length,
+    argumentCount
+  );
 
   const pairCount = Math.min(
     candidateParameterTypes.length,
@@ -1822,6 +1829,8 @@ const scoreSourceBackedSurfaceCandidate = (
   }
 
   return {
+    coversAllArguments: candidateParameterTypes.length >= argumentCount,
+    arityCoverageCount,
     actualCoverageByIndex,
     actualCoverageCount,
     exactCount,
@@ -1835,6 +1844,12 @@ const compareSourceSurfaceScores = (
   left: SourceBackedSurfaceScore,
   right: SourceBackedSurfaceScore
 ): number => {
+  const argumentCoverageDelta =
+    Number(left.coversAllArguments) - Number(right.coversAllArguments);
+  if (argumentCoverageDelta !== 0) {
+    return argumentCoverageDelta;
+  }
+
   const coverageCount = Math.max(
     left.actualCoverageByIndex.length,
     right.actualCoverageByIndex.length
@@ -1849,6 +1864,7 @@ const compareSourceSurfaceScores = (
   }
 
   const deltas = [
+    left.arityCoverageCount - right.arityCoverageCount,
     left.actualCoverageCount - right.actualCoverageCount,
     left.exactCount - right.exactCount,
     left.nonBroadCount - right.nonBroadCount,
@@ -2421,6 +2437,7 @@ export const getSourceBackedCallParameterTypes = (
         runtimeSurface.parameterTypes,
         selectedParameterTypes,
         actualArgTypes,
+        argumentCount,
         ctx
       );
 
@@ -2436,6 +2453,7 @@ export const getSourceBackedCallParameterTypes = (
           candidateSurface.parameterTypes,
           selectedParameterTypes,
           actualArgTypes,
+          argumentCount,
           ctx
         );
         if (compareSourceSurfaceScores(candidateScore, bestScore) > 0) {
@@ -2507,6 +2525,7 @@ export const getSourceBackedCallParameterTypes = (
       bestSurface.parameterTypes,
       selectedParameterTypes ?? [],
       actualArgTypes,
+      argumentCount,
       ctx
     );
 
@@ -2519,6 +2538,7 @@ export const getSourceBackedCallParameterTypes = (
         candidateSurface.parameterTypes,
         selectedParameterTypes ?? [],
         actualArgTypes,
+        argumentCount,
         ctx
       );
       if (compareSourceSurfaceScores(candidateScore, bestScore) > 0) {
@@ -2717,6 +2737,7 @@ export const getSourceBackedCallParameterTypes = (
         runtimeSurface.parameterTypes,
         selectedParameterTypes,
         actualArgTypes,
+        argumentCount,
         ctx
       );
       for (const candidate of publicCandidates) {
@@ -2731,6 +2752,7 @@ export const getSourceBackedCallParameterTypes = (
           candidateSurface.parameterTypes,
           selectedParameterTypes,
           actualArgTypes,
+          argumentCount,
           ctx
         );
         if (compareSourceSurfaceScores(candidateScore, bestScore) > 0) {
@@ -2764,6 +2786,7 @@ export const getSourceBackedCallParameterTypes = (
       runtimeSurface.parameterTypes,
       selectedParameterTypes,
       actualArgTypes,
+      argumentCount,
       ctx
     );
     for (const candidate of publicMethodCandidates) {
@@ -2778,6 +2801,7 @@ export const getSourceBackedCallParameterTypes = (
         candidateSurface.parameterTypes,
         selectedParameterTypes,
         actualArgTypes,
+        argumentCount,
         ctx
       );
       if (compareSourceSurfaceScores(candidateScore, bestScore) > 0) {

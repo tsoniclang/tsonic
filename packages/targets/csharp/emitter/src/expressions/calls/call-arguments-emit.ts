@@ -27,7 +27,10 @@ import {
   containsTypeParameter,
   getArrayLikeElementType,
 } from "../../core/semantic/type-resolution.js";
-import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
+import {
+  matchesExpectedEmissionType,
+  requiresValueTypeMaterialization,
+} from "../../core/semantic/expected-type-matching.js";
 import { getAcceptedParameterType } from "../../core/semantic/defaults.js";
 import { unwrapParameterModifierType } from "../../core/semantic/parameter-modifier-types.js";
 import {
@@ -952,6 +955,12 @@ const resolveAdaptationExpectedType = (
     return surfaceExpectedType;
   }
 
+  if (
+    requiresValueTypeMaterialization(surfaceExpectedType, finalExpectedType, context)
+  ) {
+    return finalExpectedType;
+  }
+
   return finalExpectedMatchesSurfaceCarrier(
     finalExpectedType,
     surfaceExpectedType,
@@ -1059,9 +1068,16 @@ const shouldPreserveOptionalSurfaceCarrierPassThrough = (opts: {
   readonly arg: IrExpression;
   readonly selectedExpectedType: IrType | undefined;
   readonly surfaceExpectedType: IrType | undefined;
+  readonly actualArgumentType: IrType | undefined;
   readonly context: EmitterContext;
 }): boolean => {
-  const { arg, selectedExpectedType, surfaceExpectedType, context } = opts;
+  const {
+    arg,
+    selectedExpectedType,
+    surfaceExpectedType,
+    actualArgumentType,
+    context,
+  } = opts;
   if (!selectedExpectedType || !surfaceExpectedType) {
     return false;
   }
@@ -1075,6 +1091,17 @@ const shouldPreserveOptionalSurfaceCarrierPassThrough = (opts: {
   }
 
   if (selectedNullishSplit?.hasRuntimeNullish) {
+    return false;
+  }
+
+  if (
+    requiresValueTypeMaterialization(
+      surfaceExpectedType,
+      selectedExpectedType,
+      context
+    ) &&
+    !hasRuntimeNullishSurface(actualArgumentType)
+  ) {
     return false;
   }
 
@@ -1142,9 +1169,16 @@ const shouldPreserveOptionalSurfaceRawEmission = (opts: {
   readonly arg: IrExpression;
   readonly selectedExpectedType: IrType | undefined;
   readonly surfaceExpectedType: IrType | undefined;
+  readonly actualArgumentType: IrType | undefined;
   readonly context: EmitterContext;
 }): boolean => {
-  const { arg, selectedExpectedType, surfaceExpectedType, context } = opts;
+  const {
+    arg,
+    selectedExpectedType,
+    surfaceExpectedType,
+    actualArgumentType,
+    context,
+  } = opts;
   if (!selectedExpectedType || !surfaceExpectedType) {
     return false;
   }
@@ -1156,6 +1190,17 @@ const shouldPreserveOptionalSurfaceRawEmission = (opts: {
   if (
     !surfaceNullishSplit?.hasRuntimeNullish ||
     selectedNullishSplit?.hasRuntimeNullish
+  ) {
+    return false;
+  }
+
+  if (
+    requiresValueTypeMaterialization(
+      surfaceExpectedType,
+      selectedExpectedType,
+      context
+    ) &&
+    !hasRuntimeNullishSurface(actualArgumentType)
   ) {
     return false;
   }
@@ -1233,6 +1278,53 @@ const shouldUseSurfaceCarrierForRawEmission = (opts: {
     surfaceExpectedType,
     context
   );
+};
+
+const resolveMaterializedValueRawExpectedType = (opts: {
+  readonly rawExpectedType: IrType | undefined;
+  readonly adaptationExpectedType: IrType | undefined;
+  readonly context: EmitterContext;
+}): IrType | undefined => {
+  const { rawExpectedType, adaptationExpectedType, context } = opts;
+  if (!rawExpectedType || !adaptationExpectedType) {
+    return rawExpectedType;
+  }
+
+  return requiresValueTypeMaterialization(
+    rawExpectedType,
+    adaptationExpectedType,
+    context
+  )
+    ? adaptationExpectedType
+    : rawExpectedType;
+};
+
+const suppressValueTypeCarrierPassThrough = (
+  candidate:
+    | {
+        readonly ast: CSharpExpressionAst;
+        readonly context: EmitterContext;
+        readonly actualType: IrType;
+      }
+    | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+):
+  | {
+      readonly ast: CSharpExpressionAst;
+      readonly context: EmitterContext;
+      readonly actualType: IrType;
+    }
+  | undefined => {
+  if (
+    candidate &&
+    expectedType &&
+    requiresValueTypeMaterialization(candidate.actualType, expectedType, context)
+  ) {
+    return undefined;
+  }
+
+  return candidate;
 };
 
 const shouldDeferStructuralObjectArgumentMaterialization = (opts: {
@@ -1440,6 +1532,39 @@ const selectNumericCastArgumentType = (
 const hasRuntimeNullishSurface = (type: IrType | undefined): boolean =>
   type !== undefined &&
   (splitRuntimeNullishUnionMembers(type)?.hasRuntimeNullish ?? false);
+
+const resolveOptionalSurfaceExpectedTypeForNullishActual = (opts: {
+  readonly selectedExpectedType: IrType | undefined;
+  readonly surfaceExpectedType: IrType | undefined;
+  readonly actualArgumentType: IrType | undefined;
+  readonly context: EmitterContext;
+}): IrType | undefined => {
+  const {
+    selectedExpectedType,
+    surfaceExpectedType,
+    actualArgumentType,
+    context,
+  } = opts;
+  if (
+    !selectedExpectedType ||
+    !surfaceExpectedType ||
+    !actualArgumentType ||
+    !hasRuntimeNullishSurface(surfaceExpectedType) ||
+    !hasRuntimeNullishSurface(actualArgumentType) ||
+    hasRuntimeNullishSurface(selectedExpectedType)
+  ) {
+    return undefined;
+  }
+
+  const selectedCoreType = stripNullish(selectedExpectedType);
+  const surfaceCoreType = stripNullish(surfaceExpectedType);
+  const coresMatch =
+    areIrTypesEquivalent(selectedCoreType, surfaceCoreType, context) ||
+    (matchesExpectedEmissionType(selectedCoreType, surfaceCoreType, context) &&
+      matchesExpectedEmissionType(surfaceCoreType, selectedCoreType, context));
+
+  return coresMatch ? surfaceExpectedType : undefined;
+};
 
 const numericCoreTypesMatch = (
   left: IrType | undefined,
@@ -2061,6 +2186,24 @@ const resolvePreEmitActualArgumentType = (
   );
 };
 
+const shouldDeferCollectionCarrierRawEmission = (opts: {
+  readonly arg: IrExpression;
+  readonly sourceType: IrType | undefined;
+  readonly rawExpectedType: IrType | undefined;
+  readonly context: EmitterContext;
+}): boolean => {
+  const { arg, sourceType, rawExpectedType, context } = opts;
+  if (!sourceType || !rawExpectedType || arg.kind === "array") {
+    return false;
+  }
+
+  return hasMismatchedCollectionElementCarrier(
+    sourceType,
+    rawExpectedType,
+    context
+  );
+};
+
 const resolveGenericBroadObjectFallbackExpectedType = (
   expr: Extract<IrExpression, { kind: "call" }>,
   args: readonly IrExpression[],
@@ -2375,6 +2518,7 @@ const emitFunctionValueCallArguments = (
           arg,
           selectedExpectedType,
           surfaceExpectedType: surfaceParameterType,
+          actualArgumentType: preEmitActualArgumentType,
           context: currentContext,
         });
       const explicitNullishSurfaceExpectedType =
@@ -2388,10 +2532,18 @@ const emitFunctionValueCallArguments = (
           selectedExpectedType,
           surfaceExpectedType: surfaceParameterType,
           runtimeExpectedType,
-          actualArgumentType: preEmitStorageAwareArgumentType,
+          actualArgumentType: preEmitActualArgumentType,
+        });
+      const nullishActualSurfaceExpectedType =
+        resolveOptionalSurfaceExpectedTypeForNullishActual({
+          selectedExpectedType,
+          surfaceExpectedType: surfaceParameterType,
+          actualArgumentType: preEmitActualArgumentType,
+          context: currentContext,
         });
       const preservedSurfaceRuntimeType =
-        preserveOptionalSurfaceCarrierPassThrough
+        nullishActualSurfaceExpectedType ??
+        (preserveOptionalSurfaceCarrierPassThrough
           ? surfaceParameterType
           : shouldPreserveSurfaceRuntimeExpectedType({
                 selectedExpectedType,
@@ -2399,7 +2551,7 @@ const emitFunctionValueCallArguments = (
                 context: currentContext,
               })
             ? surfaceParameterType
-            : undefined;
+            : undefined);
       const finalExpectedType =
         explicitNonNullishOptionalExpectedType ??
         explicitNullishSurfaceExpectedType ??
@@ -2427,30 +2579,36 @@ const emitFunctionValueCallArguments = (
       );
       const rawEmitExpectedTypeCandidate =
         explicitNonNullishOptionalExpectedType ??
-        explicitNullishSurfaceExpectedType ??
-        preservedSurfaceRuntimeType ??
-        (shouldPreserveOptionalSurfaceRawEmission({
-          arg,
-          selectedExpectedType,
-          surfaceExpectedType: surfaceParameterType,
+        resolveMaterializedValueRawExpectedType({
+          rawExpectedType:
+            explicitNullishSurfaceExpectedType ??
+            preservedSurfaceRuntimeType ??
+            (shouldPreserveOptionalSurfaceRawEmission({
+              arg,
+              selectedExpectedType,
+              surfaceExpectedType: surfaceParameterType,
+              actualArgumentType: preEmitActualArgumentType,
+              context: currentContext,
+            })
+              ? surfaceParameterType
+              : shouldUseSurfaceCarrierForRawEmission({
+                    arg,
+                    adaptationExpectedType,
+                    surfaceExpectedType: surfaceParameterType,
+                    context: currentContext,
+                  })
+                ? surfaceParameterType
+                : resolveCarrierPreservingRawExpectedType({
+                    expr: arg,
+                    selectedExpectedType,
+                    contextualExpectedType,
+                    surfaceExpectedType: surfaceParameterType,
+                    finalExpectedType: adaptationExpectedType,
+                    context: currentContext,
+                  })),
+          adaptationExpectedType,
           context: currentContext,
-        })
-          ? surfaceParameterType
-          : shouldUseSurfaceCarrierForRawEmission({
-                arg,
-                adaptationExpectedType,
-                surfaceExpectedType: surfaceParameterType,
-                context: currentContext,
-              })
-            ? surfaceParameterType
-            : resolveCarrierPreservingRawExpectedType({
-                expr: arg,
-                selectedExpectedType,
-                contextualExpectedType,
-                surfaceExpectedType: surfaceParameterType,
-                finalExpectedType: adaptationExpectedType,
-                context: currentContext,
-              }));
+        });
       const contextualRawEmitExpectedTypeCandidate =
         arg.kind === "arrowFunction" || arg.kind === "functionExpression"
           ? (surfaceParameterType ??
@@ -2461,19 +2619,32 @@ const emitFunctionValueCallArguments = (
             finalExpectedType ??
             selectedExpectedType)
           : rawEmitExpectedTypeCandidate;
-      const rawEmitExpectedType =
-        shouldDeferStructuralObjectArgumentMaterialization({
+      const collectionSafeRawEmitExpectedTypeCandidate =
+        shouldDeferCollectionCarrierRawEmission({
           arg,
+          sourceType: preEmitStorageAwareArgumentType ?? preEmitActualArgumentType,
           rawExpectedType: contextualRawEmitExpectedTypeCandidate,
           context: currentContext,
         })
           ? undefined
           : contextualRawEmitExpectedTypeCandidate;
-      const carrierPassThroughArgument = tryEmitCarrierPreservingExpressionAst({
-        expr: arg,
-        expectedType: adaptationExpectedType,
-        context: currentContext,
-      });
+      const rawEmitExpectedType =
+        shouldDeferStructuralObjectArgumentMaterialization({
+          arg,
+          rawExpectedType: collectionSafeRawEmitExpectedTypeCandidate,
+          context: currentContext,
+        })
+          ? undefined
+          : collectionSafeRawEmitExpectedTypeCandidate;
+      const carrierPassThroughArgument = suppressValueTypeCarrierPassThrough(
+        tryEmitCarrierPreservingExpressionAst({
+          expr: arg,
+          expectedType: adaptationExpectedType,
+          context: currentContext,
+        }),
+        adaptationExpectedType,
+        currentContext
+      );
       const selectedCarrierSourceArgument =
         tryEmitSelectedRuntimeCarrierSourceAst({
           arg,
@@ -3250,6 +3421,7 @@ const emitCallArguments = (
         arg,
         selectedExpectedType: expectedType,
         surfaceExpectedType: surfaceParameterType,
+        actualArgumentType: preEmitActualArgumentType,
         context: currentContext,
       });
     const explicitNullishSurfaceExpectedType =
@@ -3263,18 +3435,26 @@ const emitCallArguments = (
         selectedExpectedType: expectedType,
         surfaceExpectedType: surfaceParameterType,
         runtimeExpectedType: normalizedRuntime,
-        actualArgumentType: preEmitStorageAwareArgumentType,
+        actualArgumentType: preEmitActualArgumentType,
+      });
+    const nullishActualSurfaceExpectedType =
+      resolveOptionalSurfaceExpectedTypeForNullishActual({
+        selectedExpectedType: expectedType,
+        surfaceExpectedType: surfaceParameterType,
+        actualArgumentType: preEmitActualArgumentType,
+        context: currentContext,
       });
     const preservedSurfaceRuntimeType =
-      preserveOptionalSurfaceCarrierPassThrough
+      nullishActualSurfaceExpectedType ??
+      (preserveOptionalSurfaceCarrierPassThrough
         ? surfaceParameterType
         : shouldPreserveSurfaceRuntimeExpectedType({
               selectedExpectedType: expectedType,
               surfaceExpectedType: surfaceParameterType,
               context: currentContext,
             })
-        ? surfaceParameterType
-        : undefined;
+          ? surfaceParameterType
+          : undefined);
     const finalExpectedType =
       explicitNonNullishOptionalExpectedType ??
       explicitNullishSurfaceExpectedType ??
@@ -3302,30 +3482,36 @@ const emitCallArguments = (
     );
     const rawEmitExpectedTypeCandidate =
       explicitNonNullishOptionalExpectedType ??
-      explicitNullishSurfaceExpectedType ??
-      preservedSurfaceRuntimeType ??
-      (shouldPreserveOptionalSurfaceRawEmission({
-        arg,
-        selectedExpectedType: expectedType,
-        surfaceExpectedType: surfaceParameterType,
+      resolveMaterializedValueRawExpectedType({
+        rawExpectedType:
+          explicitNullishSurfaceExpectedType ??
+          preservedSurfaceRuntimeType ??
+          (shouldPreserveOptionalSurfaceRawEmission({
+            arg,
+            selectedExpectedType: expectedType,
+            surfaceExpectedType: surfaceParameterType,
+            actualArgumentType: preEmitActualArgumentType,
+            context: currentContext,
+          })
+            ? surfaceParameterType
+            : shouldUseSurfaceCarrierForRawEmission({
+                  arg,
+                  adaptationExpectedType,
+                  surfaceExpectedType: surfaceParameterType,
+                  context: currentContext,
+                })
+              ? surfaceParameterType
+              : resolveCarrierPreservingRawExpectedType({
+                  expr: arg,
+                  selectedExpectedType: expectedType,
+                  contextualExpectedType,
+                  surfaceExpectedType: surfaceParameterType,
+                  finalExpectedType: adaptationExpectedType,
+                  context: currentContext,
+                })),
+        adaptationExpectedType,
         context: currentContext,
-      })
-        ? surfaceParameterType
-        : shouldUseSurfaceCarrierForRawEmission({
-              arg,
-              adaptationExpectedType,
-              surfaceExpectedType: surfaceParameterType,
-              context: currentContext,
-            })
-          ? surfaceParameterType
-          : resolveCarrierPreservingRawExpectedType({
-              expr: arg,
-              selectedExpectedType: expectedType,
-              contextualExpectedType,
-              surfaceExpectedType: surfaceParameterType,
-              finalExpectedType: adaptationExpectedType,
-              context: currentContext,
-            }));
+      });
     const contextualRawEmitExpectedTypeCandidate =
       arg.kind === "arrowFunction" || arg.kind === "functionExpression"
         ? (surfaceParameterType ??
@@ -3336,14 +3522,23 @@ const emitCallArguments = (
           finalExpectedType ??
           expectedType)
         : rawEmitExpectedTypeCandidate;
-    const rawEmitExpectedType =
-      shouldDeferStructuralObjectArgumentMaterialization({
+    const collectionSafeRawEmitExpectedTypeCandidate =
+      shouldDeferCollectionCarrierRawEmission({
         arg,
+        sourceType: preEmitStorageAwareArgumentType ?? preEmitActualArgumentType,
         rawExpectedType: contextualRawEmitExpectedTypeCandidate,
         context: currentContext,
       })
         ? undefined
         : contextualRawEmitExpectedTypeCandidate;
+    const rawEmitExpectedType =
+      shouldDeferStructuralObjectArgumentMaterialization({
+        arg,
+        rawExpectedType: collectionSafeRawEmitExpectedTypeCandidate,
+        context: currentContext,
+      })
+        ? undefined
+        : collectionSafeRawEmitExpectedTypeCandidate;
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
         arg.expression,
@@ -3375,12 +3570,15 @@ const emitCallArguments = (
         const preEmitEffectiveArgumentType =
           resolveEffectiveExpressionType(arg, currentContext) ??
           arg.inferredType;
-        const carrierPassThroughArgument =
+        const carrierPassThroughArgument = suppressValueTypeCarrierPassThrough(
           tryEmitCarrierPreservingExpressionAst({
             expr: arg,
             expectedType: adaptationExpectedType,
             context: currentContext,
-          });
+          }),
+          adaptationExpectedType,
+          currentContext
+        );
         const selectedCarrierSourceArgument =
           tryEmitSelectedRuntimeCarrierSourceAst({
             arg,

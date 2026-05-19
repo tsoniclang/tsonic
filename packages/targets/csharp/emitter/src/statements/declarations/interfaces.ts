@@ -18,6 +18,7 @@ import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
 import { normalizeValueSlotType } from "../../core/semantic/value-slot-types.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { structuralInterfaceContractKey } from "../../core/semantic/local-types.js";
 import type {
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
@@ -46,6 +47,14 @@ export const emitInterfaceDeclaration = (
   const hasMethodSignatures = stmt.members.some(
     (m) => m.kind === "methodSignature"
   );
+  const emitsAsNativeInterface =
+    hasMethodSignatures ||
+    context.options.structuralInterfaceContracts?.has(
+      structuralInterfaceContractKey(
+        context.moduleNamespace ?? context.options.rootNamespace,
+        stmt.name
+      )
+    ) === true;
 
   // Build type parameter names set FIRST
   const ifaceTypeParams = new Set<string>([
@@ -123,7 +132,7 @@ export const emitInterfaceDeclaration = (
   const members: CSharpMemberAst[] = [];
 
   for (const member of stmt.members) {
-    if (!hasMethodSignatures) {
+    if (!emitsAsNativeInterface) {
       // Property-only interface → class/struct members
       const [memberAst, newContext] = emitInterfaceMemberAsProperty(
         member,
@@ -217,7 +226,7 @@ export const emitInterfaceDeclaration = (
     (m) => m.kind === "propertyDeclaration" && m.modifiers.includes("required")
   );
   const extendsRequireSetsRequiredMembersCtor =
-    !hasMethodSignatures &&
+    !emitsAsNativeInterface &&
     (stmt.extends?.some(
       (ext) =>
         ext.kind === "referenceType" &&
@@ -225,7 +234,7 @@ export const emitInterfaceDeclaration = (
     ) ??
       false);
   const needsSetsRequiredMembersCtor =
-    !hasMethodSignatures &&
+    !emitsAsNativeInterface &&
     !stmt.isStruct &&
     (hasRequiredMembers || extendsRequireSetsRequiredMembersCtor);
   if (needsSetsRequiredMembersCtor) {
@@ -246,7 +255,7 @@ export const emitInterfaceDeclaration = (
   }
 
   // Determine C# declaration kind
-  const mainDecl: CSharpTypeDeclarationAst = hasMethodSignatures
+  const mainDecl: CSharpTypeDeclarationAst = emitsAsNativeInterface
     ? {
         kind: "interfaceDeclaration",
         attributes: declAttributes,

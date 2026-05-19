@@ -490,7 +490,12 @@ const getUnsupportedRuntimeClassModifier = (
 ): string | undefined => {
   if (isAmbientOrDeclarationNode(node)) return undefined;
 
-  if (hasModifier(node, ts.SyntaxKind.AbstractKeyword)) return "abstract";
+  if (
+    !ts.isClassDeclaration(node) &&
+    hasModifier(node, ts.SyntaxKind.AbstractKeyword)
+  ) {
+    return "abstract";
+  }
 
   return undefined;
 };

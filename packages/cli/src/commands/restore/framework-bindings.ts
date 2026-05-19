@@ -6,9 +6,11 @@ import {
   installGeneratedBindingsPackage,
   resolveFromProjectRoot,
   tsbindgenGenerate,
+  tsbindgenGenerateAsync,
   type AddCommandOptions,
   type DotnetRuntime,
 } from "../add-common.js";
+import { runResultTasks } from "./parallel.js";
 
 type GenerateFrameworkBindingsOptions = {
   readonly frameworkReferences: readonly FrameworkReferenceConfig[];
@@ -93,4 +95,75 @@ export const generateFrameworkBindings = ({
   }
 
   return { ok: true, value: undefined };
+};
+
+export const generateFrameworkBindingsAsync = async ({
+  frameworkReferences,
+  runtimes,
+  workspaceRoot,
+  dotnetLib,
+  tsbindgenDll,
+  options,
+}: GenerateFrameworkBindingsOptions): Promise<Result<void, string>> => {
+  return runResultTasks(
+    frameworkReferences.map((entry) => async () => {
+      const frameworkRef = typeof entry === "string" ? entry : entry.id;
+      const typesPackage = typeof entry === "string" ? undefined : entry.types;
+      if (typesPackage !== undefined) return { ok: true, value: undefined };
+
+      const runtime = runtimes.find(
+        (candidate) => candidate.name === frameworkRef
+      );
+      if (!runtime) {
+        const available = runtimes
+          .map((candidate) => `${candidate.name} ${candidate.version}`)
+          .join("\n");
+        return {
+          ok: false,
+          error:
+            `Framework runtime not found: ${frameworkRef}\n` +
+            `Installed runtimes:\n${available}`,
+        };
+      }
+
+      const packageName = defaultBindingsPackageNameForFramework(frameworkRef);
+      const outDir = bindingsStoreDir(workspaceRoot, "framework", packageName);
+      const pkgJsonResult = ensureGeneratedBindingsPackageJson(
+        outDir,
+        packageName,
+        {
+          kind: "framework",
+          source: { frameworkReference: frameworkRef },
+        }
+      );
+      if (!pkgJsonResult.ok) return pkgJsonResult;
+
+      const generateArgs: string[] = [
+        "-d",
+        runtime.dir,
+        "-o",
+        outDir,
+        "--lib",
+        dotnetLib,
+      ];
+      for (const candidate of runtimes)
+        generateArgs.push("--ref-dir", candidate.dir);
+      for (const dep of options.deps ?? []) {
+        generateArgs.push(
+          "--ref-dir",
+          resolveFromProjectRoot(workspaceRoot, dep)
+        );
+      }
+
+      const genResult = await tsbindgenGenerateAsync(
+        workspaceRoot,
+        tsbindgenDll,
+        generateArgs,
+        options
+      );
+      if (!genResult.ok) return genResult;
+
+      return installGeneratedBindingsPackage(workspaceRoot, packageName, outDir);
+    })
+  );
 };

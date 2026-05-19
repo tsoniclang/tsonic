@@ -71,7 +71,7 @@ export const requiresValueTypeMaterialization = (
   }
 
   const resolvedExpected = resolveComparableType(expectedType, context);
-  return isDefinitelyValueType(resolvedExpected);
+  return isDefinitelyValueType(resolvedExpected, context);
 };
 
 const matchesRawSemanticComparableTypes = (

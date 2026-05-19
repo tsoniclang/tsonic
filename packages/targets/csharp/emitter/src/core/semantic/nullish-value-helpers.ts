@@ -174,7 +174,46 @@ const TS_VALUE_TYPE_REFERENCE_NAMES = new Set([
  * @param type - The type to check (should be non-nullish, use stripNullish first)
  * @returns true if the type is a known value type
  */
-export const isDefinitelyValueType = (type: IrType): boolean => {
+const resolveBoundTypeKind = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext | undefined
+): "class" | "interface" | "struct" | "enum" | undefined => {
+  if (!context) {
+    return undefined;
+  }
+
+  const candidates = new Set<string>();
+  const addCandidate = (value: string | undefined): void => {
+    if (!value) return;
+    candidates.add(value);
+    candidates.add(value.replace(/^global::/, ""));
+    const leaf = value.split(".").pop();
+    if (leaf) {
+      candidates.add(leaf);
+    }
+  };
+
+  addCandidate(type.name);
+  addCandidate(type.providerQualifiedName);
+  addCandidate(type.typeId?.sourceName);
+  addCandidate(type.typeId?.providerName);
+
+  for (const candidate of candidates) {
+    const binding =
+      context.bindingsRegistry?.get(candidate) ??
+      context.bindingRegistry?.getType(candidate);
+    if (binding?.kind === "struct" || binding?.kind === "enum") {
+      return binding.kind;
+    }
+  }
+
+  return undefined;
+};
+
+export const isDefinitelyValueType = (
+  type: IrType,
+  context?: EmitterContext
+): boolean => {
   // Strip nullish first if caller forgot
   const base = stripNullish(type);
 
@@ -194,6 +233,22 @@ export const isDefinitelyValueType = (type: IrType): boolean => {
     }
     const clr = base.providerQualifiedName;
     if (clr && CLR_VALUE_TYPES.has(clr)) {
+      return true;
+    }
+    const localInfo = context
+      ? resolveLocalTypeInfo(base, context)?.info
+      : undefined;
+    if (
+      localInfo?.kind === "enum" ||
+      ((localInfo?.kind === "class" ||
+        localInfo?.kind === "interface" ||
+        localInfo?.kind === "typeAlias") &&
+        localInfo.isStruct === true)
+    ) {
+      return true;
+    }
+    const boundKind = resolveBoundTypeKind(base, context);
+    if (boundKind === "struct" || boundKind === "enum") {
       return true;
     }
   }
