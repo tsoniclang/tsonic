@@ -60,8 +60,8 @@ const walkFiles = (dir: string): readonly string[] => {
 const productFiles = (): readonly string[] =>
   [
     join(repoRoot, "packages/frontend/src"),
-    join(repoRoot, "packages/emitter/src"),
-    join(repoRoot, "packages/backend/src"),
+    join(repoRoot, "packages/targets/csharp/emitter/src"),
+    join(repoRoot, "packages/targets/csharp/backend/src"),
     join(repoRoot, "packages/cli/src"),
     join(repoRoot, "test/scripts"),
   ]
@@ -217,12 +217,13 @@ describe("architecture completion tracker", () => {
     expect(expressions).to.include(
       "Provider-local binding keys for externally-owned global/module values"
     );
-    expect(expressions).to.include(
-      "target render table"
-    );
+    expect(expressions).to.include("target render table");
 
     const virtualMarking = readFileSync(
-      join(repoRoot, "packages/frontend/src/ir/validation/virtual-marking-pass.ts"),
+      join(
+        repoRoot,
+        "packages/frontend/src/ir/validation/virtual-marking-pass.ts"
+      ),
       "utf8"
     );
     expect(virtualMarking).to.include(
@@ -261,11 +262,16 @@ describe("architecture completion tracker", () => {
 
   it("keeps greenfield-only artifacts instead of compatibility shims", () => {
     expect(
-      existsSync(join(repoRoot, "packages/emitter/src/test-ir-strict.ts"))
+      existsSync(
+        join(repoRoot, "packages/targets/csharp/emitter/src/test-ir-strict.ts")
+      )
     ).to.equal(true);
     expect(
       existsSync(
-        join(repoRoot, "packages/emitter/src/test-ir-normalization.ts")
+        join(
+          repoRoot,
+          "packages/targets/csharp/emitter/src/test-ir-normalization.ts"
+        )
       )
     ).to.equal(false);
     expect(
@@ -287,7 +293,9 @@ describe("architecture completion tracker", () => {
       join(repoRoot, "packages/frontend/src/ir/types/phases.ts"),
       "utf8"
     );
-    expect(phases).to.include("declare const backendTargetBrand: unique symbol");
+    expect(phases).to.include(
+      "declare const backendTargetBrand: unique symbol"
+    );
     expect(phases).to.include("defineBackendTargetId");
     expect(phases).to.include("declare const irTargetBrand: unique symbol");
     expect(phases).to.include("export type EmittableIrModule<");
@@ -300,7 +308,7 @@ describe("architecture completion tracker", () => {
     expect(pipeline).to.include("options.backendTargetId");
 
     const emitter = readFileSync(
-      join(repoRoot, "packages/emitter/src/emitter.ts"),
+      join(repoRoot, "packages/targets/csharp/emitter/src/emitter.ts"),
       "utf8"
     );
     expect(emitter).to.include("CSharpEmittableIrModule");

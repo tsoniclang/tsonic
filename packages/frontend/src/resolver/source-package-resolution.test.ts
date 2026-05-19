@@ -1,9 +1,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import { readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import {
   getLocalResolutionBoundary,
   isPathWithinBoundary,
+  resolveSourcePackageAliasTarget,
   resolveSourcePackageImport,
   resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
@@ -88,6 +90,99 @@ describe("Source Package Resolution", () => {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
       expect(result.value).to.equal(null);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("should reject source packages that do not support the active backend target", () => {
+    const fixture = materializeFrontendFixture(
+      "resolver/source-package-resolution/installed-source-package"
+    );
+
+    try {
+      const tempDir = fixture.path("app");
+      const entryPath = fixture.path("app/src/index.ts");
+      const packageRoot = fixture.path("app/node_modules/@acme/math");
+      const manifestPath = path.join(packageRoot, "tsonic.package.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+        supportedTargets?: readonly string[];
+      };
+      writeFileSync(
+        manifestPath,
+        JSON.stringify(
+          {
+            ...manifest,
+            supportedTargets: ["rust"],
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      const result = resolveSourcePackageImport(
+        "@acme/math",
+        entryPath,
+        "@tsonic/js",
+        tempDir,
+        "csharp"
+      );
+
+      expect(result.ok).to.equal(false);
+      if (result.ok) return;
+      expect(result.error.message).to.include(
+        "does not support target 'csharp'"
+      );
+      expect(result.error.hint).to.equal("Supported targets: rust");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("should reject source package alias targets that do not support the active backend target", () => {
+    const fixture = materializeFrontendFixture(
+      "resolver/source-package-resolution/installed-source-package"
+    );
+
+    try {
+      const tempDir = fixture.path("app");
+      const packageRoot = fixture.path("app/node_modules/@acme/math");
+      const manifestPath = path.join(packageRoot, "tsonic.package.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+        source: Record<string, unknown>;
+      };
+      writeFileSync(
+        manifestPath,
+        JSON.stringify(
+          {
+            ...manifest,
+            supportedTargets: ["rust"],
+            source: {
+              ...manifest.source,
+              namespace: "Acme.Math",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      const result = resolveSourcePackageAliasTarget(
+        ".",
+        packageRoot,
+        "@tsonic/js",
+        tempDir,
+        "csharp"
+      );
+
+      expect(result.ok).to.equal(false);
+      if (result.ok) return;
+      expect(result.error.message).to.include(
+        "does not support target 'csharp'"
+      );
+      expect(result.error.hint).to.equal("Supported targets: rust");
     } finally {
       fixture.cleanup();
     }

@@ -131,15 +131,28 @@ fi
 
 # 5. Ensure all packages have the same version (including wrapper)
 echo "=== Checking package version consistency ==="
-PACKAGES=(frontend emitter backend cli)
+PACKAGE_PATHS=(
+    "packages/frontend"
+    "packages/targets/csharp/emitter"
+    "packages/targets/csharp/backend"
+    "packages/cli"
+)
+PACKAGE_NAMES=(
+    "@tsonic/frontend"
+    "@tsonic/csharp-emitter"
+    "@tsonic/csharp-backend"
+    "@tsonic/cli"
+)
 FIRST_VERSION=$(node -p "require('./packages/cli/package.json').version")
 
-for pkg in "${PACKAGES[@]}"; do
-    PKG_VERSION=$(node -p "require('./packages/$pkg/package.json').version")
+for i in "${!PACKAGE_PATHS[@]}"; do
+    pkg_path="${PACKAGE_PATHS[$i]}"
+    pkg_name="${PACKAGE_NAMES[$i]}"
+    PKG_VERSION=$(node -p "require('./$pkg_path/package.json').version")
     if [ "$PKG_VERSION" != "$FIRST_VERSION" ]; then
         echo "Error: Package version mismatch!"
         echo "  @tsonic/cli: $FIRST_VERSION"
-        echo "  @tsonic/$pkg: $PKG_VERSION"
+        echo "  $pkg_name: $PKG_VERSION"
         echo "All packages must have the same version."
         exit 1
     fi
@@ -181,19 +194,21 @@ echo "=== Checking versions against npm ==="
 NEEDS_BUMP=()
 ALL_GREATER=true
 
-for pkg in "${PACKAGES[@]}"; do
-    LOCAL_VER=$(node -p "require('./packages/$pkg/package.json').version")
-    NPM_VER=$(npm view @tsonic/$pkg version 2>/dev/null || echo "0.0.0")
+for i in "${!PACKAGE_PATHS[@]}"; do
+    pkg_path="${PACKAGE_PATHS[$i]}"
+    pkg_name="${PACKAGE_NAMES[$i]}"
+    LOCAL_VER=$(node -p "require('./$pkg_path/package.json').version")
+    NPM_VER=$(npm view "$pkg_name" version 2>/dev/null || echo "0.0.0")
     CMP=$(compare_versions "$LOCAL_VER" "$NPM_VER")
 
-    echo "  @tsonic/$pkg: local=$LOCAL_VER npm=$NPM_VER"
+    echo "  $pkg_name: local=$LOCAL_VER npm=$NPM_VER"
 
     if [ "$CMP" = "-1" ]; then
-        echo "Error: Local version ($LOCAL_VER) is LESS than npm version ($NPM_VER) for @tsonic/$pkg"
+        echo "Error: Local version ($LOCAL_VER) is LESS than npm version ($NPM_VER) for $pkg_name"
         echo "This should never happen. Please investigate."
         exit 1
     elif [ "$CMP" = "0" ]; then
-        NEEDS_BUMP+=("$pkg")
+        NEEDS_BUMP+=("$pkg_name")
         ALL_GREATER=false
     fi
 done
@@ -238,10 +253,10 @@ if [ "$ALL_GREATER" != true ]; then
     echo "=== Bumping versions to $NEW_VERSION ==="
 
     # Update all package.json files
-    for pkg in "${PACKAGES[@]}"; do
+    for pkg_path in "${PACKAGE_PATHS[@]}"; do
         node -e "
             const fs = require('fs');
-            const path = './packages/$pkg/package.json';
+            const path = './$pkg_path/package.json';
             const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
             pkg.version = '$NEW_VERSION';
             fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
@@ -254,15 +269,15 @@ if [ "$ALL_GREATER" != true ]; then
         const path = './packages/cli/package.json';
         const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
         pkg.dependencies['@tsonic/frontend'] = '$NEW_VERSION';
-        pkg.dependencies['@tsonic/emitter'] = '$NEW_VERSION';
-        pkg.dependencies['@tsonic/backend'] = '$NEW_VERSION';
+        pkg.dependencies['@tsonic/csharp-emitter'] = '$NEW_VERSION';
+        pkg.dependencies['@tsonic/csharp-backend'] = '$NEW_VERSION';
         fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
     "
 
     # Update internal dependencies in emitter/package.json
     node -e "
         const fs = require('fs');
-        const path = './packages/emitter/package.json';
+        const path = './packages/targets/csharp/emitter/package.json';
         const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
         pkg.dependencies['@tsonic/frontend'] = '$NEW_VERSION';
         fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
@@ -271,10 +286,10 @@ if [ "$ALL_GREATER" != true ]; then
     # Update internal dependencies in backend/package.json
     node -e "
         const fs = require('fs');
-        const path = './packages/backend/package.json';
+        const path = './packages/targets/csharp/backend/package.json';
         const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
         pkg.dependencies['@tsonic/frontend'] = '$NEW_VERSION';
-        pkg.dependencies['@tsonic/emitter'] = '$NEW_VERSION';
+        pkg.dependencies['@tsonic/csharp-emitter'] = '$NEW_VERSION';
         fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
     "
 
@@ -305,7 +320,10 @@ if [ "$ALL_GREATER" != true ]; then
     npm install --package-lock-only --ignore-scripts
 
     echo "=== Committing version changes ==="
-    git add package.json package-lock.json packages/*/package.json npm/tsonic/package.json
+    git add package.json package-lock.json npm/tsonic/package.json
+    for pkg_path in "${PACKAGE_PATHS[@]}"; do
+        git add "$pkg_path/package.json"
+    done
     git commit -m "chore: bump version to $NEW_VERSION"
     git push -u origin HEAD
 
@@ -417,10 +435,12 @@ CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
 # ============================================================
 
 echo "=== Publishing @tsonic packages ==="
-for pkg in "${PACKAGES[@]}"; do
-    PKG_VERSION=$(node -p "require('$ROOT_DIR/packages/$pkg/package.json').version")
-    echo "Publishing @tsonic/$pkg@$PKG_VERSION..."
-    cd "$ROOT_DIR/packages/$pkg"
+for i in "${!PACKAGE_PATHS[@]}"; do
+    pkg_path="${PACKAGE_PATHS[$i]}"
+    pkg_name="${PACKAGE_NAMES[$i]}"
+    PKG_VERSION=$(node -p "require('$ROOT_DIR/$pkg_path/package.json').version")
+    echo "Publishing $pkg_name@$PKG_VERSION..."
+    cd "$ROOT_DIR/$pkg_path"
     npm publish --access public
     cd "$ROOT_DIR"
 done
@@ -442,8 +462,10 @@ cd "$ROOT_DIR"
 echo ""
 echo "=== Done ==="
 echo "Published:"
-for pkg in "${PACKAGES[@]}"; do
-    PKG_VERSION=$(node -p "require('$ROOT_DIR/packages/$pkg/package.json').version")
-    echo "  - @tsonic/$pkg@$PKG_VERSION"
+for i in "${!PACKAGE_PATHS[@]}"; do
+    pkg_path="${PACKAGE_PATHS[$i]}"
+    pkg_name="${PACKAGE_NAMES[$i]}"
+    PKG_VERSION=$(node -p "require('$ROOT_DIR/$pkg_path/package.json').version")
+    echo "  - $pkg_name@$PKG_VERSION"
 done
 echo "  - tsonic@$CLI_VERSION"

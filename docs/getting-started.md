@@ -148,6 +148,7 @@ Example:
   "schemaVersion": 1,
   "kind": "tsonic-source-package",
   "surfaces": ["@tsonic/js"],
+  "supportedTargets": ["csharp"],
   "source": {
     "exports": {
       ".": "./src/App.ts",

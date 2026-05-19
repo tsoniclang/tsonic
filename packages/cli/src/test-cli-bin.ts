@@ -50,7 +50,7 @@ export const getStableCliPath = (repoRoot: string): string => {
       [
         "#!/usr/bin/env node",
         `process.env.TSONIC_REPO_ROOT ??= ${JSON.stringify(repoRoot)};`,
-        'import "./dist/index.js";',
+        'await import("./dist/index.js");',
         "",
       ].join("\n"),
       "utf-8"

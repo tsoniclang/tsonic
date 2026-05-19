@@ -546,6 +546,59 @@ export const getOrCreateMemberId = (
   return id;
 };
 
+const hasStaticModifier = (node: ts.Node): boolean => {
+  const modifiers = (
+    node as ts.Node & {
+      readonly modifiers?: readonly ts.ModifierLike[];
+    }
+  ).modifiers;
+  return !!modifiers?.some(
+    (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
+  );
+};
+
+const isClassValueMemberDeclaration = (
+  decl: ts.Declaration
+): decl is
+  | ts.MethodDeclaration
+  | ts.PropertyDeclaration
+  | ts.GetAccessorDeclaration
+  | ts.SetAccessorDeclaration =>
+  ts.isMethodDeclaration(decl) ||
+  ts.isPropertyDeclaration(decl) ||
+  ts.isGetAccessorDeclaration(decl) ||
+  ts.isSetAccessorDeclaration(decl);
+
+const hasClassStaticInstanceNameConflict = (
+  decl: ts.Declaration
+): boolean => {
+  if (!isClassValueMemberDeclaration(decl)) {
+    return false;
+  }
+  if (!ts.isClassDeclaration(decl.parent)) {
+    return false;
+  }
+
+  const memberName = tryResolveDeterministicPropertyName(decl.name);
+  if (!memberName) {
+    return false;
+  }
+
+  const staticIntent = hasStaticModifier(decl);
+  return decl.parent.members.some(
+    (candidate) =>
+      candidate !== decl &&
+      isClassValueMemberDeclaration(candidate) &&
+      tryResolveDeterministicPropertyName(candidate.name) === memberName &&
+      hasStaticModifier(candidate) !== staticIntent
+  );
+};
+
+const shouldKeyMemberByResolvedSymbol = (memberSymbol: ts.Symbol): boolean =>
+  (memberSymbol.getDeclarations() ?? []).some(
+    hasClassStaticInstanceNameConflict
+  );
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SIMPLE RESOLUTION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -869,7 +922,12 @@ export const resolvePropertyAccess = (
       : rawOwnerSymbol
     : undefined;
 
-  const ownerDeclId = getOrCreateDeclId(ctx, ownerSymbol ?? propSymbol);
+  const ownerDeclId = getOrCreateDeclId(
+    ctx,
+    shouldKeyMemberByResolvedSymbol(propSymbol)
+      ? propSymbol
+      : (ownerSymbol ?? propSymbol)
+  );
   return getOrCreateMemberId(ctx, ownerDeclId, node.name.text, propSymbol);
 };
 

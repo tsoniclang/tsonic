@@ -1010,11 +1010,36 @@ const resolveClassDeclarationFromExpression = (
     : undefined;
 };
 
+const hasStaticModifier = (node: ts.Node): boolean => {
+  const modifiers = (
+    node as ts.Node & {
+      readonly modifiers?: readonly ts.ModifierLike[];
+    }
+  ).modifiers;
+  return !!modifiers?.some(
+    (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
+  );
+};
+
+const getPropertyAccessReceiverStaticIntent = (
+  node: ts.CallExpression,
+  ctx: ProgramContext
+): boolean | undefined => {
+  if (!ts.isPropertyAccessExpression(node.expression)) {
+    return undefined;
+  }
+
+  return ctx.checker
+    .getTypeAtLocation(node.expression.expression)
+    .getConstructSignatures().length > 0;
+};
+
 const collectClassMethodDeclarationsInHierarchy = (
   ownerClass: ts.ClassDeclaration,
   memberName: string,
   ctx: ProgramContext,
-  visited: ReadonlySet<string> = new Set<string>()
+  visited: ReadonlySet<string> = new Set<string>(),
+  staticIntent?: boolean
 ): readonly ts.MethodDeclaration[] => {
   const ownerIdentity = getClassDeclarationIdentity(ownerClass);
   if (!ownerIdentity || visited.has(ownerIdentity)) {
@@ -1026,7 +1051,8 @@ const collectClassMethodDeclarationsInHierarchy = (
 
   const directMembers = ownerClass.members.flatMap((member) =>
     ts.isMethodDeclaration(member) &&
-    getDeclarationTextName(member.name) === memberName
+    getDeclarationTextName(member.name) === memberName &&
+    (staticIntent === undefined || hasStaticModifier(member) === staticIntent)
       ? [member]
       : []
   );
@@ -1052,7 +1078,8 @@ const collectClassMethodDeclarationsInHierarchy = (
           baseClass,
           memberName,
           ctx,
-          nextVisited
+          nextVisited,
+          staticIntent
         )
       );
     }
@@ -1209,6 +1236,7 @@ const resolveSourceBackedMemberAccessTarget = (
     callee.object,
     receiverType
   );
+  const staticIntent = getPropertyAccessReceiverStaticIntent(node, ctx);
 
   for (const candidateReceiverType of receiverCandidates) {
     const packageExportTarget = resolveSourceBackedPackageExportSourceTarget(
@@ -1242,7 +1270,9 @@ const resolveSourceBackedMemberAccessTarget = (
       const overloadCandidates = collectClassMethodDeclarationsInHierarchy(
         ownerClass,
         callee.property,
-        ctx
+        ctx,
+        new Set<string>(),
+        staticIntent
       );
       const declaration =
         overloadCandidates.find((candidate) => candidate.body === undefined) ??
@@ -1289,7 +1319,9 @@ const resolveSourceBackedMemberAccessTarget = (
       const overloadCandidates = collectClassMethodDeclarationsInHierarchy(
         ownerClass,
         callee.property,
-        ctx
+        ctx,
+        new Set<string>(),
+        staticIntent
       );
       const declaration =
         overloadCandidates.find((candidate) => candidate.body === undefined) ??
@@ -1357,7 +1389,9 @@ const resolveSourceBackedMemberAccessTarget = (
     const overloadCandidates = collectClassMethodDeclarationsInHierarchy(
       ownerClass,
       callee.property,
-      ctx
+      ctx,
+      new Set<string>(),
+      staticIntent
     );
     const declaration =
       overloadCandidates.find((candidate) => candidate.body === undefined) ??
@@ -2892,14 +2926,15 @@ export const convertCallExpression = (
   const typeSystem = ctx.typeSystem;
   const sigId = ctx.binding.resolveCallSignature(node);
   const candidateSigIds = ctx.binding.resolveCallSignatureCandidates(node);
+  const isClassValueMemberCall =
+    getPropertyAccessReceiverStaticIntent(node, ctx) === true;
   const exactMemberCallableType = (() => {
     if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
     if (!receiverIrType) return undefined;
 
-    const directStructuralMemberType = getDirectStructuralMemberType(
-      receiverIrType,
-      node.expression.name.text
-    );
+    const directStructuralMemberType = !isClassValueMemberCall
+      ? getDirectStructuralMemberType(receiverIrType, node.expression.name.text)
+      : undefined;
     if (directStructuralMemberType) {
       return directStructuralMemberType;
     }

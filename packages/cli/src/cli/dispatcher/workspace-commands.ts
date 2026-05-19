@@ -1,4 +1,4 @@
-import { checkDotnetInstalled } from "@tsonic/backend";
+import { checkDotnetInstalled } from "@tsonic/csharp-backend";
 import { dirname, resolve } from "node:path";
 import { findWorkspaceConfig, loadWorkspaceConfig } from "../../config.js";
 import { initWorkspace } from "../../commands/init.js";

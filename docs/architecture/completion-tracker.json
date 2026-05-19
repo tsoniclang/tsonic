@@ -24,7 +24,7 @@
       "title": "IR advisory, not authoritative",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/statements/control/conditionals/architecture-invariants.test.ts"
+        "packages/targets/csharp/emitter/src/statements/control/conditionals/architecture-invariants.test.ts"
       ],
       "example": {
         "source": "if (typeof value === 'string') value.length;",
@@ -69,7 +69,7 @@
       "title": "Multi-file co-authorship",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+        "packages/targets/csharp/emitter/src/expressions/architecture-invariants.test.ts"
       ],
       "example": {
         "source": "const selected: A | B = condition ? a : b;",
@@ -84,7 +84,7 @@
       "title": "Dispatch as semantic decision",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/statements/control/conditionals/architecture-invariants.test.ts"
+        "packages/targets/csharp/emitter/src/statements/control/conditionals/architecture-invariants.test.ts"
       ],
       "example": {
         "source": "if (Array.isArray(value)) value.length;",
@@ -99,7 +99,7 @@
       "title": "Two identity domains",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/core/format/backend-ast/invariants.test.ts"
+        "packages/targets/csharp/emitter/src/core/format/backend-ast/invariants.test.ts"
       ],
       "example": {
         "source": "const values: System.Collections.Generic.List<int> = getValues();",
@@ -140,7 +140,7 @@
       "title": "Semantic/storage/lowering separation",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+        "packages/targets/csharp/emitter/src/expressions/architecture-invariants.test.ts"
       ],
       "example": {
         "source": "const value: Json | string = input;",
@@ -155,7 +155,7 @@
       "title": "Premature lowering",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+        "packages/targets/csharp/emitter/src/expressions/architecture-invariants.test.ts"
       ],
       "example": {
         "source": "const carrier: A | B = value;",
@@ -198,7 +198,7 @@
       "title": "Undefined-and-continue adaptation failure",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/expressions/expected-type-adaptation.test.ts"
+        "packages/targets/csharp/emitter/src/expressions/expected-type-adaptation.test.ts"
       ],
       "example": {
         "source": "const projected: Target = source;",
@@ -226,7 +226,7 @@
       "title": "Permissive helper loopholes",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+        "packages/targets/csharp/emitter/src/expressions/architecture-invariants.test.ts"
       ],
       "example": {
         "source": "A helper name suggests broad pass-through.",
@@ -314,7 +314,7 @@
       "title": "Symbol/storage conflation",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+        "packages/targets/csharp/emitter/src/expressions/architecture-invariants.test.ts"
       ],
       "example": {
         "source": "const value: A | B = input;",
@@ -329,7 +329,7 @@
       "title": "Runtime-union as analyzer",
       "status": "complete",
       "proofTests": [
-        "packages/emitter/src/expressions/architecture-invariants.test.ts"
+        "packages/targets/csharp/emitter/src/expressions/architecture-invariants.test.ts"
       ],
       "example": {
         "source": "if (value.kind === 'circle') area(value);",

@@ -209,7 +209,8 @@ const resolveSourcePackageImportWithAuthoritativeRoots = (
   containingFile: string,
   activeSurface: CompilerOptions["surface"],
   projectRoot: string,
-  authoritativeSourcePackageRoots: ReadonlyMap<string, string>
+  authoritativeSourcePackageRoots: ReadonlyMap<string, string>,
+  activeTargetId?: string
 ): ReturnType<typeof resolveSourcePackageImport> => {
   const authoritativeRoot = findAuthoritativePackageRootForImport(
     importSpecifier,
@@ -220,13 +221,15 @@ const resolveSourcePackageImportWithAuthoritativeRoots = (
         importSpecifier,
         authoritativeRoot,
         activeSurface,
-        projectRoot
+        projectRoot,
+        activeTargetId
       )
     : resolveSourcePackageImport(
         importSpecifier,
         containingFile,
         activeSurface,
-        projectRoot
+        projectRoot,
+        activeTargetId
       );
 };
 
@@ -398,6 +401,10 @@ export const buildModuleDependencyGraph = <
   // Normalize entry file and source root to absolute paths
   const entryAbs = resolve(entryFile);
   const sourceRootAbs = resolve(options.sourceRoot);
+  const activeTargetId =
+    options.backendTargetId === undefined
+      ? undefined
+      : String(options.backendTargetId);
 
   // Get TypeScript compiler options for module resolution
   const compilerOptions = createCompilerOptions(options);
@@ -455,6 +462,7 @@ export const buildModuleDependencyGraph = <
         bindings: undefined,
         projectRoot: options.projectRoot,
         surface: options.surface,
+        backendTargetId: activeTargetId,
         authoritativeTsonicPackageRoots: authoritativeSourcePackageRoots,
         declarationModuleAliases,
       }
@@ -568,7 +576,8 @@ export const buildModuleDependencyGraph = <
                 declarationAlias.targetSpecifier,
                 authoritativeAliasRoot,
                 options.surface,
-                options.projectRoot
+                options.projectRoot,
+                activeTargetId
               )
             : declarationAlias.targetSpecifier === "." ||
                 declarationAlias.targetSpecifier.startsWith("./")
@@ -576,14 +585,16 @@ export const buildModuleDependencyGraph = <
                   declarationAlias.targetSpecifier,
                   dirname(declarationAlias.declarationFile),
                   options.surface,
-                  options.projectRoot
+                  options.projectRoot,
+                  activeTargetId
                 )
               : resolveSourcePackageImportWithAuthoritativeRoots(
                   declarationAlias.targetSpecifier,
                   currentFile,
                   options.surface,
                   options.projectRoot,
-                  authoritativeSourcePackageRoots
+                  authoritativeSourcePackageRoots,
+                  activeTargetId
                 );
         if (!redirectedSourcePackage.ok) {
           diagnostics.push({
@@ -613,7 +624,8 @@ export const buildModuleDependencyGraph = <
         currentFile,
         options.surface,
         options.projectRoot,
-        authoritativeSourcePackageRoots
+        authoritativeSourcePackageRoots,
+        activeTargetId
       );
       if (!sourcePackage.ok) {
         diagnostics.push({

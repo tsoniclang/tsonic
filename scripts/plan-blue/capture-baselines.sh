@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 BASELINES_DIR=".plan-blue-baselines"
-GOLDEN_DIR="packages/emitter/testcases/common/expected"
+GOLDEN_DIR="packages/targets/csharp/emitter/testcases/common/expected"
 
 mkdir -p "$BASELINES_DIR"
 

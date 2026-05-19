@@ -55,6 +55,8 @@ type CandidateScore = readonly [
   number,
   number,
   number,
+  number,
+  number,
 ];
 
 const scoreReceiverCompatibility = (
@@ -559,6 +561,140 @@ const countIterableCarrierCompatibleArguments = (
   return compatible;
 };
 
+const stripNullish = (type: IrType | undefined): IrType | undefined => {
+  if (type?.kind !== "unionType") {
+    return type;
+  }
+
+  const nonNullish = type.types.filter(
+    (member) =>
+      !(
+        member.kind === "primitiveType" &&
+        (member.name === "null" || member.name === "undefined")
+      )
+  );
+
+  return nonNullish.length === 1 ? nonNullish[0] : type;
+};
+
+const countDeclaredReferenceIterableCarrierCompatibleArguments = (
+  state: TypeSystemState,
+  sigId: SignatureId,
+  resolved: ResolvedCall,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  const rawSignature = getRawSignature(state, sigId);
+  if (!rawSignature) {
+    return 0;
+  }
+
+  const expandedParameterTypes = expandParameterTypesForArguments(
+    rawSignature.parameterFlags,
+    rawSignature.parameterTypes,
+    argumentCount
+  );
+
+  const hasExternalIterableCarrierIdentity = (
+    rawParameterType: Extract<IrType, { kind: "referenceType" }>
+  ): boolean => {
+    const normalized = normalizeToNominal(state, rawParameterType);
+    const typeId = normalized?.typeId ?? rawParameterType.typeId;
+    if (!typeId || typeId.origin !== "external") {
+      return false;
+    }
+
+    const catalogEntry = state.unifiedCatalog.getByTypeId(typeId);
+    return !!(rawParameterType.iterableShape ?? catalogEntry?.iterableShape);
+  };
+
+  let compatible = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    expandedParameterTypes.length,
+    resolved.parameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const rawParameterType = stripNullish(expandedParameterTypes[index]);
+    const parameterType = resolved.parameterTypes[index];
+    const argumentType = argTypes[index];
+    const nonNullishArgumentType = stripNullish(argumentType);
+    if (
+      rawParameterType?.kind !== "referenceType" ||
+      !parameterType ||
+      !argumentType ||
+      nonNullishArgumentType?.kind === "arrayType" ||
+      nonNullishArgumentType?.kind === "tupleType"
+    ) {
+      continue;
+    }
+
+    if (!hasExternalIterableCarrierIdentity(rawParameterType)) {
+      continue;
+    }
+
+    const parameterShape = getIterableShape(state, parameterType);
+    if (!parameterShape) {
+      continue;
+    }
+
+    const argumentShape = getIterableShape(state, argumentType);
+    if (argumentShape?.mode === parameterShape.mode) {
+      compatible += 1;
+    }
+  }
+
+  return compatible;
+};
+
+const countDeclaredArrayCarrierCompatibleArguments = (
+  state: TypeSystemState,
+  sigId: SignatureId,
+  resolved: ResolvedCall,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  const rawSignature = getRawSignature(state, sigId);
+  if (!rawSignature) {
+    return 0;
+  }
+
+  const expandedParameterTypes = expandParameterTypesForArguments(
+    rawSignature.parameterFlags,
+    rawSignature.parameterTypes,
+    argumentCount
+  );
+
+  let compatible = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    expandedParameterTypes.length,
+    resolved.parameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const rawParameterType = stripNullish(expandedParameterTypes[index]);
+    const argumentType = stripNullish(argTypes[index]);
+    const parameterType = resolved.parameterTypes[index];
+    if (
+      rawParameterType?.kind !== "arrayType" ||
+      argumentType?.kind !== "arrayType" ||
+      !parameterType
+    ) {
+      continue;
+    }
+
+    if (scoreSignatureMatch(state, [parameterType], [argumentType], 1) > 0) {
+      compatible += 1;
+    }
+  }
+
+  return compatible;
+};
+
 const countExactFunctionArityMatches = (
   state: TypeSystemState,
   resolved: ResolvedCall,
@@ -639,6 +775,18 @@ const buildCandidateScore = (
         argumentCount
       )
     : 0;
+  const declaredArrayCarrierCompatibleArgumentCount = argTypes
+    ? countDeclaredArrayCarrierCompatibleArguments(
+        state,
+        sigId,
+        {
+          ...resolved,
+          parameterTypes: participatingParameterTypes,
+        },
+        participatingArgTypes ?? [],
+        argumentCount
+      )
+    : 0;
   const broadNumberIndependentCompatibleArgumentCount = argTypes
     ? countBroadNumberIndependentCompatibleArguments(
         state,
@@ -663,6 +811,18 @@ const buildCandidateScore = (
   const iterableCarrierCompatibleArgumentCount = argTypes
     ? countIterableCarrierCompatibleArguments(
         state,
+        {
+          ...resolved,
+          parameterTypes: participatingParameterTypes,
+        },
+        participatingArgTypes ?? [],
+        argumentCount
+      )
+    : 0;
+  const declaredReferenceIterableCarrierCompatibleArgumentCount = argTypes
+    ? countDeclaredReferenceIterableCarrierCompatibleArguments(
+        state,
+        sigId,
         {
           ...resolved,
           parameterTypes: participatingParameterTypes,
@@ -708,10 +868,12 @@ const buildCandidateScore = (
 
   return [
     receiverCompatibilityScore,
+    declaredArrayCarrierCompatibleArgumentCount,
+    declaredReferenceIterableCarrierCompatibleArgumentCount,
     broadNumberIndependentCompatibleArgumentCount,
     broadNumberExplicitlyAcceptedArgumentCount,
-    iterableCarrierCompatibleArgumentCount,
     compatibleArgumentCount,
+    iterableCarrierCompatibleArgumentCount,
     exactFunctionArityMatches,
     exactArityNonRest,
     concreteSurfaceExactness,

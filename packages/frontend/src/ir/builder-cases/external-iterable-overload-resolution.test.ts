@@ -1,7 +1,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
-import { IrExpressionStatement, IrFunctionDeclaration } from "../types.js";
+import {
+  IrExpressionStatement,
+  IrFunctionDeclaration,
+  IrVariableDeclaration,
+} from "../types.js";
 import { createFilesystemTestProgram } from "./_test-helpers.js";
 import {
   runAnonymousTypeLoweringPass,
@@ -397,6 +401,557 @@ describe("IR Builder", function () {
         expect(call.parameterTypes?.[1]).to.deep.include({
           kind: "referenceType",
           name: "IEnumerable_1$instance",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("prefers metadata-backed imported iterable overloads without declaration iterator members", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import { Uint8Array } from "@fixture/js/index.js";',
+            'import { Assert } from "xunit-types/Xunit.js";',
+            "",
+            "export function run(left: Uint8Array, right: Uint8Array): void {",
+            "  Assert.Equal(left, right);",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/package.json": JSON.stringify({
+            name: "@fixture/js",
+            type: "module",
+          }),
+          "node_modules/@fixture/js/index.js": "export {};",
+          "node_modules/@fixture/js/index.d.ts": [
+            "declare const Symbol: { readonly iterator: unique symbol };",
+            "interface Iterator<T> {}",
+            "interface IterableIterator<T> extends Iterator<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
+            "export declare class TypedArrayBase<TElement extends number> {",
+            "  [Symbol.iterator](): IterableIterator<TElement>;",
+            "}",
+            "export declare class Uint8Array extends TypedArrayBase<number> {}",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js": "export {};",
+          "node_modules/xunit-types/Xunit.d.ts": [
+            'export { Assert } from "./Xunit/internal/index.js";',
+          ].join("\n"),
+          "node_modules/xunit-types/Xunit/internal/index.js": "export {};",
+          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+            'import type { IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
+            "",
+            "export declare const Assert: {",
+            "  Equal<T extends unknown>(expected: IEnumerable_1<T> | null, actual: IEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: T, actual: T): void;",
+            "};",
+          ].join("\n"),
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/bindings.json":
+            JSON.stringify({
+              namespace: "System.Collections.Generic",
+              types: [
+                {
+                  stableId:
+                    "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
+                  targetName: "System.Collections.Generic.IEnumerable`1",
+                  kind: "Interface",
+                  accessibility: "Public",
+                  isAbstract: true,
+                  isSealed: false,
+                  isStatic: false,
+                  arity: 1,
+                  typeParameters: ["T"],
+                  iterableShape: {
+                    mode: "sync",
+                    elementTypeParameterIndex: 0,
+                  },
+                  methods: [],
+                  properties: [],
+                  fields: [],
+                  events: [],
+                  constructors: [],
+                },
+              ],
+            }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
+            [
+              "export interface IEnumerable_1$instance<T extends unknown> {",
+              "  readonly __tsonic_iface_provider_iterable_1: never;",
+              "  GetEnumerator(): unknown;",
+              "}",
+              "export type IEnumerable_1<T extends unknown> = IEnumerable_1$instance<T>;",
+            ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const statement = findEqualCallStatement(runFn.body.statements);
+        expect(statement).to.not.equal(undefined);
+        if (!statement) return;
+
+        const call = statement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        const firstParameterType = call.parameterTypes?.[0];
+        const secondParameterType = call.parameterTypes?.[1];
+
+        expect(firstParameterType).to.deep.include({
+          kind: "referenceType",
+          name: "IEnumerable_1$instance",
+        });
+        expect(secondParameterType).to.deep.include({
+          kind: "referenceType",
+          name: "IEnumerable_1$instance",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("prefers metadata-backed imported iterable overloads for imported source-package iterator classes", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+            dependencies: {
+              "@fixture/js": "file:node_modules/@fixture/js",
+            },
+          }),
+          "src/index.ts": [
+            'import { Uint8Array } from "@fixture/js/index.js";',
+            'import { Assert } from "xunit-types/Xunit.js";',
+            "",
+            "export function run(left: Uint8Array, right: Uint8Array): void {",
+            "  Assert.Equal(left, right);",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/package.json": JSON.stringify({
+            name: "@fixture/js",
+            type: "module",
+          }),
+          "node_modules/@fixture/js/index.ts": [
+            'export { Uint8Array } from "./src/uint8-array.js";',
+          ].join("\n"),
+          "node_modules/@fixture/js/src/typed-array-core.ts": [
+            "export class TypedArrayBase<TElement extends number> {",
+            "  *values(): Generator<TElement, undefined, undefined> {",
+            "    throw new Error('test fixture');",
+            "  }",
+            "  [Symbol.iterator](): Generator<TElement, undefined, undefined> {",
+            "    return this.values();",
+            "  }",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/src/uint8-array.ts": [
+            'import { TypedArrayBase } from "./typed-array-core.js";',
+            "export class Uint8Array extends TypedArrayBase<number> {",
+            "  toByteArrayRaw(): number[] {",
+            "    throw new Error('test fixture');",
+            "  }",
+            "}",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js": "export {};",
+          "node_modules/xunit-types/Xunit.d.ts": [
+            'export { Assert } from "./Xunit/internal/index.js";',
+          ].join("\n"),
+          "node_modules/xunit-types/Xunit/internal/index.js": "export {};",
+          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+            'import type { IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
+            "",
+            "export declare const Assert: {",
+            "  Equal<T extends unknown>(expected: IEnumerable_1<T> | null, actual: IEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: T, actual: T): void;",
+            "};",
+          ].join("\n"),
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/bindings.json":
+            JSON.stringify({
+              namespace: "System.Collections.Generic",
+              types: [
+                {
+                  stableId:
+                    "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
+                  targetName: "System.Collections.Generic.IEnumerable`1",
+                  kind: "Interface",
+                  accessibility: "Public",
+                  isAbstract: true,
+                  isSealed: false,
+                  isStatic: false,
+                  arity: 1,
+                  typeParameters: ["T"],
+                  iterableShape: {
+                    mode: "sync",
+                    elementTypeParameterIndex: 0,
+                  },
+                  methods: [],
+                  properties: [],
+                  fields: [],
+                  events: [],
+                  constructors: [],
+                },
+              ],
+            }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
+            [
+              "export interface IEnumerable_1$instance<T extends unknown> {",
+              "  readonly __tsonic_iface_provider_iterable_1: never;",
+              "  GetEnumerator(): unknown;",
+              "}",
+              "export type IEnumerable_1<T extends unknown> = IEnumerable_1$instance<T>;",
+            ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const statement = findEqualCallStatement(runFn.body.statements);
+        expect(statement).to.not.equal(undefined);
+        if (!statement) return;
+
+        const call = statement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        const firstParameterType = call.parameterTypes?.[0];
+        const secondParameterType = call.parameterTypes?.[1];
+
+        expect(firstParameterType).to.deep.include({
+          kind: "referenceType",
+          name: "IEnumerable_1$instance",
+        });
+        expect(secondParameterType).to.deep.include({
+          kind: "referenceType",
+          name: "IEnumerable_1$instance",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("prefers sync metadata-backed iterable overloads across mixed generated external overload families", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+            dependencies: {
+              "@fixture/js": "file:node_modules/@fixture/js",
+            },
+          }),
+          "src/index.ts": [
+            'import { Uint8Array } from "@fixture/js/index.js";',
+            'import { Assert } from "xunit-types/Xunit.js";',
+            "",
+            "export function run(left: Uint8Array, right: Uint8Array): void {",
+            "  Assert.Equal(left, right);",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/package.json": JSON.stringify({
+            name: "@fixture/js",
+            type: "module",
+          }),
+          "node_modules/@fixture/js/index.ts": [
+            'export { Uint8Array } from "./src/uint8-array.js";',
+          ].join("\n"),
+          "node_modules/@fixture/js/src/typed-array-core.ts": [
+            "export class TypedArrayBase<TElement extends number> {",
+            "  *values(): Generator<TElement, undefined, undefined> {",
+            "    throw new Error('test fixture');",
+            "  }",
+            "  [Symbol.iterator](): Generator<TElement, undefined, undefined> {",
+            "    return this.values();",
+            "  }",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/src/uint8-array.ts": [
+            'import { TypedArrayBase } from "./typed-array-core.js";',
+            "export class Uint8Array extends TypedArrayBase<number> {",
+            "  toByteArrayRaw(): number[] {",
+            "    throw new Error('test fixture');",
+            "  }",
+            "}",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js": "export {};",
+          "node_modules/xunit-types/Xunit.d.ts": [
+            'export { Assert } from "./Xunit/internal/index.js";',
+          ].join("\n"),
+          "node_modules/xunit-types/Xunit/internal/index.js": "export {};",
+          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+            'import type { IAsyncEnumerable_1, IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
+            "",
+            "interface IEquatable_1<T extends unknown> {}",
+            "",
+            "export declare const Assert: {",
+            "  Equal<T extends unknown>(expected: IAsyncEnumerable_1<T> | null, actual: IAsyncEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: IEnumerable_1<T> | null, actual: IAsyncEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: IEnumerable_1<T> | null, actual: IEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: T, actual: T): void;",
+            "  Equal<T extends NonNullable<unknown> & IEquatable_1<T>>(expected: T[], actual: T[]): void;",
+            "};",
+          ].join("\n"),
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/bindings.json":
+            JSON.stringify({
+              namespace: "System.Collections.Generic",
+              types: [
+                {
+                  stableId:
+                    "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
+                  targetName: "System.Collections.Generic.IEnumerable`1",
+                  kind: "Interface",
+                  accessibility: "Public",
+                  isAbstract: true,
+                  isSealed: false,
+                  isStatic: false,
+                  arity: 1,
+                  typeParameters: ["T"],
+                  iterableShape: {
+                    mode: "sync",
+                    elementTypeParameterIndex: 0,
+                  },
+                  methods: [],
+                  properties: [],
+                  fields: [],
+                  events: [],
+                  constructors: [],
+                },
+                {
+                  stableId:
+                    "System.Private.CoreLib:System.Collections.Generic.IAsyncEnumerable`1",
+                  targetName: "System.Collections.Generic.IAsyncEnumerable`1",
+                  kind: "Interface",
+                  accessibility: "Public",
+                  isAbstract: true,
+                  isSealed: false,
+                  isStatic: false,
+                  arity: 1,
+                  typeParameters: ["T"],
+                  iterableShape: {
+                    mode: "async",
+                    elementTypeParameterIndex: 0,
+                  },
+                  methods: [],
+                  properties: [],
+                  fields: [],
+                  events: [],
+                  constructors: [],
+                },
+              ],
+            }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
+            [
+              "export interface IEnumerable_1$instance<T extends unknown> {",
+              "  readonly __tsonic_iface_provider_iterable_1: never;",
+              "}",
+              "export type IEnumerable_1<T extends unknown> = IEnumerable_1$instance<T>;",
+              "export interface IAsyncEnumerable_1$instance<T extends unknown> {",
+              "  readonly __tsonic_iface_provider_async_iterable_1: never;",
+              "}",
+              "export type IAsyncEnumerable_1<T extends unknown> = IAsyncEnumerable_1$instance<T>;",
+            ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const statement = findEqualCallStatement(runFn.body.statements);
+        expect(statement).to.not.equal(undefined);
+        if (!statement) return;
+
+        const call = statement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        const firstParameterType = call.parameterTypes?.[0];
+        const secondParameterType = call.parameterTypes?.[1];
+
+        expect(firstParameterType).to.deep.include({
+          kind: "referenceType",
+          name: "IEnumerable_1$instance",
+        });
+        expect(secondParameterType).to.deep.include({
+          kind: "referenceType",
+          name: "IEnumerable_1$instance",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps array literals on array overloads when sibling source-package iterable overloads exist", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+            dependencies: {
+              "@fixture/js": "file:node_modules/@fixture/js",
+            },
+          }),
+          "src/index.ts": [
+            'import { Buffer } from "@fixture/js/index.js";',
+            "",
+            "export function run(): void {",
+            "  Buffer.from([1, 2, 3]);",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/package.json": JSON.stringify({
+            name: "@fixture/js",
+            type: "module",
+          }),
+          "node_modules/@fixture/js/index.ts": [
+            'export { Buffer } from "./src/buffer.js";',
+            'export { Uint8Array } from "./src/uint8-array.js";',
+          ].join("\n"),
+          "node_modules/@fixture/js/src/typed-array-core.ts": [
+            "export class TypedArrayBase<TElement extends number> {",
+            "  *values(): Generator<TElement, undefined, undefined> {",
+            "    throw new Error('test fixture');",
+            "  }",
+            "  [Symbol.iterator](): Generator<TElement, undefined, undefined> {",
+            "    return this.values();",
+            "  }",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/src/uint8-array.ts": [
+            'import { TypedArrayBase } from "./typed-array-core.js";',
+            "export class Uint8Array extends TypedArrayBase<number> {}",
+          ].join("\n"),
+          "node_modules/@fixture/js/src/buffer.ts": [
+            'import { Uint8Array } from "./uint8-array.js";',
+            "export class Buffer {",
+            "  static from(value: string): Buffer;",
+            "  static from(value: number[]): Buffer;",
+            "  static from(value: Uint8Array): Buffer;",
+            "  static from(_value: unknown): Buffer {",
+            "    throw new Error('test fixture');",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const statement = runFn.body.statements[0];
+        expect(statement?.kind).to.equal("expressionStatement");
+        if (!statement || statement.kind !== "expressionStatement") return;
+
+        const call = statement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        const firstParameterType = call.parameterTypes?.[0];
+        expect(firstParameterType?.kind).to.equal("arrayType");
+        if (firstParameterType?.kind !== "arrayType") return;
+
+        expect(firstParameterType.elementType).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
         });
       } finally {
         fixture.cleanup();
@@ -889,6 +1444,73 @@ describe("IR Builder", function () {
       }
     });
 
+    it("keeps class-value static overloads separate from same-named instance overloads", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare class EventEmitter {",
+            "  static once(emitter: EventEmitter, eventName: string): Promise<string[]>;",
+            "  once(eventName: string, listener: (...args: string[]) => void): EventEmitter;",
+            "}",
+            "",
+            "export async function run(emitter: EventEmitter): Promise<void> {",
+            '  const task = EventEmitter.once(emitter, "test");',
+            "  const args = await task;",
+            "  args[0];",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const taskDecl = runFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0].name.name === "task"
+        );
+        expect(taskDecl).to.not.equal(undefined);
+        const taskInitializer = taskDecl?.declarations[0]?.initializer;
+        expect(taskInitializer?.kind).to.equal("call");
+        if (!taskInitializer || taskInitializer.kind !== "call") return;
+
+        const taskType = taskInitializer.inferredType;
+        expect(taskType).to.deep.include({
+          kind: "referenceType",
+          name: "Promise",
+        });
+        expect(taskType?.kind).to.equal("referenceType");
+        if (taskType?.kind !== "referenceType") return;
+        const promisedType = taskType.typeArguments?.[0];
+        expect(promisedType?.kind).to.equal("arrayType");
+        if (promisedType?.kind !== "arrayType") return;
+        expect(promisedType.elementType).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("keeps scalar direct-call equality overloads when generic callable values have Memory<char> siblings", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -1135,6 +1757,121 @@ describe("IR Builder", function () {
         expect(call.parameterTypes).to.deep.equal([
           { kind: "primitiveType", name: "int" },
           { kind: "primitiveType", name: "int" },
+        ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("widens numeric generic equality inference over Memory<char> siblings", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import { Assert } from "xunit-types/Xunit.js";',
+            "",
+            "declare class Holder {",
+            "  timeout: number;",
+            "}",
+            "",
+            "export function run(holder: Holder): void {",
+            "  Assert.Equal(1000, holder.timeout);",
+            "}",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js":
+            'export { Assert as Assert } from "./Xunit/internal/index.js";',
+          "node_modules/xunit-types/Xunit.d.ts":
+            'export { Assert as Assert } from "./Xunit/internal/index.js";',
+          "node_modules/xunit-types/Xunit/internal/index.js":
+            "export const Assert = undefined;",
+          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+            'import type { char } from "@tsonic/core/types.js";',
+            'import type { IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
+            'import type { Memory_1, ReadOnlyMemory_1 } from "@tsonic/dotnet/System/internal/index.js";',
+            "",
+            "export interface Assert$instance {}",
+            "",
+            "export declare const Assert: (abstract new() => Assert$instance) & {",
+            "  Equal<T>(expected: IEnumerable_1<T>, actual: IEnumerable_1<T>): void;",
+            "  Equal(expected: Memory_1<char>, actual: Memory_1<char>): void;",
+            "  Equal(expected: ReadOnlyMemory_1<char>, actual: ReadOnlyMemory_1<char>): void;",
+            "  Equal(expected: string, actual: string): void;",
+            "  Equal<T>(expected: T, actual: T): void;",
+            "};",
+          ].join("\n"),
+          "node_modules/@tsonic/core/package.json": JSON.stringify({
+            name: "@tsonic/core",
+            type: "module",
+          }),
+          "node_modules/@tsonic/core/types.js": "export {};",
+          "node_modules/@tsonic/core/types.d.ts": [
+            "export type char = string;",
+          ].join("\n"),
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
+            [
+              "export interface IEnumerable_1$instance<T> {",
+              "  readonly __tsonic_iface_System_Collections_Generic_IEnumerable_1: never;",
+              "  [Symbol.iterator](): IterableIterator<T>;",
+              "}",
+              "export type IEnumerable_1<T> = IEnumerable_1$instance<T>;",
+            ].join("\n"),
+          "node_modules/@tsonic/dotnet/System/internal/index.js": "export {};",
+          "node_modules/@tsonic/dotnet/System/internal/index.d.ts": [
+            "export interface Memory_1$instance<T> {",
+            "  readonly __tsonic_iface_System_Memory_1: never;",
+            "}",
+            "export type Memory_1<T> = Memory_1$instance<T>;",
+            "export interface ReadOnlyMemory_1$instance<T> {",
+            "  readonly __tsonic_iface_System_ReadOnlyMemory_1: never;",
+            "}",
+            "export type ReadOnlyMemory_1<T> = ReadOnlyMemory_1$instance<T>;",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const callStatement = findEqualCallStatement(runFn.body.statements);
+        expect(callStatement).to.not.equal(undefined);
+        if (!callStatement) return;
+
+        const call = callStatement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        expect(call.parameterTypes).to.deep.equal([
+          { kind: "primitiveType", name: "number" },
+          { kind: "primitiveType", name: "number" },
         ]);
       } finally {
         fixture.cleanup();

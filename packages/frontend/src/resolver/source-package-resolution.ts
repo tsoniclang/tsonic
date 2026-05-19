@@ -16,6 +16,7 @@ type SourcePackageManifest = {
   readonly schemaVersion?: unknown;
   readonly kind?: unknown;
   readonly surfaces?: unknown;
+  readonly supportedTargets?: unknown;
   readonly source?: unknown;
 };
 
@@ -304,6 +305,79 @@ const parseSurfaces = (
   return ok(surfaces);
 };
 
+const parseSupportedTargets = (
+  value: unknown,
+  manifestPath: string
+): Result<readonly string[] | undefined, Diagnostic> => {
+  if (value === undefined) {
+    return ok(undefined);
+  }
+
+  if (!Array.isArray(value) || value.length === 0) {
+    return error(
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Invalid source package manifest: ${manifestPath}`,
+        undefined,
+        "`supportedTargets` must be a non-empty string array when present."
+      )
+    );
+  }
+
+  const targets = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  if (targets.length !== value.length) {
+    return error(
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Invalid source package manifest: ${manifestPath}`,
+        undefined,
+        "`supportedTargets` entries must all be non-empty strings."
+      )
+    );
+  }
+
+  return ok(targets);
+};
+
+const validateSupportedTargets = (
+  manifest: SourcePackageManifest,
+  packageName: string,
+  manifestPath: string,
+  activeTargetId: string | undefined
+): Result<void, Diagnostic> => {
+  const supportedTargets = parseSupportedTargets(
+    manifest.supportedTargets,
+    manifestPath
+  );
+  if (!supportedTargets.ok) {
+    return supportedTargets;
+  }
+
+  if (
+    activeTargetId !== undefined &&
+    supportedTargets.value !== undefined &&
+    !supportedTargets.value.includes(activeTargetId)
+  ) {
+    return error(
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Source package '${packageName}' does not support target '${activeTargetId}'.`,
+        undefined,
+        `Supported targets: ${supportedTargets.value.join(", ")}`
+      )
+    );
+  }
+
+  return ok(undefined);
+};
+
 const parseSourceSection = (
   value: unknown,
   manifestPath: string
@@ -447,7 +521,8 @@ const resolveSourcePackageImportFromRoot = (
   },
   packageRoot: string,
   activeSurface: SurfaceMode | undefined,
-  projectRoot: string
+  projectRoot: string,
+  activeTargetId?: string
 ): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
   const manifestPath = path.join(packageRoot, "tsonic.package.json");
   const manifestResult = readManifest(manifestPath);
@@ -472,6 +547,14 @@ const resolveSourcePackageImportFromRoot = (
   if (manifest.kind !== "tsonic-source-package") {
     return ok(null);
   }
+
+  const targetSupport = validateSupportedTargets(
+    manifest,
+    parsedSpecifier.packageName,
+    manifestPath,
+    activeTargetId
+  );
+  if (!targetSupport.ok) return targetSupport;
 
   const surfaces = parseSurfaces(manifest.surfaces, manifestPath);
   if (!surfaces.ok) return surfaces;
@@ -528,7 +611,8 @@ export const resolveSourcePackageImportFromPackageRoot = (
   importSpecifier: string,
   packageRoot: string,
   activeSurface: SurfaceMode | undefined,
-  projectRoot: string
+  projectRoot: string,
+  activeTargetId?: string
 ): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
   const parsedSpecifier = parsePackageSpecifier(importSpecifier);
   if (!parsedSpecifier) {
@@ -539,7 +623,8 @@ export const resolveSourcePackageImportFromPackageRoot = (
     parsedSpecifier,
     packageRoot,
     activeSurface,
-    projectRoot
+    projectRoot,
+    activeTargetId
   );
 };
 
@@ -547,11 +632,28 @@ export const resolveSourcePackageAliasTarget = (
   aliasTarget: string,
   packageRoot: string,
   activeSurface: SurfaceMode | undefined,
-  projectRoot: string
+  projectRoot: string,
+  activeTargetId?: string
 ): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
   const metadata = readSourcePackageMetadata(packageRoot);
   if (!metadata) {
     return ok(null);
+  }
+
+  const manifest = readManifest(path.join(packageRoot, "tsonic.package.json"));
+  if (!manifest.ok) {
+    return manifest;
+  }
+  if (manifest.value) {
+    const targetSupport = validateSupportedTargets(
+      manifest.value,
+      metadata.packageName,
+      path.join(packageRoot, "tsonic.package.json"),
+      activeTargetId
+    );
+    if (!targetSupport.ok) {
+      return targetSupport;
+    }
   }
 
   if (aliasTarget === ".") {
@@ -591,7 +693,8 @@ export const resolveSourcePackageAliasTarget = (
       aliasTarget,
       packageRoot,
       activeSurface,
-      projectRoot
+      projectRoot,
+      activeTargetId
     );
   }
 
@@ -599,7 +702,8 @@ export const resolveSourcePackageAliasTarget = (
     aliasTarget,
     path.join(packageRoot, "__tsonic_alias__.ts"),
     activeSurface,
-    projectRoot
+    projectRoot,
+    activeTargetId
   );
 };
 
@@ -607,7 +711,8 @@ export const resolveSourcePackageImport = (
   importSpecifier: string,
   containingFile: string,
   activeSurface: SurfaceMode | undefined,
-  projectRoot: string
+  projectRoot: string,
+  activeTargetId?: string
 ): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
   const parsedSpecifier = parsePackageSpecifier(importSpecifier);
   if (!parsedSpecifier) {
@@ -626,7 +731,8 @@ export const resolveSourcePackageImport = (
     parsedSpecifier,
     packageRoot,
     activeSurface,
-    projectRoot
+    projectRoot,
+    activeTargetId
   );
   if (!resolvedFromInstalledRoot.ok || resolvedFromInstalledRoot.value) {
     return resolvedFromInstalledRoot;
@@ -654,7 +760,8 @@ export const resolveSourcePackageImport = (
     parsedSpecifier,
     siblingDependencyRoot,
     activeSurface,
-    projectRoot
+    projectRoot,
+    activeTargetId
   );
 };
 

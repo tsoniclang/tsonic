@@ -20,6 +20,64 @@ import {
 } from "./binding-helpers.js";
 import { isOverloadSurfaceDeclaration } from "../syntax/overload-stubs.js";
 
+const hasStaticModifier = (node: ts.Node): boolean => {
+  const modifiers = (
+    node as ts.Node & {
+      readonly modifiers?: readonly ts.ModifierLike[];
+    }
+  ).modifiers;
+  return !!modifiers?.some(
+    (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
+  );
+};
+
+const getClassMemberStaticIntent = (
+  decl: ts.Declaration
+): boolean | undefined => {
+  if (
+    !(
+      ts.isMethodDeclaration(decl) ||
+      ts.isPropertyDeclaration(decl) ||
+      ts.isGetAccessorDeclaration(decl) ||
+      ts.isSetAccessorDeclaration(decl)
+    )
+  ) {
+    return undefined;
+  }
+
+  return ts.isClassLike(decl.parent) ? hasStaticModifier(decl) : undefined;
+};
+
+const isClassValueReceiver = (
+  ctx: BindingContext,
+  expr: ts.Expression
+): boolean => ctx.checker.getTypeAtLocation(expr).getConstructSignatures().length > 0;
+
+const filterPropertyAccessDeclarationsByReceiver = (
+  ctx: BindingContext,
+  node: ts.CallExpression,
+  decls: readonly ts.Declaration[]
+): readonly ts.Declaration[] => {
+  if (!ts.isPropertyAccessExpression(node.expression)) {
+    return decls;
+  }
+
+  const staticAwareDecls = decls.filter(
+    (decl) => getClassMemberStaticIntent(decl) !== undefined
+  );
+  if (staticAwareDecls.length === 0) {
+    return decls;
+  }
+
+  const wantsStatic = isClassValueReceiver(ctx, node.expression.expression);
+  const filtered = decls.filter((decl) => {
+    const staticIntent = getClassMemberStaticIntent(decl);
+    return staticIntent === undefined || staticIntent === wantsStatic;
+  });
+
+  return filtered.length > 0 ? filtered : decls;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // CALL SIGNATURE CANDIDATES
 // ═══════════════════════════════════════════════════════════════════════════
@@ -85,8 +143,13 @@ export const resolveCallSignatureCandidates = (
   const decls = resolveCallTargetDeclarations(ctx, node);
   if (decls && decls.length > 0) {
     const overloadSurfaceDecls = decls.filter(isOverloadSurfaceDeclaration);
-    const directDecls =
+    const unfilteredDirectDecls =
       overloadSurfaceDecls.length > 0 ? overloadSurfaceDecls : decls;
+    const directDecls = filterPropertyAccessDeclarationsByReceiver(
+      ctx,
+      node,
+      unfilteredDirectDecls
+    );
 
     const directSignatures = directDecls.flatMap((decl) => {
       if (!ts.isFunctionLike(decl)) return [];

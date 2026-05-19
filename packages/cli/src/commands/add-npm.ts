@@ -31,6 +31,8 @@ import {
 
 export type AddNpmOptions = AddCommandOptions;
 
+const ACTIVE_BACKEND_TARGET = "csharp";
+
 const parseNpmPackageName = (rawSpec: string): string | null => {
   const spec = rawSpec.trim();
   if (!spec) return null;
@@ -94,6 +96,108 @@ const readLocalPackageName = (pkgDir: string): Result<string, string> => {
       error: `Failed to parse package.json: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+};
+
+const parseSupportedTargets = (
+  value: unknown,
+  manifestPath: string
+): Result<readonly string[] | undefined, string> => {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+
+  if (!Array.isArray(value) || value.length === 0) {
+    return {
+      ok: false,
+      error: `${manifestPath}: supportedTargets must be a non-empty string array when present`,
+    };
+  }
+
+  const supportedTargets = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  if (supportedTargets.length !== value.length) {
+    return {
+      ok: false,
+      error: `${manifestPath}: supportedTargets entries must all be non-empty strings`,
+    };
+  }
+
+  return { ok: true, value: supportedTargets };
+};
+
+const validateManifestTargetSupport = (
+  packageName: string,
+  manifestPath: string
+): Result<void, string> => {
+  if (!existsSync(manifestPath)) {
+    return { ok: true, value: undefined };
+  }
+
+  let parsed: { readonly supportedTargets?: unknown };
+  try {
+    const parsedUnknown = JSON.parse(
+      readFileSync(manifestPath, "utf-8")
+    ) as unknown;
+    if (
+      parsedUnknown === null ||
+      typeof parsedUnknown !== "object" ||
+      Array.isArray(parsedUnknown)
+    ) {
+      return {
+        ok: false,
+        error: `${manifestPath}: expected a JSON object`,
+      };
+    }
+    parsed = parsedUnknown as { readonly supportedTargets?: unknown };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to parse ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const supportedTargets = parseSupportedTargets(
+    parsed.supportedTargets,
+    manifestPath
+  );
+  if (!supportedTargets.ok) {
+    return supportedTargets;
+  }
+
+  if (
+    supportedTargets.value !== undefined &&
+    !supportedTargets.value.includes(ACTIVE_BACKEND_TARGET)
+  ) {
+    return {
+      ok: false,
+      error:
+        `Package ${packageName} does not support target ${ACTIVE_BACKEND_TARGET}. ` +
+        `Supported targets: ${supportedTargets.value.join(", ")}`,
+    };
+  }
+
+  return { ok: true, value: undefined };
+};
+
+const validateInstalledPackageTargetSupport = (
+  packageRoot: string,
+  packageName: string
+): Result<void, string> => {
+  const sourceManifest = validateManifestTargetSupport(
+    packageName,
+    join(packageRoot, "tsonic.package.json")
+  );
+  if (!sourceManifest.ok) {
+    return sourceManifest;
+  }
+
+  return validateManifestTargetSupport(
+    packageName,
+    join(packageRoot, "tsonic.surface.json")
+  );
 };
 
 const resolvePackageNameFromSpec = (
@@ -241,6 +345,12 @@ export const addNpmCommand = (
     : resolvePackageRoot(workspaceRoot, requestedPackageName);
   if (!pkgRootResult.ok) return pkgRootResult;
   const pkgRoot = pkgRootResult.value;
+
+  const targetSupportResult = validateInstalledPackageTargetSupport(
+    pkgRoot,
+    requestedPackageName
+  );
+  if (!targetSupportResult.ok) return targetSupportResult;
 
   const manifestResult = resolveInstalledPackageBindingsManifest(pkgRoot);
   if (!manifestResult.ok) return manifestResult;

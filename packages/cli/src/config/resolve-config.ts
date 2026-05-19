@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
-import { detectRid } from "@tsonic/backend";
-import type { OutputType } from "@tsonic/backend";
+import { detectRid } from "@tsonic/csharp-backend";
+import type { OutputType } from "@tsonic/csharp-backend";
 import type {
   CliOptions,
   FrameworkReferenceConfig,

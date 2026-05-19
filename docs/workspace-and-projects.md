@@ -119,6 +119,7 @@ Example:
   "schemaVersion": 1,
   "kind": "tsonic-source-package",
   "surfaces": ["@tsonic/js"],
+  "supportedTargets": ["csharp"],
   "source": {
     "namespace": "mycompany",
     "exports": {
@@ -139,6 +140,7 @@ Current authored manifests can also declare:
 - ambient files
 - required type roots
 - module alias maps
+- supported backend targets
 - runtime metadata such as framework references and runtime packages
 
 The compiler preserves source-backed metadata through constructor metadata,
@@ -254,6 +256,7 @@ Current source package metadata can define:
 - ambient declaration files
 - module alias maps
 - surface applicability
+- supported backend targets
 - runtime package requirements where needed
 - framework references where needed
 

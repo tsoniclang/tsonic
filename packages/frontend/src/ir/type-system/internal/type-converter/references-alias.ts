@@ -62,6 +62,54 @@ const safeGetSourceFile = (node: ts.Node): ts.SourceFile | undefined => {
   }
 };
 
+const buildSourceAliasIdentity = (
+  declNode: ts.TypeAliasDeclaration,
+  aliasName: string
+):
+  | {
+      readonly providerQualifiedName: string;
+      readonly typeId: {
+        readonly stableId: string;
+        readonly providerName: string;
+        readonly ownerIdentity: string;
+        readonly sourceName: string;
+        readonly origin: "source";
+      };
+    }
+  | undefined => {
+  const sourceFile = safeGetSourceFile(declNode);
+  if (
+    !sourceFile ||
+    sourceFile.isDeclarationFile ||
+    !isTsonicSourcePackageFile(sourceFile.fileName)
+  ) {
+    return undefined;
+  }
+
+  const sourcePackageNamespace = resolveContainingSourcePackageNamespace(
+    sourceFile.fileName
+  );
+  if (!sourcePackageNamespace) {
+    return undefined;
+  }
+
+  const stableSourceFilePath =
+    resolveContainingSourcePackageStableFilePath(sourceFile.fileName) ??
+    sourceFile.fileName.replace(/\\/g, "/");
+  const providerQualifiedName = `${sourcePackageNamespace}.${aliasName}__Alias`;
+
+  return {
+    providerQualifiedName,
+    typeId: {
+      stableId: `source-alias:${stableSourceFilePath}#${aliasName}`,
+      providerName: providerQualifiedName,
+      ownerIdentity: sourcePackageNamespace,
+      sourceName: aliasName,
+      origin: "source",
+    },
+  };
+};
+
 const buildSourceObjectAliasReference = (
   node: ts.TypeReferenceNode,
   typeName: string,
@@ -92,31 +140,12 @@ const buildSourceObjectAliasReference = (
     convertType(typeArgument, binding)
   );
   const aliasName = sourceDecl.name.text;
-  const sourcePackageNamespace = resolveContainingSourcePackageNamespace(
-    sourceFile.fileName
-  );
-  const stableSourceFilePath =
-    resolveContainingSourcePackageStableFilePath(sourceFile.fileName) ??
-    sourceFile.fileName.replace(/\\/g, "/");
-  const providerQualifiedName = sourcePackageNamespace
-    ? `${sourcePackageNamespace}.${aliasName}__Alias`
-    : undefined;
+  const sourceAliasIdentity = buildSourceAliasIdentity(sourceDecl, aliasName);
   const referenceBase: Extract<IrType, { kind: "referenceType" }> = {
     kind: "referenceType",
     name: aliasName,
     ...(refTypeArgs.length > 0 ? { typeArguments: refTypeArgs } : {}),
-    providerQualifiedName,
-    ...(providerQualifiedName
-      ? {
-          typeId: {
-            stableId: `source-alias:${stableSourceFilePath}#${aliasName}`,
-            providerName: providerQualifiedName,
-            ownerIdentity: sourcePackageNamespace ?? "source",
-            sourceName: aliasName,
-            origin: "source",
-          },
-        }
-      : {}),
+    ...sourceAliasIdentity,
   };
 
   if (sourceObjectAliasExpansionStack.has(sourceDecl)) {
@@ -265,6 +294,24 @@ export const handleTypeAliasDeclaration = (
   if (isDirectUnionTypeAliasDeclaration(declNode)) {
     const preserveAliasIdentity = shouldPreserveUserTypeAliasIdentity(declNode);
     if (preserveAliasIdentity && !declNode.getSourceFile().isDeclarationFile) {
+      if (isRecursiveUserTypeAliasDeclaration(declId.id, declNode, binding)) {
+        const sourceAliasIdentity = buildSourceAliasIdentity(
+          declNode,
+          declNode.name.text
+        );
+        if (sourceAliasIdentity) {
+          const refTypeArgs = (node.typeArguments ?? []).map((typeArgument) =>
+            convertType(typeArgument, binding)
+          );
+          return {
+            kind: "referenceType",
+            name: typeName,
+            ...(refTypeArgs.length > 0 ? { typeArguments: refTypeArgs } : {}),
+            ...sourceAliasIdentity,
+            structuralOrigin: "namedReference",
+          };
+        }
+      }
       return undefined;
     }
 

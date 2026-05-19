@@ -238,7 +238,33 @@ export const typeOfMemberId = (
     return unknownType;
   }
 
-  if (receiverType) {
+  const requiresExactDeclarationStaticPartition = (() => {
+    const decl = memberInfo.declNode as ts.Declaration | undefined;
+    if (!decl || !ts.isMethodDeclaration(decl)) {
+      return false;
+    }
+
+    const parent = decl.parent;
+    if (!ts.isClassDeclaration(parent)) {
+      return false;
+    }
+
+    const methodName = tryResolveDeterministicPropertyName(decl.name);
+    if (!methodName) {
+      return false;
+    }
+
+    const staticIntent = hasStaticModifier(decl);
+    return parent.members.some(
+      (member) =>
+        member !== decl &&
+        ts.isMethodDeclaration(member) &&
+        tryResolveDeterministicPropertyName(member.name) === methodName &&
+        hasStaticModifier(member) !== staticIntent
+    );
+  })();
+
+  if (receiverType && !requiresExactDeclarationStaticPartition) {
     const normalizedReceiver = normalizeToNominal(state, receiverType);
     if (normalizedReceiver) {
       const lookupResult = state.nominalEnv.findMemberDeclaringType(

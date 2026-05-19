@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolvePackageRoot, resolveTsbindgenDllPath } from "./add-common.js";
 
+const compatibleTsbindgenVersion = "0.7.54";
+
 const writeJson = (path: string, value: unknown): void => {
   writeFileSync(path, JSON.stringify(value, null, 2) + "\n", "utf-8");
 };
@@ -26,7 +28,7 @@ describe("add-common module resolution", () => {
       mkdirSync(join(pkgRoot, "lib"), { recursive: true });
       writeJson(join(pkgRoot, "package.json"), {
         name: "@tsonic/tsbindgen",
-        version: "0.7.53",
+        version: compatibleTsbindgenVersion,
         type: "module",
         exports: {
           ".": "./index.js",
@@ -153,7 +155,7 @@ describe("add-common module resolution", () => {
       mkdirSync(join(siblingDll, ".."), { recursive: true });
       writeJson(join(siblingRoot, "package.json"), {
         name: "@tsonic/tsbindgen",
-        version: "0.7.53",
+        version: compatibleTsbindgenVersion,
         type: "module",
       });
       writeFileSync(siblingDll, "", "utf-8");

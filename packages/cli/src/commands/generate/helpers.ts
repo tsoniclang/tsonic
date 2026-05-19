@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import type { AssemblyReference } from "@tsonic/backend";
+import type { AssemblyReference } from "@tsonic/csharp-backend";
 
 export const findProjectCsproj = (projectRoot: string): string | null => {
   const files = readdirSync(projectRoot);

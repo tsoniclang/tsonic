@@ -92,7 +92,9 @@ Important distinction:
 - `tsonic.package.json` -> authored source package consumed as source
 - `tsonic.bindings.json` -> generated CLR binding package
 
-`add npm` understands both and updates the workspace accordingly.
+`add npm` understands both and updates the workspace accordingly. When a source
+or surface manifest declares `supportedTargets`, `add npm` accepts it only when
+the active compiler target is included.
 
 ### `tsonic add package <dll> [types]`
 

@@ -14,7 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 BASELINES_DIR=".plan-blue-baselines"
-GOLDEN_DIR="packages/emitter/testcases/common/expected"
+GOLDEN_DIR="packages/targets/csharp/emitter/testcases/common/expected"
 ERRORS=0
 MODE="fast"
 
@@ -83,7 +83,7 @@ rm -f "$CURRENT_CHECKSUMS"
 # 4 ▸ Check for circular dependencies
 echo ""
 echo "--- Step 4: Circular Dependency Check ---"
-for pkg in packages/frontend packages/emitter packages/backend packages/cli; do
+for pkg in packages/frontend packages/targets/csharp/emitter packages/targets/csharp/backend packages/cli; do
   if [[ -d "$pkg/src" ]]; then
     echo "Checking $pkg…"
     if npx madge --circular --extensions ts "$pkg/src" 2>/dev/null | grep -q "Found circular"; then

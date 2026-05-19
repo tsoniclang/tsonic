@@ -6,12 +6,18 @@ you keep those families separate.
 ## Compiler packages
 
 - `@tsonic/frontend`
-- `@tsonic/emitter`
-- `@tsonic/backend`
+- `@tsonic/csharp-emitter`
+- `@tsonic/csharp-backend`
 - `@tsonic/cli`
 - `tsonic`
 
 These implement the compiler and CLI itself.
+
+Target-specific compiler implementations live under `packages/targets/<target>/`.
+The C# target is split into:
+
+- `packages/targets/csharp/emitter` for Source IR to C# source emission
+- `packages/targets/csharp/backend` for project generation and .NET build orchestration
 
 The `tsonic` package is the npm wrapper under `npm/tsonic`. It forwards the
 binary to `@tsonic/cli`. It should stay on the same patch version line as the
@@ -32,7 +38,32 @@ These support language-facing types, intrinsics, and ambient declarations.
 - `@tsonic/express`
 
 These packages are authored directly in TypeScript and consumed as source
-through `tsonic.package.json`.
+through `tsonic.package.json`. Public source package names stay target-neutral:
+users import `@tsonic/js`, `@tsonic/nodejs`, and `@tsonic/express` for the
+default C# target. Target support is declared in package metadata with
+`supportedTargets`; user import paths do not include a target suffix.
+
+Example:
+
+```json
+{
+  "schemaVersion": 1,
+  "kind": "tsonic-source-package",
+  "surfaces": ["@tsonic/js"],
+  "supportedTargets": ["csharp"],
+  "source": {
+    "namespace": "nodejs",
+    "exports": {
+      ".": "./src/index.ts"
+    }
+  }
+}
+```
+
+When the compiler resolves a source package for an active backend target, it
+rejects packages whose `supportedTargets` does not include that target. The same
+target check runs in `tsonic add npm` before a package is accepted into a
+workspace.
 
 ## Generated CLR binding packages
 
@@ -77,7 +108,8 @@ normal package.
 The compiler repo must keep the root package graph coherent:
 
 - root `package.json` and `package-lock.json` must agree so `npm ci` works
-- the root workspace must include `packages/*` and `npm/*`
+- the root workspace must include `packages/*`, `packages/targets/*/*`, and
+  `npm/*`
 - `node_modules/.bin/tsonic` must resolve to the repo-local wrapper, not a
   globally installed binary
 - first-party package pins must refer to published versions unless a sibling

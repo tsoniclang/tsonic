@@ -8,6 +8,7 @@
  */
 
 import type { IrType, IrReferenceType } from "../types/index.js";
+import { getBinaryResultKind } from "../types/numeric-kind.js";
 import { normalizedUnionType } from "../types/type-ops.js";
 import { unwrapAsyncWrapperType } from "../types/type-ops.js";
 import { referenceTypeIdentity } from "../types/type-ops.js";
@@ -21,6 +22,10 @@ import {
   mapEntriesEqual,
   delegateToFunctionType,
 } from "./call-resolution-utilities.js";
+import {
+  deriveTypeFromNumericKind,
+  getNumericKindFromIrType,
+} from "./inference-utilities.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // inferMethodTypeArgsFromArguments — Generic method type argument inference
@@ -134,6 +139,21 @@ export const inferMethodTypeArgsFromArguments = (
         )
       : [];
 
+  const tryMergeNumericInferenceBases = (
+    existingBase: IrType,
+    nextBase: IrType
+  ): IrType | undefined => {
+    const existingKind = getNumericKindFromIrType(existingBase);
+    const nextKind = getNumericKindFromIrType(nextBase);
+    if (!existingKind || !nextKind) {
+      return undefined;
+    }
+
+    return deriveTypeFromNumericKind(
+      getBinaryResultKind(existingKind, nextKind)
+    );
+  };
+
   const tryMergeInferenceTypes = (
     existing: IrType,
     next: IrType
@@ -159,6 +179,22 @@ export const inferMethodTypeArgsFromArguments = (
       return nullishMembers.length > 0
         ? normalizedUnionType([mergedNonNullish, ...nullishMembers])
         : mergedNonNullish;
+    }
+
+    const mergedNumericBase = tryMergeNumericInferenceBases(
+      existingBase,
+      nextBase
+    );
+    if (mergedNumericBase) {
+      const nullishMembers = [
+        ...(existingOptional?.nullishMembers ?? []),
+        ...(nextOptional?.nullishMembers ?? []),
+        ...collectExplicitUndefinedInferenceMembers(existing),
+        ...collectExplicitUndefinedInferenceMembers(next),
+      ];
+      return nullishMembers.length > 0
+        ? normalizedUnionType([mergedNumericBase, ...nullishMembers])
+        : mergedNumericBase;
     }
 
     if (
