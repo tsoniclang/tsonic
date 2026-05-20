@@ -30,6 +30,7 @@ import type {
   IrInterfaceMember,
   IrReferenceType,
   IrClassDeclaration,
+  IrInterfaceDeclaration,
 } from "../types.js";
 import {
   computeShapeSignature,
@@ -38,11 +39,14 @@ import {
 
 import {
   classMembersToInterfaceMembers,
-  interfaceMembersToClassMembers,
+  createAnonymousStructuralDeclaration,
   isReusableStructuralCarrierName,
 } from "./anon-type-declaration-synthesis.js";
 
-import type { LoweringContext } from "./anon-type-lower-types.js";
+import type {
+  IrAnonymousStructuralDeclaration,
+  LoweringContext,
+} from "./anon-type-lower-types.js";
 
 import { lowerExpression, lowerStatement } from "./anon-type-ir-rewriting.js";
 import { typeSymbolIdFromStableId } from "../../symbols/index.js";
@@ -64,7 +68,7 @@ const SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH =
 const lowerModule = (
   module: IrModule,
   shared: {
-    readonly generatedDeclarations: IrClassDeclaration[];
+    readonly generatedDeclarations: IrAnonymousStructuralDeclaration[];
     readonly shapeToName: Map<string, string>;
     readonly shapeToExistingReference: Map<string, IrReferenceType>;
     readonly declaredTypeReferences: ReadonlyMap<string, IrReferenceType>;
@@ -335,7 +339,7 @@ const collectExistingAnonymousReferences = (
 
 const collectAnonymousReferenceDeclarations = (
   value: unknown,
-  declarationsByName: Map<string, IrClassDeclaration>,
+  declarationsByName: Map<string, IrAnonymousStructuralDeclaration>,
   seen: WeakSet<object>
 ): void => {
   if (!value || typeof value !== "object") {
@@ -349,27 +353,26 @@ const collectAnonymousReferenceDeclarations = (
 
   if (isAnonymousReferenceType(value) && value.providerQualifiedName === undefined) {
     if (!declarationsByName.has(value.name)) {
-      declarationsByName.set(value.name, {
-        kind: "classDeclaration",
-        name: value.name,
-        typeParameters:
-          value.typeArguments
-            ?.filter(
-              (
-                argument
-              ): argument is Extract<IrType, { kind: "typeParameterType" }> =>
-                argument.kind === "typeParameterType"
-            )
-            .map((argument) => ({
-              kind: "typeParameter" as const,
-              name: argument.name,
-            })) ?? undefined,
-        superClass: undefined,
-        implements: [],
-        members: interfaceMembersToClassMembers(value.structuralMembers),
-        isExported: true,
-        isStruct: false,
-      });
+      const typeParameters =
+        value.typeArguments
+          ?.filter(
+            (
+              argument
+            ): argument is Extract<IrType, { kind: "typeParameterType" }> =>
+              argument.kind === "typeParameterType"
+          )
+          .map((argument) => ({
+            kind: "typeParameter" as const,
+            name: argument.name,
+          })) ?? undefined;
+      declarationsByName.set(
+        value.name,
+        createAnonymousStructuralDeclaration(
+          value.name,
+          value.structuralMembers,
+          typeParameters
+        )
+      );
     }
   }
 
@@ -490,23 +493,9 @@ const shouldTraverseInferredTypeMetadata = (
     return true;
   }
 
-  const record = owner as {
-    readonly kind?: unknown;
-    readonly importedFrom?: unknown;
-    readonly providerQualifiedName?: unknown;
-    readonly providerOwnerIdentity?: unknown;
-    readonly originalName?: unknown;
-  };
+  const record = owner as { readonly kind?: unknown };
 
-  if (
-    record.kind === "identifier" &&
-    (record.importedFrom !== undefined ||
-      record.providerQualifiedName !== undefined ||
-      record.providerOwnerIdentity !== undefined ||
-      (typeof record.originalName === "string" &&
-        record.originalName.startsWith('"') &&
-        record.originalName.endsWith('"')))
-  ) {
+  if (record.kind === "identifier") {
     return false;
   }
 
@@ -541,13 +530,16 @@ const containsAnonymousReferenceType = (
 
 const collectPriorSyntheticAnonymousDeclarations = (
   modules: readonly IrModule[]
-): readonly IrClassDeclaration[] =>
+): readonly IrAnonymousStructuralDeclaration[] =>
   modules
     .filter((module) => module.filePath === SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH)
     .flatMap((module) =>
       module.body.filter(
-        (statement): statement is IrClassDeclaration =>
-          statement.kind === "classDeclaration" &&
+        (
+          statement
+        ): statement is IrClassDeclaration | IrInterfaceDeclaration =>
+          (statement.kind === "classDeclaration" ||
+            statement.kind === "interfaceDeclaration") &&
           statement.name.startsWith("__Anon_")
       )
     );
@@ -632,7 +624,7 @@ export const runAnonymousTypeLoweringPass = (
   }
 
   const shared = {
-    generatedDeclarations: [] as IrClassDeclaration[],
+    generatedDeclarations: [] as IrAnonymousStructuralDeclaration[],
     shapeToName: new Map<string, string>(),
     shapeToExistingReference,
     declaredTypeReferences,
@@ -642,7 +634,10 @@ export const runAnonymousTypeLoweringPass = (
   };
 
   const loweredModules = inputModules.map((m) => lowerModule(m, shared));
-  const recoveredAnonymousDeclarations = new Map<string, IrClassDeclaration>();
+  const recoveredAnonymousDeclarations = new Map<
+    string,
+    IrAnonymousStructuralDeclaration
+  >();
   const recoveredDeclarationTraversalSeen = new WeakSet<object>();
   for (const module of loweredModules) {
     collectAnonymousReferenceDeclarations(

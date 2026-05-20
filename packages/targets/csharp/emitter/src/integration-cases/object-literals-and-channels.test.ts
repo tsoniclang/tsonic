@@ -3,6 +3,54 @@ import { expect } from "chai";
 import { compileToCSharp } from "./helpers.js";
 
 describe("End-to-End Integration", () => {
+  describe("Function Return Contracts", () => {
+    it("emits assertion functions as void methods", () => {
+      const source = `
+        export function fail(reason: string): never {
+          throw new Error(reason);
+        }
+
+        export function assert(value: boolean): asserts value {
+          if (value) return;
+          fail("False expression.");
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/debug.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include("public static void assert(bool value)");
+      expect(csharp).to.include("if (value)");
+      expect(csharp).to.include("return;");
+      expect(csharp).not.to.include("public static bool assert");
+    });
+
+    it("emits method-bearing anonymous structural parameters as native interfaces", () => {
+      const source = `
+        export function fail(reason: string): never {
+          throw new Error(reason);
+        }
+
+        export function failBadSyntaxKind(node: { kindString(): string }): never {
+          fail(\`Node \${node.kindString()} was unexpected.\`);
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/debug.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.match(
+        /public interface __Anon_[A-Za-z0-9_]+[\s\S]*string kindString\(\);/
+      );
+      expect(csharp).to.match(
+        /public static void failBadSyntaxKind\(global::Test\.__Anon_[A-Za-z0-9_]+ node\)/
+      );
+      expect(csharp).to.include(".kindString()");
+    });
+  });
+
   describe("Object Literal Methods", () => {
     it("lowers arguments.length in object literal methods from declared parameters", () => {
       const source = `

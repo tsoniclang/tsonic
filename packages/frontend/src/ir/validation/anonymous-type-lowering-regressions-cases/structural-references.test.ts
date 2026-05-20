@@ -3,6 +3,7 @@ import { expect } from "chai";
 import { runAnonymousTypeLoweringPass, validateIrSoundness } from "../index.js";
 import type {
   IrClassDeclaration,
+  IrInterfaceDeclaration,
   IrModule,
   IrReferenceType,
   IrType,
@@ -808,5 +809,69 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     expect(computeShapeSignature(sharedShape)).to.equal(
       computeShapeSignature(distinctShape)
     );
+  });
+
+  it("emits method-bearing anonymous structural types as interfaces", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "debug.ts",
+      namespace: "Test",
+      className: "Debug",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "failBadSyntaxKind",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "node" },
+              type: {
+                kind: "objectType",
+                members: [
+                  {
+                    kind: "methodSignature",
+                    name: "kindString",
+                    parameters: [],
+                    returnType: { kind: "primitiveType", name: "string" },
+                  },
+                ],
+              },
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "neverType" },
+          body: { kind: "blockStatement", statements: [] },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+    };
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const anonymousModule = lowered.modules.find(
+      (entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+    );
+    const generatedDeclaration = anonymousModule?.body.find(
+      (statement): statement is IrInterfaceDeclaration =>
+        statement.kind === "interfaceDeclaration" &&
+        statement.name.startsWith("__Anon_")
+    );
+
+    expect(generatedDeclaration).to.not.equal(undefined);
+    expect(generatedDeclaration?.members).to.deep.equal([
+      {
+        kind: "methodSignature",
+        name: "kindString",
+        parameters: [],
+        returnType: { kind: "primitiveType", name: "string" },
+      },
+    ]);
   });
 });

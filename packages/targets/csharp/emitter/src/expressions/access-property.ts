@@ -60,10 +60,9 @@ export const emitPropertyAccess = (
   const prop = expr.property as string;
   let receiverAst = objectAst;
   let receiverContext = context;
+  let receiverExpressionForMember: IrExpression = expr.object;
+  let receiverTypeForMember = objectType;
   const isErasedAsInterfaceReceiver = expr.object.kind === "asinterface";
-  const resolvedObjectType = objectType
-    ? resolveTypeAlias(stripNullish(objectType), context)
-    : undefined;
 
   if (
     expr.object.kind === "typeAssertion" ||
@@ -81,18 +80,28 @@ export const emitPropertyAccess = (
       expr.object.expression
     );
     const transparentReceiverType =
+      (transparentReceiver.kind === "identifier"
+        ? (receiverSourceContext.localSemanticTypes?.get(
+            transparentReceiver.name
+          ) ??
+          receiverSourceContext.localValueTypes?.get(transparentReceiver.name))
+        : undefined) ??
       resolveEffectiveExpressionType(
         transparentReceiver,
         receiverSourceContext
-      ) ?? transparentReceiver.inferredType;
+      ) ??
+      transparentReceiver.inferredType;
     const transparentMemberResolutionType =
       expr.isOptional && transparentReceiverType
         ? stripNullish(transparentReceiverType)
         : transparentReceiverType;
     const receiverAlreadyExposesMember =
       !!transparentMemberResolutionType &&
-      resolveTypeMemberKind(transparentMemberResolutionType, prop, context) !==
-        undefined;
+      resolveTypeMemberKind(
+        transparentMemberResolutionType,
+        prop,
+        receiverSourceContext
+      ) !== undefined;
     const [emittedReceiverTypeAst, emittedReceiverContext] =
       resolveEmittedReceiverTypeAst(expr.object, context);
     const [transparentReceiverTypeAst] = resolveEmittedReceiverTypeAst(
@@ -113,16 +122,15 @@ export const emitPropertyAccess = (
         emitExpressionAst(transparentReceiver, receiverSourceContext);
       receiverAst = transparentReceiverAst;
       receiverContext = transparentReceiverContext;
-    } else if (
-      receiverAlreadyExposesMember &&
-      transparentReceiverSurface &&
-      emittedReceiverSurface &&
-      !sameTypeAstSurface(emittedReceiverSurface, transparentReceiverSurface)
-    ) {
+      receiverExpressionForMember = transparentReceiver;
+      receiverTypeForMember = transparentReceiverType;
+    } else if (receiverAlreadyExposesMember) {
       const [transparentReceiverAst, transparentReceiverContext] =
         emitExpressionAst(transparentReceiver, receiverSourceContext);
       receiverAst = transparentReceiverAst;
       receiverContext = transparentReceiverContext;
+      receiverExpressionForMember = transparentReceiver;
+      receiverTypeForMember = transparentReceiverType;
     } else if (
       !receiverAlreadyExposesMember &&
       emittedReceiverTypeAst &&
@@ -145,10 +153,15 @@ export const emitPropertyAccess = (
     }
   }
 
+  const resolvedObjectType = receiverTypeForMember
+    ? resolveTypeAlias(stripNullish(receiverTypeForMember), context)
+    : undefined;
   const memberResolutionType =
-    expr.isOptional && objectType ? stripNullish(objectType) : objectType;
+    expr.isOptional && receiverTypeForMember
+      ? stripNullish(receiverTypeForMember)
+      : receiverTypeForMember;
   const receiverStorageType = resolveDirectStorageIrType(
-    expr.object,
+    receiverExpressionForMember,
     receiverSourceContext
   );
   if (

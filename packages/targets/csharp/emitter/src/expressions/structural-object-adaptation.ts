@@ -1,4 +1,7 @@
-import { IrType } from "@tsonic/frontend";
+import type {
+  IrInterfaceMember,
+  IrType,
+} from "@tsonic/frontend";
 import { emitTypeAst } from "../type-emitter.js";
 import type {
   CSharpExpressionAst,
@@ -37,6 +40,7 @@ import {
   isSameNominalType,
 } from "./structural-type-shapes.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import { localInfoHasStructuralMember } from "../core/semantic/structural-member-matching.js";
 
 const buildStructuralSourceAccess = (
   sourceExpression: CSharpExpressionAst,
@@ -109,6 +113,59 @@ const localIdentifierAlreadyHasExpectedSurface = (
   }
 };
 
+const getExpectedInterfaceMembers = (
+  expectedType: IrType,
+  context: EmitterContext
+): readonly IrInterfaceMember[] | undefined => {
+  const stripped = stripNullish(expectedType);
+  if (stripped.kind === "objectType") {
+    return stripped.members;
+  }
+  if (stripped.kind !== "referenceType") {
+    return undefined;
+  }
+  if (stripped.structuralMembers?.length) {
+    return stripped.structuralMembers;
+  }
+  const localInfo = resolveLocalTypeInfo(stripped, context)?.info;
+  return localInfo?.kind === "interface" ? localInfo.members : undefined;
+};
+
+const localIdentifierStructurallySatisfiesExpectedInterface = (
+  emittedAst: CSharpExpressionAst,
+  sourceType: IrType,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  if (emittedAst.kind !== "identifierExpression") {
+    return false;
+  }
+
+  const sourceName = resolveSourceLocalName(emittedAst.identifier, context);
+  const declaredSourceType =
+    context.localSemanticTypes?.get(sourceName) ??
+    context.localValueTypes?.get(sourceName) ??
+    sourceType;
+  const strippedSource = stripNullish(declaredSourceType);
+  if (strippedSource.kind !== "referenceType") {
+    return false;
+  }
+
+  const sourceInfo = context.localTypes?.get(strippedSource.name);
+  if (sourceInfo?.kind !== "class" && sourceInfo?.kind !== "interface") {
+    return false;
+  }
+
+  const targetMembers = getExpectedInterfaceMembers(expectedType, context);
+  return (
+    targetMembers !== undefined &&
+    targetMembers.length > 0 &&
+    targetMembers.every((targetMember) =>
+      localInfoHasStructuralMember(sourceInfo, targetMember, context)
+    )
+  );
+};
+
 const isStructuralObjectTargetType = (
   type: IrType,
   resolvedType: IrType,
@@ -167,6 +224,17 @@ export const tryAdaptStructuralObjectExpressionAst = (
   }
 
   if (referenceTypeEmitsAsNativeInterface(strippedExpectedType, context)) {
+    if (
+      localIdentifierStructurallySatisfiesExpectedInterface(
+        emittedAst,
+        sourceType,
+        strippedExpectedType,
+        context
+      )
+    ) {
+      return [emittedAst, context];
+    }
+
     const [targetTypeAst, nextContext] = emitTypeAst(
       strippedExpectedType,
       context

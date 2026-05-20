@@ -20,6 +20,7 @@ import type {
   IrObjectType,
   IrReferenceType,
   IrClassDeclaration,
+  IrInterfaceDeclaration,
 } from "../types.js";
 
 import { getReferenceLoweringStableKey } from "./anon-type-shape-analysis.js";
@@ -64,12 +65,16 @@ const enrichReferenceIdentityMetadata = (
   };
 };
 
+export type IrAnonymousStructuralDeclaration =
+  | IrClassDeclaration
+  | IrInterfaceDeclaration;
+
 /**
  * Context for tracking state during lowering
  */
 export type LoweringContext = {
-  /** Generated class declarations (shared across modules) */
-  readonly generatedDeclarations: IrClassDeclaration[];
+  /** Generated structural declarations (shared across modules) */
+  readonly generatedDeclarations: IrAnonymousStructuralDeclaration[];
   /** Map from shape signature to generated type name for deduplication (shared across modules) */
   readonly shapeToName: Map<string, string>;
   /** Existing reusable structural reference types available across the compilation, keyed by shape signature. */

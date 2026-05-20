@@ -78,12 +78,64 @@ const convertAlias = (source: string, aliasName: string): IrType => {
   return convertType(alias.type, binding);
 };
 
+const convertFunctionReturnType = (
+  source: string,
+  functionName: string
+): IrType => {
+  const { sourceFile, binding } = createTestProgram(source);
+
+  let functionDecl: ts.FunctionDeclaration | undefined;
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === functionName
+    ) {
+      functionDecl = statement;
+      break;
+    }
+  }
+  if (!functionDecl?.type) {
+    throw new Error(`function ${functionName} return type not found`);
+  }
+
+  return convertType(functionDecl.type, binding);
+};
+
 const makeUnion = (...types: IrType[]): IrType => ({
   kind: "unionType",
   types,
 });
 
 describe("Type Converter - Tuple Rest Lowering", () => {
+  it("converts assertion function predicates to void return types", () => {
+    const converted = convertFunctionReturnType(
+      [
+        "function assert(value: boolean): asserts value {",
+        "  if (!value) throw new Error('failed');",
+        "}",
+      ].join("\n"),
+      "assert"
+    );
+
+    expect(converted).to.deep.equal({ kind: "voidType" });
+  });
+
+  it("keeps ordinary type predicates as boolean return types", () => {
+    const converted = convertFunctionReturnType(
+      [
+        "function isString(value: unknown): value is string {",
+        "  return typeof value === 'string';",
+        "}",
+      ].join("\n"),
+      "isString"
+    );
+
+    expect(converted).to.deep.equal({
+      kind: "primitiveType",
+      name: "boolean",
+    });
+  });
+
   it("keeps a locally declared Array<T> class nominal instead of lowering it to arrayType", () => {
     const { sourceFile, binding } = createTestProgram(
       [

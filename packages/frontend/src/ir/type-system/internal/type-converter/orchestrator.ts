@@ -372,8 +372,10 @@ export const convertType = (
     return convertTemplateLiteralType(typeNode, binding, convertType);
   }
 
-  // Type predicate return types `(x is T)` have boolean runtime values.
   if (ts.isTypePredicateNode(typeNode)) {
+    if (typeNode.assertsModifier !== undefined) {
+      return { kind: "voidType" };
+    }
     return { kind: "primitiveType", name: "boolean" };
   }
 

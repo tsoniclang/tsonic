@@ -8,6 +8,7 @@
  */
 
 export {
+  createAnonymousStructuralDeclaration,
   interfaceMembersToClassMembers,
   classMembersToInterfaceMembers,
   getOrCreateTypeName,
