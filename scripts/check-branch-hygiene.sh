@@ -2,12 +2,24 @@
 set -euo pipefail
 
 scratch_roots=("workarea" ".temp" ".tests")
+excluded_repo_names=("tsts")
 
 is_scratch_root_name() {
   local name="$1"
   local scratch_root
   for scratch_root in "${scratch_roots[@]}"; do
     if [[ "$name" == "$scratch_root" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_excluded_repo_name() {
+  local name="$1"
+  local excluded_repo_name
+  for excluded_repo_name in "${excluded_repo_names[@]}"; do
+    if [[ "$name" == "$excluded_repo_name" ]]; then
       return 0
     fi
   done
@@ -40,6 +52,11 @@ while IFS= read -r repo; do
   [[ -d "$repo/.git" ]] || continue
   repo_count=$((repo_count + 1))
   repo_name="$(basename "$repo")"
+
+  if is_excluded_repo_name "$repo_name"; then
+    repo_count=$((repo_count - 1))
+    continue
+  fi
 
   current_branch="$(git -C "$repo" branch --show-current)"
   dirty_count="$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')"
