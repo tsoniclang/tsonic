@@ -18,6 +18,8 @@ import type {
 
 export type SurfaceMode = string;
 
+export type ProgramInputScope = "package" | "entrypoint";
+
 export type CompilerOptions<
   Target extends BackendTargetId = BackendTargetId,
 > = {
@@ -30,6 +32,7 @@ export type CompilerOptions<
   readonly verbose?: boolean;
   readonly backendCapabilities?: BackendCapabilityManifest;
   readonly backendTargetId?: Target;
+  readonly programInputScope?: ProgramInputScope;
 };
 
 export type TsonicProgram<

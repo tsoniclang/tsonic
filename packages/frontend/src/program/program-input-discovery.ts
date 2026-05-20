@@ -326,6 +326,8 @@ export const discoverProgramInputs = (
   const currentProjectSourceMetadata = readSourcePackageMetadata(
     options.projectRoot
   );
+  const includeCurrentPackageExports =
+    options.programInputScope !== "entrypoint";
   if (currentProjectPackageName && currentProjectSourceMetadata) {
     const normalizedProjectRoot = canonicalizeRootDirPath(options.projectRoot);
     authoritativeTsonicPackageRoots.set(
@@ -461,9 +463,10 @@ export const discoverProgramInputs = (
   const sourcePackageAmbientPaths = typeRoots.flatMap((typeRoot) =>
     readSourcePackageAmbientPaths(typeRoot)
   );
-  const sourcePackageExportPaths = currentProjectSourceMetadata
-    ? readSourcePackageExportPaths(currentProjectSourceMetadata.packageRoot)
-    : [];
+  const sourcePackageExportPaths =
+    includeCurrentPackageExports && currentProjectSourceMetadata
+      ? readSourcePackageExportPaths(currentProjectSourceMetadata.packageRoot)
+      : [];
 
   if (options.verbose && typeRoots.length > 0) {
     console.log(`TypeRoots: ${typeRoots.join(", ")}`);

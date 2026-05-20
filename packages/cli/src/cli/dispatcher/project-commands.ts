@@ -268,6 +268,7 @@ export const resolveProjectCommandConfig = (
     ok: true,
     value: {
       ...resolvedConfig,
+      programInputScope: "entrypoint",
       outputDirectory,
       outputName,
       outputConfig: {

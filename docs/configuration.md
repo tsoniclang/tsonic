@@ -87,6 +87,10 @@ Typical fields include:
 - `references.libraries`
 - `references.packages`
 
+`tests.entryPoint` is the root file for `tsonic test`. It imports the test
+files that belong in the generated test assembly. Production files are compiled
+for a test run only when they are reachable from that test entry point.
+
 ## 4. Decide local package ownership mode
 
 The model supports local first-party package references with explicit

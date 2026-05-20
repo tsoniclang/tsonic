@@ -6,6 +6,8 @@ import type { OutputType, PackageMetadata } from "@tsonic/csharp-backend";
 
 export type SurfaceMode = string;
 
+export type ProgramInputScope = "package" | "entrypoint";
+
 /**
  * Output configuration in tsonic.json
  */
@@ -297,6 +299,7 @@ export type ResolvedConfig = {
   readonly verbose: boolean;
   readonly quiet: boolean;
   readonly testProgress: boolean;
+  readonly programInputScope: ProgramInputScope;
   readonly typeRoots: readonly string[];
   readonly libraries: readonly string[]; // External library paths for .NET interop
   readonly frameworkReferences: readonly string[];
