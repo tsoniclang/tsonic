@@ -432,6 +432,7 @@ export const generateCommand = (
       verbose: config.verbose,
       backendCapabilities: NATIVE_AOT_CAPABILITIES,
       backendTargetId: CSHARP_BACKEND_TARGET_ID,
+      programInputScope: config.programInputScope,
     };
     const graphResult = buildModuleDependencyGraph(
       absoluteEntryPoint,

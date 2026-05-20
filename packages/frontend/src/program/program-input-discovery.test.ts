@@ -36,6 +36,59 @@ describe("discoverProgramInputs", () => {
       ).to.equal(projectRoot);
       expect(discovery.typeRoots).to.include(projectRoot);
       expect(discovery.allFiles).to.include(ambientFile);
+      expect(discovery.allFiles).to.include(entryFile);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("keeps test entrypoint scope separate from current package exports", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/self-package-authoritative"
+    );
+
+    try {
+      const projectRoot = fixture.path("workspace/packages/js-like");
+      const sourceRoot = fixture.path("workspace/packages/js-like/src");
+      const testEntryFile = fixture.path(
+        "workspace/packages/js-like/src/tests-index.ts"
+      );
+      const packageExportFile = fixture.path(
+        "workspace/packages/js-like/src/index.ts"
+      );
+      const ambientFile = fixture.path("workspace/packages/js-like/globals.ts");
+
+      fs.writeFileSync(
+        testEntryFile,
+        'import "./smoke.test.ts";\nexport {};\n'
+      );
+      fs.writeFileSync(
+        fixture.path("workspace/packages/js-like/src/smoke.test.ts"),
+        "export const smoke = true;\n"
+      );
+
+      const discovery = discoverProgramInputs(
+        [testEntryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "Acme.JsLike.Tests",
+          surface: "@tsonic/js",
+          programInputScope: "entrypoint",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: [],
+        }
+      );
+
+      expect(
+        discovery.authoritativeTsonicPackageRoots.get("@acme/js-like")
+      ).to.equal(projectRoot);
+      expect(discovery.typeRoots).to.include(projectRoot);
+      expect(discovery.allFiles).to.include(testEntryFile);
+      expect(discovery.allFiles).to.include(ambientFile);
+      expect(discovery.allFiles).to.not.include(packageExportFile);
     } finally {
       fixture.cleanup();
     }

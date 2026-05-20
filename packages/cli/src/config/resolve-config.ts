@@ -181,6 +181,7 @@ export const resolveConfig = (
     verbose: cliOptions.verbose ?? false,
     quiet: cliOptions.quiet ?? false,
     testProgress: cliOptions.testProgress ?? false,
+    programInputScope: "package",
     typeRoots,
     libraries: [...configLibraries, ...projectLibraries, ...cliLibraries],
     frameworkReferences: rawFrameworkReferences.map((entry) =>

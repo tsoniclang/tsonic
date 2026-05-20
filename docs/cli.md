@@ -231,9 +231,16 @@ Generates a non-NativeAOT test assembly and runs `dotnet test`.
 
 This uses the project’s `tests.entryPoint` configuration.
 
-It generates a managed test assembly and delegates execution to `dotnet test`.
-That means test-only framework references and NuGet packages live in
-`testDotnet` / `tests` configuration rather than in ad hoc shell scripts.
+It generates one managed test assembly for the selected project and delegates
+execution to `dotnet test`. Test-only framework references and NuGet packages
+live in `testDotnet` / `tests` configuration rather than in ad hoc shell
+scripts.
+
+The test compilation starts at `tests.entryPoint`. Production files are included
+only when the test entry closure imports them. The production `entryPoint` and
+source-package exports are not additional roots for `tsonic test`.
+
+See [Tsonic Test](tsonic-test.md) for the xUnit authoring model.
 
 ### `tsonic pack`
 

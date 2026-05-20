@@ -35,6 +35,7 @@ The V1 model is:
 - [Workspace and Project Files](workspace-and-projects.md)
 - [Build Modes](build-modes.md)
 - [Build Output](build-output.md)
+- [Tsonic Test](tsonic-test.md)
 - [Bindings](bindings.md)
 - [CLR Bindings and Interop](dotnet-bindings.md)
 - [Type System Rules](type-system.md)
