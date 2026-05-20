@@ -9,6 +9,7 @@ import type {
   IrInterfaceMember,
   IrObjectType,
   IrClassDeclaration,
+  IrInterfaceDeclaration,
   IrClassMember,
   IrTypeParameter,
   IrExpression,
@@ -26,6 +27,70 @@ import {
 } from "./anon-type-shape-analysis.js";
 
 import type { LoweringContext } from "./anon-type-ir-rewriting.js";
+import type { IrAnonymousStructuralDeclaration } from "./anon-type-lower-types.js";
+
+export const structuralMembersContainMethod = (
+  members: readonly IrInterfaceMember[]
+): boolean => members.some((member) => member.kind === "methodSignature");
+
+const createStructuralTypeParameters = (
+  members: readonly IrInterfaceMember[]
+): readonly IrTypeParameter[] | undefined => {
+  const typeParamNames = new Set<string>();
+  for (const member of members) {
+    if (member.kind === "propertySignature") {
+      collectTypeParameterNames(member.type, typeParamNames);
+      continue;
+    }
+    for (const parameter of member.parameters) {
+      if (parameter.type) collectTypeParameterNames(parameter.type, typeParamNames);
+    }
+    if (member.returnType) {
+      collectTypeParameterNames(member.returnType, typeParamNames);
+    }
+  }
+
+  const orderedTypeParams = Array.from(typeParamNames).sort();
+  return orderedTypeParams.length > 0
+    ? orderedTypeParams.map(
+        (typeParamName): IrTypeParameter => ({
+          kind: "typeParameter",
+          name: typeParamName,
+        })
+      )
+    : undefined;
+};
+
+export const createAnonymousStructuralDeclaration = (
+  name: string,
+  members: readonly IrInterfaceMember[],
+  typeParameters = createStructuralTypeParameters(members)
+): IrAnonymousStructuralDeclaration => {
+  if (structuralMembersContainMethod(members)) {
+    const declaration: IrInterfaceDeclaration = {
+      kind: "interfaceDeclaration",
+      name,
+      typeParameters,
+      extends: [],
+      members,
+      isExported: true,
+      isStruct: false,
+    };
+    return declaration;
+  }
+
+  const declaration: IrClassDeclaration = {
+    kind: "classDeclaration",
+    name,
+    typeParameters,
+    superClass: undefined,
+    implements: [],
+    members: interfaceMembersToClassMembers(members),
+    isExported: true,
+    isStruct: false,
+  };
+  return declaration;
+};
 
 /**
  * Convert interface members to class property declarations
@@ -117,41 +182,9 @@ export const getOrCreateTypeName = (
   const name = `__Anon_${moduleHash}_${shapeHash}`;
   ctx.shapeToName.set(signature, name);
 
-  const typeParamNames = new Set<string>();
-  for (const member of objectType.members) {
-    if (member.kind === "propertySignature") {
-      collectTypeParameterNames(member.type, typeParamNames);
-    } else if (member.kind === "methodSignature") {
-      for (const p of member.parameters) {
-        if (p.type) collectTypeParameterNames(p.type, typeParamNames);
-      }
-      if (member.returnType)
-        collectTypeParameterNames(member.returnType, typeParamNames);
-    }
-  }
-  const orderedTypeParams = Array.from(typeParamNames).sort();
-
-  // Create a class declaration (not interface) so it can be instantiated
-  const declaration: IrClassDeclaration = {
-    kind: "classDeclaration",
-    name,
-    typeParameters:
-      orderedTypeParams.length > 0
-        ? orderedTypeParams.map(
-            (tp): IrTypeParameter => ({
-              kind: "typeParameter",
-              name: tp,
-            })
-          )
-        : undefined,
-    superClass: undefined,
-    implements: [],
-    members: interfaceMembersToClassMembers(objectType.members),
-    isExported: true, // Public to avoid inconsistent accessibility errors
-    isStruct: false,
-  };
-
-  ctx.generatedDeclarations.push(declaration);
+  ctx.generatedDeclarations.push(
+    createAnonymousStructuralDeclaration(name, objectType.members)
+  );
   return name;
 };
 

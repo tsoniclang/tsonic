@@ -45,6 +45,10 @@ import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expres
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { resolveRuntimeMaterializationTargetType } from "../core/semantic/runtime-materialization-targets.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import {
+  localInfoHasStructuralMember,
+  structuralMemberListsMatch,
+} from "../core/semantic/structural-member-matching.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import type {
   CSharpExpressionAst,
@@ -152,6 +156,59 @@ export const withoutNarrowedBinding = (
     ...context,
     narrowedBindings,
   };
+};
+
+const nominalSourceSatisfiesCompilerStructuralTarget = (
+  sourceType: IrType | undefined,
+  targetType: IrType,
+  context: EmitterContext
+): boolean => {
+  const strippedSource = sourceType ? stripNullish(sourceType) : undefined;
+  if (!strippedSource || strippedSource.kind !== "referenceType") {
+    return false;
+  }
+
+  const strippedTarget = stripNullish(targetType);
+  if (
+    strippedTarget.kind !== "referenceType" ||
+    !isCompilerGeneratedStructuralReferenceType(strippedTarget) ||
+    !strippedTarget.structuralMembers?.length
+  ) {
+    return false;
+  }
+
+  if (
+    structuralMemberListsMatch(
+      strippedSource.structuralMembers,
+      strippedTarget.structuralMembers,
+      context
+    )
+  ) {
+    return true;
+  }
+
+  const localInfo = context.localTypes?.get(strippedSource.name);
+  if (localInfo?.kind !== "class" && localInfo?.kind !== "interface") {
+    return false;
+  }
+
+  if (
+    localInfo.kind === "class" &&
+    localInfo.implements.some(
+      (implementedType) =>
+        implementedType.kind === "referenceType" &&
+        (implementedType.name === strippedTarget.name ||
+          (implementedType.providerQualifiedName !== undefined &&
+            implementedType.providerQualifiedName ===
+              strippedTarget.providerQualifiedName))
+    )
+  ) {
+    return true;
+  }
+
+  return strippedTarget.structuralMembers.every((targetMember) =>
+    localInfoHasStructuralMember(localInfo, targetMember, context)
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -530,6 +587,12 @@ export const emitTypeAssertion = (
   const currentTransparentSourceType =
     resolveEffectiveExpressionType(transparentSourceExpression, context) ??
     sourceExpressionTypeAtEntry;
+  const transparentSourceDeclaredType =
+    transparentSourceExpression.kind === "identifier"
+      ? (context.localSemanticTypes?.get(transparentSourceExpression.name) ??
+        context.localValueTypes?.get(transparentSourceExpression.name) ??
+        transparentSourceExpression.inferredType)
+      : transparentSourceExpression.inferredType;
   const sourceNarrowedBinding =
     transparentSourceExpression.kind === "identifier" ||
     transparentSourceExpression.kind === "memberAccess"
@@ -661,6 +724,40 @@ export const emitTypeAssertion = (
   const mustPreserveAuthoredAssertionCast =
     isAuthoredTypeAssertion &&
     (explicitAssertionNeedsStorageCast || explicitAssertionNeedsRuntimeCast);
+  const nominalSourceSatisfiesStructuralAssertionTarget = (
+    sourceType: IrType | undefined
+  ): boolean =>
+    nominalSourceSatisfiesCompilerStructuralTarget(
+      sourceType,
+      runtimeAssertionTarget,
+      context
+    ) ||
+    nominalSourceSatisfiesCompilerStructuralTarget(
+      sourceType,
+      resolvedAssertionTarget,
+      context
+    ) ||
+    nominalSourceSatisfiesCompilerStructuralTarget(
+      sourceType,
+      expr.targetType,
+      context
+    );
+
+  if (
+    !involvesDegenerateDuplicateUnion &&
+    (nominalSourceSatisfiesStructuralAssertionTarget(
+      transparentSourceDeclaredType
+    ) ||
+      nominalSourceSatisfiesStructuralAssertionTarget(
+        currentTransparentSourceType
+      ) ||
+      nominalSourceSatisfiesStructuralAssertionTarget(
+        sourceExpressionTypeAtEntry
+      ) ||
+      nominalSourceSatisfiesStructuralAssertionTarget(sourceStorageTypeAtEntry))
+  ) {
+    return emitExpressionAst(transparentSourceExpression, context);
+  }
 
   if (
     expectedType &&

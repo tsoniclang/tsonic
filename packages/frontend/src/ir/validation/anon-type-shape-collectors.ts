@@ -10,10 +10,15 @@ import type {
   IrType,
   IrClassMember,
   IrClassDeclaration,
+  IrInterfaceDeclaration,
   IrStatement,
   IrModule,
   IrPropertySignature,
 } from "../types.js";
+
+type IrAnonymousStructuralDeclaration =
+  | IrClassDeclaration
+  | IrInterfaceDeclaration;
 
 /**
  * Collect free type parameter names referenced by an IrType.
@@ -177,7 +182,7 @@ export const collectReferencedTypeNames = (
 
 export const collectPubliclyReachableAnonymousTypes = (
   modules: readonly IrModule[],
-  generatedDeclarations: readonly IrClassDeclaration[]
+  generatedDeclarations: readonly IrAnonymousStructuralDeclaration[]
 ): ReadonlySet<string> => {
   const declarationMap = new Map<string, IrStatement>();
   for (const module of modules) {
