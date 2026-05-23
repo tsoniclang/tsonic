@@ -19,10 +19,108 @@ describe("End-to-End Integration", () => {
       });
       expect(csharp).to.include('string[] chars = new string[] { "", "" };');
       expect(csharp).to.include(
-        "chars[0] = ((global::System.Func<string, int, string>)"
+        "chars[0] = ((global::System.Func<string, double, string>)"
       );
       expect(csharp).to.include("__tsonic_index < __tsonic_string.Length");
-      expect(csharp).to.include("__tsonic_string[__tsonic_index].ToString()");
+      expect(csharp).to.include(
+        "__tsonic_index == global::System.Math.Truncate(__tsonic_index)"
+      );
+      expect(csharp).to.include("__tsonic_string[(int)__tsonic_index].ToString()");
+    });
+
+    it("emits safe JavaScript string indexing for source-number parameters", () => {
+      const source = `
+        function getFileUrlVolumeSeparatorEnd(url: string, start: number): string {
+          if (url.length <= start) return "";
+          const ch0 = url[start];
+          if (ch0 === "%" && url.length > start + 2 && url[start + 1] === "3") {
+            return url[start + 2];
+          }
+          return ch0;
+        }
+
+        export function main(): string {
+          return getFileUrlVolumeSeparatorEnd("file:///c%3a/path", 9);
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/path.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include(
+        "global::System.Func<string, double, string>"
+      );
+      expect(csharp).to.include("__tsonic_index < __tsonic_string.Length");
+      expect(csharp).to.include(
+        "__tsonic_index == global::System.Math.Truncate(__tsonic_index)"
+      );
+      expect(csharp).to.include("__tsonic_string[(int)__tsonic_index]");
+      expect(csharp).to.not.include("TSN5107");
+    });
+
+    it("resolves export-star barrels to the declaring runtime modules", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/path.ts": `
+            export function normalizePath(path: string): string {
+              return path;
+            }
+          `,
+          "src/extras.ts": `
+            export const suffix = ".ts";
+          `,
+          "src/index.ts": `
+            export * from "./path.js";
+            export * from "./extras.js";
+          `,
+          "src/main.ts": `
+            import { normalizePath, suffix } from "./index.js";
+
+            export function main(input: string): string {
+              return normalizePath(input) + suffix;
+            }
+          `,
+        },
+        "src/main.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("path.normalizePath(input)");
+      expect(csharp).to.include("extras.suffix");
+      expect(csharp).to.not.include("index.normalizePath");
+      expect(csharp).to.not.include("index.suffix");
+    });
+
+    it("emits an explicit delegate type for conditional function locals", () => {
+      const source = `
+        export function choose(flag: boolean, input: string): string {
+          const compareKey = flag ? (s: string): string => s : (s: string): string => s.toLowerCase();
+          return compareKey(input);
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/functions.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include(
+        "global::System.Func<string, string> compareKey ="
+      );
+      expect(csharp).to.include("flag ? (string s) => s");
+      expect(csharp).to.not.include("var compareKey = flag ?");
+    });
+
+    it("emits JavaScript bitwise-not over source-number values as int32 operations", () => {
+      const source = `
+        export function encoded(value: number): number {
+          return ~value;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/bitwise.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("return ~(int)value;");
     });
 
     it("default-initializes explicit locals without initializers", () => {

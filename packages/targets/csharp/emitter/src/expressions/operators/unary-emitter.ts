@@ -16,6 +16,7 @@ import {
   identifierType,
 } from "../../core/format/backend-ast/builders.js";
 import { emitWritableTargetAst } from "./write-targets.js";
+import { castBitwiseOperandToInt } from "./bitwise-helpers.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -191,7 +192,22 @@ export const emitUnary = (
     return [buildIife(false, returnTypeAst), currentContext];
   }
 
-  // Standard prefix operator: -, +, ~
+  if (expr.operator === "~") {
+    return [
+      {
+        kind: "prefixUnaryExpression",
+        operatorToken: "~",
+        operand: castBitwiseOperandToInt(
+          operandAst,
+          expr.expression.inferredType,
+          newContext
+        ),
+      },
+      newContext,
+    ];
+  }
+
+  // Standard prefix operator: -, +
   return [
     {
       kind: "prefixUnaryExpression",

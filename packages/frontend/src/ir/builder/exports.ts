@@ -11,6 +11,27 @@ import { hasExportModifier, hasDefaultModifier } from "./helpers.js";
 import type { Binding } from "../binding/index.js";
 import type { ProgramContext } from "../program-context.js";
 
+const DEFAULT_EXPORT_NAME = "default";
+
+const getExportStarNames = (
+  node: ts.ExportDeclaration,
+  ctx: ProgramContext
+): readonly string[] => {
+  if (!node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier)) {
+    return [];
+  }
+
+  const moduleSymbol = ctx.checker.getSymbolAtLocation(node.moduleSpecifier);
+  if (!moduleSymbol) {
+    return [];
+  }
+
+  return ctx.checker
+    .getExportsOfModule(moduleSymbol)
+    .map((symbol) => symbol.getName())
+    .filter((name) => name !== DEFAULT_EXPORT_NAME);
+};
+
 /**
  * Extract export declarations from source file.
  *
@@ -105,6 +126,19 @@ export const extractExportsWithContext = (
               localName: (spec.propertyName ?? spec.name).text,
             });
           });
+        }
+      }
+      if (!node.exportClause && node.moduleSpecifier) {
+        if (ts.isStringLiteral(node.moduleSpecifier)) {
+          const fromModule = node.moduleSpecifier.text;
+          for (const name of getExportStarNames(node, ctx)) {
+            exports.push({
+              kind: "reexport",
+              name,
+              originalName: name,
+              fromModule,
+            });
+          }
         }
       }
     } else if (ts.isExportAssignment(node)) {

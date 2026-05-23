@@ -182,6 +182,14 @@ export const resolveLocalTypeAst = (
     }
   }
 
+  if (
+    !decl.type &&
+    decl.initializer?.kind === "conditional" &&
+    decl.initializer.inferredType?.kind === "functionType"
+  ) {
+    return emitTypeAst(decl.initializer.inferredType, context);
+  }
+
   // Types that need explicit declaration (byte, sbyte, short, ushort)
   if (
     decl.type &&

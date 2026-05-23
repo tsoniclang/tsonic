@@ -73,10 +73,49 @@ const buildSafeJsStringIndexAst = (
   const indexName = "__tsonic_index";
   const stringIdentifier = identifierExpression(stringName);
   const indexIdentifier = identifierExpression(indexName);
+  const castIndexToInt: CSharpExpressionAst = {
+    kind: "castExpression",
+    type: { kind: "predefinedType", keyword: "int" },
+    expression: indexIdentifier,
+  };
   const safeElementAccess: CSharpExpressionAst = {
     kind: "elementAccessExpression",
     expression: stringIdentifier,
-    arguments: [indexIdentifier],
+    arguments: [castIndexToInt],
+  };
+  const indexIsInRange: CSharpExpressionAst = {
+    kind: "binaryExpression",
+    operatorToken: "&&",
+    left: {
+      kind: "binaryExpression",
+      operatorToken: "&&",
+      left: {
+        kind: "binaryExpression",
+        operatorToken: ">=",
+        left: indexIdentifier,
+        right: parseNumericLiteral("0"),
+      },
+      right: {
+        kind: "binaryExpression",
+        operatorToken: "<",
+        left: indexIdentifier,
+        right: {
+          kind: "memberAccessExpression",
+          expression: stringIdentifier,
+          memberName: "Length",
+        },
+      },
+    },
+    right: {
+      kind: "binaryExpression",
+      operatorToken: "==",
+      left: indexIdentifier,
+      right: {
+        kind: "invocationExpression",
+        expression: identifierExpression("global::System.Math.Truncate"),
+        arguments: [indexIdentifier],
+      },
+    },
   };
 
   return {
@@ -93,7 +132,7 @@ const buildSafeJsStringIndexAst = (
           },
           typeArguments: [
             { kind: "predefinedType", keyword: "string" },
-            { kind: "predefinedType", keyword: "int" },
+            { kind: "predefinedType", keyword: "double" },
             { kind: "predefinedType", keyword: "string" },
           ],
         },
@@ -109,7 +148,7 @@ const buildSafeJsStringIndexAst = (
               },
               {
                 name: indexName,
-                type: { kind: "predefinedType", keyword: "int" },
+                type: { kind: "predefinedType", keyword: "double" },
               },
             ],
             body: {
@@ -123,26 +162,7 @@ const buildSafeJsStringIndexAst = (
               whenTrue: nullLiteral(),
               whenFalse: {
                 kind: "conditionalExpression",
-                condition: {
-                  kind: "binaryExpression",
-                  operatorToken: "&&",
-                  left: {
-                    kind: "binaryExpression",
-                    operatorToken: ">=",
-                    left: indexIdentifier,
-                    right: parseNumericLiteral("0"),
-                  },
-                  right: {
-                    kind: "binaryExpression",
-                    operatorToken: "<",
-                    left: indexIdentifier,
-                    right: {
-                      kind: "memberAccessExpression",
-                      expression: stringIdentifier,
-                      memberName: "Length",
-                    },
-                  },
-                },
+                condition: indexIsInRange,
                 whenTrue: {
                   kind: "invocationExpression",
                   expression: {
@@ -252,7 +272,47 @@ export const emitComputedAccess = (
     ];
   }
 
-  // HARD GATE: numericIndexer + stringChar require Int32 proof
+  if (accessKind === "stringChar") {
+    const elementAccess: CSharpExpressionAst = {
+      kind: "elementAccessExpression",
+      expression: objectAst,
+      arguments: [propAst],
+    };
+    const charElementAccess: CSharpExpressionAst = expr.isOptional
+      ? {
+          kind: "conditionalElementAccessExpression",
+          expression: objectAst,
+          arguments: [propAst],
+        }
+      : elementAccess;
+
+    const narrowedExpectedType = expectedType
+      ? stripNullish(expectedType)
+      : undefined;
+    const resolvedExpectedType = narrowedExpectedType
+      ? resolveTypeAlias(narrowedExpectedType, context)
+      : undefined;
+    const expectsChar =
+      (resolvedExpectedType?.kind === "primitiveType" &&
+        resolvedExpectedType.name === "char") ||
+      (resolvedExpectedType?.kind === "referenceType" &&
+        resolvedExpectedType.name === "char");
+
+    if (expectsChar || !contextSurfaceIncludesJs(context)) {
+      if (!hasInt32Proof(indexExpr)) {
+        const propText = extractCalleeNameFromAst(propAst);
+        throw new Error(
+          `Internal Compiler Error: CLR string indexer requires Int32 index. ` +
+            `Expression '${propText}' has no Int32 proof. ` +
+            `This should have been caught by the numeric proof pass (TSN5107).`
+        );
+      }
+      return [charElementAccess, finalContext];
+    }
+
+    return [buildSafeJsStringIndexAst(objectAst, propAst), finalContext];
+  }
+
   if (!hasInt32Proof(indexExpr)) {
     const propText = extractCalleeNameFromAst(propAst);
     throw new Error(
@@ -290,39 +350,6 @@ export const emitComputedAccess = (
       },
       finalContext,
     ];
-  }
-
-  if (accessKind === "stringChar") {
-    const elementAccess: CSharpExpressionAst = {
-      kind: "elementAccessExpression",
-      expression: objectAst,
-      arguments: [propAst],
-    };
-    const charElementAccess: CSharpExpressionAst = expr.isOptional
-      ? {
-          kind: "conditionalElementAccessExpression",
-          expression: objectAst,
-          arguments: [propAst],
-        }
-      : elementAccess;
-
-    const narrowedExpectedType = expectedType
-      ? stripNullish(expectedType)
-      : undefined;
-    const resolvedExpectedType = narrowedExpectedType
-      ? resolveTypeAlias(narrowedExpectedType, context)
-      : undefined;
-    const expectsChar =
-      (resolvedExpectedType?.kind === "primitiveType" &&
-        resolvedExpectedType.name === "char") ||
-      (resolvedExpectedType?.kind === "referenceType" &&
-        resolvedExpectedType.name === "char");
-
-    if (expectsChar || !contextSurfaceIncludesJs(context)) {
-      return [charElementAccess, finalContext];
-    }
-
-    return [buildSafeJsStringIndexAst(objectAst, propAst), finalContext];
   }
 
   if (expr.isOptional) {

@@ -186,7 +186,7 @@ export type IrArrowFunctionExpression = {
  *
  * - numericIndexer: positional indexer (obj[int]) - requires source-int proof
  * - dictionary: Dictionary<K,V>[key] - NO source-int requirement (key is typed)
- * - stringChar: string[int] character access - requires source-int proof
+ * - stringChar: string[index] access - source-int proof depends on the inferred result type
  * - unknown: Fallback for unclassified access - emit error
  */
 export type ComputedAccessKind =

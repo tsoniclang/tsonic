@@ -414,10 +414,13 @@ describe("Expression Emission", () => {
     expect(result).to.include('string source = "abc";');
     expect(result).to.include("char letter = source[0];");
     expect(result).to.include(
-      "string text = ((global::System.Func<string, int, string>)((string __tsonic_string, int __tsonic_index) =>"
+      "string text = ((global::System.Func<string, double, string>)((string __tsonic_string, double __tsonic_index) =>"
     );
     expect(result).to.include("__tsonic_index < __tsonic_string.Length");
-    expect(result).to.include("__tsonic_string[__tsonic_index].ToString()");
+    expect(result).to.include(
+      "__tsonic_index == global::System.Math.Truncate(__tsonic_index)"
+    );
+    expect(result).to.include("__tsonic_string[(int)__tsonic_index].ToString()");
     expect(result).to.not.include("string text = source[0].ToString();");
   });
 
