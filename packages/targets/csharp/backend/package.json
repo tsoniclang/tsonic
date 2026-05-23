@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/csharp-backend",
-  "version": "0.0.81",
+  "version": "0.0.82",
   "description": ".NET build orchestration for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,8 +22,8 @@
     "test:watch": "mocha --require ../../../../test/mocha/checkpoint.cjs --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js' --watch"
   },
   "dependencies": {
-    "@tsonic/csharp-emitter": "0.0.81",
-    "@tsonic/frontend": "0.0.81"
+    "@tsonic/csharp-emitter": "0.0.82",
+    "@tsonic/frontend": "0.0.82"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",
