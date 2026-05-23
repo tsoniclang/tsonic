@@ -28,7 +28,7 @@
   ],
   "devDependencies": {
     "@eslint/js": "^9.37.0",
-    "@tsonic/js": "10.0.52",
+    "@tsonic/js": "10.0.53",
     "@types/chai": "5.2.2",
     "@types/mocha": "10.0.10",
     "@types/node": "20.14.0",
@@ -66,6 +66,7 @@
     "@tsonic/core": "10.0.45",
     "@tsonic/dotnet": "10.0.45",
     "@tsonic/globals": "10.0.45",
-    "@tsonic/nodejs": "10.0.53"
+    "@tsonic/nodejs": "10.0.54",
+    "@tsonic/js": "10.0.53"
   }
 }
