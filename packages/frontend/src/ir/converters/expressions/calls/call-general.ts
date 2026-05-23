@@ -1645,6 +1645,7 @@ const scoreSourceSurfaceComplexity = (type: IrType | undefined): number => {
 
 type SourceBackedSurfaceScore = {
   readonly coversAllArguments: boolean;
+  readonly explicitNakedTypeParameterExactCount: number;
   readonly arityCoverageCount: number;
   readonly actualCoverageByIndex: readonly boolean[];
   readonly actualCoverageCount: number;
@@ -1656,6 +1657,8 @@ type SourceBackedSurfaceScore = {
 
 const scoreSourceBackedSurfaceCandidate = (
   candidateParameterTypes: readonly (IrType | undefined)[],
+  methodTypeParameterNames: readonly string[],
+  explicitTypeArgs: readonly IrType[] | undefined,
   selectedParameterTypes: readonly (IrType | undefined)[],
   actualArgTypes: readonly (IrType | undefined)[] | undefined,
   argumentCount: number,
@@ -1780,6 +1783,7 @@ const scoreSourceBackedSurfaceCandidate = (
   let compatibleCount = 0;
   let actualCoverageCount = 0;
   let exactCount = 0;
+  let explicitNakedTypeParameterExactCount = 0;
   let nonBroadCount = 0;
   let complexity = 0;
   const actualCoverageByIndex: boolean[] = [];
@@ -1802,6 +1806,26 @@ const scoreSourceBackedSurfaceCandidate = (
     }
 
     const actualArgType = actualArgTypes?.[index];
+    if (
+      explicitTypeArgs &&
+      candidate.kind === "typeParameterType" &&
+      actualArgType
+    ) {
+      const typeParameterIndex = methodTypeParameterNames.indexOf(
+        candidate.name
+      );
+      const explicitTypeArg =
+        typeParameterIndex >= 0
+          ? explicitTypeArgs[typeParameterIndex]
+          : undefined;
+      if (
+        explicitTypeArg &&
+        (ctx.typeSystem.typesEqual(explicitTypeArg, actualArgType) ||
+          ctx.typeSystem.isAssignableTo(actualArgType, explicitTypeArg))
+      ) {
+        explicitNakedTypeParameterExactCount += 1;
+      }
+    }
     if (candidateCoversActualArg(candidate, actualArgType)) {
       actualCoverageCount += 1;
       actualCoverageByIndex[index] = true;
@@ -1830,6 +1854,7 @@ const scoreSourceBackedSurfaceCandidate = (
 
   return {
     coversAllArguments: candidateParameterTypes.length >= argumentCount,
+    explicitNakedTypeParameterExactCount,
     arityCoverageCount,
     actualCoverageByIndex,
     actualCoverageCount,
@@ -1848,6 +1873,13 @@ const compareSourceSurfaceScores = (
     Number(left.coversAllArguments) - Number(right.coversAllArguments);
   if (argumentCoverageDelta !== 0) {
     return argumentCoverageDelta;
+  }
+
+  const explicitNakedTypeParameterExactDelta =
+    left.explicitNakedTypeParameterExactCount -
+    right.explicitNakedTypeParameterExactCount;
+  if (explicitNakedTypeParameterExactDelta !== 0) {
+    return explicitNakedTypeParameterExactDelta;
   }
 
   const coverageCount = Math.max(
@@ -2435,6 +2467,8 @@ export const getSourceBackedCallParameterTypes = (
       let bestSurface = runtimeSurface;
       let bestScore = scoreSourceBackedSurfaceCandidate(
         runtimeSurface.parameterTypes,
+        runtimeSurface.methodTypeParameterNames,
+        explicitTypeArgs,
         selectedParameterTypes,
         actualArgTypes,
         argumentCount,
@@ -2451,6 +2485,8 @@ export const getSourceBackedCallParameterTypes = (
         );
         const candidateScore = scoreSourceBackedSurfaceCandidate(
           candidateSurface.parameterTypes,
+          candidateSurface.methodTypeParameterNames,
+          explicitTypeArgs,
           selectedParameterTypes,
           actualArgTypes,
           argumentCount,
@@ -2523,6 +2559,8 @@ export const getSourceBackedCallParameterTypes = (
     );
     let bestScore = scoreSourceBackedSurfaceCandidate(
       bestSurface.parameterTypes,
+      bestSurface.methodTypeParameterNames,
+      explicitTypeArgs,
       selectedParameterTypes ?? [],
       actualArgTypes,
       argumentCount,
@@ -2536,6 +2574,8 @@ export const getSourceBackedCallParameterTypes = (
       const candidateSurface = buildCandidateSurface(candidate);
       const candidateScore = scoreSourceBackedSurfaceCandidate(
         candidateSurface.parameterTypes,
+        candidateSurface.methodTypeParameterNames,
+        explicitTypeArgs,
         selectedParameterTypes ?? [],
         actualArgTypes,
         argumentCount,
@@ -2735,6 +2775,8 @@ export const getSourceBackedCallParameterTypes = (
       let bestSurface = runtimeSurface;
       let bestScore = scoreSourceBackedSurfaceCandidate(
         runtimeSurface.parameterTypes,
+        runtimeSurface.methodTypeParameterNames,
+        explicitTypeArgs,
         selectedParameterTypes,
         actualArgTypes,
         argumentCount,
@@ -2750,6 +2792,8 @@ export const getSourceBackedCallParameterTypes = (
         );
         const candidateScore = scoreSourceBackedSurfaceCandidate(
           candidateSurface.parameterTypes,
+          candidateSurface.methodTypeParameterNames,
+          explicitTypeArgs,
           selectedParameterTypes,
           actualArgTypes,
           argumentCount,
@@ -2784,6 +2828,8 @@ export const getSourceBackedCallParameterTypes = (
     let bestSurface = runtimeSurface;
     let bestScore = scoreSourceBackedSurfaceCandidate(
       runtimeSurface.parameterTypes,
+      runtimeSurface.methodTypeParameterNames,
+      explicitTypeArgs,
       selectedParameterTypes,
       actualArgTypes,
       argumentCount,
@@ -2799,6 +2845,8 @@ export const getSourceBackedCallParameterTypes = (
       );
       const candidateScore = scoreSourceBackedSurfaceCandidate(
         candidateSurface.parameterTypes,
+        candidateSurface.methodTypeParameterNames,
+        explicitTypeArgs,
         selectedParameterTypes,
         actualArgTypes,
         argumentCount,
@@ -3165,19 +3213,24 @@ export const convertCallExpression = (
     expr: ts.Expression,
     parameterType: IrType | undefined
   ): boolean => {
-    if (
-      !parameterType ||
-      !ctx.typeSystem.containsTypeParameter(parameterType)
-    ) {
+    if (!parameterType) {
       return false;
     }
 
     const current = stripParentheses(expr);
     if (ts.isArrayLiteralExpression(current)) {
-      return current.elements.length > 0;
+      return (
+        current.elements.length > 0 &&
+        ((explicitTypeArgs?.length ?? 0) > 0 ||
+          ctx.typeSystem.containsTypeParameter(parameterType))
+      );
     }
 
-    return ts.isObjectLiteralExpression(current);
+    return (
+      ts.isObjectLiteralExpression(current) &&
+      ((explicitTypeArgs?.length ?? 0) > 0 ||
+        ctx.typeSystem.containsTypeParameter(parameterType))
+    );
   };
 
   // Pass 1: convert non-lambda arguments and infer type args from them.
@@ -3335,11 +3388,20 @@ export const convertCallExpression = (
     );
     const shouldRecontextualizeAggregateLater =
       deferredAggregateContextIndices.has(index);
+    const shouldDeferExplicitAggregateUntilFinal =
+      shouldRecontextualizeAggregateLater &&
+      !isDeferredLambda &&
+      !isDeferredGenericFunctionValue &&
+      (explicitTypeArgs?.length ?? 0) > 0 &&
+      (candidateSigIds?.length ?? 0) > 0;
     if (
       !isDeferredLambda &&
       !isDeferredGenericFunctionValue &&
       !shouldRecontextualizeAggregateLater
     ) {
+      continue;
+    }
+    if (shouldDeferExplicitAggregateUntilFinal) {
       continue;
     }
 

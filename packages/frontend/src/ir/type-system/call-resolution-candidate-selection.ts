@@ -57,6 +57,8 @@ type CandidateScore = readonly [
   number,
   number,
   number,
+  number,
+  number,
 ];
 
 const scoreReceiverCompatibility = (
@@ -687,7 +689,101 @@ const countDeclaredArrayCarrierCompatibleArguments = (
       continue;
     }
 
-    if (scoreSignatureMatch(state, [parameterType], [argumentType], 1) > 0) {
+    if (typesEqual(parameterType, argumentType)) {
+      compatible += 1;
+    }
+  }
+
+  return compatible;
+};
+
+const countExplicitNakedTypeParameterExactArguments = (
+  state: TypeSystemState,
+  sigId: SignatureId,
+  explicitTypeArgs: readonly IrType[] | undefined,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  if (!explicitTypeArgs || explicitTypeArgs.length === 0) {
+    return 0;
+  }
+
+  const rawSignature = getRawSignature(state, sigId);
+  if (!rawSignature || rawSignature.typeParameters.length === 0) {
+    return 0;
+  }
+
+  const typeParameterIndexByName = new Map(
+    rawSignature.typeParameters.map((parameter, index) => [
+      parameter.name,
+      index,
+    ])
+  );
+  const expandedParameterTypes = expandParameterTypesForArguments(
+    rawSignature.parameterFlags,
+    rawSignature.parameterTypes,
+    argumentCount
+  );
+
+  let exact = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    expandedParameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const rawParameterType = stripNullish(expandedParameterTypes[index]);
+    const argumentType = stripNullish(argTypes[index]);
+    if (rawParameterType?.kind !== "typeParameterType" || !argumentType) {
+      continue;
+    }
+
+    const typeParameterIndex = typeParameterIndexByName.get(
+      rawParameterType.name
+    );
+    const explicitTypeArgument =
+      typeParameterIndex === undefined
+        ? undefined
+        : stripNullish(explicitTypeArgs[typeParameterIndex]);
+    if (!explicitTypeArgument) {
+      continue;
+    }
+
+    if (
+      typesEqual(explicitTypeArgument, argumentType) ||
+      isAssignableTo(state, argumentType, explicitTypeArgument)
+    ) {
+      exact += 1;
+    }
+  }
+
+  return exact;
+};
+
+const countResolvedArrayExactArguments = (
+  resolved: ResolvedCall,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  let compatible = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    resolved.parameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const parameterType = stripNullish(resolved.parameterTypes[index]);
+    const argumentType = stripNullish(argTypes[index]);
+    if (
+      parameterType?.kind !== "arrayType" ||
+      argumentType?.kind !== "arrayType"
+    ) {
+      continue;
+    }
+
+    if (typesEqual(parameterType, argumentType)) {
       compatible += 1;
     }
   }
@@ -744,6 +840,7 @@ const buildCandidateScore = (
   resolved: ResolvedCall,
   receiverType: IrType | undefined,
   argTypes: readonly (IrType | undefined)[] | undefined,
+  explicitTypeArgs: readonly IrType[] | undefined,
   argumentCount: number
 ): CandidateScore => {
   const receiverCompatibilityScore = scoreReceiverCompatibility(
@@ -779,6 +876,25 @@ const buildCandidateScore = (
     ? countDeclaredArrayCarrierCompatibleArguments(
         state,
         sigId,
+        {
+          ...resolved,
+          parameterTypes: participatingParameterTypes,
+        },
+        participatingArgTypes ?? [],
+        argumentCount
+      )
+    : 0;
+  const explicitNakedTypeParameterExactArgumentCount = argTypes
+    ? countExplicitNakedTypeParameterExactArguments(
+        state,
+        sigId,
+        explicitTypeArgs,
+        participatingArgTypes ?? [],
+        argumentCount
+      )
+    : 0;
+  const resolvedArrayExactArgumentCount = argTypes
+    ? countResolvedArrayExactArguments(
         {
           ...resolved,
           parameterTypes: participatingParameterTypes,
@@ -868,6 +984,8 @@ const buildCandidateScore = (
 
   return [
     receiverCompatibilityScore,
+    explicitNakedTypeParameterExactArgumentCount,
+    resolvedArrayExactArgumentCount,
     declaredArrayCarrierCompatibleArgumentCount,
     declaredReferenceIterableCarrierCompatibleArgumentCount,
     broadNumberIndependentCompatibleArgumentCount,
@@ -982,6 +1100,7 @@ export const selectBestCallCandidate = (
         evaluation.resolved,
         query.receiverType,
         query.argTypes,
+        query.explicitTypeArgs,
         query.argumentCount
       );
 

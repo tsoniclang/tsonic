@@ -22,10 +22,12 @@ import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 import {
+  getBorrowedMutationWriteBackSemantics,
   surfaceMemberMutatesReceiver,
   surfaceMemberReturnsArray,
   surfaceMemberReturnsReceiver,
 } from "../../core/semantic/surface-member-semantics.js";
+import { emitCSharpName } from "../../naming-policy.js";
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
@@ -76,7 +78,99 @@ type CapturedAssignableArrayTarget = {
   readonly readExpression: CSharpExpressionAst;
   readonly writeExpression: CSharpExpressionAst;
   readonly setupStatements: readonly CSharpStatementAst[];
+  readonly postMutationStatements: readonly CSharpStatementAst[];
   readonly context: EmitterContext;
+};
+
+const isStableBorrowedAliasExpression = (expr: IrExpression): boolean => {
+  switch (expr.kind) {
+    case "identifier":
+    case "this":
+      return true;
+    case "literal":
+      return (
+        expr.value === null ||
+        expr.value === undefined ||
+        typeof expr.value === "string" ||
+        typeof expr.value === "number" ||
+        typeof expr.value === "boolean"
+      );
+    case "memberAccess":
+      return (
+        !expr.isComputed &&
+        typeof expr.property === "string" &&
+        isStableBorrowedAliasExpression(expr.object)
+      );
+    default:
+      return false;
+  }
+};
+
+const tryBuildBorrowedMutationWriteBack = (
+  receiver: Extract<IrExpression, { kind: "identifier" }>,
+  mutatedValueAst: CSharpExpressionAst,
+  context: EmitterContext
+):
+  | {
+      readonly statement: CSharpStatementAst;
+      readonly context: EmitterContext;
+    }
+  | undefined => {
+  const alias = context.conditionAliases?.get(receiver.name);
+  if (
+    !alias ||
+    alias.kind !== "call" ||
+    alias.callee.kind !== "memberAccess" ||
+    alias.callee.isComputed ||
+    !alias.callee.memberBinding
+  ) {
+    return undefined;
+  }
+
+  const semantics = getBorrowedMutationWriteBackSemantics(
+    alias.callee.memberBinding,
+    context
+  );
+  if (!semantics) {
+    return undefined;
+  }
+
+  const keyArgument = alias.arguments[semantics.keyArgumentIndex];
+  if (
+    !keyArgument ||
+    keyArgument.kind === "spread" ||
+    !isStableBorrowedAliasExpression(alias.callee.object) ||
+    !isStableBorrowedAliasExpression(keyArgument)
+  ) {
+    return undefined;
+  }
+
+  const [ownerAst, ownerContext] = emitExpressionAst(
+    alias.callee.object,
+    context
+  );
+  const [keyAst, keyContext] = emitExpressionAst(keyArgument, ownerContext);
+  const methodName = emitCSharpName(
+    semantics.methodName,
+    "methods",
+    keyContext
+  );
+
+  return {
+    statement: {
+      kind: "expressionStatement",
+      expression: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: ownerAst,
+          memberName: methodName,
+        },
+        arguments: [keyAst, mutatedValueAst],
+      },
+    },
+    context: keyContext,
+  };
 };
 
 const captureAssignableArrayTarget = (
@@ -86,11 +180,18 @@ const captureAssignableArrayTarget = (
   const [receiverAst, receiverContext] = emitExpressionAst(expr, context);
 
   if (receiverAst.kind === "identifierExpression") {
+    const borrowedWriteBack =
+      expr.kind === "identifier"
+        ? tryBuildBorrowedMutationWriteBack(expr, receiverAst, receiverContext)
+        : undefined;
     return {
       readExpression: receiverAst,
       writeExpression: receiverAst,
       setupStatements: [],
-      context: receiverContext,
+      postMutationStatements: borrowedWriteBack
+        ? [borrowedWriteBack.statement]
+        : [],
+      context: borrowedWriteBack?.context ?? receiverContext,
     };
   }
 
@@ -99,6 +200,7 @@ const captureAssignableArrayTarget = (
       readExpression: receiverAst,
       writeExpression: receiverAst,
       setupStatements: [],
+      postMutationStatements: [],
       context: receiverContext,
     };
   }
@@ -127,6 +229,7 @@ const captureAssignableArrayTarget = (
       setupStatements: [
         createVarLocal(objectTemp.emittedName, receiverAst.expression),
       ],
+      postMutationStatements: [],
       context: objectTemp.context,
     };
   }
@@ -169,6 +272,7 @@ const captureAssignableArrayTarget = (
         createVarLocal(objectTemp.emittedName, receiverAst.expression),
         createVarLocal(indexTemp.emittedName, indexArgument),
       ],
+      postMutationStatements: [],
       context: indexTemp.context,
     };
   }
@@ -303,6 +407,7 @@ export const emitArrayMutationInteropCall = (
                 right: mutatedArrayAst,
               },
             },
+            ...captured.postMutationStatements,
             {
               kind: "returnStatement",
               expression: returnExpression,

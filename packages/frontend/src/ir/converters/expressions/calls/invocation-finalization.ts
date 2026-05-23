@@ -1256,8 +1256,15 @@ export const finalizeInvocationMetadata = ({
       ? refinedSourceBackedSurfaceParameterTypes
       : undefined;
 
+  const preferResolvedExplicitGenericSurface =
+    (explicitTypeArgs?.length ?? 0) > 0 &&
+    specializedResolvedParameterTypes !== undefined;
+
   const baselineParameterTypes =
     specializedBoundGlobalParameterTypes ??
+    (preferResolvedExplicitGenericSurface
+      ? specializedResolvedParameterTypes
+      : coherentSourceBackedParameterTypes) ??
     coherentSourceBackedParameterTypes ??
     specializedResolvedParameterTypes ??
     specializedFallbackParameterTypes;
@@ -1275,6 +1282,9 @@ export const finalizeInvocationMetadata = ({
 
   const baselineSurfaceParameterTypes =
     specializedAuthoritativeBoundGlobalSurfaceParameterTypes ??
+    (preferResolvedExplicitGenericSurface
+      ? specializedResolvedSurfaceParameterTypes
+      : coherentSourceBackedSurfaceParameterTypes) ??
     coherentSourceBackedSurfaceParameterTypes ??
     specializedAmbientBoundGlobalSurfaceParameterTypes ??
     specializedResolvedSurfaceParameterTypes ??

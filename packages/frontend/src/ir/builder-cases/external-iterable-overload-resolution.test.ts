@@ -958,6 +958,198 @@ describe("IR Builder", function () {
       }
     });
 
+    it("keeps explicit array type arguments on scalar overloads when iterable overloads exist", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import { Assert } from "xunit-types/Xunit.js";',
+            "",
+            "export function run(): void {",
+            "  Assert.Equal<readonly number[]>([1, 2], [1, 2]);",
+            "}",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js": "export {};",
+          "node_modules/xunit-types/Xunit.d.ts": [
+            'export { Assert } from "./Xunit/internal/index.js";',
+          ].join("\n"),
+          "node_modules/xunit-types/Xunit/internal/index.js": "export {};",
+          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+            'import type { IAsyncEnumerable_1, IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
+            "",
+            "export declare const Assert: {",
+            "  Equal<T extends unknown>(expected: IAsyncEnumerable_1<T> | null, actual: IAsyncEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: IEnumerable_1<T> | null, actual: IAsyncEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: IEnumerable_1<T> | null, actual: IEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: T, actual: T): void;",
+            "};",
+          ].join("\n"),
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
+            [
+              "export interface IEnumerable_1$instance<T extends unknown> {",
+              "  readonly __tsonic_iface_provider_iterable_1: never;",
+              "}",
+              "export type IEnumerable_1<T extends unknown> = IEnumerable_1$instance<T>;",
+              "export interface IAsyncEnumerable_1$instance<T extends unknown> {",
+              "  readonly __tsonic_iface_provider_async_iterable_1: never;",
+              "}",
+              "export type IAsyncEnumerable_1<T extends unknown> = IAsyncEnumerable_1$instance<T>;",
+            ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const statement = runFn.body.statements[0];
+        expect(statement?.kind).to.equal("expressionStatement");
+        if (!statement || statement.kind !== "expressionStatement") return;
+
+        const call = statement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        const firstParameterType = call.parameterTypes?.[0];
+        expect(firstParameterType?.kind).to.equal("arrayType");
+        if (firstParameterType?.kind !== "arrayType") return;
+
+        expect(firstParameterType.elementType).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps explicit array type arguments on scalar overloads when actual arrays come from spreads", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import { Assert } from "xunit-types/Xunit.js";',
+            "",
+            "declare const Symbol: {",
+            "  readonly iterator: unique symbol;",
+            "};",
+            "interface Iterator<T> {}",
+            "interface IterableIterator<T> extends Iterator<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
+            "interface Iterable<T> {",
+            "  [Symbol.iterator](): IterableIterator<T>;",
+            "}",
+            "declare const source: Iterable<number>;",
+            "",
+            "export function run(): void {",
+            "  Assert.Equal<readonly number[]>([1, 2], [...source]);",
+            "}",
+          ].join("\n"),
+          "node_modules/xunit-types/package.json": JSON.stringify({
+            name: "xunit-types",
+            type: "module",
+          }),
+          "node_modules/xunit-types/Xunit.js": "export {};",
+          "node_modules/xunit-types/Xunit.d.ts": [
+            'export { Assert } from "./Xunit/internal/index.js";',
+          ].join("\n"),
+          "node_modules/xunit-types/Xunit/internal/index.js": "export {};",
+          "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+            'import type { IAsyncEnumerable_1, IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
+            "",
+            "export declare const Assert: {",
+            "  Equal<T extends unknown>(expected: IAsyncEnumerable_1<T> | null, actual: IAsyncEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: IEnumerable_1<T> | null, actual: IAsyncEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: IEnumerable_1<T> | null, actual: IEnumerable_1<T> | null): void;",
+            "  Equal<T extends unknown>(expected: T, actual: T): void;",
+            "};",
+          ].join("\n"),
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+            name: "@tsonic/dotnet",
+            type: "module",
+          }),
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
+            "export {};",
+          "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
+            [
+              "export interface IEnumerable_1$instance<T extends unknown> {",
+              "  readonly __tsonic_iface_provider_iterable_1: never;",
+              "}",
+              "export type IEnumerable_1<T extends unknown> = IEnumerable_1$instance<T>;",
+              "export interface IAsyncEnumerable_1$instance<T extends unknown> {",
+              "  readonly __tsonic_iface_provider_async_iterable_1: never;",
+              "}",
+              "export type IAsyncEnumerable_1<T extends unknown> = IAsyncEnumerable_1$instance<T>;",
+            ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const statement = runFn.body.statements[0];
+        expect(statement?.kind).to.equal("expressionStatement");
+        if (!statement || statement.kind !== "expressionStatement") return;
+
+        const call = statement.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        expect(call.parameterTypes?.[0]?.kind).to.equal("arrayType");
+        expect(call.parameterTypes?.[1]?.kind).to.equal("arrayType");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("prefers imported-style IEnumerable aliases backed by $instance wrappers", () => {
       const fixture = createFilesystemTestProgram(
         {

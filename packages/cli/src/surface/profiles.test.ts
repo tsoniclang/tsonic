@@ -92,6 +92,14 @@ describe("CLI Surface Profiles", () => {
                   returnsArray: true,
                 },
               },
+              "js.Map": {
+                get: {
+                  borrowedMutationWriteBack: {
+                    methodName: "set",
+                    keyArgumentIndex: 0,
+                  },
+                },
+              },
               "js.String": {
                 length: {
                   emittedMemberName: "Length",
@@ -114,6 +122,12 @@ describe("CLI Surface Profiles", () => {
       });
       expect(caps.memberSemantics?.["js.Array"]?.length).to.deep.equal({
         storageAccess: "arrayLength",
+      });
+      expect(caps.memberSemantics?.["js.Map"]?.get).to.deep.equal({
+        borrowedMutationWriteBack: {
+          methodName: "set",
+          keyArgumentIndex: 0,
+        },
       });
       expect(caps.memberSemantics?.["js.String"]?.length).to.deep.equal({
         emittedMemberName: "Length",

@@ -68,6 +68,17 @@ export const surfaceMemberReturnsArray = (
 ): boolean =>
   getSurfaceMemberSemantics(binding, context)?.returnsArray === true;
 
+export const getBorrowedMutationWriteBackSemantics = (
+  binding: MemberBinding,
+  context: EmitterContext
+):
+  | {
+      readonly methodName: string;
+      readonly keyArgumentIndex: number;
+    }
+  | undefined =>
+  getSurfaceMemberSemantics(binding, context)?.borrowedMutationWriteBack;
+
 export const surfaceMemberReadsArrayLength = (
   binding: MemberBinding,
   context: EmitterContext

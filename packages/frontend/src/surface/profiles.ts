@@ -14,6 +14,10 @@ export type SurfaceMemberSemantics = {
   readonly mutatesReceiver?: boolean;
   readonly returnsReceiver?: boolean;
   readonly returnsArray?: boolean;
+  readonly borrowedMutationWriteBack?: {
+    readonly methodName: string;
+    readonly keyArgumentIndex: number;
+  };
   readonly storageAccess?: "arrayLength";
   readonly emittedMemberName?: string;
   readonly emissionKind?: "instanceMember";
@@ -422,11 +426,50 @@ const parseMemberSemantics = (
       if (rawEmissionKind !== undefined && emissionKind === undefined) {
         return undefined;
       }
+      const rawBorrowedMutationWriteBack = (
+        rawSemantics as { readonly borrowedMutationWriteBack?: unknown }
+      ).borrowedMutationWriteBack;
+      const borrowedMutationWriteBack = (() => {
+        if (rawBorrowedMutationWriteBack === undefined) {
+          return undefined;
+        }
+        if (
+          !rawBorrowedMutationWriteBack ||
+          typeof rawBorrowedMutationWriteBack !== "object" ||
+          Array.isArray(rawBorrowedMutationWriteBack)
+        ) {
+          return undefined;
+        }
+        const methodName = (
+          rawBorrowedMutationWriteBack as { readonly methodName?: unknown }
+        ).methodName;
+        const keyArgumentIndex = (
+          rawBorrowedMutationWriteBack as {
+            readonly keyArgumentIndex?: unknown;
+          }
+        ).keyArgumentIndex;
+        return typeof methodName === "string" &&
+          methodName.trim().length > 0 &&
+          typeof keyArgumentIndex === "number" &&
+          Number.isInteger(keyArgumentIndex) &&
+          keyArgumentIndex >= 0
+          ? { methodName: methodName.trim(), keyArgumentIndex }
+          : undefined;
+      })();
+      if (
+        rawBorrowedMutationWriteBack !== undefined &&
+        borrowedMutationWriteBack === undefined
+      ) {
+        return undefined;
+      }
 
       members[normalizedMemberName] = {
         ...(mutatesReceiver === undefined ? {} : { mutatesReceiver }),
         ...(returnsReceiver === undefined ? {} : { returnsReceiver }),
         ...(returnsArray === undefined ? {} : { returnsArray }),
+        ...(borrowedMutationWriteBack === undefined
+          ? {}
+          : { borrowedMutationWriteBack }),
         ...(storageAccess === undefined ? {} : { storageAccess }),
         ...(emittedMemberName === undefined ? {} : { emittedMemberName }),
         ...(emissionKind === undefined ? {} : { emissionKind }),

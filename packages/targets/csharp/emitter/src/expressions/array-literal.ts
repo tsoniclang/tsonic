@@ -194,11 +194,63 @@ export const emitArray = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  const effectiveExpectedType =
+  const candidateExpectedType =
     expr.elements.length === 0
       ? (resolveEmptyArrayLiteralContextType(expectedType, context) ??
         resolveArrayLiteralContextType(expectedType, context))
       : resolveArrayLiteralContextType(expectedType, context);
+  const isContextualElementShapeCompatible = (
+    actualElementType: IrType,
+    expectedElementType: IrType
+  ): boolean => {
+    if (
+      matchesExpectedEmissionType(actualElementType, expectedElementType, context)
+    ) {
+      return true;
+    }
+
+    if (expectedElementType.kind === "arrayType") {
+      return (
+        actualElementType.kind === "arrayType" &&
+        isContextualElementShapeCompatible(
+          actualElementType.elementType,
+          expectedElementType.elementType
+        )
+      );
+    }
+
+    if (expectedElementType.kind === "tupleType") {
+      return actualElementType.kind === "tupleType";
+    }
+
+    return true;
+  };
+  const effectiveExpectedType = (() => {
+    if (!candidateExpectedType || expr.elements.length === 0) {
+      return candidateExpectedType;
+    }
+
+    const expectedArray = resolveTypeAlias(
+      stripNullish(candidateExpectedType),
+      context
+    );
+    if (expectedArray.kind !== "arrayType") {
+      return candidateExpectedType;
+    }
+
+    const actualArray =
+      expr.inferredType?.kind === "arrayType" ? expr.inferredType : undefined;
+    if (!actualArray) {
+      return candidateExpectedType;
+    }
+
+    return isContextualElementShapeCompatible(
+      actualArray.elementType,
+      expectedArray.elementType
+    )
+      ? candidateExpectedType
+      : undefined;
+  })();
   // Resolve type alias to check for tuple types
   const resolvedExpectedType = effectiveExpectedType
     ? resolveTypeAlias(effectiveExpectedType, context)
@@ -405,7 +457,8 @@ export const emitArray = (
         flushInlineElements();
         const [spreadAst, newContext] = emitExpressionAst(
           element.expression,
-          currentContext
+          currentContext,
+          effectiveExpectedType
         );
         segments.push(spreadAst);
         currentContext = newContext;
