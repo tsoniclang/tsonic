@@ -432,17 +432,57 @@ export const convertArrayLiteral = (
     return convertExpression(elem, ctx, expectedElementType);
   });
 
+  const isContextualElementShapeCompatible = (
+    actualElementType: IrType,
+    expectedElementType: IrType
+  ): boolean => {
+    if (
+      ctx.typeSystem.typesEqual(actualElementType, expectedElementType) ||
+      ctx.typeSystem.isAssignableTo(actualElementType, expectedElementType)
+    ) {
+      return true;
+    }
+
+    if (expectedElementType.kind === "arrayType") {
+      return (
+        actualElementType.kind === "arrayType" &&
+        isContextualElementShapeCompatible(
+          actualElementType.elementType,
+          expectedElementType.elementType
+        )
+      );
+    }
+
+    if (expectedElementType.kind === "tupleType") {
+      return actualElementType.kind === "tupleType";
+    }
+
+    return true;
+  };
+
+  const literalElementType = computeArrayElementType(elements, undefined);
+  const effectiveContextualArrayType =
+    contextualArrayType &&
+    (elements.length === 0 ||
+      !literalElementType ||
+      isContextualElementShapeCompatible(
+        literalElementType,
+        contextualArrayType.elementType
+      ))
+      ? contextualArrayType
+      : undefined;
+
   // DETERMINISTIC TYPING: Determine inferredType using priority:
   // 1. Expected type from context (e.g., LHS annotation, parameter type)
   // 2. Literal-form inference (derive from element types)
   // 3. Default: number[] (double[]) for ergonomics
   const inferredType: IrType | undefined = contextualTupleType
     ? contextualTupleType
-    : contextualArrayType
-      ? contextualArrayType
+    : effectiveContextualArrayType
+      ? effectiveContextualArrayType
       : (() => {
           // No expected type - derive from element types
-          const elementType = computeArrayElementType(elements, undefined);
+          const elementType = literalElementType;
           if (elementType) {
             return { kind: "arrayType" as const, elementType };
           }

@@ -25,12 +25,14 @@ import {
 } from "./call-analysis.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
+  CSharpBlockStatementAst,
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import {
   identifierExpression,
   identifierType,
+  nullLiteral,
 } from "../../core/format/backend-ast/builders.js";
 import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
 import { resolveStructuralViewMethodSurface } from "../../core/semantic/structural-view-types.js";
@@ -54,6 +56,8 @@ import { emitRuntimeUnionArrayIsArrayCall } from "./call-runtime-union-guards.js
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { tryEmitExtensionMethodCall } from "./call-extension-methods.js";
 import { stripClrGenericArity } from "../access-resolution.js";
+import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
+import { generateTemp } from "../../patterns/local-lowering.js";
 
 const buildCallTargetExpectedType = (
   expr: Extract<IrExpression, { kind: "call" }>,
@@ -97,6 +101,122 @@ const resolveStructuralViewCallParameterTypes = (
   context: EmitterContext
 ): readonly (IrType | undefined)[] | undefined =>
   resolveStructuralViewMethodSurface(callee, context)?.parameterTypes;
+
+const getBareTypeParameterName = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
+  if (type.kind === "typeParameterType") {
+    return type.name;
+  }
+
+  if (
+    type.kind === "referenceType" &&
+    (context.typeParameters?.has(type.name) ?? false) &&
+    (!type.typeArguments || type.typeArguments.length === 0)
+  ) {
+    return type.name;
+  }
+
+  return undefined;
+};
+
+const isRuntimeNullishType = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const isUnconstrainedGenericNullishUnion = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (type?.kind !== "unionType" || !type.types.some(isRuntimeNullishType)) {
+    return false;
+  }
+
+  const nonNullish = stripNullish(type);
+  const typeParameterName = getBareTypeParameterName(nonNullish, context);
+  return (
+    typeParameterName !== undefined &&
+    (context.typeParamConstraints?.get(typeParameterName) ??
+      "unconstrained") === "unconstrained"
+  );
+};
+
+const maybeRewriteOptionalGenericNullishInvocation = (
+  invocation: CSharpExpressionAst,
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    invocation.kind !== "invocationExpression" ||
+    invocation.expression.kind !== "conditionalMemberAccessExpression" ||
+    !isUnconstrainedGenericNullishUnion(expr.inferredType, context)
+  ) {
+    return undefined;
+  }
+
+  const [returnTypeAst, returnTypeContext] = emitTypeAst(
+    expr.inferredType ?? { kind: "unknownType" },
+    context
+  );
+  const [receiverName, tempContext] = generateTemp(
+    "tsonic_optional_receiver_",
+    returnTypeContext
+  );
+  const receiverAst = identifierExpression(receiverName);
+  const memberName = invocation.expression.memberName;
+  const body: CSharpBlockStatementAst = {
+    kind: "blockStatement",
+    statements: [
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "varType" },
+        declarators: [
+          {
+            name: receiverName,
+            initializer: invocation.expression.expression,
+          },
+        ],
+      },
+      {
+        kind: "returnStatement",
+        expression: {
+          kind: "conditionalExpression",
+          condition: {
+            kind: "binaryExpression",
+            left: receiverAst,
+            operatorToken: "==",
+            right: nullLiteral(),
+          },
+          whenTrue: { kind: "defaultExpression" },
+          whenFalse: {
+            kind: "invocationExpression",
+            expression: {
+              kind: "memberAccessExpression",
+              expression: receiverAst,
+              memberName,
+            },
+            arguments: invocation.arguments,
+            typeArguments: invocation.typeArguments,
+          },
+        },
+      },
+    ],
+  };
+
+  return [
+    buildInvokedLambdaExpressionAst({
+      parameters: [],
+      parameterTypes: [],
+      returnType: returnTypeAst,
+      body,
+      arguments: [],
+      context: tempContext,
+    }),
+    tempContext,
+  ];
+};
 
 const extractTransparentIdentifier = (
   expr: IrExpression
@@ -749,7 +869,14 @@ export const emitCall = (
     expectedType.kind !== "anyType" &&
     expectedType.kind !== "unknownType";
 
-  let finalInvocation: CSharpExpressionAst = invocation;
+  const rewrittenOptionalInvocation = maybeRewriteOptionalGenericNullishInvocation(
+    invocation,
+    normalizedExpr,
+    currentContext
+  );
+  let finalInvocation: CSharpExpressionAst =
+    rewrittenOptionalInvocation?.[0] ?? invocation;
+  currentContext = rewrittenOptionalInvocation?.[1] ?? currentContext;
   if (shouldCastSuperCallResult && expectedType) {
     const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
       expectedType,

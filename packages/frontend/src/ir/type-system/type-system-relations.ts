@@ -19,6 +19,7 @@ import {
   createLocalTypeIdentityState,
   irTypesEqual as compareIrTypes,
   localTypeIdentityKey,
+  type LocalTypeIdentityState,
 } from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type {
@@ -52,6 +53,43 @@ const SOURCE_NUMERIC_ALIAS_NAMES = new Set([
 const SOURCE_PRIMITIVE_ALIAS_NAMES = new Set(["int", "char"]);
 
 const aliasExpansionTypeArgKeyState = createLocalTypeIdentityState();
+
+type AssignabilityContext = {
+  readonly activeAliases: ReadonlySet<string>;
+  readonly pairKeyState: LocalTypeIdentityState;
+  readonly activePairs: Set<string>;
+  readonly memo: Map<string, boolean>;
+};
+
+const createAssignabilityContext = (): AssignabilityContext => ({
+  activeAliases: new Set<string>(),
+  pairKeyState: createLocalTypeIdentityState(),
+  activePairs: new Set<string>(),
+  memo: new Map<string, boolean>(),
+});
+
+const withActiveAlias = (
+  context: AssignabilityContext,
+  aliasKey: string
+): AssignabilityContext => {
+  const activeAliases = new Set(context.activeAliases);
+  activeAliases.add(aliasKey);
+  return {
+    ...context,
+    activeAliases,
+  };
+};
+
+const assignabilityPairKey = (
+  source: IrType,
+  target: IrType,
+  context: AssignabilityContext
+): string => {
+  const sourceKey = localTypeIdentityKey(source, context.pairKeyState);
+  const targetKey = localTypeIdentityKey(target, context.pairKeyState);
+  const aliasKeys = [...context.activeAliases].sort().join("|");
+  return `${sourceKey}=>${targetKey}#${aliasKeys}`;
+};
 
 const getPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
   if (type.kind === "primitiveType") {
@@ -419,7 +457,7 @@ const isStructurallyAssignable = (
   state: TypeSystemState,
   source: IrType,
   target: IrType,
-  activeAliases: ReadonlySet<string>
+  context: AssignabilityContext
 ): boolean | undefined => {
   const sourceMembers = getStructuralMembers(source) ?? [];
   const targetMembers = getStructuralMembers(target) ?? [];
@@ -447,7 +485,7 @@ const isStructurallyAssignable = (
             state,
             match.type,
             targetMember.type,
-            activeAliases
+            context
           )
         );
       }
@@ -469,7 +507,7 @@ const isStructurallyAssignable = (
         state,
         nominalMember.memberType,
         targetMember.type,
-        activeAliases
+        context
       );
     }
 
@@ -525,7 +563,7 @@ const isStructurallyAssignable = (
             state,
             targetParameterType,
             sourceParameterType,
-            activeAliases
+            context
           )
         ) {
           return false;
@@ -536,7 +574,7 @@ const isStructurallyAssignable = (
         state,
         match.returnType ?? unknownType,
         targetMember.returnType ?? unknownType,
-        activeAliases
+        context
       );
     }
 
@@ -548,7 +586,35 @@ const isAssignableToInternal = (
   state: TypeSystemState,
   source: IrType,
   target: IrType,
-  activeAliases: ReadonlySet<string>
+  context: AssignabilityContext
+): boolean => {
+  const pairKey = assignabilityPairKey(source, target, context);
+  const cached = context.memo.get(pairKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  if (context.activePairs.has(pairKey)) {
+    return true;
+  }
+
+  context.activePairs.add(pairKey);
+  let result: boolean;
+  try {
+    result = isAssignableToInternalUncached(state, source, target, context);
+  } finally {
+    context.activePairs.delete(pairKey);
+  }
+
+  context.memo.set(pairKey, result);
+  return result;
+};
+
+const isAssignableToInternalUncached = (
+  state: TypeSystemState,
+  source: IrType,
+  target: IrType,
+  context: AssignabilityContext
 ): boolean => {
   // Same type - always assignable
   if (typesEqual(source, target)) return true;
@@ -578,7 +644,7 @@ const isAssignableToInternal = (
   }
 
   if (isBroadObjectTargetType(target)) {
-    return isAssignableToBroadObjectTarget(state, source, activeAliases);
+    return isAssignableToBroadObjectTarget(state, source, context.activeAliases);
   }
 
   // undefined/null assignability (represented as primitiveType with name "null"/"undefined")
@@ -593,26 +659,22 @@ const isAssignableToInternal = (
   }
 
   const sourceAlias = resolveAliasExpansion(state, source);
-  if (sourceAlias && !activeAliases.has(sourceAlias.key)) {
-    const nextActiveAliases = new Set(activeAliases);
-    nextActiveAliases.add(sourceAlias.key);
+  if (sourceAlias && !context.activeAliases.has(sourceAlias.key)) {
     return isAssignableToInternal(
       state,
       sourceAlias.expanded,
       target,
-      nextActiveAliases
+      withActiveAlias(context, sourceAlias.key)
     );
   }
 
   const targetAlias = resolveAliasExpansion(state, target);
-  if (targetAlias && !activeAliases.has(targetAlias.key)) {
-    const nextActiveAliases = new Set(activeAliases);
-    nextActiveAliases.add(targetAlias.key);
+  if (targetAlias && !context.activeAliases.has(targetAlias.key)) {
     return isAssignableToInternal(
       state,
       source,
       targetAlias.expanded,
-      nextActiveAliases
+      withActiveAlias(context, targetAlias.key)
     );
   }
 
@@ -624,14 +686,14 @@ const isAssignableToInternal = (
   // Union source - all members must be assignable
   if (source.kind === "unionType") {
     return source.types.every((t) =>
-      isAssignableToInternal(state, t, target, activeAliases)
+      isAssignableToInternal(state, t, target, context)
     );
   }
 
   // Union target - source must be assignable to at least one member
   if (target.kind === "unionType") {
     return target.types.some((t) =>
-      isAssignableToInternal(state, source, t, activeAliases)
+      isAssignableToInternal(state, source, t, context)
     );
   }
 
@@ -641,7 +703,7 @@ const isAssignableToInternal = (
       state,
       source.elementType,
       target.elementType,
-      activeAliases
+      context
     );
   }
 
@@ -658,7 +720,7 @@ const isAssignableToInternal = (
         state,
         sourceIterable.elementType,
         targetIterable.elementType,
-        activeAliases
+        context
       );
     }
 
@@ -682,7 +744,7 @@ const isAssignableToInternal = (
     }
 
     return (
-      isStructurallyAssignable(state, source, target, activeAliases) ?? false
+      isStructurallyAssignable(state, source, target, context) ?? false
     );
   }
 
@@ -690,7 +752,7 @@ const isAssignableToInternal = (
     state,
     source,
     target,
-    activeAliases
+    context
   );
   if (structuralAssignable !== undefined) {
     return structuralAssignable;
@@ -704,7 +766,7 @@ export const isAssignableTo = (
   state: TypeSystemState,
   source: IrType,
   target: IrType
-): boolean => isAssignableToInternal(state, source, target, new Set());
+): boolean => isAssignableToInternal(state, source, target, createAssignabilityContext());
 
 // ─────────────────────────────────────────────────────────────────────────
 // typesEqual — Structural equality check
