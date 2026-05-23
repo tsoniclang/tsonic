@@ -25,6 +25,21 @@ import { proveNarrowing } from "./numeric-proof-proving.js";
 import type { StatementProcessor } from "./numeric-proof-statement-walk.js";
 import type { IrParameter } from "../types.js";
 
+const isPrimitiveType = (type: IrType | undefined, name: string): boolean =>
+  type?.kind === "primitiveType" && type.name === name;
+
+const isSourceNumberLikeIndex = (
+  expr: IrExpression,
+  ctx: ProofContext
+): boolean =>
+  inferNumericKind(expr, ctx) !== undefined ||
+  isPrimitiveType(expr.inferredType, "number");
+
+const isJsStringIndexRead = (
+  expr: Extract<IrExpression, { kind: "memberAccess" }>
+): boolean =>
+  expr.accessKind === "stringChar" && isPrimitiveType(expr.inferredType, "string");
+
 /**
  * Process an expression, proving numeric narrowings and returning
  * the expression with proofs attached.
@@ -315,12 +330,9 @@ export const processExpression = (
           };
         }
 
-        // Require source-int proof for:
-        // - numericIndexer: positional collection indexers
-        // - stringChar: string character access
-        // Dictionary access does NOT require source-int proof (key is typed K, usually string)
         const requiresSourceInt =
-          accessKind === "numericIndexer" || accessKind === "stringChar";
+          accessKind === "numericIndexer" ||
+          (accessKind === "stringChar" && !isJsStringIndexRead(expr));
 
         if (requiresSourceInt) {
           const indexKind = inferNumericKind(processedProperty, ctx);
@@ -356,6 +368,27 @@ export const processExpression = (
             ...expr,
             object: processedObject,
             property: annotatedProperty,
+          };
+        }
+
+        if (
+          accessKind === "stringChar" &&
+          isJsStringIndexRead(expr) &&
+          !isSourceNumberLikeIndex(processedProperty, ctx)
+        ) {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN5107",
+              "error",
+              "String index must be number-compatible",
+              processedProperty.sourceSpan ?? moduleLocation(ctx),
+              "Use a number expression for JavaScript string indexing."
+            )
+          );
+          return {
+            ...expr,
+            object: processedObject,
+            property: processedProperty,
           };
         }
 

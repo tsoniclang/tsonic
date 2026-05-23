@@ -107,6 +107,75 @@ describe("Numeric Proof Invariants", () => {
       expect(result.diagnostics.length).to.be.greaterThan(0);
       expect(result.diagnostics[0]?.code).to.equal("TSN5107");
     });
+
+    it("should ACCEPT JavaScript string access with source-number index", () => {
+      const sourceNumberIndex: IrExpression = {
+        kind: "identifier",
+        name: "start",
+        inferredType: { kind: "primitiveType", name: "number" },
+      };
+      const module = createModule([
+        createVarDecl("ch", {
+          kind: "memberAccess",
+          object: {
+            kind: "identifier",
+            name: "url",
+            inferredType: { kind: "primitiveType", name: "string" },
+          },
+          property: sourceNumberIndex,
+          isComputed: true,
+          isOptional: false,
+          accessKind: "stringChar",
+          inferredType: { kind: "primitiveType", name: "string" },
+        }),
+      ]);
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+
+      const varDecl = result.modules[0]?.body[0];
+      expect(varDecl?.kind).to.equal("variableDeclaration");
+      if (varDecl?.kind === "variableDeclaration") {
+        const access = varDecl.declarations[0]
+          ?.initializer as IrMemberExpression;
+        expect(access.kind).to.equal("memberAccess");
+        if (typeof access.property !== "string") {
+          expect(access.property.inferredType).to.deep.equal({
+            kind: "primitiveType",
+            name: "number",
+          });
+        }
+      }
+    });
+
+    it("should REJECT char-producing string access without Int32 proof", () => {
+      const module = createModule([
+        createVarDecl("ch", {
+          kind: "memberAccess",
+          object: {
+            kind: "identifier",
+            name: "url",
+            inferredType: { kind: "primitiveType", name: "string" },
+          },
+          property: {
+            kind: "identifier",
+            name: "start",
+            inferredType: { kind: "primitiveType", name: "number" },
+          },
+          isComputed: true,
+          isOptional: false,
+          accessKind: "stringChar",
+          inferredType: { kind: "primitiveType", name: "char" },
+        }),
+      ]);
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN5107");
+    });
   });
 
   /**

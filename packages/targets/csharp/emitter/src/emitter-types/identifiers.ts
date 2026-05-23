@@ -7,7 +7,7 @@
  */
 
 /**
- * Complete list of C# keywords (as of C# 12)
+ * Complete list of C# keywords plus type-name-restricted keywords enforced by the active C# compiler.
  * https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/
  */
 const CSHARP_KEYWORDS: ReadonlySet<string> = new Set([
@@ -36,6 +36,7 @@ const CSHARP_KEYWORDS: ReadonlySet<string> = new Set([
   "interface",
   "struct",
   "record",
+  "extension",
 
   // Modifier keywords
   "abstract",

@@ -94,6 +94,38 @@ describe("Module Generation", () => {
     expect(result).to.include("namespace MyApp");
   });
 
+  it("escapes module container names reserved by the C# compiler", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/extension.ts",
+      namespace: "MyApp",
+      className: "extension",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: true,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "extensionTs" },
+              type: { kind: "primitiveType", name: "string" },
+              initializer: { kind: "literal", value: ".ts", raw: '".ts"' },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("public static class @extension");
+    expect(result).not.to.include("public static class extension");
+  });
+
   it("should emit the module container marker attribute file when needed", () => {
     const module: IrModule = {
       kind: "module",
