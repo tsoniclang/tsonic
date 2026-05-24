@@ -63,6 +63,7 @@ import { buildRuntimeUnionLayout } from "../../../core/semantic/runtime-unions.j
 import {
   booleanLiteral,
   identifierExpression,
+  identifierType,
   nullLiteral,
 } from "../../../core/format/backend-ast/builders.js";
 import { applyIrBranchNarrowings } from "./ir-branch-narrowings.js";
@@ -158,6 +159,11 @@ const buildNonUnionTypeofCondition = (
           keyword: "int",
         }),
       ]);
+    case "bigint":
+      return buildTypePatternCondition(
+        expression,
+        identifierType("global::System.Numerics.BigInteger")
+      );
     case "undefined":
       return {
         kind: "binaryExpression",

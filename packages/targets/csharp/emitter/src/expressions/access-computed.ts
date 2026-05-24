@@ -8,13 +8,19 @@
  * - Array element access with storage reification
  */
 
-import { IrExpression, type IrType } from "@tsonic/frontend";
+import {
+  IrExpression,
+  normalizedUnionType,
+  type IrType,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
+  isDefinitelyValueType,
   resolveTypeAlias,
   resolveArrayLikeReceiverType,
+  splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
 import {
@@ -38,7 +44,10 @@ import {
   tryEmitBroadArrayAssertionReceiverStorageAst,
 } from "./access-resolution.js";
 import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
-import { resolveRuntimeStorageArrayLikeElementType } from "../core/semantic/storage-types.js";
+import {
+  resolveErasedNullableGenericStorageType,
+  resolveRuntimeStorageArrayLikeElementType,
+} from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import { getAcceptedSurfaceType } from "../core/semantic/defaults.js";
 import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
@@ -183,6 +192,85 @@ const buildSafeJsStringIndexAst = (
   };
 };
 
+const typeIncludesRuntimeAbsence = (
+  type: IrType | undefined,
+  context: EmitterContext
+): type is IrType => {
+  if (!type) {
+    return false;
+  }
+
+  const resolved = resolveTypeAlias(type, context);
+  if (
+    resolved.kind === "primitiveType" &&
+    (resolved.name === "null" || resolved.name === "undefined")
+  ) {
+    return true;
+  }
+
+  return splitRuntimeNullishUnionMembers(resolved)?.hasRuntimeNullish ?? false;
+};
+
+const buildSafeJsArrayReadAst = (
+  objectAst: CSharpExpressionAst,
+  indexAst: CSharpExpressionAst,
+  elementType: IrType,
+  desiredType: IrType,
+  context: EmitterContext
+): [CSharpExpressionAst, IrType, EmitterContext] => {
+  const resolvedElementType = resolveTypeAlias(
+    stripNullish(elementType),
+    context
+  );
+  const typeParameterConstraint =
+    resolvedElementType.kind === "typeParameterType"
+      ? (context.typeParamConstraints?.get(resolvedElementType.name) ??
+        "unconstrained")
+      : undefined;
+  const elementValueType =
+    isDefinitelyValueType(resolvedElementType, context) ||
+    typeParameterConstraint === "struct" ||
+    typeParameterConstraint === "numeric";
+  const elementReferenceType =
+    !elementValueType &&
+    (typeParameterConstraint === "class" ||
+      resolvedElementType.kind === "referenceType" ||
+      resolvedElementType.kind === "arrayType" ||
+      resolvedElementType.kind === "tupleType" ||
+      resolvedElementType.kind === "functionType" ||
+      resolvedElementType.kind === "dictionaryType" ||
+      resolvedElementType.kind === "objectType" ||
+      (resolvedElementType.kind === "primitiveType" &&
+        resolvedElementType.name === "string"));
+  const [elementTypeAst, typeContext] = emitTypeAst(
+    stripNullish(elementType),
+    context
+  );
+  const helperStorageType = elementValueType
+    ? desiredType
+    : (resolveErasedNullableGenericStorageType(desiredType, typeContext) ??
+      desiredType);
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression("global::Tsonic.Internal.ArrayInterop"),
+        memberName: elementValueType
+          ? "ReadOptionalValue"
+          : elementReferenceType
+            ? "ReadOptionalReference"
+            : "ReadOptionalObject",
+      },
+      typeArguments: [elementTypeAst],
+      arguments: [objectAst, indexAst],
+    },
+    helperStorageType,
+    typeContext,
+  ];
+};
+
 /**
  * Emit a computed member access expression as CSharpExpressionAst.
  *
@@ -313,6 +401,35 @@ export const emitComputedAccess = (
     return [buildSafeJsStringIndexAst(objectAst, propAst), finalContext];
   }
 
+  if (resolvedObjectType?.kind === "tupleType") {
+    const literalIndex =
+      indexExpr.kind === "literal" && typeof indexExpr.value === "number"
+        ? indexExpr.value
+        : undefined;
+    if (
+      literalIndex === undefined ||
+      !Number.isInteger(literalIndex) ||
+      literalIndex < 0 ||
+      literalIndex >= resolvedObjectType.elementTypes.length
+    ) {
+      const propText = extractCalleeNameFromAst(propAst);
+      throw new Error(
+        `Internal Compiler Error: Tuple index '${propText}' must be a deterministic in-range numeric literal.`
+      );
+    }
+
+    return [
+      {
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: objectAst,
+        memberName: `Item${literalIndex + 1}`,
+      },
+      finalContext,
+    ];
+  }
+
   if (!hasInt32Proof(indexExpr)) {
     const propText = extractCalleeNameFromAst(propAst);
     throw new Error(
@@ -323,8 +440,48 @@ export const emitComputedAccess = (
   }
 
   if (expr.accessProtocol?.getterMember) {
+    const adaptProtocolGetterRead = (
+      valueAst: CSharpExpressionAst,
+      nextContext: EmitterContext
+    ): [CSharpExpressionAst, EmitterContext] => {
+      if (usage !== "value" || expr.isOptional) {
+        return [valueAst, nextContext];
+      }
+
+      const desiredType = expectedType ?? expr.inferredType;
+      const arrayLikeReceiver = resolveArrayLikeReceiverType(
+        objectType,
+        context
+      );
+      const protocolElementType =
+        arrayLikeReceiver?.elementType ??
+        (expr.inferredType ? stripNullish(expr.inferredType) : undefined);
+      if (!protocolElementType || !desiredType) {
+        return [valueAst, nextContext];
+      }
+
+      const storageType = typeIncludesRuntimeAbsence(
+        expr.inferredType,
+        context
+      )
+        ? expr.inferredType
+        : normalizedUnionType([
+            protocolElementType,
+            { kind: "primitiveType", name: "undefined" },
+          ]);
+      const adapted = adaptStorageErasedValueAst({
+        valueAst,
+        semanticType: expr.inferredType,
+        storageType,
+        expectedType: desiredType,
+        context: nextContext,
+        emitTypeAst,
+      });
+      return adapted ?? [valueAst, nextContext];
+    };
+
     if (expr.isOptional) {
-      return [
+      return adaptProtocolGetterRead(
         {
           kind: "invocationExpression",
           expression: {
@@ -334,11 +491,11 @@ export const emitComputedAccess = (
           },
           arguments: [propAst],
         },
-        finalContext,
-      ];
+        finalContext
+      );
     }
 
-    return [
+    return adaptProtocolGetterRead(
       {
         kind: "invocationExpression",
         expression: {
@@ -348,8 +505,8 @@ export const emitComputedAccess = (
         },
         arguments: [propAst],
       },
-      finalContext,
-    ];
+      finalContext
+    );
   }
 
   if (expr.isOptional) {
@@ -438,13 +595,50 @@ export const emitComputedAccess = (
     );
   }
 
+  const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
+  const optionalArrayReadType = typeIncludesRuntimeAbsence(
+    expr.inferredType,
+    finalContext
+  )
+    ? expr.inferredType
+    : typeIncludesRuntimeAbsence(desiredType, finalContext)
+      ? desiredType
+      : undefined;
+  if (
+    usage === "value" &&
+    arrayLikeReceiver &&
+    optionalArrayReadType &&
+    contextSurfaceIncludesJs(context)
+  ) {
+    const [safeReadAst, safeReadStorageType, safeReadContext] =
+      buildSafeJsArrayReadAst(
+        objectAst,
+        propAst,
+        arrayLikeReceiver.elementType,
+        optionalArrayReadType,
+        finalContext
+      );
+    if (!typeIncludesRuntimeAbsence(desiredType, safeReadContext)) {
+      return [safeReadAst, safeReadContext];
+    }
+
+    const adapted = adaptStorageErasedValueAst({
+      valueAst: safeReadAst,
+      semanticType: expr.inferredType,
+      storageType: safeReadStorageType,
+      expectedType: desiredType,
+      context: safeReadContext,
+      emitTypeAst,
+    });
+    return adapted ?? [safeReadAst, safeReadContext];
+  }
+
   const accessAst: CSharpExpressionAst = {
     kind: "elementAccessExpression",
     expression: objectAst,
     arguments: [propAst],
   };
 
-  const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
   if (
     usage === "value" &&
     arrayLikeReceiver &&

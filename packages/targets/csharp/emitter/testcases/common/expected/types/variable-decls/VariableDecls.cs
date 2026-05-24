@@ -3,31 +3,31 @@ namespace TestCases.common.types.variabledecls
     [global::Tsonic.Internal.ModuleContainerAttribute]
     public static class VariableDecls
     {
-        public static readonly double inferredDouble = 42.5;
+        public const double inferredDouble = 42.5;
 
-        public static readonly int inferredInt = 42;
+        public const int inferredInt = 42;
 
-        public static readonly string inferredString = "hello";
+        public const string inferredString = "hello";
 
-        public static readonly bool inferredBool = true;
+        public const bool inferredBool = true;
 
-        public static readonly int explicitInt = 42;
+        public const int explicitInt = 42;
 
-        public static readonly byte explicitByte = 255;
+        public const byte explicitByte = 255;
 
-        public static readonly short explicitShort = 1000;
+        public const short explicitShort = 1000;
 
-        public static readonly long explicitLong = 1000000L;
+        public const long explicitLong = 1000000L;
 
-        public static readonly float explicitFloat = 1.5f;
+        public const float explicitFloat = 1.5f;
 
-        public static readonly double explicitDouble = 1.5;
+        public const double explicitDouble = 1.5;
 
-        public static readonly string explicitString = "world";
+        public const string explicitString = "world";
 
-        public static readonly bool explicitBool = false;
+        public const bool explicitBool = false;
 
-        public static readonly int assertedInt = 42;
+        public const int assertedInt = 42;
 
         public static readonly byte assertedByte = 255;
 
@@ -58,6 +58,6 @@ namespace TestCases.common.types.variabledecls
 
         public static string mutableString = "";
 
-        public static readonly int immutableInt = 42;
+        public const int immutableInt = 42;
     }
 }

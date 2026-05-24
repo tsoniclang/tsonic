@@ -14,6 +14,7 @@ import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { resolveErasedNullableGenericStorageType } from "../../core/semantic/storage-types.js";
 import type {
   CSharpStatementAst,
   CSharpTypeAst,
@@ -112,6 +113,10 @@ export const emitFunctionDeclaration = (
         currentContext
       )
     : [];
+  const emittedReturnType = stmt.returnType
+    ? (resolveErasedNullableGenericStorageType(stmt.returnType, currentContext) ??
+      stmt.returnType)
+    : undefined;
 
   let returnTypeAst: CSharpTypeAst;
   if (stmt.isGenerator) {
@@ -160,16 +165,16 @@ export const emitFunctionDeclaration = (
         }
       }
     }
-  } else if (stmt.returnType) {
-    const [retAst, retCtx] = emitTypeAst(stmt.returnType, currentContext);
+  } else if (emittedReturnType) {
+    const [retAst, retCtx] = emitTypeAst(emittedReturnType, currentContext);
     currentContext = retCtx;
     if (stmt.isAsync) {
       modifiers.push("async");
     }
     if (
       stmt.isAsync &&
-      stmt.returnType.kind === "referenceType" &&
-      stmt.returnType.name === "Promise"
+      emittedReturnType.kind === "referenceType" &&
+      emittedReturnType.name === "Promise"
     ) {
       returnTypeAst = retAst;
     } else if (stmt.isAsync) {
@@ -215,8 +220,8 @@ export const emitFunctionDeclaration = (
 
   const bodyReturnType =
     stmt.isAsync && !stmt.isGenerator
-      ? getAsyncBodyReturnType(stmt.isAsync, stmt.returnType)
-      : stmt.returnType;
+      ? getAsyncBodyReturnType(stmt.isAsync, emittedReturnType)
+      : emittedReturnType;
 
   const bodyContext: EmitterContext = {
     ...destructuringContext,

@@ -152,7 +152,11 @@ const emitJsonSerializerCall = (
     );
     typeArgAsts = typeArgs;
     currentContext = typeContext;
-  } else if (expr.typeArguments && expr.typeArguments.length > 0) {
+  } else if (
+    method !== "Serialize" &&
+    expr.typeArguments &&
+    expr.typeArguments.length > 0
+  ) {
     const [typeArgs, typeContext] = emitTypeArgumentsAst(
       expr.typeArguments,
       currentContext

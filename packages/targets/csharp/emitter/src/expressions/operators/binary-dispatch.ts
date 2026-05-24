@@ -52,6 +52,7 @@ import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js
 import {
   BITWISE_OPERATORS,
   castBitwiseOperandToInt,
+  emitJsNumberBitwiseOperation,
 } from "./bitwise-helpers.js";
 
 const emitInOperator = (
@@ -144,6 +145,111 @@ const stripObjectBoxForNumericComparison = (
     astTypeMatchesClrIdentity(ast.type, ["System.Object"])
     ? ast.expression
     : ast;
+};
+
+const isBigIntType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const effective = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (effective.kind === "primitiveType" && effective.name === "bigint") ||
+    (effective.kind === "referenceType" &&
+      astTypeMatchesClrIdentity(
+        identifierType(effective.providerQualifiedName ?? effective.name),
+        ["System.Numerics.BigInteger"]
+      ))
+  );
+};
+
+const buildInt32CreateCheckedCall = (
+  value: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    kind: "memberAccessExpression",
+    expression: identifierExpression("global::System.Int32"),
+    memberName: "CreateChecked",
+  },
+  arguments: [value],
+});
+
+const buildExponentiationAst = (
+  leftAst: CSharpExpressionAst,
+  rightAst: CSharpExpressionAst,
+  leftType: IrType | undefined,
+  rightType: IrType | undefined,
+  context: EmitterContext
+): CSharpExpressionAst => {
+  if (isBigIntType(leftType, context) && isBigIntType(rightType, context)) {
+    return {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression("global::System.Numerics.BigInteger"),
+        memberName: "Pow",
+      },
+      arguments: [leftAst, buildInt32CreateCheckedCall(rightAst)],
+    };
+  }
+
+  return {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: identifierExpression("global::System.Math"),
+      memberName: "Pow",
+    },
+    arguments: [leftAst, rightAst],
+  };
+};
+
+const isTypeParameterBackedType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "typeParameterType") {
+    return true;
+  }
+
+  return (
+    resolved.kind === "referenceType" &&
+    (context.typeParameters?.has(resolved.name) ?? false) &&
+    (!resolved.typeArguments || resolved.typeArguments.length === 0)
+  );
+};
+
+const emitStrictEqualityCall = (
+  op: string,
+  leftAst: CSharpExpressionAst,
+  rightAst: CSharpExpressionAst
+): CSharpExpressionAst => {
+  const equalsAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: identifierExpression("global::Tsonic.Internal.StrictEquality"),
+      memberName: "Equals",
+    },
+    arguments: [leftAst, rightAst],
+  };
+
+  return op === "=="
+    ? equalsAst
+    : {
+        kind: "prefixUnaryExpression",
+        operatorToken: "!",
+        operand: equalsAst,
+      };
 };
 
 /**
@@ -518,6 +624,16 @@ export const emitBinary = (
   const rightResolved = rightResolvedType
     ? resolveTypeAlias(stripNullish(rightResolvedType), context)
     : undefined;
+  if (
+    (op === "==" || op === "!=") &&
+    (isTypeParameterBackedType(leftResolvedType, context) ||
+      isTypeParameterBackedType(rightResolvedType, context))
+  ) {
+    const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+    return [emitStrictEqualityCall(op, leftAst, rightAst), rightContext];
+  }
+
   const needsRuntimeEquality =
     (op === "==" || op === "!=") &&
     (leftResolved?.kind === "unknownType" ||
@@ -557,6 +673,18 @@ export const emitBinary = (
   if (BITWISE_OPERATORS.has(op)) {
     const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
     const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+    const jsNumberBitwiseAst = emitJsNumberBitwiseOperation(
+      op,
+      leftAst,
+      rightAst,
+      leftResolvedType,
+      rightResolvedType,
+      rightContext
+    );
+
+    if (jsNumberBitwiseAst) {
+      return [jsNumberBitwiseAst, rightContext];
+    }
 
     return [
       {
@@ -662,6 +790,20 @@ export const emitBinary = (
     leftContext,
     rightExpectedType
   );
+
+  if (op === "**") {
+    return [
+      buildExponentiationAst(
+        leftAst,
+        rightAst,
+        leftResolvedType,
+        rightResolvedType,
+        rightContext
+      ),
+      rightContext,
+    ];
+  }
+
   const comparisonLeftAst = isComparisonOp
     ? stripObjectBoxForNumericComparison(
         leftAst,

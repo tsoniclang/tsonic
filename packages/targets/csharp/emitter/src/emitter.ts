@@ -144,7 +144,7 @@ export const emitCSharpFiles = (
 
   if (
     [...results.values()].some((code) =>
-      code.includes("global::Tsonic.Internal.ArrayInterop.WrapArray")
+      code.includes("global::Tsonic.Internal.ArrayInterop.")
     )
   ) {
     results.set("__tsonic_array_interop.g.cs", generateArrayInteropFile());

@@ -381,23 +381,32 @@ const tryBuildScalarToRuntimeUnionMaterializationAst = (
     return undefined;
   }
 
+  const targetMember = targetLayout.members[memberIndex];
   const targetMemberTypeAst = targetLayout.memberTypeAsts[memberIndex];
-  if (!targetMemberTypeAst) {
+  if (!targetMember || !targetMemberTypeAst) {
     return undefined;
   }
 
   const [sourceTypeAst, sourceTypeContext] = emitTypeAst(sourceType, context);
+  const nestedMaterialization = tryBuildRuntimeMaterializationAst(
+    valueAst,
+    sourceType,
+    targetMember,
+    sourceTypeContext,
+    emitTypeAst
+  );
   return [
     buildRuntimeUnionFactoryCallAst(
       buildRuntimeUnionTypeAst(targetLayout),
       memberIndex + 1,
-      maybeCastMaterializedValueAst(
-        valueAst,
-        sourceTypeAst,
-        targetMemberTypeAst
-      )
+      nestedMaterialization?.[0] ??
+        maybeCastMaterializedValueAst(
+          valueAst,
+          sourceTypeAst,
+          targetMemberTypeAst
+        )
     ),
-    sourceTypeContext,
+    nestedMaterialization?.[1] ?? sourceTypeContext,
   ];
 };
 

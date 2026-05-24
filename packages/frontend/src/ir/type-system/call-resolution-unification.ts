@@ -8,6 +8,10 @@
  */
 
 import type { IrType, IrReferenceType } from "../types/index.js";
+import {
+  substituteIrType as irSubstitute,
+  type TypeSubstitutionMap as IrSubstitutionMap,
+} from "../types/ir-substitution.js";
 import { getBinaryResultKind } from "../types/numeric-kind.js";
 import { normalizedUnionType } from "../types/type-ops.js";
 import { unwrapAsyncWrapperType } from "../types/type-ops.js";
@@ -18,6 +22,7 @@ import type { TypeSystemState } from "./type-system-state.js";
 import { normalizeToNominal, isNullishPrimitive } from "./type-system-state.js";
 import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 import { getIterableShape } from "./iterable-type-shapes.js";
+import type { MemberEntry } from "./internal/universe/catalog-types.js";
 import {
   mapEntriesEqual,
   delegateToFunctionType,
@@ -50,7 +55,7 @@ export const inferMethodTypeArgsFromArguments = (
   const structuralPairObjectIds = new WeakMap<object, number>();
   let nextStructuralPairObjectId = 0;
 
-  const structuralPairObjectKey = (type: IrReferenceType): string => {
+  const structuralPairObjectKey = (type: object): string => {
     const existing = structuralPairObjectIds.get(type);
     if (existing !== undefined) {
       return `opaque:${existing}`;
@@ -59,6 +64,71 @@ export const inferMethodTypeArgsFromArguments = (
     nextStructuralPairObjectId += 1;
     structuralPairObjectIds.set(type, next);
     return `opaque:${next}`;
+  };
+
+  const inferenceTypeVisitKey = (
+    type: IrType,
+    seen: WeakSet<object> = new WeakSet()
+  ): string => {
+    if (seen.has(type)) {
+      return `cycle:${structuralPairObjectKey(type)}`;
+    }
+
+    seen.add(type);
+    switch (type.kind) {
+      case "primitiveType":
+        return `primitive:${type.name}`;
+      case "literalType":
+        return `literal:${typeof type.value}:${String(type.value)}`;
+      case "typeParameterType":
+        return `type-param:${type.name}`;
+      case "referenceType": {
+        const identity = referenceTypeIdentity(type) ?? `name:${type.name}`;
+        const args = (type.typeArguments ?? [])
+          .map((arg) => (arg ? inferenceTypeVisitKey(arg, seen) : "missing"))
+          .join(",");
+        return `ref:${identity}<${args}>`;
+      }
+      case "arrayType":
+        return `array:${inferenceTypeVisitKey(type.elementType, seen)}`;
+      case "tupleType":
+        return `tuple:${type.elementTypes
+          .map((arg) => (arg ? inferenceTypeVisitKey(arg, seen) : "missing"))
+          .join(",")}`;
+      case "functionType":
+        return `fn:(${type.parameters
+          .map((parameter) =>
+            parameter.type
+              ? inferenceTypeVisitKey(parameter.type, seen)
+              : "missing"
+          )
+          .join(",")})->${inferenceTypeVisitKey(type.returnType, seen)}`;
+      case "unionType":
+        return `union:${type.types
+          .map((arg) => (arg ? inferenceTypeVisitKey(arg, seen) : "missing"))
+          .join("|")}`;
+      case "intersectionType":
+        return `intersection:${type.types
+          .map((arg) => (arg ? inferenceTypeVisitKey(arg, seen) : "missing"))
+          .join("&")}`;
+      case "objectType":
+        return `object:${structuralPairObjectKey(type)}`;
+      case "dictionaryType":
+        return `dict:${inferenceTypeVisitKey(
+          type.keyType,
+          seen
+        )}:${inferenceTypeVisitKey(type.valueType, seen)}`;
+      case "voidType":
+        return "void";
+      case "neverType":
+        return "never";
+      case "unknownType":
+        return type.explicit ? "unknown:explicit" : "unknown";
+      case "anyType":
+        return "any";
+      default:
+        return `opaque:${structuralPairObjectKey(type)}`;
+    }
   };
 
   const areDeterministicallyEquivalentInferenceTypes = (
@@ -231,6 +301,47 @@ export const inferMethodTypeArgsFromArguments = (
     return unwrapAsyncWrapperType(type);
   };
 
+  const containsMethodTypeParameter = (
+    type: IrType | undefined,
+    seen: WeakSet<object> = new WeakSet()
+  ): boolean => {
+    if (!type || seen.has(type)) {
+      return false;
+    }
+
+    seen.add(type);
+    switch (type.kind) {
+      case "typeParameterType":
+        return methodTypeParamNames.has(type.name);
+      case "referenceType":
+        return (type.typeArguments ?? []).some((arg) =>
+          containsMethodTypeParameter(arg, seen)
+        );
+      case "arrayType":
+        return containsMethodTypeParameter(type.elementType, seen);
+      case "tupleType":
+        return type.elementTypes.some((arg) =>
+          containsMethodTypeParameter(arg, seen)
+        );
+      case "functionType":
+        return (
+          type.parameters.some((parameter) =>
+            containsMethodTypeParameter(parameter.type, seen)
+          ) || containsMethodTypeParameter(type.returnType, seen)
+        );
+      case "unionType":
+      case "intersectionType":
+        return type.types.some((arg) => containsMethodTypeParameter(arg, seen));
+      case "dictionaryType":
+        return (
+          containsMethodTypeParameter(type.keyType, seen) ||
+          containsMethodTypeParameter(type.valueType, seen)
+        );
+      default:
+        return false;
+    }
+  };
+
   const getDeterministicAsyncUnionTypeParameter = (
     parameterType: Extract<IrType, { kind: "unionType" }>
   ): string | undefined => {
@@ -332,6 +443,230 @@ export const inferMethodTypeArgsFromArguments = (
     argumentType: IrType,
     currentSubstitution: Map<string, IrType>
   ): boolean => {
+    type InferenceMemberSignature = {
+      readonly parameters: readonly { readonly type?: IrType }[];
+      readonly returnType?: IrType;
+    };
+
+    type InferenceMemberSurface = {
+      readonly type?: IrType;
+      readonly signatures: readonly InferenceMemberSignature[];
+    };
+
+    const substituteMemberType = (
+      type: IrType | undefined,
+      substitution: ReadonlyMap<string, IrType>
+    ): IrType | undefined =>
+      type ? irSubstitute(type, substitution as IrSubstitutionMap) : undefined;
+
+    const buildMemberSurface = (
+      member: MemberEntry | undefined,
+      substitution: ReadonlyMap<string, IrType>
+    ): InferenceMemberSurface | undefined => {
+      if (!member) {
+        return undefined;
+      }
+
+      const type = substituteMemberType(member.type, substitution);
+      const signatureEntries =
+        member.signatures ??
+        (type?.kind === "functionType"
+          ? [
+              {
+                parameters: type.parameters.map((parameter, index) => ({
+                  name: `arg${index}`,
+                  type: parameter.type,
+                  mode: "value" as const,
+                  isOptional: parameter.isOptional ?? false,
+                  isRest: parameter.isRest ?? false,
+                })),
+                returnType: type.returnType,
+                typeParameters: [],
+                parameterCount: type.parameters.length,
+                isStatic: false,
+                isExtensionMethod: false,
+                normalizedSignature: "",
+                stableId: "",
+              },
+            ]
+          : []);
+
+      return {
+        type,
+        signatures: signatureEntries.map((signature) => ({
+          parameters: signature.parameters.map((parameter) => ({
+            type: substituteMemberType(parameter.type, substitution),
+          })),
+          returnType: substituteMemberType(signature.returnType, substitution),
+        })),
+      };
+    };
+
+    const resolveDeclaredMemberSurface = (
+      ref: IrReferenceType,
+      memberName: string
+    ): InferenceMemberSurface | undefined => {
+      const normalized = normalizeToNominal(state, ref);
+      if (!normalized) {
+        return undefined;
+      }
+
+      const lookupResult = state.nominalEnv.findMemberDeclaringType(
+        normalized.typeId,
+        normalized.typeArgs,
+        memberName
+      );
+      if (!lookupResult) {
+        return undefined;
+      }
+
+      return buildMemberSurface(
+        state.unifiedCatalog.getMember(lookupResult.declaringTypeId, memberName),
+        lookupResult.substitution
+      );
+    };
+
+    const tryUnifyNominalMemberSurface = (
+      parameterRef: IrReferenceType,
+      argumentRef: IrReferenceType
+    ): boolean => {
+      const pairKey = `nominal-members:${inferenceTypeVisitKey(
+        parameterRef
+      )}=>${inferenceTypeVisitKey(argumentRef)}`;
+      if (activeStructuralPairs.has(pairKey)) {
+        return true;
+      }
+
+      const parameterNominal = normalizeToNominal(state, parameterRef);
+      if (!parameterNominal) {
+        return true;
+      }
+
+      const parameterEntry = state.unifiedCatalog.getByTypeId(
+        parameterNominal.typeId
+      );
+      if (parameterEntry?.kind !== "interface") {
+        return true;
+      }
+
+      const parameterMembers = state.unifiedCatalog.getMembers(
+        parameterNominal.typeId
+      );
+      if (parameterMembers.size === 0) {
+        return true;
+      }
+
+      const parameterInstantiation = state.nominalEnv.getInstantiation(
+        parameterNominal.typeId,
+        parameterNominal.typeArgs,
+        parameterNominal.typeId
+      );
+      if (!parameterInstantiation) {
+        return true;
+      }
+
+      activeStructuralPairs.add(pairKey);
+      try {
+        for (const [memberName, parameterMember] of parameterMembers) {
+          if (memberName.startsWith("__tsonic_")) {
+            continue;
+          }
+
+          const parameterSurface = buildMemberSurface(
+            parameterMember,
+            parameterInstantiation
+          );
+          const argumentSurface = resolveDeclaredMemberSurface(
+            argumentRef,
+            memberName
+          );
+          if (!parameterSurface || !argumentSurface) {
+            continue;
+          }
+
+          const memberCarriesMethodTypeParameter =
+            containsMethodTypeParameter(parameterSurface.type) ||
+            parameterSurface.signatures.some(
+              (signature) =>
+                containsMethodTypeParameter(signature.returnType) ||
+                signature.parameters.some((parameter) =>
+                  containsMethodTypeParameter(parameter.type)
+                )
+            );
+          if (!memberCarriesMethodTypeParameter) {
+            continue;
+          }
+
+          if (parameterSurface.type && argumentSurface.type) {
+            if (
+              !tryUnify(
+                parameterSurface.type,
+                argumentSurface.type,
+                currentSubstitution
+              )
+            ) {
+              return false;
+            }
+          }
+
+          for (const parameterSignature of parameterSurface.signatures) {
+            const matchingSignatures = argumentSurface.signatures.filter(
+              (signature) =>
+                signature.parameters.length ===
+                parameterSignature.parameters.length
+            );
+            if (matchingSignatures.length !== 1) {
+              continue;
+            }
+
+            const argumentSignature = matchingSignatures[0];
+            if (!argumentSignature) {
+              continue;
+            }
+
+            for (
+              let parameterIndex = 0;
+              parameterIndex < parameterSignature.parameters.length;
+              parameterIndex += 1
+            ) {
+              const parameterParameter =
+                parameterSignature.parameters[parameterIndex];
+              const argumentParameter =
+                argumentSignature.parameters[parameterIndex];
+              if (!parameterParameter?.type || !argumentParameter?.type) {
+                continue;
+              }
+              if (
+                !tryUnify(
+                  parameterParameter.type,
+                  argumentParameter.type,
+                  currentSubstitution
+                )
+              ) {
+                return false;
+              }
+            }
+
+            if (parameterSignature.returnType && argumentSignature.returnType) {
+              if (
+                !tryUnify(
+                  parameterSignature.returnType,
+                  argumentSignature.returnType,
+                  currentSubstitution
+                )
+              ) {
+                return false;
+              }
+            }
+          }
+        }
+
+        return true;
+      } finally {
+        activeStructuralPairs.delete(pairKey);
+      }
+    };
+
     const tryUnifyStructuralReferenceMembers = (
       parameterRef: IrReferenceType,
       argumentRef: IrReferenceType
@@ -846,6 +1181,10 @@ export const inferMethodTypeArgsFromArguments = (
               }
             }
           }
+        }
+
+        if (!tryUnifyNominalMemberSurface(parameterType, argRef)) {
+          return false;
         }
 
         return tryUnifyStructuralReferenceMembers(parameterType, argRef);

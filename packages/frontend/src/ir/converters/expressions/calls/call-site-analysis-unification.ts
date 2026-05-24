@@ -9,17 +9,111 @@
 import { IrType } from "../../../types.js";
 import {
   irTypesEqual,
+  normalizedUnionType,
   referenceTypeIdentity,
 } from "../../../types/type-ops.js";
+import {
+  deriveTypeFromNumericKind,
+  getNumericKindFromIrType,
+} from "../../../type-system/inference-utilities.js";
+import { getBinaryResultKind } from "../../../types/numeric-kind.js";
 
 export type CallSiteArgModifier = "ref" | "out" | "in";
+
+const tryMergeTemplateSubstitution = (
+  existing: IrType,
+  actual: IrType
+): IrType | undefined => {
+  const existingOptional = splitDeterministicNullishUnion(existing);
+  const actualOptional = splitDeterministicNullishUnion(actual);
+  const existingBase = existingOptional?.nonNullishMember ?? existing;
+  const actualBase = actualOptional?.nonNullishMember ?? actual;
+
+  const existingNumericKind = getNumericKindFromIrType(existingBase);
+  const actualNumericKind = getNumericKindFromIrType(actualBase);
+  if (existingNumericKind && actualNumericKind) {
+    const mergedNumeric = deriveTypeFromNumericKind(
+      getBinaryResultKind(existingNumericKind, actualNumericKind)
+    );
+    return existingOptional || actualOptional
+      ? normalizedUnionType([
+          mergedNumeric,
+          ...(existingOptional?.nullishMembers ?? []),
+          ...(actualOptional?.nullishMembers ?? []),
+        ])
+      : mergedNumeric;
+  }
+
+  const mergedBase = irTypesEqual(existingBase, actualBase)
+    ? existingBase
+    : undefined;
+  if (mergedBase && (existingOptional || actualOptional)) {
+    return normalizedUnionType([
+        mergedBase,
+        ...(existingOptional?.nullishMembers ?? []),
+        ...(actualOptional?.nullishMembers ?? []),
+      ]);
+  }
+
+  return undefined;
+};
+
+const isNullishType = (type: IrType): boolean =>
+  (type.kind === "primitiveType" &&
+    (type.name === "null" || type.name === "undefined")) ||
+  type.kind === "voidType";
+
+const splitDeterministicNullishUnion = (
+  type: IrType
+):
+  | {
+      readonly nonNullishMember: IrType;
+      readonly nullishMembers: readonly IrType[];
+    }
+  | undefined => {
+  if (type.kind !== "unionType") {
+    return undefined;
+  }
+
+  const nonNullishMembers = type.types.filter(
+    (candidate): candidate is IrType =>
+      candidate !== undefined && !isNullishType(candidate)
+  );
+  const nullishMembers = type.types.filter(
+    (candidate): candidate is IrType =>
+      candidate !== undefined && isNullishType(candidate)
+  );
+
+  if (
+    nonNullishMembers.length !== 1 ||
+    nullishMembers.length === 0 ||
+    nonNullishMembers.length + nullishMembers.length !== type.types.length
+  ) {
+    return undefined;
+  }
+
+  const nonNullishMember = nonNullishMembers[0];
+  return nonNullishMember
+    ? { nonNullishMember, nullishMembers }
+    : undefined;
+};
 
 export const unifyTypeTemplate = (
   template: IrType,
   actual: IrType,
   substitutions: Map<string, IrType>
 ): boolean => {
-  if (actual.kind === "unionType") {
+  const templateArrayElement = getArrayLikeElementType(template);
+  const actualArrayElement = getArrayLikeElementType(actual);
+  if (templateArrayElement && actualArrayElement) {
+    return unifyTypeTemplate(
+      templateArrayElement,
+      actualArrayElement,
+      substitutions
+    );
+  }
+
+  if (template.kind !== "typeParameterType" && actual.kind === "unionType") {
     const nonNullishMembers = actual.types.filter(
       (candidate): candidate is IrType =>
         candidate !== undefined &&
@@ -52,7 +146,17 @@ export const unifyTypeTemplate = (
       substitutions.set(template.name, actual);
       return true;
     }
-    return irTypesEqual(existing, actual);
+    if (irTypesEqual(existing, actual)) {
+      return true;
+    }
+
+    const merged = tryMergeTemplateSubstitution(existing, actual);
+    if (merged) {
+      substitutions.set(template.name, merged);
+      return true;
+    }
+
+    return false;
   }
 
   if (template.kind !== actual.kind) return false;
@@ -185,6 +289,22 @@ export const unifyTypeTemplate = (
       });
     }
   }
+};
+
+const getArrayLikeElementType = (type: IrType): IrType | undefined => {
+  if (type.kind === "arrayType") {
+    return type.elementType;
+  }
+
+  if (
+    type.kind === "referenceType" &&
+    (type.name === "Array" || type.name === "ReadonlyArray") &&
+    type.typeArguments?.length === 1
+  ) {
+    return type.typeArguments[0];
+  }
+
+  return undefined;
 };
 
 export const deriveSubstitutionsFromExpectedReturn = (

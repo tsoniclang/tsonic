@@ -347,6 +347,7 @@ export const emitTypeParametersAst = (
         constraintAsts.push({
           typeParameter: tpName,
           constraints: [
+            { kind: "structConstraint" },
             {
               kind: "typeConstraint",
               type: {

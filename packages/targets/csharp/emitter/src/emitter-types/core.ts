@@ -451,6 +451,8 @@ export type EmitterContext = {
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /** Source parameter names that are emitted as native by-reference parameters. */
+  readonly byRefLocalNames?: ReadonlySet<string>;
   /**
    * Scoped map of local const boolean aliases to their authored condition expressions.
    *

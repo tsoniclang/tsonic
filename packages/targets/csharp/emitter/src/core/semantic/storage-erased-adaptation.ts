@@ -270,12 +270,21 @@ export const adaptStorageErasedValueAst = (opts: {
     expectedType,
     needsPlanContext
   );
+  const storageHasRuntimeNullish =
+    splitRuntimeNullishUnionMembers(storageType)?.hasRuntimeNullish ?? false;
+  const expectedHasRuntimeNullish =
+    splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ?? false;
+  const requiresNullishValueMaterialization =
+    storageHasRuntimeNullish &&
+    !expectedHasRuntimeNullish &&
+    isDefinitelyValueType(stripNullish(expectedType), needsPlanContext);
   const expectedRequiresRuntimeUnionMaterialization =
     willCarryAsRuntimeUnion(expectedType, needsPlanContext) &&
     !willCarryAsRuntimeUnion(storageType, needsPlanContext);
   if (
     storageMatchesExpectedEmission &&
     !expectedRequiresRuntimeUnionMaterialization &&
+    !requiresNullishValueMaterialization &&
     !needsArrayElementMaterialization
   ) {
     return [valueAst, needsPlanContext];

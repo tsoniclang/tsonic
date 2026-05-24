@@ -211,6 +211,18 @@ export const dtsTypeNodeToIrType = (
       return { kind: "literalType", value: lit.text };
     if (ts.isNumericLiteral(lit))
       return { kind: "literalType", value: Number(lit.text) };
+    if (
+      ts.isPrefixUnaryExpression(lit) &&
+      ts.isNumericLiteral(lit.operand) &&
+      (lit.operator === ts.SyntaxKind.MinusToken ||
+        lit.operator === ts.SyntaxKind.PlusToken)
+    ) {
+      const magnitude = Number(lit.operand.text);
+      return {
+        kind: "literalType",
+        value: lit.operator === ts.SyntaxKind.MinusToken ? -magnitude : magnitude,
+      };
+    }
     if (lit.kind === ts.SyntaxKind.TrueKeyword)
       return { kind: "literalType", value: true };
     if (lit.kind === ts.SyntaxKind.FalseKeyword)

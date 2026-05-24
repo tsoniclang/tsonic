@@ -31,7 +31,7 @@ const equalityPolarity = (
 
 const literalValue = (
   expression: IrExpression
-): string | number | boolean | null | undefined | typeof noLiteral => {
+): string | number | bigint | boolean | null | undefined | typeof noLiteral => {
   if (expression.kind !== "literal") {
     return noLiteral;
   }

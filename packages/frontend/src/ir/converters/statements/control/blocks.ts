@@ -53,6 +53,40 @@ const isJsNumberType = (type: IrType | undefined): boolean => {
 const intType: IrType = { kind: "primitiveType", name: "int" };
 const numberType: IrType = { kind: "primitiveType", name: "number" };
 
+const getSignedNumericLiteralText = (
+  expression: ts.Expression
+): string | undefined => {
+  if (ts.isNumericLiteral(expression)) {
+    return expression.text;
+  }
+
+  if (
+    ts.isPrefixUnaryExpression(expression) &&
+    ts.isNumericLiteral(expression.operand) &&
+    (expression.operator === ts.SyntaxKind.MinusToken ||
+      expression.operator === ts.SyntaxKind.PlusToken)
+  ) {
+    return `${expression.operator === ts.SyntaxKind.MinusToken ? "-" : ""}${expression.operand.text}`;
+  }
+
+  return undefined;
+};
+
+const getNumericLiteralExpressionType = (
+  expression: ts.Expression
+): IrType | undefined => {
+  const text = getSignedNumericLiteralText(expression);
+  if (text === undefined) {
+    return undefined;
+  }
+  return Number.isInteger(Number(text)) ? intType : numberType;
+};
+
+const isIntegerNumericLiteralExpression = (expression: ts.Expression): boolean => {
+  const type = getNumericLiteralExpressionType(expression);
+  return type?.kind === "primitiveType" && type.name === "int";
+};
+
 const isIntType = (type: IrType | undefined): boolean => {
   const stripped = stripRuntimeNullish(type);
   return (
@@ -66,10 +100,22 @@ const getArrayElementType = (type: IrType | undefined): IrType | undefined => {
   return stripped?.kind === "arrayType" ? stripped.elementType : undefined;
 };
 
+const getIterableElementType = (
+  type: IrType | undefined,
+  ctx: ProgramContext
+): IrType | undefined =>
+  getArrayElementType(type) ?? ctx.typeSystem.getIterableShape(type)?.elementType;
+
 const resolveIdentifierReadType = (
   identifier: ts.Identifier,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  localTypes?: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
+  const localType = localTypes?.get(identifier.text);
+  if (localType) {
+    return localType;
+  }
+
   const declId = ctx.binding.resolveIdentifier(identifier);
   if (!declId) {
     return undefined;
@@ -80,32 +126,109 @@ const resolveIdentifierReadType = (
 
 const resolveSimpleNumericAssignmentType = (
   expression: ts.Expression,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  localTypes?: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
-  if (ts.isNumericLiteral(expression)) {
-    return Number.isInteger(Number(expression.text)) ? intType : numberType;
+  const literalType = getNumericLiteralExpressionType(expression);
+  if (literalType) {
+    return literalType;
   }
 
   if (ts.isIdentifier(expression)) {
-    return resolveIdentifierReadType(expression, ctx);
+    return resolveIdentifierReadType(expression, ctx, localTypes);
+  }
+
+  if (ts.isCallExpression(expression)) {
+    const argumentTypes = expression.arguments.map((argument) =>
+      ts.isSpreadElement(argument)
+        ? undefined
+        : resolveSimpleNumericAssignmentType(argument, ctx, localTypes)
+    );
+    const calleeType = resolveSimpleNumericAssignmentType(
+      expression.expression,
+      ctx,
+      localTypes
+    );
+    const callable = ctx.typeSystem.resolveCallableType(calleeType, {
+      argumentCount: expression.arguments.length,
+      argTypes: argumentTypes,
+    });
+    if (
+      callable.resolved &&
+      callable.resolved.returnType.kind !== "unknownType"
+    ) {
+      return callable.resolved.returnType;
+    }
+
+    const sigId = ctx.binding.resolveCallSignature(expression);
+    if (!sigId) {
+      return undefined;
+    }
+    const resolved = ctx.typeSystem.resolveCall({
+      sigId,
+      argumentCount: expression.arguments.length,
+      argTypes: argumentTypes,
+    });
+    return resolved.returnType.kind === "unknownType"
+      ? undefined
+      : resolved.returnType;
+  }
+
+  if (
+    ts.isPropertyAccessExpression(expression) ||
+    ts.isPropertyAccessChain(expression)
+  ) {
+    const receiverType = resolveSimpleNumericAssignmentType(
+      expression.expression,
+      ctx,
+      localTypes
+    );
+    if (!receiverType) {
+      return undefined;
+    }
+    return getReadableMemberTypeForNarrowing(
+      receiverType,
+      expression.name.text,
+      ctx
+    );
   }
 
   if (ts.isParenthesizedExpression(expression)) {
-    return resolveSimpleNumericAssignmentType(expression.expression, ctx);
+    return resolveSimpleNumericAssignmentType(
+      expression.expression,
+      ctx,
+      localTypes
+    );
   }
 
   if (ts.isNonNullExpression(expression)) {
     return stripRuntimeNullish(
-      resolveSimpleNumericAssignmentType(expression.expression, ctx)
+      resolveSimpleNumericAssignmentType(expression.expression, ctx, localTypes)
     );
   }
 
-  if (
-    ts.isElementAccessExpression(expression) &&
-    expression.argumentExpression
-  ) {
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression) {
+    if (
+      ts.isStringLiteral(expression.argumentExpression) ||
+      ts.isNoSubstitutionTemplateLiteral(expression.argumentExpression)
+    ) {
+      const receiverType = resolveSimpleNumericAssignmentType(
+        expression.expression,
+        ctx,
+        localTypes
+      );
+      if (!receiverType) {
+        return undefined;
+      }
+      return getReadableMemberTypeForNarrowing(
+        receiverType,
+        expression.argumentExpression.text,
+        ctx
+      );
+    }
+
     return getArrayElementType(
-      resolveSimpleNumericAssignmentType(expression.expression, ctx)
+      resolveSimpleNumericAssignmentType(expression.expression, ctx, localTypes)
     );
   }
 
@@ -121,8 +244,16 @@ const resolveSimpleNumericAssignmentType = (
       return undefined;
     }
 
-    const leftType = resolveSimpleNumericAssignmentType(expression.left, ctx);
-    const rightType = resolveSimpleNumericAssignmentType(expression.right, ctx);
+    const leftType = resolveSimpleNumericAssignmentType(
+      expression.left,
+      ctx,
+      localTypes
+    );
+    const rightType = resolveSimpleNumericAssignmentType(
+      expression.right,
+      ctx,
+      localTypes
+    );
     if (isJsNumberType(leftType) || isJsNumberType(rightType)) {
       return numberType;
     }
@@ -143,8 +274,7 @@ const isMutableIntegerLiteralDeclaration = (
   ts.isIdentifier(decl.name) &&
   decl.type === undefined &&
   !!decl.initializer &&
-  ts.isNumericLiteral(decl.initializer) &&
-  Number.isInteger(Number(decl.initializer.text));
+  isIntegerNumericLiteralExpression(decl.initializer);
 
 const collectMutableNumericLiteralWideningDeclIds = (
   block: ts.Block,
@@ -152,8 +282,41 @@ const collectMutableNumericLiteralWideningDeclIds = (
 ): ReadonlySet<number> | undefined => {
   const candidates = new Map<string, number>();
   const wideningDeclIds = new Set<number>();
+  const localTypes = new Map<string, IrType>();
+
+  const setTemporaryLocalType = (
+    name: string,
+    type: IrType | undefined,
+    body: () => void
+  ): void => {
+    if (!type || type.kind === "unknownType") {
+      body();
+      return;
+    }
+
+    const hadPrevious = localTypes.has(name);
+    const previous = localTypes.get(name);
+    localTypes.set(name, type);
+    body();
+    if (hadPrevious && previous) {
+      localTypes.set(name, previous);
+    } else {
+      localTypes.delete(name);
+    }
+  };
 
   const rememberDeclaration = (decl: ts.VariableDeclaration): void => {
+    if (ts.isIdentifier(decl.name)) {
+      const declaredType = decl.type
+        ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(decl.type))
+        : decl.initializer
+          ? resolveSimpleNumericAssignmentType(decl.initializer, ctx, localTypes)
+          : undefined;
+      if (declaredType && declaredType.kind !== "unknownType") {
+        localTypes.set(decl.name.text, declaredType);
+      }
+    }
+
     const parent = decl.parent;
     if (
       !parent ||
@@ -184,6 +347,31 @@ const collectMutableNumericLiteralWideningDeclIds = (
       return;
     }
 
+    if (ts.isForOfStatement(node)) {
+      const iterableType = resolveSimpleNumericAssignmentType(
+        node.expression,
+        ctx,
+        localTypes
+      );
+      const elementType = getIterableElementType(iterableType, ctx);
+      if (ts.isVariableDeclarationList(node.initializer)) {
+        const declaration = node.initializer.declarations[0];
+        if (declaration && ts.isIdentifier(declaration.name)) {
+          rememberDeclaration(declaration);
+          setTemporaryLocalType(declaration.name.text, elementType, () => {
+            visit(node.statement);
+          });
+          return;
+        }
+      }
+      if (ts.isIdentifier(node.initializer)) {
+        setTemporaryLocalType(node.initializer.text, elementType, () => {
+          visit(node.statement);
+        });
+        return;
+      }
+    }
+
     if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
@@ -192,7 +380,9 @@ const collectMutableNumericLiteralWideningDeclIds = (
       const candidateDeclId = candidates.get(node.left.text);
       if (
         candidateDeclId !== undefined &&
-        isJsNumberType(resolveSimpleNumericAssignmentType(node.right, ctx))
+        isJsNumberType(
+          resolveSimpleNumericAssignmentType(node.right, ctx, localTypes)
+        )
       ) {
         wideningDeclIds.add(candidateDeclId);
       }

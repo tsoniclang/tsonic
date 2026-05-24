@@ -315,6 +315,7 @@ export const convertNewExpression = (
       sourceBackedConstructorParameterTypes?.restParameter,
     sourceBackedReturnType: finalizedInvocationMetadata.sourceBackedReturnType,
     typeArguments: typeArgumentsForIr,
+    explicitTypeArguments: typeArguments,
     requiresSpecialization,
     surfaceRestParameter:
       sourceBackedConstructorParameterTypes?.restParameter ??

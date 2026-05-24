@@ -22,6 +22,7 @@ import { selectUnionArm } from "../union-arm-selection.js";
 import {
   getPropertyExpectedType,
   selectObjectLiteralContextualType,
+  collectObjectLiteralPrimitiveValues,
   resolveObjectLiteralMemberKey,
   methodUsesObjectLiteralThis,
   buildObjectLiteralMethodFunctionType,
@@ -128,6 +129,7 @@ export const convertObjectLiteral = (
       return undefined;
     })
     .filter((key): key is string => key !== undefined);
+  const literalValues = collectObjectLiteralPrimitiveValues(node, ctx);
 
   if (emitAsAnonymousObject) {
     for (const prop of node.properties) {
@@ -181,7 +183,8 @@ export const convertObjectLiteral = (
       : selectObjectLiteralContextualType(
           contextualCandidateRaw,
           literalKeys,
-          ctx
+          ctx,
+          literalValues
         );
 
   const getObjectLiteralPropertyExpectedType = (

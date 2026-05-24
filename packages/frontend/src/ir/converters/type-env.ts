@@ -51,6 +51,22 @@ export const deriveTypeFromExpression = (
   return undefined;
 };
 
+const isNumericLiteralInitializer = (initializer: IrExpression): boolean => {
+  if (initializer.kind === "literal") {
+    return typeof initializer.value === "number";
+  }
+
+  if (
+    initializer.kind === "unary" &&
+    (initializer.operator === "-" || initializer.operator === "+") &&
+    initializer.expression.kind === "literal"
+  ) {
+    return typeof initializer.expression.value === "number";
+  }
+
+  return false;
+};
+
 export const resolveMutableNumericLiteralDeclarationType = (
   declarationKind: "const" | "let" | "var",
   explicitType: IrType | undefined,
@@ -66,7 +82,7 @@ export const resolveMutableNumericLiteralDeclarationType = (
     return undefined;
   }
 
-  if (initializer.kind !== "literal" || typeof initializer.value !== "number") {
+  if (!isNumericLiteralInitializer(initializer)) {
     return undefined;
   }
 

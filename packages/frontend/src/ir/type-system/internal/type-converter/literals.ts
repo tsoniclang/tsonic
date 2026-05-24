@@ -19,6 +19,20 @@ export const convertLiteralType = (node: ts.LiteralTypeNode): IrType => {
     return { kind: "literalType", value: Number(literal.text) };
   }
 
+  if (
+    ts.isPrefixUnaryExpression(literal) &&
+    ts.isNumericLiteral(literal.operand) &&
+    (literal.operator === ts.SyntaxKind.MinusToken ||
+      literal.operator === ts.SyntaxKind.PlusToken)
+  ) {
+    const magnitude = Number(literal.operand.text);
+    return {
+      kind: "literalType",
+      value:
+        literal.operator === ts.SyntaxKind.MinusToken ? -magnitude : magnitude,
+    };
+  }
+
   if (literal.kind === ts.SyntaxKind.TrueKeyword) {
     return { kind: "literalType", value: true };
   }

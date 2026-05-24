@@ -8,6 +8,7 @@ import type {
   CSharpStatementAst,
 } from "../core/format/backend-ast/types.js";
 import {
+  identifierType,
   nullLiteral,
   stringLiteral,
 } from "../core/format/backend-ast/builders.js";
@@ -193,6 +194,96 @@ const isStructuralObjectTargetType = (
   );
 };
 
+const referenceLeafName = (type: IrType): string | undefined => {
+  if (type.kind !== "referenceType") {
+    return undefined;
+  }
+  const lastDot = type.name.lastIndexOf(".");
+  return lastDot >= 0 ? type.name.slice(lastDot + 1) : type.name;
+};
+
+const tryAdaptReadonlyMapValueView = (
+  emittedAst: CSharpExpressionAst,
+  sourceType: IrType,
+  expectedType: IrType,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const strippedSource = stripNullish(resolveTypeAlias(sourceType, context));
+  const strippedExpected = stripNullish(
+    resolveTypeAlias(expectedType, context)
+  );
+  if (
+    strippedSource.kind !== "referenceType" ||
+    strippedExpected.kind !== "referenceType"
+  ) {
+    return undefined;
+  }
+
+  const sourceName = referenceLeafName(strippedSource);
+  const expectedName = referenceLeafName(strippedExpected);
+  if (
+    expectedName !== "ReadonlyMap" ||
+    (sourceName !== "Map" && sourceName !== "ReadonlyMap")
+  ) {
+    return undefined;
+  }
+
+  const sourceKeyType = strippedSource.typeArguments?.[0];
+  const sourceValueType = strippedSource.typeArguments?.[1];
+  const expectedKeyType = strippedExpected.typeArguments?.[0];
+  const expectedValueType = strippedExpected.typeArguments?.[1];
+  if (
+    !sourceKeyType ||
+    !sourceValueType ||
+    !expectedKeyType ||
+    !expectedValueType
+  ) {
+    return undefined;
+  }
+
+  let currentContext = context;
+  const [sourceKeyAst, sourceKeyContext] = emitTypeAst(
+    sourceKeyType,
+    currentContext
+  );
+  currentContext = sourceKeyContext;
+  const [expectedKeyAst, expectedKeyContext] = emitTypeAst(
+    expectedKeyType,
+    currentContext
+  );
+  currentContext = expectedKeyContext;
+  if (!sameTypeAstSurface(sourceKeyAst, expectedKeyAst)) {
+    return undefined;
+  }
+
+  const [sourceValueAst, sourceValueContext] = emitTypeAst(
+    sourceValueType,
+    currentContext
+  );
+  currentContext = sourceValueContext;
+  const [expectedValueAst, expectedValueContext] = emitTypeAst(
+    expectedValueType,
+    currentContext
+  );
+  currentContext = expectedValueContext;
+  if (sameTypeAstSurface(sourceValueAst, expectedValueAst)) {
+    return [emittedAst, currentContext];
+  }
+
+  return [
+    {
+      kind: "objectCreationExpression",
+      type: identifierType("global::js.ReadonlyMapView", [
+        sourceKeyAst,
+        sourceValueAst,
+        expectedValueAst,
+      ]),
+      arguments: [emittedAst],
+    },
+    currentContext,
+  ];
+};
+
 export const tryAdaptStructuralObjectExpressionAst = (
   emittedAst: CSharpExpressionAst,
   sourceType: IrType | undefined,
@@ -221,6 +312,16 @@ export const tryAdaptStructuralObjectExpressionAst = (
       return undefined;
     }
     return [emittedAst, context];
+  }
+
+  const readonlyMapValueView = tryAdaptReadonlyMapValueView(
+    emittedAst,
+    sourceType,
+    strippedExpectedType,
+    context
+  );
+  if (readonlyMapValueView) {
+    return readonlyMapValueView;
   }
 
   if (referenceTypeEmitsAsNativeInterface(strippedExpectedType, context)) {

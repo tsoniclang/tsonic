@@ -140,6 +140,76 @@ namespace Tsonic.Internal
             }
             return array;
         }
+
+        internal static int Push<T>(ref T[] values, params T[] items)
+        {
+            var array = WrapArray(values);
+            var result = array.push(items);
+            values = array.toArray();
+            return result;
+        }
+
+        internal static object? ReadOptionalObject<T>(global::System.Collections.Generic.IReadOnlyList<T>? values, int index)
+        {
+            return values is not null && index >= 0 && index < values.Count ? values[index] : null;
+        }
+
+        internal static T? ReadOptionalReference<T>(global::System.Collections.Generic.IReadOnlyList<T>? values, int index) where T : class
+        {
+            return values is not null && index >= 0 && index < values.Count ? values[index] : null;
+        }
+
+        internal static T? ReadOptionalValue<T>(global::System.Collections.Generic.IReadOnlyList<T>? values, int index) where T : struct
+        {
+            return values is not null && index >= 0 && index < values.Count ? values[index] : null;
+        }
+    }
+
+    internal static class StrictEquality
+    {
+        internal static bool Equals<TLeft, TRight>(TLeft left, TRight right)
+        {
+            object? leftObject = left;
+            object? rightObject = right;
+
+            if (leftObject is null || rightObject is null)
+            {
+                return leftObject is null && rightObject is null;
+            }
+
+            if (leftObject is string leftString && rightObject is string rightString)
+            {
+                return global::System.String.Equals(leftString, rightString, global::System.StringComparison.Ordinal);
+            }
+
+            if (IsNumber(leftObject) && IsNumber(rightObject))
+            {
+                return global::System.Convert.ToDouble(leftObject, global::System.Globalization.CultureInfo.InvariantCulture) ==
+                    global::System.Convert.ToDouble(rightObject, global::System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            var leftType = leftObject.GetType();
+            var rightType = rightObject.GetType();
+            if (leftType.IsValueType || rightType.IsValueType)
+            {
+                return leftType == rightType && global::System.Object.Equals(leftObject, rightObject);
+            }
+
+            return global::System.Object.ReferenceEquals(leftObject, rightObject);
+        }
+
+        private static bool IsNumber(object value)
+        {
+            return value is byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal;
+        }
+    }
+
+    internal static class GenericOptional
+    {
+        internal static T? FromObject<T>(object? value)
+        {
+            return value is null ? default(T) : (T)value;
+        }
     }
 }
 `;

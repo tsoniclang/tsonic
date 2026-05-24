@@ -86,6 +86,10 @@ export const isBroadObjectSlotType = (
     isSystemObjectReferenceType(resolved) ||
     (resolved.kind === "unionType" &&
       (resolved.types.some(isJsValueReferenceType) ||
+        (resolved.types.some(
+          (member) => member.kind === "unknownType" || member.kind === "anyType"
+        ) &&
+          resolved.types.every(isBroadObjectUnionMemberType)) ||
         (resolved.types.some((member) => isSystemObjectReferenceType(member)) &&
           resolved.types.every(isBroadObjectUnionMemberType))))
   );

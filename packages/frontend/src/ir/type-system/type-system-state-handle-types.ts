@@ -144,7 +144,7 @@ export type TypeParameterEntry = {
 };
 
 export type TypeRegistryEntry = {
-  readonly kind: "class" | "interface" | "typeAlias";
+  readonly kind: "class" | "interface" | "enum" | "typeAlias";
   readonly name: string;
   readonly fullyQualifiedName: string;
   readonly ownerIdentity?: string;

@@ -16,6 +16,7 @@ import {
 import { validateExpression } from "./soundness-gate-expression-validation.js";
 
 type UnknownRootKind = "expressionInferredType";
+type ObjectRootKind = "runtimeStorage" | "semanticMetadata";
 type IntersectionRootKind =
   | "runtimeStorage"
   | "typeParameterConstraint"
@@ -33,6 +34,7 @@ export const validateType = (
   typeContext: string,
   options: {
     readonly unknownRootKind?: UnknownRootKind;
+    readonly objectRootKind?: ObjectRootKind;
     readonly intersectionRootKind?: IntersectionRootKind;
   } = {}
 ): void => {
@@ -79,7 +81,10 @@ export const validateType = (
         break;
 
       case "objectType":
-        if (ctx.validationMode !== "capability") {
+        if (
+          ctx.validationMode !== "capability" &&
+          (options.objectRootKind ?? "runtimeStorage") === "runtimeStorage"
+        ) {
           ctx.diagnostics.push(
             createDiagnostic(
               "TSN7421",
@@ -197,8 +202,27 @@ export const validateType = (
             ctx.knownReferenceTypes.has(candidate)
           ) ||
           candidateNames.some((candidate) =>
-            ctx.typeParameterNames.has(candidate)
+              ctx.typeParameterNames.has(candidate)
           );
+
+        const referencedAlias = candidateNames
+          .map(
+            (candidate) =>
+              ctx.localTypeAliases.get(candidate) ??
+              ctx.namespaceTypeAliases.get(candidate)
+          )
+          .find((alias) => alias !== undefined);
+        if (referencedAlias) {
+          validateType(
+            referencedAlias.type,
+            ctx,
+            `type alias '${referencedAlias.name}'`,
+            {
+              objectRootKind: "semanticMetadata",
+              intersectionRootKind: "semanticMetadata",
+            }
+          );
+        }
 
         if (!isResolvable) {
           if (ctx.validationMode !== "capability") {

@@ -30,6 +30,19 @@ const referenceTypeofFact = (
   primitiveTypeFactFromName(type.name) ??
   primitiveTypeFactFromName(type.typeId?.sourceName ?? "");
 
+const BIGINT_REFERENCE_IDENTITIES = new Set([
+  "System.Numerics.BigInteger",
+  "global::System.Numerics.BigInteger",
+]);
+
+const isBigIntReferenceType = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): boolean =>
+  type.name === "BigInteger" ||
+  type.name === "bigint" ||
+  type.typeId?.sourceName === "bigint" ||
+  referenceTypeHasClrIdentity(type, BIGINT_REFERENCE_IDENTITIES);
+
 const genericTypeofTarget = (tag: string): IrType | undefined => {
   switch (tag) {
     case "string":
@@ -38,6 +51,8 @@ const genericTypeofTarget = (tag: string): IrType | undefined => {
       return { kind: "primitiveType", name: "number" };
     case "boolean":
       return { kind: "primitiveType", name: "boolean" };
+    case "bigint":
+      return { kind: "primitiveType", name: "bigint" };
     case "undefined":
       return { kind: "primitiveType", name: "undefined" };
     case "object":
@@ -136,12 +151,20 @@ export const matchesTypeofTag = (
       return fact?.jsTypeof === "boolean";
     }
 
+    if (tag === "bigint") {
+      return isBigIntReferenceType(resolved);
+    }
+
     if (tag === "function") {
       return false;
     }
 
     if (tag === "object") {
-      return resolved.name !== "Function" && fact === undefined;
+      return (
+        resolved.name !== "Function" &&
+        fact === undefined &&
+        !isBigIntReferenceType(resolved)
+      );
     }
 
     return false;
@@ -158,6 +181,8 @@ export const matchesTypeofTag = (
       return primitiveTypeFactFromName(resolved.name)?.jsTypeof === "number";
     case "boolean":
       return primitiveTypeFactFromName(resolved.name)?.jsTypeof === "boolean";
+    case "bigint":
+      return resolved.name === "bigint";
     case "undefined":
       return resolved.name === "undefined";
     case "object":

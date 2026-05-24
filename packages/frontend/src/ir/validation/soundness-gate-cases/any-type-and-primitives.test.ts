@@ -66,6 +66,52 @@ describe("IR Soundness Gate", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN7414");
     });
 
+    it("should reject anyType inside referenced non-object type aliases", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "typeAliasDeclaration",
+            name: "Comparison",
+            type: {
+              kind: "unionType",
+              types: [
+                { kind: "anyType" },
+                { kind: "literalType", value: 0 },
+                { kind: "literalType", value: 1 },
+              ],
+            },
+            isExported: true,
+            isStruct: false,
+          },
+          {
+            kind: "functionDeclaration",
+            name: "compare",
+            parameters: [],
+            returnType: { kind: "referenceType", name: "Comparison" },
+            body: { kind: "blockStatement", statements: [] },
+            isExported: true,
+            isAsync: false,
+            isGenerator: false,
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN7414");
+      expect(result.diagnostics[0]?.message).to.include(
+        "type alias 'Comparison' union member 0"
+      );
+    });
+
     it("should reject anyType in function parameter", () => {
       const module: IrModule = {
         kind: "module",

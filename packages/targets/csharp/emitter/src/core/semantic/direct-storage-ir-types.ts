@@ -83,13 +83,32 @@ const resolveDirectReturnType = (
 ): IrType | undefined =>
   pickPreferredCarrierCandidate(
     context,
+    getExpressionSourceBackedReturnType(expr),
+    expr.kind === "call"
+      ? resolveFunctionCallStorageReturnType(expr, context)
+      : undefined,
     expr.kind === "call"
       ? resolveStructuralViewMethodSurface(expr.callee, context)?.returnType
       : undefined,
-    getExpressionSourceBackedReturnType(expr),
     resolveEffectiveExpressionType(expr, context),
     expr.inferredType
   );
+
+const resolveFunctionCallStorageReturnType = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): IrType | undefined => {
+  const calleeStorageType =
+    resolveDirectStorageIrType(expr.callee, context) ??
+    resolveEffectiveExpressionType(expr.callee, context) ??
+    expr.callee.inferredType;
+  const normalizedCalleeStorageType =
+    normalizeRuntimeStorageType(calleeStorageType, context) ??
+    calleeStorageType;
+  return normalizedCalleeStorageType?.kind === "functionType"
+    ? normalizedCalleeStorageType.returnType
+    : undefined;
+};
 
 const resolveAwaitedDirectReturnType = (
   expr: Extract<IrExpression, { kind: "await" }>,

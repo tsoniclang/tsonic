@@ -11,12 +11,126 @@ import {
   IrVariableDeclaration,
 } from "../types.js";
 import { validateIrSoundness } from "../validation/soundness-gate.js";
-import { createTestProgram } from "./_test-helpers.js";
+import {
+  createFilesystemTestProgram,
+  createTestProgram,
+} from "./_test-helpers.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("Type access and Records", () => {
+    it("recovers source enum member access as the enum type", () => {
+      const source = `
+        export enum Tristate {
+          Unknown = 0,
+          False = 1,
+          True = 2,
+        }
+
+        export function isTrue(value: Tristate): boolean {
+          return value === Tristate.True;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(
+        ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203")
+      ).to.equal(false);
+      if (!result.ok) return;
+
+      const soundness = validateIrSoundness([result.value]);
+      expect(soundness.ok).to.equal(true);
+    });
+
+    it("recovers enum member access through export-star barrels", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/core/tristate.ts": `
+            export enum Tristate {
+              Unknown = 0,
+              False = 1,
+              True = 2,
+            }
+          `,
+          "src/core/index.ts": `
+            export * from "./tristate.js";
+          `,
+          "src/use.ts": `
+            import { Tristate } from "./core/index.js";
+
+            export function isTrueOrUnknown(value: Tristate): boolean {
+              return value === Tristate.True || value === Tristate.Unknown;
+            }
+          `,
+        },
+        "src/use.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+        expect(result.ok).to.equal(true);
+        expect(
+          fixture.ctx.diagnostics.some((d) => d.code === "TSN5203")
+        ).to.equal(false);
+        expect(
+          fixture.ctx.typeSystem
+            .getDiagnostics()
+            .some((d) => d.code === "TSN5203")
+        ).to.equal(false);
+        if (!result.ok) return;
+
+        const soundness = validateIrSoundness([result.value]);
+        expect(soundness.ok).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("recovers class property types from generic constructor initializers with explicit type arguments", () => {
+      const source = `
+        class Box<K, V> {
+          has(_key: K): boolean {
+            return true;
+          }
+        }
+
+        export class Holder {
+          private readonly box = new Box<string, number>();
+
+          hasBoxKey(): boolean {
+            return this.box.has("key");
+          }
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(
+        ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203")
+      ).to.equal(false);
+      if (!result.ok) return;
+
+      const soundness = validateIrSoundness([result.value]);
+      expect(soundness.ok).to.equal(true);
+    });
+
     it("treats dictionary Keys dot access as a declared dictionary member", () => {
       const source = `
         export function readKey(settings: Record<string, unknown>): unknown {
@@ -502,6 +616,50 @@ describe("IR Builder", function () {
       expect(returnStmt.expression.inferredType).to.deep.equal({
         kind: "primitiveType",
         name: "int",
+      });
+    });
+
+    it("widens mutable integer literals assigned from numeric object properties", () => {
+      const source = `
+        interface Pattern {
+          readonly text: string;
+          readonly starIndex: number;
+        }
+
+        export function choose(values: readonly Pattern[]): number {
+          let longestPrefix = -1;
+          for (const pattern of values) {
+            if (pattern.starIndex > longestPrefix) {
+              longestPrefix = pattern.starIndex;
+            }
+          }
+          return longestPrefix;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5110")).to.equal(false);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "choose"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const declaration = fn.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration"
+      );
+      expect(declaration?.declarations[0]?.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "number",
       });
     });
 

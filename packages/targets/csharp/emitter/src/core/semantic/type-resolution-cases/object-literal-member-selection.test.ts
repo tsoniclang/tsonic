@@ -161,5 +161,66 @@ describe("type-resolution", () => {
 
       expect(selected?.kind).to.equal("dictionaryType");
     });
+
+    it("uses literal property values to select discriminated union members with identical keys", () => {
+      const makeKindMember = (value: string): IrInterfaceMember => ({
+        kind: "propertySignature",
+        name: "kind",
+        type: { kind: "literalType", value },
+        isOptional: false,
+        isReadonly: false,
+      });
+
+      const localTypes = new Map<string, LocalTypeInfo>([
+        [
+          "SlashElement",
+          {
+            kind: "interface",
+            typeParameters: [],
+            members: [makeKindMember("slash")],
+            extends: [],
+          },
+        ],
+        [
+          "StarElement",
+          {
+            kind: "interface",
+            typeParameters: [],
+            members: [makeKindMember("star")],
+            extends: [],
+          },
+        ],
+      ]);
+
+      const context: EmitterContext = {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        localTypes,
+        usings: new Set<string>(),
+      };
+
+      const unionType: Extract<IrType, { kind: "unionType" }> = {
+        kind: "unionType",
+        types: [
+          { kind: "referenceType", name: "SlashElement" },
+          { kind: "referenceType", name: "StarElement" },
+        ],
+      };
+
+      const selected = selectUnionMemberForObjectLiteral(
+        unionType,
+        ["kind"],
+        context,
+        new Map([["kind", "star"]])
+      );
+
+      expect(selected?.kind).to.equal("referenceType");
+      expect(selected?.name).to.equal("StarElement");
+    });
   });
 });

@@ -2,7 +2,7 @@
  * Interface declaration emission — returns CSharpTypeDeclarationAst[]
  */
 
-import { IrStatement } from "@tsonic/frontend";
+import type { IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitAttributes } from "../../core/format/attributes.js";
@@ -19,12 +19,73 @@ import { normalizeValueSlotType } from "../../core/semantic/value-slot-types.js"
 import { emitCSharpName } from "../../naming-policy.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { structuralInterfaceContractKey } from "../../core/semantic/local-types.js";
+import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
 import type {
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import { referenceTypeRequiresSetsRequiredMembersCtor } from "./class-emitter-helpers.js";
+
+const collectInheritedPropertyNames = (
+  extendsTypes: readonly IrType[] | undefined,
+  context: EmitterContext,
+  visited: Set<string> = new Set<string>()
+): ReadonlySet<string> => {
+  const names = new Set<string>();
+
+  for (const extendedType of extendsTypes ?? []) {
+    if (extendedType.kind !== "referenceType") {
+      continue;
+    }
+
+    const resolved = resolveLocalTypeInfo(extendedType, context);
+    if (!resolved) {
+      continue;
+    }
+
+    const key = `${resolved.namespace}:${resolved.name}`;
+    if (visited.has(key)) {
+      continue;
+    }
+    visited.add(key);
+
+    if (resolved.info.kind === "interface") {
+      for (const member of resolved.info.members) {
+        if (member.kind === "propertySignature") {
+          names.add(member.name);
+        }
+      }
+
+      for (const inheritedName of collectInheritedPropertyNames(
+        resolved.info.extends,
+        context,
+        visited
+      )) {
+        names.add(inheritedName);
+      }
+      continue;
+    }
+
+    if (resolved.info.kind === "class") {
+      for (const member of resolved.info.members) {
+        if (member.kind === "propertyDeclaration") {
+          names.add(member.name);
+        }
+      }
+
+      for (const inheritedName of collectInheritedPropertyNames(
+        resolved.info.superClass ? [resolved.info.superClass] : undefined,
+        context,
+        visited
+      )) {
+        names.add(inheritedName);
+      }
+    }
+  }
+
+  return names;
+};
 
 /**
  * Emit an interface declaration as CSharpTypeDeclarationAst[].
@@ -130,8 +191,19 @@ export const emitInterfaceDeclaration = (
 
   // Build members
   const members: CSharpMemberAst[] = [];
+  const inheritedPropertyNames = collectInheritedPropertyNames(
+    stmt.extends,
+    currentContext
+  );
 
   for (const member of stmt.members) {
+    if (
+      member.kind === "propertySignature" &&
+      inheritedPropertyNames.has(member.name)
+    ) {
+      continue;
+    }
+
     if (!emitsAsNativeInterface) {
       // Property-only interface → class/struct members
       const [memberAst, newContext] = emitInterfaceMemberAsProperty(

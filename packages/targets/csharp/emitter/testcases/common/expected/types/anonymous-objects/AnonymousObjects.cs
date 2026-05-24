@@ -9,7 +9,7 @@ namespace TestCases.common.types.anonymousobjects
 
         public static readonly global::TestCases.common.types.anonymousobjects.__Anon_2697_fa9441e6 handler = new global::TestCases.common.types.anonymousobjects.__Anon_2697_fa9441e6 { id = 1, process = (double x) => x * 2 };
 
-        internal static readonly int value = 100;
+        internal const int value = 100;
 
         public static readonly global::TestCases.common.types.anonymousobjects.__Anon_2697_6cff6265 shorthand = new global::TestCases.common.types.anonymousobjects.__Anon_2697_6cff6265 { value = value };
     }

@@ -478,7 +478,11 @@ export const convertExpression = (
   // DETERMINISTIC TYPING: No top-level getInferredType() call.
   // Each expression type derives its inferredType from the appropriate source.
 
-  if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
+  if (
+    ts.isStringLiteral(node) ||
+    ts.isNumericLiteral(node) ||
+    ts.isBigIntLiteral(node)
+  ) {
     return convertLiteral(node, ctx);
   }
   if (ts.isRegularExpressionLiteral(node)) {
@@ -623,6 +627,13 @@ export const convertExpression = (
       node.text,
       "global"
     );
+    const ambientIntrinsicType =
+      isAmbientGlobal &&
+      (node.text === "NaN" || node.text === "Infinity")
+        ? ({ kind: "primitiveType", name: "number" } as const)
+        : undefined;
+    const effectiveExpressionType =
+      ambientIntrinsicType ?? effectiveIdentifierType;
     if (
       externalBinding &&
       externalBinding.kind === "global" &&
@@ -631,7 +642,7 @@ export const convertExpression = (
       const baseIdentifier: IrExpression = {
         kind: "identifier",
         name: node.text,
-        inferredType: effectiveIdentifierType,
+        inferredType: effectiveExpressionType,
         sourceSpan: getSourceSpan(node),
         providerQualifiedName: externalBinding.type,
         providerOwnerIdentity: externalBinding.assembly,
@@ -670,7 +681,7 @@ export const convertExpression = (
     const baseIdentifier: IrExpression = {
       kind: "identifier",
       name: node.text,
-      inferredType: effectiveIdentifierType,
+      inferredType: effectiveExpressionType,
       sourceSpan: getSourceSpan(node),
       providerQualifiedName:
         importResolvedExternalBinding?.providerQualifiedName ??

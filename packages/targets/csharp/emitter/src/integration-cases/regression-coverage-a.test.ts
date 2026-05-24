@@ -110,7 +110,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("var compareKey = flag ?");
     });
 
-    it("emits JavaScript bitwise-not over source-number values as int32 operations", () => {
+    it("emits JavaScript bitwise-not over source-number values with ECMAScript coercion", () => {
       const source = `
         export function encoded(value: number): number {
           return ~value;
@@ -120,7 +120,9 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source, "/test/bitwise.ts", {
         surface: "@tsonic/js",
       });
-      expect(csharp).to.include("return ~(int)value;");
+      expect(csharp).to.include(
+        "return global::Tsonic.Runtime.Operators.BitwiseNot(value);"
+      );
     });
 
     it("default-initializes explicit locals without initializers", () => {

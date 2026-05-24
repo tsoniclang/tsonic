@@ -24,6 +24,7 @@ import {
   shouldReportUnsupportedCapability,
 } from "./soundness-gate-shared.js";
 import {
+  extractLocalTypeAliases,
   extractImportedTypeNames,
   extractLocalTypeNames,
   validateStatement,
@@ -34,6 +35,16 @@ import {
   validateType,
 } from "./soundness-gate-type-validation.js";
 
+type TypeAliasDeclaration = Extract<
+  Parameters<typeof validateStatement>[0],
+  { kind: "typeAliasDeclaration" }
+>;
+
+type NamespaceTypeAliases = ReadonlyMap<
+  string,
+  ReadonlyMap<string, TypeAliasDeclaration>
+>;
+
 /**
  * Validate a single module
  */
@@ -41,12 +52,14 @@ const validateModule = (
   module: IrModule,
   knownReferenceTypes: ReadonlySet<string>,
   namespaceLocalTypeNames: ReadonlySet<string>,
+  namespaceTypeAliases: NamespaceTypeAliases,
   options: SoundnessGateOptions,
   enableCapabilityChecks: boolean,
   validationMode: ValidationContext["validationMode"]
 ): ValidationContext["diagnostics"] => {
   // Extract local and imported type names for reference type validation
   const localTypeNames = extractLocalTypeNames(module.body);
+  const localTypeAliases = extractLocalTypeAliases(module.body);
   const importedTypeNames = extractImportedTypeNames(module);
 
   const ctx: ValidationContext = {
@@ -54,7 +67,10 @@ const validateModule = (
     namespace: module.namespace,
     diagnostics: [],
     localTypeNames,
+    localTypeAliases,
     namespaceLocalTypeNames,
+    namespaceTypeAliases:
+      namespaceTypeAliases.get(module.namespace) ?? new Map(),
     importedTypeNames,
     knownReferenceTypes,
     backendCapabilities: options.backendCapabilities,
@@ -83,6 +99,7 @@ const createContext = (
   module: IrModule,
   knownReferenceTypes: ReadonlySet<string>,
   namespaceLocalTypeNames: ReadonlySet<string>,
+  namespaceTypeAliases: NamespaceTypeAliases,
   importedTypeNames: ReadonlySet<string>,
   options: SoundnessGateOptions,
   enableCapabilityChecks: boolean,
@@ -92,7 +109,10 @@ const createContext = (
   namespace: module.namespace,
   diagnostics: [],
   localTypeNames: extractLocalTypeNames(module.body),
+  localTypeAliases: extractLocalTypeAliases(module.body),
   namespaceLocalTypeNames,
+  namespaceTypeAliases:
+    namespaceTypeAliases.get(module.namespace) ?? new Map(),
   importedTypeNames,
   knownReferenceTypes,
   backendCapabilities: options.backendCapabilities,
@@ -544,6 +564,25 @@ const namespaceTypeNamesFor = (
   return namespaceTypeNames;
 };
 
+const namespaceTypeAliasesFor = (
+  modules: readonly IrModule[]
+): NamespaceTypeAliases => {
+  const namespaceTypeAliases = new Map<
+    string,
+    Map<string, TypeAliasDeclaration>
+  >();
+  for (const module of modules) {
+    const current =
+      namespaceTypeAliases.get(module.namespace) ??
+      new Map<string, TypeAliasDeclaration>();
+    for (const [name, alias] of extractLocalTypeAliases(module.body)) {
+      current.set(name, alias);
+    }
+    namespaceTypeAliases.set(module.namespace, current);
+  }
+  return namespaceTypeAliases;
+};
+
 export const validateUniversalHygiene = (
   modules: readonly IrModule[],
   options: UniversalHygieneOptions = {}
@@ -551,12 +590,14 @@ export const validateUniversalHygiene = (
   const allDiagnostics: ValidationContext["diagnostics"] = [];
   const knownReferenceTypes = options.knownReferenceTypes ?? new Set<string>();
   const namespaceTypeNames = namespaceTypeNamesFor(modules);
+  const namespaceTypeAliases = namespaceTypeAliasesFor(modules);
 
   for (const module of modules) {
     const moduleDiagnostics = validateModule(
       module,
       knownReferenceTypes,
       namespaceTypeNames.get(module.namespace) ?? new Set<string>(),
+      namespaceTypeAliases,
       options,
       false,
       "universal"
@@ -577,12 +618,14 @@ export const validateCapabilityAcceptability = (
   const allDiagnostics: ValidationContext["diagnostics"] = [];
   const knownReferenceTypes = options.knownReferenceTypes ?? new Set<string>();
   const namespaceTypeNames = namespaceTypeNamesFor(modules);
+  const namespaceTypeAliases = namespaceTypeAliasesFor(modules);
 
   for (const module of modules) {
     const ctx = createContext(
       module,
       knownReferenceTypes,
       namespaceTypeNames.get(module.namespace) ?? new Set<string>(),
+      namespaceTypeAliases,
       extractImportedTypeNames(module),
       options,
       true,
