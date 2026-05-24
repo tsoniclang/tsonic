@@ -19,8 +19,10 @@ import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolutio
 import { allocateLocalName } from "../../core/format/local-names.js";
 import { needsIntCast } from "./call-analysis.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
+import { wrapArgModifier } from "./call-arguments-helpers.js";
 import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
+import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import {
   getBorrowedMutationWriteBackSemantics,
   surfaceMemberMutatesReceiver,
@@ -357,6 +359,31 @@ export const emitArrayMutationInteropCall = (
     },
     arguments: [],
   };
+
+  if (
+    binding.member === "push" &&
+    expr.callee.object.kind === "identifier" &&
+    context.byRefLocalNames?.has(expr.callee.object.name) === true &&
+    captured.readExpression.kind === "identifierExpression" &&
+    captured.writeExpression.kind === "identifierExpression" &&
+    captured.readExpression.identifier === captured.writeExpression.identifier
+  ) {
+    return [
+      wrapIntCast(needsIntCast(expr, expr.callee.property), {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: identifierExpression("global::Tsonic.Internal.ArrayInterop"),
+          memberName: "Push",
+        },
+        arguments: [
+          wrapArgModifier("ref", captured.writeExpression),
+          ...argAsts,
+        ],
+      }),
+      currentContext,
+    ];
+  }
 
   let returnExpression: CSharpExpressionAst = resultIdentifier;
   if (surfaceMemberReturnsArray(binding, context)) {

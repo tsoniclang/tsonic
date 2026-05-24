@@ -7,6 +7,7 @@
  * - Integer literals (42, 0xFF) → int32 → inferredType: int
  * - Floating literals (42.0, 3.14, 1e3) → float64 → inferredType: double
  *
+ * BigInt literals → inferredType: bigint
  * String literals → inferredType: string
  * Boolean literals → inferredType: boolean (handled elsewhere)
  */
@@ -57,11 +58,15 @@ const deriveTypeFromNumericIntent = (numericIntent: NumericKind): IrType => {
  * of contextual type.
  */
 export const convertLiteral = (
-  node: ts.StringLiteral | ts.NumericLiteral,
+  node: ts.StringLiteral | ts.NumericLiteral | ts.BigIntLiteral,
   _ctx: ProgramContext
 ): IrLiteralExpression => {
   const raw = node.getText();
-  const value = ts.isStringLiteral(node) ? node.text : Number(node.text);
+  const value = ts.isStringLiteral(node)
+    ? node.text
+    : ts.isBigIntLiteral(node)
+      ? BigInt(raw.slice(0, -1).replace(/_/g, ""))
+      : Number(node.text);
 
   // For numeric literals, derive type from lexeme form
   const numericIntent =
@@ -74,9 +79,11 @@ export const convertLiteral = (
   const inferredType: IrType | undefined =
     typeof value === "string"
       ? { kind: "primitiveType", name: "string" }
-      : numericIntent
-        ? deriveTypeFromNumericIntent(numericIntent)
-        : undefined;
+      : typeof value === "bigint"
+        ? { kind: "primitiveType", name: "bigint" }
+        : numericIntent
+          ? deriveTypeFromNumericIntent(numericIntent)
+          : undefined;
 
   return {
     kind: "literal",

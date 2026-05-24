@@ -31,6 +31,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { resolveErasedNullableGenericStorageType } from "../../core/semantic/storage-types.js";
 import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-narrowing.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { stableTypeKeyFromAst } from "../../core/format/backend-ast/utils.js";
@@ -364,6 +365,25 @@ export const emitConditional = (
 
     const preciseBranchType =
       emptyArrayBranchType ?? commonBranchType ?? conditionalType;
+    if (
+      expectedType &&
+      preciseBranchType &&
+      isBroadObjectSlotType(expectedType, context)
+    ) {
+      const broadContextualStorageType =
+        resolveErasedNullableGenericStorageType(preciseBranchType, context);
+      if (
+        broadContextualStorageType &&
+        !areIrTypesEquivalent(
+          broadContextualStorageType,
+          preciseBranchType,
+          context
+        )
+      ) {
+        return broadContextualStorageType;
+      }
+    }
+
     const contextualBranchType =
       expectedType && !isBroadObjectSlotType(expectedType, context)
         ? expectedType

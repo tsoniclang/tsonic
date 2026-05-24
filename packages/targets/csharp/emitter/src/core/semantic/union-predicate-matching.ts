@@ -27,6 +27,43 @@ import {
   tryContextualTypeIdentityKey,
 } from "./deterministic-type-keys.js";
 
+type ObjectLiteralPrimitiveValue =
+  | string
+  | number
+  | bigint
+  | boolean
+  | null
+  | undefined;
+
+const literalTypeContainsValue = (
+  type: IrType,
+  value: ObjectLiteralPrimitiveValue,
+  context: EmitterContext
+): boolean | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  if (resolved.kind === "literalType") {
+    return Object.is(resolved.value, value);
+  }
+
+  if (resolved.kind !== "unionType") {
+    return undefined;
+  }
+
+  let sawLiteralConstraint = false;
+  for (const member of resolved.types) {
+    const contains = literalTypeContainsValue(member, value, context);
+    if (contains === true) {
+      return true;
+    }
+    if (contains === false) {
+      sawLiteralConstraint = true;
+    }
+  }
+
+  return sawLiteralConstraint ? false : undefined;
+};
+
 /**
  * Select the best union member type to instantiate for an object literal.
  *
@@ -49,7 +86,8 @@ import {
 export const selectObjectLiteralUnionMember = (
   unionType: Extract<IrType, { kind: "unionType" }>,
   literalKeys: readonly string[],
-  context: EmitterContext
+  context: EmitterContext,
+  literalValues?: ReadonlyMap<string, ObjectLiteralPrimitiveValue>
 ): IrType | undefined => {
   // Normalize keys (defensive: dedupe)
   const keySet = new Set(literalKeys.filter((k) => k.length > 0));
@@ -61,6 +99,7 @@ export const selectObjectLiteralUnionMember = (
     kind: "dictionary" | "object";
     allProps: Set<string>;
     requiredProps: Set<string>;
+    propTypes: Map<string, IrType>;
   };
 
   const candidates: Candidate[] = [];
@@ -79,6 +118,7 @@ export const selectObjectLiteralUnionMember = (
           kind: "dictionary",
           allProps: new Set<string>(),
           requiredProps: new Set<string>(),
+          propTypes: new Map<string, IrType>(),
         });
       }
       continue;
@@ -97,12 +137,16 @@ export const selectObjectLiteralUnionMember = (
       const requiredProps = new Set(
         props.filter((p) => !p.isOptional).map((p) => p.name)
       );
+      const propTypes = new Map(
+        props.flatMap((p) => (p.type ? [[p.name, p.type] as const] : []))
+      );
       candidates.push({
         type: member,
         order: candidates.length,
         kind: "object",
         allProps,
         requiredProps,
+        propTypes,
       });
       continue;
     }
@@ -129,6 +173,9 @@ export const selectObjectLiteralUnionMember = (
       const requiredProps = new Set(
         props.filter((p) => !p.isOptional).map((p) => p.name)
       );
+      const propTypes = new Map(
+        props.flatMap((p) => (p.type ? [[p.name, p.type] as const] : []))
+      );
 
       candidates.push({
         type: member,
@@ -136,6 +183,7 @@ export const selectObjectLiteralUnionMember = (
         kind: "object",
         allProps,
         requiredProps,
+        propTypes,
       });
       continue;
     }
@@ -151,6 +199,9 @@ export const selectObjectLiteralUnionMember = (
       const requiredProps = new Set(
         props.filter((p) => p.isRequired).map((p) => p.name)
       );
+      const propTypes = new Map(
+        props.flatMap((p) => (p.type ? [[p.name, p.type] as const] : []))
+      );
 
       candidates.push({
         type: member,
@@ -158,6 +209,7 @@ export const selectObjectLiteralUnionMember = (
         kind: "object",
         allProps,
         requiredProps,
+        propTypes,
       });
       continue;
     }
@@ -176,6 +228,12 @@ export const selectObjectLiteralUnionMember = (
     // candidate required props must be provided by literal
     for (const r of c.requiredProps) {
       if (!keySet.has(r)) return false;
+    }
+    for (const [key, value] of literalValues ?? []) {
+      const expectedType = c.propTypes.get(key);
+      if (!expectedType) continue;
+      const contains = literalTypeContainsValue(expectedType, value, context);
+      if (contains === false) return false;
     }
     return true;
   });
@@ -198,6 +256,24 @@ export const selectObjectLiteralUnionMember = (
 
     const aTotal = a.allProps.size;
     const bTotal = b.allProps.size;
+
+    const countLiteralMatches = (candidate: Candidate): number => {
+      let count = 0;
+      for (const [key, value] of literalValues ?? []) {
+        const expectedType = candidate.propTypes.get(key);
+        if (!expectedType) continue;
+        if (literalTypeContainsValue(expectedType, value, context) === true) {
+          count += 1;
+        }
+      }
+      return count;
+    };
+
+    const aLiteralMatches = countLiteralMatches(a);
+    const bLiteralMatches = countLiteralMatches(b);
+    if (aLiteralMatches !== bLiteralMatches) {
+      return bLiteralMatches - aLiteralMatches;
+    }
 
     const aExtra = aTotal - keySet.size;
     const bExtra = bTotal - keySet.size;
@@ -222,12 +298,14 @@ export const selectObjectLiteralUnionMember = (
 export const selectUnionMemberForObjectLiteral = (
   unionType: Extract<IrType, { kind: "unionType" }>,
   literalKeys: readonly string[],
-  context: EmitterContext
+  context: EmitterContext,
+  literalValues?: ReadonlyMap<string, ObjectLiteralPrimitiveValue>
 ): Extract<IrType, { kind: "referenceType" }> | undefined => {
   const selected = selectObjectLiteralUnionMember(
     unionType,
     literalKeys,
-    context
+    context,
+    literalValues
   );
   return selected?.kind === "referenceType" ? selected : undefined;
 };

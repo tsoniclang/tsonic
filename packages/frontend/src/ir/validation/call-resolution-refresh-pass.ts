@@ -567,7 +567,7 @@ const refreshExpression = (
             callee.kind === "memberAccess"
               ? callee.object.inferredType
               : undefined,
-          explicitTypeArgs: expr.typeArguments,
+          explicitTypeArgs: expr.explicitTypeArguments,
           argTypes,
           expectedReturnType: expr.resolutionExpectedReturnType,
         }
@@ -643,7 +643,7 @@ const refreshExpression = (
             : undefined),
         argumentCount,
         argTypes,
-        explicitTypeArgs: expr.typeArguments,
+        explicitTypeArgs: expr.explicitTypeArguments,
         expectedType: expr.resolutionExpectedReturnType,
         boundGlobalParameterTypes:
           boundGlobalCallParameterTypes?.parameterTypes,
@@ -791,7 +791,7 @@ const refreshExpression = (
       const resolved = ctx.typeSystem.resolveCall({
         sigId: expr.signatureId,
         argumentCount: arguments_.length,
-        explicitTypeArgs: expr.typeArguments,
+        explicitTypeArgs: expr.explicitTypeArguments,
         argTypes,
         expectedReturnType: refreshedExpectedReturnType,
       });
@@ -808,7 +808,7 @@ const refreshExpression = (
             : undefined,
         argumentCount: arguments_.length,
         argTypes,
-        explicitTypeArgs: expr.typeArguments,
+        explicitTypeArgs: expr.explicitTypeArguments,
         expectedType: refreshedExpectedReturnType,
         boundGlobalParameterTypes: undefined,
         authoritativeBoundGlobalSurfaceParameterTypes: undefined,

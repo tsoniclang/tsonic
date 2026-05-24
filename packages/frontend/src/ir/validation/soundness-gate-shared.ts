@@ -17,6 +17,7 @@ import type {
   IrExpression,
   IrParameter,
   IrStatement,
+  IrTypeAliasDeclaration,
   IrTypeParameter,
   IrIfBranchPlan,
   IrIfGuardShape,
@@ -69,7 +70,9 @@ export type ValidationContext = {
   readonly namespace: string;
   readonly diagnostics: Diagnostic[];
   readonly localTypeNames: ReadonlySet<string>;
+  readonly localTypeAliases: ReadonlyMap<string, IrTypeAliasDeclaration>;
   readonly namespaceLocalTypeNames: ReadonlySet<string>;
+  readonly namespaceTypeAliases: ReadonlyMap<string, IrTypeAliasDeclaration>;
   readonly importedTypeNames: ReadonlySet<string>;
   readonly knownReferenceTypes: ReadonlySet<string>;
   readonly backendCapabilities?: BackendCapabilityManifest;
@@ -139,6 +142,7 @@ export type {
   IrPattern,
   IrStatement,
   IrType,
+  IrTypeAliasDeclaration,
   IrTypeParameter,
   IrIfBranchPlan,
   IrIfGuardShape,

@@ -86,6 +86,7 @@ import {
   getDictionaryValueType,
 } from "./structural-type-shapes.js";
 import { isCompilerGeneratedStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 
 const JS_NUMERIC_ADAPTATION_CLR_NAMES = new Set([
   "System.Int32",
@@ -113,6 +114,136 @@ const isNumericTypeParameterType = (
     (context.typeParamConstraints?.get(resolved.name) ?? "unconstrained") ===
       "numeric"
   );
+};
+
+const getUnconstrainedTypeParameterName = (
+  type: IrType | undefined,
+  context: EmitterContext
+): string | undefined => {
+  const resolved = type ? resolveTypeAlias(type, context) : undefined;
+  if (resolved?.kind !== "typeParameterType") {
+    return undefined;
+  }
+
+  return (context.typeParamConstraints?.get(resolved.name) ??
+    "unconstrained") === "unconstrained"
+    ? resolved.name
+    : undefined;
+};
+
+const getNullishUnionTypeParameterName = (
+  type: IrType | undefined,
+  context: EmitterContext
+): string | undefined => {
+  const split = type ? splitRuntimeNullishUnionMembers(type) : undefined;
+  if (!split?.hasRuntimeNullish || split.nonNullishMembers.length !== 1) {
+    return undefined;
+  }
+
+  return getUnconstrainedTypeParameterName(split.nonNullishMembers[0], context);
+};
+
+const containsOutOfScopeTypeParameter = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  switch (type.kind) {
+    case "typeParameterType":
+      return !(context.typeParameters?.has(type.name) ?? false);
+    case "arrayType":
+      return containsOutOfScopeTypeParameter(type.elementType, context);
+    case "dictionaryType":
+      return (
+        containsOutOfScopeTypeParameter(type.keyType, context) ||
+        containsOutOfScopeTypeParameter(type.valueType, context)
+      );
+    case "tupleType":
+      return type.elementTypes.some((elementType) =>
+        containsOutOfScopeTypeParameter(elementType, context)
+      );
+    case "functionType":
+      return (
+        type.parameters.some((parameter) =>
+          containsOutOfScopeTypeParameter(parameter.type, context)
+        ) || containsOutOfScopeTypeParameter(type.returnType, context)
+      );
+    case "referenceType":
+      return (
+        type.typeArguments?.some((typeArgument) =>
+          containsOutOfScopeTypeParameter(typeArgument, context)
+        ) ?? false
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.some((member) =>
+        containsOutOfScopeTypeParameter(member, context)
+      );
+    case "objectType":
+      return type.members.some((member) =>
+        member.kind === "propertySignature"
+          ? containsOutOfScopeTypeParameter(member.type, context)
+          : containsOutOfScopeTypeParameter(member.returnType, context) ||
+            member.parameters.some((parameter) =>
+              containsOutOfScopeTypeParameter(parameter.type, context)
+            )
+      );
+    default:
+      return false;
+  }
+};
+
+const maybeCastObjectCarrierToNullishTypeParameterAst = (
+  ast: CSharpExpressionAst,
+  actualStorageType: IrType | undefined,
+  context: EmitterContext,
+  expectedType: IrType | undefined,
+  forceObjectCarrier: boolean = false
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const typeParameterName = getNullishUnionTypeParameterName(
+    expectedType,
+    context
+  );
+  if (
+    !expectedType ||
+    !typeParameterName ||
+    (!forceObjectCarrier && !isBroadObjectSlotType(actualStorageType, context))
+  ) {
+    return undefined;
+  }
+  if (
+    ast.kind === "invocationExpression" &&
+    ast.expression.kind === "memberAccessExpression" &&
+    ast.expression.memberName === "FromObject" &&
+    ast.expression.expression.kind === "identifierExpression" &&
+    ast.expression.expression.identifier ===
+      "global::Tsonic.Internal.GenericOptional"
+  ) {
+    return undefined;
+  }
+
+  const [targetTypeAst, targetTypeContext] = emitTypeAst(
+    stripNullish(expectedType),
+    context
+  );
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression(
+          "global::Tsonic.Internal.GenericOptional"
+        ),
+        memberName: "FromObject",
+      },
+      typeArguments: [targetTypeAst],
+      arguments: [ast],
+    },
+    targetTypeContext,
+  ];
 };
 
 const isJsNumberStorageTarget = (
@@ -1014,12 +1145,52 @@ const isJsNumberExpectedType = (
   );
 };
 
+const resolveBroadLocalNumericMaterializationSource = (
+  ast: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  const identifier =
+    ast.kind === "identifierExpression" ? ast.identifier : undefined;
+  if (!identifier) {
+    return undefined;
+  }
+
+  const sourceName = [...(context.localNameMap ?? [])].find(
+    ([, emittedName]) => emittedName === identifier
+  )?.[0];
+  const localStorageType =
+    context.localValueTypes?.get(identifier) ??
+    (sourceName ? context.localValueTypes?.get(sourceName) : undefined);
+  const narrowedBinding =
+    context.narrowedBindings?.get(identifier) ??
+    (sourceName ? context.narrowedBindings?.get(sourceName) : undefined);
+  const narrowedStorageType =
+    narrowedBinding && narrowedBinding.kind === "expr"
+      ? (narrowedBinding.storageType ??
+        narrowedBinding.sourceType ??
+        narrowedBinding.carrierType)
+      : narrowedBinding?.sourceType;
+
+  if (
+    narrowedStorageType &&
+    isBroadObjectSlotType(narrowedStorageType, context)
+  ) {
+    return narrowedStorageType;
+  }
+
+  return localStorageType && isBroadObjectSlotType(localStorageType, context)
+    ? localStorageType
+    : undefined;
+};
+
 const maybeCastNumericToExpectedJsNumberAst = (
   ast: CSharpExpressionAst,
   actualType: IrType | undefined,
   context: EmitterContext,
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] => {
+  const broadLocalNumericMaterializationSource =
+    resolveBroadLocalNumericMaterializationSource(ast, context);
   if (
     !expectedType ||
     !isJsNumberExpectedType(expectedType, context) ||
@@ -1031,7 +1202,8 @@ const maybeCastNumericToExpectedJsNumberAst = (
         stripNullish(actualType),
         stripNullish(expectedType),
         context
-      ))
+      ) &&
+      !broadLocalNumericMaterializationSource)
   ) {
     return [ast, context];
   }
@@ -1056,6 +1228,15 @@ const maybeCastNumericToExpectedJsNumberAst = (
       },
       context,
     ];
+  }
+
+  if (broadLocalNumericMaterializationSource) {
+    return materializeDirectNarrowingAst(
+      ast,
+      broadLocalNumericMaterializationSource,
+      expectedType,
+      context
+    );
   }
 
   const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
@@ -1362,6 +1543,36 @@ const trySelectExactRuntimeUnionMembers = (
     selectedSourceMemberNs: new Set([exactIndex + 1]),
   };
 };
+
+const callReturnIsContextualizedToExpected = (
+  expr: IrExpression,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean =>
+  expr.kind === "call" &&
+  expectedType !== undefined &&
+  expr.resolutionExpectedReturnType !== undefined &&
+  areIrTypesEquivalent(expr.resolutionExpectedReturnType, expectedType, context) &&
+  expr.arguments.some((argument, index) => {
+    if (
+      argument.kind !== "arrowFunction" &&
+      argument.kind !== "functionExpression"
+    ) {
+      return false;
+    }
+
+    const selectedParameterType = expr.parameterTypes?.[index];
+    const surfaceParameterType = expr.surfaceParameterTypes?.[index];
+    return (
+      selectedParameterType?.kind === "functionType" &&
+      surfaceParameterType?.kind === "functionType" &&
+      !matchesExpectedEmissionType(
+        selectedParameterType.returnType,
+        surfaceParameterType.returnType,
+        context
+      )
+    );
+  });
 
 const adaptValueToExpectedTypeAstResult = (opts: {
   readonly valueAst: CSharpExpressionAst;
@@ -1789,6 +2000,23 @@ export const adaptEmittedExpressionAst = (opts: {
           castedContext
         )
       : undefined;
+  const localStorageSourceExpr = unwrapTransparentExpression(
+    adaptationSourceExpr
+  );
+  const localStorageType =
+    localStorageSourceExpr.kind === "identifier"
+      ? castedContext.localValueTypes?.get(localStorageSourceExpr.name)
+      : undefined;
+  const directObjectCarrierToNullishTypeParameter =
+    maybeCastObjectCarrierToNullishTypeParameterAst(
+      normalizedCastedAst,
+      localStorageType ?? directStorageType,
+      castedContext,
+      expectedType
+    );
+  if (directObjectCarrierToNullishTypeParameter) {
+    return directObjectCarrierToNullishTypeParameter;
+  }
   const narrowKey =
     adaptationSourceExpr.kind === "identifier"
       ? adaptationSourceExpr.name
@@ -1943,11 +2171,40 @@ export const adaptEmittedExpressionAst = (opts: {
   ) {
     return [normalizedCastedAst, castedContext];
   }
-  const directStorageExpressionType = resolveDirectStorageExpressionType(
+  const rawDirectStorageExpressionType = resolveDirectStorageExpressionType(
     adaptationSourceExpr,
     normalizedCastedAst,
     castedContext
   );
+  const directStorageExpressionType =
+    (adaptationSourceExpr.kind === "call" ||
+      adaptationSourceExpr.kind === "new") &&
+    adaptationSourceExpr.sourceBackedReturnType &&
+    containsOutOfScopeTypeParameter(
+      rawDirectStorageExpressionType,
+      castedContext
+    )
+      ? adaptationSourceExpr.sourceBackedReturnType
+      : rawDirectStorageExpressionType;
+  const objectCarrierToNullishTypeParameter =
+    maybeCastObjectCarrierToNullishTypeParameterAst(
+      normalizedCastedAst,
+      directStorageExpressionType,
+      castedContext,
+      expectedType
+    );
+  if (objectCarrierToNullishTypeParameter) {
+    return objectCarrierToNullishTypeParameter;
+  }
+  if (
+    callReturnIsContextualizedToExpected(
+      adaptationSourceExpr,
+      expectedType,
+      castedContext
+    )
+  ) {
+    return [normalizedCastedAst, castedContext];
+  }
   if (expectedType && directStorageExpressionType) {
     const structuralAdjusted = tryAdaptStructuralExpressionAst(
       normalizedCastedAst,
@@ -2047,6 +2304,13 @@ export const adaptEmittedExpressionAst = (opts: {
       : undefined;
   const actualType =
     preservedTypeForAdaptation ??
+    (callReturnIsContextualizedToExpected(
+      adaptationSourceExpr,
+      expectedType,
+      castedContext
+    )
+      ? expectedType
+      : undefined) ??
     (expr.kind === "typeAssertion" ? expr.targetType : undefined) ??
     (adaptationSourceExpr.kind === "await"
       ? getAsyncWrapperSourceResultType(adaptationSourceExpr.expression)

@@ -954,7 +954,9 @@ describe("May 14 downstream contract coverage", () => {
       { surface: "@tsonic/js" }
     );
 
-    expect(csharp).to.include("global::js.Globals.String(values[i])");
+    expect(csharp).to.include(
+      "global::js.Globals.String(global::Tsonic.Internal.ArrayInterop.ReadOptionalObject<object?>(values, i))"
+    );
     expect(csharp).to.not.include("(global::Test.StringValue)values[i]");
   });
 

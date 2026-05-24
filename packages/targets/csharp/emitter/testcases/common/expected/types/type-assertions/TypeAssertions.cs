@@ -13,7 +13,7 @@ namespace TestCases.common.types.typeassertions
     [global::Tsonic.Internal.ModuleContainerAttribute]
     public static class TypeAssertions
     {
-        public static readonly int intFromLiteral = 1000;
+        public const int intFromLiteral = 1000;
 
         public static readonly byte byteFromLiteral = 255;
 

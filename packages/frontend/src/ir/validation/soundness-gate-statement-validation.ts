@@ -443,6 +443,23 @@ export const extractLocalTypeNames = (
   return names;
 };
 
+export const extractLocalTypeAliases = (
+  statements: readonly IrStatement[]
+): ReadonlyMap<string, Extract<IrStatement, { kind: "typeAliasDeclaration" }>> => {
+  const aliases = new Map<
+    string,
+    Extract<IrStatement, { kind: "typeAliasDeclaration" }>
+  >();
+
+  for (const statement of statements) {
+    if (statement.kind === "typeAliasDeclaration") {
+      aliases.set(statement.name, statement);
+    }
+  }
+
+  return aliases;
+};
+
 export const extractImportedTypeNames = (
   module: IrModule
 ): ReadonlySet<string> => {

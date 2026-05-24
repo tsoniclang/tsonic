@@ -136,6 +136,18 @@ const getLambdaContextualExpectedType = (
     : (typeSystem.delegateToFunctionType(expectedType) ?? expectedType);
 };
 
+const getMemberCallReceiverType = (
+  object: IrExpression
+): IrType | undefined => {
+  switch (object.kind) {
+    case "call":
+    case "new":
+      return object.sourceBackedReturnType ?? object.inferredType;
+    default:
+      return object.inferredType;
+  }
+};
+
 const preserveStableNamedAggregateArgumentIdentity = (
   argument: IrExpression,
   contextualExpectedType: IrType | undefined,
@@ -1546,6 +1558,60 @@ const buildSourceBackedParameterSurface = (
   };
 };
 
+const removeSourceBackedExtensionReceiverParameter = (
+  surface: SourceBackedParameterSurface
+): SourceBackedParameterSurface => {
+  if (surface.parameterTypes.length === 0) {
+    throw new Error(
+      "Internal Compiler Error: source-backed extension method surface has no receiver parameter."
+    );
+  }
+  if (surface.restParameter?.index === 0) {
+    throw new Error(
+      "Internal Compiler Error: source-backed extension method receiver cannot be a rest parameter."
+    );
+  }
+
+  return {
+    ...surface,
+    parameterTypes: surface.parameterTypes.slice(1),
+    restParameter: surface.restParameter
+      ? {
+          ...surface.restParameter,
+          index: surface.restParameter.index - 1,
+        }
+      : undefined,
+  };
+};
+
+const buildSourceBackedCallParameterSurface = (
+  declaration:
+    | ts.FunctionDeclaration
+    | ts.MethodDeclaration
+    | ts.FunctionExpression
+    | ts.ArrowFunction,
+  ownerTypeParameterNames: readonly string[],
+  receiverType: IrType | undefined,
+  argumentCount: number,
+  ctx: ProgramContext,
+  removeExtensionReceiverParameter: boolean
+): SourceBackedParameterSurface => {
+  const runtimeArgumentCount = removeExtensionReceiverParameter
+    ? argumentCount + 1
+    : argumentCount;
+  const surface = buildSourceBackedParameterSurface(
+    declaration,
+    ownerTypeParameterNames,
+    receiverType,
+    runtimeArgumentCount,
+    ctx
+  );
+
+  return removeExtensionReceiverParameter
+    ? removeSourceBackedExtensionReceiverParameter(surface)
+    : surface;
+};
+
 const NUMERIC_SOURCE_SURFACE_NAMES = new Set([
   "number",
   "int",
@@ -1664,6 +1730,35 @@ const scoreSourceBackedSurfaceCandidate = (
   argumentCount: number,
   ctx: ProgramContext
 ): SourceBackedSurfaceScore => {
+  const explicitTypeSubstitutions = (() => {
+    if (!explicitTypeArgs || methodTypeParameterNames.length === 0) {
+      return undefined;
+    }
+
+    const substitutions = new Map<string, IrType>();
+    for (
+      let index = 0;
+      index <
+      Math.min(methodTypeParameterNames.length, explicitTypeArgs.length);
+      index += 1
+    ) {
+      const typeParameterName = methodTypeParameterNames[index];
+      const explicitTypeArg = explicitTypeArgs[index];
+      if (!typeParameterName || !explicitTypeArg) {
+        continue;
+      }
+      substitutions.set(typeParameterName, explicitTypeArg);
+    }
+
+    return substitutions.size > 0 ? substitutions : undefined;
+  })();
+  const applyExplicitTypeSubstitutions = (
+    type: IrType | undefined
+  ): IrType | undefined =>
+    explicitTypeSubstitutions
+      ? (substituteTypeParameters(type, explicitTypeSubstitutions) ?? type)
+      : type;
+
   const containsAmbiguousSourceSurfaceType = (
     type: IrType | undefined
   ): boolean => {
@@ -1797,7 +1892,8 @@ const scoreSourceBackedSurfaceCandidate = (
     selectedParameterTypes.length
   );
   for (let index = 0; index < pairCount; index += 1) {
-    const candidate = candidateParameterTypes[index];
+    const rawCandidate = candidateParameterTypes[index];
+    const candidate = applyExplicitTypeSubstitutions(rawCandidate);
     const selected = selectedParameterTypes[index];
     complexity += scoreSourceSurfaceComplexity(candidate);
 
@@ -1808,11 +1904,11 @@ const scoreSourceBackedSurfaceCandidate = (
     const actualArgType = actualArgTypes?.[index];
     if (
       explicitTypeArgs &&
-      candidate.kind === "typeParameterType" &&
+      rawCandidate?.kind === "typeParameterType" &&
       actualArgType
     ) {
       const typeParameterIndex = methodTypeParameterNames.indexOf(
-        candidate.name
+        rawCandidate.name
       );
       const explicitTypeArg =
         typeParameterIndex >= 0
@@ -1898,8 +1994,8 @@ const compareSourceSurfaceScores = (
   const deltas = [
     left.arityCoverageCount - right.arityCoverageCount,
     left.actualCoverageCount - right.actualCoverageCount,
-    left.exactCount - right.exactCount,
     left.nonBroadCount - right.nonBroadCount,
+    left.exactCount - right.exactCount,
     left.compatibleCount - right.compatibleCount,
     left.complexity - right.complexity,
   ];
@@ -2539,10 +2635,13 @@ export const getSourceBackedCallParameterTypes = (
   }
 
   if (memberAccessSourceTarget) {
+    const removeExtensionReceiverParameter =
+      callee.kind === "memberAccess" &&
+      callee.memberBinding?.isExtensionMethod === true;
     const buildCandidateSurface = (
       candidate: ts.MethodDeclaration
     ): SourceBackedParameterSurface =>
-      buildSourceBackedParameterSurface(
+      buildSourceBackedCallParameterSurface(
         candidate,
         ts.isClassLike(candidate.parent)
           ? (candidate.parent.typeParameters?.map(
@@ -2551,7 +2650,8 @@ export const getSourceBackedCallParameterTypes = (
           : [],
         memberAccessSourceTarget.receiverType,
         argumentCount,
-        ctx
+        ctx,
+        removeExtensionReceiverParameter
       );
 
     let bestSurface = buildCandidateSurface(
@@ -2742,12 +2842,15 @@ export const getSourceBackedCallParameterTypes = (
     return undefined;
   }
 
-  const runtimeSurface = buildSourceBackedParameterSurface(
+  const removeExtensionReceiverParameter =
+    callee.memberBinding?.isExtensionMethod === true;
+  const runtimeSurface = buildSourceBackedCallParameterSurface(
     signature.declaration,
     signature.ownerTypeParameterNames,
     receiverType,
     argumentCount,
-    ctx
+    ctx,
+    removeExtensionReceiverParameter
   );
 
   const surfaceParameterSurface = (() => {
@@ -2783,12 +2886,13 @@ export const getSourceBackedCallParameterTypes = (
         ctx
       );
       for (const candidate of publicCandidates) {
-        const candidateSurface = buildSourceBackedParameterSurface(
+        const candidateSurface = buildSourceBackedCallParameterSurface(
           candidate,
           [],
           receiverType,
           argumentCount,
-          ctx
+          ctx,
+          removeExtensionReceiverParameter
         );
         const candidateScore = scoreSourceBackedSurfaceCandidate(
           candidateSurface.parameterTypes,
@@ -2836,12 +2940,13 @@ export const getSourceBackedCallParameterTypes = (
       ctx
     );
     for (const candidate of publicMethodCandidates) {
-      const candidateSurface = buildSourceBackedParameterSurface(
+      const candidateSurface = buildSourceBackedCallParameterSurface(
         candidate,
         signature.ownerTypeParameterNames,
         receiverType,
         argumentCount,
-        ctx
+        ctx,
+        removeExtensionReceiverParameter
       );
       const candidateScore = scoreSourceBackedSurfaceCandidate(
         candidateSurface.parameterTypes,
@@ -2987,7 +3092,7 @@ export const convertCallExpression = (
   // Extract receiver type for member method calls (e.g., dict.get() -> dict's type)
   const receiverIrType =
     callee.kind === "memberAccess"
-      ? callee.object.inferredType
+      ? getMemberCallReceiverType(callee.object)
       : getEnclosingClassSuperType(node, ctx);
   const exactDeclaringTargetType =
     callee.kind === "memberAccess" ? callee.memberBinding?.type : undefined;
@@ -3232,6 +3337,12 @@ export const convertCallExpression = (
         ctx.typeSystem.containsTypeParameter(parameterType))
     );
   };
+  const hasSpeculativeOverloadContext =
+    (candidateSigIds?.length ?? 0) > 1;
+  const shouldUseInitialArgumentContext = (expr: ts.Expression): boolean => {
+    void expr;
+    return !hasSpeculativeOverloadContext;
+  };
 
   // Pass 1: convert non-lambda arguments and infer type args from them.
   const argsWorking: (IrCallExpression["arguments"][number] | undefined)[] =
@@ -3245,7 +3356,11 @@ export const convertCallExpression = (
     const arg = node.arguments[index];
     if (!arg) continue;
 
-    const expectedType = initialParameterTypesForContext?.[index];
+    const initialExpectedType = initialParameterTypesForContext?.[index];
+    const expectedType =
+      ts.isSpreadElement(arg) || shouldUseInitialArgumentContext(arg)
+        ? initialExpectedType
+        : undefined;
 
     if (ts.isSpreadElement(arg)) {
       const spreadExpr = convertExpression(arg.expression, ctx, undefined);
@@ -3642,8 +3757,49 @@ export const convertCallExpression = (
   });
   const parameterTypes = finalInvocationMetadata.parameterTypes;
   const surfaceParameterTypes = finalInvocationMetadata.surfaceParameterTypes;
-  const recontextualizedFinalArguments = convertedArgs.map(
-    (argument, index) => {
+  const canRecontextualizeGenericFunctionArgument = (
+    aggregateExpression: ts.Expression,
+    contextualExpectedType: IrType
+  ): boolean => {
+    if (
+      !ts.isArrowFunction(aggregateExpression) &&
+      !ts.isFunctionExpression(aggregateExpression)
+    ) {
+      return false;
+    }
+
+    const expectedFunctionType =
+      contextualExpectedType.kind === "functionType"
+        ? contextualExpectedType
+        : typeSystem.delegateToFunctionType(contextualExpectedType);
+    if (!expectedFunctionType) {
+      return false;
+    }
+
+    const sourceParameterCount = aggregateExpression.parameters.length;
+    if (sourceParameterCount > expectedFunctionType.parameters.length) {
+      return false;
+    }
+
+    for (let parameterIndex = 0; parameterIndex < sourceParameterCount; parameterIndex += 1) {
+      const expectedParameter =
+        expectedFunctionType.parameters[parameterIndex];
+      if (
+        expectedParameter?.type &&
+        containsTypeParameter(expectedParameter.type)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+  const recontextualizeArguments = (
+    argumentsToRecontextualize: readonly IrCallExpression["arguments"][number][],
+    targetParameterTypes: readonly (IrType | undefined)[] | undefined,
+    targetSurfaceParameterTypes: readonly (IrType | undefined)[] | undefined
+  ): readonly IrCallExpression["arguments"][number][] =>
+    argumentsToRecontextualize.map((argument, index) => {
       const sourceArgument = node.arguments[index];
       if (
         !sourceArgument ||
@@ -3655,15 +3811,20 @@ export const convertCallExpression = (
 
       const unwrapped = unwrapCallSiteArgumentModifier(sourceArgument);
       const aggregateExpression = stripParentheses(unwrapped.expression);
+      const supportsFinalContextualConversion =
+        ts.isObjectLiteralExpression(aggregateExpression) ||
+        ts.isArrayLiteralExpression(aggregateExpression) ||
+        ts.isCallExpression(aggregateExpression) ||
+        ts.isArrowFunction(aggregateExpression) ||
+        ts.isFunctionExpression(aggregateExpression);
       if (
-        !ts.isObjectLiteralExpression(aggregateExpression) &&
-        !ts.isArrayLiteralExpression(aggregateExpression)
+        !supportsFinalContextualConversion
       ) {
         return argument;
       }
 
       const expectedType =
-        surfaceParameterTypes?.[index] ?? parameterTypes?.[index];
+        targetSurfaceParameterTypes?.[index] ?? targetParameterTypes?.[index];
       const contextualExpectedType =
         expectedType?.kind === "functionType"
           ? expectedType
@@ -3673,7 +3834,11 @@ export const convertCallExpression = (
 
       if (
         !contextualExpectedType ||
-        containsTypeParameter(contextualExpectedType)
+        (containsTypeParameter(contextualExpectedType) &&
+          !canRecontextualizeGenericFunctionArgument(
+            aggregateExpression,
+            contextualExpectedType
+          ))
       ) {
         return argument;
       }
@@ -3688,6 +3853,7 @@ export const convertCallExpression = (
       }
 
       if (
+        !ts.isCallExpression(aggregateExpression) &&
         argument.inferredType &&
         invocationTypesEquivalent(
           argument.inferredType,
@@ -3708,7 +3874,11 @@ export const convertCallExpression = (
         contextualExpectedType,
         ctx
       );
-    }
+    });
+  const recontextualizedFinalArguments = recontextualizeArguments(
+    convertedArgs,
+    parameterTypes,
+    surfaceParameterTypes
   );
   const finalizedArguments = normalizeFinalizedInvocationArguments(
     recontextualizedFinalArguments,
@@ -3719,12 +3889,103 @@ export const convertCallExpression = (
   const finalizedArgTypes = finalizedArguments.map((argument) =>
     argument.kind === "spread" ? undefined : argument.inferredType
   );
+  const refinedSourceBackedCallParameterTypes =
+    getSourceBackedCallParameterTypes(
+      node,
+      finalCallee,
+      receiverIrType,
+      finalResolutionArgumentCount,
+      parameterTypes,
+      finalizedArgTypes,
+      expectedType,
+      explicitTypeArgs,
+      ctx
+    );
+  const effectiveSourceBackedCallParameterTypes =
+    refinedSourceBackedCallParameterTypes ??
+    finalSourceBackedCallParameterTypes ??
+    sourceBackedCallParameterTypes;
+  const effectiveFinalInvocationMetadata =
+    refinedSourceBackedCallParameterTypes
+      ? finalizeInvocationMetadata({
+          ctx,
+          callee: finalCallee,
+          receiverType: receiverIrType,
+          callableType: finalFunctionType,
+          argumentCount: finalResolutionArgumentCount,
+          argTypes: finalizedArgTypes,
+          explicitTypeArgs,
+          expectedType,
+          boundGlobalParameterTypes:
+            boundGlobalCallParameterTypes?.parameterTypes,
+          authoritativeBoundGlobalSurfaceParameterTypes,
+          authoritativeBoundGlobalReturnType,
+          sourceBackedParameterTypes:
+            refinedSourceBackedCallParameterTypes.parameterTypes,
+          sourceBackedSurfaceParameterTypes:
+            refinedSourceBackedCallParameterTypes.surfaceParameterTypes,
+          sourceBackedReturnType: refinedSourceBackedCallParameterTypes.returnType,
+          ambientBoundGlobalSurfaceParameterTypes:
+            finalAmbientBoundGlobalSurfaceParameterTypes,
+          authoritativeDirectParameterTypes:
+            authoritativeFinalDirectCalleeParameterTypes,
+          resolvedParameterTypes: finalResolved?.parameterTypes,
+          resolvedSurfaceParameterTypes:
+            finalResolved?.surfaceParameterTypes ??
+            finalCallableResolution?.resolved?.surfaceParameterTypes,
+          resolvedReturnType: finalResolved?.returnType,
+          fallbackParameterTypes,
+          fallbackSurfaceParameterTypes: fallbackParameterTypes,
+          exactParameterCandidates: [
+            exactMemberCallableResolution?.resolved?.parameterTypes,
+            directCalleeCallableResolution?.resolved?.parameterTypes,
+          ],
+          exactSurfaceParameterCandidates: [
+            exactMemberCallableResolution?.resolved?.surfaceParameterTypes ??
+              exactMemberCallableResolution?.resolved?.parameterTypes,
+            directCalleeCallableResolution?.resolved?.surfaceParameterTypes ??
+              directCalleeCallableResolution?.resolved?.parameterTypes,
+          ],
+          exactReturnCandidates: [
+            exactMemberCallableResolution?.resolved?.returnType,
+            directCalleeCallableResolution?.resolved?.returnType,
+          ],
+          preserveDirectSurfaceIdentity:
+            preserveAuthoritativeDirectCalleeSurfaceIdentity,
+        })
+      : finalInvocationMetadata;
+  const returnParameterTypes =
+    effectiveFinalInvocationMetadata.parameterTypes ?? parameterTypes;
+  const returnSurfaceParameterTypes =
+    effectiveFinalInvocationMetadata.surfaceParameterTypes ??
+    surfaceParameterTypes;
+  const emittedRecontextualizedArguments =
+    returnParameterTypes !== parameterTypes ||
+    returnSurfaceParameterTypes !== surfaceParameterTypes
+      ? recontextualizeArguments(
+          finalizedArguments,
+          returnParameterTypes,
+          returnSurfaceParameterTypes
+        )
+      : finalizedArguments;
+  const emittedFinalizedArguments =
+    emittedRecontextualizedArguments === finalizedArguments
+      ? finalizedArguments
+      : normalizeFinalizedInvocationArguments(
+          emittedRecontextualizedArguments,
+          returnParameterTypes,
+          returnSurfaceParameterTypes,
+          ctx
+        );
+  const emittedFinalizedArgTypes = emittedFinalizedArguments.map((argument) =>
+    argument.kind === "spread" ? undefined : argument.inferredType
+  );
   const finalSourceBackedParameterTypes =
-    finalInvocationMetadata.sourceBackedParameterTypes;
+    effectiveFinalInvocationMetadata.sourceBackedParameterTypes;
   const finalSourceBackedSurfaceParameterTypes =
-    finalInvocationMetadata.sourceBackedSurfaceParameterTypes;
+    effectiveFinalInvocationMetadata.sourceBackedSurfaceParameterTypes;
   const finalSourceBackedReturnType =
-    finalInvocationMetadata.sourceBackedReturnType;
+    effectiveFinalInvocationMetadata.sourceBackedReturnType;
   const fallbackRestParameter = (() => {
     if (finalSourceBackedCallParameterTypes?.restParameter) {
       return finalSourceBackedCallParameterTypes.restParameter;
@@ -3761,7 +4022,7 @@ export const convertCallExpression = (
     return {
       index: restIndex,
       arrayType: functionTypeForRest.parameters[restIndex]?.type,
-      elementType: parameterTypes?.[restIndex],
+      elementType: returnParameterTypes?.[restIndex],
     };
   })();
   const finalInferredType = (() => {
@@ -3809,6 +4070,46 @@ export const convertCallExpression = (
 
     return resolvedReturnType;
   })();
+  const inferredTypeArgumentsForIr = (() => {
+    if (typeArguments && typeArguments.length > 0) {
+      return undefined;
+    }
+
+    const methodTypeParameterNames =
+      finalFunctionType?.typeParameters?.map((parameter) => parameter.name) ??
+      [];
+    if (!finalFunctionType || methodTypeParameterNames.length === 0) {
+      return undefined;
+    }
+
+    const callableParameterTypes = expandParameterTypesForArguments(
+      finalFunctionType.parameters,
+      finalFunctionType.parameters.map((parameter) => parameter.type),
+      finalResolutionArgumentCount
+    );
+    const substitutions = deriveInvocationTypeSubstitutions(
+      callableParameterTypes,
+      emittedFinalizedArgTypes,
+      finalFunctionType.returnType,
+      expectedType,
+      methodTypeParameterNames,
+      explicitTypeArgs,
+      ctx
+    );
+    if (!substitutions) {
+      return undefined;
+    }
+
+    const inferredTypeArguments = methodTypeParameterNames.map((name) =>
+      substitutions.get(name)
+    );
+    return inferredTypeArguments.every(
+      (argument): argument is IrType =>
+        argument !== undefined && !containsTypeParameter(argument)
+    )
+      ? inferredTypeArguments
+      : undefined;
+  })();
   const argumentPassingFromBinding = extractArgumentPassingFromBinding(
     finalCallee,
     node.arguments.length
@@ -3818,7 +4119,7 @@ export const convertCallExpression = (
       finalCallee,
       node.arguments.length,
       ctx,
-      finalizedArgTypes
+      emittedFinalizedArgTypes
     );
   const argumentPassing =
     argumentPassingFromBinding ??
@@ -3837,7 +4138,7 @@ export const convertCallExpression = (
   const narrowing: IrCallExpression["narrowing"] = (() => {
     const pred = finalResolved?.typePredicate;
     if (pred?.kind === "param") {
-      const currentArgumentType = finalizedArgTypes[pred.parameterIndex];
+      const currentArgumentType = emittedFinalizedArgTypes[pred.parameterIndex];
       if (
         currentArgumentType &&
         ctx.typeSystem.isAssignableTo(currentArgumentType, pred.targetType)
@@ -3854,12 +4155,12 @@ export const convertCallExpression = (
 
     return undefined;
   })();
-  const argumentArmSelections = finalizedArguments.map((_, index) =>
-    parameterTypes?.[index]?.kind === "unionType"
+  const argumentArmSelections = emittedFinalizedArguments.map((_, index) =>
+    returnParameterTypes?.[index]?.kind === "unionType"
       ? selectUnionArm({
           kind: "semanticProjection",
-          sourceType: finalizedArgTypes[index],
-          targetUnion: parameterTypes[index],
+          sourceType: emittedFinalizedArgTypes[index],
+          targetUnion: returnParameterTypes[index],
         })
       : { kind: "unsupported" as const, reason: "Parameter is not a union." }
   );
@@ -3872,21 +4173,22 @@ export const convertCallExpression = (
     callee: finalCallee,
     // Pass parameter types as expectedType for deterministic contextual typing
     // This ensures `spreadArray([1,2,3], [4,5,6])` with `number[]` params produces `double[]`
-    arguments: finalizedArguments,
+    arguments: emittedFinalizedArguments,
     isOptional: node.questionDotToken !== undefined,
     inferredType: finalInferredType,
     sourceSpan: getSourceSpan(node),
     signatureId: sigId,
     candidateSignatureIds: candidateSigIds,
-    typeArguments,
+    typeArguments: typeArguments ?? inferredTypeArgumentsForIr,
+    explicitTypeArguments: typeArguments,
     requiresSpecialization,
     resolutionExpectedReturnType: expectedType,
     argumentPassing: argumentPassingWithOverrides,
     argumentArmSelections: hasArgumentArmSelection
       ? argumentArmSelections
       : undefined,
-    parameterTypes,
-    surfaceParameterTypes,
+    parameterTypes: returnParameterTypes,
+    surfaceParameterTypes: returnSurfaceParameterTypes,
     restParameter: boundGlobalCallParameterTypes
       ? boundGlobalCallParameterTypes.restParameter
       : (finalResolved?.restParameter ??
@@ -3896,16 +4198,15 @@ export const convertCallExpression = (
       finalAmbientBoundGlobalSurfaceRestParameter ??
       (boundGlobalCallParameterTypes
         ? boundGlobalCallParameterTypes.restParameter
-        : finalSourceBackedCallParameterTypes
-          ? finalSourceBackedCallParameterTypes.restParameter
+        : effectiveSourceBackedCallParameterTypes
+          ? effectiveSourceBackedCallParameterTypes.restParameter
           : (finalResolved?.surfaceRestParameter ??
             explicitSemanticRestParameter ??
             fallbackRestParameter)),
     sourceBackedParameterTypes: finalSourceBackedParameterTypes,
     sourceBackedSurfaceParameterTypes: finalSourceBackedSurfaceParameterTypes,
     sourceBackedRestParameter:
-      finalSourceBackedCallParameterTypes?.restParameter ??
-      sourceBackedCallParameterTypes?.restParameter,
+      effectiveSourceBackedCallParameterTypes?.restParameter,
     sourceBackedReturnType: finalSourceBackedReturnType,
     narrowing,
   };

@@ -145,6 +145,29 @@ const registerConditionAlias = (
   };
 };
 
+const isCompileTimeConstantStaticField = (
+  stmt: Extract<IrStatement, { kind: "variableDeclaration" }>,
+  decl: Extract<
+    Extract<
+      IrStatement,
+      { kind: "variableDeclaration" }
+    >["declarations"][number],
+    { kind: "variableDeclarator" }
+  >,
+  context: EmitterContext
+): boolean => {
+  if (!shouldEmitReadonlyStaticField(stmt, decl, context)) {
+    return false;
+  }
+  const initializer = decl.initializer;
+  return (
+    initializer?.kind === "literal" &&
+    (typeof initializer.value === "string" ||
+      typeof initializer.value === "number" ||
+      typeof initializer.value === "boolean")
+  );
+};
+
 /**
  * Emit a static variable declaration as AST members (fields, methods, delegates).
  */
@@ -212,13 +235,26 @@ export const emitVariableDeclaration = (
       currentContext = typeCtx;
 
       // Determine modifiers
-      const modifiers = [
-        stmt.isExported ? "public" : "internal",
-        "static",
-        ...(shouldEmitReadonlyStaticField(stmt, decl, currentContext)
-          ? ["readonly"]
-          : []),
-      ];
+      const emitCompileTimeConst = isCompileTimeConstantStaticField(
+        stmt,
+        decl as Extract<
+          Extract<
+            IrStatement,
+            { kind: "variableDeclaration" }
+          >["declarations"][number],
+          { kind: "variableDeclarator" }
+        >,
+        currentContext
+      );
+      const modifiers = emitCompileTimeConst
+        ? [stmt.isExported ? "public" : "internal", "const"]
+        : [
+            stmt.isExported ? "public" : "internal",
+            "static",
+            ...(shouldEmitReadonlyStaticField(stmt, decl, currentContext)
+              ? ["readonly"]
+              : []),
+          ];
 
       // Emit initializer
       let initializerAst: CSharpExpressionAst | undefined;

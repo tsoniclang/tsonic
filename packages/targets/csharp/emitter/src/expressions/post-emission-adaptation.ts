@@ -35,6 +35,7 @@ import {
 import { getReferenceClrIdentityKey } from "../core/semantic/clr-type-identity.js";
 import { referenceTypesShareNominalIdentity } from "../core/semantic/reference-type-identity.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 
 // ---------------------------------------------------------------------------
 // Nullish type-parameter casting
@@ -1257,12 +1258,76 @@ const isRuntimeUnionFactoryCallAst = (ast: CSharpExpressionAst): boolean => {
   );
 };
 
+const resolveLocalStorageTypeForIdentifierAst = (
+  ast: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  const identifier =
+    ast.kind === "identifierExpression" ? ast.identifier : undefined;
+  if (!identifier) {
+    return undefined;
+  }
+
+  const direct = context.localValueTypes?.get(identifier);
+  if (direct) {
+    return direct;
+  }
+
+  for (const [sourceName, emittedName] of context.localNameMap ?? []) {
+    if (emittedName === identifier) {
+      return context.localValueTypes?.get(sourceName);
+    }
+  }
+
+  return undefined;
+};
+
+const resolveBroadLocalNumericMaterializationSource = (
+  ast: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  const localStorageType = resolveLocalStorageTypeForIdentifierAst(
+    ast,
+    context
+  );
+  const identifier =
+    ast.kind === "identifierExpression" ? ast.identifier : undefined;
+  const sourceName = identifier
+    ? [...(context.localNameMap ?? [])].find(
+        ([, emittedName]) => emittedName === identifier
+      )?.[0]
+    : undefined;
+  const narrowedBinding = identifier
+    ? context.narrowedBindings?.get(identifier) ??
+      (sourceName ? context.narrowedBindings?.get(sourceName) : undefined)
+    : undefined;
+  const narrowedStorageType =
+    narrowedBinding && narrowedBinding.kind === "expr"
+      ? (narrowedBinding.storageType ??
+        narrowedBinding.sourceType ??
+        narrowedBinding.carrierType)
+      : narrowedBinding?.sourceType;
+
+  if (
+    narrowedStorageType &&
+    isBroadObjectSlotType(narrowedStorageType, context)
+  ) {
+    return narrowedStorageType;
+  }
+
+  return localStorageType && isBroadObjectSlotType(localStorageType, context)
+    ? localStorageType
+    : undefined;
+};
+
 export const maybeCastNumericToExpectedJsNumberAst = (
   ast: CSharpExpressionAst,
   actualType: IrType | undefined,
   context: EmitterContext,
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] => {
+  const broadLocalNumericMaterializationSource =
+    resolveBroadLocalNumericMaterializationSource(ast, context);
   if (
     !expectedType ||
     !actualType ||
@@ -1275,9 +1340,19 @@ export const maybeCastNumericToExpectedJsNumberAst = (
       stripNullish(actualType),
       stripNullish(expectedType),
       context
-    )
+    ) &&
+      !broadLocalNumericMaterializationSource
   ) {
     return [ast, context];
+  }
+
+  if (broadLocalNumericMaterializationSource) {
+    return materializeDirectNarrowingAst(
+      ast,
+      broadLocalNumericMaterializationSource,
+      expectedType,
+      context
+    );
   }
 
   const [numericTypeParamAdjustedAst, numericTypeParamAdjustedContext] =

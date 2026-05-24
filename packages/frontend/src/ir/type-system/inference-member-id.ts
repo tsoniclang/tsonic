@@ -339,6 +339,17 @@ export const typeOfMemberId = (
   // function declarations / const declarations (no typeNode captured by Binding).
   const decl = memberInfo.declNode as ts.Declaration | undefined;
   if (decl) {
+    if (ts.isEnumMember(decl) && ts.isEnumDeclaration(decl.parent)) {
+      const enumReceiver =
+        receiverType?.kind === "referenceType"
+          ? receiverType
+          : ({
+              kind: "referenceType",
+              name: decl.parent.name.text,
+            } satisfies IrReferenceType);
+      return attachTypeIds(state, enumReceiver);
+    }
+
     const normalizeDeclaringTypeName = (name: string): string =>
       name
         .replace(/\$instance$/, "")

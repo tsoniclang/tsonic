@@ -95,7 +95,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        'string[] parts = global::System.Linq.Enumerable.ToArray(global::js.String.split(path, "/"));'
+        'string[] parts = global::System.Linq.Enumerable.ToArray(global::js.String.split(path, global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("/")));'
       );
       expect(csharp).to.include(
         'string[]? maybeMatch = global::js.String.match(path, global::Tsonic.Internal.Union<global::js.RegExp, string>.From2("docs"));'

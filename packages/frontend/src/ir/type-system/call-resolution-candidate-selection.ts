@@ -990,8 +990,8 @@ const buildCandidateScore = (
     declaredReferenceIterableCarrierCompatibleArgumentCount,
     broadNumberIndependentCompatibleArgumentCount,
     broadNumberExplicitlyAcceptedArgumentCount,
-    compatibleArgumentCount,
     iterableCarrierCompatibleArgumentCount,
+    compatibleArgumentCount,
     exactFunctionArityMatches,
     exactArityNonRest,
     concreteSurfaceExactness,
@@ -1113,7 +1113,6 @@ export const selectBestCallCandidate = (
       ];
     }
   );
-
   if (scoredCandidates.length === 0) {
     return {
       sigId: undefined,

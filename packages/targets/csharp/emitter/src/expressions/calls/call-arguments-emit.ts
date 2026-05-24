@@ -217,6 +217,88 @@ const getRuntimeRestParameter = (
   expr.surfaceRestParameter ??
   expr.restParameter;
 
+const containsExplicitUnknownType = (
+  type: IrType | undefined,
+  seen: ReadonlySet<IrType> = new Set()
+): boolean => {
+  if (!type || seen.has(type)) {
+    return false;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+
+  if (type.kind === "unknownType") {
+    return type.explicit === true;
+  }
+
+  if (type.kind === "unionType" || type.kind === "intersectionType") {
+    return type.types.some((member) =>
+      containsExplicitUnknownType(member, nextSeen)
+    );
+  }
+
+  if (type.kind === "arrayType") {
+    return containsExplicitUnknownType(type.elementType, nextSeen);
+  }
+
+  if (type.kind === "tupleType") {
+    return type.elementTypes.some((member) =>
+      containsExplicitUnknownType(member, nextSeen)
+    );
+  }
+
+  if (type.kind === "dictionaryType") {
+    return (
+      containsExplicitUnknownType(type.keyType, nextSeen) ||
+      containsExplicitUnknownType(type.valueType, nextSeen)
+    );
+  }
+
+  if (type.kind === "referenceType") {
+    return (
+      type.typeArguments?.some((member) =>
+        containsExplicitUnknownType(member, nextSeen)
+      ) ?? false
+    );
+  }
+
+  if (type.kind === "functionType") {
+    return (
+      type.parameters.some((parameter) =>
+        containsExplicitUnknownType(parameter.type, nextSeen)
+      ) || containsExplicitUnknownType(type.returnType, nextSeen)
+    );
+  }
+
+  if (type.kind === "objectType") {
+    return type.members.some((member) =>
+      member.kind === "propertySignature"
+        ? containsExplicitUnknownType(member.type, nextSeen)
+        : member.parameters.some((parameter) =>
+            containsExplicitUnknownType(parameter.type, nextSeen)
+          ) || containsExplicitUnknownType(member.returnType, nextSeen)
+    );
+  }
+
+  return false;
+};
+
+const shouldPreferExplicitUnknownSurfaceParameter = (
+  selectedParameterType: IrType | undefined,
+  surfaceParameterType: IrType | undefined,
+  context: EmitterContext
+): boolean =>
+  !!selectedParameterType &&
+  !!surfaceParameterType &&
+  !areIrTypesEquivalent(selectedParameterType, surfaceParameterType, context) &&
+  containsExplicitUnknownType(surfaceParameterType);
+
+const broadObjectParameterType = (): IrType => ({
+  kind: "referenceType",
+  name: "object",
+});
+
 const matchesDirectCarrierAst = (
   left: CSharpExpressionAst,
   right: CSharpExpressionAst
@@ -438,6 +520,36 @@ const resolveContextualAdaptedArgumentType = (
   return undefined;
 };
 
+const callReturnIsContextualizedToExpected = (
+  arg: IrExpression,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean =>
+  arg.kind === "call" &&
+  expectedType !== undefined &&
+  arg.resolutionExpectedReturnType !== undefined &&
+  areIrTypesEquivalent(arg.resolutionExpectedReturnType, expectedType, context) &&
+  arg.arguments.some((callArgument, index) => {
+    if (
+      callArgument.kind !== "arrowFunction" &&
+      callArgument.kind !== "functionExpression"
+    ) {
+      return false;
+    }
+
+    const selectedParameterType = arg.parameterTypes?.[index];
+    const surfaceParameterType = arg.surfaceParameterTypes?.[index];
+    return (
+      selectedParameterType?.kind === "functionType" &&
+      surfaceParameterType?.kind === "functionType" &&
+      !matchesExpectedEmissionType(
+        selectedParameterType.returnType,
+        surfaceParameterType.returnType,
+        context
+      )
+    );
+  });
+
 const resolveExactRawEmittedExpectedType = (opts: {
   readonly arg: IrExpression;
   readonly rawArgAst: CSharpExpressionAst;
@@ -466,13 +578,20 @@ const resolveExactRawEmittedExpectedType = (opts: {
       : undefined) ??
     resolveEffectiveExpressionType(arg, context) ??
     arg.inferredType;
+  const contextualizedCallReturnMatchesExpected =
+    callReturnIsContextualizedToExpected(
+      arg,
+      adaptationExpectedType,
+      context
+    );
   if (
     rawActualType &&
     hasMismatchedCollectionElementCarrier(
       rawActualType,
       adaptationExpectedType,
       context
-    )
+    ) &&
+    !contextualizedCallReturnMatchesExpected
   ) {
     return undefined;
   }
@@ -1507,6 +1626,10 @@ const selectCollectionMaterializationActualArgumentType = (opts: {
       ? arg.sourceBackedReturnType
       : undefined;
   const sourceType = sourceBackedReturnType ?? preferredSourceType;
+  if (callReturnIsContextualizedToExpected(arg, expectedType, context)) {
+    return expectedType;
+  }
+
   const semanticSourceType = sourceType ?? arg.inferredType;
   if (
     semanticSourceType &&
@@ -2197,6 +2320,10 @@ const shouldDeferCollectionCarrierRawEmission = (opts: {
     return false;
   }
 
+  if (callReturnIsContextualizedToExpected(arg, rawExpectedType, context)) {
+    return false;
+  }
+
   return hasMismatchedCollectionElementCarrier(
     sourceType,
     rawExpectedType,
@@ -2464,16 +2591,24 @@ const emitFunctionValueCallArguments = (
 
     const arg = args[i];
     if (arg) {
-      const passingMode = expr.argumentPassing?.[i];
+      const passingMode = expr.argumentPassing?.[i] ?? parameter.passing;
       if (passingMode === "out" && !isLValue(arg)) {
         const [discardAst, discardCtx] = emitOutDiscardArgument(currentContext);
         argAsts.push(discardAst);
         currentContext = discardCtx;
         continue;
       }
-      const surfaceParameterType = runtimeSurfaceParameterTypes[i];
-      const selectedParameterType =
+      const surfaceParameterType =
+        runtimeSurfaceParameterTypes[i] ?? expr.surfaceParameterTypes?.[i];
+      const rawSelectedParameterType =
         expr.parameterTypes?.[i] ?? surfaceParameterType ?? parameter?.type;
+      const selectedParameterType = shouldPreferExplicitUnknownSurfaceParameter(
+        rawSelectedParameterType,
+        surfaceParameterType,
+        currentContext
+      )
+        ? broadObjectParameterType()
+        : rawSelectedParameterType;
       const runtimeParameterType = getAcceptedParameterType(
         selectedParameterType,
         !!parameter?.isOptional
@@ -3259,7 +3394,7 @@ const emitCallArguments = (
     );
   }
 
-  const selectedParameterTypes =
+  const rawSelectedParameterTypes =
     parameterTypeOverrides && parameterTypeOverrides.length > 0
       ? parameterTypeOverrides
       : expr.parameterTypes && expr.parameterTypes.length > 0
@@ -3273,7 +3408,17 @@ const emitCallArguments = (
   const runtimeSurfaceParameterTypes =
     parameterTypeOverrides && parameterTypeOverrides.length > 0
       ? parameterTypeOverrides
-      : getRuntimeSurfaceParameterTypes(expr, selectedParameterTypes);
+      : getRuntimeSurfaceParameterTypes(expr, rawSelectedParameterTypes);
+  const selectedParameterTypes = rawSelectedParameterTypes.map(
+    (parameterType, index) =>
+      shouldPreferExplicitUnknownSurfaceParameter(
+        parameterType,
+        runtimeSurfaceParameterTypes[index] ?? expr.surfaceParameterTypes?.[index],
+        context
+      )
+        ? broadObjectParameterType()
+        : parameterType
+  );
   const runtimeParameterTypes =
     parameterTypeOverrides && parameterTypeOverrides.length > 0
       ? parameterTypeOverrides
@@ -3559,7 +3704,11 @@ const emitCallArguments = (
         argAsts.push(wrapArgModifier(castModifier, argAst));
         currentContext = ctx;
       } else {
-        const passingMode = expr.argumentPassing?.[i];
+        const signatureParameterPassing = (
+          valueSymbolSignature?.parameters ?? functionValueSignature?.parameters
+        )?.[i]?.passing;
+        const passingMode =
+          expr.argumentPassing?.[i] ?? signatureParameterPassing;
         if (passingMode === "out" && !isLValue(arg)) {
           const [discardAst, discardCtx] =
             emitOutDiscardArgument(currentContext);

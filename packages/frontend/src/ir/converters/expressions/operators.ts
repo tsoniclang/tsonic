@@ -14,7 +14,6 @@ import {
 } from "../../types.js";
 import { normalizedUnionType } from "../../types/type-ops.js";
 import {
-  deriveIdentifierType,
   getSourceSpan,
   convertBinaryOperator,
   isAssignmentOperator,
@@ -35,6 +34,50 @@ import {
 } from "../../types/numeric-kind.js";
 import type { ProgramContext } from "../../program-context.js";
 
+const isPureNullishType = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  if (type.kind === "primitiveType") {
+    return type.name === "null" || type.name === "undefined";
+  }
+  return (
+    type.kind === "unionType" &&
+    type.types.length > 0 &&
+    type.types.every(
+      (member) =>
+        member.kind === "primitiveType" &&
+        (member.name === "null" || member.name === "undefined")
+    )
+  );
+};
+
+const normalizeIdentifierTargetType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type || type.kind === "unknownType" || type.kind === "anyType") {
+    return undefined;
+  }
+  return type;
+};
+
+const deriveIdentifierAssignmentTargetType = (
+  node: ts.Identifier,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const declId = ctx.binding.resolveIdentifier(node);
+  if (!declId) return undefined;
+
+  const envType = normalizeIdentifierTargetType(ctx.typeEnv?.get(declId.id));
+  const declType = normalizeIdentifierTargetType(
+    ctx.typeSystem.typeOfValueRead(declId)
+  );
+
+  if (isPureNullishType(envType) && declType && !isPureNullishType(declType)) {
+    return declType;
+  }
+
+  return envType ?? declType;
+};
+
 const getNumericKindFromIrType = (
   type: IrType | undefined
 ): NumericKind | undefined => {
@@ -51,6 +94,11 @@ const getNumericKindFromIrType = (
   }
 
   return undefined;
+};
+
+const isBigIntType = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  return type.kind === "primitiveType" && type.name === "bigint";
 };
 
 const numericKindToIrType = (kind: NumericKind): IrType => {
@@ -243,8 +291,20 @@ const deriveBinaryResultType = (
     }
   }
 
+  if (operator === "**") {
+    if (isBigIntType(leftType) && isBigIntType(rightType)) {
+      return { kind: "primitiveType", name: "bigint" };
+    }
+
+    const leftKind = getNumericKindFromIrType(leftType);
+    const rightKind = getNumericKindFromIrType(rightType);
+    if (leftKind !== undefined && rightKind !== undefined) {
+      return { kind: "primitiveType", name: "number" };
+    }
+  }
+
   // Arithmetic operators: both int → int, otherwise double
-  if (["+", "-", "*", "/", "%", "**"].includes(operator)) {
+  if (["+", "-", "*", "/", "%"].includes(operator)) {
     const leftKind = getNumericKindFromIrType(leftType);
     const rightKind = getNumericKindFromIrType(rightType);
 
@@ -343,12 +403,12 @@ export const convertBinaryExpression = (
   if (isAssignmentOperator(node.operatorToken)) {
     const leftCtx = withoutExactAssignmentTargetReadNarrowing(node.left, ctx);
 
-    // DETERMINISTIC: Derive LHS type from declaration (for identifiers)
+    // DETERMINISTIC: derive the storage type for identifier assignment targets.
     const leftExpr = ts.isIdentifier(node.left)
       ? {
           kind: "identifier" as const,
           name: node.left.text,
-          inferredType: deriveIdentifierType(node.left, ctx),
+          inferredType: deriveIdentifierAssignmentTargetType(node.left, ctx),
           sourceSpan: getSourceSpan(node.left),
         }
       : convertExpression(node.left, leftCtx, undefined);
@@ -445,6 +505,20 @@ export const convertUnaryExpression = (
 ): IrUnaryExpression | IrUpdateExpression => {
   const sourceSpan = getSourceSpan(node);
   const operandExpr = convertExpression(node.operand, ctx, undefined);
+  const isNegativeZeroLiteral =
+    node.operator === ts.SyntaxKind.MinusToken &&
+    operandExpr.kind === "literal" &&
+    typeof operandExpr.value === "number" &&
+    Object.is(operandExpr.value, 0);
+  const effectiveOperandExpr =
+    isNegativeZeroLiteral
+      ? ({
+          ...operandExpr,
+          raw: "0.0",
+          numericIntent: "float64",
+          inferredType: { kind: "primitiveType", name: "number" },
+        } as const)
+      : operandExpr;
 
   // Check if it's an increment/decrement (++ or --)
   if (
@@ -457,10 +531,10 @@ export const convertUnaryExpression = (
       kind: "update",
       operator: updateOperator,
       prefix: true,
-      expression: operandExpr,
+      expression: effectiveOperandExpr,
       inferredType: deriveUnaryResultType(
         updateOperator,
-        operandExpr.inferredType
+        effectiveOperandExpr.inferredType
       ),
       sourceSpan,
     };
@@ -487,8 +561,11 @@ export const convertUnaryExpression = (
   return {
     kind: "unary",
     operator,
-    expression: operandExpr,
-    inferredType: deriveUnaryResultType(operator, operandExpr.inferredType),
+    expression: effectiveOperandExpr,
+    inferredType: deriveUnaryResultType(
+      operator,
+      effectiveOperandExpr.inferredType
+    ),
     sourceSpan,
   };
 };

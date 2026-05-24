@@ -11,7 +11,8 @@ import type { EmitterContext } from "../types.js";
 
 export const resolveExactGlobalBindingFqn = (
   name: string,
-  context: EmitterContext
+  context: EmitterContext,
+  mode: "value" | "static" = "value"
 ): string => {
   const descriptor = context.bindingRegistry?.getExactBindingByKind(
     name,
@@ -27,10 +28,9 @@ export const resolveExactGlobalBindingFqn = (
     return `global::${descriptor.assembly}.${descriptor.providerMemberName}`;
   }
 
-  return normalizeClrQualifiedName(
-    descriptor.staticType ?? descriptor.type,
-    true
-  );
+  const targetType =
+    mode === "static" ? (descriptor.staticType ?? descriptor.type) : descriptor.type;
+  return normalizeClrQualifiedName(targetType, true);
 };
 
 export const buildExactGlobalBindingReference = (
@@ -44,4 +44,7 @@ export const buildExactGlobalBindingType = (
   typeArguments: readonly CSharpTypeAst[] | undefined,
   context: EmitterContext
 ): CSharpTypeAst =>
-  identifierType(resolveExactGlobalBindingFqn(name, context), typeArguments);
+  identifierType(
+    resolveExactGlobalBindingFqn(name, context, "static"),
+    typeArguments
+  );

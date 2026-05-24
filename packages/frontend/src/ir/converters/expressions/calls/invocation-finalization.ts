@@ -940,13 +940,13 @@ const mergeTypeSubstitutions = (
       target.set(name, type);
       continue;
     }
-    const merged = choosePreferredEquivalentInferenceType(
+    const preferred = choosePreferredEquivalentInferenceType(
       ctx.typeSystem,
       existing,
       type
     );
-    if (merged) {
-      target.set(name, merged);
+    if (preferred) {
+      target.set(name, preferred);
       continue;
     }
     return;

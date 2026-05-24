@@ -14,7 +14,7 @@ namespace TestCases.common.types.tuplesarity
 
         public static double sumT8(global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double>> t)
         {
-            return t[0] + t[1] + t[2] + t[3] + t[4] + t[5] + t[6] + t[7];
+            return t.Item1 + t.Item2 + t.Item3 + t.Item4 + t.Item5 + t.Item6 + t.Item7 + t.Item8;
         }
     }
 }

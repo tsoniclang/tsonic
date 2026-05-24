@@ -73,7 +73,7 @@ export type IrExpression =
 
 export type IrLiteralExpression = {
   readonly kind: "literal";
-  readonly value: string | number | boolean | null | undefined;
+  readonly value: string | number | bigint | boolean | null | undefined;
   readonly raw?: string;
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
@@ -251,7 +251,8 @@ export type IrCallExpression = {
   readonly signatureId?: SignatureId;
   /** Alternate overload candidates for post-proof re-resolution. */
   readonly candidateSignatureIds?: readonly SignatureId[];
-  readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
+  readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments used for emission
+  readonly explicitTypeArguments?: readonly IrType[]; // Authored call-site type arguments only
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
   /** Contextual expected return type used during original overload selection. */
   readonly resolutionExpectedReturnType?: IrType;
@@ -322,7 +323,8 @@ export type IrNewExpression = {
   };
   /** Exact source-declared constructor result type retained across refresh passes. */
   readonly sourceBackedReturnType?: IrType;
-  readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
+  readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments used for emission
+  readonly explicitTypeArguments?: readonly IrType[]; // Authored call-site type arguments only
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
   readonly surfaceRestParameter?: {
     readonly index: number;

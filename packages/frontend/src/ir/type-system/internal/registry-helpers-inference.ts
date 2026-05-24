@@ -14,6 +14,19 @@ import { irTypesEqual } from "../../types/type-ops.js";
 import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
 import type { ConvertTypeFn } from "./type-registry.js";
 
+const typeReferenceNameFromConstructorExpression = (
+  expr: ts.Expression
+): string | undefined => {
+  if (ts.isIdentifier(expr)) {
+    return expr.text;
+  }
+  if (ts.isPropertyAccessExpression(expr)) {
+    const left = typeReferenceNameFromConstructorExpression(expr.expression);
+    return left ? `${left}.${expr.name.text}` : expr.name.text;
+  }
+  return undefined;
+};
+
 export const inferExpressionTypeSyntax = (
   expr: ts.Expression,
   convertType: ConvertTypeFn
@@ -78,6 +91,29 @@ export const inferExpressionTypeSyntax = (
     }
 
     return { kind: "tupleType", elementTypes };
+  }
+
+  if (ts.isNewExpression(current)) {
+    const typeName = typeReferenceNameFromConstructorExpression(
+      current.expression
+    );
+    if (!typeName) return undefined;
+
+    const typeArguments = current.typeArguments?.map((typeArgument) =>
+      convertType(typeArgument)
+    );
+
+    if (typeName === "Array" || typeName === "ReadonlyArray") {
+      const elementType = typeArguments?.[0];
+      return elementType ? { kind: "arrayType", elementType } : undefined;
+    }
+
+    return {
+      kind: "referenceType",
+      name: typeName,
+      typeArguments,
+      structuralOrigin: "namedReference",
+    };
   }
 
   if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {

@@ -169,6 +169,19 @@ export const choosePreferredEquivalentInferenceType = (
     return undefined;
   }
 
+  if (
+    existing.kind === "primitiveType" &&
+    next.kind === "primitiveType" &&
+    existing.name !== next.name
+  ) {
+    if (next.name === "number") {
+      return next;
+    }
+    if (existing.name === "number") {
+      return existing;
+    }
+  }
+
   const existingScore = scoreTypeIdentity(existing);
   const nextScore = scoreTypeIdentity(next);
 

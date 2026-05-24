@@ -328,6 +328,10 @@ export function inferTypeFromValueExpression(
     return { kind: "primitiveType", name: "number" };
   }
 
+  if (ts.isBigIntLiteral(current)) {
+    return { kind: "primitiveType", name: "bigint" };
+  }
+
   if (
     current.kind === ts.SyntaxKind.TrueKeyword ||
     current.kind === ts.SyntaxKind.FalseKeyword

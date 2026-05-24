@@ -41,6 +41,11 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import {
+  getDirectIterableElementType,
+  getIterableSourceShape,
+} from "../structural-type-shapes.js";
 import { emitJsonSerializerCall, emitGlobalJsonCall } from "./call-json.js";
 import { emitGlobalSymbolCall } from "./call-symbol.js";
 import {
@@ -68,7 +73,11 @@ const buildCallTargetExpectedType = (
     return calleeType;
   }
 
-  const parameterTypes = expr.parameterTypes ?? expr.surfaceParameterTypes;
+  const parameterTypes =
+    expr.sourceBackedSurfaceParameterTypes ??
+    expr.sourceBackedParameterTypes ??
+    expr.surfaceParameterTypes ??
+    expr.parameterTypes;
   const restParameter = expr.restParameter ?? expr.surfaceRestParameter;
 
   if (!parameterTypes || !expr.inferredType) {
@@ -119,6 +128,219 @@ const getBareTypeParameterName = (
   }
 
   return undefined;
+};
+
+const containsTypeParameterInCSharpInferableSurface = (
+  type: IrType | undefined,
+  typeParameterName: string,
+  context: EmitterContext,
+  underNullishUnion = false,
+  visited = new Set<IrType>()
+): boolean => {
+  if (!type || visited.has(type)) {
+    return false;
+  }
+  visited.add(type);
+
+  const bareName = getBareTypeParameterName(type, context);
+  if (bareName) {
+    return !underNullishUnion && bareName === typeParameterName;
+  }
+
+  switch (type.kind) {
+    case "arrayType":
+      return containsTypeParameterInCSharpInferableSurface(
+        type.elementType,
+        typeParameterName,
+        context,
+        underNullishUnion,
+        visited
+      );
+    case "tupleType":
+      return type.elementTypes.some((elementType) =>
+        containsTypeParameterInCSharpInferableSurface(
+          elementType,
+          typeParameterName,
+          context,
+          underNullishUnion,
+          visited
+        )
+      );
+    case "dictionaryType":
+      return (
+        containsTypeParameterInCSharpInferableSurface(
+          type.keyType,
+          typeParameterName,
+          context,
+          underNullishUnion,
+          visited
+        ) ||
+        containsTypeParameterInCSharpInferableSurface(
+          type.valueType,
+          typeParameterName,
+          context,
+          underNullishUnion,
+          visited
+        )
+      );
+    case "functionType":
+      return (
+        type.parameters.some((parameter) =>
+          containsTypeParameterInCSharpInferableSurface(
+            parameter.type,
+            typeParameterName,
+            context,
+            underNullishUnion,
+            visited
+          )
+        ) ||
+        containsTypeParameterInCSharpInferableSurface(
+          type.returnType,
+          typeParameterName,
+          context,
+          underNullishUnion,
+          visited
+        )
+      );
+    case "intersectionType":
+      return type.types.some((memberType) =>
+        containsTypeParameterInCSharpInferableSurface(
+          memberType,
+          typeParameterName,
+          context,
+          underNullishUnion,
+          visited
+        )
+      );
+    case "unionType": {
+      const nextUnderNullishUnion =
+        underNullishUnion || type.types.some(isRuntimeNullishType);
+      return type.types.some((memberType) =>
+        containsTypeParameterInCSharpInferableSurface(
+          memberType,
+          typeParameterName,
+          context,
+          nextUnderNullishUnion,
+          visited
+        )
+      );
+    }
+    case "referenceType":
+      return (type.typeArguments ?? []).some((typeArgument) =>
+        containsTypeParameterInCSharpInferableSurface(
+          typeArgument,
+          typeParameterName,
+          context,
+          underNullishUnion,
+          visited
+        )
+      );
+    case "objectType":
+      return type.members.some((member) => {
+        if (member.kind === "propertySignature") {
+          return containsTypeParameterInCSharpInferableSurface(
+            member.type,
+            typeParameterName,
+            context,
+            underNullishUnion,
+            visited
+          );
+        }
+
+        return (
+          member.parameters.some((parameter) =>
+            containsTypeParameterInCSharpInferableSurface(
+              parameter.type,
+              typeParameterName,
+              context,
+              underNullishUnion,
+              visited
+            )
+          ) ||
+          containsTypeParameterInCSharpInferableSurface(
+            member.returnType,
+            typeParameterName,
+            context,
+            underNullishUnion,
+            visited
+          )
+        );
+      });
+    default:
+      return false;
+  }
+};
+
+const allImplicitMethodTypeArgumentsAreCSharpInferable = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): boolean => {
+  const calleeType = expr.callee.inferredType;
+  if (
+    calleeType?.kind !== "functionType" ||
+    !calleeType.typeParameters ||
+    calleeType.typeParameters.length === 0 ||
+    !expr.typeArguments ||
+    expr.typeArguments.length !== calleeType.typeParameters.length
+  ) {
+    return true;
+  }
+
+  return calleeType.typeParameters.every((typeParameter) =>
+    calleeType.parameters.some((parameter) =>
+      containsTypeParameterInCSharpInferableSurface(
+        parameter.type,
+        typeParameter.name,
+        context
+      )
+    )
+  );
+};
+
+const shouldLetCSharpInferImplicitCallTypeArguments = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): boolean => {
+  if (expr.explicitTypeArguments && expr.explicitTypeArguments.length > 0) {
+    return false;
+  }
+  if (expr.requiresSpecialization) {
+    return false;
+  }
+  const hasOverloadCandidates =
+    expr.candidateSignatureIds && expr.candidateSignatureIds.length > 0;
+
+  const parameterTypes =
+    expr.sourceBackedSurfaceParameterTypes ??
+    expr.sourceBackedParameterTypes ??
+    expr.surfaceParameterTypes ??
+    expr.parameterTypes;
+  if (!parameterTypes || parameterTypes.length === 0) {
+    return false;
+  }
+
+  if (!allImplicitMethodTypeArgumentsAreCSharpInferable(expr, context)) {
+    return false;
+  }
+
+  if (hasOverloadCandidates) {
+    return expr.arguments.length > 0;
+  }
+
+  return expr.arguments.some((argument, index) => {
+    if (argument.kind === "spread") {
+      return false;
+    }
+
+    const parameterType = parameterTypes[index];
+    const argumentType =
+      resolveEffectiveExpressionType(argument, context) ?? argument.inferredType;
+
+    return (
+      !!getDirectIterableElementType(parameterType, context) &&
+      !!getIterableSourceShape(argumentType, context)
+    );
+  });
 };
 
 const isRuntimeNullishType = (type: IrType): boolean =>
@@ -215,6 +437,46 @@ const maybeRewriteOptionalGenericNullishInvocation = (
       context: tempContext,
     }),
     tempContext,
+  ];
+};
+
+const maybeWrapGenericNullishMethodInvocation = (
+  invocation: CSharpExpressionAst,
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    invocation.kind !== "invocationExpression" ||
+    !expectedType ||
+    !isUnconstrainedGenericNullishUnion(
+      expr.callee.inferredType?.kind === "functionType"
+        ? expr.callee.inferredType.returnType
+        : undefined,
+      context
+    )
+  ) {
+    return undefined;
+  }
+
+  const [targetTypeAst, targetTypeContext] = emitTypeAst(
+    stripNullish(expectedType),
+    context
+  );
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression(
+          "global::Tsonic.Internal.GenericOptional"
+        ),
+        memberName: "FromObject",
+      },
+      typeArguments: [targetTypeAst],
+      arguments: [invocation],
+    },
+    targetTypeContext,
   ];
 };
 
@@ -495,6 +757,78 @@ const emitSyntheticArraySliceCall = (
   ];
 };
 
+const isBigIntRuntimeType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "primitiveType") {
+    return resolved.name === "bigint";
+  }
+  if (resolved.kind !== "referenceType") {
+    return false;
+  }
+
+  const identities = [
+    resolved.name,
+    resolved.providerQualifiedName,
+    resolved.typeId?.sourceName,
+    resolved.typeId?.providerName,
+  ];
+  return identities.some((identity) => {
+    const normalized = identity?.replace(/^global::/, "");
+    return normalized === "System.Numerics.BigInteger";
+  });
+};
+
+const emitBigIntToStringCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    expr.callee.kind !== "memberAccess" ||
+    expr.callee.isComputed ||
+    expr.callee.property !== "toString" ||
+    expr.arguments.length !== 0
+  ) {
+    return undefined;
+  }
+
+  const receiverType =
+    resolveEffectiveExpressionType(expr.callee.object, context) ??
+    expr.callee.object.inferredType;
+  if (!isBigIntRuntimeType(receiverType, context)) {
+    return undefined;
+  }
+
+  const [receiverAst, receiverContext] = emitExpressionAst(
+    expr.callee.object,
+    context
+  );
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: expr.callee.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: receiverAst,
+        memberName: "ToString",
+      },
+      arguments: [
+        identifierExpression(
+          "global::System.Globalization.CultureInfo.InvariantCulture"
+        ),
+      ],
+    },
+    receiverContext,
+  ];
+};
+
 const emitObjectDictionaryStaticCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
@@ -624,6 +958,14 @@ export const emitCall = (
 
   const promiseChain = emitPromiseThenCatchFinally(normalizedExpr, context);
   if (promiseChain) return promiseChain;
+
+  const bigIntToStringCall = emitBigIntToStringCall(
+    normalizedExpr,
+    context
+  );
+  if (bigIntToStringCall) {
+    return bigIntToStringCall;
+  }
 
   const runtimeUnionArrayIsArray = emitRuntimeUnionArrayIsArrayCall(
     normalizedExpr,
@@ -800,12 +1142,20 @@ export const emitCall = (
     currentContext = castedLambdaTarget[1];
   }
 
-  if (normalizedExpr.typeArguments && normalizedExpr.typeArguments.length > 0) {
+  const typeArgumentsForEmission =
+    shouldLetCSharpInferImplicitCallTypeArguments(
+      normalizedExpr,
+      currentContext
+    )
+      ? undefined
+      : normalizedExpr.typeArguments;
+
+  if (typeArgumentsForEmission && typeArgumentsForEmission.length > 0) {
     if (normalizedExpr.requiresSpecialization) {
       const calleeText = extractCalleeNameFromAst(calleeAst);
       const [specializedName, specContext] = generateSpecializedName(
         calleeText,
-        normalizedExpr.typeArguments,
+        typeArgumentsForEmission,
         currentContext
       );
       calleeExpr = {
@@ -815,7 +1165,7 @@ export const emitCall = (
       currentContext = specContext;
     } else {
       const [typeArgs, typeContext] = emitTypeArgumentsAst(
-        normalizedExpr.typeArguments,
+        typeArgumentsForEmission,
         currentContext
       );
       typeArgAsts = typeArgs;
@@ -874,9 +1224,23 @@ export const emitCall = (
     normalizedExpr,
     currentContext
   );
+  const genericNullishMethodInvocation =
+    rewrittenOptionalInvocation === undefined
+      ? maybeWrapGenericNullishMethodInvocation(
+          invocation,
+          normalizedExpr,
+          currentContext,
+          expectedType
+        )
+      : undefined;
   let finalInvocation: CSharpExpressionAst =
-    rewrittenOptionalInvocation?.[0] ?? invocation;
-  currentContext = rewrittenOptionalInvocation?.[1] ?? currentContext;
+    rewrittenOptionalInvocation?.[0] ??
+    genericNullishMethodInvocation?.[0] ??
+    invocation;
+  currentContext =
+    rewrittenOptionalInvocation?.[1] ??
+    genericNullishMethodInvocation?.[1] ??
+    currentContext;
   if (shouldCastSuperCallResult && expectedType) {
     const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
       expectedType,

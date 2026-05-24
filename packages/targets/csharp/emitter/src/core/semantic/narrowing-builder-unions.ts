@@ -50,6 +50,7 @@ import {
   resolveRuntimeUnionFrame,
 } from "./narrowing-builder-core.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { isBroadObjectSlotType } from "./broad-object-types.js";
 
 const getNullableValueStorageProjectionSourceType = (
   targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
@@ -430,6 +431,13 @@ export const applyDirectTypeNarrowing = (
   storageType?: IrType
 ): EmitterContext => {
   const existingBinding = context.narrowedBindings?.get(bindingKey);
+  const preexistingIdentifierStorageType =
+    targetExpr.kind === "identifier"
+      ? context.localValueTypes?.get(targetExpr.name)
+      : undefined;
+  const preexistingStorageNeedsMaterializedBinding =
+    !!preexistingIdentifierStorageType &&
+    isBroadObjectSlotType(preexistingIdentifierStorageType, context);
   const nullableValueStorageProjectionSourceType =
     getNullableValueStorageProjectionSourceType(
       targetExpr,
@@ -443,7 +451,8 @@ export const applyDirectTypeNarrowing = (
       resolveTypeAlias(narrowedType, context),
       context
     ) &&
-    !nullableValueStorageProjectionSourceType
+    !nullableValueStorageProjectionSourceType &&
+    !preexistingStorageNeedsMaterializedBinding
   ) {
     return context;
   }
@@ -461,7 +470,8 @@ export const applyDirectTypeNarrowing = (
       resolveTypeAlias(narrowedType, context),
       context
     ) &&
-    !nullableValueStorageProjectionSourceType
+    !nullableValueStorageProjectionSourceType &&
+    !preexistingStorageNeedsMaterializedBinding
   ) {
     return context;
   }
@@ -615,13 +625,6 @@ export const applyDirectTypeNarrowing = (
     }
   }
 
-  const [materializedExprAst, materializedContext] =
-    materializeDirectNarrowingAst(
-      carrierAst,
-      carrierSourceType,
-      narrowedType,
-      carrierContext
-    );
   const carrierStorageAst =
     existingBinding?.kind === "expr"
       ? (existingBinding.storageExprAst ??
@@ -641,6 +644,23 @@ export const applyDirectTypeNarrowing = (
       : undefined) ??
     identifierStorageType ??
     rawCarrierType;
+  const shouldMaterializeFromStorage =
+    !!effectiveStorageType &&
+    isBroadObjectSlotType(effectiveStorageType, carrierContext) &&
+    !willCarryAsRuntimeUnion(effectiveStorageType, carrierContext);
+  const materializationSourceAst = shouldMaterializeFromStorage
+    ? carrierStorageAst
+    : carrierAst;
+  const materializationSourceType = shouldMaterializeFromStorage
+    ? effectiveStorageType
+    : carrierSourceType;
+  const [materializedExprAst, materializedContext] =
+    materializeDirectNarrowingAst(
+      materializationSourceAst,
+      materializationSourceType,
+      narrowedType,
+      carrierContext
+    );
 
   if (effectiveStorageType) {
     return applyBinding(

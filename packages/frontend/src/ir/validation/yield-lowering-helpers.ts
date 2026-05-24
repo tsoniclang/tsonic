@@ -319,11 +319,19 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const collectResidualYieldExpressions = (
   value: unknown,
-  collected: IrYieldExpression[]
+  collected: IrYieldExpression[],
+  seen: WeakSet<object>
 ): void => {
+  if (typeof value === "object" && value !== null) {
+    if (seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+  }
+
   if (Array.isArray(value)) {
     for (const element of value) {
-      collectResidualYieldExpressions(element, collected);
+      collectResidualYieldExpressions(element, collected, seen);
     }
     return;
   }
@@ -338,7 +346,7 @@ const collectResidualYieldExpressions = (
   }
 
   for (const nested of Object.values(value)) {
-    collectResidualYieldExpressions(nested, collected);
+    collectResidualYieldExpressions(nested, collected, seen);
   }
 };
 
@@ -350,7 +358,7 @@ export const addResidualYieldDiagnostics = (
   value: unknown
 ): void => {
   const residualYields: IrYieldExpression[] = [];
-  collectResidualYieldExpressions(value, residualYields);
+  collectResidualYieldExpressions(value, residualYields, new WeakSet<object>());
   if (residualYields.length === 0) {
     return;
   }

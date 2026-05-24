@@ -278,7 +278,7 @@ export type IrIfGuardShape =
       readonly kind: "discriminantEquality";
       readonly target: IrExpression;
       readonly property: string;
-      readonly value: string | number | boolean | null | undefined;
+      readonly value: string | number | bigint | boolean | null | undefined;
       readonly polarity: IrGuardPolarity;
       readonly armSelection?: IrUnionArmSelection;
     }

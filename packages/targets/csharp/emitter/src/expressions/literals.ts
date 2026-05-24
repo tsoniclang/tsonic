@@ -19,6 +19,7 @@ import { emitTypedDefaultAst } from "../core/semantic/defaults.js";
 import {
   booleanLiteral,
   charLiteral,
+  identifierExpression,
   nullLiteral,
   parseNumericLiteral,
   stringLiteral,
@@ -206,6 +207,21 @@ export const emitLiteral = (
     }
 
     return [parseNumericLiteral(baseLiteral), context];
+  }
+
+  if (typeof value === "bigint") {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: identifierExpression("global::System.Numerics.BigInteger"),
+          memberName: "Parse",
+        },
+        arguments: [stringLiteral(value.toString())],
+      },
+      context,
+    ];
   }
 
   if (typeof value === "boolean") {

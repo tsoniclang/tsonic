@@ -11,6 +11,7 @@
 export {
   getPropertyExpectedType,
   selectObjectLiteralContextualType,
+  collectObjectLiteralPrimitiveValues,
   unwrapDeterministicKeyExpression,
   tryResolveDeterministicObjectKeyNameFromSyntax,
   resolveObjectLiteralMemberKey,

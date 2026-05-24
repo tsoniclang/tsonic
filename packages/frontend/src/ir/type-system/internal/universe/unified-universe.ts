@@ -248,6 +248,7 @@ const convertRegistryEntry = (
   const kindMap: Record<string, NominalKind> = {
     class: "class",
     interface: "interface",
+    enum: "enum",
     typeAlias: "interface", // Type aliases treated as interfaces
   };
   const kind = kindMap[entry.kind] ?? "class";

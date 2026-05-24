@@ -716,7 +716,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(
         /public\s+static\s+double\s+numericIdentity<T>\s*\(T value\)/
       );
-      expect(csharp).to.include("where T : global::System.Numerics.INumber<T>");
+      expect(csharp).to.include(
+        "where T : struct, global::System.Numerics.INumber<T>"
+      );
       expect(csharp).to.include(
         "return global::System.Double.CreateChecked(value);"
       );

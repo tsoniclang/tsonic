@@ -17,6 +17,85 @@ import type { ProgramContext } from "../../program-context.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { isNullishPrimitive } from "./array-literals.js";
 
+type ObjectLiteralPrimitiveValue =
+  | string
+  | number
+  | bigint
+  | boolean
+  | null
+  | undefined;
+
+const getLiteralPrimitiveValue = (
+  expression: ts.Expression
+):
+  | { readonly ok: true; readonly value: ObjectLiteralPrimitiveValue }
+  | { readonly ok: false } => {
+  const current = unwrapDeterministicKeyExpression(expression);
+
+  if (
+    ts.isStringLiteral(current) ||
+    ts.isNoSubstitutionTemplateLiteral(current)
+  ) {
+    return { ok: true, value: current.text };
+  }
+
+  if (ts.isNumericLiteral(current)) {
+    return { ok: true, value: Number(current.text) };
+  }
+
+  if (current.kind === ts.SyntaxKind.TrueKeyword) {
+    return { ok: true, value: true };
+  }
+
+  if (current.kind === ts.SyntaxKind.FalseKeyword) {
+    return { ok: true, value: false };
+  }
+
+  if (current.kind === ts.SyntaxKind.NullKeyword) {
+    return { ok: true, value: null };
+  }
+
+  if (
+    ts.isPrefixUnaryExpression(current) &&
+    current.operator === ts.SyntaxKind.MinusToken &&
+    ts.isNumericLiteral(current.operand)
+  ) {
+    return { ok: true, value: -Number(current.operand.text) };
+  }
+
+  if (ts.isBigIntLiteral(current)) {
+    return { ok: true, value: BigInt(current.text.slice(0, -1)) };
+  }
+
+  return { ok: false };
+};
+
+const literalTypeContainsValue = (
+  type: IrType,
+  value: ObjectLiteralPrimitiveValue
+): boolean | undefined => {
+  if (type.kind === "literalType") {
+    return Object.is(type.value, value);
+  }
+
+  if (type.kind !== "unionType") {
+    return undefined;
+  }
+
+  let sawLiteralConstraint = false;
+  for (const member of type.types) {
+    const contains = literalTypeContainsValue(member, value);
+    if (contains === true) {
+      return true;
+    }
+    if (contains === false) {
+      sawLiteralConstraint = true;
+    }
+  }
+
+  return sawLiteralConstraint ? false : undefined;
+};
+
 /**
  * Get the expected type for an object property from the parent expected type.
  *
@@ -60,7 +139,8 @@ export const getPropertyExpectedType = (
 export const selectObjectLiteralContextualType = (
   expectedType: IrType | undefined,
   literalKeys: readonly string[],
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  literalValues?: ReadonlyMap<string, ObjectLiteralPrimitiveValue>
 ): IrType | undefined => {
   if (!expectedType || literalKeys.length === 0) {
     return expectedType;
@@ -71,6 +151,7 @@ export const selectObjectLiteralContextualType = (
     readonly order: number;
     readonly kind: "dictionary" | "object";
     readonly propertyCount: number;
+    readonly literalMatchCount: number;
   };
 
   const candidates: Candidate[] = [];
@@ -125,6 +206,7 @@ export const selectObjectLiteralContextualType = (
         order: candidates.length,
         kind: "dictionary",
         propertyCount: Number.POSITIVE_INFINITY,
+        literalMatchCount: 0,
       });
       continue;
     }
@@ -138,11 +220,30 @@ export const selectObjectLiteralContextualType = (
         (key) => getPropertyExpectedType(key, candidate, ctx) !== undefined
       )
     ) {
+      let literalCompatible = true;
+      let literalMatchCount = 0;
+      for (const [key, value] of literalValues ?? []) {
+        const propertyType = getPropertyExpectedType(key, candidate, ctx);
+        if (!propertyType) continue;
+        const contains = literalTypeContainsValue(propertyType, value);
+        if (contains === false) {
+          literalCompatible = false;
+          break;
+        }
+        if (contains === true) {
+          literalMatchCount += 1;
+        }
+      }
+      if (!literalCompatible) {
+        continue;
+      }
+
       candidates.push({
         type: candidate,
         order: candidates.length,
         kind: "object",
         propertyCount: collectObjectPropertyNames(candidate).length,
+        literalMatchCount,
       });
     }
   }
@@ -157,6 +258,10 @@ export const selectObjectLiteralContextualType = (
     }
 
     if (left.kind === "object" && right.kind === "object") {
+      if (left.literalMatchCount !== right.literalMatchCount) {
+        return right.literalMatchCount - left.literalMatchCount;
+      }
+
       if (left.propertyCount !== right.propertyCount) {
         return left.propertyCount - right.propertyCount;
       }
@@ -170,6 +275,30 @@ export const selectObjectLiteralContextualType = (
   });
 
   return candidates[0]?.type ?? expectedType;
+};
+
+export const collectObjectLiteralPrimitiveValues = (
+  node: ts.ObjectLiteralExpression,
+  ctx: ProgramContext
+): ReadonlyMap<string, ObjectLiteralPrimitiveValue> => {
+  const values = new Map<string, ObjectLiteralPrimitiveValue>();
+  for (const prop of node.properties) {
+    if (!ts.isPropertyAssignment(prop)) {
+      continue;
+    }
+
+    const keyName = resolveObjectLiteralMemberKey(prop.name, ctx).keyName;
+    if (!keyName) {
+      continue;
+    }
+
+    const literal = getLiteralPrimitiveValue(prop.initializer);
+    if (literal.ok) {
+      values.set(keyName, literal.value);
+    }
+  }
+
+  return values;
 };
 
 export const unwrapDeterministicKeyExpression = (

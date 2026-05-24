@@ -291,6 +291,20 @@ const isNullishOnlyType = (type: IrType | undefined): boolean => {
   );
 };
 
+const isNonNullableValueLikeType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "typeParameterType") {
+    const constraintKind =
+      context.typeParamConstraints?.get(resolved.name) ?? "unconstrained";
+    return constraintKind === "struct" || constraintKind === "numeric";
+  }
+
+  return isDefinitelyValueType(resolved, context);
+};
+
 const tryEmitMapGetUndefinedFallback = (
   expr: Extract<IrExpression, { kind: "logical" }>,
   leftAst: CSharpExpressionAst,
@@ -419,7 +433,7 @@ export const emitLogical = (
     operator === "??" &&
     expr.left.inferredType &&
     expr.left.inferredType.kind !== "unionType" &&
-    isDefinitelyValueType(expr.left.inferredType)
+    isNonNullableValueLikeType(expr.left.inferredType, leftContext)
   ) {
     // Conditional access (`?.` / `?[`) produces nullable value types in C# even when the
     // underlying member type is non-nullable (e.g., `string?.Length` → `int?`).

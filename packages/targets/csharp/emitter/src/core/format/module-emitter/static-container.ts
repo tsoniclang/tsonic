@@ -7,6 +7,8 @@
 
 import {
   IrModule,
+  IrExpression,
+  IrParameter,
   IrType,
   IrPattern,
   IrStatement,
@@ -31,6 +33,8 @@ import { statementUsesPointer } from "../../semantic/unsafe.js";
 import { getCSharpName } from "../../../naming-policy.js";
 import { identifierType } from "../backend-ast/builders.js";
 import { moduleBodyEmitsNamespaceTypeNamed } from "../../semantic/module-type-collisions.js";
+import { surfaceMemberMutatesReceiver } from "../../semantic/surface-member-semantics.js";
+import { resolveArrayLikeReceiverType } from "../../semantic/type-resolution.js";
 import type {
   CSharpClassDeclarationAst,
   CSharpMemberAst,
@@ -40,6 +44,335 @@ import type {
 export type StaticContainerResult = {
   readonly declaration: CSharpClassDeclarationAst;
   readonly context: EmitterContext;
+};
+
+const isIdentifierPattern = (
+  parameter: IrParameter
+): parameter is IrParameter & {
+  readonly pattern: Extract<IrPattern, { kind: "identifierPattern" }>;
+} => parameter.pattern.kind === "identifierPattern";
+
+const expressionDirectlyMutatesArrayParameter = (
+  value: unknown,
+  parameterNames: ReadonlySet<string>,
+  context: EmitterContext,
+  visited: WeakSet<object> = new WeakSet<object>()
+): Set<string> => {
+  const mutated = new Set<string>();
+
+  const visit = (candidate: unknown): void => {
+    if (candidate == null || typeof candidate !== "object") {
+      return;
+    }
+
+    if (visited.has(candidate)) {
+      return;
+    }
+    visited.add(candidate);
+
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) {
+        visit(item);
+      }
+      return;
+    }
+
+    const node = candidate as { readonly kind?: unknown };
+    if (node.kind === "functionExpression" || node.kind === "arrowFunction") {
+      return;
+    }
+
+    if (node.kind === "call") {
+      const call = candidate as Extract<IrExpression, { kind: "call" }>;
+      const callee = call.callee;
+      if (
+        callee.kind === "memberAccess" &&
+        !callee.isComputed &&
+        typeof callee.property === "string" &&
+        callee.object.kind === "identifier" &&
+        parameterNames.has(callee.object.name) &&
+        callee.memberBinding &&
+        surfaceMemberMutatesReceiver(callee.memberBinding, context) &&
+        resolveArrayLikeReceiverType(
+          callee.object.inferredType,
+          context
+        ) !== undefined
+      ) {
+        mutated.add(callee.object.name);
+      }
+    }
+
+    for (const [key, child] of Object.entries(
+      candidate as Record<string, unknown>
+    )) {
+      if (
+        key === "inferredType" ||
+        key === "contextualType" ||
+        key === "sourceSpan" ||
+        key === "memberBinding" ||
+        key === "parameterTypes" ||
+        key === "sourceBackedSurfaceParameterTypes" ||
+        key === "surfaceParameterTypes" ||
+        key === "sourceBackedRestParameter" ||
+        key === "surfaceRestParameter" ||
+        key === "restParameter"
+      ) {
+        continue;
+      }
+      visit(child);
+    }
+  };
+
+  visit(value);
+  return mutated;
+};
+
+const inferArrayMutationRefParameters = (
+  members: readonly IrStatement[],
+  context: EmitterContext
+): readonly IrStatement[] => {
+  const mutableArrayParameters = new Map<string, Set<string>>();
+  const functions = members.filter(
+    (
+      member
+    ): member is Extract<IrStatement, { kind: "functionDeclaration" }> =>
+      member.kind === "functionDeclaration"
+  );
+
+  for (const fn of functions) {
+    const parameterNames = new Set(
+      fn.parameters
+        .filter(isIdentifierPattern)
+        .filter(
+          (parameter) =>
+            parameter.type !== undefined &&
+            resolveArrayLikeReceiverType(parameter.type, context) !== undefined
+        )
+        .map((parameter) => parameter.pattern.name)
+    );
+    if (parameterNames.size === 0) {
+      continue;
+    }
+
+    const directlyMutated = expressionDirectlyMutatesArrayParameter(
+      fn.body,
+      parameterNames,
+      context
+    );
+    if (directlyMutated.size > 0) {
+      mutableArrayParameters.set(fn.name, directlyMutated);
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const fn of functions) {
+      const parameterNames = new Set(
+        fn.parameters
+          .filter(isIdentifierPattern)
+          .filter(
+            (parameter) =>
+              parameter.type !== undefined &&
+              resolveArrayLikeReceiverType(parameter.type, context) !==
+                undefined
+          )
+          .map((parameter) => parameter.pattern.name)
+      );
+      if (parameterNames.size === 0) {
+        continue;
+      }
+
+      const inherited = mutableArrayParameters.get(fn.name) ?? new Set<string>();
+      const visit = (
+        candidate: unknown,
+        visited: WeakSet<object> = new WeakSet<object>()
+      ): void => {
+        if (candidate == null || typeof candidate !== "object") {
+          return;
+        }
+        if (visited.has(candidate)) {
+          return;
+        }
+        visited.add(candidate);
+        if (Array.isArray(candidate)) {
+          for (const item of candidate) visit(item, visited);
+          return;
+        }
+
+        const node = candidate as { readonly kind?: unknown };
+        if (node.kind === "functionExpression" || node.kind === "arrowFunction") {
+          return;
+        }
+
+        if (node.kind === "call") {
+          const call = candidate as Extract<IrExpression, { kind: "call" }>;
+          if (call.callee.kind === "identifier") {
+            const calleeName = call.callee.name;
+            const calleeMutatedParams = mutableArrayParameters.get(
+              calleeName
+            );
+            if (calleeMutatedParams) {
+              const callee = functions.find(
+                (candidateFunction) => candidateFunction.name === calleeName
+              );
+              if (callee) {
+                callee.parameters.forEach((parameter, index) => {
+                  if (
+                    !isIdentifierPattern(parameter) ||
+                    !calleeMutatedParams.has(parameter.pattern.name)
+                  ) {
+                    return;
+                  }
+
+                  const arg = call.arguments[index];
+                  if (
+                    arg?.kind === "identifier" &&
+                    parameterNames.has(arg.name) &&
+                    !inherited.has(arg.name)
+                  ) {
+                    inherited.add(arg.name);
+                    mutableArrayParameters.set(fn.name, inherited);
+                    changed = true;
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        for (const [key, child] of Object.entries(
+          candidate as Record<string, unknown>
+        )) {
+          if (
+            key === "inferredType" ||
+            key === "contextualType" ||
+            key === "sourceSpan" ||
+            key === "memberBinding" ||
+            key === "parameterTypes" ||
+            key === "sourceBackedSurfaceParameterTypes" ||
+            key === "surfaceParameterTypes" ||
+            key === "sourceBackedRestParameter" ||
+            key === "surfaceRestParameter" ||
+            key === "restParameter"
+          ) {
+            continue;
+          }
+          visit(child, visited);
+        }
+      };
+
+      visit(fn.body);
+    }
+  }
+
+  if (mutableArrayParameters.size === 0) {
+    return members;
+  }
+
+  const rewriteInferredRefCalls = (
+    candidate: unknown,
+    visited: WeakMap<object, unknown> = new WeakMap<object, unknown>()
+  ): unknown => {
+    if (candidate == null || typeof candidate !== "object") {
+      return candidate;
+    }
+
+    if (visited.has(candidate)) {
+      return visited.get(candidate);
+    }
+
+    if (Array.isArray(candidate)) {
+      const rewritten = candidate.map((item) =>
+        rewriteInferredRefCalls(item, visited)
+      );
+      visited.set(candidate, rewritten);
+      return rewritten;
+    }
+
+    const node = candidate as { readonly kind?: unknown };
+    if (node.kind === "functionExpression" || node.kind === "arrowFunction") {
+      return candidate;
+    }
+
+    const copy: Record<string, unknown> = {};
+    visited.set(candidate, copy);
+    for (const [key, child] of Object.entries(
+      candidate as Record<string, unknown>
+    )) {
+      if (
+        key === "inferredType" ||
+        key === "contextualType" ||
+        key === "sourceSpan" ||
+        key === "memberBinding" ||
+        key === "parameterTypes" ||
+        key === "sourceBackedSurfaceParameterTypes" ||
+        key === "surfaceParameterTypes" ||
+        key === "sourceBackedRestParameter" ||
+        key === "surfaceRestParameter" ||
+        key === "restParameter"
+      ) {
+        copy[key] = child;
+        continue;
+      }
+      copy[key] = rewriteInferredRefCalls(child, visited);
+    }
+
+    if (node.kind === "call") {
+      const call = candidate as Extract<IrExpression, { kind: "call" }>;
+      if (call.callee.kind === "identifier") {
+        const calleeName = call.callee.name;
+        const mutated = mutableArrayParameters.get(calleeName);
+        const callee = functions.find(
+          (candidateFunction) => candidateFunction.name === calleeName
+        );
+        if (mutated && callee) {
+          const argumentPassing = [...(call.argumentPassing ?? [])];
+          callee.parameters.forEach((parameter, index) => {
+            if (
+              isIdentifierPattern(parameter) &&
+              mutated.has(parameter.pattern.name) &&
+              (argumentPassing[index] === undefined ||
+                argumentPassing[index] === "value")
+            ) {
+              argumentPassing[index] = "ref";
+            }
+          });
+          if (argumentPassing.some((mode) => mode !== undefined)) {
+            copy.argumentPassing = argumentPassing;
+          }
+        }
+      }
+    }
+
+    return copy;
+  };
+
+  const rewrittenMembers = members.map((member) => {
+    if (member.kind !== "functionDeclaration") {
+      return member;
+    }
+
+    const mutated = mutableArrayParameters.get(member.name);
+    if (!mutated || mutated.size === 0) {
+      return member;
+    }
+
+    return {
+      ...member,
+      parameters: member.parameters.map((parameter) =>
+        isIdentifierPattern(parameter) &&
+        parameter.passing === "value" &&
+        mutated.has(parameter.pattern.name)
+          ? { ...parameter, passing: "ref" as const }
+          : parameter
+      ),
+    };
+  });
+
+  return rewrittenMembers.map(
+    (member) => rewriteInferredRefCalls(member) as IrStatement
+  );
 };
 
 export const collectStaticContainerValueSymbols = (
@@ -141,12 +474,16 @@ export const emitStaticContainer = (
   hasInheritance: boolean,
   useModuleSuffix: boolean = false
 ): StaticContainerResult => {
+  const semanticMembers = inferArrayMutationRefParameters(members, baseContext);
   const escapedClassName = escapeCSharpIdentifier(module.className);
   const containerName = useModuleSuffix
     ? `${escapedClassName}__Module`
     : escapedClassName;
 
-  const valueSymbols = collectStaticContainerValueSymbols(members, baseContext);
+  const valueSymbols = collectStaticContainerValueSymbols(
+    semanticMembers,
+    baseContext
+  );
   const classContext = withClassName(
     {
       ...withStatic(indent(baseContext), true),
@@ -155,11 +492,12 @@ export const emitStaticContainer = (
     containerName
   );
   const bodyContext = indent(classContext);
-  const needsUnsafe = members.some((m) => statementUsesPointer(m));
+  const needsUnsafe = semanticMembers.some((m) => statementUsesPointer(m));
 
   // Separate declarations from executable statements
   const isEntryPointWithTopLevelCode =
-    baseContext.options.isEntryPoint && members.some(isExecutableStatement);
+    baseContext.options.isEntryPoint &&
+    semanticMembers.some(isExecutableStatement);
 
   const staticMemberKinds = [
     "functionDeclaration",
@@ -171,12 +509,12 @@ export const emitStaticContainer = (
   ];
 
   const declarations = isEntryPointWithTopLevelCode
-    ? members.filter((m) => staticMemberKinds.includes(m.kind))
-    : members.filter((m) => !isExecutableStatement(m));
+    ? semanticMembers.filter((m) => staticMemberKinds.includes(m.kind))
+    : semanticMembers.filter((m) => !isExecutableStatement(m));
 
   const mainBodyStmts = isEntryPointWithTopLevelCode
-    ? members.filter((m) => !staticMemberKinds.includes(m.kind))
-    : members.filter(isExecutableStatement);
+    ? semanticMembers.filter((m) => !staticMemberKinds.includes(m.kind))
+    : semanticMembers.filter(isExecutableStatement);
 
   const astMembers: CSharpMemberAst[] = [];
   let bodyCurrentContext = bodyContext;

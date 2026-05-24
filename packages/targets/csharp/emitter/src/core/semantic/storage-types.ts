@@ -24,6 +24,46 @@ const OBJECT_STORAGE_TYPE: IrType = {
   providerQualifiedName: "System.Object",
 };
 
+const isUnconstrainedGenericNullishUnion = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  if (type.kind !== "unionType") {
+    return false;
+  }
+
+  const split = splitRuntimeNullishUnionMembers(type);
+  if (!split?.hasRuntimeNullish || split.nonNullishMembers.length !== 1) {
+    return false;
+  }
+
+  const [nonNullishMember] = split.nonNullishMembers;
+  return (
+    nonNullishMember?.kind === "typeParameterType" &&
+    (context.typeParamConstraints?.get(nonNullishMember.name) ??
+      "unconstrained") === "unconstrained"
+  );
+};
+
+const normalizeDelegateReturnStorageType = (
+  type: IrType,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!isUnconstrainedGenericNullishUnion(type, context)) {
+    return undefined;
+  }
+
+  const split = splitRuntimeNullishUnionMembers(type);
+  const nullishMembers =
+    split?.hasRuntimeNullish === true && type.kind === "unionType"
+      ? type.types.filter(isRuntimeNullishMember)
+      : [];
+  return {
+    kind: "unionType",
+    types: [OBJECT_STORAGE_TYPE, ...nullishMembers],
+  };
+};
+
 export const resolveRuntimeStorageArrayLikeElementType = (
   type: IrType | undefined,
   context: EmitterContext
@@ -37,6 +77,25 @@ export const resolveRuntimeStorageType = (
   type: IrType | undefined,
   context: EmitterContext
 ): IrType | undefined => normalizeRuntimeStorageType(type, context);
+
+export const resolveErasedNullableGenericStorageType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const normalized = normalizeRuntimeStorageType(type, {
+    ...context,
+    eraseNullableUnconstrainedTypeParameterStorage: true,
+  });
+  if (!normalized || typesEquivalent(normalized, type, context)) {
+    return undefined;
+  }
+
+  return normalized;
+};
 
 export const resolveRuntimeStoragePropertyType = (
   receiverType: IrType | undefined,
@@ -130,8 +189,9 @@ const isInScopeTypeParameter = (
 ): boolean => context.typeParameters?.has(name) ?? false;
 
 const isRuntimeNullishMember = (type: IrType): boolean =>
-  type.kind === "primitiveType" &&
-  (type.name === "null" || type.name === "undefined");
+  type.kind === "voidType" ||
+  (type.kind === "primitiveType" &&
+    (type.name === "null" || type.name === "undefined"));
 
 const getBareUnconstrainedTypeParameter = (
   type: IrType,
@@ -319,11 +379,9 @@ const normalizeOutOfScopeTypeParameters = (
               type: normalizedParameterType,
             };
       });
-      const normalizedReturnType = normalizeOutOfScopeTypeParameters(
-        resolved.returnType,
-        context,
-        visited
-      );
+      const normalizedReturnType =
+        normalizeDelegateReturnStorageType(resolved.returnType, context) ??
+        normalizeOutOfScopeTypeParameters(resolved.returnType, context, visited);
       return normalizedParameters.every((parameter, index) =>
         typesEquivalent(
           parameter.type ?? { kind: "voidType" },

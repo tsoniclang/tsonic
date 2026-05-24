@@ -11,6 +11,7 @@ import type {
   TypeRegistry,
   TypeRegistryEntry,
   HeritageInfo,
+  MemberInfo,
   ConvertTypeFn,
   BuildTypeRegistryOptions,
 } from "./type-registry.js";
@@ -257,6 +258,42 @@ export const buildTypeRegistry = (
           recordSimpleName(simpleName, fqName);
         }
       }
+    }
+
+    if (ts.isEnumDeclaration(node)) {
+      const simpleName = node.name.text;
+      const fqName = makeFQName(simpleName);
+      const enumType: IrType = {
+        kind: "referenceType",
+        name: fqName,
+      };
+      const members = new Map<string, MemberInfo>();
+      for (const member of node.members) {
+        if (!ts.isIdentifier(member.name)) {
+          continue;
+        }
+        members.set(member.name.text, {
+          kind: "property",
+          name: member.name.text,
+          type: enumType,
+          isOptional: false,
+          isReadonly: true,
+        });
+      }
+
+      entries.set(fqName, {
+        kind: "enum",
+        name: simpleName,
+        fullyQualifiedName: fqName,
+        ownerIdentity,
+        isDeclarationFile: sf.isDeclarationFile,
+        preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
+        typeParameters: [],
+        members,
+        heritage: [],
+      });
+
+      recordSimpleName(simpleName, fqName);
     }
 
     // Type alias declarations

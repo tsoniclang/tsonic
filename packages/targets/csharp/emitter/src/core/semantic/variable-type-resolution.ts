@@ -15,7 +15,11 @@ import {
 } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
-import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import {
+  resolveTypeAlias,
+  splitRuntimeNullishUnionMembers,
+  stripNullish,
+} from "./type-resolution.js";
 import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
 import { getIdentifierTypeName } from "../format/backend-ast/utils.js";
@@ -285,6 +289,50 @@ const isTransparentFlowTypeAssertion = (
   );
 };
 
+const isRuntimeNullishGenericTypeParameterUnion = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  const split = type ? splitRuntimeNullishUnionMembers(type) : undefined;
+  if (!split?.hasRuntimeNullish || split.nonNullishMembers.length !== 1) {
+    return false;
+  }
+
+  const [member] = split.nonNullishMembers;
+  return (
+    member?.kind === "typeParameterType" &&
+    (context.typeParamConstraints?.get(member.name) ?? "unconstrained") ===
+      "unconstrained"
+  );
+};
+
+const isLocalFunctionValueGenericOptionalCall = (
+  initializer:
+    | {
+        readonly kind: string;
+        readonly inferredType?: IrType;
+        readonly targetType?: IrType;
+      }
+    | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!initializer || initializer.kind !== "call") {
+    return false;
+  }
+
+  const call = initializer as Extract<IrExpression, { kind: "call" }>;
+  const callee = call.callee;
+  if (callee.kind !== "identifier") {
+    return false;
+  }
+
+  const calleeType = context.localSemanticTypes?.get(callee.name);
+  return (
+    calleeType?.kind === "functionType" &&
+    isRuntimeNullishGenericTypeParameterUnion(calleeType.returnType, context)
+  );
+};
+
 const hasExplicitRuntimeUnionCarrierIdentity = (
   type: IrType | undefined,
   context: EmitterContext
@@ -430,6 +478,10 @@ export const resolveInitializerEmissionExpectedType = (
   // Numeric narrowing: use the inferred type directly
   if (initializer.kind === "numericNarrowing") {
     return (initializer as { readonly inferredType?: IrType }).inferredType;
+  }
+
+  if (isLocalFunctionValueGenericOptionalCall(initializer, context)) {
+    return undefined;
   }
 
   // Other initializers: use the semantic type (not storage-normalized)

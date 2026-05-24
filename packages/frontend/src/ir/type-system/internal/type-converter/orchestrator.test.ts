@@ -365,6 +365,18 @@ describe("Type Converter - TypeQuery from awaited locals", () => {
 });
 
 describe("Type Converter - Deterministic Type Operators", () => {
+  it("preserves signed numeric literal union members", () => {
+    const converted = convertAlias("type Comparison = -1 | 0 | 1;", "Comparison");
+
+    expect(converted).to.deep.equal(
+      makeUnion(
+        { kind: "literalType", value: -1 },
+        { kind: "literalType", value: 0 },
+        { kind: "literalType", value: 1 }
+      )
+    );
+  });
+
   it("lowers keyof object literal types to a union of key literals", () => {
     const converted = convertAlias(
       "type T = keyof { alpha: number; beta: string };",

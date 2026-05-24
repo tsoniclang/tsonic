@@ -743,6 +743,32 @@ describe("Expression Emission", () => {
 
     const [result] = emitExpressionAst(expr, context);
     const printed = printExpression(result);
-    expect(printed).to.equal("buffer.at(0)");
+    expect(printed).to.equal("buffer.at(0).Value");
+
+    const optionalExpr = {
+      ...expr,
+      inferredType: {
+        kind: "unionType" as const,
+        types: [
+          {
+            kind: "referenceType" as const,
+            name: "byte" as const,
+            typeId: {
+              stableId: "System.Private.CoreLib:System.Byte",
+              providerName: "System.Byte",
+              ownerIdentity: "System.Private.CoreLib",
+              sourceName: "Byte",
+            },
+          },
+          {
+            kind: "primitiveType" as const,
+            name: "undefined" as const,
+          },
+        ],
+      },
+    };
+
+    const [optionalResult] = emitExpressionAst(optionalExpr, context);
+    expect(printExpression(optionalResult)).to.equal("buffer.at(0)");
   });
 });

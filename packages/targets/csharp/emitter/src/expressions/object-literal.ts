@@ -166,10 +166,25 @@ export const emitObject = (
 
     if (literalKeys.length !== expr.properties.length) return strippedType;
 
+    const literalValues = new Map<
+      string,
+      string | number | bigint | boolean | null | undefined
+    >();
+    for (const prop of expr.properties) {
+      if (
+        prop.kind === "property" &&
+        typeof prop.key === "string" &&
+        prop.value.kind === "literal"
+      ) {
+        literalValues.set(prop.key, prop.value.value);
+      }
+    }
+
     const selected = selectObjectLiteralUnionMember(
       resolved,
       literalKeys,
-      currentContext
+      currentContext,
+      literalValues
     );
     return selected ?? strippedType;
   })();

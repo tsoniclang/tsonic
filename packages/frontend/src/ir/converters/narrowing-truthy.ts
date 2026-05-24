@@ -137,6 +137,8 @@ const matchesTypeofTag = (type: IrType, tag: string): boolean => {
         return typeof type.value === "number";
       case "boolean":
         return typeof type.value === "boolean";
+      case "bigint":
+        return false;
       case "object":
         return type.value === null;
       default:
@@ -169,6 +171,8 @@ const matchesTypeofTag = (type: IrType, tag: string): boolean => {
           return primitiveTypeFactFromName(type.name)?.jsTypeof === "number";
         case "boolean":
           return primitiveTypeFactFromName(type.name)?.jsTypeof === "boolean";
+        case "bigint":
+          return type.name === "bigint";
         case "undefined":
           return type.name === "undefined";
         case "object":

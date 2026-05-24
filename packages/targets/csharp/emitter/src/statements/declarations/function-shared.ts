@@ -42,6 +42,7 @@ export type SavedFunctionScopeContext = {
   readonly voidResolveNames: EmitterContext["voidResolveNames"];
   readonly promiseResolveValueTypes: EmitterContext["promiseResolveValueTypes"];
   readonly localNameMap: EmitterContext["localNameMap"];
+  readonly byRefLocalNames: EmitterContext["byRefLocalNames"];
   readonly localSemanticTypes: EmitterContext["localSemanticTypes"];
   readonly localValueTypes: EmitterContext["localValueTypes"];
   readonly usedLocalNames: EmitterContext["usedLocalNames"];
@@ -58,6 +59,7 @@ export const captureFunctionScopeContext = (
   voidResolveNames: context.voidResolveNames,
   promiseResolveValueTypes: context.promiseResolveValueTypes,
   localNameMap: context.localNameMap,
+  byRefLocalNames: context.byRefLocalNames,
   localSemanticTypes: context.localSemanticTypes,
   localValueTypes: context.localValueTypes,
   usedLocalNames: context.usedLocalNames,
@@ -77,6 +79,7 @@ export const seedLocalNameMapFromParameters = (
   acceptsExplicitUndefinedOverrides?: readonly boolean[]
 ): EmitterContext => {
   const map = new Map(context.localNameMap ?? []);
+  const byRefLocalNames = new Set(context.byRefLocalNames ?? []);
   let currentContext = context;
   const used = new Set<string>();
   for (let index = 0; index < params.length; index += 1) {
@@ -87,6 +90,9 @@ export const seedLocalNameMapFromParameters = (
     const emitted = escapeCSharpIdentifier(p.pattern.name);
     map.set(p.pattern.name, emitted);
     used.add(emitted);
+    if (p.passing === "ref" || p.passing === "out") {
+      byRefLocalNames.add(p.pattern.name);
+    }
     const acceptsExplicitUndefined =
       acceptsExplicitUndefinedOverrides?.[index] ??
       ((p.isOptional || p.initializer !== undefined) && !p.isRest);
@@ -100,6 +106,7 @@ export const seedLocalNameMapFromParameters = (
   return {
     ...currentContext,
     localNameMap: map,
+    byRefLocalNames,
     usedLocalNames: used,
   };
 };

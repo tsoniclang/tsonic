@@ -16,7 +16,10 @@ import {
   identifierType,
 } from "../../core/format/backend-ast/builders.js";
 import { emitWritableTargetAst } from "./write-targets.js";
-import { castBitwiseOperandToInt } from "./bitwise-helpers.js";
+import {
+  castBitwiseOperandToInt,
+  emitJsNumberBitwiseNot,
+} from "./bitwise-helpers.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -193,6 +196,16 @@ export const emitUnary = (
   }
 
   if (expr.operator === "~") {
+    const jsNumberBitwiseAst = emitJsNumberBitwiseNot(
+      operandAst,
+      expr.expression.inferredType,
+      newContext
+    );
+
+    if (jsNumberBitwiseAst) {
+      return [jsNumberBitwiseAst, newContext];
+    }
+
     return [
       {
         kind: "prefixUnaryExpression",

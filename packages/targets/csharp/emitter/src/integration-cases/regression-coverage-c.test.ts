@@ -3133,8 +3133,45 @@ describe("End-to-End Integration", () => {
         "for (int index = 0; index < (pathSpec.As1()).Length; index += 1)"
       );
       expect(csharp).to.include(
-        "if (matchesPathSpec((pathSpec.As1())[index], requestPath))"
+        "if (matchesPathSpec(global::Tsonic.Internal.ArrayInterop.ReadOptionalObject<global::Test.PathSpec>((pathSpec.As1()), index), requestPath))"
       );
+    });
+
+    it("preserves typed reference optional array reads in ternary expressions", () => {
+      const csharp = compileToCSharp(
+        `
+          class LanguageConfig {
+            lang: string;
+
+            constructor(lang: string) {
+              this.lang = lang;
+            }
+          }
+
+          class SiteContext {
+            language: LanguageConfig | undefined;
+
+            constructor(language?: LanguageConfig) {
+              this.language = language;
+            }
+          }
+
+          export function run(configs: LanguageConfig[]): SiteContext {
+            const current = configs.length > 0 ? configs[0] : undefined;
+            return new SiteContext(current);
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "var current = configs.Length > 0 ? global::Tsonic.Internal.ArrayInterop.ReadOptionalReference<LanguageConfig>(configs, 0) : default(LanguageConfig);"
+      );
+      expect(csharp).to.include("return new SiteContext(current);");
+      expect(csharp).not.to.include("cannot convert from 'object'");
     });
 
     it("preserves installed source-package recursive Array.isArray element aliases", () => {
@@ -3487,6 +3524,29 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).not.to.include(
         "new global::js.Uint8Array(new int[] { 1, 2, 3 })"
+      );
+    });
+
+    it("rewraps byte-array typed-array constructor identifiers through nested union surfaces", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { byte } from "@tsonic/core/types.js";
+
+          export function run(buffer: byte[]): Uint8Array {
+            return new Uint8Array(buffer);
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From2(global::js.TypedArrayInput<byte>.From1(buffer)))"
+      );
+      expect(csharp).not.to.include(
+        "(global::js.TypedArrayInput<byte>)buffer"
       );
     });
 

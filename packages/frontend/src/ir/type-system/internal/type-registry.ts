@@ -51,12 +51,12 @@ export type TypeParameterEntry = {
 };
 
 /**
- * Entry for a nominal type (class, interface, type alias) - PURE IR
+ * Entry for a nominal type (class, interface, enum, type alias) - PURE IR
  *
  * NOTE: No ts.Declaration, ts.SourceFile, or ts.TypeNode fields.
  */
 export type TypeRegistryEntry = {
-  readonly kind: "class" | "interface" | "typeAlias";
+  readonly kind: "class" | "interface" | "enum" | "typeAlias";
   readonly name: string; // Simple name (e.g., "User")
   readonly fullyQualifiedName: string; // FQ name (e.g., "MyApp.Models.User")
   readonly ownerIdentity: string;
