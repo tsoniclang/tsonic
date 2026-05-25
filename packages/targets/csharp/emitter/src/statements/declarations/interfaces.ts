@@ -18,8 +18,11 @@ import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
 import { normalizeValueSlotType } from "../../core/semantic/value-slot-types.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
-import { structuralInterfaceContractKey } from "../../core/semantic/local-types.js";
 import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
+import {
+  localInterfaceInfoEmitsAsNative,
+  referenceTypeEmitsAsNativeInterface,
+} from "../../core/semantic/native-interfaces.js";
 import type {
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
@@ -105,17 +108,23 @@ export const emitInterfaceDeclaration = (
     localNameMap: context.localNameMap,
   };
 
-  const hasMethodSignatures = stmt.members.some(
-    (m) => m.kind === "methodSignature"
+  const localInterfaceInfo =
+    context.localTypes?.get(stmt.name)?.kind === "interface"
+      ? context.localTypes.get(stmt.name)
+      : {
+          kind: "interface" as const,
+          isExported: stmt.isExported,
+          isStruct: stmt.isStruct,
+          typeParameters: stmt.typeParameters?.map((tp) => tp.name) ?? [],
+          members: stmt.members,
+          extends: stmt.extends,
+        };
+  const emitsAsNativeInterface = localInterfaceInfoEmitsAsNative(
+    localInterfaceInfo,
+    context.moduleNamespace ?? context.options.rootNamespace,
+    stmt.name,
+    context
   );
-  const emitsAsNativeInterface =
-    hasMethodSignatures ||
-    context.options.structuralInterfaceContracts?.has(
-      structuralInterfaceContractKey(
-        context.moduleNamespace ?? context.options.rootNamespace,
-        stmt.name
-      )
-    ) === true;
 
   // Build type parameter names set FIRST
   const ifaceTypeParams = new Set<string>([
@@ -181,11 +190,21 @@ export const emitInterfaceDeclaration = (
 
   // Extended interfaces/classes
   const interfaces: CSharpTypeAst[] = [];
+  let baseType: CSharpTypeAst | undefined;
   if (stmt.extends && stmt.extends.length > 0) {
     for (const ext of stmt.extends) {
       const [extTypeAst, newContext] = emitTypeAst(ext, currentContext);
       currentContext = newContext;
-      interfaces.push(extTypeAst);
+      if (
+        !emitsAsNativeInterface &&
+        ext.kind === "referenceType" &&
+        !referenceTypeEmitsAsNativeInterface(ext, currentContext) &&
+        baseType === undefined
+      ) {
+        baseType = extTypeAst;
+      } else {
+        interfaces.push(extTypeAst);
+      }
     }
   }
 
@@ -355,6 +374,7 @@ export const emitInterfaceDeclaration = (
           modifiers,
           name: classLikeName,
           typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
+          baseType,
           interfaces,
           members,
           constraints: constraintAsts.length > 0 ? constraintAsts : undefined,

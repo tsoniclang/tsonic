@@ -13,7 +13,10 @@ import {
 import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 import { isRuntimeUnionTypeAst } from "./runtime-reification-helpers.js";
 import { getPropertyType, resolveTypeAlias } from "./type-resolution.js";
-import { stripNullableTypeAst } from "../format/backend-ast/utils.js";
+import {
+  sameTypeAstSurface,
+  stripNullableTypeAst,
+} from "../format/backend-ast/utils.js";
 
 const resolveDirectIdentifierName = (
   emittedIdentifier: string,
@@ -88,6 +91,41 @@ const unwrapTransparentValueAst = (
   valueAst.kind === "parenthesizedExpression"
     ? unwrapTransparentValueAst(valueAst.expression)
     : valueAst;
+
+const qualifiedIdentifierExpressionName = (
+  valueAst: CSharpExpressionAst
+): string | undefined => {
+  if (valueAst.kind !== "qualifiedIdentifierExpression") {
+    return undefined;
+  }
+
+  const prefix = valueAst.name.aliasQualifier
+    ? `${valueAst.name.aliasQualifier}::`
+    : "";
+  return `${prefix}${valueAst.name.segments.join(".")}`;
+};
+
+const resolveQualifiedImportedValueSurfaceType = (
+  valueAst: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  const qualifiedName = qualifiedIdentifierExpressionName(valueAst);
+  if (!qualifiedName || !context.importBindings) {
+    return undefined;
+  }
+
+  for (const binding of context.importBindings.values()) {
+    if (binding.kind !== "value" || !binding.valueType) {
+      continue;
+    }
+
+    if (`${binding.clrName}.${binding.member}` === qualifiedName) {
+      return binding.valueType;
+    }
+  }
+
+  return undefined;
+};
 
 const hasExplicitRuntimeCarrierIdentity = (
   candidate: IrType | undefined,
@@ -286,11 +324,53 @@ const tryResolveRuntimeUnionSurfaceTypeAst = (
     : undefined;
 };
 
+const tryResolveRuntimeUnionFactoryTypeAst = (
+  valueAst: CSharpExpressionAst
+): CSharpTypeAst | undefined => {
+  const directAst = unwrapTransparentValueAst(valueAst);
+
+  if (directAst.kind === "throwExpression") {
+    return undefined;
+  }
+
+  if (
+    directAst.kind === "invocationExpression" &&
+    directAst.expression.kind === "memberAccessExpression" &&
+    /^From[1-9][0-9]*$/.test(directAst.expression.memberName) &&
+    directAst.expression.expression.kind === "typeReferenceExpression"
+  ) {
+    return directAst.expression.expression.type;
+  }
+
+  if (directAst.kind !== "conditionalExpression") {
+    return undefined;
+  }
+
+  const whenTrueType = tryResolveRuntimeUnionFactoryTypeAst(directAst.whenTrue);
+  const whenFalseType = tryResolveRuntimeUnionFactoryTypeAst(
+    directAst.whenFalse
+  );
+  if (!whenTrueType) {
+    return whenFalseType;
+  }
+  if (!whenFalseType) {
+    return whenTrueType;
+  }
+  return sameTypeAstSurface(whenTrueType, whenFalseType)
+    ? whenTrueType
+    : undefined;
+};
+
 const tryResolveExplicitRuntimeUnionSurfaceType = (
   valueAst: CSharpExpressionAst,
   context: EmitterContext
 ): IrType | undefined => {
   const directAst = unwrapTransparentValueAst(valueAst);
+  const factoryTypeAst = tryResolveRuntimeUnionFactoryTypeAst(directAst);
+  if (factoryTypeAst) {
+    return tryResolveRuntimeUnionSurfaceTypeAst(factoryTypeAst, context);
+  }
+
   if (
     directAst.kind === "castExpression" ||
     directAst.kind === "asExpression"
@@ -310,6 +390,15 @@ const tryResolveExplicitRuntimeUnionSurfaceType = (
   }
 
   return undefined;
+};
+
+const tryResolveExplicitSurfaceType = (
+  valueAst: CSharpExpressionAst
+): IrType | undefined => {
+  const directAst = unwrapTransparentValueAst(valueAst);
+  return directAst.kind === "castExpression" || directAst.kind === "asExpression"
+    ? tryConvertSurfaceTypeAstToIrType(directAst.type)
+    : undefined;
 };
 
 const withOptionalUndefined = (type: IrType): IrType => {
@@ -511,7 +600,9 @@ export const resolveDirectValueSurfaceType = (
   const directAst = unwrapTransparentValueAst(valueAst);
   if (directAst.kind !== "identifierExpression") {
     return (
+      resolveQualifiedImportedValueSurfaceType(directAst, context) ??
       tryResolveExplicitRuntimeUnionSurfaceType(directAst, context) ??
+      tryResolveExplicitSurfaceType(directAst) ??
       tryResolveRuntimeUnionAsMemberType(directAst, context) ??
       tryResolveDirectMemberAccessSurfaceType(directAst, context)
     );
@@ -527,22 +618,33 @@ export const resolveDirectValueSurfaceType = (
 
   const narrowed = context.narrowedBindings?.get(originalName);
   if (narrowed?.kind === "expr" || narrowed?.kind === "runtimeSubset") {
+    const localValueType = context.localValueTypes?.get(originalName);
+    const storageType =
+      narrowed.kind === "expr" ? narrowed.storageType : undefined;
     return (
       resolveCanonicalNarrowedMemberType(
         narrowed.type,
         narrowed.sourceType,
         context
-      ) ?? narrowed.sourceType
+      ) ??
+      narrowed.type ??
+      storageType ??
+      localValueType ??
+      narrowed.sourceType
     );
   }
 
   if (narrowed?.kind === "rename") {
+    const localValueType = context.localValueTypes?.get(originalName);
     return (
       resolveCanonicalNarrowedMemberType(
         narrowed.type,
         narrowed.sourceType,
         context
-      ) ?? narrowed.sourceType
+      ) ??
+      narrowed.type ??
+      localValueType ??
+      narrowed.sourceType
     );
   }
 
@@ -599,14 +701,25 @@ export const resolveIdentifierValueSurfaceType = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   context: EmitterContext
 ): IrType | undefined => {
+  const localValueType = context.localValueTypes?.get(expr.name);
   const narrowed = context.narrowedBindings?.get(expr.name);
   if (narrowed?.kind === "expr") {
-    return narrowed.type ?? narrowed.sourceType;
+    return (
+      narrowed.type ??
+      narrowed.storageType ??
+      localValueType ??
+      narrowed.sourceType
+    );
   }
 
   if (narrowed?.kind === "runtimeSubset") {
-    return narrowed.type ?? narrowed.sourceType;
+    return narrowed.type ?? localValueType ?? narrowed.sourceType;
   }
 
-  return context.localValueTypes?.get(expr.name);
+  const importBinding = context.importBindings?.get(expr.name);
+  if (importBinding?.kind === "value" && importBinding.valueType) {
+    return importBinding.valueType;
+  }
+
+  return localValueType;
 };

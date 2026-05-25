@@ -7,7 +7,10 @@ import {
   splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
 import { unwrapParameterModifierType } from "./parameter-modifier-types.js";
-import { getRuntimeUnionAliasReferenceKey } from "./runtime-union-alias-identity.js";
+import {
+  getRuntimeUnionAliasReferenceKey,
+  runtimeUnionAliasReferencesMatch,
+} from "./runtime-union-alias-identity.js";
 import { runtimeUnionMemberCanAcceptValue } from "./runtime-union-matching.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import {
@@ -78,14 +81,45 @@ const matchesRawSemanticComparableTypes = (
   actualComparableType: IrType,
   expectedComparableType: IrType,
   context: EmitterContext
-): boolean =>
-  isAssignableToType(actualComparableType, expectedComparableType, context) ||
-  runtimeUnionMemberCanAcceptValue(
-    expectedComparableType,
-    actualComparableType,
-    context
-  ) ||
-  areIrTypesEquivalent(actualComparableType, expectedComparableType, context);
+): boolean => {
+  if (
+    runtimeUnionAliasReferencesMatch(
+      actualComparableType,
+      expectedComparableType,
+      context
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    actualComparableType.kind === "dictionaryType" &&
+    expectedComparableType.kind === "dictionaryType"
+  ) {
+    return (
+      matchesRawSemanticComparableTypes(
+        actualComparableType.keyType,
+        expectedComparableType.keyType,
+        context
+      ) &&
+      matchesRawSemanticComparableTypes(
+        actualComparableType.valueType,
+        expectedComparableType.valueType,
+        context
+      )
+    );
+  }
+
+  return (
+    isAssignableToType(actualComparableType, expectedComparableType, context) ||
+    runtimeUnionMemberCanAcceptValue(
+      expectedComparableType,
+      actualComparableType,
+      context
+    ) ||
+    areIrTypesEquivalent(actualComparableType, expectedComparableType, context)
+  );
+};
 
 export const matchesRawSemanticExpectedType = (
   actualType: IrType | undefined,

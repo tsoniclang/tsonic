@@ -2,7 +2,7 @@
  * Module map for resolving cross-file imports
  */
 
-import { IrModule, Diagnostic } from "@tsonic/frontend";
+import { IrModule, Diagnostic, type IrStatement, type IrType } from "@tsonic/frontend";
 import type {
   ModuleIdentity,
   ModuleMap,
@@ -169,6 +169,92 @@ export const buildModuleMap = (
       return kinds;
     })();
 
+    const exportedValueTypes = (() => {
+      const types = new Map<string, IrType>();
+
+      const hasStructuralShape = (type: IrType | undefined): boolean =>
+        type?.kind === "objectType" ||
+        (type?.kind === "referenceType" &&
+          (type.structuralMembers?.length ?? 0) > 0);
+
+      const valueTypeOf = (
+        declaredType: IrType | undefined,
+        initializerType: IrType | undefined
+      ): IrType | undefined => {
+        if (
+          declaredType?.kind === "referenceType" &&
+          declaredType.structuralOrigin === "compilerOwnedStructural" &&
+          !hasStructuralShape(declaredType) &&
+          hasStructuralShape(initializerType)
+        ) {
+          return initializerType;
+        }
+
+        return declaredType ?? initializerType;
+      };
+
+      const functionTypeOf = (
+        stmt: Extract<IrStatement, { kind: "functionDeclaration" }>
+      ): Extract<IrType, { kind: "functionType" }> => ({
+        kind: "functionType",
+        parameters: stmt.parameters,
+        returnType: stmt.returnType ?? { kind: "voidType" },
+      });
+
+      const findLocalValueType = (localName: string): IrType | undefined => {
+        for (const stmt of module.body) {
+          if (stmt.kind === "functionDeclaration" && stmt.name === localName) {
+            return functionTypeOf(stmt);
+          }
+          if (stmt.kind !== "variableDeclaration") {
+            continue;
+          }
+          for (const decl of stmt.declarations) {
+            if (decl.name.kind !== "identifierPattern") {
+              continue;
+            }
+            if (decl.name.name !== localName) {
+              continue;
+            }
+            return valueTypeOf(decl.type, decl.initializer?.inferredType);
+          }
+        }
+        return undefined;
+      };
+
+      for (const exp of module.exports) {
+        if (exp.kind === "declaration") {
+          const decl = exp.declaration;
+          if (decl.kind === "functionDeclaration") {
+            types.set(decl.name, functionTypeOf(decl));
+          } else if (decl.kind === "variableDeclaration") {
+            for (const d of decl.declarations) {
+              if (d.name.kind !== "identifierPattern") {
+                continue;
+              }
+              const valueType = valueTypeOf(
+                d.type,
+                d.initializer?.inferredType
+              );
+              if (valueType) {
+                types.set(d.name.name, valueType);
+              }
+            }
+          }
+          continue;
+        }
+
+        if (exp.kind === "named") {
+          const valueType = findLocalValueType(exp.localName);
+          if (valueType) {
+            types.set(exp.name, valueType);
+          }
+        }
+      }
+
+      return types;
+    })();
+
     const exportedValueCallArities = (() => {
       const arities = new Map<string, readonly number[]>();
 
@@ -257,6 +343,7 @@ export const buildModuleMap = (
       hasRuntimeContainer,
       hasTypeCollision,
       exportedValueKinds,
+      exportedValueTypes,
       exportedValueCallArities,
       localTypes,
       publicLocalTypes,

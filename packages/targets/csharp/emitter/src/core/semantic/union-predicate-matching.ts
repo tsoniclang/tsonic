@@ -64,6 +64,116 @@ const literalTypeContainsValue = (
   return sawLiteralConstraint ? false : undefined;
 };
 
+const isBroadStructuralTarget = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    resolved.kind === "anyType" ||
+    resolved.kind === "unknownType" ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "object" || resolved.name === "JsValue"))
+  );
+};
+
+const getStructuralProperties = (
+  type: IrType,
+  context: EmitterContext
+): readonly {
+  readonly name: string;
+  readonly type: IrType;
+  readonly isOptional?: boolean;
+}[] | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "objectType") {
+    return resolved.members.flatMap((member) =>
+      member.kind === "propertySignature"
+        ? [
+            {
+              name: member.name,
+              type: member.type,
+              isOptional: member.isOptional,
+            },
+          ]
+        : []
+    );
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  if (resolved.structuralMembers?.length) {
+    return resolved.structuralMembers.flatMap((member) =>
+      member.kind === "propertySignature"
+        ? [
+            {
+              name: member.name,
+              type: member.type,
+              isOptional: member.isOptional,
+            },
+          ]
+        : []
+    );
+  }
+
+  const signatures = getAllPropertySignatures(resolved, context);
+  return signatures?.map((member) => ({
+    name: member.name,
+    type: member.type,
+    isOptional: member.isOptional,
+  }));
+};
+
+const structuralTypeMatchesPredicateTarget = (
+  member: IrType,
+  candidate: IrType,
+  context: EmitterContext,
+  visited: Set<string>,
+  matches: (
+    memberType: IrType,
+    candidateType: IrType,
+    visitedTypes: Set<string>
+  ) => boolean
+): boolean | undefined => {
+  const memberProperties = getStructuralProperties(member, context);
+  const candidateProperties = getStructuralProperties(candidate, context);
+  if (!memberProperties || !candidateProperties) {
+    return undefined;
+  }
+
+  const memberByName = new Map(
+    memberProperties.map((property) => [property.name, property])
+  );
+  for (const candidateProperty of candidateProperties) {
+    const memberProperty = memberByName.get(candidateProperty.name);
+    if (!memberProperty) {
+      if (candidateProperty.isOptional) {
+        continue;
+      }
+      return false;
+    }
+    if (
+      !candidateProperty.isOptional &&
+      memberProperty.isOptional
+    ) {
+      return false;
+    }
+    if (
+      !matches(
+        memberProperty.type,
+        candidateProperty.type,
+        visited
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 /**
  * Select the best union member type to instantiate for an object literal.
  *
@@ -345,6 +455,11 @@ export const findUnionMemberIndex = (
     if (areIrTypesEquivalent(resolvedMember, resolvedCandidate, context)) {
       return true;
     }
+
+    if (isAssignable(resolvedMember, resolvedCandidate)) {
+      return true;
+    }
+
     const visitedKey = `${getContextualTypeVisitKey(
       resolvedMember,
       context
@@ -430,6 +545,28 @@ export const findUnionMemberIndex = (
         resolvedMember.elementType,
         resolvedCandidate.elementType,
         nextVisited
+      );
+    }
+
+    if (
+      resolvedMember.kind === "dictionaryType" &&
+      resolvedCandidate.kind === "dictionaryType"
+    ) {
+      const keysMatch = matchesPredicateTarget(
+        resolvedMember.keyType,
+        resolvedCandidate.keyType,
+        nextVisited
+      );
+      if (!keysMatch) {
+        return false;
+      }
+      return (
+        isBroadStructuralTarget(resolvedCandidate.valueType, context) ||
+        matchesPredicateTarget(
+          resolvedMember.valueType,
+          resolvedCandidate.valueType,
+          nextVisited
+        )
       );
     }
 
@@ -543,7 +680,29 @@ export const findUnionMemberIndex = (
         return true;
       }
 
+      const structuralMatch = structuralTypeMatchesPredicateTarget(
+        resolvedMember,
+        resolvedCandidate,
+        context,
+        nextVisited,
+        matchesPredicateTarget
+      );
+      if (structuralMatch !== undefined) {
+        return structuralMatch;
+      }
+
       return false;
+    }
+
+    const structuralMatch = structuralTypeMatchesPredicateTarget(
+      resolvedMember,
+      resolvedCandidate,
+      context,
+      nextVisited,
+      matchesPredicateTarget
+    );
+    if (structuralMatch !== undefined) {
+      return structuralMatch;
     }
 
     return false;

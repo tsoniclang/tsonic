@@ -29,6 +29,11 @@ import type {
 import { getIterableSourceShape } from "../../expressions/structural-type-shapes.js";
 import { resolveRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import { resolveDirectStorageIrType } from "../../core/semantic/direct-storage-ir-types.js";
+import { resolveDirectStorageExpressionType } from "../../expressions/direct-storage-types.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import {
   detectCanonicalIntLoop,
   wrapInBlock,
@@ -63,6 +68,66 @@ const buildForOfSourceAst = (
         arguments: [],
       }
     : memberAccessAst;
+};
+
+const resolveEmittedObjectEntriesStorageType = (
+  expr: Extract<IrStatement, { kind: "forOfStatement" }>["expression"],
+  exprAst: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  if (
+    expr.kind !== "call" ||
+    expr.callee.kind !== "memberAccess" ||
+    expr.callee.object.kind !== "identifier" ||
+    expr.callee.object.name !== "Object" ||
+    expr.callee.property !== "entries" ||
+    expr.arguments.length !== 1 ||
+    exprAst.kind !== "invocationExpression"
+  ) {
+    return undefined;
+  }
+
+  const argument = expr.arguments[0];
+  const argumentAst = exprAst.arguments[0];
+  if (!argument || argument.kind === "spread" || !argumentAst) {
+    return undefined;
+  }
+
+  const sourceArgumentType =
+    resolveEffectiveExpressionType(argument, context) ?? argument.inferredType;
+  const emittedArgumentType = resolveDirectStorageExpressionType(
+    argument,
+    argumentAst,
+    context
+  );
+  const resolvedArgumentType = [
+    emittedArgumentType,
+    sourceArgumentType,
+  ].reduce<IrType | undefined>((selectedType, candidateType) => {
+    if (selectedType || !candidateType) {
+      return selectedType;
+    }
+
+    const resolvedCandidateType = resolveTypeAlias(
+      stripNullish(candidateType),
+      context
+    );
+    return resolvedCandidateType.kind === "dictionaryType"
+      ? resolvedCandidateType
+      : undefined;
+  }, undefined);
+  return resolvedArgumentType?.kind === "dictionaryType"
+    ? {
+        kind: "arrayType",
+        elementType: {
+          kind: "tupleType",
+          elementTypes: [
+            resolvedArgumentType.keyType,
+            resolvedArgumentType.valueType,
+          ],
+        },
+      }
+    : undefined;
 };
 
 /**
@@ -268,6 +333,14 @@ export const emitForOfStatementAst = (
     context,
     iterableStorageType
   );
+  const emittedIterableStorageType =
+    resolveEmittedObjectEntriesStorageType(stmt.expression, exprAst, exprContext) ??
+    resolveDirectStorageExpressionType(stmt.expression, exprAst, exprContext);
+  const effectiveIterableStorageType =
+    (emittedIterableStorageType &&
+    deriveForOfElementType(emittedIterableStorageType, exprContext)
+      ? emittedIterableStorageType
+      : undefined) ?? iterableStorageType;
   const outerNameMap = exprContext.localNameMap;
   const outerConditionAliases = exprContext.conditionAliases;
   const outerSemanticTypes = exprContext.localSemanticTypes;
@@ -279,17 +352,20 @@ export const emitForOfStatementAst = (
   };
 
   const loopElementSourceType =
-    directIterableStorageType &&
-    deriveForOfElementType(directIterableStorageType, loopContext)
-      ? directIterableStorageType
-      : iterableExpressionType;
+    emittedIterableStorageType &&
+    deriveForOfElementType(emittedIterableStorageType, loopContext)
+      ? emittedIterableStorageType
+      : directIterableStorageType &&
+          deriveForOfElementType(directIterableStorageType, loopContext)
+        ? directIterableStorageType
+        : iterableExpressionType;
   const semanticElementType = deriveForOfElementType(
     loopElementSourceType,
     loopContext
   );
   const foreachSourceAst = buildForOfSourceAst(
     exprAst,
-    iterableStorageType,
+    effectiveIterableStorageType,
     exprContext
   );
 

@@ -34,6 +34,8 @@ import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matc
 import { stripNullish } from "../core/semantic/type-resolution.js";
 import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import {
   isExpectedIntegralIrType,
   maybeCastNumericToExpectedJsNumberAst,
@@ -76,6 +78,29 @@ export const emitIdentifier = (
       storageType,
       currentContext,
       expectedType
+    );
+  };
+  const maybeMaterializeValueReference = (
+    identifierAst: CSharpExpressionAst,
+    currentContext: EmitterContext
+  ): [CSharpExpressionAst, EmitterContext] => {
+    if (!expectedType || !expr.inferredType) {
+      return [identifierAst, currentContext];
+    }
+    const [expectedRuntimeLayout] = buildRuntimeUnionLayout(
+      expectedType,
+      currentContext,
+      emitTypeAst
+    );
+    if (expectedRuntimeLayout) {
+      return [identifierAst, currentContext];
+    }
+
+    return materializeDirectNarrowingAst(
+      identifierAst,
+      expr.inferredType,
+      expectedType,
+      currentContext
     );
   };
 
@@ -319,10 +344,10 @@ export const emitIdentifier = (
       // Imported identifier - always use fully-qualified reference
       if (binding.kind === "value") {
         // Value import with member - Container.member
-        return [
+        return maybeMaterializeValueReference(
           identifierExpression(`${binding.clrName}.${binding.member}`),
-          context,
-        ];
+          context
+        );
       }
       if (binding.kind === "type") {
         return [
@@ -352,20 +377,20 @@ export const emitIdentifier = (
       const containerPrefix = moduleNamespace.startsWith("global::")
         ? moduleNamespace
         : `global::${moduleNamespace}`;
-      return [
+      return maybeMaterializeValueReference(
         identifierExpression(
           `${containerPrefix}.${context.moduleStaticClassName}.${memberName}`
         ),
-        context,
-      ];
+        context
+      );
     }
-    return [identifierExpression(memberName), context];
+    return maybeMaterializeValueReference(identifierExpression(memberName), context);
   }
 
   // Use target member name from binding if specified (with global:: prefix)
   if (expr.providerMemberName && expr.providerOwnerIdentity) {
     const fqn = `global::${expr.providerOwnerIdentity}.${expr.providerMemberName}`;
-    return [identifierExpression(fqn), context];
+    return maybeMaterializeValueReference(identifierExpression(fqn), context);
   }
 
   // Use resolved binding if available (from binding manifest) with global:: prefix.

@@ -66,6 +66,7 @@ import {
 import { referenceTypeIdentity } from "../../../types/type-ops.js";
 import { selectUnionArm } from "../../union-arm-selection.js";
 import { externalSurfaceTypesMatch } from "../../../../program/external-surface-type-identity.js";
+import { narrowTypeByAssignableTarget } from "../../reference-type-guards.js";
 
 const stripParentheses = (expr: ts.Expression): ts.Expression => {
   let current = expr;
@@ -4138,18 +4139,19 @@ export const convertCallExpression = (
   const narrowing: IrCallExpression["narrowing"] = (() => {
     const pred = finalResolved?.typePredicate;
     if (pred?.kind === "param") {
-      const currentArgumentType = emittedFinalizedArgTypes[pred.parameterIndex];
-      if (
-        currentArgumentType &&
-        ctx.typeSystem.isAssignableTo(currentArgumentType, pred.targetType)
-      ) {
-        return undefined;
-      }
-
+      const currentArgType = argTypes[pred.parameterIndex];
+      const narrowedTargetType = currentArgType
+        ? (narrowTypeByAssignableTarget(
+            ctx.typeSystem,
+            currentArgType,
+            pred.targetType,
+            true
+          ) ?? pred.targetType)
+        : pred.targetType;
       return {
         kind: "typePredicate",
         argIndex: pred.parameterIndex,
-        targetType: pred.targetType,
+        targetType: narrowedTargetType,
       };
     }
 

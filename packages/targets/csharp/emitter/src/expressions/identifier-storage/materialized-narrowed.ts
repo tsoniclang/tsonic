@@ -61,8 +61,9 @@ export const tryEmitMaterializedNarrowedIdentifier = (
     return undefined;
   }
 
+  const sourceCarrierAst = narrowed.storageExprAst ?? narrowed.carrierExprAst;
   if (
-    narrowed.storageExprAst &&
+    sourceCarrierAst &&
     narrowed.sourceType &&
     (runtimeUnionAliasReferencesMatch(effectiveType, expectedType, context) ||
       matchesExpectedEmissionType(effectiveType, expectedType, context))
@@ -102,7 +103,7 @@ export const tryEmitMaterializedNarrowedIdentifier = (
             kind: "invocationExpression",
             expression: {
               kind: "memberAccessExpression",
-              expression: narrowed.storageExprAst,
+              expression: sourceCarrierAst,
               memberName: `As${memberIndex + 1}`,
             },
             arguments: [],
@@ -114,9 +115,34 @@ export const tryEmitMaterializedNarrowedIdentifier = (
   }
 
   if (
-    narrowed.storageExprAst &&
+    sourceCarrierAst &&
     narrowed.sourceType &&
-    willCarryAsRuntimeUnion(expectedType, context)
+    !willCarryAsRuntimeUnion(expectedType, context) &&
+    matchesExpectedEmissionType(effectiveType, expectedType, context)
+  ) {
+    const resolvedSourceType = narrowed.sourceType;
+    if (
+      resolvedSourceType.kind === "referenceType" &&
+      resolvedSourceType.name === "object"
+    ) {
+      const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+        expectedType,
+        context
+      );
+      return [
+        {
+          kind: "castExpression",
+          type: stripNullableTypeAst(expectedTypeAst),
+          expression: sourceCarrierAst,
+        },
+        expectedTypeContext,
+      ];
+    }
+  }
+
+  if (
+    narrowed.storageExprAst &&
+    narrowed.sourceType
   ) {
     const [sourceLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
       narrowed.sourceType,

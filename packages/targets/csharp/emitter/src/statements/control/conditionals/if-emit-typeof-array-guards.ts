@@ -545,6 +545,10 @@ export const tryEmitArrayIsArrayGuard = (
       emitExprAstCb,
       condCtxAfterCond
     );
+    const conditionBaseContext: EmitterContext = {
+      ...condCtxAfterCondAst,
+      narrowedBindings: condCtxAfterCond.narrowedBindings,
+    };
 
     const arrayBranchContext = withRuntimeUnionMemberNarrowing(
       arrayIsArrayGuard.originalName,
@@ -552,10 +556,10 @@ export const tryEmitArrayIsArrayGuard = (
       runtimeArrayPair.runtimeMemberN,
       runtimeArrayPair.memberType,
       runtimeCarrierType,
-      condCtxAfterCondAst,
+      conditionBaseContext,
       resolveRuntimeArrayMemberStorageType(
         runtimeArrayPair.memberType,
-        condCtxAfterCondAst
+        conditionBaseContext
       )
     );
     const nonArrayBranchContext = withComplementNarrowing(
@@ -565,7 +569,7 @@ export const tryEmitArrayIsArrayGuard = (
       runtimeUnionFrame.candidateMemberNs,
       runtimeUnionFrame.members,
       runtimeArrayPair.runtimeMemberN,
-      condCtxAfterCondAst
+      conditionBaseContext
     );
 
     const thenCtx =
@@ -580,7 +584,7 @@ export const tryEmitArrayIsArrayGuard = (
     const thenStatementAst = wrapInBlock(thenStmts);
     const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
     const basePostConditionContext = resetBranchFlowState(
-      condCtxAfterCondAst,
+      conditionBaseContext,
       thenCtxAfter
     );
     const fallthroughContext: EmitterContext = arrayIsArrayGuard.narrowsInThen
@@ -589,7 +593,7 @@ export const tryEmitArrayIsArrayGuard = (
     let finalContext: EmitterContext = thenTerminates
       ? mergeBranchContextMeta(fallthroughContext, thenCtxAfter)
       : mergeBranchExitContext(
-          condCtxAfterCondAst,
+          conditionBaseContext,
           thenCtxAfter,
           fallthroughContext
         );
@@ -617,7 +621,7 @@ export const tryEmitArrayIsArrayGuard = (
         finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtxAfter);
       } else {
         finalContext = mergeBranchExitContext(
-          condCtxAfterCondAst,
+          conditionBaseContext,
           thenCtxAfter,
           elseCtxAfter
         );

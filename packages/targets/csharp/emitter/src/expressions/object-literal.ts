@@ -32,6 +32,7 @@ import {
 } from "./dictionary-literal.js";
 import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
 import { canPreferAnonymousStructuralTarget } from "./structural-type-shapes.js";
+import { tryEmitInterfaceObjectAdapter } from "./interface-object-adapter.js";
 import {
   emitObjectWithSpreads,
   resolveBehavioralObjectLiteralType,
@@ -236,6 +237,15 @@ export const emitObject = (
     throw new Error(
       `ICE: Object literal reached emitter with broad object context at ${describeObjectLiteralSource(expr)} - validation missed TSN7403`
     );
+  }
+
+  const interfaceObjectAdapter = tryEmitInterfaceObjectAdapter(
+    expr,
+    currentContext,
+    contextualEmissionType ?? instantiationType ?? effectiveType
+  );
+  if (interfaceObjectAdapter) {
+    return interfaceObjectAdapter;
   }
 
   // Check if object has spreads - use IIFE pattern

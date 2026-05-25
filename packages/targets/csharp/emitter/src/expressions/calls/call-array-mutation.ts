@@ -76,6 +76,102 @@ const createVarLocal = (
   declarators: [{ name, initializer }],
 });
 
+const withArrayMutationArgumentSurface = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  memberName: string,
+  receiverType: IrType | undefined,
+  receiverElementType: IrType
+): Extract<IrExpression, { kind: "call" }> => {
+  switch (memberName) {
+    case "push":
+    case "unshift":
+      return {
+        ...expr,
+        parameterTypes: [receiverElementType],
+        restParameter: {
+          index: 0,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+        sourceBackedSurfaceParameterTypes: [receiverElementType],
+        sourceBackedRestParameter: {
+          index: 0,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+        surfaceParameterTypes: [receiverElementType],
+        surfaceRestParameter: {
+          index: 0,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+      };
+    case "fill":
+      return {
+        ...expr,
+        parameterTypes: [
+          receiverElementType,
+          expr.parameterTypes?.[1],
+          expr.parameterTypes?.[2],
+        ],
+        sourceBackedSurfaceParameterTypes: [
+          receiverElementType,
+          expr.sourceBackedSurfaceParameterTypes?.[1] ??
+            expr.surfaceParameterTypes?.[1] ??
+            expr.parameterTypes?.[1],
+          expr.sourceBackedSurfaceParameterTypes?.[2] ??
+            expr.surfaceParameterTypes?.[2] ??
+            expr.parameterTypes?.[2],
+        ],
+        surfaceParameterTypes: [
+          receiverElementType,
+          expr.surfaceParameterTypes?.[1] ?? expr.parameterTypes?.[1],
+          expr.surfaceParameterTypes?.[2] ?? expr.parameterTypes?.[2],
+        ],
+      };
+    case "splice":
+      return {
+        ...expr,
+        parameterTypes: [
+          expr.parameterTypes?.[0],
+          expr.parameterTypes?.[1],
+          receiverElementType,
+        ],
+        restParameter: {
+          index: 2,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+        sourceBackedSurfaceParameterTypes: [
+          expr.sourceBackedSurfaceParameterTypes?.[0] ??
+            expr.surfaceParameterTypes?.[0] ??
+            expr.parameterTypes?.[0],
+          expr.sourceBackedSurfaceParameterTypes?.[1] ??
+            expr.surfaceParameterTypes?.[1] ??
+            expr.parameterTypes?.[1],
+          receiverElementType,
+        ],
+        sourceBackedRestParameter: {
+          index: 2,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+        surfaceParameterTypes: [
+          expr.surfaceParameterTypes?.[0] ?? expr.parameterTypes?.[0],
+          expr.surfaceParameterTypes?.[1] ?? expr.parameterTypes?.[1],
+          receiverElementType,
+        ],
+        surfaceRestParameter: {
+          index: 2,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+      };
+    default:
+      return expr;
+  }
+};
+
 type CapturedAssignableArrayTarget = {
   readonly readExpression: CSharpExpressionAst;
   readonly writeExpression: CSharpExpressionAst;
@@ -333,9 +429,15 @@ export const emitArrayMutationInteropCall = (
     identifier: resultTemp.emittedName,
   };
 
+  const argumentSurfaceExpr = withArrayMutationArgumentSurface(
+    expr,
+    binding.member,
+    receiverType,
+    receiverElementType
+  );
   const [argAsts, argContext] = emitCallArguments(
     expr.arguments,
-    expr,
+    argumentSurfaceExpr,
     currentContext
   );
   currentContext = argContext;

@@ -180,13 +180,13 @@ const isStructuralObjectTargetType = (
     return false;
   }
 
+  if (isCompilerGeneratedStructuralReferenceType(type)) {
+    return true;
+  }
+
   const localInfo = resolveLocalTypeInfo(type, context)?.info;
   if (localInfo?.kind === "class" || localInfo?.kind === "enum") {
     return false;
-  }
-
-  if (isCompilerGeneratedStructuralReferenceType(type)) {
-    return true;
   }
 
   return !!type.structuralMembers?.some(

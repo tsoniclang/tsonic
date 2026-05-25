@@ -19,6 +19,12 @@ import {
   typesSyntacticallyEqual,
 } from "./type-operators.js";
 
+const isConstAssertionType = (node: ts.TypeNode): boolean =>
+  ts.isTypeReferenceNode(node) &&
+  ts.isIdentifier(node.typeName) &&
+  node.typeName.text === "const" &&
+  (!node.typeArguments || node.typeArguments.length === 0);
+
 export const getTypeParameterConstraintNode = (
   typeNode: ts.TypeNode,
   binding: Binding
@@ -314,9 +320,27 @@ export function inferTypeFromValueExpression(
   }
 
   if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
+    if (isConstAssertionType(current.type)) {
+      return inferTypeFromValueExpression(
+        current.expression,
+        binding,
+        seenDeclIds,
+        convertTypeFn
+      );
+    }
+
     return convertTypeFn(
       withTypeParameterConstraint(current.type, binding),
       binding
+    );
+  }
+
+  if (ts.isSatisfiesExpression(current)) {
+    return inferTypeFromValueExpression(
+      current.expression,
+      binding,
+      seenDeclIds,
+      convertTypeFn
     );
   }
 

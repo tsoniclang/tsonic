@@ -42,6 +42,7 @@ import { resolveRuntimeMaterializationTargetType } from "./runtime-materializati
 import { resolveTypeMemberKind } from "./member-surfaces.js";
 import { resolveAnonymousStructuralReferenceType } from "../../expressions/structural-anonymous-targets.js";
 import { canPreferAnonymousStructuralTarget } from "../../expressions/structural-type-shapes.js";
+import { tryAdaptStructuralExpressionAst } from "../../expressions/structural-adaptation.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { isBroadObjectSlotType } from "./broad-object-types.js";
 import { referenceTypeHasClrIdentity } from "./clr-type-identity.js";
@@ -523,6 +524,83 @@ const buildBroadSourceJsNumberMaterializationAst = (
   ];
 };
 
+const containsOutOfScopeTypeParameter = (
+  type: IrType,
+  context: EmitterContext,
+  seen = new Set<IrType>()
+): boolean => {
+  if (seen.has(type)) {
+    return false;
+  }
+  seen.add(type);
+
+  switch (type.kind) {
+    case "typeParameterType":
+      return !(context.typeParameters?.has(type.name) ?? false);
+    case "referenceType":
+      if (
+        (context.typeParameters?.has(type.name) ?? false) === false &&
+        (!type.typeArguments || type.typeArguments.length === 0) &&
+        /^T($|[A-Z0-9_])/.test(type.name)
+      ) {
+        return true;
+      }
+      return (
+        type.typeArguments?.some((typeArgument) =>
+          containsOutOfScopeTypeParameter(typeArgument, context, seen)
+        ) ?? false
+      );
+    case "arrayType":
+      return containsOutOfScopeTypeParameter(type.elementType, context, seen);
+    case "tupleType":
+      return type.elementTypes.some((elementType) =>
+        containsOutOfScopeTypeParameter(elementType, context, seen)
+      );
+    case "functionType":
+      return (
+        type.parameters.some(
+          (parameter) =>
+            parameter.type &&
+            containsOutOfScopeTypeParameter(parameter.type, context, seen)
+        ) || containsOutOfScopeTypeParameter(type.returnType, context, seen)
+      );
+    case "objectType":
+      return type.members.some((member) =>
+        member.kind === "propertySignature"
+          ? containsOutOfScopeTypeParameter(member.type, context, seen)
+          : member.parameters.some(
+              (parameter) =>
+                parameter.type &&
+                containsOutOfScopeTypeParameter(parameter.type, context, seen)
+            ) ||
+            (member.returnType
+              ? containsOutOfScopeTypeParameter(
+                  member.returnType,
+                  context,
+                  seen
+                )
+              : false)
+      );
+    case "dictionaryType":
+      return (
+        containsOutOfScopeTypeParameter(type.keyType, context, seen) ||
+        containsOutOfScopeTypeParameter(type.valueType, context, seen)
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.some((member) =>
+        containsOutOfScopeTypeParameter(member, context, seen)
+      );
+    case "primitiveType":
+    case "literalType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return false;
+  }
+};
+
 const canDeterministicallyMaterializeSourceType = (
   sourceType: IrType,
   targetType: IrType,
@@ -648,6 +726,10 @@ export const materializeDirectNarrowingAst = (
     context
   );
   const sourceWasParameterModifierWrapped = comparableSourceType !== sourceType;
+
+  if (containsOutOfScopeTypeParameter(comparableEmissionTargetType, context)) {
+    return [sourceAst, context];
+  }
 
   if (
     referenceTypeEmitsAsNativeInterface(
@@ -950,6 +1032,16 @@ export const materializeDirectNarrowingAst = (
     );
   if (canReuseAssignableSurface) {
     return [sourceAst, nextContext];
+  }
+
+  const structuralMaterialized = tryAdaptStructuralExpressionAst(
+    sourceAst,
+    comparableSourceType,
+    nextContext,
+    materializationNarrowedType
+  );
+  if (structuralMaterialized) {
+    return structuralMaterialized;
   }
 
   return [

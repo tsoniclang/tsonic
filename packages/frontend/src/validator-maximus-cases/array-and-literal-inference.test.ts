@@ -128,6 +128,36 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
+  describe("Const assertions", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "literal array const assertion",
+        source: `
+          export const KindNames = ["Unknown", "Identifier"] as const;
+          export type KindName = typeof KindNames[number];
+        `,
+      },
+      {
+        name: "object const assertion with satisfies",
+        source: `
+          export const KindAliases = {
+            First: "Unknown",
+            Second: "Identifier",
+          } as const satisfies Record<string, string>;
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7414")).to.equal(false);
+      });
+    }
+  });
+
   describe("TSN7430 - arrow function escape hatch", () => {
     const rejectCases: ReadonlyArray<{
       readonly name: string;
@@ -209,6 +239,25 @@ describe("Maximus Validation Coverage", () => {
           type Ops = { add: (x: number, y: number) => number };
           const ops: Ops = { add: (x, y) => x + y };
           console.log(ops.add(1, 2));
+        `,
+      },
+      {
+        name: "object literal arrow properties via declared return interface",
+        source: `
+          interface FileLike {
+            fileName(): string;
+            text(): string;
+            lineMap(): readonly number[];
+          }
+          function makeFile(text: string, fileName: string): FileLike {
+            const lineMap: number[] = [0];
+            return {
+              fileName: () => fileName,
+              text: () => text,
+              lineMap: () => lineMap,
+            };
+          }
+          console.log(makeFile("x", "x.ts").fileName());
         `,
       },
       {

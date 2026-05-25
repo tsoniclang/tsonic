@@ -435,6 +435,24 @@ export const emitBinary = (
       (nullishExpr.kind === "literal" && nullishExpr.value === undefined) ||
       (nullishExpr.kind === "identifier" && nullishExpr.name === "undefined");
 
+    const dictionaryPresenceLocal =
+      isUndefinedLiteral && nonNullishTarget.kind === "identifier"
+        ? context.dictionaryReadPresenceLocals?.get(nonNullishTarget.name)
+        : undefined;
+    if (dictionaryPresenceLocal) {
+      const presenceAst = identifierExpression(dictionaryPresenceLocal);
+      return [
+        op === "=="
+          ? {
+              kind: "prefixUnaryExpression",
+              operatorToken: "!",
+              operand: presenceAst,
+            }
+          : presenceAst,
+        context,
+      ];
+    }
+
     // JS dictionary-style access (`dict[key]`) with undefined comparison should
     // model key existence, not CLR value-type nullability.
     //

@@ -8,6 +8,11 @@
 
 import type { JsonAotRegistry } from "./types.js";
 import type {
+  InterfaceObjectAdapterDefinition,
+  InterfaceObjectAdapterMember,
+  InterfaceObjectAdapterRegistry,
+} from "./types.js";
+import type {
   RuntimeUnionCarrierDefinition,
   RuntimeUnionRegistry,
 } from "./core/semantic/runtime-union-registry.js";
@@ -22,7 +27,9 @@ import type {
   CSharpCompilationUnitAst,
   CSharpExpressionAst,
   CSharpMemberAst,
+  CSharpParameterAst,
   CSharpTriviaAst,
+  CSharpTypeDeclarationAst,
   CSharpTypeAst,
 } from "./core/format/backend-ast/types.js";
 
@@ -213,6 +220,198 @@ namespace Tsonic.Internal
     }
 }
 `;
+
+const adapterFieldName = (member: InterfaceObjectAdapterMember): string =>
+  member.storageName;
+
+const adapterConstructorParameterName = (index: number): string =>
+  `__tsonic_arg_${index}`;
+
+const adapterParameterReference = (
+  parameter: {
+    readonly name: string;
+    readonly modifiers?: readonly string[];
+  }
+): CSharpExpressionAst => {
+  const reference: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: parameter.name,
+  };
+  const modifier = parameter.modifiers?.find(
+    (candidate) =>
+      candidate === "ref" || candidate === "out" || candidate === "in"
+  );
+  return modifier
+    ? {
+        kind: "argumentModifierExpression",
+        modifier,
+        expression: reference,
+      }
+    : reference;
+};
+
+const generateInterfaceObjectAdapterDeclaration = (
+  definition: InterfaceObjectAdapterDefinition
+): CSharpTypeDeclarationAst => {
+  const fields: CSharpMemberAst[] = definition.members.map((member) => ({
+    kind: "fieldDeclaration",
+    attributes: [],
+    modifiers:
+      member.kind === "property" && member.isWritable
+        ? ["private"]
+        : ["private", "readonly"],
+    type: member.kind === "method" ? member.delegateType : member.valueType,
+    name: adapterFieldName(member),
+  }));
+
+  const constructorParameters: CSharpParameterAst[] = definition.members.map(
+    (member, index) => ({
+      name: adapterConstructorParameterName(index),
+      type: member.kind === "method" ? member.delegateType : member.valueType,
+    })
+  );
+  const constructorAssignments = definition.members.map((member, index) => ({
+    kind: "expressionStatement" as const,
+    expression: assignment(
+      {
+        kind: "identifierExpression",
+        identifier: adapterFieldName(member),
+      },
+      {
+        kind: "identifierExpression",
+        identifier: adapterConstructorParameterName(index),
+      }
+    ),
+  }));
+
+  const forwardedMembers: CSharpMemberAst[] = definition.members.map(
+    (member): CSharpMemberAst => {
+      if (member.kind === "property") {
+        return {
+          kind: "propertyDeclaration",
+          attributes: [],
+          modifiers: [],
+          type: member.valueType,
+          name: member.name,
+          explicitInterface: member.explicitInterface,
+          hasGetter: true,
+          hasSetter: member.isWritable,
+          isAutoProperty: false,
+          getterBody: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "identifierExpression",
+                  identifier: adapterFieldName(member),
+                },
+              },
+            ],
+          },
+          setterBody: member.isWritable
+            ? {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "expressionStatement",
+                    expression: assignment(
+                      {
+                        kind: "identifierExpression",
+                        identifier: adapterFieldName(member),
+                      },
+                      { kind: "identifierExpression", identifier: "value" }
+                    ),
+                  },
+                ],
+              }
+            : undefined,
+        };
+      }
+
+      return {
+        kind: "methodDeclaration",
+        attributes: [],
+        modifiers: [],
+        returnType: member.returnType,
+        name: member.name,
+        explicitInterface: member.explicitInterface,
+        parameters: member.parameters.map((parameter) => ({
+          name: parameter.name,
+          type: parameter.type,
+          ...(parameter.modifiers ? { modifiers: parameter.modifiers } : {}),
+        })),
+        expressionBody: {
+          kind: "invocationExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: adapterFieldName(member),
+          },
+          arguments: member.parameters.map(adapterParameterReference),
+        },
+      };
+    }
+  );
+
+  return {
+    kind: "classDeclaration",
+    attributes: [],
+    modifiers: ["internal", "sealed"],
+    name: definition.className,
+    interfaces: [definition.interfaceType],
+    members: [
+      ...fields,
+      {
+        kind: "constructorDeclaration",
+        attributes: [],
+        modifiers: ["internal"],
+        name: definition.className,
+        parameters: constructorParameters,
+        body: {
+          kind: "blockStatement",
+          statements: constructorAssignments,
+        },
+      },
+      ...forwardedMembers,
+    ],
+  };
+};
+
+export const generateInterfaceObjectAdaptersFile = (
+  registry: InterfaceObjectAdapterRegistry
+): string => {
+  const definitions = [...registry.definitions.values()].sort((left, right) =>
+    left.className.localeCompare(right.className)
+  );
+  const byNamespace = new Map<string, InterfaceObjectAdapterDefinition[]>();
+  for (const definition of definitions) {
+    byNamespace.set(definition.namespaceName, [
+      ...(byNamespace.get(definition.namespaceName) ?? []),
+      definition,
+    ]);
+  }
+
+  const unit: CSharpCompilationUnitAst = {
+    kind: "compilationUnit",
+    leadingTrivia: generatedFileLeadingTrivia(
+      "<auto-generated/>",
+      "Compiler-owned object-literal adapters for native interfaces.",
+      "WARNING: Do not modify this file manually"
+    ),
+    usings: [],
+    members: [...byNamespace.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([namespaceName, namespaceDefinitions]) => ({
+        kind: "namespaceDeclaration" as const,
+        name: qualifiedName(namespaceName),
+        members: namespaceDefinitions.map(
+          generateInterfaceObjectAdapterDeclaration
+        ),
+      })),
+  };
+
+  return printCompilationUnit(unit);
+};
 
 const generateRuntimeUnionCarrier = (
   definition: RuntimeUnionCarrierDefinition

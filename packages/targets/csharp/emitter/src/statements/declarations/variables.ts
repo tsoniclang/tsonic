@@ -6,9 +6,10 @@
  * - variable-static-arrow.ts     (static arrow field emission)
  */
 
-import { IrStatement } from "@tsonic/frontend";
+import { IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import {
   lowerPatternAst,
   lowerPatternToStaticMembersAst,
@@ -27,6 +28,7 @@ import type {
   CSharpStatementAst,
   CSharpExpressionAst,
   CSharpMemberAst,
+  CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import {
   resolveStaticFieldType,
@@ -40,6 +42,16 @@ import { emitStaticArrowFieldMembers } from "./variable-static-arrow.js";
 import { resolveIdentifierValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
 import { matchesEmittedStorageSurface } from "../../expressions/identifier-storage.js";
 import { resolveDirectStorageExpressionType } from "../../expressions/direct-storage-types.js";
+import { getDictionaryComputedAccess } from "../../expressions/operators/helpers.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
+import {
+  identifierExpression,
+  nullLiteral,
+} from "../../core/format/backend-ast/builders.js";
 
 const hasUnresolvedReferenceLeaves = (
   type: unknown,
@@ -142,6 +154,163 @@ const registerConditionAlias = (
   return {
     ...context,
     conditionAliases: nextAliases,
+  };
+};
+
+const registerDictionaryReadPresenceLocal = (
+  originalName: string,
+  presenceLocalName: string,
+  context: EmitterContext
+): EmitterContext => ({
+  ...context,
+  dictionaryReadPresenceLocals: new Map([
+    ...(context.dictionaryReadPresenceLocals ?? []),
+    [originalName, presenceLocalName],
+  ]),
+});
+
+const emitDictionaryReadLocalInitialization = (
+  originalName: string,
+  initializer: NonNullable<
+    Extract<
+      Extract<
+        IrStatement,
+        { kind: "variableDeclaration" }
+      >["declarations"][number],
+      { kind: "variableDeclarator" }
+    >["initializer"]
+  >,
+  valueTypeAst: CSharpTypeAst,
+  context: EmitterContext
+):
+  | {
+      readonly statements: readonly CSharpStatementAst[];
+      readonly initializer: CSharpExpressionAst;
+      readonly presenceLocalName: string;
+      readonly storageType?: IrType;
+      readonly context: EmitterContext;
+    }
+  | undefined => {
+  const dictionaryRead = getDictionaryComputedAccess(initializer, context);
+  if (!dictionaryRead) {
+    return undefined;
+  }
+
+  let currentContext = context;
+  const dictionaryObjectType =
+    resolveEffectiveExpressionType(dictionaryRead.object, currentContext) ??
+    dictionaryRead.object.inferredType;
+  const dictionaryValueType = dictionaryObjectType
+    ? (() => {
+        const resolvedObjectType = resolveTypeAlias(
+          stripNullish(dictionaryObjectType),
+          currentContext
+        );
+        return resolvedObjectType.kind === "dictionaryType"
+          ? resolvedObjectType.valueType
+          : undefined;
+      })()
+    : undefined;
+  const [objectAst, objectContext] = emitExpressionAst(
+    dictionaryRead.object,
+    currentContext,
+    dictionaryRead.object.inferredType
+  );
+  currentContext = objectContext;
+  const [keyAst, keyContext] = emitExpressionAst(
+    dictionaryRead.property,
+    currentContext,
+    dictionaryRead.property.inferredType
+  );
+  currentContext = keyContext;
+
+  const dictionaryAlloc = allocateLocalName(
+    `__tsonic_${originalName}_dict`,
+    currentContext
+  );
+  currentContext = dictionaryAlloc.context;
+  const keyAlloc = allocateLocalName(
+    `__tsonic_${originalName}_key`,
+    currentContext
+  );
+  currentContext = keyAlloc.context;
+  const presenceAlloc = allocateLocalName(
+    `__tsonic_${originalName}_present`,
+    currentContext
+  );
+  currentContext = presenceAlloc.context;
+
+  const dictionaryId = identifierExpression(dictionaryAlloc.emittedName);
+  const keyId = identifierExpression(keyAlloc.emittedName);
+  const containsKeyAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: dictionaryId,
+      memberName: "ContainsKey",
+    },
+    arguments: [keyId],
+  };
+  const presenceInitializer: CSharpExpressionAst = dictionaryRead.isOptional
+    ? {
+        kind: "binaryExpression",
+        operatorToken: "&&",
+        left: {
+          kind: "binaryExpression",
+          operatorToken: "!=",
+          left: dictionaryId,
+          right: nullLiteral(),
+        },
+        right: containsKeyAst,
+      }
+    : containsKeyAst;
+  const presenceId = identifierExpression(presenceAlloc.emittedName);
+  const valueInitializer: CSharpExpressionAst = {
+    kind: "conditionalExpression",
+    condition: presenceId,
+    whenTrue: {
+      kind: "elementAccessExpression",
+      expression: dictionaryId,
+      arguments: [keyId],
+    },
+    whenFalse: {
+      kind: "defaultExpression",
+      type: valueTypeAst,
+    },
+  };
+
+  return {
+    statements: [
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "varType" },
+        declarators: [
+          { name: dictionaryAlloc.emittedName, initializer: objectAst },
+        ],
+      },
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "varType" },
+        declarators: [{ name: keyAlloc.emittedName, initializer: keyAst }],
+      },
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "predefinedType", keyword: "bool" },
+        declarators: [
+          {
+            name: presenceAlloc.emittedName,
+            initializer: presenceInitializer,
+          },
+        ],
+      },
+    ],
+    initializer: valueInitializer,
+    presenceLocalName: presenceAlloc.emittedName,
+    storageType: dictionaryValueType,
+    context: currentContext,
   };
 };
 
@@ -436,7 +605,15 @@ export const emitVariableDeclarationAst = (
       let initAst = undefined;
       let emittedInitializerStorageType = undefined;
       let emittedInitializerSemanticType = undefined;
+      let dictionaryPresenceLocalName: string | undefined = undefined;
+      let dictionaryReadStorageType: IrType | undefined = undefined;
       if (decl.initializer) {
+        const declaredInitializerType =
+          decl.type ??
+          resolveEffectiveVariableInitializerType(
+            decl.initializer,
+            currentContext
+          );
         const expectedInitializerType = shouldTreatStructuralAssertionAsErased(
           decl,
           currentContext
@@ -447,48 +624,73 @@ export const emitVariableDeclarationAst = (
               decl.initializer,
               currentContext
             );
-        const [exprAst, newContext] = emitExpressionAst(
-          decl.initializer,
-          currentContext,
-          expectedInitializerType
-        );
-        currentContext = newContext;
-        const declaredInitializerType =
-          decl.type ??
-          resolveEffectiveVariableInitializerType(
+        const [initializerValueTypeAst, initializerValueTypeContext] =
+          declaredInitializerType
+            ? emitTypeAst(declaredInitializerType, currentContext)
+            : [
+                {
+                  kind: "predefinedType",
+                  keyword: "object",
+                } as CSharpTypeAst,
+                currentContext,
+              ];
+        currentContext = initializerValueTypeContext;
+        const dictionaryReadInitialization =
+          typeAst.kind === "varType"
+            ? emitDictionaryReadLocalInitialization(
+                originalName,
+                decl.initializer,
+                initializerValueTypeAst,
+                currentContext
+              )
+            : undefined;
+        if (dictionaryReadInitialization) {
+          statements.push(...dictionaryReadInitialization.statements);
+          initAst = dictionaryReadInitialization.initializer;
+          dictionaryPresenceLocalName =
+            dictionaryReadInitialization.presenceLocalName;
+          dictionaryReadStorageType = dictionaryReadInitialization.storageType;
+          currentContext = dictionaryReadInitialization.context;
+        } else {
+          const [exprAst, newContext] = emitExpressionAst(
             decl.initializer,
-            currentContext
+            currentContext,
+            expectedInitializerType
           );
-        const storageSurfaceNeedsCast =
-          decl.initializer.kind === "identifier" &&
-          !!declaredInitializerType &&
-          !!resolveIdentifierValueSurfaceType(
-            decl.initializer,
-            currentContext
-          ) &&
-          !matchesEmittedStorageSurface(
-            resolveIdentifierValueSurfaceType(decl.initializer, currentContext),
-            declaredInitializerType,
-            currentContext
-          )[0];
-        initAst =
-          typeAst.kind !== "varType" &&
-          !isExplicitCastLikeAst(exprAst) &&
-          (shouldForceDeclaredInitializerCast(
-            decl.initializer,
-            declaredInitializerType,
-            currentContext
-          ) ||
-            storageSurfaceNeedsCast)
-            ? {
-                kind: "castExpression" as const,
-                type: typeAst,
-                expression: exprAst,
-              }
-            : exprAst;
+          currentContext = newContext;
+          initAst =
+            typeAst.kind !== "varType" &&
+            !isExplicitCastLikeAst(exprAst) &&
+            (shouldForceDeclaredInitializerCast(
+              decl.initializer,
+              declaredInitializerType,
+              currentContext
+            ) ||
+              (decl.initializer.kind === "identifier" &&
+                !!declaredInitializerType &&
+                !!resolveIdentifierValueSurfaceType(
+                  decl.initializer,
+                  currentContext
+                ) &&
+                !matchesEmittedStorageSurface(
+                  resolveIdentifierValueSurfaceType(
+                    decl.initializer,
+                    currentContext
+                  ),
+                  declaredInitializerType,
+                  currentContext
+                )[0]))
+              ? {
+                  kind: "castExpression" as const,
+                  type: typeAst,
+                  expression: exprAst,
+                }
+              : exprAst;
+        }
         emittedInitializerStorageType =
           typeAst.kind === "varType"
-            ? (() => {
+            ? (dictionaryReadStorageType ??
+              (() => {
                 const candidateStorageType = resolveDirectStorageExpressionType(
                   decl.initializer,
                   initAst,
@@ -511,7 +713,7 @@ export const emitVariableDeclarationAst = (
                   )
                   ? declaredInitializerType
                   : undefined;
-              })()
+              })())
             : undefined;
         emittedInitializerSemanticType =
           !decl.type && decl.initializer.kind === "conditional"
@@ -543,6 +745,13 @@ export const emitVariableDeclarationAst = (
         decl.initializer,
         currentContext
       );
+      if (dictionaryPresenceLocalName) {
+        currentContext = registerDictionaryReadPresenceLocal(
+          originalName,
+          dictionaryPresenceLocalName,
+          currentContext
+        );
+      }
 
       statements.push({
         kind: "localDeclarationStatement",

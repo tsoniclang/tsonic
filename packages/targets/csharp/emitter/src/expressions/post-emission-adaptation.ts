@@ -395,13 +395,17 @@ export const maybeConvertTypedCharToStringAst = (
   if (!expectsStringIrType(expectedType, context)) return [ast, context];
   if (!isCharIrType(actualType, context)) return [ast, context];
   if (isParameterlessToStringInvocation(ast)) return [ast, context];
+  const valueAst =
+    ast.kind === "castExpression" && expectsStringIrType(expectedType, context)
+      ? ast.expression
+      : ast;
 
   return [
     {
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: ast,
+        expression: valueAst,
         memberName: "ToString",
       },
       arguments: [],

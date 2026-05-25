@@ -679,20 +679,20 @@ export const withRuntimeUnionMemberNarrowing = (
   const narrowedBindings = new Map(sourceLayoutContext.narrowedBindings ?? []);
   const sourceMemberType = sourceLayout?.members[memberN - 1];
   const narrowedType = sourceMemberType ?? memberType;
+  const receiverAst = toReceiverAst(receiver);
   narrowedBindings.set(
     originalName,
     buildExprBinding(
       narrowedAst,
       narrowedType,
       sourceType,
-      narrowedAst,
-      sourceMemberType
-        ? (resolveRuntimeStorageType(sourceMemberType, sourceLayoutContext) ??
-            sourceMemberType)
-        : (storageType ??
-            resolveRuntimeStorageType(memberType, sourceLayoutContext) ??
-            memberType),
-      toReceiverAst(receiver)
+      receiverAst,
+      sourceType ??
+        storageType ??
+        resolveRuntimeStorageType(memberType, sourceLayoutContext) ??
+        memberType,
+      receiverAst,
+      sourceType
     )
   );
   return { ...sourceLayoutContext, narrowedBindings };

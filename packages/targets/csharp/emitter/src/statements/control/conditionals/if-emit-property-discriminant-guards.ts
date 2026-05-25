@@ -4,6 +4,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, storageCarrier } from "../../../types.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { makeNarrowedLocalName } from "../../../core/semantic/narrowing-keys.js";
 import { buildRuntimeUnionMatchAst } from "../../../core/semantic/runtime-union-projection.js";
@@ -22,6 +23,7 @@ import {
   buildCastLocalDecl,
   buildIsNCondition,
   emitBranchScopedStatementAst,
+  withoutNarrowedBinding,
 } from "./branch-context.js";
 import {
   tryResolvePredicateGuard,
@@ -356,6 +358,7 @@ export const tryEmitDiscriminantEqualityGuard = (
 
   const {
     originalName,
+    receiverExpr,
     operator,
     memberN,
     unionArity,
@@ -363,21 +366,29 @@ export const tryEmitDiscriminantEqualityGuard = (
     candidateMemberNs,
     candidateMembers,
     ctxWithId,
-    escapedOrig,
     escapedNarrow,
     narrowedMap,
   } = eqGuard;
 
+  const [receiverAst, receiverContext] = emitExpressionAst(
+    receiverExpr,
+    withoutNarrowedBinding(ctxWithId, originalName)
+  );
+  const guardContext: EmitterContext = {
+    ...receiverContext,
+    tempVarId: ctxWithId.tempVarId,
+    narrowedBindings: ctxWithId.narrowedBindings,
+  };
   const isInequality = operator === "!==" || operator === "!=";
-  const condAst = buildIsNCondition(escapedOrig, memberN, isInequality);
+  const condAst = buildIsNCondition(receiverAst, memberN, isInequality);
 
-  let finalContext: EmitterContext = ctxWithId;
+  let finalContext: EmitterContext = guardContext;
 
   // Equality: narrow THEN to memberN. Inequality: narrow ELSE to memberN.
   if (!isInequality) {
-    const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
+    const castStmt = buildCastLocalDecl(escapedNarrow, receiverAst, memberN);
     const thenCtx: EmitterContext = {
-      ...ctxWithId,
+      ...guardContext,
       narrowedBindings: narrowedMap,
     };
     const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
@@ -386,7 +397,7 @@ export const tryEmitDiscriminantEqualityGuard = (
       thenCtx
     );
     const basePostConditionContext = resetBranchFlowState(
-      ctxWithId,
+      guardContext,
       thenBodyCtx
     );
     finalContext = basePostConditionContext;
@@ -398,7 +409,7 @@ export const tryEmitDiscriminantEqualityGuard = (
           stmt.elseStatement,
           withComplementNarrowing(
             originalName,
-            escapedOrig,
+            receiverAst,
             runtimeUnionArity,
             candidateMemberNs,
             candidateMembers,
@@ -453,7 +464,7 @@ export const tryEmitDiscriminantEqualityGuard = (
     if (isDefinitelyTerminating(stmt.thenStatement)) {
       finalContext = withComplementNarrowing(
         originalName,
-        escapedOrig,
+        receiverAst,
         runtimeUnionArity,
         candidateMemberNs,
         candidateMembers,
@@ -493,12 +504,12 @@ export const tryEmitDiscriminantEqualityGuard = (
         {
           ...withComplementNarrowing(
             originalName,
-            escapedOrig,
+            receiverAst,
             runtimeUnionArity,
             candidateMemberNs,
             candidateMembers,
             memberN,
-            ctxWithId
+            guardContext
           ),
         }
       );
@@ -507,7 +518,7 @@ export const tryEmitDiscriminantEqualityGuard = (
     } else {
       const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
         stmt.thenStatement,
-        ctxWithId
+        guardContext
       );
       thenStmt = wrapInBlock(thenStmts);
       thenCtx = thenCtxAfter;
@@ -517,11 +528,11 @@ export const tryEmitDiscriminantEqualityGuard = (
 
     let elseStmt: CSharpStatementAst | undefined;
     if (stmt.elseStatement) {
-      const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
+      const castStmt = buildCastLocalDecl(escapedNarrow, receiverAst, memberN);
       const [elseBlock, elseBodyCtx] = emitForcedBlockWithPreambleAst(
         [castStmt],
         stmt.elseStatement,
-        { ...ctxWithId, narrowedBindings: narrowedMap }
+        { ...guardContext, narrowedBindings: narrowedMap }
       );
       elseStmt = elseBlock;
       finalContext = {
@@ -547,14 +558,14 @@ export const tryEmitDiscriminantEqualityGuard = (
       narrowedBindings.set(
         originalName,
         buildProjectedExprBinding(
-          buildUnionNarrowAst(escapedOrig, memberN),
+          buildUnionNarrowAst(receiverAst, memberN),
           candidateMembers[
             candidateMemberNs.findIndex(
               (runtimeMemberN) => runtimeMemberN === memberN
             )
           ],
           undefined,
-          toReceiverAst(escapedOrig)
+          toReceiverAst(receiverAst)
         )
       );
       finalContext = { ...finalContext, narrowedBindings };

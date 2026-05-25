@@ -68,6 +68,8 @@ export const emitBlockStatementAst = (
 ): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = context.localNameMap;
   const outerConditionAliases = context.conditionAliases;
+  const outerDictionaryReadPresenceLocals =
+    context.dictionaryReadPresenceLocals;
   const outerSemanticTypes = context.localSemanticTypes;
   const outerValueTypes = context.localValueTypes;
   return withScoped(
@@ -75,6 +77,9 @@ export const emitBlockStatementAst = (
     {
       localNameMap: new Map(outerNameMap ?? []),
       conditionAliases: new Map(outerConditionAliases ?? []),
+      dictionaryReadPresenceLocals: new Map(
+        outerDictionaryReadPresenceLocals ?? []
+      ),
       localSemanticTypes: new Map(outerSemanticTypes ?? []),
       localValueTypes: new Map(outerValueTypes ?? []),
     },

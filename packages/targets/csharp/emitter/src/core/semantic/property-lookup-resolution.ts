@@ -114,8 +114,11 @@ export const resolveLocalTypeInfoWithoutBindings = (
     };
   }
 
-  const fqn =
+  const rawFqn =
     ref.providerQualifiedName ?? (ref.name.includes(".") ? ref.name : undefined);
+  const fqn = rawFqn?.startsWith("global::")
+    ? rawFqn.slice("global::".length)
+    : rawFqn;
   if (fqn && fqn.includes(".")) {
     const namespace = fqn.slice(0, fqn.lastIndexOf("."));
     const scoped = matches.filter((m) => m.namespace === namespace);

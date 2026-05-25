@@ -24,6 +24,8 @@ import {
   isCompilerGeneratedStructuralReferenceType,
   isTypeOnlyStructuralTarget,
   resolveStructuralReferenceType,
+  resolveTypeAlias,
+  getArrayLikeElementType,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
 import {
@@ -91,6 +93,10 @@ import {
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import { resolveRuntimeStorageType } from "../core/semantic/storage-types.js";
 import { referenceTypeEmitsAsNativeInterface } from "../core/semantic/native-interfaces.js";
+import {
+  tryBuildRuntimeMaterializationAst,
+  tryBuildRuntimeReificationPlan,
+} from "../core/semantic/runtime-reification.js";
 
 // ---------------------------------------------------------------------------
 // Polymorphic-this helpers (used by orchestrator and emitTypeAssertion)
@@ -579,6 +585,22 @@ export const emitTypeAssertion = (
     resolvedAssertionTarget,
     context
   );
+  const runtimeAssertionStorageTarget =
+    resolveRuntimeStorageType(runtimeAssertionTarget, context) ??
+    runtimeAssertionTarget;
+  const hasTopLevelRuntimeNullishMember = (type: IrType | undefined): boolean =>
+    type?.kind === "unionType" &&
+    type.types.some(
+      (member) =>
+        member.kind === "voidType" ||
+        (member.kind === "primitiveType" &&
+          (member.name === "null" || member.name === "undefined"))
+    );
+  const passthroughExpectedType =
+    hasTopLevelRuntimeNullishMember(runtimeAssertionTarget) &&
+    !hasTopLevelRuntimeNullishMember(expectedType)
+      ? runtimeAssertionTarget
+      : expectedType;
   const involvesDegenerateDuplicateUnion =
     isDegenerateDuplicateUnion(resolvedAssertionTarget) ||
     isDegenerateDuplicateUnion(runtimeAssertionTarget) ||
@@ -587,6 +609,23 @@ export const emitTypeAssertion = (
   const currentTransparentSourceType =
     resolveEffectiveExpressionType(transparentSourceExpression, context) ??
     sourceExpressionTypeAtEntry;
+  if (
+    hasTopLevelRuntimeNullishMember(runtimeAssertionTarget) &&
+    currentTransparentSourceType &&
+    hasTopLevelRuntimeNullishMember(currentTransparentSourceType) &&
+    (areIrTypesEquivalent(
+      stripNullish(currentTransparentSourceType),
+      stripNullish(runtimeAssertionTarget),
+      context
+    ) ||
+      matchesExpectedEmissionType(
+        currentTransparentSourceType,
+        runtimeAssertionTarget,
+        context
+      ))
+  ) {
+    return emitExpressionAst(expr.expression, context, runtimeAssertionTarget);
+  }
   const transparentSourceDeclaredType =
     transparentSourceExpression.kind === "identifier"
       ? (context.localSemanticTypes?.get(transparentSourceExpression.name) ??
@@ -619,17 +658,22 @@ export const emitTypeAssertion = (
     !!currentTransparentSourceType &&
     matchesEmittedStorageSurface(
       currentTransparentSourceType,
-      runtimeAssertionTarget,
+      runtimeAssertionStorageTarget,
       context
     )[0];
   const mustPreserveExplicitRuntimeAssertion =
     !!currentTransparentSourceType &&
     willCarryAsRuntimeUnion(currentTransparentSourceType, context) &&
     !willCarryAsRuntimeUnion(runtimeAssertionTarget, context);
+  const directLocalValueSurfaceType =
+    transparentSourceExpression.kind === "identifier"
+      ? context.localValueTypes?.get(transparentSourceExpression.name)
+      : undefined;
   const sourceStorageTypeAtEntry =
     (sourceNarrowedBinding?.kind === "expr"
       ? sourceNarrowedBinding.storageType
       : undefined) ??
+    directLocalValueSurfaceType ??
     sourceNarrowedBinding?.sourceType ??
     (transparentSourceExpression.kind === "identifier"
       ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
@@ -662,12 +706,12 @@ export const emitTypeAssertion = (
     !sourceStorageTypeAtEntry ||
     areIrTypesEquivalent(
       sourceStorageTypeAtEntry,
-      runtimeAssertionTarget,
+      runtimeAssertionStorageTarget,
       context
     ) ||
     matchesEmittedStorageSurface(
       sourceStorageTypeAtEntry,
-      runtimeAssertionTarget,
+      runtimeAssertionStorageTarget,
       context
     )[0];
   const canPreserveNarrowedProjectionAtEntry =
@@ -698,7 +742,7 @@ export const emitTypeAssertion = (
     !willCarryAsRuntimeUnion(runtimeAssertionTarget, context) &&
     !matchesEmittedStorageSurface(
       transparentStorageSurfaceType,
-      runtimeAssertionTarget,
+      runtimeAssertionStorageTarget,
       context
     )[0];
   const explicitAssertionStaticSourceType =
@@ -714,6 +758,11 @@ export const emitTypeAssertion = (
     !!explicitAssertionStaticSourceType &&
     hasConcreteRuntimeCastTarget(runtimeAssertionTarget) &&
     !willCarryAsRuntimeUnion(runtimeAssertionTarget, context) &&
+    !matchesEmittedStorageSurface(
+      explicitAssertionStaticSourceType,
+      runtimeAssertionStorageTarget,
+      context
+    )[0] &&
     !areIrTypesEquivalent(
       stripNullish(explicitAssertionStaticSourceType),
       stripNullish(runtimeAssertionTarget),
@@ -724,6 +773,27 @@ export const emitTypeAssertion = (
   const mustPreserveAuthoredAssertionCast =
     isAuthoredTypeAssertion &&
     (explicitAssertionNeedsStorageCast || explicitAssertionNeedsRuntimeCast);
+  const sourceStorageAlreadySatisfiesAssertion =
+    !!sourceStorageTypeAtEntry &&
+    !willCarryAsRuntimeUnion(runtimeAssertionTarget, context) &&
+    matchesEmittedStorageSurface(
+      sourceStorageTypeAtEntry,
+      runtimeAssertionStorageTarget,
+      context
+    )[0];
+  const sourceHasStructuredStorage = (sourceType: IrType | undefined): boolean => {
+    if (!sourceType) {
+      return false;
+    }
+    const resolved = resolveTypeAlias(stripNullish(sourceType), context, {
+      preserveObjectTypeAliases: true,
+    });
+    return (
+      resolved.kind === "arrayType" ||
+      resolved.kind === "dictionaryType" ||
+      getArrayLikeElementType(resolved, context) !== undefined
+    );
+  };
   const nominalSourceSatisfiesStructuralAssertionTarget = (
     sourceType: IrType | undefined
   ): boolean =>
@@ -742,6 +812,17 @@ export const emitTypeAssertion = (
       expr.targetType,
       context
     );
+
+  if (
+    sourceStorageAlreadySatisfiesAssertion &&
+    !mustPreserveExplicitRuntimeAssertion &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context
+    );
+  }
 
   if (
     !involvesDegenerateDuplicateUnion &&
@@ -993,7 +1074,7 @@ export const emitTypeAssertion = (
       !explicitAssertionNeedsStorageCast &&
       !explicitAssertionNeedsRuntimeCast
     ) {
-      return emitExpressionAst(expr.expression, context, expectedType);
+      return emitExpressionAst(expr.expression, context, passthroughExpectedType);
     }
   }
 
@@ -1022,7 +1103,7 @@ export const emitTypeAssertion = (
         context
       ))
   ) {
-    return emitExpressionAst(expr.expression, context, expectedType);
+    return emitExpressionAst(expr.expression, context, passthroughExpectedType);
   }
 
   const broadObjectPassThroughSourceType =
@@ -1053,6 +1134,10 @@ export const emitTypeAssertion = (
     expr.targetType,
     context
   );
+  const assertionTargetRequiresOuterReification =
+    willCarryAsRuntimeUnion(runtimeEmissionTarget, context) ||
+    runtimeEmissionTarget.kind === "arrayType" ||
+    runtimeEmissionTarget.kind === "dictionaryType";
   const preserveTransparentFlowNarrowing =
     !!sourceNarrowedBinding && isTransparentFlowAssertion;
   const preserveNarrowedSourceStorage =
@@ -1076,7 +1161,8 @@ export const emitTypeAssertion = (
   const innerExpectedType =
     expr.expression.kind === "array" ||
     expr.expression.kind === "object" ||
-    expr.expression.kind === "call" ||
+    (expr.expression.kind === "call" &&
+      !assertionTargetRequiresOuterReification) ||
     expr.expression.kind === "functionExpression" ||
     expr.expression.kind === "arrowFunction"
       ? runtimeEmissionTarget
@@ -1136,8 +1222,12 @@ export const emitTypeAssertion = (
         ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
         : resolveEffectiveExpressionType(
             transparentSourceExpression,
-            sourceLayoutContext
-          );
+          sourceLayoutContext
+        );
+  const authoredStructuredAssertionWithoutStructuredSource =
+    targetNeedsStructuredReification &&
+    !sourceHasStructuredStorage(sourceStorageTypeAtEntry) &&
+    !sourceHasStructuredStorage(sourceExpressionType);
   const preservedBroadArrayStorageType = resolveBroadArrayAssertionStorageType(
     resolvedAssertionTarget,
     sourceStorageTypeAtEntry,
@@ -1312,6 +1402,17 @@ export const emitTypeAssertion = (
     ];
   }
 
+  if (authoredStructuredAssertionWithoutStructuredSource) {
+    return [
+      {
+        kind: "castExpression",
+        type: runtimeTargetTypeAst,
+        expression: castSourceAst,
+      },
+      runtimeTargetTypeContext,
+    ];
+  }
+
   const degenerateDuplicateUnionAst = maybeAdaptDegenerateDuplicateUnion(
     castSourceAst,
     actualExpressionType,
@@ -1336,6 +1437,65 @@ export const emitTypeAssertion = (
       },
       runtimeTargetTypeContext,
     ];
+  }
+
+  if (actualExpressionType && targetNeedsStructuredReification) {
+    const materializedStructuredSource = tryBuildRuntimeMaterializationAst(
+      castSourceAst,
+      actualExpressionType,
+      runtimeTarget,
+      sourceLayoutContext,
+      emitTypeAst,
+      expr.selectedRuntimeUnionMembers
+        ? new Set(expr.selectedRuntimeUnionMembers)
+        : undefined
+    );
+    if (materializedStructuredSource) {
+      return materializedStructuredSource;
+    }
+  }
+
+  if (
+    actualExpressionType &&
+    (runtimeTargetUnionLayout || willCarryAsRuntimeUnion(runtimeTarget, sourceLayoutContext))
+  ) {
+    const materializedRuntimeUnionSource = tryBuildRuntimeMaterializationAst(
+      castSourceAst,
+      actualExpressionType,
+      runtimeTarget,
+      sourceLayoutContext,
+      emitTypeAst,
+      expr.selectedRuntimeUnionMembers
+        ? new Set(expr.selectedRuntimeUnionMembers)
+        : undefined
+    );
+    if (materializedRuntimeUnionSource) {
+      return materializedRuntimeUnionSource;
+    }
+  }
+
+  if (
+    runtimeTargetUnionLayout ||
+    willCarryAsRuntimeUnion(runtimeTarget, sourceLayoutContext) ||
+    targetNeedsStructuredReification
+  ) {
+    const reificationPlan = tryBuildRuntimeReificationPlan(
+      castSourceAst,
+      runtimeTarget,
+      sourceLayoutContext,
+      emitTypeAst,
+      runtimeTargetUnionLayout
+        ? {
+            typeAst: runtimeTargetTypeAst,
+            layout: runtimeTargetUnionLayout,
+            layoutType: runtimeTarget,
+            context: runtimeTargetTypeContext,
+          }
+        : undefined
+    );
+    if (reificationPlan) {
+      return [reificationPlan.value, reificationPlan.context];
+    }
   }
 
   const adaptedUnionAst = mustPreserveDirectStorageCast

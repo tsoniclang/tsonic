@@ -10,6 +10,7 @@ import { resolveLocalTypeInfo } from "./type-resolution.js";
 import { substituteTypeArgs } from "./type-substitution.js";
 import { getClrIdentityKey } from "./clr-type-identity.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { collectEffectiveInterfaceMembers } from "./native-interfaces.js";
 
 type InterfaceCandidate = {
   readonly namespace: string;
@@ -82,7 +83,7 @@ const buildCanonicalInterfaceRef = (
 
 const isInterfaceMarkerProperty = (
   member: IrInterfaceMember
-): member is Extract<IrInterfaceMember, { kind: "propertySignature" }> =>
+): boolean =>
   member.kind === "propertySignature" &&
   member.name.startsWith("__tsonic_iface_");
 
@@ -313,7 +314,13 @@ const collectCompatibleMembers = (
   const usedPropertyIndices = new Set<number>();
   const usedMethodIndices = new Set<number>();
 
-  for (const member of interfaceInfo.members) {
+  for (const member of collectEffectiveInterfaceMembers(
+    interfaceInfo,
+    context
+  )) {
+    if (isInterfaceMarkerProperty(member)) {
+      continue;
+    }
     if (member.kind === "propertySignature") {
       const classMember = findCompatibleProperty(
         classMembers,

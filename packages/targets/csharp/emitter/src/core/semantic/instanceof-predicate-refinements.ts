@@ -3,7 +3,7 @@
  * Handles applyInstanceofRefinement and applyPredicateCallRefinement.
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import { IrExpression, IrType, normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -33,6 +33,33 @@ import {
   buildRuntimeUnionComplementBinding,
   applyDirectTypeNarrowing,
 } from "./narrowing-builders.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+  unionMemberMatchesTarget,
+} from "./type-resolution.js";
+
+const narrowTypeByPredicateTarget = (
+  currentType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): IrType => {
+  const resolvedCurrent = resolveTypeAlias(stripNullish(currentType), context);
+  const resolvedTarget = resolveTypeAlias(stripNullish(targetType), context);
+
+  if (resolvedCurrent.kind === "unionType") {
+    const kept = resolvedCurrent.types.filter((member): member is IrType => {
+      if (!member) return false;
+      return unionMemberMatchesTarget(member, resolvedTarget, context);
+    });
+    if (kept.length === 1 && kept[0]) return kept[0];
+    if (kept.length > 1) return normalizedUnionType(kept) ?? resolvedTarget;
+  }
+
+  return unionMemberMatchesTarget(resolvedCurrent, resolvedTarget, context)
+    ? resolvedCurrent
+    : resolvedTarget;
+};
 
 export const applyInstanceofRefinement = (
   condition: IrExpression,
@@ -301,7 +328,11 @@ export const applyPredicateCallRefinement = (
 
   const narrowedType =
     branch === "truthy"
-      ? narrowing.targetType
+      ? narrowTypeByPredicateTarget(
+          currentType,
+          narrowing.targetType,
+          context
+        )
       : narrowTypeByNotAssignableTarget(
           currentType,
           narrowing.targetType,

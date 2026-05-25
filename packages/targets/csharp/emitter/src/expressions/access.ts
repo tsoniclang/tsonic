@@ -56,6 +56,8 @@ import { emitPropertyAccess } from "./access-property.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 import { tryStripConditionalNullishGuardAst } from "../core/semantic/narrowing-builders.js";
+import { resolveDirectValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
+import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 
 const isNativeArrayLengthProjection = (
   memberType: IrType | undefined,
@@ -86,7 +88,128 @@ const emitProjectedRuntimeUnionPropertyRead = (
   memberName: isNativeArrayLengthProjection(memberType, prop, context)
     ? "Length"
     : emitMemberName(receiverExpr, memberType, prop, context, usage),
-});
+	  });
+
+const tryEmitRuntimeUnionPropertyProjection = (
+  receiverExpr: IrExpression,
+  receiverAst: CSharpExpressionAst,
+  receiverType: IrType,
+  prop: string,
+  context: EmitterContext,
+  usage: MemberAccessUsage,
+  isOptional: boolean
+): CSharpExpressionAst | undefined => {
+  const resolvedBase = resolveTypeAlias(stripNullish(receiverType), context);
+  const resolved =
+    resolvedBase.kind === "intersectionType"
+      ? (resolvedBase.types.find(
+          (t): t is Extract<IrType, { kind: "referenceType" }> =>
+            t.kind === "referenceType" && isRuntimeUnionTypeName(t.name)
+        ) ?? resolvedBase)
+      : resolvedBase;
+  const runtimeReferenceMembers =
+    resolved.kind === "referenceType"
+      ? getRuntimeUnionReferenceMembers(resolved)
+      : undefined;
+  const members: readonly IrType[] =
+    resolved.kind === "unionType"
+      ? resolved.types
+      : runtimeReferenceMembers
+        ? runtimeReferenceMembers
+        : [];
+
+  const [runtimeLayout] = buildRuntimeUnionLayout(
+    receiverType,
+    context,
+    emitTypeAst
+  );
+  const runtimeMembers = runtimeLayout?.members ?? members;
+  const arity = runtimeMembers.length;
+  if (arity < 2) {
+    return undefined;
+  }
+
+  const memberHasProperty = runtimeMembers.map((m) => {
+    if (isNativeArrayLengthProjection(m, prop, context)) {
+      return true;
+    }
+    const deterministic = hasDeterministicPropertyMembership(m, prop, context);
+    if (deterministic !== undefined) {
+      return deterministic;
+    }
+    if (m.kind !== "referenceType") return false;
+    const props = getAllPropertySignatures(m, context);
+    if (props) return props.some((p) => p.name === prop);
+    const fromBindings = hasPropertyFromBindingsRegistry(m, prop, context);
+    return fromBindings ?? false;
+  });
+  const count = memberHasProperty.filter(Boolean).length;
+
+  if (count !== arity && count !== 1) {
+    return undefined;
+  }
+
+  if (count === arity) {
+    const lambdaArgs = runtimeMembers.map(
+      (runtimeMember, i): CSharpExpressionAst => ({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: `__m${i + 1}` }],
+        body: emitProjectedRuntimeUnionPropertyRead(
+          receiverExpr,
+          {
+            kind: "identifierExpression",
+            identifier: `__m${i + 1}`,
+          },
+          runtimeMember,
+          prop,
+          context,
+          usage,
+          false
+        ),
+      })
+    );
+    return {
+      kind: "invocationExpression",
+      expression: {
+        kind: isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: receiverAst,
+        memberName: "Match",
+      },
+      arguments: lambdaArgs,
+    };
+  }
+
+  const armIndex = memberHasProperty.findIndex(Boolean);
+  if (armIndex < 0) {
+    return undefined;
+  }
+
+  const runtimeMember = runtimeMembers[armIndex];
+  const asMethod = emitCSharpName(`As${armIndex + 1}`, "methods", context);
+  const projectedArmAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: isOptional
+        ? "conditionalMemberAccessExpression"
+        : "memberAccessExpression",
+      expression: receiverAst,
+      memberName: asMethod,
+    },
+    arguments: [],
+  };
+  return emitProjectedRuntimeUnionPropertyRead(
+    receiverExpr,
+    projectedArmAst,
+    runtimeMember,
+    prop,
+    context,
+    usage,
+    isOptional
+  );
+};
 
 /**
  * Emit a member access expression as CSharpExpressionAst
@@ -97,7 +220,9 @@ export const emitMemberAccess = (
   usage: MemberAccessUsage = "value",
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  const objectType = resolveEffectiveReceiverType(expr.object, context);
+  const objectType =
+    resolveEffectiveReceiverType(expr.object, context) ??
+    expr.object.inferredType;
   const propertyName =
     typeof expr.property === "string" ? expr.property : undefined;
 
@@ -213,8 +338,7 @@ export const emitMemberAccess = (
       const receiverNarrowed = receiverNarrowKey
         ? context.narrowedBindings?.get(receiverNarrowKey)
         : undefined;
-      const receiverNarrowedType =
-        receiverNarrowed?.kind === "expr" ? receiverNarrowed.type : undefined;
+      const receiverNarrowedType = receiverNarrowed?.type;
       if (
         usage === "value" &&
         receiverNarrowedType &&
@@ -226,26 +350,45 @@ export const emitMemberAccess = (
         ) === true
       ) {
         const [objectAst, newContext] = emitExpressionAst(expr.object, context);
-        const receiverStorageType = resolveDirectStorageIrType(
-          expr.object,
-          context
-        );
-        const receiverMaterializationSourceType =
-          receiverNarrowed?.kind === "expr" && receiverNarrowed.type
-            ? receiverNarrowed.type
-            : receiverStorageType;
+        const receiverBindingCarrierType =
+          receiverNarrowed?.kind === "expr"
+            ? (receiverNarrowed.sourceType ?? receiverNarrowed.carrierType)
+            : receiverNarrowed?.kind === "runtimeSubset" ||
+                receiverNarrowed?.kind === "rename"
+              ? receiverNarrowed.sourceType
+              : undefined;
+        const receiverStorageType =
+          receiverBindingCarrierType ??
+          resolveDirectStorageIrType(expr.object, context);
         const nonNullReceiverAst =
           tryStripConditionalNullishGuardAst(objectAst) ?? objectAst;
-        const [materializedReceiverAst, materializedReceiverContext] =
-          materializeDirectNarrowingAst(
+        const alreadyMaterializedReceiverType =
+          tryResolveRuntimeUnionMemberType(
+            receiverStorageType ?? objectType,
             nonNullReceiverAst,
-            receiverMaterializationSourceType,
-            receiverNarrowedType,
-            newContext
+            newContext,
+            { verifyReceiver: false }
           );
+        const [materializedReceiverAst, materializedReceiverContext] =
+          alreadyMaterializedReceiverType &&
+          !willCarryAsRuntimeUnion(alreadyMaterializedReceiverType, context) &&
+          hasDeterministicPropertyMembership(
+            alreadyMaterializedReceiverType,
+            prop,
+            context
+          ) === true
+            ? [nonNullReceiverAst, newContext]
+            : materializeDirectNarrowingAst(
+                nonNullReceiverAst,
+                receiverStorageType ?? objectType,
+                receiverNarrowedType,
+                newContext
+              );
+        const materializedReceiverType =
+          alreadyMaterializedReceiverType ?? receiverNarrowedType;
         const escapedProp = emitMemberName(
           expr.object,
-          receiverNarrowedType,
+          materializedReceiverType,
           prop,
           context,
           usage
@@ -262,139 +405,32 @@ export const emitMemberAccess = (
         ];
       }
 
-      const resolvedBase = resolveTypeAlias(stripNullish(objectType), context);
-      const resolved =
-        resolvedBase.kind === "intersectionType"
-          ? (resolvedBase.types.find(
-              (t): t is Extract<IrType, { kind: "referenceType" }> =>
-                t.kind === "referenceType" && isRuntimeUnionTypeName(t.name)
-            ) ?? resolvedBase)
-          : resolvedBase;
-      const runtimeReferenceMembers =
-        resolved.kind === "referenceType"
-          ? getRuntimeUnionReferenceMembers(resolved)
-          : undefined;
-      const members: readonly IrType[] =
-        resolved.kind === "unionType"
-          ? resolved.types
-          : runtimeReferenceMembers
-            ? runtimeReferenceMembers
-            : [];
-
-      const [runtimeLayout] =
-        members.length >= 2
-          ? buildRuntimeUnionLayout(objectType, context, emitTypeAst)
-          : [undefined, context];
-      const runtimeMembers = runtimeLayout?.members ?? members;
-      const arity = runtimeMembers.length;
-      if (arity >= 2) {
-        const memberHasProperty = runtimeMembers.map((m) => {
-          if (isNativeArrayLengthProjection(m, prop, context)) {
-            return true;
-          }
-          const deterministic = hasDeterministicPropertyMembership(
-            m,
-            prop,
-            context
-          );
-          if (deterministic !== undefined) {
-            return deterministic;
-          }
-          if (m.kind !== "referenceType") return false;
-          const props = getAllPropertySignatures(m, context);
-          if (props) return props.some((p) => p.name === prop);
-          const fromBindings = hasPropertyFromBindingsRegistry(
-            m,
-            prop,
-            context
-          );
-          return fromBindings ?? false;
-        });
-        const count = memberHasProperty.filter(Boolean).length;
-
-        if (count === arity || count === 1) {
-          const [objectAst, newContext] = emitExpressionAst(
-            expr.object,
-            context
-          );
-
-          if (count === arity) {
-            // All members have the property: use Match lambda
-            const lambdaArgs = runtimeMembers.map(
-              (runtimeMember, i): CSharpExpressionAst => ({
-                kind: "lambdaExpression",
-                isAsync: false,
-                parameters: [{ name: `__m${i + 1}` }],
-                body: emitProjectedRuntimeUnionPropertyRead(
-                  expr.object,
-                  {
-                    kind: "identifierExpression",
-                    identifier: `__m${i + 1}`,
-                  },
-                  runtimeMember,
-                  prop,
-                  context,
-                  usage,
-                  false
-                ),
-              })
-            );
-            return [
-              {
-                kind: "invocationExpression",
-                expression: {
-                  kind: expr.isOptional
-                    ? "conditionalMemberAccessExpression"
-                    : "memberAccessExpression",
-                  expression: objectAst,
-                  memberName: "Match",
-                },
-                arguments: lambdaArgs,
-              },
-              newContext,
-            ];
-          }
-
-          const armIndex = memberHasProperty.findIndex(Boolean);
-          if (armIndex >= 0) {
-            const runtimeMember = runtimeMembers[armIndex];
-            const asMethod = emitCSharpName(
-              `As${armIndex + 1}`,
-              "methods",
-              context
-            );
-            // receiver.AsN().prop
-            const projectedArmAst: CSharpExpressionAst = {
-              kind: "invocationExpression",
-              expression: {
-                kind: expr.isOptional
-                  ? "conditionalMemberAccessExpression"
-                  : "memberAccessExpression",
-                expression: objectAst,
-                memberName: asMethod,
-              },
-              arguments: [],
-            };
-            return [
-              emitProjectedRuntimeUnionPropertyRead(
-                expr.object,
-                projectedArmAst,
-                runtimeMember,
-                prop,
-                context,
-                usage,
-                expr.isOptional
-              ),
-              newContext,
-            ];
-          }
-        }
+      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      const projected = tryEmitRuntimeUnionPropertyProjection(
+        expr.object,
+        objectAst,
+        objectType,
+        prop,
+        newContext,
+        usage,
+        expr.isOptional
+      );
+      if (projected) {
+        return [projected, newContext];
       }
     }
   }
 
   const bindingResult = tryEmitMemberBindingAccess(expr, context, usage);
   if (bindingResult) {
+    if (usage === "value" && expectedType && expr.inferredType) {
+      return materializeDirectNarrowingAst(
+        bindingResult[0],
+        expr.inferredType,
+        expectedType,
+        bindingResult[1]
+      );
+    }
     return bindingResult;
   }
 
@@ -402,6 +438,27 @@ export const emitMemberAccess = (
   const objectAst = expr.isOptional
     ? rawObjectAst
     : (tryStripConditionalNullishGuardAst(rawObjectAst) ?? rawObjectAst);
+
+  if (!expr.isComputed && propertyName) {
+    const surfaceObjectType =
+      objectType ?? resolveDirectValueSurfaceType(objectAst, newContext);
+    if (
+      surfaceObjectType
+    ) {
+      const projected = tryEmitRuntimeUnionPropertyProjection(
+        expr.object,
+        objectAst,
+        surfaceObjectType,
+        propertyName,
+        newContext,
+        usage,
+        expr.isOptional
+      );
+      if (projected) {
+        return [projected, newContext];
+      }
+    }
+  }
 
   if (usage === "value") {
     const jsSurfaceArrayLengthAccess = tryEmitJsSurfaceArrayLikeLengthAccess(

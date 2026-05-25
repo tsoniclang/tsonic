@@ -14,13 +14,12 @@ cd "$(dirname "$0")/../.."
 
 echo "=== Building Tsonic ==="
 
-# Define the build order (dependencies first)
+# Define the build order (dependencies first).
 PACKAGES=(
-  "runtime"       # Runtime library (no dependencies)
-  "frontend"      # TypeScript parser and IR builder
-  "emitter"       # C# code generator
-  "backend"       # dotnet CLI orchestration
-  "cli"           # CLI (depends on all others)
+  "packages/frontend"                 # TypeScript parser and IR builder
+  "packages/targets/csharp/emitter"   # C# code generator
+  "packages/targets/csharp/backend"   # dotnet CLI orchestration
+  "packages/cli"                      # CLI (depends on all others)
 )
 
 # 1 ▸ clean if --clean flag present
@@ -38,8 +37,7 @@ elif [[ ! -x "./node_modules/.bin/tsc" ]]; then
 fi
 
 # 3 ▸ build each package that defines a build script, in order
-for pkg_name in "${PACKAGES[@]}"; do
-  pkg="packages/$pkg_name"
+for pkg in "${PACKAGES[@]}"; do
   if [[ ! -f "$pkg/package.json" ]]; then
     continue
   fi

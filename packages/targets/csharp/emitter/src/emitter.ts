@@ -12,7 +12,11 @@ import {
   type Diagnostic,
   type IrModule,
 } from "@tsonic/frontend";
-import { EmitterOptions, JsonAotRegistry } from "./types.js";
+import {
+  EmitterOptions,
+  JsonAotRegistry,
+  InterfaceObjectAdapterRegistry,
+} from "./types.js";
 import { emitModule } from "./core/format/module-emitter.js";
 import { buildModuleMap } from "./core/semantic/module-map.js";
 import { collectStructuralInterfaceContracts } from "./core/semantic/local-types.js";
@@ -26,6 +30,7 @@ import {
   generateModuleContainerAttributeFile,
   generateJsonAotFile,
   generateRuntimeUnionFile,
+  generateInterfaceObjectAdaptersFile,
 } from "./generated-files.js";
 import { createRuntimeUnionRegistry } from "./core/semantic/runtime-union-registry.js";
 import type { CSharpEmittableIrModule } from "./target.js";
@@ -87,6 +92,9 @@ export const emitCSharpFiles = (
     needsJsonAot: false,
   };
   const runtimeUnionRegistry = createRuntimeUnionRegistry();
+  const interfaceObjectAdapterRegistry: InterfaceObjectAdapterRegistry = {
+    definitions: new Map(),
+  };
 
   // Detect whether we emitted any module static container classes.
   // If so, we must include the ModuleContainerAttribute definition so those
@@ -130,6 +138,7 @@ export const emitCSharpFiles = (
       syntheticTypeNamespaces, // Synthetic cross-module type resolution (e.g. __tsonic/* anon types)
       jsonAotRegistry, // Pass JSON AOT registry for type collection
       runtimeUnionRegistry,
+      interfaceObjectAdapterRegistry,
     };
     const code = emitModule(module, moduleOptions);
     results.set(outputPath, code);
@@ -154,6 +163,13 @@ export const emitCSharpFiles = (
     results.set(
       "__tsonic_unions.g.cs",
       generateRuntimeUnionFile(runtimeUnionRegistry)
+    );
+  }
+
+  if (interfaceObjectAdapterRegistry.definitions.size > 0) {
+    results.set(
+      "__tsonic_interface_object_adapters.g.cs",
+      generateInterfaceObjectAdaptersFile(interfaceObjectAdapterRegistry)
     );
   }
 

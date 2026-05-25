@@ -100,6 +100,10 @@ export type InstanceofGuardInfo = {
  */
 export type DiscriminantEqualityGuardInfo = {
   readonly originalName: string;
+  readonly receiverExpr: Extract<
+    IrExpression,
+    { kind: "identifier" | "memberAccess" }
+  >;
   readonly propertyName: string;
   readonly literal: string | number | boolean;
   readonly operator: "===" | "!==" | "==" | "!=";
@@ -193,16 +197,6 @@ export const getGuardPropertyType = (
   }
 
   if (type.kind === "referenceType") {
-    if (type.structuralMembers?.length) {
-      const prop = type.structuralMembers.find(
-        (
-          member
-        ): member is Extract<typeof member, { kind: "propertySignature" }> =>
-          member.kind === "propertySignature" && member.name === propertyName
-      );
-      if (prop) return prop.type;
-    }
-
     const localTypes = resolveLocalTypesForReference(type, context);
     if (localTypes) {
       const lookupName = type.name.includes(".")
@@ -218,6 +212,16 @@ export const getGuardPropertyType = (
 
     const resolvedPropType = getPropertyType(type, propertyName, context);
     if (resolvedPropType) return resolvedPropType;
+
+    if (type.structuralMembers?.length) {
+      const prop = type.structuralMembers.find(
+        (
+          member
+        ): member is Extract<typeof member, { kind: "propertySignature" }> =>
+          member.kind === "propertySignature" && member.name === propertyName
+      );
+      if (prop) return prop.type;
+    }
   }
 
   return undefined;
@@ -261,6 +265,53 @@ export const extractTransparentMemberAccessTarget = (
   }
 
   return { access: access as PlainMemberAccessTarget, receiver };
+};
+
+export const extractTransparentNarrowableMemberAccessTarget = (
+  expr: IrExpression
+):
+  | {
+      readonly access: PlainMemberAccessTarget;
+      readonly receiver: Extract<
+        IrExpression,
+        { kind: "identifier" | "memberAccess" }
+      >;
+      readonly receiverKey: string;
+    }
+  | undefined => {
+  const access = unwrapTransparentNarrowingTarget(expr);
+  if (!access || access.kind !== "memberAccess") {
+    return undefined;
+  }
+  if (access.isOptional || access.isComputed) {
+    return undefined;
+  }
+
+  const receiver = unwrapTransparentNarrowingTarget(access.object);
+  if (!receiver) {
+    return undefined;
+  }
+
+  if (receiver.kind === "identifier") {
+    return {
+      access: access as PlainMemberAccessTarget,
+      receiver,
+      receiverKey: receiver.name,
+    };
+  }
+
+  if (receiver.kind === "memberAccess") {
+    const receiverKey = getMemberAccessNarrowKey(receiver);
+    return receiverKey
+      ? {
+          access: access as PlainMemberAccessTarget,
+          receiver,
+          receiverKey,
+        }
+      : undefined;
+  }
+
+  return undefined;
 };
 
 export const resolveRuntimeUnionFrame = resolveNarrowedUnionMembers;

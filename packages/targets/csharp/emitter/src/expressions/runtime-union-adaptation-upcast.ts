@@ -476,6 +476,31 @@ const referenceTypesHaveSameNominalIdentity = (
   );
 };
 
+const valueSurfaceCanBeUsedAsRuntimeUnionMember = (
+  ast: CSharpExpressionAst,
+  actualType: IrType,
+  memberTypeAst: CSharpTypeAst,
+  context: EmitterContext
+): boolean => {
+  if (
+    isExactExpressionToType(ast, stripNullableTypeAst(memberTypeAst)) ||
+    isExactArrayCreationToType(ast, memberTypeAst)
+  ) {
+    return true;
+  }
+
+  const surfaceType = resolveDirectValueSurfaceType(ast, context) ?? actualType;
+  try {
+    const [surfaceTypeAst] = emitTypeAst(surfaceType, context);
+    return sameTypeAstSurface(
+      stripNullableTypeAst(surfaceTypeAst),
+      stripNullableTypeAst(memberTypeAst)
+    );
+  } catch {
+    return false;
+  }
+};
+
 const tryAdaptRuntimeUnionMemberValueAst = (opts: {
   readonly ast: CSharpExpressionAst;
   readonly actualType: IrType;
@@ -525,6 +550,34 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
     }
   }
 
+  const upcastWithVisited = (
+    nestedAst: CSharpExpressionAst,
+    nestedActualType: IrType | undefined,
+    nestedContext: EmitterContext,
+    nestedExpectedType: IrType | undefined,
+    nestedVisited?: ReadonlySet<string>
+  ): [CSharpExpressionAst, EmitterContext] | undefined =>
+    maybeAdaptRuntimeUnionExpressionAst(
+      nestedAst,
+      nestedActualType,
+      nestedContext,
+      nestedExpectedType,
+      nestedVisited && nestedVisited.size > 0
+        ? new Set([...visited, ...nestedVisited])
+        : visited
+    );
+
+  const structuralAdaptation = tryAdaptStructuralExpressionAst(
+    ast,
+    actualType,
+    context,
+    memberType,
+    upcastWithVisited
+  );
+  if (structuralAdaptation) {
+    return structuralAdaptation;
+  }
+
   const directRuntimeMaterialization = tryBuildRuntimeMaterializationAst(
     ast,
     actualType,
@@ -568,34 +621,6 @@ const tryAdaptRuntimeUnionMemberValueAst = (opts: {
   });
   if (awaitableAdaptation) {
     return awaitableAdaptation;
-  }
-
-  const upcastWithVisited = (
-    nestedAst: CSharpExpressionAst,
-    nestedActualType: IrType | undefined,
-    nestedContext: EmitterContext,
-    nestedExpectedType: IrType | undefined,
-    nestedVisited?: ReadonlySet<string>
-  ): [CSharpExpressionAst, EmitterContext] | undefined =>
-    maybeAdaptRuntimeUnionExpressionAst(
-      nestedAst,
-      nestedActualType,
-      nestedContext,
-      nestedExpectedType,
-      nestedVisited && nestedVisited.size > 0
-        ? new Set([...visited, ...nestedVisited])
-        : visited
-    );
-
-  const structuralAdaptation = tryAdaptStructuralExpressionAst(
-    ast,
-    actualType,
-    context,
-    memberType,
-    upcastWithVisited
-  );
-  if (structuralAdaptation) {
-    return structuralAdaptation;
   }
 
   const [numericAdjustedAst, numericAdjustedContext] =
@@ -986,7 +1011,19 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     !willCarryAsRuntimeUnion(actualType, context) &&
     !willCarryAsRuntimeUnion(expectedType, context)
   ) {
-    return undefined;
+    const [actualLayout] = buildRuntimeUnionLayout(
+      actualType,
+      context,
+      emitTypeAst
+    );
+    const [expectedLayout] = buildRuntimeUnionLayout(
+      expectedType,
+      context,
+      emitTypeAst
+    );
+    if (!actualLayout && !expectedLayout) {
+      return undefined;
+    }
   }
 
   const extractedMemberType =
@@ -1651,6 +1688,11 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
         const directlyAssignableMemberValue = runtimeUnionMemberCanAcceptValue(
           directMember,
           emissionActualType,
+          layoutContext
+        ) && valueSurfaceCanBeUsedAsRuntimeUnionMember(
+          ast,
+          emissionActualType,
+          directMemberTypeAst,
           layoutContext
         )
           ? ast

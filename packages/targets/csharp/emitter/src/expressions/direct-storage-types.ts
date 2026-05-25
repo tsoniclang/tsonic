@@ -6,7 +6,10 @@ import type {
 } from "../core/format/backend-ast/types.js";
 import type { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
+import {
+  resolveEffectiveExpressionType,
+  tryResolveRuntimeUnionMemberType,
+} from "../core/semantic/narrowed-expression-types.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
   extractCalleeNameFromAst,
@@ -31,6 +34,7 @@ import {
   resolveIdentifierRuntimeCarrierType,
   resolveRuntimeCarrierIrType,
 } from "../core/semantic/direct-storage-ir-types.js";
+import { resolveRuntimeStorageType } from "../core/semantic/storage-types.js";
 
 const emitConditionNarrowingStub = (_expr: IrExpression, ctx: EmitterContext) =>
   [identifierExpression("__tsonic_narrow"), ctx] as [
@@ -148,6 +152,23 @@ const tryResolveProjectedExpressionType = (
 const tryConvertExactSurfaceTypeAstToIrType = (
   typeAst: CSharpTypeAst
 ): IrType | undefined => {
+  const tryBuildDictionaryType = (
+    name: string,
+    typeArguments: readonly IrType[] | undefined
+  ): IrType | undefined =>
+    (name === "Dictionary" ||
+      name === "System.Collections.Generic.Dictionary" ||
+      name === "global::System.Collections.Generic.Dictionary") &&
+    typeArguments?.length === 2 &&
+    typeArguments[0] &&
+    typeArguments[1]
+      ? {
+          kind: "dictionaryType",
+          keyType: typeArguments[0],
+          valueType: typeArguments[1],
+        }
+      : undefined;
+
   switch (typeAst.kind) {
     case "predefinedType":
       switch (typeAst.keyword) {
@@ -242,6 +263,14 @@ const tryConvertExactSurfaceTypeAstToIrType = (
         .filter(
           (typeArgument): typeArgument is IrType => typeArgument !== undefined
         );
+      const dictionaryType = tryBuildDictionaryType(
+        typeAst.name,
+        typeArguments
+      );
+      if (dictionaryType) {
+        return dictionaryType;
+      }
+
       return {
         kind: "referenceType",
         name: typeAst.name,
@@ -262,6 +291,14 @@ const tryConvertExactSurfaceTypeAstToIrType = (
       const name =
         typeAst.name.segments[typeAst.name.segments.length - 1] ??
         providerQualifiedName;
+      const dictionaryType = tryBuildDictionaryType(
+        providerQualifiedName,
+        typeArguments
+      );
+      if (dictionaryType) {
+        return dictionaryType;
+      }
+
       return {
         kind: "referenceType",
         name,
@@ -336,6 +373,29 @@ const getSingleNullishBranchStorageType = (
   return split.nonNullishMembers[0];
 };
 
+const storageTypesShareEmittedSurface = (
+  left: IrType,
+  right: IrType,
+  context: EmitterContext
+): boolean => {
+  try {
+    const [leftAst, leftContext] = emitTypeAst(left, context);
+    const [rightAst] = emitTypeAst(right, leftContext);
+    return sameTypeAstSurface(leftAst, rightAst);
+  } catch {
+    return false;
+  }
+};
+
+const storageTypesAreMutuallyCompatible = (
+  left: IrType,
+  right: IrType,
+  context: EmitterContext
+): boolean =>
+  (matchesExpectedEmissionType(left, right, context) &&
+    matchesExpectedEmissionType(right, left, context)) ||
+  storageTypesShareEmittedSurface(left, right, context);
+
 const resolveConditionalBranchStorageType = (
   expr: IrExpression,
   ast: CSharpExpressionAst,
@@ -359,10 +419,32 @@ const resolveConditionalBranchStorageType = (
     return undefined;
   }
 
+  const effectiveType = resolveEffectiveExpressionType(expr, context);
+  const effectiveStorageType = effectiveType
+    ? (resolveRuntimeStorageType(effectiveType, context) ?? effectiveType)
+    : undefined;
   if (
-    expr.inferredType &&
-    matchesExpectedEmissionType(expr.inferredType, counterpartType, context) &&
-    matchesExpectedEmissionType(counterpartType, expr.inferredType, context)
+    effectiveStorageType &&
+    storageTypesAreMutuallyCompatible(
+      effectiveStorageType,
+      counterpartType,
+      context
+    )
+  ) {
+    return counterpartType;
+  }
+
+  const inferredStorageType = expr.inferredType
+    ? (resolveRuntimeStorageType(expr.inferredType, context) ??
+      expr.inferredType)
+    : undefined;
+  if (
+    inferredStorageType &&
+    storageTypesAreMutuallyCompatible(
+      inferredStorageType,
+      counterpartType,
+      context
+    )
   ) {
     return counterpartType;
   }
@@ -376,16 +458,11 @@ const resolveConditionalBranchStorageType = (
     return undefined;
   }
 
-  return matchesExpectedEmissionType(
+  return storageTypesAreMutuallyCompatible(
     nullishBranchStorageType,
     counterpartType,
     context
-  ) &&
-    matchesExpectedEmissionType(
-      counterpartType,
-      nullishBranchStorageType,
-      context
-    )
+  )
     ? nullishBranchStorageType
     : undefined;
 };
@@ -456,6 +533,51 @@ export const resolveDirectStorageExpressionType = (
   const projectedType = tryResolveProjectedExpressionType(ast);
   if (projectedType) {
     return projectedType;
+  }
+
+  const identifierProjectionBaseTypes =
+    expr.kind === "identifier"
+      ? (() => {
+          const originalContext =
+            context.narrowedBindings?.has(expr.name) === true
+              ? {
+                  ...context,
+                  narrowedBindings: new Map(
+                    [...context.narrowedBindings].filter(
+                      ([bindingName]) => bindingName !== expr.name
+                    )
+                  ),
+                }
+              : context;
+          const conditionAlias = context.conditionAliases?.get(expr.name);
+          return [
+            resolveIdentifierRuntimeCarrierType(expr, originalContext),
+            resolveDirectStorageIrType(expr, originalContext),
+            resolveIdentifierRuntimeCarrierType(expr, context),
+            conditionAlias?.inferredType,
+            conditionAlias
+              ? resolveDirectStorageIrType(conditionAlias, context)
+              : undefined,
+            context.localSemanticTypes?.get(expr.name),
+            context.localValueTypes?.get(expr.name),
+          ];
+        })()
+      : [];
+  const runtimeProjectedType =
+    [...identifierProjectionBaseTypes, expr.inferredType]
+      .flatMap((candidateType) => [
+        tryResolveRuntimeUnionMemberType(candidateType, ast, context),
+        tryResolveRuntimeUnionMemberType(candidateType, directAst, context),
+        tryResolveRuntimeUnionMemberType(candidateType, ast, context, {
+          verifyReceiver: false,
+        }),
+        tryResolveRuntimeUnionMemberType(candidateType, directAst, context, {
+          verifyReceiver: false,
+        }),
+      ])
+      .find((candidateType): candidateType is IrType => !!candidateType);
+  if (runtimeProjectedType) {
+    return runtimeProjectedType;
   }
 
   const exactSurfaceType = resolveExactStorageSurfaceExpressionType(ast);
@@ -535,8 +657,7 @@ export const resolveDirectStorageExpressionType = (
     if (
       whenTrueType &&
       whenFalseType &&
-      matchesExpectedEmissionType(whenTrueType, whenFalseType, context) &&
-      matchesExpectedEmissionType(whenFalseType, whenTrueType, context)
+      storageTypesAreMutuallyCompatible(whenTrueType, whenFalseType, context)
     ) {
       return whenTrueType;
     }
@@ -576,6 +697,9 @@ export const resolveDirectStorageExpressionType = (
         ? resolveDirectStorageIrType(expr, context)
         : undefined;
       return (
+        tryResolveRuntimeUnionMemberType(expr.inferredType, ast, context, {
+          verifyReceiver: false,
+        }) ??
         tryResolveRuntimeUnionMemberType(
           narrowed.sourceType ??
             narrowed.carrierType ??
@@ -609,9 +733,9 @@ export const resolveDirectStorageExpressionType = (
       originalStorageContext
     );
     return (
-      originalStorageType ??
-      narrowed.sourceType ??
       narrowed.type ??
+      narrowed.sourceType ??
+      originalStorageType ??
       resolveDirectStorageIrType(expr, context)
     );
   }
@@ -624,7 +748,43 @@ export const resolveDirectStorageExpressionType = (
       ast.kind !== "identifierExpression" ||
       ast.identifier !== remappedLocal
     ) {
-      return tryResolveRuntimeUnionMemberType(storageType, ast, context);
+      const conditionAlias = context.conditionAliases?.get(expr.name);
+      const originalContext =
+        context.narrowedBindings?.has(expr.name) === true
+          ? {
+              ...context,
+              narrowedBindings: new Map(
+                [...context.narrowedBindings].filter(
+                  ([bindingName]) => bindingName !== expr.name
+                )
+              ),
+            }
+          : context;
+      const projectedTypeCandidates = [
+        resolveIdentifierRuntimeCarrierType(expr, originalContext),
+        resolveDirectStorageIrType(expr, originalContext),
+        resolveIdentifierRuntimeCarrierType(expr, context),
+        conditionAlias?.inferredType,
+        conditionAlias
+          ? resolveDirectStorageIrType(conditionAlias, context)
+          : undefined,
+        context.localSemanticTypes?.get(expr.name),
+        context.localValueTypes?.get(expr.name),
+        storageType,
+        expr.inferredType,
+      ];
+      for (const candidateType of projectedTypeCandidates) {
+        const projectedType = tryResolveRuntimeUnionMemberType(
+          candidateType,
+          ast,
+          context
+        );
+        if (projectedType) {
+          return projectedType;
+        }
+      }
+
+      return undefined;
     }
 
     return storageType;
@@ -658,7 +818,10 @@ export const resolveDirectStorageExpressionAst = (
   const narrowed = narrowKey
     ? context.narrowedBindings?.get(narrowKey)
     : undefined;
-  if (narrowed?.kind === "expr" && narrowed.storageExprAst) {
+  if (
+    (narrowed?.kind === "expr" || narrowed?.kind === "runtimeSubset") &&
+    narrowed.storageExprAst
+  ) {
     return narrowed.storageExprAst;
   }
 

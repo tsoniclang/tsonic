@@ -77,6 +77,15 @@ const isBroadStorageType = (type: IrType, context: EmitterContext): boolean => {
   );
 };
 
+const hasTopLevelRuntimeNullishMember = (type: IrType): boolean =>
+  type.kind === "unionType" &&
+  type.types.some(
+    (member) =>
+      member.kind === "voidType" ||
+      (member.kind === "primitiveType" &&
+        (member.name === "null" || member.name === "undefined"))
+  );
+
 const NUMERIC_REFERENCE_TYPE_NAMES = new Set([
   "sbyte",
   "SByte",
@@ -270,10 +279,8 @@ export const adaptStorageErasedValueAst = (opts: {
     expectedType,
     needsPlanContext
   );
-  const storageHasRuntimeNullish =
-    splitRuntimeNullishUnionMembers(storageType)?.hasRuntimeNullish ?? false;
-  const expectedHasRuntimeNullish =
-    splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ?? false;
+  const storageHasRuntimeNullish = hasTopLevelRuntimeNullishMember(storageType);
+  const expectedHasRuntimeNullish = hasTopLevelRuntimeNullishMember(expectedType);
   const requiresNullishValueMaterialization =
     storageHasRuntimeNullish &&
     !expectedHasRuntimeNullish &&

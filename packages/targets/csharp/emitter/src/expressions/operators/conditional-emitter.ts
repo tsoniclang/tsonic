@@ -31,7 +31,10 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
-import { resolveErasedNullableGenericStorageType } from "../../core/semantic/storage-types.js";
+import {
+  resolveErasedNullableGenericStorageType,
+  resolveRuntimeStorageType,
+} from "../../core/semantic/storage-types.js";
 import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-narrowing.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { stableTypeKeyFromAst } from "../../core/format/backend-ast/utils.js";
@@ -345,6 +348,83 @@ export const emitConditional = (
         ? resolveArrayLiteralContextType(falseType, whenFalseContext)
         : resolveArrayLiteralContextType(trueType, whenTrueContext);
     })();
+    const emptyObjectBranchType = (() => {
+      const isEmptyObjectLiteral = (branchExpr: IrExpression): boolean =>
+        branchExpr.kind === "object" &&
+        branchExpr.properties.length === 0 &&
+        branchExpr.hasSpreads !== true;
+      const resolveDictionaryBranchType = (
+        type: IrType | undefined,
+        branchContext: EmitterContext
+      ): Extract<IrType, { kind: "dictionaryType" }> | undefined => {
+        if (!type) {
+          return undefined;
+        }
+
+        const resolved = resolveTypeAlias(stripNullish(type), branchContext);
+        if (resolved.kind === "dictionaryType") {
+          return resolved;
+        }
+
+        const storageType = resolveRuntimeStorageType(type, branchContext);
+        if (!storageType) {
+          return undefined;
+        }
+
+        const resolvedStorage = resolveTypeAlias(
+          stripNullish(storageType),
+          branchContext
+        );
+        return resolvedStorage.kind === "dictionaryType"
+          ? resolvedStorage
+          : undefined;
+      };
+
+      if (
+        isEmptyObjectLiteral(expr.whenTrue) ===
+        isEmptyObjectLiteral(expr.whenFalse)
+      ) {
+        return undefined;
+      }
+
+      const otherType = isEmptyObjectLiteral(expr.whenTrue)
+        ? falseType
+        : trueType;
+      const otherContext = isEmptyObjectLiteral(expr.whenTrue)
+        ? whenFalseContext
+        : whenTrueContext;
+      const emptyBranch = isEmptyObjectLiteral(expr.whenTrue)
+        ? expr.whenTrue
+        : expr.whenFalse;
+      const emptyBranchContext = isEmptyObjectLiteral(expr.whenTrue)
+        ? whenTrueContext
+        : whenFalseContext;
+      const contextualObjectType =
+        emptyBranch.kind === "object"
+          ? (emptyBranch.contextualType ?? emptyBranch.inferredType)
+          : undefined;
+      const candidates: readonly {
+        readonly type: IrType | undefined;
+        readonly context: EmitterContext;
+      }[] = [
+        { type: otherType, context: otherContext },
+        { type: expr.inferredType, context },
+        { type: expectedType, context },
+        { type: contextualObjectType, context: emptyBranchContext },
+      ];
+
+      for (const candidate of candidates) {
+        const dictionaryType = resolveDictionaryBranchType(
+          candidate.type,
+          candidate.context
+        );
+        if (dictionaryType) {
+          return dictionaryType;
+        }
+      }
+
+      return undefined;
+    })();
     let commonBranchType: IrType | undefined;
 
     if (
@@ -364,7 +444,10 @@ export const emitConditional = (
     }
 
     const preciseBranchType =
-      emptyArrayBranchType ?? commonBranchType ?? conditionalType;
+      emptyArrayBranchType ??
+      emptyObjectBranchType ??
+      commonBranchType ??
+      conditionalType;
     if (
       expectedType &&
       preciseBranchType &&

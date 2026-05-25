@@ -11,6 +11,8 @@ import {
   getArrayLikeElementType,
   normalizeStructuralEmissionType,
   resolveStructuralReferenceType,
+  resolveTypeAlias,
+  stripNullish,
 } from "../core/semantic/type-resolution.js";
 import {
   isSystemArrayStorageType,
@@ -176,6 +178,20 @@ export const emitStorageCompatibleArrayWrapperElementTypeAst = (
   fallbackElementType: IrType,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
+  const fallbackCanRestoreErasedElementType = (
+    storageElementTypeAst: CSharpTypeAst
+  ): boolean => {
+    if (!isObjectTypeAst(stripNullableTypeAst(storageElementTypeAst))) {
+      return false;
+    }
+
+    const resolvedFallback = resolveTypeAlias(
+      stripNullish(fallbackElementType),
+      context
+    );
+    return !isPlainObjectIrType(resolvedFallback, context);
+  };
+
   const [storageReceiverTypeAst, storageContext] =
     resolveEmittedReceiverTypeAst(receiverExpr, context);
   const concreteStorageReceiverTypeAst = storageReceiverTypeAst
@@ -183,6 +199,24 @@ export const emitStorageCompatibleArrayWrapperElementTypeAst = (
     : undefined;
 
   if (concreteStorageReceiverTypeAst?.kind === "arrayType") {
+    if (
+      fallbackCanRestoreErasedElementType(
+        concreteStorageReceiverTypeAst.elementType
+      )
+    ) {
+      const [fallbackElementTypeAst, fallbackElementContext] = emitTypeAst(
+        fallbackElementType,
+        storageContext
+      );
+      return [
+        eraseOutOfScopeArrayWrapperTypeParameters(
+          fallbackElementTypeAst,
+          fallbackElementContext
+        ),
+        fallbackElementContext,
+      ];
+    }
+
     return [
       eraseOutOfScopeArrayWrapperTypeParameters(
         concreteStorageReceiverTypeAst.elementType,

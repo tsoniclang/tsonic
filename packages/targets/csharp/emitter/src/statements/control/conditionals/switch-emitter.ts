@@ -2,13 +2,30 @@
  * Switch statement emitter - returns CSharpStatementAst nodes.
  */
 
-import type { IrStatement, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../../../types.js";
+import type { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
+import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { stringLiteral } from "../../../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
-import { resolveTypeAlias } from "../../../core/semantic/type-resolution.js";
+import {
+  matchesTypeofTag,
+  resolveTypeAlias,
+} from "../../../core/semantic/type-resolution.js";
 import { emitStatementAst } from "../../../statement-emitter.js";
+import { tryResolveDiscriminantEqualityGuard } from "./guard-detectors-discriminant.js";
+import {
+  buildExprBinding,
+  buildSubsetUnionType,
+  buildUnionNarrowAst,
+} from "./branch-context.js";
+import { getMemberAccessNarrowKey } from "../../../core/semantic/narrowing-keys.js";
+import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
+import {
+  currentNarrowedType,
+  resolveRuntimeUnionFrame,
+} from "../../../core/semantic/narrowing-builders.js";
+import { unwrapTransparentExpression } from "../../../core/semantic/transparent-expressions.js";
+import { tryExtractTypeofUnaryTarget } from "../../../core/semantic/typeof-comparison.js";
 import type {
   CSharpStatementAst,
   CSharpSwitchLabelAst,
@@ -110,6 +127,201 @@ const isExhaustiveLiteralSwitch = (
   return true;
 };
 
+type SwitchCaseNarrowing = {
+  readonly receiverExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
+  readonly receiverKey: string;
+  readonly memberNs: readonly number[];
+  readonly runtimeUnionArity: number;
+  readonly candidateMemberNs: readonly number[];
+  readonly candidateMembers: readonly IrType[];
+  readonly sourceType: IrType | undefined;
+};
+
+const getTypeofSwitchCaseNarrowing = (
+  switchExpression: IrExpression,
+  switchCase: Extract<IrStatement, { kind: "switchStatement" }>["cases"][number],
+  context: EmitterContext
+): SwitchCaseNarrowing | undefined => {
+  const typeofTarget = tryExtractTypeofUnaryTarget(switchExpression);
+  if (
+    !typeofTarget ||
+    !switchCase.test ||
+    switchCase.test.kind !== "literal" ||
+    typeof switchCase.test.value !== "string"
+  ) {
+    return undefined;
+  }
+
+  const receiverExpr = unwrapTransparentExpression(typeofTarget);
+  if (
+    receiverExpr.kind !== "identifier" &&
+    receiverExpr.kind !== "memberAccess"
+  ) {
+    return undefined;
+  }
+
+  const receiverKey =
+    receiverExpr.kind === "identifier"
+      ? receiverExpr.name
+      : getMemberAccessNarrowKey(receiverExpr);
+  if (!receiverKey) {
+    return undefined;
+  }
+
+  const sourceType =
+    resolveEffectiveExpressionType(receiverExpr, context) ??
+    receiverExpr.inferredType;
+  const currentType = currentNarrowedType(receiverKey, sourceType, context);
+  if (!currentType) {
+    return undefined;
+  }
+
+  const frame = resolveRuntimeUnionFrame(receiverKey, currentType, context);
+  if (!frame || frame.members.length < 2) {
+    return undefined;
+  }
+
+  const tag = switchCase.test.value;
+  const memberNs = frame.members.flatMap((member, index) =>
+    matchesTypeofTag(member, tag, context)
+      ? [frame.candidateMemberNs[index] ?? index + 1]
+      : []
+  );
+  if (memberNs.length === 0) {
+    return undefined;
+  }
+
+  return {
+    receiverExpr,
+    receiverKey,
+    memberNs,
+    runtimeUnionArity: frame.runtimeUnionArity,
+    candidateMemberNs: frame.candidateMemberNs,
+    candidateMembers: frame.members,
+    sourceType,
+  };
+};
+
+const getSwitchCaseNarrowing = (
+  switchExpression: IrExpression,
+  switchCase: Extract<IrStatement, { kind: "switchStatement" }>["cases"][number],
+  context: EmitterContext
+): SwitchCaseNarrowing | undefined => {
+  if (!switchCase.test) {
+    return undefined;
+  }
+
+  const guard = tryResolveDiscriminantEqualityGuard(
+    {
+      kind: "binary",
+      operator: "===",
+      left: switchExpression,
+      right: switchCase.test,
+      inferredType: { kind: "primitiveType", name: "boolean" },
+    },
+    context
+  );
+  if (!guard) {
+    return undefined;
+  }
+
+  const receiverKey =
+    guard.receiverExpr.kind === "identifier"
+      ? guard.receiverExpr.name
+      : getMemberAccessNarrowKey(guard.receiverExpr);
+  if (!receiverKey) {
+    return undefined;
+  }
+
+  return {
+    receiverExpr: guard.receiverExpr,
+    receiverKey,
+    memberNs: [guard.memberN],
+    runtimeUnionArity: guard.runtimeUnionArity,
+    candidateMemberNs: guard.candidateMemberNs,
+    candidateMembers: guard.candidateMembers,
+    sourceType:
+      resolveEffectiveExpressionType(guard.receiverExpr, context) ??
+      guard.receiverExpr.inferredType,
+  };
+};
+
+const withSwitchSectionNarrowing = (
+  context: EmitterContext,
+  narrowings: readonly SwitchCaseNarrowing[]
+): EmitterContext => {
+  if (narrowings.length === 0) {
+    return context;
+  }
+
+  const [first] = narrowings;
+  if (
+    !first ||
+    narrowings.some(
+      (narrowing) => narrowing.receiverKey !== first.receiverKey
+    )
+  ) {
+    return context;
+  }
+
+  const selectedMemberNs = [
+    ...new Set(narrowings.flatMap((narrowing) => narrowing.memberNs)),
+  ];
+  const [receiverAst, receiverContext] = emitExpressionAst(
+    first.receiverExpr,
+    context
+  );
+  const narrowedBindings = new Map(receiverContext.narrowedBindings ?? []);
+
+  if (selectedMemberNs.length === 1) {
+    const selectedMemberN = selectedMemberNs[0];
+    const selectedIndex = first.candidateMemberNs.findIndex(
+      (candidateMemberN) => candidateMemberN === selectedMemberN
+    );
+    const selectedMember =
+      selectedIndex >= 0 ? first.candidateMembers[selectedIndex] : undefined;
+    if (selectedMemberN !== undefined && selectedMember) {
+      narrowedBindings.set(
+        first.receiverKey,
+        buildExprBinding(
+          buildUnionNarrowAst(receiverAst, selectedMemberN),
+          selectedMember,
+          first.sourceType,
+          undefined,
+          undefined,
+          receiverAst
+        )
+      );
+      return { ...receiverContext, narrowedBindings };
+    }
+  }
+
+  const selectedMembers = selectedMemberNs.flatMap((selectedMemberN) => {
+    const selectedIndex = first.candidateMemberNs.findIndex(
+      (candidateMemberN) => candidateMemberN === selectedMemberN
+    );
+    const selectedMember =
+      selectedIndex >= 0 ? first.candidateMembers[selectedIndex] : undefined;
+    return selectedMember ? [selectedMember] : [];
+  });
+  if (selectedMembers.length === selectedMemberNs.length) {
+    const runtimeSubsetBinding: NarrowedBinding = {
+      kind: "runtimeSubset",
+      runtimeMemberNs: selectedMemberNs,
+      runtimeUnionArity: first.runtimeUnionArity,
+      storageExprAst: receiverAst,
+      sourceMembers: [...first.candidateMembers],
+      sourceCandidateMemberNs: [...first.candidateMemberNs],
+      type: buildSubsetUnionType(selectedMembers),
+      sourceType: first.sourceType,
+    };
+    narrowedBindings.set(first.receiverKey, runtimeSubsetBinding);
+    return { ...receiverContext, narrowedBindings };
+  }
+
+  return receiverContext;
+};
+
 /**
  * Emit a switch statement as AST
  */
@@ -122,6 +334,7 @@ export const emitSwitchStatementAst = (
   let currentContext = exprContext;
   const sections: CSharpSwitchSectionAst[] = [];
   let pendingLabels: CSharpSwitchLabelAst[] = [];
+  let pendingNarrowings: SwitchCaseNarrowing[] = [];
 
   for (const switchCase of stmt.cases) {
     // Build label for this case
@@ -137,6 +350,12 @@ export const emitSwitchStatementAst = (
       : { kind: "defaultSwitchLabel" as const };
 
     pendingLabels = [...pendingLabels, label];
+    const caseNarrowing =
+      getSwitchCaseNarrowing(stmt.expression, switchCase, currentContext) ??
+      getTypeofSwitchCaseNarrowing(stmt.expression, switchCase, currentContext);
+    if (caseNarrowing) {
+      pendingNarrowings = [...pendingNarrowings, caseNarrowing];
+    }
 
     // Empty bodies represent intentional fall-through labels (TypeScript semantics).
     if (switchCase.statements.length === 0) {
@@ -145,11 +364,20 @@ export const emitSwitchStatementAst = (
 
     // Emit body statements
     const bodyStatements: CSharpStatementAst[] = [];
+    const preSectionContext = currentContext;
+    let sectionContext = withSwitchSectionNarrowing(
+      currentContext,
+      pendingNarrowings
+    );
     for (const s of switchCase.statements) {
-      const [stmts, newContext] = emitStatementAst(s, currentContext);
+      const [stmts, newContext] = emitStatementAst(s, sectionContext);
       bodyStatements.push(...stmts);
-      currentContext = newContext;
+      sectionContext = newContext;
     }
+    currentContext = {
+      ...sectionContext,
+      narrowedBindings: preSectionContext.narrowedBindings,
+    };
 
     // Emit break only when case has non-empty body that doesn't terminate.
     const lastStmt = switchCase.statements[switchCase.statements.length - 1];
@@ -163,6 +391,7 @@ export const emitSwitchStatementAst = (
 
     sections.push({ labels: pendingLabels, statements: bodyStatements });
     pendingLabels = [];
+    pendingNarrowings = [];
   }
 
   // Flush any trailing fall-through labels (edge case: empty default at end)

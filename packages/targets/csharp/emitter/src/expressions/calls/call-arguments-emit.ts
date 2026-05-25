@@ -18,6 +18,7 @@ import { identifierExpression } from "../../core/format/backend-ast/builders.js"
 import {
   extractCalleeNameFromAst,
   sameTypeAstSurface,
+  stripNullableTypeAst,
 } from "../../core/format/backend-ast/utils.js";
 import {
   resolveEffectiveExpressionType,
@@ -96,6 +97,7 @@ import {
   isNumericSourceIrType,
   maybeCastNumericToExpectedIntegralAst,
   maybeCastNumericToExpectedJsNumberAst,
+  maybeConvertTypedCharToStringAst,
 } from "../post-emission-adaptation.js";
 
 const NUMERIC_BINDING_CLR_NAMES = new Set([
@@ -916,6 +918,48 @@ const resolveSurfaceSelectedSourceMemberNs = (
   );
 };
 
+const resolveNarrowedSourceMemberNsForExpectedType = (
+  arg: IrExpression,
+  expectedType: IrType | undefined,
+  narrowedMemberNs: ReadonlySet<number> | undefined,
+  context: EmitterContext
+): ReadonlySet<number> | undefined => {
+  if (!expectedType || !narrowedMemberNs || narrowedMemberNs.size === 0) {
+    return undefined;
+  }
+
+  const carrierType =
+    resolveRuntimeCarrierCompatibleIrType({ expr: arg, context }) ??
+    resolveDirectStorageCompatibleIrType({ expr: arg, context }) ??
+    resolveEffectiveExpressionType(arg, context) ??
+    arg.inferredType;
+  if (!carrierType || !willCarryAsRuntimeUnion(stripNullish(carrierType), context)) {
+    return undefined;
+  }
+
+  const [layout] = buildRuntimeUnionLayout(
+    resolveTypeAlias(stripNullish(carrierType), context),
+    context,
+    emitTypeAst
+  );
+  if (!layout) {
+    return undefined;
+  }
+
+  const matchingMemberNs = Array.from(narrowedMemberNs).filter((memberN) => {
+    const member = layout.members[memberN - 1];
+    return surfaceUnionMemberContainsSelectedType(
+      member,
+      expectedType,
+      context
+    );
+  });
+
+  return matchingMemberNs.length > 0
+    ? new Set(matchingMemberNs)
+    : undefined;
+};
+
 const intersectSelectedSourceMemberNs = (
   left: ReadonlySet<number> | undefined,
   right: ReadonlySet<number> | undefined
@@ -1038,16 +1082,30 @@ const resolveSelectedSourceMemberNs = (
   finalExpectedType: IrType | undefined,
   surfaceExpectedType: IrType | undefined,
   context: EmitterContext
-): ReadonlySet<number> | undefined =>
-  intersectSelectedSourceMemberNs(
-    resolveRuntimeSubsetMemberNs(arg, context),
-    resolveSurfaceSelectedSourceMemberNs(
+): ReadonlySet<number> | undefined => {
+  const narrowedMemberNs = resolveRuntimeSubsetMemberNs(arg, context);
+  const surfaceSelectedMemberNs = resolveSurfaceSelectedSourceMemberNs(
+    selectedExpectedType,
+    finalExpectedType,
+    surfaceExpectedType,
+    context
+  );
+  return (
+    intersectSelectedSourceMemberNs(narrowedMemberNs, surfaceSelectedMemberNs) ??
+    resolveNarrowedSourceMemberNsForExpectedType(
+      arg,
       selectedExpectedType,
+      narrowedMemberNs,
+      context
+    ) ??
+    resolveNarrowedSourceMemberNsForExpectedType(
+      arg,
       finalExpectedType,
-      surfaceExpectedType,
+      narrowedMemberNs,
       context
     )
   );
+};
 
 const resolveAdaptationExpectedType = (
   selectedExpectedType: IrType | undefined,
@@ -1284,6 +1342,21 @@ const resolveExplicitNonNullishOptionalExpectedType = (opts: {
     : stripNullish(selectedExpectedType);
 };
 
+const resolveAssertedNullishSurfaceExpectedType = (opts: {
+  readonly arg: IrExpression;
+  readonly surfaceExpectedType: IrType | undefined;
+}): IrType | undefined => {
+  const { arg, surfaceExpectedType } = opts;
+  if (!surfaceExpectedType || arg.kind !== "typeAssertion") {
+    return undefined;
+  }
+
+  return hasRuntimeNullishSurface(surfaceExpectedType) &&
+    hasRuntimeNullishSurface(arg.targetType)
+    ? surfaceExpectedType
+    : undefined;
+};
+
 const shouldPreserveOptionalSurfaceRawEmission = (opts: {
   readonly arg: IrExpression;
   readonly selectedExpectedType: IrType | undefined;
@@ -1516,6 +1589,20 @@ const selectAdaptationActualArgumentType = (opts: {
   }
 
   if (
+    selectedSourceMemberNs &&
+    selectedSourceMemberNs.size > 0 &&
+    effectiveArgumentType &&
+    directStorageArgumentType &&
+    willCarryAsRuntimeUnion(stripNullish(directStorageArgumentType), context)
+  ) {
+    return directStorageArgumentType;
+  }
+
+  if (isBroadObjectSlotType(directStorageArgumentType, context)) {
+    return directStorageArgumentType;
+  }
+
+  if (
     effectiveArgumentType &&
     expectedType &&
     areIrTypesEquivalent(
@@ -1525,26 +1612,6 @@ const selectAdaptationActualArgumentType = (opts: {
     )
   ) {
     return effectiveArgumentType;
-  }
-
-  if (
-    selectedSourceMemberNs &&
-    selectedSourceMemberNs.size > 0 &&
-    effectiveArgumentType &&
-    directStorageArgumentType &&
-    willCarryAsRuntimeUnion(stripNullish(directStorageArgumentType), context) &&
-    matchesExpectedEmissionType(
-      effectiveArgumentType,
-      directStorageArgumentType,
-      context
-    ) &&
-    !matchesExpectedEmissionType(
-      directStorageArgumentType,
-      effectiveArgumentType,
-      context
-    )
-  ) {
-    return directStorageArgumentType;
   }
 
   const shouldPreferEffectiveArgumentType =
@@ -1574,10 +1641,6 @@ const selectAdaptationActualArgumentType = (opts: {
     return effectiveArgumentType;
   }
 
-  if (isBroadObjectSlotType(directStorageArgumentType, context)) {
-    return directStorageArgumentType;
-  }
-
   return (
     directStorageArgumentType ??
     contextualAdaptedActualType ??
@@ -1585,6 +1648,79 @@ const selectAdaptationActualArgumentType = (opts: {
     effectiveArgumentType ??
     inferredArgumentType
   );
+};
+
+const resolveStorageErasedAssertionActualType = (opts: {
+  readonly arg: IrExpression;
+  readonly expectedType: IrType | undefined;
+  readonly context: EmitterContext;
+}): IrType | undefined => {
+  const { arg, expectedType, context } = opts;
+  if (!expectedType || arg.kind !== "typeAssertion") {
+    return undefined;
+  }
+
+  const sourceExpr = unwrapTransparentExpression(arg.expression);
+  const localStorageType =
+    sourceExpr.kind === "identifier"
+      ? context.localValueTypes?.get(sourceExpr.name)
+      : undefined;
+  const sourceStorageType =
+    localStorageType ??
+    resolveDirectStorageCompatibleIrType({ expr: sourceExpr, context }) ??
+    sourceExpr.inferredType;
+  const nullishStorageSplit = sourceStorageType
+    ? splitRuntimeNullishUnionMembers(sourceStorageType)
+    : undefined;
+  if (
+    expectedType.kind === "typeParameterType" &&
+    nullishStorageSplit?.hasRuntimeNullish === true &&
+    nullishStorageSplit.nonNullishMembers.some((member) =>
+      areIrTypesEquivalent(stripNullish(member), stripNullish(expectedType), context)
+    )
+  ) {
+    return broadObjectParameterType();
+  }
+
+  if (
+    !isBroadObjectSlotType(sourceStorageType, context) ||
+    isBroadObjectSlotType(expectedType, context) ||
+    willCarryAsRuntimeUnion(stripNullish(expectedType), context)
+  ) {
+    return undefined;
+  }
+
+  return sourceStorageType;
+};
+
+const tryCastStorageErasedAssertionArgumentAst = (opts: {
+  readonly arg: IrExpression;
+  readonly valueAst: CSharpExpressionAst;
+  readonly actualType: IrType | undefined;
+  readonly expectedType: IrType | undefined;
+  readonly context: EmitterContext;
+}): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const { arg, valueAst, actualType, expectedType, context } = opts;
+  if (
+    arg.kind !== "typeAssertion" ||
+    !actualType ||
+    !expectedType ||
+    !isBroadObjectSlotType(actualType, context) ||
+    isBroadObjectSlotType(expectedType, context) ||
+    willCarryAsRuntimeUnion(stripNullish(expectedType), context)
+  ) {
+    return undefined;
+  }
+
+  const [expectedTypeAst, nextContext] = emitTypeAst(expectedType, context);
+  return [
+    {
+      kind: "castExpression",
+      type: stripNullableTypeAst(expectedTypeAst),
+      expression: valueAst,
+    },
+    nextContext,
+  ];
 };
 
 const selectCollectionMaterializationActualArgumentType = (opts: {
@@ -1655,6 +1791,24 @@ const selectNumericCastArgumentType = (
 const hasRuntimeNullishSurface = (type: IrType | undefined): boolean =>
   type !== undefined &&
   (splitRuntimeNullishUnionMembers(type)?.hasRuntimeNullish ?? false);
+
+const stripAssertedOptionalValueReadForOptionalSurface = (
+  arg: IrExpression,
+  ast: CSharpExpressionAst,
+  expectedType: IrType | undefined
+): CSharpExpressionAst => {
+  if (
+    arg.kind !== "typeAssertion" ||
+    !hasRuntimeNullishSurface(arg.targetType) ||
+    !hasRuntimeNullishSurface(expectedType) ||
+    ast.kind !== "memberAccessExpression" ||
+    ast.memberName !== "Value"
+  ) {
+    return ast;
+  }
+
+  return ast.expression;
+};
 
 const resolveOptionalSurfaceExpectedTypeForNullishActual = (opts: {
   readonly selectedExpectedType: IrType | undefined;
@@ -2106,6 +2260,28 @@ const findMemberBindingExpectedType = (
       : (resolveEffectiveExpressionType(argument, context) ??
         argument.inferredType)
   );
+  const getVisibleParameterOffset = (overload: {
+    readonly isExtensionMethod?: boolean;
+    readonly parameterCount?: number;
+    readonly semanticSignature?: {
+      readonly parameters: readonly unknown[];
+    };
+  }): number => {
+    if (!overload.isExtensionMethod) {
+      return 0;
+    }
+
+    const semanticParameterCount = overload.semanticSignature?.parameters.length;
+    if (
+      typeof semanticParameterCount === "number" &&
+      typeof overload.parameterCount === "number" &&
+      semanticParameterCount < overload.parameterCount
+    ) {
+      return 0;
+    }
+
+    return 1;
+  };
 
   const matchingParameterTypes = overloads
     .filter((overload) => {
@@ -2122,7 +2298,7 @@ const findMemberBindingExpectedType = (
         return false;
       }
 
-      const parameterOffset = overload.isExtensionMethod ? 1 : 0;
+      const parameterOffset = getVisibleParameterOffset(overload);
       const required = countRequiredParameters(parameters);
       const visibleRequired = Math.max(0, required - parameterOffset);
       if (expr.arguments.length < visibleRequired) {
@@ -2164,7 +2340,7 @@ const findMemberBindingExpectedType = (
     })
     .map((overload) => {
       const parameters = overload.semanticSignature?.parameters;
-      const parameterOffset = overload.isExtensionMethod ? 1 : 0;
+      const parameterOffset = getVisibleParameterOffset(overload);
       return parameters?.[argIndex + parameterOffset]?.type;
     })
     .filter(
@@ -2598,8 +2774,12 @@ const emitFunctionValueCallArguments = (
         currentContext = discardCtx;
         continue;
       }
-      const surfaceParameterType =
-        runtimeSurfaceParameterTypes[i] ?? expr.surfaceParameterTypes?.[i];
+      const authoredSurfaceParameterType = expr.surfaceParameterTypes?.[i];
+      const surfaceParameterType = hasRuntimeNullishSurface(
+        authoredSurfaceParameterType
+      )
+        ? authoredSurfaceParameterType
+        : (runtimeSurfaceParameterTypes[i] ?? authoredSurfaceParameterType);
       const rawSelectedParameterType =
         expr.parameterTypes?.[i] ?? surfaceParameterType ?? parameter?.type;
       const selectedParameterType = shouldPreferExplicitUnknownSurfaceParameter(
@@ -2669,6 +2849,11 @@ const emitFunctionValueCallArguments = (
           runtimeExpectedType,
           actualArgumentType: preEmitActualArgumentType,
         });
+      const assertedNullishSurfaceExpectedType =
+        resolveAssertedNullishSurfaceExpectedType({
+          arg,
+          surfaceExpectedType: surfaceParameterType,
+        });
       const nullishActualSurfaceExpectedType =
         resolveOptionalSurfaceExpectedTypeForNullishActual({
           selectedExpectedType,
@@ -2690,6 +2875,7 @@ const emitFunctionValueCallArguments = (
       const finalExpectedType =
         explicitNonNullishOptionalExpectedType ??
         explicitNullishSurfaceExpectedType ??
+        assertedNullishSurfaceExpectedType ??
         preservedSurfaceRuntimeType ??
         resolveFinalCallArgumentExpectedType(
           selectedExpectedType,
@@ -2717,6 +2903,7 @@ const emitFunctionValueCallArguments = (
         resolveMaterializedValueRawExpectedType({
           rawExpectedType:
             explicitNullishSurfaceExpectedType ??
+            assertedNullishSurfaceExpectedType ??
             preservedSurfaceRuntimeType ??
             (shouldPreserveOptionalSurfaceRawEmission({
               arg,
@@ -2848,9 +3035,16 @@ const emitFunctionValueCallArguments = (
       );
       const effectiveArgumentType =
         postEmitEffectiveArgumentType ?? preEmitActualArgumentType;
+      const storageErasedAssertionActualType =
+        resolveStorageErasedAssertionActualType({
+          arg,
+          expectedType: adaptationExpectedType,
+          context: rawArgCtx,
+        });
       const actualArgumentType =
         carrierPassThroughArgument?.actualType ??
         selectedCarrierSourceArgument?.actualType ??
+        storageErasedAssertionActualType ??
         selectAdaptationActualArgumentType({
           carrierPassThroughType,
           exactFinalExpectedArgumentType,
@@ -2918,8 +3112,17 @@ const emitFunctionValueCallArguments = (
           "Internal Compiler Error: source-backed structural call argument could not be materialized to its runtime surface."
         );
       }
+      const storageErasedAssertionArgument =
+        tryCastStorageErasedAssertionArgumentAst({
+          arg,
+          valueAst: rawArgAst,
+          actualType: storageErasedAssertionActualType,
+          expectedType: adaptationExpectedType,
+          context: rawArgCtx,
+        });
       const [materializedArgAst, materializedArgCtx] =
         forcedRuntimeUnionArgument ??
+        storageErasedAssertionArgument ??
         (skipRuntimeUnionArgumentMaterialization
           ? [rawArgAst, rawArgCtx]
           : (adaptValueToExpectedTypeAst({
@@ -2976,7 +3179,11 @@ const emitFunctionValueCallArguments = (
         expr,
         arg,
         i,
-        jsNumberMaterializedArgAst,
+        stripAssertedOptionalValueReadForOptionalSurface(
+          arg,
+          jsNumberMaterializedArgAst,
+          finalExpectedType
+        ),
         finalExpectedType,
         jsNumberMaterializedArgCtx
       );
@@ -3403,7 +3610,7 @@ const emitCallArguments = (
           ? expr.surfaceParameterTypes
           : ((
               functionValueSignature?.parameters ??
-              valueSymbolSignature?.parameters
+          valueSymbolSignature?.parameters
             )?.map((parameter) => parameter?.type) ?? []);
   const runtimeSurfaceParameterTypes =
     parameterTypeOverrides && parameterTypeOverrides.length > 0
@@ -3551,7 +3758,12 @@ const emitCallArguments = (
         preEmitActualArgumentType,
         currentContext
       );
-    const surfaceParameterType = runtimeSurfaceParameterTypes[i];
+    const authoredSurfaceParameterType = expr.surfaceParameterTypes?.[i];
+    const surfaceParameterType = hasRuntimeNullishSurface(
+      authoredSurfaceParameterType
+    )
+      ? authoredSurfaceParameterType
+      : (runtimeSurfaceParameterTypes[i] ?? authoredSurfaceParameterType);
     const contextualExpectedType =
       genericBroadObjectFallbackType ??
       resolveContextualCallArgumentExpectedType(
@@ -3582,6 +3794,11 @@ const emitCallArguments = (
         runtimeExpectedType: normalizedRuntime,
         actualArgumentType: preEmitActualArgumentType,
       });
+    const assertedNullishSurfaceExpectedType =
+      resolveAssertedNullishSurfaceExpectedType({
+        arg,
+        surfaceExpectedType: surfaceParameterType,
+      });
     const nullishActualSurfaceExpectedType =
       resolveOptionalSurfaceExpectedTypeForNullishActual({
         selectedExpectedType: expectedType,
@@ -3603,6 +3820,7 @@ const emitCallArguments = (
     const finalExpectedType =
       explicitNonNullishOptionalExpectedType ??
       explicitNullishSurfaceExpectedType ??
+      assertedNullishSurfaceExpectedType ??
       genericBroadObjectFallbackType ??
       preservedSurfaceRuntimeType ??
       resolveFinalCallArgumentExpectedType(
@@ -3630,6 +3848,7 @@ const emitCallArguments = (
       resolveMaterializedValueRawExpectedType({
         rawExpectedType:
           explicitNullishSurfaceExpectedType ??
+          assertedNullishSurfaceExpectedType ??
           preservedSurfaceRuntimeType ??
           (shouldPreserveOptionalSurfaceRawEmission({
             arg,
@@ -3748,6 +3967,13 @@ const emitCallArguments = (
                 arg.elements.length === 0
               )
             : undefined;
+        const selectedRuntimeRawExpectedType =
+          selectedSourceMemberNs &&
+          selectedSourceMemberNs.size > 0 &&
+          adaptationExpectedType &&
+          !willCarryAsRuntimeUnion(stripNullish(adaptationExpectedType), currentContext)
+            ? adaptationExpectedType
+            : undefined;
         const [rawArgAst, emittedContext] = carrierPassThroughArgument
           ? [carrierPassThroughArgument.ast, carrierPassThroughArgument.context]
           : selectedCarrierSourceArgument
@@ -3758,48 +3984,64 @@ const emitCallArguments = (
             : emitExpressionAst(
                 arg,
                 currentContext,
-                concreteArrayLiteralRawExpectedType ?? rawEmitExpectedType
+                concreteArrayLiteralRawExpectedType ??
+                  selectedRuntimeRawExpectedType ??
+                  rawEmitExpectedType
               );
+        const [stringSafeRawArgAst, stringSafeRawContext] =
+          maybeConvertTypedCharToStringAst(
+            preEmitEffectiveArgumentType,
+            rawArgAst,
+            emittedContext,
+            adaptationExpectedType ?? finalExpectedType
+          );
         const carrierPassThroughType = resolveCarrierPassThroughArgumentType(
           arg,
-          rawArgAst,
+          stringSafeRawArgAst,
           adaptationExpectedType,
-          emittedContext
+          stringSafeRawContext
         );
         const directStorageArgumentType =
           resolveDirectStorageCompatibleExpressionType({
             expr: arg,
-            valueAst: rawArgAst,
-            context: emittedContext,
+            valueAst: stringSafeRawArgAst,
+            context: stringSafeRawContext,
           });
         const exactFinalExpectedArgumentType =
           resolveExactRawEmittedExpectedType({
             arg,
-            rawArgAst,
+            rawArgAst: stringSafeRawArgAst,
             rawEmitExpectedType,
             adaptationExpectedType,
-            context: emittedContext,
+            context: stringSafeRawContext,
           }) ??
           resolveContextualAdaptedArgumentType(
-            rawArgAst,
+            stringSafeRawArgAst,
             adaptationExpectedType,
-            emittedContext
+            stringSafeRawContext
           );
         const contextualAdaptedActualType =
           resolveContextualAdaptedArgumentType(
-            rawArgAst,
+            stringSafeRawArgAst,
             contextualExpectedType,
-            emittedContext
+            stringSafeRawContext
           );
         const postEmitEffectiveArgumentType = resolveEffectiveExpressionType(
           arg,
-          emittedContext
+          stringSafeRawContext
         );
         const effectiveArgumentType =
           postEmitEffectiveArgumentType ?? preEmitEffectiveArgumentType;
+        const storageErasedAssertionActualType =
+          resolveStorageErasedAssertionActualType({
+            arg,
+            expectedType: adaptationExpectedType,
+            context: stringSafeRawContext,
+          });
         const actualArgumentType =
           carrierPassThroughArgument?.actualType ??
           selectedCarrierSourceArgument?.actualType ??
+          storageErasedAssertionActualType ??
           selectAdaptationActualArgumentType({
             carrierPassThroughType,
             exactFinalExpectedArgumentType,
@@ -3854,7 +4096,7 @@ const emitCallArguments = (
                 rawArgAst,
                 forcedRuntimeUnionSourceType,
                 adaptationExpectedType,
-                emittedContext,
+                stringSafeRawContext,
                 emitTypeAst,
                 selectedSourceMemberNs
               )
@@ -3875,28 +4117,37 @@ const emitCallArguments = (
         const awaitableArgument =
           adaptationExpectedType && awaitableArgumentSourceType
             ? tryAdaptAwaitableValueAst({
-                ast: rawArgAst,
+                ast: stringSafeRawArgAst,
                 actualType: awaitableArgumentSourceType,
                 expectedType: adaptationExpectedType,
-                context: emittedContext,
+                context: stringSafeRawContext,
                 adaptAwaitedValueAst: tryAdaptAwaitedValueToExpectedTypeAst,
               })
             : undefined;
+        const storageErasedAssertionArgument =
+          tryCastStorageErasedAssertionArgumentAst({
+            arg,
+            valueAst: stringSafeRawArgAst,
+            actualType: storageErasedAssertionActualType,
+            expectedType: adaptationExpectedType,
+            context: stringSafeRawContext,
+          });
         const [materializedArgAst, materializedContext] =
           forcedRuntimeUnionArgument ??
           awaitableArgument ??
+          storageErasedAssertionArgument ??
           (skipRuntimeUnionArgumentMaterialization
-            ? [rawArgAst, emittedContext]
+            ? [stringSafeRawArgAst, stringSafeRawContext]
             : (adaptValueToExpectedTypeAst({
-                valueAst: rawArgAst,
+                valueAst: stringSafeRawArgAst,
                 actualType: materializationActualArgumentType,
-                context: emittedContext,
+                context: stringSafeRawContext,
                 expectedType: adaptationExpectedType,
                 selectedSourceMemberNs,
-              }) ?? [rawArgAst, emittedContext]));
+              }) ?? [stringSafeRawArgAst, stringSafeRawContext]));
         const numericActualArgumentType =
           selectPostMaterializationNumericCastArgumentType({
-            rawArgAst,
+            rawArgAst: stringSafeRawArgAst,
             materializedArgAst,
             carrierPassThroughArgumentType:
               carrierPassThroughArgument?.actualType,
@@ -3941,7 +4192,11 @@ const emitCallArguments = (
           expr,
           arg,
           i,
-          jsNumberMaterializedArgAst,
+          stripAssertedOptionalValueReadForOptionalSurface(
+            arg,
+            jsNumberMaterializedArgAst,
+            finalExpectedType
+          ),
           finalExpectedType,
           jsNumberMaterializedContext
         );

@@ -155,6 +155,94 @@ describe("IR Builder", function () {
       }
     });
 
+    it("threads declared return interface method signatures into object literal arrow properties", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "interface FileLike {",
+            "  fileName(): string;",
+            "  text(): string;",
+            "  lineMap(): readonly number[];",
+            "}",
+            "export function makeFile(text: string, fileName: string): FileLike {",
+            "  const lineMap: number[] = [0];",
+            "  return {",
+            "    fileName: () => fileName,",
+            "    text: () => text,",
+            "    lineMap: () => lineMap,",
+            "  };",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const makeFile = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "makeFile"
+        );
+        expect(makeFile).to.not.equal(undefined);
+        if (!makeFile) return;
+
+        const returnStmt = makeFile.body.statements.find(
+          (stmt): stmt is IrReturnStatement => stmt.kind === "returnStatement"
+        );
+        expect(returnStmt?.expression?.kind).to.equal("object");
+        if (!returnStmt?.expression || returnStmt.expression.kind !== "object") {
+          return;
+        }
+
+        const fileNameProperty = returnStmt.expression.properties.find(
+          (property) =>
+            property.kind === "property" && property.key === "fileName"
+        );
+        const fileNameValue =
+          fileNameProperty?.kind === "property"
+            ? fileNameProperty.value
+            : undefined;
+        expect(fileNameValue?.kind).to.equal("arrowFunction");
+        if (!fileNameValue || fileNameValue.kind !== "arrowFunction") return;
+        expect(fileNameValue.contextualType?.kind).to.equal("functionType");
+        expect(fileNameValue.inferredType?.kind).to.equal("functionType");
+        if (fileNameValue.inferredType?.kind !== "functionType") return;
+        expect(fileNameValue.inferredType.returnType.kind).to.equal(
+          "primitiveType"
+        );
+        if (fileNameValue.inferredType.returnType.kind !== "primitiveType") {
+          return;
+        }
+        expect(fileNameValue.inferredType.returnType.name).to.equal("string");
+
+        const lineMapProperty = returnStmt.expression.properties.find(
+          (property) =>
+            property.kind === "property" && property.key === "lineMap"
+        );
+        const lineMapValue =
+          lineMapProperty?.kind === "property"
+            ? lineMapProperty.value
+            : undefined;
+        expect(lineMapValue?.kind).to.equal("arrowFunction");
+        if (!lineMapValue || lineMapValue.kind !== "arrowFunction") return;
+        expect(lineMapValue.contextualType?.kind).to.equal("functionType");
+        expect(lineMapValue.inferredType?.kind).to.equal("functionType");
+        if (lineMapValue.inferredType?.kind !== "functionType") return;
+        expect(lineMapValue.inferredType.returnType.kind).to.equal("arrayType");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("contextually types nested recursive middleware array literals without explicit lambda annotations", () => {
       const fixture = createFilesystemTestProgram(
         {

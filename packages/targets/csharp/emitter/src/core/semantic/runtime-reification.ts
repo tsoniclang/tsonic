@@ -2,8 +2,10 @@ import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import {
   booleanLiteral,
+  identifierType,
   identifierExpression,
   nullLiteral,
+  nullableType,
 } from "../format/backend-ast/builders.js";
 import {
   sameTypeAstSurface,
@@ -12,16 +14,17 @@ import {
 } from "../format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
+  CSharpStatementAst,
   CSharpTypeAst,
 } from "../format/backend-ast/types.js";
 import {
-  buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
   findRuntimeUnionMemberIndices,
 } from "./runtime-unions.js";
+import type { RuntimeUnionLayout } from "./runtime-unions.js";
 import {
   buildRuntimeUnionFactoryCallAst,
   buildInvalidRuntimeUnionMaterializationExpression,
@@ -37,13 +40,13 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "./type-resolution.js";
+import { semanticType } from "./type-domains.js";
 import { isBroadObjectSlotType } from "./broad-object-types.js";
 import {
   boxValueAst,
   buildArrayShapeCondition,
   buildInvalidReificationExpression,
   getRuntimeUnionCastMemberTypeAsts,
-  isRuntimeUnionTypeAst,
   maybeCastMaterializedValueAst,
   tryResolveRuntimeUnionCastSourceIndices,
 } from "./runtime-reification-helpers.js";
@@ -52,6 +55,7 @@ import {
   runtimeUnionAliasReferencesMatch,
 } from "./runtime-union-alias-identity.js";
 import { resolveRuntimeMaterializationTargetType } from "./runtime-materialization-targets.js";
+import { matchesExpectedEmissionType } from "./expected-type-matching.js";
 
 export type EmitTypeAstFn = (
   type: IrType,
@@ -62,6 +66,21 @@ export type RuntimeReificationPlan = {
   readonly condition: CSharpExpressionAst;
   readonly value: CSharpExpressionAst;
   readonly context: EmitterContext;
+};
+
+type RecursiveRuntimeReificationHelper = {
+  readonly expectedType: IrType;
+  readonly name: string;
+  readonly typeAst: CSharpTypeAst;
+};
+
+type RuntimeReificationOptions = {
+  readonly typeAst?: CSharpTypeAst;
+  readonly layout?: RuntimeUnionLayout;
+  readonly layoutType?: IrType;
+  readonly context?: EmitterContext;
+  readonly recursiveHelper?: RecursiveRuntimeReificationHelper;
+  readonly activeTypes?: ReadonlySet<IrType>;
 };
 
 export type RuntimeMaterializationSourceFrame = {
@@ -104,7 +123,7 @@ const tryBuildBroadObjectCatchAllReificationPlan = (
   context: EmitterContext,
   emitTypeAst: EmitTypeAstFn
 ): RuntimeReificationPlan | undefined => {
-  if (!isBroadObjectRuntimeMemberType(expectedType, context)) {
+  if (!isBroadObjectSlotType(expectedType, context)) {
     return undefined;
   }
 
@@ -117,6 +136,826 @@ const tryBuildBroadObjectCatchAllReificationPlan = (
       expression: valueAst,
     },
     context: nextContext,
+  };
+};
+
+const objectNullableTypeAst = (): CSharpTypeAst =>
+  nullableType(identifierType("object"));
+
+const dictionaryTypeAst = (valueTypeAst: CSharpTypeAst): CSharpTypeAst =>
+  identifierType("global::System.Collections.Generic.Dictionary", [
+    identifierType("string"),
+    valueTypeAst,
+  ]);
+
+const runtimeReificationHelperName = (unionTypeAst: CSharpTypeAst): string => {
+  const suffix = stableConcreteTypeKeyFromAst(unionTypeAst)
+    .replace(/[^A-Za-z0-9_]/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(-64);
+  return `__tsonic_reify_${suffix || "runtime_union"}`;
+};
+
+const buildRuntimeReificationHelperCallAst = (
+  helperName: string,
+  valueAst: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: identifierExpression(helperName),
+  arguments: [boxValueAst(valueAst)],
+});
+
+const typeMatchesRecursiveReificationTarget = (
+  type: IrType,
+  helper: RecursiveRuntimeReificationHelper | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!helper) {
+    return false;
+  }
+  const stripped = stripNullish(type);
+  const target = stripNullish(helper.expectedType);
+  if (stripped === target) {
+    return true;
+  }
+  const resolvedTarget = resolveTypeAlias(target, context, {
+    preserveObjectTypeAliases: true,
+  });
+  const resolvedStripped = resolveTypeAlias(stripped, context, {
+    preserveObjectTypeAliases: true,
+  });
+  if (
+    stripped === resolvedTarget ||
+    resolvedStripped === target ||
+    resolvedStripped === resolvedTarget
+  ) {
+    return true;
+  }
+  const strippedAliasKey = getRuntimeUnionAliasReferenceKey(stripped, context);
+  const targetAliasKey = getRuntimeUnionAliasReferenceKey(target, context);
+  return (
+    strippedAliasKey !== undefined &&
+    targetAliasKey !== undefined &&
+    strippedAliasKey === targetAliasKey
+  );
+};
+
+const hasTopLevelRuntimeNullishMember = (type: IrType): boolean =>
+  type.kind === "unionType" &&
+  type.types.some(
+    (member) =>
+      member.kind === "voidType" ||
+      (member.kind === "primitiveType" &&
+        (member.name === "null" || member.name === "undefined"))
+  );
+
+const runtimeMemberCanRepresentSemanticArrayMember = (
+  runtimeMember: IrType,
+  semanticMember: IrType,
+  context: EmitterContext
+): boolean => {
+  const runtimeElementType = getArrayLikeElementType(runtimeMember, context);
+  const semanticElementType = getArrayLikeElementType(semanticMember, context);
+  return (
+    !!runtimeElementType &&
+    !!semanticElementType &&
+    ((runtimeElementType.kind === "referenceType" &&
+      runtimeElementType.name === "object") ||
+      isBroadObjectSlotType(runtimeElementType, context))
+  );
+};
+
+const alignSemanticRuntimeUnionMembers = (
+  runtimeMembers: readonly IrType[],
+  semanticMembers: readonly IrType[],
+  context: EmitterContext
+): readonly IrType[] => {
+  if (semanticMembers.length === 0) {
+    return runtimeMembers;
+  }
+
+  const claimedSemanticIndices = new Set<number>();
+  return runtimeMembers.map((runtimeMember) => {
+    const candidates = semanticMembers.flatMap((semanticMember, index) => {
+      if (claimedSemanticIndices.has(index)) {
+        return [];
+      }
+      const matches =
+        findRuntimeUnionMemberIndices([runtimeMember], semanticMember, context)
+          .length === 1 ||
+        runtimeMemberCanRepresentSemanticArrayMember(
+          runtimeMember,
+          semanticMember,
+          context
+        );
+      return matches ? [{ index, semanticMember }] : [];
+    });
+
+    if (candidates.length !== 1) {
+      return runtimeMember;
+    }
+
+    const candidate = candidates[0];
+    if (!candidate) {
+      return runtimeMember;
+    }
+    claimedSemanticIndices.add(candidate.index);
+    return candidate.semanticMember;
+  });
+};
+
+const typeContainsRecursiveReificationTarget = (
+  type: IrType,
+  targetType: IrType,
+  context: EmitterContext,
+  seenKeys: ReadonlySet<string> = new Set(),
+  seenTypes: ReadonlySet<IrType> = new Set()
+): boolean => {
+  const stripped = stripNullish(type);
+  const strippedTarget = stripNullish(targetType);
+  if (stripped === strippedTarget) {
+    return true;
+  }
+  const resolvedTarget = resolveTypeAlias(strippedTarget, context, {
+    preserveObjectTypeAliases: true,
+  });
+  const resolvedStripped = resolveTypeAlias(stripped, context, {
+    preserveObjectTypeAliases: true,
+  });
+  if (
+    stripped === resolvedTarget ||
+    resolvedStripped === strippedTarget ||
+    resolvedStripped === resolvedTarget
+  ) {
+    return true;
+  }
+  if (seenTypes.has(stripped)) {
+    return false;
+  }
+  const nextSeenTypes = new Set([...seenTypes, stripped]);
+
+  const strippedAliasKey = getRuntimeUnionAliasReferenceKey(stripped, context);
+  const targetAliasKey = getRuntimeUnionAliasReferenceKey(
+    strippedTarget,
+    context
+  );
+  if (
+    strippedAliasKey !== undefined &&
+    targetAliasKey !== undefined &&
+    strippedAliasKey === targetAliasKey
+  ) {
+    return true;
+  }
+
+  if (strippedAliasKey && seenKeys.has(strippedAliasKey)) {
+    return false;
+  }
+  const nextSeenKeys = strippedAliasKey
+    ? new Set([...seenKeys, strippedAliasKey])
+    : seenKeys;
+
+  const resolved = resolveTypeAlias(stripped, context, {
+    preserveObjectTypeAliases: true,
+  });
+  switch (resolved.kind) {
+    case "arrayType":
+      return typeContainsRecursiveReificationTarget(
+        resolved.elementType,
+        targetType,
+        context,
+        nextSeenKeys,
+        nextSeenTypes
+      );
+    case "dictionaryType":
+      return typeContainsRecursiveReificationTarget(
+        resolved.valueType,
+        targetType,
+        context,
+        nextSeenKeys,
+        nextSeenTypes
+      );
+    case "tupleType":
+      return resolved.elementTypes.some((elementType) =>
+        typeContainsRecursiveReificationTarget(
+          elementType,
+          targetType,
+          context,
+          nextSeenKeys,
+          nextSeenTypes
+        )
+      );
+    case "unionType":
+      return resolved.types.some((member) =>
+        typeContainsRecursiveReificationTarget(
+          member,
+          targetType,
+          context,
+          nextSeenKeys,
+          nextSeenTypes
+        )
+      );
+    default:
+      return false;
+  }
+};
+
+const precomputedRuntimeLayoutAppliesTo = (
+  expectedType: IrType,
+  options: RuntimeReificationOptions,
+  context: EmitterContext
+): boolean => {
+  if (!options.layout || !options.typeAst || !options.layoutType) {
+    return false;
+  }
+
+  const expected = stripNullish(expectedType);
+  const layoutType = stripNullish(options.layoutType);
+  return (
+    expected === layoutType ||
+    runtimeUnionAliasReferencesMatch(expected, layoutType, context)
+  );
+};
+
+const buildZeroArgLambdaInvocationAst = (
+  returnType: CSharpTypeAst,
+  statements: readonly CSharpStatementAst[]
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    kind: "parenthesizedExpression",
+    expression: {
+      kind: "castExpression",
+      type: identifierType("global::System.Func", [returnType]),
+      expression: {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [],
+          body: {
+            kind: "blockStatement",
+            statements,
+          },
+        },
+      },
+    },
+  },
+  arguments: [],
+});
+
+const buildInvalidCastThrowStatement = (
+  message: string
+): CSharpStatementAst => ({
+  kind: "throwStatement",
+  expression: {
+    kind: "objectCreationExpression",
+    type: identifierType("global::System.InvalidCastException"),
+    arguments: [
+      {
+        kind: "stringLiteralExpression",
+        value: message,
+      },
+    ],
+  },
+});
+
+const getStringKeyDictionaryValueType = (
+  type: IrType,
+  context: EmitterContext
+): IrType | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context, {
+    preserveObjectTypeAliases: true,
+  });
+  if (resolved.kind !== "dictionaryType") {
+    return undefined;
+  }
+
+  const keyType = resolveTypeAlias(stripNullish(resolved.keyType), context);
+  return keyType.kind === "primitiveType" && keyType.name === "string"
+    ? resolved.valueType
+    : undefined;
+};
+
+const canMaterializeStringKeyDictionary = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): boolean =>
+  getStringKeyDictionaryValueType(sourceType, context) !== undefined &&
+  getStringKeyDictionaryValueType(targetType, context) !== undefined;
+
+const withScopedSemanticType = (
+  context: EmitterContext,
+  name: string,
+  type: IrType
+): EmitterContext => ({
+  ...context,
+  localSemanticTypes: new Map([
+    ...(context.localSemanticTypes ?? []),
+    [name, semanticType(type)],
+  ]),
+});
+
+const tryBuildDictionaryMemberMaterializationAst = (
+  valueAst: CSharpExpressionAst,
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn,
+  valueName?: string
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!canMaterializeStringKeyDictionary(sourceType, targetType, context)) {
+    return undefined;
+  }
+
+  const resolvedTarget = resolveTypeAlias(stripNullish(targetType), context, {
+    preserveObjectTypeAliases: true,
+  });
+  if (resolvedTarget.kind !== "dictionaryType") {
+    return undefined;
+  }
+
+  const materializationContext = valueName
+    ? withScopedSemanticType(context, valueName, sourceType)
+    : context;
+  const plan = buildRuntimeDictionaryReificationPlan(
+    valueAst,
+    targetType,
+    resolvedTarget,
+    materializationContext,
+    emitTypeAst
+  );
+  return plan ? [plan.value, plan.context] : undefined;
+};
+
+const buildRuntimeDictionaryReificationPlan = (
+  valueAst: CSharpExpressionAst,
+  expectedType: IrType,
+  resolvedExpected: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn,
+  options: RuntimeReificationOptions = {}
+): RuntimeReificationPlan | undefined => {
+  if (resolvedExpected.kind !== "dictionaryType") {
+    return undefined;
+  }
+
+  const resolvedKey = resolveTypeAlias(stripNullish(resolvedExpected.keyType), context);
+  if (
+    resolvedKey.kind !== "primitiveType" ||
+    resolvedKey.name !== "string"
+  ) {
+    return undefined;
+  }
+
+  const directSourceRuntimeCarrierType = resolveDirectRuntimeCarrierType(
+    valueAst,
+    context
+  );
+  if (directSourceRuntimeCarrierType) {
+    const materializedSource = tryBuildRuntimeMaterializationAst(
+      valueAst,
+      directSourceRuntimeCarrierType,
+      expectedType,
+      context,
+      emitTypeAst
+    );
+    if (materializedSource) {
+      return {
+        condition: booleanLiteral(true),
+        value: materializedSource[0],
+        context: materializedSource[1],
+      };
+    }
+  }
+
+  const recursiveHelper = options.recursiveHelper;
+  const valueMatchesRecursiveHelperByAlias =
+    !!recursiveHelper &&
+    typeMatchesRecursiveReificationTarget(
+      resolvedExpected.valueType,
+      recursiveHelper,
+      context
+    );
+  const [targetDictionaryAst, targetDictionaryContext] =
+    recursiveHelper && valueMatchesRecursiveHelperByAlias
+      ? [dictionaryTypeAst(recursiveHelper.typeAst), context]
+      : emitTypeAst(expectedType, context);
+  const [targetValueAst, targetValueContext] =
+    recursiveHelper && valueMatchesRecursiveHelperByAlias
+      ? [recursiveHelper.typeAst, targetDictionaryContext]
+      : emitTypeAst(resolvedExpected.valueType, targetDictionaryContext);
+  const concreteTargetDictionaryAst = stripNullableTypeAst(targetDictionaryAst);
+  const sourceDictionaryAst = dictionaryTypeAst(objectNullableTypeAst());
+  const directSourceDictionaryType =
+    resolveDirectValueSurfaceType(valueAst, context) ??
+    resolveDirectRuntimeCarrierType(valueAst, context);
+  const directSourceDictionaryValueType = directSourceDictionaryType
+    ? getStringKeyDictionaryValueType(directSourceDictionaryType, context)
+    : undefined;
+  const [directSourceDictionaryAst, directSourceDictionaryContext] =
+    directSourceDictionaryValueType
+      ? emitTypeAst(directSourceDictionaryType!, targetValueContext)
+      : [undefined, targetValueContext];
+  const concreteDirectSourceDictionaryAst =
+    directSourceDictionaryAst &&
+    !sameTypeAstSurface(
+      stripNullableTypeAst(directSourceDictionaryAst),
+      concreteTargetDictionaryAst
+    ) &&
+    !sameTypeAstSurface(
+      stripNullableTypeAst(directSourceDictionaryAst),
+      sourceDictionaryAst
+    )
+      ? stripNullableTypeAst(directSourceDictionaryAst)
+      : undefined;
+  const boxedValue = boxValueAst(valueAst);
+  const valueLocal = "__tsonic_reify_value";
+  const typedLocal = "__tsonic_reify_typed_dict";
+  const rawLocal = "__tsonic_reify_raw_dict";
+  const sourceTypedLocal = "__tsonic_reify_source_dict";
+  const entryLocal = "__tsonic_reify_entry";
+  const entryValueAst: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: identifierExpression(entryLocal),
+    memberName: "Value",
+  };
+  const entryValueMatchesRecursiveHelper =
+    valueMatchesRecursiveHelperByAlias ||
+    (!!recursiveHelper &&
+      sameTypeAstSurface(
+        stripNullableTypeAst(targetValueAst),
+        stripNullableTypeAst(recursiveHelper.typeAst)
+      ));
+  const materializedEntryValue =
+    recursiveHelper && entryValueMatchesRecursiveHelper
+      ? buildRuntimeReificationHelperCallAst(
+          recursiveHelper.name,
+          entryValueAst
+        )
+      : (tryBuildRuntimeReificationPlan(
+          entryValueAst,
+          resolvedExpected.valueType,
+          targetValueContext,
+          emitTypeAst,
+          options
+        )?.value ?? {
+          kind: "castExpression",
+          type: targetValueAst,
+          expression: entryValueAst,
+        });
+
+  const buildToDictionaryAst = (
+    sourceAst: CSharpExpressionAst,
+    keyBody: CSharpExpressionAst
+  ): CSharpExpressionAst => ({
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: identifierExpression("global::System.Linq.Enumerable"),
+      memberName: "ToDictionary",
+    },
+    arguments: [
+      sourceAst,
+      {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: entryLocal }],
+        body: keyBody,
+      },
+      {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: entryLocal }],
+        body: materializedEntryValue,
+      },
+    ],
+  });
+  const entryKeyAst: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: identifierExpression(entryLocal),
+    memberName: "Key",
+  };
+  const toDictionaryAst = buildToDictionaryAst(
+    identifierExpression(rawLocal),
+    entryKeyAst
+  );
+  const toDictionaryFromSourceAst = buildToDictionaryAst(
+    identifierExpression(sourceTypedLocal),
+    entryKeyAst
+  );
+
+  const typedDictionaryCondition: CSharpExpressionAst = {
+    kind: "isExpression",
+    expression: boxedValue,
+    pattern: {
+      kind: "typePattern",
+      type: concreteTargetDictionaryAst,
+    },
+  };
+  const rawDictionaryCondition: CSharpExpressionAst = {
+    kind: "isExpression",
+    expression: boxedValue,
+    pattern: {
+      kind: "typePattern",
+      type: sourceDictionaryAst,
+    },
+  };
+  const condition: CSharpExpressionAst = concreteDirectSourceDictionaryAst
+    ? {
+        kind: "binaryExpression",
+        operatorToken: "||",
+        left: {
+          kind: "binaryExpression",
+          operatorToken: "||",
+          left: typedDictionaryCondition,
+          right: rawDictionaryCondition,
+        },
+        right: {
+          kind: "isExpression",
+          expression: boxedValue,
+          pattern: {
+            kind: "typePattern",
+            type: concreteDirectSourceDictionaryAst,
+          },
+        },
+      }
+    : {
+        kind: "binaryExpression",
+        operatorToken: "||",
+        left: typedDictionaryCondition,
+        right: rawDictionaryCondition,
+      };
+
+  return {
+    condition,
+    value: buildZeroArgLambdaInvocationAst(concreteTargetDictionaryAst, [
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: objectNullableTypeAst(),
+        declarators: [{ name: valueLocal, initializer: boxedValue }],
+      },
+      {
+        kind: "ifStatement",
+        condition: {
+          kind: "isExpression",
+          expression: identifierExpression(valueLocal),
+          pattern: {
+            kind: "declarationPattern",
+            type: concreteTargetDictionaryAst,
+            designation: typedLocal,
+          },
+        },
+        thenStatement: {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "returnStatement",
+              expression: identifierExpression(typedLocal),
+            },
+          ],
+        },
+      },
+      {
+        kind: "ifStatement",
+        condition: {
+          kind: "isExpression",
+          expression: identifierExpression(valueLocal),
+          pattern: {
+            kind: "declarationPattern",
+            type: sourceDictionaryAst,
+            designation: rawLocal,
+          },
+        },
+        thenStatement: {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "returnStatement",
+              expression: toDictionaryAst,
+            },
+          ],
+        },
+      },
+      ...(concreteDirectSourceDictionaryAst
+        ? [
+            {
+              kind: "ifStatement" as const,
+              condition: {
+                kind: "isExpression" as const,
+                expression: identifierExpression(valueLocal),
+                pattern: {
+                  kind: "declarationPattern" as const,
+                  type: concreteDirectSourceDictionaryAst,
+                  designation: sourceTypedLocal,
+                },
+              },
+              thenStatement: {
+                kind: "blockStatement" as const,
+                statements: [
+                  {
+                    kind: "returnStatement" as const,
+                    expression: toDictionaryFromSourceAst,
+                  },
+                ],
+              },
+            },
+          ]
+        : []),
+      buildInvalidCastThrowStatement("Unreachable dictionary reification path"),
+    ]),
+    context: directSourceDictionaryContext,
+  };
+};
+
+const buildRuntimeArrayReificationPlan = (
+  valueAst: CSharpExpressionAst,
+  expectedType: IrType,
+  resolvedExpected: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn,
+  options: RuntimeReificationOptions = {}
+): RuntimeReificationPlan | undefined => {
+  const elementType = getArrayLikeElementType(resolvedExpected, context);
+  if (!elementType) {
+    return undefined;
+  }
+  const materializedElementType =
+    resolvedExpected.kind === "arrayType" &&
+    resolvedExpected.storageErasedElementType
+      ? resolvedExpected.storageErasedElementType
+      : elementType;
+
+  const recursiveHelper = options.recursiveHelper;
+  const resolvedMaterializedElementType = resolveTypeAlias(
+    stripNullish(materializedElementType),
+    context,
+    { preserveObjectTypeAliases: true }
+  );
+  const resolvedRecursiveHelperExpectedType = recursiveHelper
+    ? resolveTypeAlias(stripNullish(recursiveHelper.expectedType), context, {
+        preserveObjectTypeAliases: true,
+      })
+    : undefined;
+  const elementRuntimeCarrierMatchesRecursiveHelper =
+    recursiveHelper !== undefined
+      ? (() => {
+          const [elementRuntimeTypeAst, elementRuntimeLayout] =
+            emitRuntimeCarrierTypeAst(
+              materializedElementType,
+              context,
+              emitTypeAst
+            );
+          return (
+            !!elementRuntimeLayout &&
+            sameTypeAstSurface(
+              stripNullableTypeAst(elementRuntimeTypeAst),
+              stripNullableTypeAst(recursiveHelper.typeAst)
+            )
+          );
+        })()
+      : false;
+  const elementMatchesRecursiveHelperByAlias =
+    !!recursiveHelper &&
+    (typeMatchesRecursiveReificationTarget(
+        materializedElementType,
+        recursiveHelper,
+        context
+      ) ||
+      resolvedMaterializedElementType === resolvedRecursiveHelperExpectedType ||
+      elementRuntimeCarrierMatchesRecursiveHelper ||
+      typeContainsRecursiveReificationTarget(
+        materializedElementType,
+        recursiveHelper.expectedType,
+        context
+      ));
+  const [targetArrayAst, targetArrayContext] =
+    recursiveHelper && elementMatchesRecursiveHelperByAlias
+      ? [
+          {
+            kind: "arrayType" as const,
+            elementType: recursiveHelper.typeAst,
+            rank: 1,
+          },
+          context,
+        ]
+      : emitTypeAst(expectedType, context);
+  const [targetElementAst, targetElementContext] =
+    recursiveHelper && elementMatchesRecursiveHelperByAlias
+      ? [recursiveHelper.typeAst, targetArrayContext]
+      : emitTypeAst(materializedElementType, targetArrayContext);
+  const concreteTargetArrayAst = stripNullableTypeAst(targetArrayAst);
+  const sourceArrayAst: CSharpTypeAst = {
+    kind: "arrayType",
+    elementType: objectNullableTypeAst(),
+    rank: 1,
+  };
+  const boxedValue = boxValueAst(valueAst);
+  const valueLocal = "__tsonic_reify_value";
+  const typedLocal = "__tsonic_reify_typed_array";
+  const rawLocal = "__tsonic_reify_raw_array";
+  const itemLocal = "__item";
+  const itemAst = identifierExpression(itemLocal);
+  const itemMatchesRecursiveHelper =
+    elementMatchesRecursiveHelperByAlias ||
+    (!!recursiveHelper &&
+      sameTypeAstSurface(
+        stripNullableTypeAst(targetElementAst),
+        stripNullableTypeAst(recursiveHelper.typeAst)
+      ));
+  const fallbackMaterializedItem: CSharpExpressionAst = {
+    kind: "castExpression",
+    type: targetElementAst,
+    expression: itemAst,
+  };
+  const materializedItem =
+    recursiveHelper && itemMatchesRecursiveHelper
+      ? buildRuntimeReificationHelperCallAst(recursiveHelper.name, itemAst)
+      : materializedElementType.kind === "typeParameterType"
+        ? fallbackMaterializedItem
+      : (tryBuildRuntimeReificationPlan(
+          itemAst,
+          materializedElementType,
+          targetElementContext,
+          emitTypeAst,
+          options
+        )?.value ?? fallbackMaterializedItem);
+  const selectAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: identifierExpression("global::System.Linq.Enumerable.Select"),
+    typeArguments: [objectNullableTypeAst(), targetElementAst],
+    arguments: [
+      identifierExpression(rawLocal),
+      {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: itemLocal }],
+        body: materializedItem,
+      },
+    ],
+  };
+  const toArrayAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+    typeArguments: [targetElementAst],
+    arguments: [selectAst],
+  };
+
+  return {
+    condition: buildArrayShapeCondition(valueAst),
+    value: buildZeroArgLambdaInvocationAst(concreteTargetArrayAst, [
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: objectNullableTypeAst(),
+        declarators: [{ name: valueLocal, initializer: boxedValue }],
+      },
+      {
+        kind: "ifStatement",
+        condition: {
+          kind: "isExpression",
+          expression: identifierExpression(valueLocal),
+          pattern: {
+            kind: "declarationPattern",
+            type: concreteTargetArrayAst,
+            designation: typedLocal,
+          },
+        },
+        thenStatement: {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "returnStatement",
+              expression: identifierExpression(typedLocal),
+            },
+          ],
+        },
+      },
+      {
+        kind: "ifStatement",
+        condition: {
+          kind: "isExpression",
+          expression: identifierExpression(valueLocal),
+          pattern: {
+            kind: "declarationPattern",
+            type: sourceArrayAst,
+            designation: rawLocal,
+          },
+        },
+        thenStatement: {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "returnStatement",
+              expression: toArrayAst,
+            },
+          ],
+        },
+      },
+      buildInvalidCastThrowStatement("Unreachable array reification path"),
+    ]),
+    context: targetElementContext,
   };
 };
 
@@ -145,19 +984,49 @@ const tryBuildArrayElementMaterializationAst = (
     return undefined;
   }
 
+  const [sourceElementLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
+    sourceElementType,
+    targetTypeContext,
+    emitTypeAst
+  );
+  const [targetElementLayout, targetLayoutContext] = buildRuntimeUnionLayout(
+    targetElementType,
+    sourceLayoutContext,
+    emitTypeAst
+  );
+
   if (
     isBroadObjectSlotType(targetElementType, targetTypeContext) ||
     isObjectTypeAst(targetElementTypeAst)
   ) {
     const itemName = "__tsonic_array_item";
     const itemExpr = identifierExpression(itemName);
-    const materializedElement = tryBuildRuntimeMaterializationAst(
-      itemExpr,
-      sourceElementType,
-      targetElementType,
-      targetTypeContext,
-      emitTypeAst
-    );
+    const materializedElement =
+      sourceElementLayout && !isBroadObjectRuntimeMemberType(sourceElementType, targetTypeContext)
+        ? ([
+            buildRuntimeUnionMatchAst(
+              itemExpr,
+              sourceElementLayout.memberTypeAsts.map((memberTypeAst, index) => ({
+                kind: "lambdaExpression" as const,
+                isAsync: false,
+                parameters: [{ name: `__tsonic_union_member_${index + 1}` }],
+                body: maybeCastMaterializedValueAst(
+                  identifierExpression(`__tsonic_union_member_${index + 1}`),
+                  memberTypeAst,
+                  targetElementTypeAst
+                ),
+              })),
+              [targetElementTypeAst]
+            ),
+            sourceLayoutContext,
+          ] as [CSharpExpressionAst, EmitterContext])
+        : tryBuildRuntimeMaterializationAst(
+            itemExpr,
+            sourceElementType,
+            targetElementType,
+            targetTypeContext,
+            emitTypeAst
+          );
     const materializedElementContext =
       materializedElement?.[1] ?? targetTypeContext;
     const selectAst: CSharpExpressionAst = {
@@ -203,18 +1072,12 @@ const tryBuildArrayElementMaterializationAst = (
     ];
   }
 
-  const [sourceElementLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
-    sourceElementType,
-    targetTypeContext,
-    emitTypeAst
-  );
-  const [targetElementLayout, targetLayoutContext] = buildRuntimeUnionLayout(
-    targetElementType,
-    sourceLayoutContext,
-    emitTypeAst
-  );
-
-  if (!sourceElementLayout && targetElementLayout) {
+  if (
+    !sourceElementLayout &&
+    targetElementLayout &&
+    !isBroadObjectSlotType(sourceElementType, targetLayoutContext) &&
+    !isObjectTypeAst(sourceElementTypeAst)
+  ) {
     const targetMemberIndex = findRuntimeUnionMemberIndex(
       targetElementLayout.members,
       sourceElementType,
@@ -347,6 +1210,39 @@ const isObjectTypeAst = (type: CSharpTypeAst): boolean => {
   return false;
 };
 
+const isNamedReferenceTypeAst = (type: CSharpTypeAst): boolean => {
+  const concrete = stripNullableTypeAst(type);
+  return (
+    concrete.kind === "identifierType" ||
+    concrete.kind === "qualifiedIdentifierType"
+  );
+};
+
+const canUseScalarRuntimeUnionFallbackCast = (
+  sourceType: IrType,
+  targetType: IrType,
+  sourceTypeAst: CSharpTypeAst,
+  targetTypeAst: CSharpTypeAst,
+  context: EmitterContext
+): boolean => {
+  if (sameTypeAstSurface(sourceTypeAst, targetTypeAst)) {
+    return true;
+  }
+
+  if (
+    isBroadObjectSlotType(sourceType, context) ||
+    isBroadObjectSlotType(targetType, context) ||
+    isObjectTypeAst(sourceTypeAst) ||
+    isObjectTypeAst(targetTypeAst)
+  ) {
+    return true;
+  }
+
+  return !(
+    isNamedReferenceTypeAst(sourceTypeAst) && isNamedReferenceTypeAst(targetTypeAst)
+  );
+};
+
 const canMaterializeArrayToObjectArrayAst = (
   sourceType: IrType,
   targetTypeAst: CSharpTypeAst,
@@ -395,16 +1291,33 @@ const tryBuildScalarToRuntimeUnionMaterializationAst = (
     sourceTypeContext,
     emitTypeAst
   );
+  const fallbackCast = canUseScalarRuntimeUnionFallbackCast(
+    sourceType,
+    targetMember,
+    sourceTypeAst,
+    targetMemberTypeAst,
+    sourceTypeContext
+  )
+    ? maybeCastMaterializedValueAst(
+        valueAst,
+        sourceTypeAst,
+        targetMemberTypeAst
+      )
+    : undefined;
+  if (!nestedMaterialization && !fallbackCast) {
+    return undefined;
+  }
+
+  const materializedValueAst = nestedMaterialization?.[0] ?? fallbackCast;
+  if (!materializedValueAst) {
+    return undefined;
+  }
+
   return [
     buildRuntimeUnionFactoryCallAst(
       buildRuntimeUnionTypeAst(targetLayout),
       memberIndex + 1,
-      nestedMaterialization?.[0] ??
-        maybeCastMaterializedValueAst(
-          valueAst,
-          sourceTypeAst,
-          targetMemberTypeAst
-        )
+      materializedValueAst
     ),
     nestedMaterialization?.[1] ?? sourceTypeContext,
   ];
@@ -518,6 +1431,55 @@ export const tryBuildRuntimeMaterializationAst = (
       ? effectiveSourceFrame.members[0]
       : undefined;
   const scalarSourceType = scalarSourceFrameType ?? sourceType;
+  const selectedScalarSourceMemberNs =
+    selectedSourceMemberNs && selectedSourceMemberNs.size > 0
+      ? selectedSourceMemberNs
+      : !targetLayout && sourceLayout && materializationTargetType.kind !== "unionType"
+        ? new Set(
+            findRuntimeUnionMemberIndices(
+              sourceLayout.members,
+              materializationTargetType,
+              targetLayoutContext
+            ).map((index) => index + 1)
+          )
+        : undefined;
+
+  if (
+    !targetLayout &&
+    sourceLayout &&
+    selectedScalarSourceMemberNs?.size === 1 &&
+    materializationTargetType.kind !== "unionType"
+  ) {
+    const [selectedMemberN] = selectedScalarSourceMemberNs;
+    const selectedIndex = selectedMemberN ? selectedMemberN - 1 : undefined;
+    const selectedMember =
+      selectedIndex !== undefined ? sourceLayout.members[selectedIndex] : undefined;
+    if (
+      selectedMemberN !== undefined &&
+      selectedMember &&
+      matchesExpectedEmissionType(
+        selectedMember,
+        materializationTargetType,
+        targetLayoutContext
+      )
+    ) {
+      return [
+        {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "invocationExpression",
+            expression: {
+              kind: "memberAccessExpression",
+              expression: valueAst,
+              memberName: `As${selectedMemberN}`,
+            },
+            arguments: [],
+          },
+        },
+        targetLayoutContext,
+      ];
+    }
+  }
 
   if (targetLayout) {
     const directRuntimeCarrierType =
@@ -809,6 +1771,11 @@ export const tryBuildRuntimeMaterializationAst = (
         materializationTargetType,
         nextContext
       ) ||
+      canMaterializeStringKeyDictionary(
+        member,
+        materializationTargetType,
+        nextContext
+      ) ||
       (() => {
         const sourceMemberTypeAst =
           sourceSurfaceMemberTypeAsts?.[index] ??
@@ -834,8 +1801,34 @@ export const tryBuildRuntimeMaterializationAst = (
     return undefined;
   }
 
+  if (matchingSourceIndices.length === 1) {
+    const [matchingSourceIndex] = matchingSourceIndices;
+    if (matchingSourceIndex !== undefined) {
+      const matchingSourceMemberN =
+        effectiveSourceFrame?.candidateMemberNs?.[matchingSourceIndex] ??
+        matchingSourceIndex + 1;
+      return [
+        {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "invocationExpression",
+            expression: {
+              kind: "memberAccessExpression",
+              expression: valueAst,
+              memberName: `As${matchingSourceMemberN}`,
+            },
+            arguments: [],
+          },
+        },
+        nextContext,
+      ];
+    }
+  }
+
   const lambdaArgs: CSharpExpressionAst[] = [];
   let matchContext = nextContext;
+  let directProjectionMemberN: number | undefined;
+  let directProjectionCount = 0;
   const sourceMemberIndexBySlot = new Map<number, number>();
   for (let index = 0; index < sourceLayout.members.length; index += 1) {
     sourceMemberIndexBySlot.set(
@@ -909,20 +1902,69 @@ export const tryBuildRuntimeMaterializationAst = (
     if (arrayElementMaterialization) {
       matchContext = arrayElementMaterialization[1];
     }
+    const dictionaryMemberMaterialization =
+      arrayElementMaterialization === undefined
+        ? tryBuildDictionaryMemberMaterializationAst(
+            parameterExpr,
+            actualMember,
+            materializationTargetType,
+            matchContext,
+            emitTypeAst,
+            parameterName
+          )
+        : undefined;
+    if (dictionaryMemberMaterialization) {
+      matchContext = dictionaryMemberMaterialization[1];
+    }
+    const sourceMemberTypeAst =
+      sourceSurfaceMemberTypeAsts?.[index] ?? sourceLayout.memberTypeAsts[index];
+    const castMaterializedValue = sourceMemberTypeAst
+      ? maybeCastMaterializedValueAst(
+          parameterExpr,
+          sourceMemberTypeAst,
+          concreteTargetTypeAst
+        )
+      : undefined;
+    const memberBody =
+      arrayElementMaterialization?.[0] ??
+      dictionaryMemberMaterialization?.[0] ??
+      castMaterializedValue ??
+      buildInvalidRuntimeUnionMaterializationExpression(
+        actualMember,
+        materializationTargetType
+      );
+    if (
+      memberBody.kind === "identifierExpression" &&
+      memberBody.identifier === parameterName
+    ) {
+      directProjectionMemberN = sourceMemberN;
+      directProjectionCount += 1;
+    }
 
     lambdaArgs.push({
       kind: "lambdaExpression",
       isAsync: false,
       parameters: [{ name: parameterName }],
-      body:
-        arrayElementMaterialization?.[0] ??
-        maybeCastMaterializedValueAst(
-          parameterExpr,
-          sourceSurfaceMemberTypeAsts?.[index] ??
-            sourceLayout.memberTypeAsts[index],
-          concreteTargetTypeAst
-        ),
+      body: memberBody,
     });
+  }
+
+  if (directProjectionCount === 1 && directProjectionMemberN !== undefined) {
+    return [
+      {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: valueAst,
+            memberName: `As${directProjectionMemberN}`,
+          },
+          arguments: [],
+        },
+      },
+      matchContext,
+    ];
   }
 
   return [
@@ -935,11 +1977,58 @@ export const tryBuildRuntimeReificationPlan = (
   valueAst: CSharpExpressionAst,
   expectedType: IrType,
   context: EmitterContext,
-  emitTypeAst: EmitTypeAstFn
+  emitTypeAst: EmitTypeAstFn,
+  options: RuntimeReificationOptions = {}
 ): RuntimeReificationPlan | undefined => {
+  const directExpectedType = stripNullish(expectedType);
+  if (options.activeTypes?.has(directExpectedType)) {
+    return undefined;
+  }
+  options = {
+    ...options,
+    activeTypes: new Set([...(options.activeTypes ?? []), directExpectedType]),
+  };
+  if (options.recursiveHelper) {
+    if (directExpectedType.kind === "arrayType") {
+      const directArrayReification = buildRuntimeArrayReificationPlan(
+        valueAst,
+        expectedType,
+        directExpectedType,
+        context,
+        emitTypeAst,
+        options
+      );
+      if (directArrayReification) {
+        return directArrayReification;
+      }
+    }
+
+    if (directExpectedType.kind === "dictionaryType") {
+      const directDictionaryReification = buildRuntimeDictionaryReificationPlan(
+        valueAst,
+        expectedType,
+        directExpectedType,
+        context,
+        emitTypeAst,
+        options
+      );
+      if (directDictionaryReification) {
+        return directDictionaryReification;
+      }
+    }
+  }
+
   const materializationExpectedType = resolveRuntimeMaterializationTargetType(
     expectedType,
     context
+  );
+  const resolvedMaterializationExpected = resolveTypeAlias(
+    materializationExpectedType,
+    context,
+    { preserveObjectTypeAliases: true }
+  );
+  const expectedAllowsRuntimeNullish = hasTopLevelRuntimeNullishMember(
+    resolvedMaterializationExpected
   );
   const resolvedExpected = resolveTypeAlias(
     stripNullish(materializationExpectedType),
@@ -984,8 +2073,37 @@ export const tryBuildRuntimeReificationPlan = (
     };
   }
 
-  if (resolvedExpected.kind === "unionType") {
-    if (directRuntimeCarrierType) {
+  let [unionTypeAst, runtimeLayout, unionTypeContext] =
+    precomputedRuntimeLayoutAppliesTo(expectedType, options, context)
+      ? [
+          options.typeAst!,
+          options.layout!,
+          options.context ?? context,
+        ]
+      : emitRuntimeCarrierTypeAst(expectedType, context, emitTypeAst);
+  let concreteUnionTypeAst = stripNullableTypeAst(unionTypeAst);
+  if (!runtimeLayout && resolvedExpected.kind === "unionType") {
+    const [resolvedLayout, resolvedLayoutContext] = buildRuntimeUnionLayout(
+      resolvedExpected,
+      context,
+      emitTypeAst
+    );
+    if (resolvedLayout) {
+      runtimeLayout = resolvedLayout;
+      unionTypeContext = resolvedLayoutContext;
+      unionTypeAst = buildRuntimeUnionTypeAst(resolvedLayout);
+      concreteUnionTypeAst = stripNullableTypeAst(unionTypeAst);
+    }
+  }
+
+  if (
+    resolvedExpected.kind === "unionType" ||
+    !!runtimeLayout
+  ) {
+    if (
+      directRuntimeCarrierType &&
+      !isBroadObjectRuntimeMemberType(directRuntimeCarrierType, context)
+    ) {
       const materialized = tryBuildRuntimeMaterializationAst(
         valueAst,
         directRuntimeCarrierType,
@@ -1012,7 +2130,10 @@ export const tryBuildRuntimeReificationPlan = (
         };
       }
     }
-    if (directValueSurfaceType) {
+    if (
+      directValueSurfaceType &&
+      !isBroadObjectRuntimeMemberType(directValueSurfaceType, context)
+    ) {
       const materialized = tryBuildRuntimeMaterializationAst(
         valueAst,
         directValueSurfaceType,
@@ -1040,69 +2161,141 @@ export const tryBuildRuntimeReificationPlan = (
       }
     }
 
-    const [unionTypeAst, runtimeLayout, unionTypeContext] =
-      emitRuntimeCarrierTypeAst(expectedType, context, emitTypeAst);
-    const concreteUnionTypeAst = stripNullableTypeAst(unionTypeAst);
-    if (!runtimeLayout || !isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
+    if (!runtimeLayout) {
       return undefined;
     }
 
-    const runtimeFrame = buildRuntimeUnionFrame(expectedType, unionTypeContext);
-    const members = runtimeFrame?.members ?? runtimeLayout.members;
+    const members = runtimeLayout.members;
+    const semanticMembers =
+      resolvedExpected.kind === "unionType" ? resolvedExpected.types : members;
+    const memberPlanTypes = alignSemanticRuntimeUnionMembers(
+      members,
+      semanticMembers,
+      unionTypeContext
+    );
 
-    const canDirectlyCarryExpectedUnion = (() => {
-      const directCarryType =
-        directRuntimeCarrierType ?? directValueSurfaceType;
-      if (!directCarryType) {
-        return true;
-      }
-
-      if (
-        directCarryType.kind === "anyType" ||
-        directCarryType.kind === "unknownType" ||
-        isBroadObjectSlotType(directCarryType, unionTypeContext) ||
-        runtimeUnionAliasReferencesMatch(
-          directCarryType,
+    if (
+      !options.recursiveHelper &&
+      semanticMembers.some((member) =>
+        typeContainsRecursiveReificationTarget(
+          member,
           expectedType,
           unionTypeContext
         )
-      ) {
-        return true;
-      }
-
-      const [directTypeAst] = emitTypeAst(directCarryType, unionTypeContext);
-      return sameTypeAstSurface(
-        stripNullableTypeAst(directTypeAst),
-        concreteUnionTypeAst
+      )
+    ) {
+      const helperName = runtimeReificationHelperName(concreteUnionTypeAst);
+      const helperParameterName = "__tsonic_reify_input";
+      const recursiveHelper: RecursiveRuntimeReificationHelper = {
+        expectedType,
+        name: helperName,
+        typeAst: concreteUnionTypeAst,
+      };
+      const helperOptions: RuntimeReificationOptions = {
+        typeAst: unionTypeAst,
+        layout: runtimeLayout,
+        layoutType: expectedType,
+        context: unionTypeContext,
+        recursiveHelper,
+      };
+      const helperInputAst = identifierExpression(helperParameterName);
+      const helperPlan = tryBuildRuntimeReificationPlan(
+        helperInputAst,
+        expectedType,
+        unionTypeContext,
+        emitTypeAst,
+        helperOptions
       );
-    })();
-
-    const cases: RuntimeReificationPlan[] = canDirectlyCarryExpectedUnion
-      ? [
-          {
-            condition: {
-              kind: "isExpression",
-              expression: boxValueAst(valueAst),
-              pattern: {
-                kind: "typePattern",
-                type: concreteUnionTypeAst,
+      const conditionPlan = tryBuildRuntimeReificationPlan(
+        valueAst,
+        expectedType,
+        unionTypeContext,
+        emitTypeAst,
+        helperOptions
+      );
+      if (helperPlan && conditionPlan) {
+        return {
+          condition: conditionPlan.condition,
+          value: buildZeroArgLambdaInvocationAst(concreteUnionTypeAst, [
+            {
+              kind: "localFunctionStatement",
+              modifiers: [],
+              returnType: concreteUnionTypeAst,
+              name: helperName,
+              parameters: [
+                {
+                  name: helperParameterName,
+                  type: objectNullableTypeAst(),
+                },
+              ],
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "returnStatement",
+                    expression: helperPlan.value,
+                  },
+                ],
               },
             },
-            value: {
-              kind: "castExpression",
-              type: concreteUnionTypeAst,
-              expression: boxValueAst(valueAst),
+            {
+              kind: "returnStatement",
+              expression: buildRuntimeReificationHelperCallAst(
+                helperName,
+                valueAst
+              ),
             },
-            context: unionTypeContext,
+          ]),
+          context: helperPlan.context,
+        };
+      }
+    }
+
+    const cases: RuntimeReificationPlan[] = [];
+    if (expectedAllowsRuntimeNullish) {
+      cases.push({
+        condition: {
+          kind: "binaryExpression",
+          operatorToken: "==",
+          left: boxValueAst(valueAst),
+          right: nullLiteral(),
+        },
+        value: { kind: "defaultExpression" },
+        context: unionTypeContext,
+      });
+    }
+    cases.push({
+        condition: {
+          kind: "isExpression",
+          expression: boxValueAst(valueAst),
+          pattern: {
+            kind: "typePattern",
+            type: concreteUnionTypeAst,
           },
-        ]
-      : [];
+        },
+        value: {
+          kind: "castExpression",
+          type: concreteUnionTypeAst,
+          expression: boxValueAst(valueAst),
+        },
+        context: unionTypeContext,
+      });
 
     let currentContext = unionTypeContext;
     let catchAllCase: RuntimeReificationPlan | undefined;
     for (let index = 0; index < members.length; index += 1) {
-      const member = members[index];
-      if (!member) continue;
+      const runtimeMember = members[index];
+      const member = memberPlanTypes[index] ?? runtimeMember;
+      if (!runtimeMember || !member) continue;
+      if (
+        typeMatchesRecursiveReificationTarget(
+          member,
+          options.recursiveHelper,
+          currentContext
+        )
+      ) {
+        continue;
+      }
       const objectCatchAllPlan = tryBuildBroadObjectCatchAllReificationPlan(
         valueAst,
         member,
@@ -1115,7 +2308,8 @@ export const tryBuildRuntimeReificationPlan = (
           valueAst,
           member,
           currentContext,
-          emitTypeAst
+          emitTypeAst,
+          options
         );
       if (!memberPlan) continue;
       currentContext = memberPlan.context;
@@ -1189,6 +2383,55 @@ export const tryBuildRuntimeReificationPlan = (
       value: valueExpression,
       context: finalContext,
     };
+  }
+
+  if (
+    resolvedExpected.kind === "arrayType" ||
+    resolvedExpected.kind === "tupleType" ||
+    (resolvedExpected.kind === "referenceType" &&
+      (resolvedExpected.name === "Array" ||
+        resolvedExpected.name === "ReadonlyArray"))
+  ) {
+    const directArrayElementMaterialization =
+      directValueSurfaceType &&
+      tryBuildArrayElementMaterializationAst(
+        valueAst,
+        directValueSurfaceType,
+        expectedType,
+        context,
+        emitTypeAst
+      );
+    if (directArrayElementMaterialization) {
+      return {
+        condition: buildArrayShapeCondition(valueAst),
+        value: directArrayElementMaterialization[0],
+        context: directArrayElementMaterialization[1],
+      };
+    }
+  }
+
+  const dictionaryReification = buildRuntimeDictionaryReificationPlan(
+    valueAst,
+    expectedType,
+    resolvedExpected,
+    context,
+    emitTypeAst,
+    options
+  );
+  if (dictionaryReification) {
+    return dictionaryReification;
+  }
+
+  const arrayReification = buildRuntimeArrayReificationPlan(
+    valueAst,
+    expectedType,
+    resolvedExpected,
+    context,
+    emitTypeAst,
+    options
+  );
+  if (arrayReification) {
+    return arrayReification;
   }
 
   const [typeAst, typeContext] = emitTypeAst(expectedType, context);

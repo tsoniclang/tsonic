@@ -163,11 +163,18 @@ export const tryResolveCallPredicateNarrowing = (
     return undefined;
   }
 
+  const currentType = getCurrentTypeForAccessPath(narrowedTarget, ctx);
   if (whenTruthy) {
-    return makeTypeNarrowing(narrowedTarget, targetType);
+    const narrowedType =
+      narrowTypeByAssignableTarget(
+        ctx.typeSystem,
+        currentType,
+        targetType,
+        true
+      ) ?? targetType;
+    return makeTypeNarrowing(narrowedTarget, narrowedType);
   }
 
-  const currentType = getCurrentTypeForAccessPath(narrowedTarget, ctx);
   const narrowedType = narrowTypeByAssignableTarget(
     ctx.typeSystem,
     currentType,

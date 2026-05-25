@@ -1,8 +1,125 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { compileToCSharp } from "./helpers.js";
+import { compileProjectToCSharp, compileToCSharp } from "./helpers.js";
 
 describe("Integration: TSTS blocker regressions", () => {
+  it("adapts object literals to native method interfaces through generated closure adapters", () => {
+    const csharp = compileToCSharp(`
+      interface Greeter {
+        hello(): string;
+        tagged(prefix: string): string;
+      }
+
+      export function makeGreeter(name: string): Greeter {
+        return {
+          hello: () => \`hi \${name}\`,
+          tagged: (prefix: string) => prefix + name,
+        };
+      }
+    `);
+
+    expect(csharp).to.include("class __TsonicInterfaceObjectAdapter_");
+    expect(csharp).to.include(": Greeter");
+    expect(csharp).to.include("string Greeter.hello()");
+    expect(csharp).to.include(
+      "string Greeter.tagged(string prefix)"
+    );
+    expect(csharp).to.include("new global::Test.__TsonicInterfaceObjectAdapter_");
+    expect(csharp).to.not.include("new global::Test.Greeter");
+  });
+
+  it("emits numeric dictionary literal keys for Record<number, T>", () => {
+    const csharp = compileToCSharp(`
+      const CATEGORY_NAMES: Record<number, string> = {
+        0: "warning",
+        1: "error",
+        2: "suggestion",
+        3: "message",
+      };
+
+      export function label(category: number): string {
+        return CATEGORY_NAMES[category] ?? "message";
+      }
+    `);
+
+    expect(csharp).to.include(
+      'new global::System.Collections.Generic.Dictionary<double, string> { [0] = "warning", [1] = "error", [2] = "suggestion", [3] = "message" }'
+    );
+    expect(csharp).to.not.include('["0"] = "warning"');
+  });
+
+  it("emits runtime typeof expressions through closed union dispatch", () => {
+    const csharp = compileToCSharp(`
+      type JsonValue =
+        | string
+        | number
+        | boolean;
+
+      export function jsonTypeOf(value: JsonValue): string {
+        return typeof value;
+      }
+    `);
+
+    expect(csharp).to.include("return value.Match<string>(");
+    expect(csharp).to.include('=> "boolean"');
+    expect(csharp).to.include('=> "number"');
+    expect(csharp).to.include('=> "string"');
+    expect(csharp).to.not.include("global::Tsonic.Runtime.Operators.@typeof(value)");
+  });
+
+  it("emits multiple property-only interface inheritance as native interfaces with object adapters", () => {
+    const csharp = compileToCSharp(`
+      interface HeaderFields {
+        readonly name: string;
+      }
+
+      interface PathFields {
+        readonly main: string;
+      }
+
+      interface DependencyFields {
+        readonly dependencies: string;
+      }
+
+      interface PackageJSON extends HeaderFields, PathFields, DependencyFields {
+        readonly raw: string;
+      }
+
+      export function makePackage(): PackageJSON {
+        return {
+          name: "pkg",
+          main: "index.js",
+          dependencies: "none",
+          raw: "{}",
+        };
+      }
+
+      export function readDependencyFields(pkg: DependencyFields): string {
+        return pkg.dependencies;
+      }
+
+      export function read(): string {
+        return readDependencyFields(makePackage());
+      }
+    `);
+
+    expect(csharp).to.include("public interface HeaderFields");
+    expect(csharp).to.include("public interface PathFields");
+    expect(csharp).to.include("public interface DependencyFields");
+    expect(csharp).to.include(
+      "public interface PackageJSON : HeaderFields, PathFields, DependencyFields"
+    );
+    expect(csharp).to.include("class __TsonicInterfaceObjectAdapter_");
+    expect(csharp).to.include(": PackageJSON");
+    expect(csharp).to.include("string HeaderFields.name");
+    expect(csharp).to.include("string PathFields.main");
+    expect(csharp).to.include("string DependencyFields.dependencies");
+    expect(csharp).to.include("string PackageJSON.raw");
+    expect(csharp).to.not.include(
+      "class PackageJSON : HeaderFields, PathFields, DependencyFields"
+    );
+  });
+
   it("lowers optional calls returning unconstrained generic nullish values without C# conditional-access nullable synthesis", () => {
     const csharp = compileToCSharp(`
       class Box<K, V> {
@@ -604,5 +721,453 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include(
       "(int n) => n % 2 == 0 ? (double?)n : default(double?)"
     );
+  });
+
+  it("narrows nested discriminated union properties before reading arm-only members", () => {
+    const csharp = compileToCSharp(`
+      type Expected<T> =
+        | { readonly state: "absent" }
+        | { readonly state: "null"; readonly actualJSONType: "null" }
+        | { readonly state: "wrong-type"; readonly actualJSONType: string }
+        | { readonly state: "ok"; readonly value: T; readonly actualJSONType: string };
+
+      interface PackageFields {
+        readonly name: Expected<string>;
+      }
+
+      export function read(pkg: PackageFields): string {
+        if (pkg.name.state === "wrong-type") {
+          return pkg.name.actualJSONType;
+        }
+        return "absent";
+      }
+    `);
+
+    expect(csharp).to.match(/if \(pkg\.name\.Is\d+\(\)\)/);
+    expect(csharp).to.match(/var pkg_name__\d+_\d+ = pkg\.name\.As\d+\(\);/);
+    expect(csharp).to.match(/return pkg_name__\d+_\d+\.actualJSONType;/);
+    expect(csharp).to.not.include("pkg.name.actualJSONType");
+  });
+
+  it("projects common members of recursive JSON discriminated union aliases", () => {
+    const csharp = compileToCSharp(
+      `
+        type JSONValueShape =
+          | { readonly type: "not-present" }
+          | { readonly type: "null"; readonly value: null }
+          | { readonly type: "string"; readonly value: string }
+          | { readonly type: "array"; readonly value: readonly JSONValueShape[] }
+          | { readonly type: "object"; readonly value: ReadonlyMap<string, JSONValueShape> };
+
+        interface PackageFields {
+          readonly exports: JSONValueShape;
+        }
+
+        export function read(pkg: PackageFields): string {
+          return pkg.exports.type;
+        }
+
+        export function arrayValue(value: JSONValueShape): readonly JSONValueShape[] {
+          if (value.type === "array") return value.value;
+          return [];
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("return pkg.exports.Match(");
+    expect(csharp).to.not.include("pkg.exports.type");
+    expect(csharp).to.match(/if \(value\.Is\d+\(\)\)/);
+    expect(csharp).to.match(/return value__\d+_\d+\.value;/);
+    expect(csharp).to.not.include("return value.value;");
+  });
+
+  it("contextualizes empty object conditional branches as dictionary records", () => {
+    const csharp = compileToCSharp(
+      `
+        type JsonValue =
+          | string
+          | number
+          | boolean
+          | null
+          | readonly JsonValue[]
+          | { readonly [key: string]: JsonValue };
+
+        declare function isJsonObject(
+          value: JsonValue
+        ): value is { readonly [key: string]: JsonValue };
+
+        function read(
+          obj: { readonly [key: string]: JsonValue },
+          key: string
+        ): JsonValue | undefined {
+          return obj[key];
+        }
+
+        export function run(raw: JsonValue): JsonValue | undefined {
+          const obj = isJsonObject(raw) ? raw : {};
+          return read(obj, "x");
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.match(
+      /var obj = isJsonObject\(raw\) \? \(raw\.As\d+\(\)\) : new global::System\.Collections\.Generic\.Dictionary<string, global::Test\.JsonValue>/
+    );
+    expect(csharp).to.include('return read(obj, "x");');
+    expect(csharp).to.match(
+      /public static global::Test\.JsonValue\? run\(global::Test\.JsonValue raw\)\s*\{\s*var obj = isJsonObject\(raw\) \? \(raw\.As\d+\(\)\) : new global::System\.Collections\.Generic\.Dictionary<string, global::Test\.JsonValue>\(\);\s*return read\(obj, "x"\);\s*\}/
+    );
+  });
+
+  it("intersects imported broad object predicates with the caller union source type", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/json/index.ts": `
+          export type JsValue = object | string | number | boolean | null;
+
+          export type JsonValue =
+            | string
+            | number
+            | boolean
+            | null
+            | readonly JsonValue[]
+            | { readonly [key: string]: JsonValue };
+
+          export function isJsonObject(value: JsValue): value is { readonly [key: string]: JsValue } {
+            return typeof value === "object" && value !== null && !Array.isArray(value);
+          }
+        `,
+        "src/packagejson/parser.ts": `
+          import { isJsonObject, type JsonValue } from "../json/index.js";
+
+          function read(
+            obj: { readonly [key: string]: JsonValue },
+            key: string
+          ): JsonValue | undefined {
+            return obj[key];
+          }
+
+          function jsonValueFromJSON(raw: JsonValue | undefined): JsonValue | undefined {
+            return raw;
+          }
+
+          interface PackageJSON {
+            readonly exports: JsonValue | undefined;
+          }
+
+          export function run(raw: JsonValue): JsonValue | undefined {
+            const obj = isJsonObject(raw) ? raw : {};
+            return read(obj, "x");
+          }
+
+          export function readAssertedField(raw: JsonValue): JsonValue | undefined {
+            const obj = isJsonObject(raw) ? raw : {};
+            return jsonValueFromJSON((obj as Record<string, JsonValue>)["exports"]);
+          }
+
+          export function packageFromValue(raw: JsonValue): PackageJSON {
+            const obj = isJsonObject(raw) ? raw : {};
+            return {
+              exports: jsonValueFromJSON((obj as Record<string, JsonValue>)["exports"]),
+            };
+          }
+        `,
+      },
+      "src/packagejson/parser.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.match(
+      /var obj = .* \? \(raw\.As\d+\(\)\) : new global::System\.Collections\.Generic\.Dictionary<string, global::Test\.json\.JsonValue>/
+    );
+    expect(csharp).to.include('return read(obj, "x");');
+    expect(csharp).to.include("var __tsonic_dict = obj;");
+    expect(csharp).to.not.include("obj.Match");
+    expect(csharp).to.not.include(
+      "Dictionary<string, object?>();"
+    );
+  });
+
+  it("keeps Object.entries tuple values typed from narrowed dictionary carriers", () => {
+    const csharp = compileToCSharp(
+      `
+        type JsonValue =
+          | string
+          | number
+          | boolean
+          | null
+          | readonly JsonValue[]
+          | { readonly [key: string]: JsonValue };
+
+        type JSONValueShape =
+          | { readonly type: "not-present" }
+          | { readonly type: "string"; readonly value: string }
+          | { readonly type: "array"; readonly value: readonly JSONValueShape[] }
+          | { readonly type: "object"; readonly value: ReadonlyMap<string, JSONValueShape> };
+
+        export function jsonValueFromJSON(raw: JsonValue | undefined): JSONValueShape {
+          if (raw === undefined) return { type: "not-present" };
+          switch (typeof raw) {
+            case "string":
+              return { type: "string", value: raw };
+            case "object":
+              if (Array.isArray(raw)) {
+                return {
+                  type: "array",
+                  value: raw.map((item) => jsonValueFromJSON(item)),
+                };
+              }
+              {
+                const map = new Map<string, JSONValueShape>();
+                for (const [k, v] of Object.entries(raw)) {
+                  map.set(k, jsonValueFromJSON(v));
+                }
+                return { type: "object", value: map };
+              }
+          }
+          return { type: "not-present" };
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.match(
+      /foreach \(var __item in global::js\.Object\.entries\(\(raw\.As\d+\(\)\)\)\)/
+    );
+    expect(csharp).to.match(
+      /global::Test\.JsonValue v = __tuple\d+\.Item2;/
+    );
+    expect(csharp).to.not.include("object v = __tuple");
+    expect(csharp).to.include("jsonValueFromJSON(v)");
+  });
+
+  it("keeps Object.entries tuple values typed after imported broad object predicates", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/json/index.ts": `
+          export type JsValue = object | string | number | boolean | null;
+
+          export type JsonValue =
+            | string
+            | number
+            | boolean
+            | null
+            | readonly JsonValue[]
+            | { readonly [key: string]: JsonValue };
+
+          export function isJsonObject(value: JsValue): value is { readonly [key: string]: JsValue } {
+            return typeof value === "object" && value !== null && !Array.isArray(value);
+          }
+        `,
+        "src/packagejson/parser.ts": `
+          import { isJsonObject, type JsonValue } from "../json/index.js";
+
+          function consume(value: JsonValue): void {
+            value;
+          }
+
+          function consumeString(value: string): void {
+            value;
+          }
+
+          export function read(v: JsonValue): void {
+            if (!isJsonObject(v)) return;
+            for (const [k, val] of Object.entries(v)) {
+              k;
+              consume(val);
+              if (typeof val === "string") {
+                consumeString(val);
+              }
+            }
+          }
+        `,
+      },
+      "src/packagejson/parser.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.match(
+      /foreach \(var __item in global::js\.Object\.entries\(\(?v\.As\d+\(\)\)?\)\)/
+    );
+    expect(csharp).to.match(
+      /global::Test\.json\.JsonValue val = __tuple\d+\.Item2;/
+    );
+    expect(csharp).to.not.include(
+      "Object.entries((global::System.Collections.Generic.Dictionary<string, object?>)"
+    );
+    expect(csharp).to.include("consume(val);");
+    expect(csharp).to.include("if (val.Is5())");
+    expect(csharp).to.match(/consumeString\(\(?val\.As\d+\(\)\)?\)/);
+  });
+
+  it("preserves dictionary-read absence separately from present null values", () => {
+    const csharp = compileToCSharp(
+      `
+        type JsonValue =
+          | string
+          | number
+          | boolean
+          | null
+          | readonly JsonValue[]
+          | { readonly [key: string]: JsonValue };
+
+        export function read(
+          obj: { readonly [key: string]: JsonValue },
+          key: string
+        ): string {
+          const v = obj[key];
+          if (v === undefined) return "absent";
+          if (v === null) return "null";
+          return "present";
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "bool __tsonic_v_present = __tsonic_v_dict.ContainsKey(__tsonic_v_key);"
+    );
+    expect(csharp).to.include("if (!__tsonic_v_present)");
+    expect(csharp).to.include("if (((global::System.Object)(v)) == null)");
+    expect(csharp).to.not.include("if ((v) == null)");
+  });
+
+  it("adapts imported constant union arms to imported generic union return types", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/packagejson/types.ts": `
+          export type Expected<T> =
+            | { readonly state: "absent" }
+            | { readonly state: "null"; readonly actualJSONType: "null" }
+            | { readonly state: "wrong-type"; readonly actualJSONType: string }
+            | { readonly state: "ok"; readonly value: T; readonly actualJSONType: string };
+
+          export const absent: { readonly state: "absent" } = { state: "absent" };
+        `,
+        "src/packagejson/parser.ts": `
+          import { absent, type Expected } from "./types.js";
+
+          export function readString(): Expected<string> {
+            return absent;
+          }
+
+          export function readStringMap(): Expected<ReadonlyMap<string, string>> {
+            return absent;
+          }
+        `,
+      },
+      "src/packagejson/parser.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.match(
+      /return global::Test\.packagejson\.Expected<string>\.From\d+\(/
+    );
+    expect(csharp).to.match(
+      /return global::Test\.packagejson\.Expected<global::js\.ReadonlyMap<string, string>>\.From\d+\(/
+    );
+    expect(csharp).to.not.include(
+      "return global::Test.packagejson.types.absent;"
+    );
+    expect(csharp).to.not.include(
+      "(global::Test.packagejson.Expected__3)global::Test.packagejson.types.absent"
+    );
+    expect(csharp).to.include(
+      "new global::Test.packagejson.Expected__3 { state = global::Test.packagejson.types.absent.state }"
+    );
+  });
+
+  it("projects common members from imported function return union aliases", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/packagejson/types.ts": `
+          export type JSONValueShape =
+            | { readonly type: "not-present" }
+            | { readonly type: "null"; readonly value: null }
+            | { readonly type: "string"; readonly value: string }
+            | { readonly type: "array"; readonly value: readonly JSONValueShape[] }
+            | { readonly type: "object"; readonly value: ReadonlyMap<string, JSONValueShape> };
+
+          export interface PackageJSON {
+            readonly exports: JSONValueShape;
+          }
+        `,
+        "src/packagejson/parser.ts": `
+          import type { PackageJSON } from "./types.js";
+
+          export function parsePackageJSON(): PackageJSON {
+            return { exports: { type: "not-present" } };
+          }
+        `,
+        "src/packagejson/packagejson.test.ts": `
+          import { parsePackageJSON } from "./parser.js";
+
+          export function read(): string {
+            const pkg = parsePackageJSON();
+            return pkg.exports.type;
+          }
+        `,
+      },
+      "src/packagejson/packagejson.test.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.include("return pkg.exports.Match(");
+    expect(csharp).to.not.include("pkg.exports.type");
+  });
+
+  it("uses contextual generic return types when wrapping mutable maps in readonly generic unions", () => {
+    const csharp = compileToCSharp(
+      `
+        type Expected<T> =
+          | { readonly state: "ok"; readonly value: T; readonly actualJSONType: "object" }
+          | { readonly state: "absent" };
+
+        function expectedOf<T>(value: T): Expected<T> {
+          return { state: "ok", value, actualJSONType: "object" };
+        }
+
+        export function read(): Expected<ReadonlyMap<string, string>> {
+          const map = new Map<string, string>();
+          return expectedOf(map);
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "return expectedOf<global::js.ReadonlyMap<string, string>>(map);"
+    );
+    expect(csharp).to.not.include("return expectedOf(map);");
+  });
+
+  it("does not emit out-of-scope inferred type parameters for static generic calls", () => {
+    const csharp = compileToCSharp(`
+      import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+      import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
+      import { int } from "@tsonic/core/types.js";
+
+      export function run(): void {
+        const numbers = new List<int>();
+        const doubled = Enumerable.Select(numbers, (n) => n * 2);
+        const doubledList = Enumerable.ToList(doubled);
+        doubledList.Count;
+      }
+    `);
+
+    expect(csharp).to.include("global::System.Linq.Enumerable.Select");
+    expect(csharp).to.include("global::System.Linq.Enumerable.ToList(doubled)");
+    expect(csharp).to.not.include("ToList<TResult>");
   });
 });
