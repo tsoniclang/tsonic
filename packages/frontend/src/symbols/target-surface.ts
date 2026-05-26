@@ -5,7 +5,10 @@ import type {
 } from "./symbol-ids.js";
 import type { BackendTargetId } from "../ir/types/phases.js";
 
-export type TargetSymbolOrigin = "source" | "externalSurface" | "compilerIntrinsic";
+export type TargetSymbolOrigin =
+  | "source"
+  | "externalSurface"
+  | "compilerIntrinsic";
 
 export type TargetImportResolution =
   | { readonly kind: "notTargetSurface" }

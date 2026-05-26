@@ -6,6 +6,7 @@
 import * as ts from "typescript";
 import {
   IrFunctionType,
+  IrInterfaceMember,
   IrType,
   IrExpression,
   IrParameter,
@@ -96,6 +97,37 @@ const literalTypeContainsValue = (
   return sawLiteralConstraint ? false : undefined;
 };
 
+const methodSignatureToFunctionType = (
+  member: Extract<IrInterfaceMember, { kind: "methodSignature" }>
+): IrFunctionType => ({
+  kind: "functionType",
+  typeParameters: member.typeParameters,
+  parameters: member.parameters,
+  returnType: member.returnType ?? { kind: "voidType" },
+});
+
+const collectMethodExpectedType = (
+  members: readonly IrInterfaceMember[],
+  propName: string
+): IrType | undefined => {
+  const methods = members.filter(
+    (
+      member
+    ): member is Extract<IrInterfaceMember, { kind: "methodSignature" }> =>
+      member.kind === "methodSignature" && member.name === propName
+  );
+
+  if (methods.length === 0) {
+    return undefined;
+  }
+
+  const functionTypes = methods.map(methodSignatureToFunctionType);
+  const [single] = functionTypes;
+  return functionTypes.length === 1 && single
+    ? single
+    : { kind: "intersectionType", types: functionTypes };
+};
+
 /**
  * Get the expected type for an object property from the parent expected type.
  *
@@ -110,11 +142,13 @@ export const getPropertyExpectedType = (
   if (!expectedType) return undefined;
 
   if (expectedType.kind === "objectType") {
-    // Direct member lookup - only check property signatures (not methods)
     const member = expectedType.members.find(
       (m) => m.kind === "propertySignature" && m.name === propName
     );
-    return member?.kind === "propertySignature" ? member.type : undefined;
+    if (member?.kind === "propertySignature") {
+      return member.type;
+    }
+    return collectMethodExpectedType(expectedType.members, propName);
   }
 
   if (expectedType.kind === "referenceType") {

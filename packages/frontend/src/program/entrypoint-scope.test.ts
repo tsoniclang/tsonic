@@ -40,10 +40,7 @@ describe("Program Creation – entrypoint input scope", function () {
       );
       fs.writeFileSync(testEntryFile, 'import "./smoke.test.ts";\n');
       fs.writeFileSync(smokeFile, "export const smoke = 1 + 1;\n");
-      fs.writeFileSync(
-        packageExportFile,
-        "export const productionOnly = ;\n"
-      );
+      fs.writeFileSync(packageExportFile, "export const productionOnly = ;\n");
 
       const result = createProgram([testEntryFile], {
         projectRoot,
@@ -97,10 +94,7 @@ describe("Program Creation – entrypoint input scope", function () {
         )
       );
       fs.writeFileSync(testEntryFile, "export const smoke = true;\n");
-      fs.writeFileSync(
-        packageExportFile,
-        "export const productionOnly = ;\n"
-      );
+      fs.writeFileSync(packageExportFile, "export const productionOnly = ;\n");
 
       const result = createProgram([testEntryFile], {
         projectRoot,
@@ -113,9 +107,10 @@ describe("Program Creation – entrypoint input scope", function () {
       if (result.ok) return;
 
       expect(
-        result.error.diagnostics.some((diagnostic) =>
-          path.resolve(diagnostic.location?.file ?? "") ===
-          path.resolve(packageExportFile)
+        result.error.diagnostics.some(
+          (diagnostic) =>
+            path.resolve(diagnostic.location?.file ?? "") ===
+            path.resolve(packageExportFile)
         )
       ).to.equal(true);
     } finally {

@@ -329,7 +329,9 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     expect(anonModule).to.not.equal(undefined);
     expect(adHocType?.kind).to.equal("referenceType");
     expect(
-      adHocType && adHocType.kind === "referenceType" ? adHocType.name : undefined
+      adHocType && adHocType.kind === "referenceType"
+        ? adHocType.name
+        : undefined
     ).to.match(/^__Anon_/);
     expect(
       adHocInitializer &&

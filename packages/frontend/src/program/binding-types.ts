@@ -439,7 +439,10 @@ export const validateBindingFile = (
     ) {
       return `${filePath}: 'targetSurface' must be an object`;
     }
-    const targetSurfaceRecord = manifest.targetSurface as Record<string, unknown>;
+    const targetSurfaceRecord = manifest.targetSurface as Record<
+      string,
+      unknown
+    >;
     if (!Array.isArray(targetSurfaceRecord.types)) {
       return `${filePath}: 'targetSurface.types' must be an array`;
     }

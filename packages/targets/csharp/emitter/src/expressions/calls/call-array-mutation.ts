@@ -544,7 +544,9 @@ export const emitArrayMutationInteropCall = (
         kind: "invocationExpression",
         expression: {
           kind: "memberAccessExpression",
-          expression: identifierExpression("global::Tsonic.Internal.ArrayInterop"),
+          expression: identifierExpression(
+            "global::Tsonic.Internal.ArrayInterop"
+          ),
           memberName: "Push",
         },
         arguments: [

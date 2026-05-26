@@ -475,7 +475,8 @@ describe("Array Emission", () => {
                               elementType: {
                                 kind: "referenceType",
                                 name: "PerformanceObserver",
-                                providerQualifiedName: "Test.PerformanceObserver",
+                                providerQualifiedName:
+                                  "Test.PerformanceObserver",
                               },
                               origin: "explicit",
                             },
@@ -516,7 +517,8 @@ describe("Array Emission", () => {
                                   elementType: {
                                     kind: "referenceType",
                                     name: "PerformanceObserver",
-                                    providerQualifiedName: "Test.PerformanceObserver",
+                                    providerQualifiedName:
+                                      "Test.PerformanceObserver",
                                   },
                                   origin: "explicit",
                                 },

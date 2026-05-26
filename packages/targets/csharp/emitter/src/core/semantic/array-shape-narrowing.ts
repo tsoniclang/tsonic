@@ -1,7 +1,4 @@
-import {
-  type IrType,
-  normalizedUnionType,
-} from "@tsonic/frontend";
+import { type IrType, normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type {
   CSharpExpressionAst,
@@ -18,10 +15,7 @@ import {
   getRuntimeUnionAliasReferenceKey,
   runtimeUnionAliasReferencesMatch,
 } from "./runtime-union-alias-identity.js";
-import {
-  resolveTypeAlias,
-  stripNullish,
-} from "./type-resolution.js";
+import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 
 export type EmitTypeAstFn = (
   type: IrType,

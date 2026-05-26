@@ -176,7 +176,9 @@ describe("loadExternalCatalog", () => {
   });
 
   it("skips unreadable directories while scanning external bindings", () => {
-    const fixture = materializeFrontendFixture("ir/external-catalog/unreadable-dir");
+    const fixture = materializeFrontendFixture(
+      "ir/external-catalog/unreadable-dir"
+    );
     const unreadableDir = fixture.path("node_modules/@tsonic/dotnet/secret");
 
     try {

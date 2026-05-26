@@ -22,14 +22,20 @@ const isPublicInstanceClassMember = (member: ts.ClassElement): boolean => {
   ) {
     return false;
   }
-  return !("name" in member && member.name && ts.isPrivateIdentifier(member.name));
+  return !(
+    "name" in member &&
+    member.name &&
+    ts.isPrivateIdentifier(member.name)
+  );
 };
 
 const isSyntheticStructuralName = (name: string): boolean =>
   name.startsWith("__tsonic_type_") ||
   name.startsWith("__tsonic_binding_alias_");
 
-const collectMembersFromIrType = (type: IrType): readonly IrInterfaceMember[] => {
+const collectMembersFromIrType = (
+  type: IrType
+): readonly IrInterfaceMember[] => {
   if (type.kind === "referenceType") return type.structuralMembers ?? [];
   if (type.kind === "objectType") return type.members;
   if (type.kind === "intersectionType") {
@@ -75,7 +81,8 @@ const mergeMembers = (
   ownMembers: readonly IrInterfaceMember[]
 ): readonly IrInterfaceMember[] => {
   const byKey = new Map<string, IrInterfaceMember>();
-  for (const member of inheritedMembers) byKey.set(memberMergeKey(member), member);
+  for (const member of inheritedMembers)
+    byKey.set(memberMergeKey(member), member);
   for (const member of ownMembers) byKey.set(memberMergeKey(member), member);
   return [...byKey.values()];
 };
@@ -125,13 +132,19 @@ export const extractNominalStructuralMembers = (
         name,
         type: state.convertTypeNodeRaw(member.type),
         isOptional: !!member.questionToken,
-        isReadonly: hasModifier(getModifiers(member), ts.SyntaxKind.ReadonlyKeyword),
+        isReadonly: hasModifier(
+          getModifiers(member),
+          ts.SyntaxKind.ReadonlyKeyword
+        ),
       });
       continue;
     }
 
     if (ts.isMethodSignature(member) || ts.isMethodDeclaration(member)) {
-      if (ts.isMethodDeclaration(member) && isOverloadStubImplementation(member)) {
+      if (
+        ts.isMethodDeclaration(member) &&
+        isOverloadStubImplementation(member)
+      ) {
         continue;
       }
       const name = tryResolveDeterministicPropertyName(member.name);

@@ -928,7 +928,11 @@ describe("runtime-unions", () => {
 
     pathSpec.types.push(
       { kind: "primitiveType", name: "string" },
-      { kind: "referenceType", name: "RegExp", providerQualifiedName: "Test.RegExp" },
+      {
+        kind: "referenceType",
+        name: "RegExp",
+        providerQualifiedName: "Test.RegExp",
+      },
       {
         kind: "arrayType",
         elementType: pathSpec,

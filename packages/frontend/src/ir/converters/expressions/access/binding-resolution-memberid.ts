@@ -243,7 +243,9 @@ export const resolveHierarchicalBindingFromMemberId = (
     }
 
     const raw = readBindingsJsonPayload(bindingsPath);
-    return raw ? resolveExpectedTargetTypeFromBindings(raw, typeAlias) : undefined;
+    return raw
+      ? resolveExpectedTargetTypeFromBindings(raw, typeAlias)
+      : undefined;
   })();
   const staticOverloads = (() => {
     if (!ts.isIdentifier(node.expression)) return undefined;
@@ -346,7 +348,11 @@ export const resolveHierarchicalBindingFromMemberId = (
       );
       if (simpleBinding?.staticType) {
         const staticCandidates = [
-          ...getAliasesForExactTargetType(ctx, simpleBinding.staticType, "static"),
+          ...getAliasesForExactTargetType(
+            ctx,
+            simpleBinding.staticType,
+            "static"
+          ),
           simpleBinding.staticType,
           tsbindgenTargetTypeNameToTsTypeName(simpleBinding.staticType),
         ].filter(

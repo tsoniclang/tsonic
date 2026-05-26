@@ -135,7 +135,8 @@ describe("Reference Type Emission", () => {
                 type: {
                   kind: "referenceType",
                   name: "global::System.Collections.Generic.List",
-                  providerQualifiedName: "global::System.Collections.Generic.List",
+                  providerQualifiedName:
+                    "global::System.Collections.Generic.List",
                   typeArguments: [
                     { kind: "referenceType", name: "MetricsRow" },
                   ],

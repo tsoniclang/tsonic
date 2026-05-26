@@ -4,7 +4,6 @@ import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 import {
   collectExpectedReturnCandidates,
   expandParameterTypesForInference,
-  mapEntriesEqual,
 } from "./call-resolution-utilities.js";
 import { choosePreferredEquivalentInferenceType } from "./inference-type-preference.js";
 import {
@@ -59,7 +58,28 @@ export const resolveMethodTypeSubstitution = (
       state,
       query.expectedReturnType
     );
-    let matched: Map<string, IrType> | undefined;
+    const mergeInferenceMap = (
+      base: ReadonlyMap<string, IrType>,
+      next: ReadonlyMap<string, IrType>
+    ): Map<string, IrType> | undefined => {
+      const merged = new Map(base);
+      for (const [name, inferredType] of next) {
+        const existing = merged.get(name);
+        if (!existing) {
+          merged.set(name, inferredType);
+          continue;
+        }
+
+        const mergedType = mergeSubstitutionType(existing, inferredType);
+        if (!mergedType) {
+          return undefined;
+        }
+        merged.set(name, mergedType);
+      }
+      return merged;
+    };
+
+    const groups: Map<string, IrType>[] = [];
 
     for (const candidate of expectedCandidates) {
       const inferred = inferMethodTypeArgsFromArguments(
@@ -80,14 +100,26 @@ export const resolveMethodTypeSubstitution = (
       }
       if (conflictsWithExisting) continue;
 
-      if (matched && !mapEntriesEqual(matched, inferred)) {
-        matched = undefined;
+      let mergedIntoGroup = false;
+      for (let index = 0; index < groups.length; index += 1) {
+        const group = groups[index];
+        if (!group) continue;
+        const merged = mergeInferenceMap(group, inferred);
+        if (!merged) continue;
+        groups[index] = merged;
+        mergedIntoGroup = true;
         break;
       }
-      matched = inferred;
+
+      if (!mergedIntoGroup) {
+        groups.push(new Map(inferred));
+      }
     }
 
-    return matched;
+    if (groups.length !== 1) {
+      return undefined;
+    }
+    return groups[0];
   };
   const mergeSubstitution = (
     inferred: ReadonlyMap<string, IrType>,
@@ -206,20 +238,14 @@ export const resolveMethodTypeSubstitution = (
     }
 
     for (const [name, inferredType] of inferred) {
-      const mergeError = mergeSubstitution(
-        new Map([[name, inferredType]]),
-        ""
-      );
+      const mergeError = mergeSubstitution(new Map([[name, inferredType]]), "");
       if (mergeError) return mergeError;
     }
   }
 
   const matched = selectExpectedReturnSubstitution();
   if (matched) {
-    const mergeError = mergeSubstitution(
-      matched,
-      " (expected return context)"
-    );
+    const mergeError = mergeSubstitution(matched, " (expected return context)");
     if (mergeError) return mergeError;
   }
 

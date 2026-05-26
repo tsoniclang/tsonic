@@ -29,7 +29,9 @@ export const resolveExactGlobalBindingFqn = (
   }
 
   const targetType =
-    mode === "static" ? (descriptor.staticType ?? descriptor.type) : descriptor.type;
+    mode === "static"
+      ? (descriptor.staticType ?? descriptor.type)
+      : descriptor.type;
   return normalizeClrQualifiedName(targetType, true);
 };
 

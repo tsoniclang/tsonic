@@ -294,7 +294,8 @@ export const resolveStaticFieldType = (
 
   // numericNarrowing
   if (init?.kind === "numericNarrowing" && init.targetKind) {
-    const csharpType = NUMERIC_KIND_TO_TYPE_ALIAS.get(init.targetKind) ?? "double";
+    const csharpType =
+      NUMERIC_KIND_TO_TYPE_ALIAS.get(init.targetKind) ?? "double";
     return [identifierType(csharpType), context];
   }
 

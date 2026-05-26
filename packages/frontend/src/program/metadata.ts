@@ -103,7 +103,9 @@ const toExternalBindingsFile = (
       interfaces: (type.interfaces ?? [])
         .map((candidate) => {
           const interfaceTargetName = asString(candidate.targetName);
-          return interfaceTargetName ? { targetName: interfaceTargetName } : undefined;
+          return interfaceTargetName
+            ? { targetName: interfaceTargetName }
+            : undefined;
         })
         .filter(
           (candidate): candidate is { readonly targetName: string } =>

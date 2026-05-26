@@ -263,7 +263,8 @@ describe("Union Type Emission", () => {
                   {
                     kind: "referenceType",
                     name: "RegExp",
-                    providerQualifiedName: "System.Text.RegularExpressions.Regex",
+                    providerQualifiedName:
+                      "System.Text.RegularExpressions.Regex",
                   },
                 ],
               },

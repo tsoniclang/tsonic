@@ -96,7 +96,7 @@ const buildFixtureGraph = (fixtureName: string) => {
     projectRoot,
     sourceRoot: fixture.path("app/src"),
     rootNamespace: "TestApp",
-        backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
+    backendCapabilities: ALL_SUPPORTED_TEST_BACKEND_CAPABILITIES,
     surface: "@tsonic/js",
   });
   return { fixture, result };

@@ -521,7 +521,10 @@ export const inferMethodTypeArgsFromArguments = (
       }
 
       return buildMemberSurface(
-        state.unifiedCatalog.getMember(lookupResult.declaringTypeId, memberName),
+        state.unifiedCatalog.getMember(
+          lookupResult.declaringTypeId,
+          memberName
+        ),
         lookupResult.substitution
       );
     };
@@ -931,11 +934,7 @@ export const inferMethodTypeArgsFromArguments = (
       const awaitedArgument = unwrapAsyncWrapperType(argumentType);
       const awaitedParameter = unwrapAsyncWrapperType(parameterType);
       if (awaitedArgument && awaitedParameter) {
-        return tryUnify(
-          awaitedParameter,
-          awaitedArgument,
-          currentSubstitution
-        );
+        return tryUnify(awaitedParameter, awaitedArgument, currentSubstitution);
       }
     }
 
@@ -1095,6 +1094,33 @@ export const inferMethodTypeArgsFromArguments = (
       return elementArg
         ? tryUnify(parameterType.elementType, elementArg, currentSubstitution)
         : true;
+    }
+
+    if (
+      parameterType.kind === "referenceType" &&
+      argumentType.kind === "referenceType"
+    ) {
+      const parameterIdentity = referenceTypeIdentity(parameterType);
+      const argumentIdentity = referenceTypeIdentity(argumentType);
+      if (
+        parameterIdentity !== undefined &&
+        argumentIdentity !== undefined &&
+        parameterIdentity === argumentIdentity
+      ) {
+        const paramArgs = parameterType.typeArguments ?? [];
+        const argArgs = argumentType.typeArguments ?? [];
+        if (paramArgs.length !== argArgs.length) return true;
+
+        for (let index = 0; index < paramArgs.length; index += 1) {
+          const parameterArg = paramArgs[index];
+          const argumentArg = argArgs[index];
+          if (!parameterArg || !argumentArg) continue;
+          if (!tryUnify(parameterArg, argumentArg, currentSubstitution)) {
+            return false;
+          }
+        }
+        return true;
+      }
     }
 
     const parameterIterable = getIterableShape(state, parameterType);

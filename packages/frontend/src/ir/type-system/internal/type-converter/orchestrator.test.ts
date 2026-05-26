@@ -366,7 +366,10 @@ describe("Type Converter - TypeQuery from awaited locals", () => {
 
 describe("Type Converter - Deterministic Type Operators", () => {
   it("preserves signed numeric literal union members", () => {
-    const converted = convertAlias("type Comparison = -1 | 0 | 1;", "Comparison");
+    const converted = convertAlias(
+      "type Comparison = -1 | 0 | 1;",
+      "Comparison"
+    );
 
     expect(converted).to.deep.equal(
       makeUnion(

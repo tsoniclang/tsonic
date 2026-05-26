@@ -261,7 +261,9 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
             },
-            arguments: [{ kind: "literal", value: "Hello with providerMemberName" }],
+            arguments: [
+              { kind: "literal", value: "Hello with providerMemberName" },
+            ],
             isOptional: false,
           },
         },
@@ -420,7 +422,9 @@ describe("Expression Emission", () => {
     expect(result).to.include(
       "__tsonic_index == global::System.Math.Truncate(__tsonic_index)"
     );
-    expect(result).to.include("__tsonic_string[(int)__tsonic_index].ToString()");
+    expect(result).to.include(
+      "__tsonic_string[(int)__tsonic_index].ToString()"
+    );
     expect(result).to.not.include("string text = source[0].ToString();");
   });
 
@@ -766,7 +770,11 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("public static readonly char sep");
-    expect(result).to.include("return global::MyApp.PathModule.sep.ToString();");
-    expect(result).not.to.include("return (string)global::MyApp.PathModule.sep;");
+    expect(result).to.include(
+      "return global::MyApp.PathModule.sep.ToString();"
+    );
+    expect(result).not.to.include(
+      "return (string)global::MyApp.PathModule.sep;"
+    );
   });
 });

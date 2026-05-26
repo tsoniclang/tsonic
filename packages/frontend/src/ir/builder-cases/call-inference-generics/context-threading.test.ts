@@ -228,7 +228,9 @@ describe("IR Builder", function () {
       if (!inferredType || inferredType.kind !== "referenceType") {
         return;
       }
-      expect(inferredType.providerQualifiedName).to.equal("TestApp.Transformer");
+      expect(inferredType.providerQualifiedName).to.equal(
+        "TestApp.Transformer"
+      );
       expect(inferredType.typeId).to.deep.equal({
         stableId: "TestApp:TestApp.Transformer",
         providerName: "TestApp.Transformer",

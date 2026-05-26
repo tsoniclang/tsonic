@@ -74,7 +74,9 @@ describe("IR Builder", function () {
 
       // Stub external resolution for this unit test (no filesystem / node resolution).
       (
-        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+        ctx as unknown as {
+          externalResolver: { resolve: (s: string) => unknown };
+        }
       ).externalResolver = {
         resolve: (s: string) =>
           s === "@demo/pkg/Demo.js"
@@ -135,7 +137,9 @@ describe("IR Builder", function () {
       const { testProgram, ctx, options } = createTestProgram(source);
 
       (
-        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+        ctx as unknown as {
+          externalResolver: { resolve: (s: string) => unknown };
+        }
       ).externalResolver = {
         resolve: (s: string) =>
           s === "@demo/async/Async.Tasks.js"
@@ -202,7 +206,9 @@ describe("IR Builder", function () {
       const publicBindingsPath = fixture.path("Public/bindings.json");
 
       (
-        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+        ctx as unknown as {
+          externalResolver: { resolve: (s: string) => unknown };
+        }
       ).externalResolver = {
         resolve: (s: string) =>
           s === "@demo/surface/Public.js"
@@ -363,7 +369,9 @@ describe("IR Builder", function () {
         expect(consoleImport.localName).to.equal("DotnetConsole");
         expect(consoleImport.providerQualifiedName).to.equal("System.Console");
         expect(consoleImport.providerValue).to.equal(undefined);
-        expect(dateImport.providerQualifiedName).to.equal("System.DateTimeOffset");
+        expect(dateImport.providerQualifiedName).to.equal(
+          "System.DateTimeOffset"
+        );
       } finally {
         fixture.cleanup();
       }
@@ -379,7 +387,9 @@ describe("IR Builder", function () {
 
       // Stub external resolution for this unit test (no filesystem / node resolution).
       (
-        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+        ctx as unknown as {
+          externalResolver: { resolve: (s: string) => unknown };
+        }
       ).externalResolver = {
         resolve: (s: string) =>
           s === "@demo/pkg/Demo.js"
@@ -423,7 +433,9 @@ describe("IR Builder", function () {
       (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
       (
-        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+        ctx as unknown as {
+          externalResolver: { resolve: (s: string) => unknown };
+        }
       ).externalResolver = {
         resolve: () => ({ kind: "notExternalSurface" }),
       };
@@ -487,7 +499,9 @@ describe("IR Builder", function () {
       (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
       (
-        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+        ctx as unknown as {
+          externalResolver: { resolve: (s: string) => unknown };
+        }
       ).externalResolver = {
         resolve: () => ({ kind: "notExternalSurface" }),
       };
@@ -551,7 +565,9 @@ describe("IR Builder", function () {
       (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
       (
-        ctx as unknown as { externalResolver: { resolve: (s: string) => unknown } }
+        ctx as unknown as {
+          externalResolver: { resolve: (s: string) => unknown };
+        }
       ).externalResolver = {
         resolve: () => ({ kind: "notExternalSurface" }),
       };
@@ -733,7 +749,9 @@ describe("IR Builder", function () {
           "nodejs.Http.IncomingMessage"
         );
         expect(response.isType).to.equal(true);
-        expect(response.providerQualifiedName).to.equal("nodejs.Http.ServerResponse");
+        expect(response.providerQualifiedName).to.equal(
+          "nodejs.Http.ServerResponse"
+        );
       } finally {
         fixture.cleanup();
       }

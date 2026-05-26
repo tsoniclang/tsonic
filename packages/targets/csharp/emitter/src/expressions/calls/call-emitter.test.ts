@@ -334,7 +334,8 @@ describe("call-emitter", () => {
           inferredType: {
             kind: "referenceType" as const,
             name: "Architecture" as const,
-            providerQualifiedName: "System.Runtime.InteropServices.Architecture",
+            providerQualifiedName:
+              "System.Runtime.InteropServices.Architecture",
           },
         },
         property: "toString",

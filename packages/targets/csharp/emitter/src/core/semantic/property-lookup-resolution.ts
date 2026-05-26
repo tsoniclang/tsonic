@@ -115,7 +115,8 @@ export const resolveLocalTypeInfoWithoutBindings = (
   }
 
   const rawFqn =
-    ref.providerQualifiedName ?? (ref.name.includes(".") ? ref.name : undefined);
+    ref.providerQualifiedName ??
+    (ref.name.includes(".") ? ref.name : undefined);
   const fqn = rawFqn?.startsWith("global::")
     ? rawFqn.slice("global::".length)
     : rawFqn;

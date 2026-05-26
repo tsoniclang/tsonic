@@ -171,7 +171,8 @@ export const discoverAndLoadExternalBindings = (
   }
 
   if (pending.length === 0) {
-    if (verbose) console.log(`[External Bindings] No external bindings discovered`);
+    if (verbose)
+      console.log(`[External Bindings] No external bindings discovered`);
     return;
   }
 

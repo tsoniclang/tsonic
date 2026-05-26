@@ -702,7 +702,10 @@ export const emitTypeAssertion = (
     transparentSourceExpression.kind === "memberAccess" &&
     typeof transparentSourceExpression.property === "string"
       ? resolveRuntimeStoragePropertyType(
-          resolveEffectiveExpressionType(transparentSourceExpression.object, context),
+          resolveEffectiveExpressionType(
+            transparentSourceExpression.object,
+            context
+          ),
           transparentSourceExpression.property,
           transparentSourceExpression.inferredType,
           context
@@ -846,7 +849,9 @@ export const emitTypeAssertion = (
       return false;
     }
     if (nonNullishSource.kind === "typeParameterType") {
-      if (context.typeParamConstraints?.get(nonNullishSource.name) !== "class") {
+      if (
+        context.typeParamConstraints?.get(nonNullishSource.name) !== "class"
+      ) {
         return false;
       }
     }
@@ -857,7 +862,9 @@ export const emitTypeAssertion = (
       context
     );
   })();
-  const sourceHasStructuredStorage = (sourceType: IrType | undefined): boolean => {
+  const sourceHasStructuredStorage = (
+    sourceType: IrType | undefined
+  ): boolean => {
     if (!sourceType) {
       return false;
     }
@@ -1184,7 +1191,11 @@ export const emitTypeAssertion = (
       !explicitAssertionNeedsStorageCast &&
       !explicitAssertionNeedsRuntimeCast
     ) {
-      return emitExpressionAst(expr.expression, context, passthroughExpectedType);
+      return emitExpressionAst(
+        expr.expression,
+        context,
+        passthroughExpectedType
+      );
     }
   }
 
@@ -1246,8 +1257,7 @@ export const emitTypeAssertion = (
   );
   const isStructuredJsonParseAssertion =
     expr.expression.kind === "call" &&
-    isGlobalJsonCall(expr.expression.callee, context)?.method ===
-      "Deserialize";
+    isGlobalJsonCall(expr.expression.callee, context)?.method === "Deserialize";
   const assertionTargetRequiresOuterReification =
     !isStructuredJsonParseAssertion &&
     (willCarryAsRuntimeUnion(runtimeEmissionTarget, context) ||
@@ -1337,8 +1347,8 @@ export const emitTypeAssertion = (
         ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
         : resolveEffectiveExpressionType(
             transparentSourceExpression,
-          sourceLayoutContext
-        );
+            sourceLayoutContext
+          );
   const authoredStructuredAssertionWithoutStructuredSource =
     targetNeedsStructuredReification &&
     !sourceCarriesRuntimeUnionAtEntry &&
@@ -1577,7 +1587,8 @@ export const emitTypeAssertion = (
 
   if (
     actualExpressionType &&
-    (runtimeTargetUnionLayout || willCarryAsRuntimeUnion(runtimeTarget, sourceLayoutContext))
+    (runtimeTargetUnionLayout ||
+      willCarryAsRuntimeUnion(runtimeTarget, sourceLayoutContext))
   ) {
     const materializedRuntimeUnionSource = tryBuildRuntimeMaterializationAst(
       castSourceAst,

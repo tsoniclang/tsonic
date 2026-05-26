@@ -349,11 +349,7 @@ export const normalizeToNominal = (
   }
 
   if (type.kind === "dictionaryType") {
-    const dictionaryTypeId = resolveTypeIdByName(
-      state,
-      "Dictionary_2",
-      2
-    );
+    const dictionaryTypeId = resolveTypeIdByName(state, "Dictionary_2", 2);
     if (!dictionaryTypeId) return undefined;
     return {
       typeId: dictionaryTypeId,

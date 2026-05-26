@@ -54,7 +54,8 @@ export const emitFunctionType = (
 
   for (const param of type.parameters) {
     const paramType = param.type ?? { kind: "anyType" as const };
-    const unwrappedParamType = unwrapParameterModifierType(paramType) ?? paramType;
+    const unwrappedParamType =
+      unwrapParameterModifierType(paramType) ?? paramType;
     const [typeAst, newContext] = emitTypeAst(
       unwrappedParamType,
       currentContext

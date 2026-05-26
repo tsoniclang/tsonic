@@ -381,7 +381,11 @@ const normalizeOutOfScopeTypeParameters = (
       });
       const normalizedReturnType =
         normalizeDelegateReturnStorageType(resolved.returnType, context) ??
-        normalizeOutOfScopeTypeParameters(resolved.returnType, context, visited);
+        normalizeOutOfScopeTypeParameters(
+          resolved.returnType,
+          context,
+          visited
+        );
       return normalizedParameters.every((parameter, index) =>
         typesEquivalent(
           parameter.type ?? { kind: "voidType" },

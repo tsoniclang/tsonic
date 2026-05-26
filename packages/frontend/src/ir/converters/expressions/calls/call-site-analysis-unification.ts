@@ -49,10 +49,10 @@ const tryMergeTemplateSubstitution = (
     : undefined;
   if (mergedBase && (existingOptional || actualOptional)) {
     return normalizedUnionType([
-        mergedBase,
-        ...(existingOptional?.nullishMembers ?? []),
-        ...(actualOptional?.nullishMembers ?? []),
-      ]);
+      mergedBase,
+      ...(existingOptional?.nullishMembers ?? []),
+      ...(actualOptional?.nullishMembers ?? []),
+    ]);
   }
 
   return undefined;
@@ -93,9 +93,7 @@ const splitDeterministicNullishUnion = (
   }
 
   const nonNullishMember = nonNullishMembers[0];
-  return nonNullishMember
-    ? { nonNullishMember, nullishMembers }
-    : undefined;
+  return nonNullishMember ? { nonNullishMember, nullishMembers } : undefined;
 };
 
 export const unifyTypeTemplate = (

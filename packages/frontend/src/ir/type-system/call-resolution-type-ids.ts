@@ -297,10 +297,10 @@ const attachTypeIdsImpl = (
       const attached = {
         ...type,
         ...(typeId ? { typeId } : {}),
-        ...(type.asyncWrapper ?? catalogEntry?.asyncWrapper
+        ...((type.asyncWrapper ?? catalogEntry?.asyncWrapper)
           ? { asyncWrapper: type.asyncWrapper ?? catalogEntry?.asyncWrapper }
           : {}),
-        ...(type.iterableShape ?? catalogEntry?.iterableShape
+        ...((type.iterableShape ?? catalogEntry?.iterableShape)
           ? { iterableShape: type.iterableShape ?? catalogEntry?.iterableShape }
           : {}),
       };

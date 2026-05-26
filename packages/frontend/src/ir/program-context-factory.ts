@@ -179,7 +179,11 @@ export const createProgramContext = (
     );
     if (
       pkgRoot &&
-      packageHasExternalMetadata(pkgRoot, packageInfoCache, packageHasMetadataCache)
+      packageHasExternalMetadata(
+        pkgRoot,
+        packageInfoCache,
+        packageHasMetadataCache
+      )
     ) {
       extraPackageRoots.push(pkgRoot);
     }

@@ -633,7 +633,10 @@ describe("Expression Emission", () => {
         property: {
           kind: "identifier" as const,
           name: "index",
-          inferredType: { kind: "primitiveType" as const, name: "int" as const },
+          inferredType: {
+            kind: "primitiveType" as const,
+            name: "int" as const,
+          },
         },
         isComputed: true,
         isOptional: false,

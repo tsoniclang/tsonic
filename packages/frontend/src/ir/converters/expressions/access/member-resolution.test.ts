@@ -20,9 +20,14 @@ const contextWithIndexerKey = (keyType: IrType): ProgramContext =>
 describe("member-resolution computed access", () => {
   it("classifies provider positional indexers from source primitive metadata", () => {
     const receiver: IrType = { kind: "referenceType", name: "ProviderList_1" };
-    const context = contextWithIndexerKey({ kind: "primitiveType", name: "int" });
+    const context = contextWithIndexerKey({
+      kind: "primitiveType",
+      name: "int",
+    });
 
-    expect(classifyComputedAccess(receiver, context)).to.equal("numericIndexer");
+    expect(classifyComputedAccess(receiver, context)).to.equal(
+      "numericIndexer"
+    );
   });
 
   it("classifies provider string indexers as dictionaries from source primitive metadata", () => {

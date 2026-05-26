@@ -563,19 +563,21 @@ export const resolveDirectStorageExpressionType = (
           ];
         })()
       : [];
-  const runtimeProjectedType =
-    [...identifierProjectionBaseTypes, expr.inferredType]
-      .flatMap((candidateType) => [
-        tryResolveRuntimeUnionMemberType(candidateType, ast, context),
-        tryResolveRuntimeUnionMemberType(candidateType, directAst, context),
-        tryResolveRuntimeUnionMemberType(candidateType, ast, context, {
-          verifyReceiver: false,
-        }),
-        tryResolveRuntimeUnionMemberType(candidateType, directAst, context, {
-          verifyReceiver: false,
-        }),
-      ])
-      .find((candidateType): candidateType is IrType => !!candidateType);
+  const runtimeProjectedType = [
+    ...identifierProjectionBaseTypes,
+    expr.inferredType,
+  ]
+    .flatMap((candidateType) => [
+      tryResolveRuntimeUnionMemberType(candidateType, ast, context),
+      tryResolveRuntimeUnionMemberType(candidateType, directAst, context),
+      tryResolveRuntimeUnionMemberType(candidateType, ast, context, {
+        verifyReceiver: false,
+      }),
+      tryResolveRuntimeUnionMemberType(candidateType, directAst, context, {
+        verifyReceiver: false,
+      }),
+    ])
+    .find((candidateType): candidateType is IrType => !!candidateType);
   if (runtimeProjectedType) {
     return runtimeProjectedType;
   }

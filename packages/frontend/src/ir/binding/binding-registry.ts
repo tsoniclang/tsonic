@@ -569,9 +569,7 @@ const isClassValueMemberDeclaration = (
   ts.isGetAccessorDeclaration(decl) ||
   ts.isSetAccessorDeclaration(decl);
 
-const hasClassStaticInstanceNameConflict = (
-  decl: ts.Declaration
-): boolean => {
+const hasClassStaticInstanceNameConflict = (decl: ts.Declaration): boolean => {
   if (!isClassValueMemberDeclaration(decl)) {
     return false;
   }

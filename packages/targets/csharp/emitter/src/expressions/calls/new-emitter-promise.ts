@@ -187,8 +187,11 @@ export const emitPromiseConstructor = (
     : voidPromiseValue
       ? [identifierType("global::System.Threading.Tasks.Task"), currentContext]
       : expr.inferredType
-      ? emitTypeAst(expr.inferredType, currentContext)
-      : [identifierType("global::System.Threading.Tasks.Task"), currentContext];
+        ? emitTypeAst(expr.inferredType, currentContext)
+        : [
+            identifierType("global::System.Threading.Tasks.Task"),
+            currentContext,
+          ];
   currentContext = taskTypeContext;
   const taskTypeAst: CSharpTypeAst =
     taskTypeAstRaw.kind === "identifierType" && taskTypeAstRaw.name.length === 0

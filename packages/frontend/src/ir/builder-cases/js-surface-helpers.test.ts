@@ -1785,7 +1785,9 @@ describe("IR Builder", function () {
         expect(parseIntCall.callee.providerQualifiedName).to.equal(
           "fixture.js.Globals.parseInt"
         );
-        expect(parseIntCall.callee.providerOwnerIdentity).to.equal("fixture.js");
+        expect(parseIntCall.callee.providerOwnerIdentity).to.equal(
+          "fixture.js"
+        );
 
         const logStmt = fn.body.statements[1];
         expect(logStmt?.kind).to.equal("expressionStatement");
@@ -2009,7 +2011,9 @@ describe("IR Builder", function () {
         expect(callExpr.callee.providerQualifiedName).to.equal(
           "fixture.nodejs.TimersModule.setInterval"
         );
-        expect(callExpr.callee.providerOwnerIdentity).to.equal("fixture.nodejs");
+        expect(callExpr.callee.providerOwnerIdentity).to.equal(
+          "fixture.nodejs"
+        );
 
         expect(callExpr.parameterTypes?.[0]).to.deep.equal({
           kind: "functionType",
@@ -2552,7 +2556,9 @@ describe("IR Builder", function () {
         if (regexCtor.callee.kind !== "identifier") return;
 
         expect(regexCtor.callee.name).to.equal("RegExp");
-        expect(regexCtor.callee.providerQualifiedName).to.equal("fixture.js.RegExp");
+        expect(regexCtor.callee.providerQualifiedName).to.equal(
+          "fixture.js.RegExp"
+        );
         expect(regexCtor.arguments).to.deep.equal([
           {
             kind: "literal",

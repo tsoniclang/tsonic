@@ -84,12 +84,14 @@ const emitProjectedRuntimeUnionPropertyRead = (
   usage: MemberAccessUsage,
   isOptional: boolean
 ): CSharpExpressionAst => ({
-  kind: isOptional ? "conditionalMemberAccessExpression" : "memberAccessExpression",
+  kind: isOptional
+    ? "conditionalMemberAccessExpression"
+    : "memberAccessExpression",
   expression: projectedArmAst,
   memberName: isNativeArrayLengthProjection(memberType, prop, context)
     ? "Length"
     : emitMemberName(receiverExpr, memberType, prop, context, usage),
-	  });
+});
 
 const tryEmitRuntimeUnionPropertyProjection = (
   receiverExpr: IrExpression,
@@ -438,7 +440,7 @@ export const emitMemberAccess = (
         bindingResult[0],
         expr,
         bindingResult[1],
-        expectedType,
+        expectedType
       );
     }
     return bindingResult;
@@ -452,9 +454,7 @@ export const emitMemberAccess = (
   if (!expr.isComputed && propertyName) {
     const surfaceObjectType =
       objectType ?? resolveDirectValueSurfaceType(objectAst, newContext);
-    if (
-      surfaceObjectType
-    ) {
+    if (surfaceObjectType) {
       const projected = tryEmitRuntimeUnionPropertyProjection(
         expr.object,
         objectAst,

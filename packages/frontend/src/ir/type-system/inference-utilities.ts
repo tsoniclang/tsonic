@@ -149,7 +149,9 @@ export const unwrapAwaitedForInference = (type: IrType): IrType => {
 
   const awaited = getAwaitedIrType(type);
   if (awaited) {
-    return awaited.kind === "voidType" ? voidType : unwrapAwaitedForInference(awaited);
+    return awaited.kind === "voidType"
+      ? voidType
+      : unwrapAwaitedForInference(awaited);
   }
 
   return type;

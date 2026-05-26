@@ -1169,11 +1169,7 @@ describe("expected-type-adaptation", () => {
         kind: "referenceType",
         name: "MkdirOptionsLike",
         providerQualifiedName: "Test.MkdirOptionsLike",
-        typeId: testTypeId(
-          "Test",
-          "Test.MkdirOptionsLike",
-          "MkdirOptionsLike"
-        ),
+        typeId: testTypeId("Test", "Test.MkdirOptionsLike", "MkdirOptionsLike"),
       },
       { kind: "primitiveType", name: "undefined" },
     ]);

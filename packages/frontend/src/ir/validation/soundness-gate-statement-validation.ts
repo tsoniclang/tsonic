@@ -198,7 +198,11 @@ export const validateStatement = (
       break;
 
     case "classDeclaration":
-      validateTypeDeclarationAttributes(`Class '${stmt.name}'`, stmt.attributes, ctx);
+      validateTypeDeclarationAttributes(
+        `Class '${stmt.name}'`,
+        stmt.attributes,
+        ctx
+      );
       validateTypeDeclarationAttributes(
         `Class constructor for '${stmt.name}'`,
         stmt.ctorAttributes,
@@ -445,7 +449,10 @@ export const extractLocalTypeNames = (
 
 export const extractLocalTypeAliases = (
   statements: readonly IrStatement[]
-): ReadonlyMap<string, Extract<IrStatement, { kind: "typeAliasDeclaration" }>> => {
+): ReadonlyMap<
+  string,
+  Extract<IrStatement, { kind: "typeAliasDeclaration" }>
+> => {
   const aliases = new Map<
     string,
     Extract<IrStatement, { kind: "typeAliasDeclaration" }>

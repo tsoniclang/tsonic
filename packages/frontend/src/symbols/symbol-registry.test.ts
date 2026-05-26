@@ -87,9 +87,9 @@ describe("target symbol registry", () => {
     expect(artifacts.surface.modules.get(moduleSymbolId)?.sourceName).to.equal(
       "System"
     );
-    expect(artifacts.renderTable.types.get(typeSymbolId)?.qualifiedName).to.equal(
-      "System.String"
-    );
+    expect(
+      artifacts.renderTable.types.get(typeSymbolId)?.qualifiedName
+    ).to.equal("System.String");
     expect(
       artifacts.renderTable.members.get(memberSymbolId)?.ownerQualifiedName
     ).to.equal("System.Console.Console");

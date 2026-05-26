@@ -37,7 +37,8 @@ export const attachConstructedReferenceMetadata = (
     ...(constructorType.structuralMembers
       ? {
           structuralMembers: constructorType.structuralMembers,
-          structuralOrigin: constructorType.structuralOrigin ?? "namedReference",
+          structuralOrigin:
+            constructorType.structuralOrigin ?? "namedReference",
         }
       : {}),
   };

@@ -16,7 +16,9 @@ export const getTargetMemberRenderInfo = (
   context: EmitterContext,
   symbolId: MemberSymbolId | undefined
 ): TargetMemberRenderInfo | undefined =>
-  symbolId ? context.options.targetRenderTable?.members.get(symbolId) : undefined;
+  symbolId
+    ? context.options.targetRenderTable?.members.get(symbolId)
+    : undefined;
 
 const CORE_TARGET_TYPE_NAMES: ReadonlyMap<string, string> = new Map([
   ["core:Error", "global::System.Exception"],

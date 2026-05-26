@@ -38,6 +38,7 @@ import {
   resolveBehavioralObjectLiteralType,
 } from "./object-literal-spreads.js";
 import { resolveRuntimeStoragePropertyType } from "../core/semantic/storage-types.js";
+import { isJsValueReferenceType } from "../core/semantic/broad-object-types.js";
 
 // Re-export from sub-module
 export { resolveBehavioralObjectLiteralType } from "./object-literal-spreads.js";
@@ -51,6 +52,77 @@ const describeObjectLiteralSource = (
   }
 
   return `${span.file}:${span.line}:${span.column}`;
+};
+
+const createJsValueDictionaryType = (
+  valueType: IrType
+): Extract<IrType, { kind: "dictionaryType" }> => ({
+  kind: "dictionaryType",
+  keyType: { kind: "primitiveType", name: "string" },
+  valueType,
+});
+
+const resolveDictionaryType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): Extract<IrType, { kind: "dictionaryType" }> | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const stripped = stripNullish(type);
+  if (stripped.kind === "dictionaryType") {
+    return stripped;
+  }
+
+  const resolved = resolveTypeAlias(stripped, context);
+  return resolved.kind === "dictionaryType" ? resolved : undefined;
+};
+
+const isJsValueLikeType = (
+  type: IrType | undefined,
+  context: EmitterContext,
+  seen = new Set<IrType>()
+): boolean => {
+  if (!type || seen.has(type)) {
+    return false;
+  }
+  seen.add(type);
+
+  const stripped = stripNullish(type);
+  if (isJsValueReferenceType(stripped)) {
+    return true;
+  }
+
+  const resolved = resolveTypeAlias(stripped, context);
+  if (resolved !== stripped && isJsValueLikeType(resolved, context, seen)) {
+    return true;
+  }
+
+  return (
+    resolved.kind === "unionType" &&
+    resolved.types.some((member) => isJsValueLikeType(member, context, seen))
+  );
+};
+
+const resolveJsValueObjectLiteralType = (
+  expr: Extract<IrExpression, { kind: "object" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): Extract<IrType, { kind: "dictionaryType" }> | undefined => {
+  if (!isJsValueLikeType(expectedType, context)) {
+    return undefined;
+  }
+
+  return (
+    resolveDictionaryType(expr.contextualType, context) ??
+    resolveDictionaryType(expr.inferredType, context) ??
+    createJsValueDictionaryType(
+      expectedType
+        ? stripNullish(expectedType)
+        : { kind: "referenceType", name: "JsValue" }
+    )
+  );
 };
 
 /**
@@ -109,6 +181,25 @@ export const emitObject = (
     expr,
     currentContext
   );
+  const jsValueObjectLiteralType = resolveJsValueObjectLiteralType(
+    expr,
+    currentContext,
+    expectedType
+  );
+
+  if (jsValueObjectLiteralType) {
+    if (
+      expr.hasSpreads ||
+      expr.properties.some((prop) => prop.kind === "spread")
+    ) {
+      return emitDictionaryLiteralWithSpreads(
+        expr,
+        currentContext,
+        jsValueObjectLiteralType
+      );
+    }
+    return emitDictionaryLiteral(expr, currentContext, jsValueObjectLiteralType);
+  }
 
   const effectiveType: IrType | undefined = (() => {
     if (!expectedType) {

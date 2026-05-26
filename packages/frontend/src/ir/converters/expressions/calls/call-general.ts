@@ -91,8 +91,7 @@ const isExpressionTreeContextType = (type: IrType | undefined): boolean => {
   if (!type || type.kind !== "referenceType") return false;
   if (type.typeArguments?.length !== 1) return false;
   return (
-    type.typeId?.sourceName === "Expression_1" ||
-    type.name === "Expression_1"
+    type.typeId?.sourceName === "Expression_1" || type.name === "Expression_1"
   );
 };
 
@@ -398,7 +397,9 @@ const collectSourceBackedReceiverOwnerAliases = (
   pushAlias(receiverType.name.split(".").pop() ?? receiverType.name);
 
   if (receiverType.providerQualifiedName) {
-    pushAlias(tsbindgenTargetTypeNameToTsTypeName(receiverType.providerQualifiedName));
+    pushAlias(
+      tsbindgenTargetTypeNameToTsTypeName(receiverType.providerQualifiedName)
+    );
     pushAlias(receiverType.providerQualifiedName);
   }
 
@@ -1042,9 +1043,11 @@ const getPropertyAccessReceiverStaticIntent = (
     return undefined;
   }
 
-  return ctx.checker
-    .getTypeAtLocation(node.expression.expression)
-    .getConstructSignatures().length > 0;
+  return (
+    ctx.checker
+      .getTypeAtLocation(node.expression.expression)
+      .getConstructSignatures().length > 0
+  );
 };
 
 const collectClassMethodDeclarationsInHierarchy = (
@@ -3338,8 +3341,7 @@ export const convertCallExpression = (
         ctx.typeSystem.containsTypeParameter(parameterType))
     );
   };
-  const hasSpeculativeOverloadContext =
-    (candidateSigIds?.length ?? 0) > 1;
+  const hasSpeculativeOverloadContext = (candidateSigIds?.length ?? 0) > 1;
   const shouldUseInitialArgumentContext = (expr: ts.Expression): boolean => {
     void expr;
     return !hasSpeculativeOverloadContext;
@@ -3782,9 +3784,12 @@ export const convertCallExpression = (
       return false;
     }
 
-    for (let parameterIndex = 0; parameterIndex < sourceParameterCount; parameterIndex += 1) {
-      const expectedParameter =
-        expectedFunctionType.parameters[parameterIndex];
+    for (
+      let parameterIndex = 0;
+      parameterIndex < sourceParameterCount;
+      parameterIndex += 1
+    ) {
+      const expectedParameter = expectedFunctionType.parameters[parameterIndex];
       if (
         expectedParameter?.type &&
         containsTypeParameter(expectedParameter.type)
@@ -3818,9 +3823,7 @@ export const convertCallExpression = (
         ts.isCallExpression(aggregateExpression) ||
         ts.isArrowFunction(aggregateExpression) ||
         ts.isFunctionExpression(aggregateExpression);
-      if (
-        !supportsFinalContextualConversion
-      ) {
+      if (!supportsFinalContextualConversion) {
         return argument;
       }
 
@@ -3906,55 +3909,55 @@ export const convertCallExpression = (
     refinedSourceBackedCallParameterTypes ??
     finalSourceBackedCallParameterTypes ??
     sourceBackedCallParameterTypes;
-  const effectiveFinalInvocationMetadata =
-    refinedSourceBackedCallParameterTypes
-      ? finalizeInvocationMetadata({
-          ctx,
-          callee: finalCallee,
-          receiverType: receiverIrType,
-          callableType: finalFunctionType,
-          argumentCount: finalResolutionArgumentCount,
-          argTypes: finalizedArgTypes,
-          explicitTypeArgs,
-          expectedType,
-          boundGlobalParameterTypes:
-            boundGlobalCallParameterTypes?.parameterTypes,
-          authoritativeBoundGlobalSurfaceParameterTypes,
-          authoritativeBoundGlobalReturnType,
-          sourceBackedParameterTypes:
-            refinedSourceBackedCallParameterTypes.parameterTypes,
-          sourceBackedSurfaceParameterTypes:
-            refinedSourceBackedCallParameterTypes.surfaceParameterTypes,
-          sourceBackedReturnType: refinedSourceBackedCallParameterTypes.returnType,
-          ambientBoundGlobalSurfaceParameterTypes:
-            finalAmbientBoundGlobalSurfaceParameterTypes,
-          authoritativeDirectParameterTypes:
-            authoritativeFinalDirectCalleeParameterTypes,
-          resolvedParameterTypes: finalResolved?.parameterTypes,
-          resolvedSurfaceParameterTypes:
-            finalResolved?.surfaceParameterTypes ??
-            finalCallableResolution?.resolved?.surfaceParameterTypes,
-          resolvedReturnType: finalResolved?.returnType,
-          fallbackParameterTypes,
-          fallbackSurfaceParameterTypes: fallbackParameterTypes,
-          exactParameterCandidates: [
+  const effectiveFinalInvocationMetadata = refinedSourceBackedCallParameterTypes
+    ? finalizeInvocationMetadata({
+        ctx,
+        callee: finalCallee,
+        receiverType: receiverIrType,
+        callableType: finalFunctionType,
+        argumentCount: finalResolutionArgumentCount,
+        argTypes: finalizedArgTypes,
+        explicitTypeArgs,
+        expectedType,
+        boundGlobalParameterTypes:
+          boundGlobalCallParameterTypes?.parameterTypes,
+        authoritativeBoundGlobalSurfaceParameterTypes,
+        authoritativeBoundGlobalReturnType,
+        sourceBackedParameterTypes:
+          refinedSourceBackedCallParameterTypes.parameterTypes,
+        sourceBackedSurfaceParameterTypes:
+          refinedSourceBackedCallParameterTypes.surfaceParameterTypes,
+        sourceBackedReturnType:
+          refinedSourceBackedCallParameterTypes.returnType,
+        ambientBoundGlobalSurfaceParameterTypes:
+          finalAmbientBoundGlobalSurfaceParameterTypes,
+        authoritativeDirectParameterTypes:
+          authoritativeFinalDirectCalleeParameterTypes,
+        resolvedParameterTypes: finalResolved?.parameterTypes,
+        resolvedSurfaceParameterTypes:
+          finalResolved?.surfaceParameterTypes ??
+          finalCallableResolution?.resolved?.surfaceParameterTypes,
+        resolvedReturnType: finalResolved?.returnType,
+        fallbackParameterTypes,
+        fallbackSurfaceParameterTypes: fallbackParameterTypes,
+        exactParameterCandidates: [
+          exactMemberCallableResolution?.resolved?.parameterTypes,
+          directCalleeCallableResolution?.resolved?.parameterTypes,
+        ],
+        exactSurfaceParameterCandidates: [
+          exactMemberCallableResolution?.resolved?.surfaceParameterTypes ??
             exactMemberCallableResolution?.resolved?.parameterTypes,
+          directCalleeCallableResolution?.resolved?.surfaceParameterTypes ??
             directCalleeCallableResolution?.resolved?.parameterTypes,
-          ],
-          exactSurfaceParameterCandidates: [
-            exactMemberCallableResolution?.resolved?.surfaceParameterTypes ??
-              exactMemberCallableResolution?.resolved?.parameterTypes,
-            directCalleeCallableResolution?.resolved?.surfaceParameterTypes ??
-              directCalleeCallableResolution?.resolved?.parameterTypes,
-          ],
-          exactReturnCandidates: [
-            exactMemberCallableResolution?.resolved?.returnType,
-            directCalleeCallableResolution?.resolved?.returnType,
-          ],
-          preserveDirectSurfaceIdentity:
-            preserveAuthoritativeDirectCalleeSurfaceIdentity,
-        })
-      : finalInvocationMetadata;
+        ],
+        exactReturnCandidates: [
+          exactMemberCallableResolution?.resolved?.returnType,
+          directCalleeCallableResolution?.resolved?.returnType,
+        ],
+        preserveDirectSurfaceIdentity:
+          preserveAuthoritativeDirectCalleeSurfaceIdentity,
+      })
+    : finalInvocationMetadata;
   const returnParameterTypes =
     effectiveFinalInvocationMetadata.parameterTypes ?? parameterTypes;
   const returnSurfaceParameterTypes =

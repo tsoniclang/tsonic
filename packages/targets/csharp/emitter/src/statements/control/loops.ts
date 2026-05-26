@@ -100,10 +100,9 @@ const resolveEmittedObjectEntriesStorageType = (
     argumentAst,
     context
   );
-  const resolvedArgumentType = [
-    emittedArgumentType,
-    sourceArgumentType,
-  ].reduce<IrType | undefined>((selectedType, candidateType) => {
+  const resolvedArgumentType = [emittedArgumentType, sourceArgumentType].reduce<
+    IrType | undefined
+  >((selectedType, candidateType) => {
     if (selectedType || !candidateType) {
       return selectedType;
     }
@@ -334,7 +333,11 @@ export const emitForOfStatementAst = (
     iterableStorageType
   );
   const emittedIterableStorageType =
-    resolveEmittedObjectEntriesStorageType(stmt.expression, exprAst, exprContext) ??
+    resolveEmittedObjectEntriesStorageType(
+      stmt.expression,
+      exprAst,
+      exprContext
+    ) ??
     resolveDirectStorageExpressionType(stmt.expression, exprAst, exprContext);
   const effectiveIterableStorageType =
     (emittedIterableStorageType &&

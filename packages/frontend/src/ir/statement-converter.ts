@@ -9,6 +9,7 @@ import * as ts from "typescript";
 import { IrStatement, IrType } from "./types.js";
 import { convertExpression } from "./expression-converter.js";
 import type { ProgramContext } from "./program-context.js";
+import type { BindingInternal } from "./binding/index.js";
 
 // Import converters from specialized modules
 import {
@@ -49,6 +50,60 @@ const isAmbientDeclaration = (node: ts.Node): boolean => {
   return !!(modifierFlags & ts.ModifierFlags.Ambient);
 };
 
+const isCompileTimeNoopAssertionCall = (
+  node: ts.ExpressionStatement,
+  ctx: ProgramContext
+): boolean => {
+  const expression = node.expression;
+  if (
+    !ts.isCallExpression(expression) ||
+    expression.arguments.length !== 0 ||
+    (expression.typeArguments?.length ?? 0) === 0 ||
+    !ts.isIdentifier(expression.expression)
+  ) {
+    return false;
+  }
+
+  const declId = ctx.binding.resolveIdentifier(expression.expression);
+  if (!declId) {
+    return false;
+  }
+
+  const declInfo = (ctx.binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(declId);
+  const decl = (declInfo?.valueDeclNode ?? declInfo?.declNode) as
+    | ts.Declaration
+    | undefined;
+  if (!decl || !ts.isFunctionDeclaration(decl)) {
+    return false;
+  }
+
+  return (
+    decl.parameters.length === 0 &&
+    (decl.typeParameters?.length ?? 0) > 0 &&
+    decl.type?.kind === ts.SyntaxKind.VoidKeyword &&
+    (decl.body?.statements.length ?? 0) === 0
+  );
+};
+
+const isCompileTimeNoopFunctionDeclaration = (
+  node: ts.FunctionDeclaration
+): boolean => {
+  if (
+    node.name === undefined ||
+    (node.typeParameters?.length ?? 0) === 0 ||
+    node.parameters.length !== 0 ||
+    node.type?.kind !== ts.SyntaxKind.VoidKeyword ||
+    (node.body?.statements.length ?? 0) !== 0
+  ) {
+    return false;
+  }
+
+  const modifierFlags = ts.getCombinedModifierFlags(node);
+  return (modifierFlags & ts.ModifierFlags.Export) === 0;
+};
+
 /**
  * Main statement converter dispatcher
  *
@@ -70,6 +125,10 @@ export const convertStatement = (
     return convertVariableStatement(node, ctx);
   }
   if (ts.isFunctionDeclaration(node)) {
+    if (isCompileTimeNoopFunctionDeclaration(node)) {
+      return null;
+    }
+
     return convertFunctionDeclaration(node, ctx);
   }
   if (ts.isClassDeclaration(node)) {
@@ -86,6 +145,10 @@ export const convertStatement = (
     return convertTypeAliasDeclaration(node, ctx);
   }
   if (ts.isExpressionStatement(node)) {
+    if (isCompileTimeNoopAssertionCall(node, ctx)) {
+      return null;
+    }
+
     return {
       kind: "expressionStatement",
       expression: convertExpression(node.expression, ctx, undefined),

@@ -332,16 +332,13 @@ export const buildTruthySwitchAst = (tmp: string): CSharpExpressionAst => {
         numericLiteral({ base: "decimal", wholePart: "0", suffix: "m" })
       ),
       typedNonZeroArm(predefinedType("char"), charLiteral("\0")),
-      typedNonZeroArm(
-        identifierType("global::System.Numerics.BigInteger"),
-        {
-          kind: "memberAccessExpression",
-          expression: typeReferenceExpr(
-            identifierType("global::System.Numerics.BigInteger")
-          ),
-          memberName: "Zero",
-        }
-      ),
+      typedNonZeroArm(identifierType("global::System.Numerics.BigInteger"), {
+        kind: "memberAccessExpression",
+        expression: typeReferenceExpr(
+          identifierType("global::System.Numerics.BigInteger")
+        ),
+        memberName: "Zero",
+      }),
       makeSwitchArm({ kind: "discardPattern" }, booleanLiteral(true)),
     ],
   };

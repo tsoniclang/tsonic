@@ -58,7 +58,8 @@ const resolveStaticValueSymbolSurfaceType = (
   }
 
   const moduleStaticClassName = context.moduleStaticClassName;
-  const moduleNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+  const moduleNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
   const containerPrefix = moduleNamespace.startsWith("global::")
     ? moduleNamespace
     : `global::${moduleNamespace}`;
@@ -459,7 +460,8 @@ const tryResolveExplicitSurfaceType = (
   valueAst: CSharpExpressionAst
 ): IrType | undefined => {
   const directAst = unwrapTransparentValueAst(valueAst);
-  return directAst.kind === "castExpression" || directAst.kind === "asExpression"
+  return directAst.kind === "castExpression" ||
+    directAst.kind === "asExpression"
     ? tryConvertSurfaceTypeAstToIrType(directAst.type)
     : undefined;
 };
@@ -530,16 +532,16 @@ const resolveEmittedPropertySurfaceType = (
     return direct;
   }
 
-  const resolvedReceiver = resolveTypeAlias(stripNullish(receiverType), context);
+  const resolvedReceiver = resolveTypeAlias(
+    stripNullish(receiverType),
+    context
+  );
   if (resolvedReceiver.kind !== "referenceType") {
     return undefined;
   }
 
   const localInfo = resolveLocalTypeInfo(resolvedReceiver, context)?.info;
-  if (
-    localInfo?.kind !== "class" &&
-    localInfo?.kind !== "interface"
-  ) {
+  if (localInfo?.kind !== "class" && localInfo?.kind !== "interface") {
     return undefined;
   }
 

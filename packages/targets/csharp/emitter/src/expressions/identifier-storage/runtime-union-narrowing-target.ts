@@ -75,8 +75,7 @@ export const tryMaterializeRuntimeUnionNarrowingForExpectedTarget = (opts: {
     const directSourceCarrierType = sourceFrame
       ? undefined
       : resolveDirectRuntimeCarrierType(sourceCarrierAst, context);
-    const effectiveSourceType =
-      directSourceCarrierType ?? sourceType;
+    const effectiveSourceType = directSourceCarrierType ?? sourceType;
     const effectiveSourceFrame: RuntimeMaterializationSourceFrame | undefined =
       sourceFrame ??
       (effectiveSourceType.kind === "unionType"

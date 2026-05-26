@@ -383,7 +383,10 @@ export const emitIdentifier = (
         context
       );
     }
-    return maybeMaterializeValueReference(identifierExpression(memberName), context);
+    return maybeMaterializeValueReference(
+      identifierExpression(memberName),
+      context
+    );
   }
 
   // Use target member name from binding if specified (with global:: prefix)

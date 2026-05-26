@@ -146,9 +146,17 @@ describe("Maximus Validation Coverage", () => {
       `;
 
       expect(
-        hasCode(source, "TSN5001", {}, {
-          backendCapabilities: manifestWith("broad-json-targets", "supported"),
-        })
+        hasCode(
+          source,
+          "TSN5001",
+          {},
+          {
+            backendCapabilities: manifestWith(
+              "broad-json-targets",
+              "supported"
+            ),
+          }
+        )
       ).to.equal(false);
     });
 
@@ -160,12 +168,17 @@ describe("Maximus Validation Coverage", () => {
       `;
 
       expect(
-        hasCode(source, "TSN5001", {}, {
-          backendCapabilities: manifestWith(
-            "broad-json-stringify-source",
-            "supported"
-          ),
-        })
+        hasCode(
+          source,
+          "TSN5001",
+          {},
+          {
+            backendCapabilities: manifestWith(
+              "broad-json-stringify-source",
+              "supported"
+            ),
+          }
+        )
       ).to.equal(false);
     });
   });

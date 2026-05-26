@@ -573,8 +573,7 @@ describe("Integration: CLR iterable overloads", () => {
           2
         ),
         "node_modules/@tsonic/core/types.js": "export {};",
-        "node_modules/@tsonic/core/types.d.ts":
-          "export type double = number;",
+        "node_modules/@tsonic/core/types.d.ts": "export type double = number;",
         "node_modules/xunit-types/package.json": JSON.stringify(
           { name: "xunit-types", version: "1.0.0", type: "module" },
           null,

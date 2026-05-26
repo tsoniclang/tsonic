@@ -260,7 +260,9 @@ const buildSafeJsArrayReadAst = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: identifierExpression("global::Tsonic.Internal.ArrayInterop"),
+        expression: identifierExpression(
+          "global::Tsonic.Internal.ArrayInterop"
+        ),
         memberName: elementValueType
           ? "ReadOptionalValue"
           : elementReferenceType
@@ -493,10 +495,7 @@ export const emitComputedAccess = (
         return [valueAst, nextContext];
       }
 
-      const storageType = typeIncludesRuntimeAbsence(
-        expr.inferredType,
-        context
-      )
+      const storageType = typeIncludesRuntimeAbsence(expr.inferredType, context)
         ? expr.inferredType
         : normalizedUnionType([
             protocolElementType,
@@ -686,10 +685,10 @@ export const emitComputedAccess = (
     arrayLikeReceiver &&
     isRuntimeUnionMemberProjectionAst(objectAst)
   ) {
-      const storageElementType = resolveRuntimeStorageArrayLikeElementType(
-        storageObjectTypeForArrayRead,
-        context
-      );
+    const storageElementType = resolveRuntimeStorageArrayLikeElementType(
+      storageObjectTypeForArrayRead,
+      context
+    );
     const adapted = adaptStorageErasedValueAst({
       valueAst: accessAst,
       semanticType: expr.inferredType,

@@ -21,10 +21,10 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include("class __TsonicInterfaceObjectAdapter_");
     expect(csharp).to.include(": Greeter");
     expect(csharp).to.include("string Greeter.hello()");
+    expect(csharp).to.include("string Greeter.tagged(string prefix)");
     expect(csharp).to.include(
-      "string Greeter.tagged(string prefix)"
+      "new global::Test.__TsonicInterfaceObjectAdapter_"
     );
-    expect(csharp).to.include("new global::Test.__TsonicInterfaceObjectAdapter_");
     expect(csharp).to.not.include("new global::Test.Greeter");
   });
 
@@ -64,7 +64,9 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include('=> "boolean"');
     expect(csharp).to.include('=> "number"');
     expect(csharp).to.include('=> "string"');
-    expect(csharp).to.not.include("global::Tsonic.Runtime.Operators.@typeof(value)");
+    expect(csharp).to.not.include(
+      "global::Tsonic.Runtime.Operators.@typeof(value)"
+    );
   });
 
   it("emits multiple property-only interface inheritance as native interfaces with object adapters", () => {
@@ -210,9 +212,11 @@ describe("Integration: TSTS blocker regressions", () => {
     `);
 
     expect(csharp).to.include("Assert.Equal<double[]>");
-    expect(csharp).to.include("global::System.Linq.Enumerable.Select<int, double>");
+    expect(csharp).to.include(
+      "global::System.Linq.Enumerable.Select<int, double>"
+    );
     expect(csharp).to.not.include(
-      "Assert.Equal<double[]>(new double[] { 2, 4, 6 }, global::System.Linq.Enumerable.ToArray(grouped.get(\"even\")))"
+      'Assert.Equal<double[]>(new double[] { 2, 4, 6 }, global::System.Linq.Enumerable.ToArray(grouped.get("even")))'
     );
   });
 
@@ -424,7 +428,9 @@ describe("Integration: TSTS blocker regressions", () => {
       'Assert.Equal(global::Test.compare.ComparisonEqual, global::Test.compare.compareStringsCaseSensitive("a", "a"));'
     );
     expect(csharp).to.not.include("ComparisonEqual(p0, p1)");
-    expect(csharp).to.not.include('compareStringsCaseSensitive("a", "a")(p0, p1)');
+    expect(csharp).to.not.include(
+      'compareStringsCaseSensitive("a", "a")(p0, p1)'
+    );
   });
 
   it("types ECMAScript numeric globals and bigint literals before union adaptation", () => {
@@ -460,7 +466,7 @@ describe("Integration: TSTS blocker regressions", () => {
 
     expect(csharp).to.include("global::js.Globals.NaN");
     expect(csharp).to.include("global::js.Globals.Infinity");
-    expect(csharp).to.include("global::System.Numerics.BigInteger.Parse(\"42\")");
+    expect(csharp).to.include('global::System.Numerics.BigInteger.Parse("42")');
     expect(csharp).to.include(".Is1()");
     expect(csharp).to.include(
       ".ToString(global::System.Globalization.CultureInfo.InvariantCulture)"
@@ -955,9 +961,7 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include('return read(obj, "x");');
     expect(csharp).to.include("var __tsonic_dict = obj;");
     expect(csharp).to.not.include("obj.Match");
-    expect(csharp).to.not.include(
-      "Dictionary<string, object?>();"
-    );
+    expect(csharp).to.not.include("Dictionary<string, object?>();");
   });
 
   it("keeps Object.entries tuple values typed from narrowed dictionary carriers", () => {
@@ -1007,9 +1011,7 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.match(
       /foreach \(var __item in global::js\.Object\.entries\(\(raw\.As\d+\(\)\)\)\)/
     );
-    expect(csharp).to.match(
-      /global::Test\.JsonValue v = __tuple\d+\.Item2;/
-    );
+    expect(csharp).to.match(/global::Test\.JsonValue v = __tuple\d+\.Item2;/);
     expect(csharp).to.not.include("object v = __tuple");
     expect(csharp).to.include("jsonValueFromJSON(v)");
   });
@@ -1148,7 +1150,9 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include(
       "(global::Test.packagejson.Expected__3)global::Test.packagejson.types.absent"
     );
-    expect(csharp).to.include("var __struct = global::Test.packagejson.types.absent;");
+    expect(csharp).to.include(
+      "var __struct = global::Test.packagejson.types.absent;"
+    );
     expect(csharp).to.include(
       "return new Expected__3 { state = __struct.state };"
     );
@@ -1237,5 +1241,193 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include("global::System.Linq.Enumerable.Select");
     expect(csharp).to.include("global::System.Linq.Enumerable.ToList(doubled)");
     expect(csharp).to.not.include("ToList<TResult>");
+  });
+
+  it("infers Map and WeakMap constructor type arguments from contextual return types", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        class Node {
+          name: string;
+          constructor(name: string) {
+            this.name = name;
+          }
+        }
+
+        class SymbolInfo {
+          name: string;
+          constructor(name: string) {
+            this.name = name;
+          }
+        }
+
+        type SymbolTable = Map<string, SymbolInfo>;
+
+        interface BinderState {
+          locals: WeakMap<Node, SymbolTable>;
+          symbols: WeakMap<object, SymbolInfo>;
+        }
+
+        export function bind(name: string): int {
+          const sourceFile = new Node(name);
+          const state: BinderState = {
+            locals: new WeakMap(),
+            symbols: new WeakMap(),
+          };
+          const globals: SymbolTable = new Map();
+          globals.set(name, new SymbolInfo(name));
+          state.locals.set(sourceFile, globals);
+          const copy: Map<string, SymbolInfo> = new Map(globals);
+          return copy.size;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("new global::js.WeakMap<");
+    expect(csharp).to.include(
+      "new global::js.Map<string, SymbolInfo>()"
+    );
+    expect(csharp).to.include(
+      "new global::js.Map<string, SymbolInfo>(globals.__tsonic_symbol_iterator())"
+    );
+  });
+
+  it("resolves Node built-in globals and withFileTypes Dirent overloads from the nodejs surface", () => {
+    const csharp = compileToCSharp(
+      `
+        import { readdirSync } from "node:fs";
+        import { join } from "node:path";
+
+        export function scan(directoryName: string): string {
+          const entries = readdirSync(directoryName, { withFileTypes: true });
+          let latest = process.cwd() + process.platform;
+          for (const entry of entries) {
+            const fileName = join(directoryName, entry.name);
+            if (entry.isDirectory()) {
+              latest = fileName;
+              continue;
+            }
+            if (entry.isFile()) {
+              latest = Buffer.from(fileName).toString();
+            }
+          }
+          return latest;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/nodejs" }
+    );
+
+    expect(csharp).to.include("global::nodejs.FsModule.readdirSync");
+    expect(csharp).to.include("global::nodejs.ProcessModule.process.cwd()");
+    expect(csharp).to.include("global::nodejs.ProcessModule.process.platform");
+    expect(csharp).to.include(".name");
+    expect(csharp).to.include(".isDirectory()");
+    expect(csharp).to.include(".isFile()");
+    expect(csharp).to.include("global::nodejs.buffer.Buffer.from");
+  });
+
+  it("materializes object and array literals flowing into JsValue parameters", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { JsValue } from "@tsonic/core/types.js";
+
+        export function isJsonObject(value: JsValue): value is Record<string, JsValue> {
+          return typeof value === "object" && value !== null && !Array.isArray(value);
+        }
+
+        export function isJsonArray(value: JsValue): value is readonly JsValue[] {
+          return Array.isArray(value);
+        }
+
+        export function run(): boolean {
+          return isJsonObject({}) && isJsonArray([]);
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "new global::System.Collections.Generic.Dictionary<string, object?>()"
+    );
+    expect(csharp).to.include("global::System.Array.Empty<object?>()");
+    expect(csharp).to.not.include("new object");
+  });
+
+  it("erases compile-time type identity assertion calls before emission", () => {
+    const csharp = compileToCSharp(`
+      type Equal<Actual, Expected> =
+        (<T>() => T extends Actual ? 1 : 2) extends
+        (<T>() => T extends Expected ? 1 : 2) ? true : false;
+
+      function assertType<_T extends true>(): void {}
+
+      export class TypeIdentityTests {
+        preserves_literal_identity(): void {
+          assertType<Equal<"ready", "ready">>();
+        }
+      }
+    `);
+
+    expect(csharp).to.include("preserves_literal_identity()");
+    expect(csharp).to.not.include("assertType");
+    expect(csharp).to.not.include("Equal");
+  });
+
+  it("keeps satisfies constraints from replacing object literal result shapes", () => {
+    const csharp = compileToCSharp(`
+      import type { int } from "@tsonic/core/types.js";
+
+      export function read(): int {
+        const table = { one: 1, two: 2 } satisfies Record<string, number>;
+        return table.two;
+      }
+    `);
+
+    expect(csharp).to.include("table.two");
+    expect(csharp).to.not.include("Dictionary<string, double>");
+  });
+
+  it("preserves nested object literal result shapes through satisfies constraints", () => {
+    const csharp = compileToCSharp(`
+      import type { int } from "@tsonic/core/types.js";
+
+      export function read(): int {
+        const table = {
+          nested: {
+            enabled: true,
+            count: 7,
+          },
+        } satisfies { nested: Record<string, boolean | number> };
+        return table.nested.enabled ? table.nested.count : 0;
+      }
+    `);
+
+    expect(csharp).to.include("table.nested.enabled");
+    expect(csharp).to.include("table.nested.count");
+    expect(csharp).to.not.include("[\"enabled\"]");
+    expect(csharp).to.not.include("[\"count\"]");
+  });
+
+  it("keeps satisfies method constraints without replacing the callable result shape", () => {
+    const csharp = compileToCSharp(`
+      import type { int } from "@tsonic/core/types.js";
+
+      export function read(): int {
+        const service = {
+          read(value: int): int {
+            return value + 1;
+          },
+        } satisfies { read(value: int): int };
+        return service.read(41);
+      }
+    `);
+
+    expect(csharp).to.include("service.read(41)");
+    expect(csharp).to.not.include("Dictionary<string");
   });
 });

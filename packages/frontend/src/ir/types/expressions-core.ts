@@ -14,10 +14,7 @@ import { IrBlockStatement } from "./statements.js";
 import { NumericKind } from "./numeric-kind.js";
 import { SourceLocation } from "../../types/diagnostic.js";
 import type { DeclId, SignatureId, MemberId } from "../type-system/types.js";
-import type {
-  MemberSymbolId,
-  TypeSymbolId,
-} from "../../symbols/index.js";
+import type { MemberSymbolId, TypeSymbolId } from "../../symbols/index.js";
 import type {
   IrNumericNarrowingExpression,
   IrTypeAssertionExpression,

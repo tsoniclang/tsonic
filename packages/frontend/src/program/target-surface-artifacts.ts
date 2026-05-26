@@ -144,7 +144,11 @@ export const createTargetSurfaceArtifactsFromBindings = (
     }
   }
 
-  for (const [namespace, exportName, descriptor] of bindings.getAllTsbindgenExports()) {
+  for (const [
+    namespace,
+    exportName,
+    descriptor,
+  ] of bindings.getAllTsbindgenExports()) {
     const ownerTypeSymbolId = typeSymbolFor(
       registry,
       descriptor.ownerIdentity,

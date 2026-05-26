@@ -974,8 +974,14 @@ export const buildUnifiedUniverse = (
           existingTsPriority === undefined ||
           sourcePriority >= existingTsPriority
         ) {
-          tsNameToTypeId.set(nominalEntry.typeId.sourceName, nominalEntry.typeId);
-          sourceTsNamePriority.set(nominalEntry.typeId.sourceName, sourcePriority);
+          tsNameToTypeId.set(
+            nominalEntry.typeId.sourceName,
+            nominalEntry.typeId
+          );
+          sourceTsNamePriority.set(
+            nominalEntry.typeId.sourceName,
+            sourcePriority
+          );
         }
 
         const existingTargetPriority = sourceProviderNamePriority.get(

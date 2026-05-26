@@ -121,7 +121,10 @@ export class ExternalBindingsResolver {
     }
 
     // Extract owner identity from bindings.json types
-    const ownerIdentity = extractOwnerIdentity(bindingsPath, this.ownerIdentityCache);
+    const ownerIdentity = extractOwnerIdentity(
+      bindingsPath,
+      this.ownerIdentityCache
+    );
 
     return {
       kind: "externalSurface",

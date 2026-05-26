@@ -419,7 +419,11 @@ describe("Binding System", () => {
       try {
         const registry = loadBindings([fixture.root]);
         const overload = registry
-          .getTargetMemberOverloads("fixture.js", "fixture.js.Number", "toString")
+          .getTargetMemberOverloads(
+            "fixture.js",
+            "fixture.js.Number",
+            "toString"
+          )
           ?.find((candidate) => candidate.sourceOrigin !== undefined);
 
         expect(overload?.sourceOrigin).to.deep.equal({

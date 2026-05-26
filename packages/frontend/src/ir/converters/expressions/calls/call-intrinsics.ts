@@ -71,8 +71,7 @@ export const tryConvertIntrinsicCall = (
     if (type.kind !== "referenceType") return false;
 
     return (
-      primitiveTypeFactFromName(type.name) !== undefined ||
-      type.name === "char"
+      primitiveTypeFactFromName(type.name) !== undefined || type.name === "char"
     );
   };
 

@@ -195,7 +195,9 @@ export const resolveTsbindgenDllPath = (
   };
 
   const cliRequiredTsbindgenVersion = (() => {
-    const cliPackageRoot = findNearestPackageRoot(fileURLToPath(import.meta.url));
+    const cliPackageRoot = findNearestPackageRoot(
+      fileURLToPath(import.meta.url)
+    );
     if (!cliPackageRoot) return undefined;
     const packageJsonPath = join(cliPackageRoot, "package.json");
     if (!existsSync(packageJsonPath)) return undefined;

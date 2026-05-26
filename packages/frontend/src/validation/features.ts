@@ -24,7 +24,12 @@ const createBackendCapabilityDiagnostic = (
   capabilityName: FeatureKey,
   fallback: Diagnostic
 ): Diagnostic | undefined => {
-  if (!isCapabilityUnavailable(program.options.backendCapabilities, capabilityName)) {
+  if (
+    !isCapabilityUnavailable(
+      program.options.backendCapabilities,
+      capabilityName
+    )
+  ) {
     return undefined;
   }
   const backendCapability = capability(
@@ -436,8 +441,7 @@ const isUnsupportedFunctionLengthAccess = (
   }
 
   return (
-    !ts.isIdentifier(receiver) &&
-    receiver.kind !== ts.SyntaxKind.ThisKeyword
+    !ts.isIdentifier(receiver) && receiver.kind !== ts.SyntaxKind.ThisKeyword
   );
 };
 

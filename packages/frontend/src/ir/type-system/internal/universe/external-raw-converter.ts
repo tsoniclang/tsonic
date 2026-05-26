@@ -25,7 +25,10 @@ import type {
   RawBindingsType,
 } from "./types.js";
 import { makeTypeId, parseStableId, resolveRawTypeStableId } from "./types.js";
-import { parseExternalTypeString, splitTypeArguments } from "./external-type-parser.js";
+import {
+  parseExternalTypeString,
+  splitTypeArguments,
+} from "./external-type-parser.js";
 import { compareHeritageEdges, heritageEdgeKey } from "./heritage-edge-key.js";
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -481,12 +481,7 @@ const isStructurallyAssignable = (
         const match = matches[0];
         return (
           !!match &&
-          isAssignableToInternal(
-            state,
-            match.type,
-            targetMember.type,
-            context
-          )
+          isAssignableToInternal(state, match.type, targetMember.type, context)
         );
       }
 
@@ -644,7 +639,11 @@ const isAssignableToInternalUncached = (
   }
 
   if (isBroadObjectTargetType(target)) {
-    return isAssignableToBroadObjectTarget(state, source, context.activeAliases);
+    return isAssignableToBroadObjectTarget(
+      state,
+      source,
+      context.activeAliases
+    );
   }
 
   // undefined/null assignability (represented as primitiveType with name "null"/"undefined")
@@ -750,9 +749,7 @@ const isAssignableToInternalUncached = (
       }
     }
 
-    return (
-      isStructurallyAssignable(state, source, target, context) ?? false
-    );
+    return isStructurallyAssignable(state, source, target, context) ?? false;
   }
 
   const structuralAssignable = isStructurallyAssignable(
@@ -773,7 +770,8 @@ export const isAssignableTo = (
   state: TypeSystemState,
   source: IrType,
   target: IrType
-): boolean => isAssignableToInternal(state, source, target, createAssignabilityContext());
+): boolean =>
+  isAssignableToInternal(state, source, target, createAssignabilityContext());
 
 // ─────────────────────────────────────────────────────────────────────────
 // typesEqual — Structural equality check

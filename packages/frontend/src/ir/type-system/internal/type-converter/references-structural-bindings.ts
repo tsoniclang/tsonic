@@ -22,10 +22,10 @@ import {
 /**
  * Check whether a declaration file is a Tsonic-generated bindings artifact.
  *
-   * We only apply aggressive declaration-file type-alias erasure to these files.
-   * Airplane-grade rule: Never erase type aliases from external provider packages.
-   * Those aliases often encode nominal types (interfaces, delegates, indexers)
-   * and must remain NOMINAL.
+ * We only apply aggressive declaration-file type-alias erasure to these files.
+ * Airplane-grade rule: Never erase type aliases from external provider packages.
+ * Those aliases often encode nominal types (interfaces, delegates, indexers)
+ * and must remain NOMINAL.
  */
 export const isTsonicBindingsDeclarationFile = (fileName: string): boolean => {
   // Cross-platform: handle both POSIX and Windows paths.
@@ -127,7 +127,8 @@ const buildBindingAliasTargetIdentityMap = (
     if (types) {
       for (const type of types) {
         if (!type || typeof type !== "object") continue;
-        const targetName = (type as { readonly targetName?: unknown }).targetName;
+        const targetName = (type as { readonly targetName?: unknown })
+          .targetName;
         if (typeof targetName !== "string" || targetName.trim().length === 0) {
           continue;
         }

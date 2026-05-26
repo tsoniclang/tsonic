@@ -80,11 +80,13 @@ const isBroadStructuralTarget = (
 const getStructuralProperties = (
   type: IrType,
   context: EmitterContext
-): readonly {
-  readonly name: string;
-  readonly type: IrType;
-  readonly isOptional?: boolean;
-}[] | undefined => {
+):
+  | readonly {
+      readonly name: string;
+      readonly type: IrType;
+      readonly isOptional?: boolean;
+    }[]
+  | undefined => {
   const resolved = resolveTypeAlias(stripNullish(type), context);
   if (resolved.kind === "objectType") {
     return resolved.members.flatMap((member) =>
@@ -154,19 +156,10 @@ const structuralTypeMatchesPredicateTarget = (
       }
       return false;
     }
-    if (
-      !candidateProperty.isOptional &&
-      memberProperty.isOptional
-    ) {
+    if (!candidateProperty.isOptional && memberProperty.isOptional) {
       return false;
     }
-    if (
-      !matches(
-        memberProperty.type,
-        candidateProperty.type,
-        visited
-      )
-    ) {
+    if (!matches(memberProperty.type, candidateProperty.type, visited)) {
       return false;
     }
   }

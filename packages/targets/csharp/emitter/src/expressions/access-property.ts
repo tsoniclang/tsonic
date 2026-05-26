@@ -194,7 +194,10 @@ export const emitPropertyAccess = (
         : undefined;
   const receiverStorageType =
     receiverBindingCarrierType ??
-    resolveDirectStorageIrType(receiverExpressionForMember, receiverSourceContext);
+    resolveDirectStorageIrType(
+      receiverExpressionForMember,
+      receiverSourceContext
+    );
   if (
     !isErasedAsInterfaceReceiver &&
     memberResolutionType &&

@@ -77,8 +77,10 @@ const lowerModule = (
     readonly loweredReferenceByStableKey: Map<string, IrReferenceType>;
   }
 ): IrModule => {
-  const localDeclaredTypeReferences =
-    collectLocalDeclaredTypeReferences(module, shared.declaredTypeReferences);
+  const localDeclaredTypeReferences = collectLocalDeclaredTypeReferences(
+    module,
+    shared.declaredTypeReferences
+  );
   const ctx: LoweringContext = {
     generatedDeclarations: shared.generatedDeclarations,
     shapeToName: shared.shapeToName,
@@ -351,7 +353,10 @@ const collectAnonymousReferenceDeclarations = (
   }
   seen.add(value);
 
-  if (isAnonymousReferenceType(value) && value.providerQualifiedName === undefined) {
+  if (
+    isAnonymousReferenceType(value) &&
+    value.providerQualifiedName === undefined
+  ) {
     if (!declarationsByName.has(value.name)) {
       const typeParameters =
         value.typeArguments
@@ -535,9 +540,7 @@ const collectPriorSyntheticAnonymousDeclarations = (
     .filter((module) => module.filePath === SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH)
     .flatMap((module) =>
       module.body.filter(
-        (
-          statement
-        ): statement is IrClassDeclaration | IrInterfaceDeclaration =>
+        (statement): statement is IrClassDeclaration | IrInterfaceDeclaration =>
           (statement.kind === "classDeclaration" ||
             statement.kind === "interfaceDeclaration") &&
           statement.name.startsWith("__Anon_")

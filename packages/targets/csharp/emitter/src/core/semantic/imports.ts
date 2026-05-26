@@ -220,7 +220,8 @@ export const processImports = (
         : undefined) ??
       (spec.kind === "named" && spec.providerValue
         ? (() => {
-            const lastDot = spec.providerValue.ownerQualifiedName.lastIndexOf(".");
+            const lastDot =
+              spec.providerValue.ownerQualifiedName.lastIndexOf(".");
             return lastDot > 0
               ? spec.providerValue.ownerQualifiedName.slice(0, lastDot)
               : undefined;
@@ -336,7 +337,11 @@ export const processImports = (
     // external imports (from @tsonic/dotnet/* or similar packages)
     if (imp.resolutionKind === "externalSurface" && imp.resolvedNamespace) {
       for (const spec of imp.specifiers) {
-        const binding = createClrImportBinding(spec, imp.resolvedNamespace, ctx);
+        const binding = createClrImportBinding(
+          spec,
+          imp.resolvedNamespace,
+          ctx
+        );
         registerImportBinding(spec, binding);
       }
       return ctx;
@@ -377,7 +382,10 @@ const createClrImportBinding = (
     const isType = spec.isType === true;
 
     if (isType) {
-      const typeRenderInfo = getTargetTypeRenderInfo(context, spec.typeSymbolId);
+      const typeRenderInfo = getTargetTypeRenderInfo(
+        context,
+        spec.typeSymbolId
+      );
       // Type import: preserve the type as AST instead of rendering text eagerly
       return {
         localName,
@@ -385,8 +393,8 @@ const createClrImportBinding = (
           typeRenderInfo
             ? `global::${typeRenderInfo.qualifiedName}`
             : spec.providerQualifiedName
-            ? `global::${spec.providerQualifiedName}`
-            : `${namespaceFqn}.${spec.name}`
+              ? `global::${spec.providerQualifiedName}`
+              : `${namespaceFqn}.${spec.name}`
         ),
       };
     } else {
@@ -406,7 +414,8 @@ const createClrImportBinding = (
               memberRenderInfo?.ownerQualifiedName ??
               spec.providerValue.ownerQualifiedName
             }`,
-            member: memberRenderInfo?.memberName ?? spec.providerValue.memberName,
+            member:
+              memberRenderInfo?.memberName ?? spec.providerValue.memberName,
           },
         };
       }
