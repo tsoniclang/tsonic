@@ -703,4 +703,70 @@ describe("Expression Emission", () => {
     expect(result).to.include("char ch = 'x';");
     expect(result).to.include("test(ch.ToString())");
   });
+
+  it("should convert fully-qualified static char fields to string in property getters", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "PathModule",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: true,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "sep" },
+              initializer: {
+                kind: "identifier",
+                name: "DirectorySeparatorChar",
+                inferredType: { kind: "primitiveType", name: "char" },
+              },
+            },
+          ],
+        },
+        {
+          kind: "classDeclaration",
+          name: "PathModuleNamespace",
+          implements: [],
+          isExported: true,
+          isStruct: false,
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "sep",
+              type: { kind: "primitiveType", name: "string" },
+              accessibility: "public",
+              isStatic: false,
+              isReadonly: true,
+              getterBody: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "returnStatement",
+                    expression: {
+                      kind: "identifier",
+                      name: "sep",
+                      inferredType: { kind: "primitiveType", name: "char" },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("public static readonly char sep");
+    expect(result).to.include("return global::MyApp.PathModule.sep.ToString();");
+    expect(result).not.to.include("return (string)global::MyApp.PathModule.sep;");
+  });
 });

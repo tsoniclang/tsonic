@@ -15,6 +15,7 @@ import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js"
 import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { isBroadStorageTarget } from "./broad-storage-target.js";
 import { wrapMaterializedTargetAst } from "./storage-surface-shared.js";
+import { tryMaterializeRuntimeUnionNarrowingForExpectedTarget } from "./runtime-union-narrowing-target.js";
 
 export const buildRuntimeSubsetExpressionAst = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
@@ -66,6 +67,19 @@ export const buildRuntimeSubsetExpressionAst = (
         : explicitFrame;
     }
 
+    const sourceMembers = getCanonicalRuntimeUnionMembers(sourceType, context);
+    if (
+      narrowed.runtimeMemberNs.length > 0 &&
+      sourceMembers &&
+      sourceMembers.length >= Math.max(...narrowed.runtimeMemberNs)
+    ) {
+      return {
+        members: sourceMembers,
+        candidateMemberNs: sourceMembers.map((_, index) => index + 1),
+        runtimeUnionArity: sourceMembers.length,
+      };
+    }
+
     const inferredMembers = narrowed.type
       ? getCanonicalRuntimeUnionMembers(narrowed.type, context)
       : undefined;
@@ -81,6 +95,27 @@ export const buildRuntimeSubsetExpressionAst = (
   const sourceValueAst =
     narrowed.storageExprAst ??
     identifierExpression(escapeCSharpIdentifier(expr.name));
+  const selectedSourceMemberNs = new Set(narrowed.runtimeMemberNs);
+
+  if (narrowed.type && targetType) {
+    const expectedRuntimeTarget =
+      tryMaterializeRuntimeUnionNarrowingForExpectedTarget({
+        sourceCarrierAst: sourceValueAst,
+        sourceType,
+        narrowedType: narrowed.type,
+        expectedType: targetType,
+        context,
+        selectedSourceMemberNs,
+        sourceFrame,
+      });
+    if (expectedRuntimeTarget) {
+      return wrapMaterializedTargetAst(
+        expectedRuntimeTarget[0],
+        targetType,
+        expectedRuntimeTarget[1]
+      );
+    }
+  }
 
   const materialized = tryBuildRuntimeMaterializationAst(
     sourceValueAst,
@@ -88,7 +123,7 @@ export const buildRuntimeSubsetExpressionAst = (
     targetType,
     context,
     emitTypeAst,
-    new Set(narrowed.runtimeMemberNs),
+    selectedSourceMemberNs,
     sourceFrame
   );
   if (!materialized) {

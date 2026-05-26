@@ -329,8 +329,8 @@ export const buildProjectedExprBinding = (
     exprAst,
     type,
     sourceType,
-    exprAst,
-    storageType ?? type,
+    carrierExprAst,
+    storageType ?? carrierType ?? sourceType,
     carrierExprAst,
     carrierType ?? sourceType
   );

@@ -2,7 +2,7 @@ import { type IrClassMember, type IrType } from "@tsonic/frontend";
 import { EmitterContext, type LocalTypeInfo } from "../../types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
-import { structuralInterfaceContractKey } from "../../core/semantic/local-types.js";
+import { localInterfaceInfoEmitsAsNative } from "../../core/semantic/native-interfaces.js";
 import type {
   CSharpMemberAst,
   CSharpStatementAst,
@@ -14,14 +14,7 @@ const emitsAsCSharpInterface = (
   name: string | undefined,
   context: EmitterContext
 ): boolean =>
-  !!localInfo &&
-  localInfo.kind === "interface" &&
-  (localInfo.members.some((member) => member.kind === "methodSignature") ||
-    (namespace !== undefined &&
-      name !== undefined &&
-      context.options.structuralInterfaceContracts?.has(
-        structuralInterfaceContractKey(namespace, name)
-      ) === true));
+  localInterfaceInfoEmitsAsNative(localInfo, namespace, name, context);
 
 export const isInterfaceReference = (
   ref: Extract<IrType, { kind: "referenceType" }>,
@@ -78,10 +71,14 @@ const localTypeRequiresSetsRequiredMembersCtor = (
   visited.add(key);
 
   if (localInfo.kind === "interface") {
-    const emitsAsClass = !localInfo.members.some(
-      (member) => member.kind === "methodSignature"
-    );
-    if (!emitsAsClass) {
+    if (
+      localInterfaceInfoEmitsAsNative(
+        localInfo,
+        context.moduleNamespace ?? context.options.rootNamespace,
+        name,
+        context
+      )
+    ) {
       return false;
     }
 

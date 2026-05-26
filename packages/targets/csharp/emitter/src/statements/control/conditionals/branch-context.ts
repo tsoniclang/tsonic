@@ -516,19 +516,32 @@ export const applyExprFallthroughNarrowing = (
   finalContext: EmitterContext,
   storageType?: IrType
 ): EmitterContext => {
-  const [narrowedTypeAst, narrowedTypeCtx] = emitTypeAst(
-    narrowedType,
-    finalContext
-  );
+  const [narrowedExprAst, narrowedTypeCtx] = storageType
+    ? materializeDirectNarrowingAst(
+        exprAst,
+        storageType,
+        narrowedType,
+        finalContext
+      )
+    : (() => {
+        const [narrowedTypeAst, nextContext] = emitTypeAst(
+          narrowedType,
+          finalContext
+        );
+        return [
+          {
+            kind: "castExpression" as const,
+            type: narrowedTypeAst,
+            expression: exprAst,
+          },
+          nextContext,
+        ] as [CSharpExpressionAst, EmitterContext];
+      })();
   const fallthroughBindings = new Map(baseContext.narrowedBindings ?? []);
   fallthroughBindings.set(
     originalName,
     buildExprBinding(
-      {
-        kind: "castExpression",
-        type: narrowedTypeAst,
-        expression: exprAst,
-      },
+      narrowedExprAst,
       narrowedType,
       undefined,
       exprAst,
@@ -679,20 +692,20 @@ export const withRuntimeUnionMemberNarrowing = (
   const narrowedBindings = new Map(sourceLayoutContext.narrowedBindings ?? []);
   const sourceMemberType = sourceLayout?.members[memberN - 1];
   const narrowedType = sourceMemberType ?? memberType;
+  const receiverAst = toReceiverAst(receiver);
   narrowedBindings.set(
     originalName,
     buildExprBinding(
       narrowedAst,
       narrowedType,
       sourceType,
-      narrowedAst,
-      sourceMemberType
-        ? (resolveRuntimeStorageType(sourceMemberType, sourceLayoutContext) ??
-            sourceMemberType)
-        : (storageType ??
-            resolveRuntimeStorageType(memberType, sourceLayoutContext) ??
-            memberType),
-      toReceiverAst(receiver)
+      receiverAst,
+      sourceType ??
+        storageType ??
+        resolveRuntimeStorageType(memberType, sourceLayoutContext) ??
+        memberType,
+      receiverAst,
+      sourceType
     )
   );
   return { ...sourceLayoutContext, narrowedBindings };

@@ -50,8 +50,12 @@ import {
 } from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import { getAcceptedSurfaceType } from "../core/semantic/defaults.js";
-import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
+import {
+  resolveDirectStorageCompatibleExpressionAst,
+  resolveDirectStorageCompatibleExpressionType,
+} from "./expected-type-adaptation.js";
 import { contextSurfaceIncludesJs } from "../types.js";
+import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst
@@ -309,12 +313,41 @@ export const emitComputedAccess = (
 
   if (accessKind === "dictionary") {
     if (contextSurfaceIncludesJs(context) && usage !== "write") {
+      const directStorageSourceExpr =
+        expr.object.kind === "typeAssertion" ||
+        expr.object.kind === "asinterface" ||
+        expr.object.kind === "trycast"
+          ? unwrapTransparentExpression(expr.object.expression)
+          : expr.object;
+      const directStorageObjectAst =
+        resolveDirectStorageCompatibleExpressionAst({
+          expr: directStorageSourceExpr,
+          context: receiverSourceContext,
+        });
+      const directStorageObjectType = directStorageObjectAst
+        ? resolveDirectStorageCompatibleExpressionType({
+            expr: directStorageSourceExpr,
+            valueAst: directStorageObjectAst,
+            context: finalContext,
+          })
+        : undefined;
+      const resolvedDirectStorageObjectType = directStorageObjectType
+        ? resolveTypeAlias(stripNullish(directStorageObjectType), context)
+        : undefined;
+      const shouldUseDirectStorageObjectAst =
+        resolvedDirectStorageObjectType?.kind === "dictionaryType";
+      const storageObjectAst =
+        shouldUseDirectStorageObjectAst && directStorageObjectAst
+          ? directStorageObjectAst
+          : objectAst;
       const storageObjectType =
-        resolveDirectStorageCompatibleExpressionType({
-          expr: expr.object,
-          valueAst: objectAst,
-          context: finalContext,
-        }) ?? objectType;
+        (shouldUseDirectStorageObjectAst
+          ? directStorageObjectType
+          : resolveDirectStorageCompatibleExpressionType({
+              expr: expr.object,
+              valueAst: objectAst,
+              context: finalContext,
+            })) ?? objectType;
       const resolvedStorageObjectType = storageObjectType
         ? resolveTypeAlias(stripNullish(storageObjectType), context)
         : undefined;
@@ -340,7 +373,7 @@ export const emitComputedAccess = (
         : [identifierType("object"), finalContext];
       return [
         buildJsSafeDictionaryReadAst(
-          objectAst,
+          storageObjectAst,
           propAst,
           expr.isOptional,
           resultTypeAst,
@@ -595,7 +628,16 @@ export const emitComputedAccess = (
     );
   }
 
-  const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
+  const storageObjectTypeForArrayRead =
+    resolveDirectStorageCompatibleExpressionType({
+      expr: expr.object,
+      valueAst: objectAst,
+      context: finalContext,
+    }) ?? objectType;
+  const arrayLikeReceiver = resolveArrayLikeReceiverType(
+    storageObjectTypeForArrayRead,
+    context
+  );
   const optionalArrayReadType = typeIncludesRuntimeAbsence(
     expr.inferredType,
     finalContext
@@ -644,10 +686,10 @@ export const emitComputedAccess = (
     arrayLikeReceiver &&
     isRuntimeUnionMemberProjectionAst(objectAst)
   ) {
-    const storageElementType = resolveRuntimeStorageArrayLikeElementType(
-      objectType,
-      context
-    );
+      const storageElementType = resolveRuntimeStorageArrayLikeElementType(
+        storageObjectTypeForArrayRead,
+        context
+      );
     const adapted = adaptStorageErasedValueAst({
       valueAst: accessAst,
       semanticType: expr.inferredType,

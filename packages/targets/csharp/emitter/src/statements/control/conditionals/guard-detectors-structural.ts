@@ -45,7 +45,12 @@ const getRuntimeCarrierBindingType = (
   binding: NarrowedBinding | undefined,
   context: EmitterContext
 ): IrType | undefined =>
-  [binding?.sourceType, binding?.type].find(
+  [
+    binding?.kind === "expr" ? binding.carrierType : undefined,
+    binding?.sourceType,
+    binding?.kind === "expr" ? binding.storageType : undefined,
+    binding?.type,
+  ].find(
     (candidate): candidate is IrType =>
       candidate !== undefined && willCarryAsRuntimeUnion(candidate, context)
   );
@@ -102,10 +107,6 @@ const getPredicateReceiverAstFromExistingBinding = (
     return undefined;
   }
 
-  if (binding.type && willCarryAsRuntimeUnion(binding.type, context)) {
-    return binding.exprAst;
-  }
-
   if (
     binding.carrierExprAst &&
     binding.carrierType &&
@@ -120,6 +121,18 @@ const getPredicateReceiverAstFromExistingBinding = (
     willCarryAsRuntimeUnion(binding.sourceType, context)
   ) {
     return binding.carrierExprAst;
+  }
+
+  if (
+    binding.storageExprAst &&
+    binding.storageType &&
+    willCarryAsRuntimeUnion(binding.storageType, context)
+  ) {
+    return binding.storageExprAst;
+  }
+
+  if (binding.type && willCarryAsRuntimeUnion(binding.type, context)) {
+    return binding.exprAst;
   }
 
   return undefined;

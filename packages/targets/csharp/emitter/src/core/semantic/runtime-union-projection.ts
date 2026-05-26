@@ -23,13 +23,14 @@ import {
 } from "./runtime-union-member-mapping.js";
 import { describeIrTypeForDiagnostics } from "./deterministic-type-keys.js";
 import { UNKNOWN_TYPE } from "./runtime-union-shared.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 
 type RuntimeUnionProjectionBodyResult =
   | CSharpExpressionAst
   | readonly [CSharpExpressionAst, EmitterContext]
   | undefined;
 
-const isRuntimeUnionMemberProjectionAst = (
+export const isRuntimeUnionMemberProjectionAst = (
   valueAst: CSharpExpressionAst
 ): boolean => {
   let target = valueAst;
@@ -93,21 +94,23 @@ export const buildRuntimeUnionMatchAst = (
   valueAst: CSharpExpressionAst,
   lambdaArgs: readonly CSharpExpressionAst[],
   typeArguments?: readonly CSharpTypeAst[]
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: isRuntimeUnionMemberProjectionAst(valueAst)
-      ? {
-          kind: "parenthesizedExpression",
-          expression: valueAst,
-        }
-      : valueAst,
-    memberName: "Match",
-  },
-  ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {}),
-  arguments: [...lambdaArgs],
-});
+): CSharpExpressionAst => {
+  return {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: isRuntimeUnionMemberProjectionAst(valueAst)
+        ? {
+            kind: "parenthesizedExpression",
+            expression: valueAst,
+          }
+        : valueAst,
+      memberName: "Match",
+    },
+    ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {}),
+    arguments: [...lambdaArgs],
+  };
+};
 
 export const buildInvalidRuntimeUnionCastExpression = (
   actualType: IrType,
@@ -183,6 +186,9 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = opts.context;
+  let directProjectionMemberN: number | undefined;
+  let directProjectionCount = 0;
+  let reachableResultCount = 0;
 
   const sourceMemberIndexBySlot = new Map<number, number>();
   for (let index = 0; index < opts.sourceLayout.members.length; index += 1) {
@@ -208,6 +214,16 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
     const parameterExpr = identifierExpression(parameterName);
 
     const pushLambda = (body: CSharpExpressionAst): void => {
+      if (body.kind !== "throwExpression") {
+        reachableResultCount += 1;
+      }
+      if (
+        body.kind === "identifierExpression" &&
+        body.identifier === parameterName
+      ) {
+        directProjectionMemberN = sourceMemberN;
+        directProjectionCount += 1;
+      }
       lambdaArgs.push({
         kind: "lambdaExpression",
         isAsync: false,
@@ -254,6 +270,16 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
     });
 
     if (targetMemberIndex === undefined) {
+      if (
+        sameTypeAstSurface(
+          stripNullableTypeAst(actualMemberTypeAst),
+          stripNullableTypeAst(targetUnionTypeAst)
+        )
+      ) {
+        pushLambda(parameterExpr);
+        continue;
+      }
+
       const unmappedBodyResult = opts.buildUnmappedMemberBody?.({
         actualMember,
         parameterExpr,
@@ -278,6 +304,22 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
       return undefined;
     }
 
+    if (
+      sameTypeAstSurface(
+        stripNullableTypeAst(actualMemberTypeAst),
+        stripNullableTypeAst(targetMemberTypeAst)
+      )
+    ) {
+      pushLambda(
+        buildRuntimeUnionFactoryCallAst(
+          targetUnionTypeAst,
+          targetMemberIndex + 1,
+          parameterExpr
+        )
+      );
+      continue;
+    }
+
     const mappedValue = opts.buildMappedMemberValue({
       actualMember,
       actualMemberTypeAst,
@@ -292,18 +334,43 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
       return undefined;
     }
 
+    const mappedValueAst =
+      !willCarryAsRuntimeUnion(actualMember, currentContext) &&
+      isRuntimeUnionMemberProjectionAst(mappedValue[0])
+        ? parameterExpr
+        : mappedValue[0];
     pushLambda(
       buildRuntimeUnionFactoryCallAst(
         targetUnionTypeAst,
         targetMemberIndex + 1,
-        mappedValue[0]
+        mappedValueAst
       )
     );
     currentContext = mappedValue[1];
   }
 
-  return [
-    buildRuntimeUnionMatchAst(opts.valueAst, lambdaArgs, [targetUnionTypeAst]),
-    currentContext,
-  ];
+  return directProjectionCount === 1 &&
+    reachableResultCount === 1 &&
+    directProjectionMemberN !== undefined
+    ? [
+        {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "invocationExpression",
+            expression: {
+              kind: "memberAccessExpression",
+              expression: opts.valueAst,
+              memberName: `As${directProjectionMemberN}`,
+            },
+            arguments: [],
+          },
+        },
+        currentContext,
+      ]
+    : [
+        buildRuntimeUnionMatchAst(opts.valueAst, lambdaArgs, [
+          targetUnionTypeAst,
+        ]),
+        currentContext,
+      ];
 };

@@ -22,6 +22,16 @@ import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { wrapArgModifier } from "./call-arguments-helpers.js";
 import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
+import { adaptValueToExpectedTypeAst } from "../expected-type-adaptation.js";
+import { tryBuildRuntimeMaterializationAst } from "../../core/semantic/runtime-reification.js";
+import { resolveDirectValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
+import {
+  buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+} from "../../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionFactoryCallAst } from "../../core/semantic/runtime-union-projection.js";
+import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-union-alias-identity.js";
+import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import {
   getBorrowedMutationWriteBackSemantics,
@@ -75,6 +85,102 @@ const createVarLocal = (
   type: { kind: "varType" },
   declarators: [{ name, initializer }],
 });
+
+const withArrayMutationArgumentSurface = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  memberName: string,
+  receiverType: IrType | undefined,
+  receiverElementType: IrType
+): Extract<IrExpression, { kind: "call" }> => {
+  switch (memberName) {
+    case "push":
+    case "unshift":
+      return {
+        ...expr,
+        parameterTypes: [receiverElementType],
+        restParameter: {
+          index: 0,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+        sourceBackedSurfaceParameterTypes: [receiverElementType],
+        sourceBackedRestParameter: {
+          index: 0,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+        surfaceParameterTypes: [receiverElementType],
+        surfaceRestParameter: {
+          index: 0,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+      };
+    case "fill":
+      return {
+        ...expr,
+        parameterTypes: [
+          receiverElementType,
+          expr.parameterTypes?.[1],
+          expr.parameterTypes?.[2],
+        ],
+        sourceBackedSurfaceParameterTypes: [
+          receiverElementType,
+          expr.sourceBackedSurfaceParameterTypes?.[1] ??
+            expr.surfaceParameterTypes?.[1] ??
+            expr.parameterTypes?.[1],
+          expr.sourceBackedSurfaceParameterTypes?.[2] ??
+            expr.surfaceParameterTypes?.[2] ??
+            expr.parameterTypes?.[2],
+        ],
+        surfaceParameterTypes: [
+          receiverElementType,
+          expr.surfaceParameterTypes?.[1] ?? expr.parameterTypes?.[1],
+          expr.surfaceParameterTypes?.[2] ?? expr.parameterTypes?.[2],
+        ],
+      };
+    case "splice":
+      return {
+        ...expr,
+        parameterTypes: [
+          expr.parameterTypes?.[0],
+          expr.parameterTypes?.[1],
+          receiverElementType,
+        ],
+        restParameter: {
+          index: 2,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+        sourceBackedSurfaceParameterTypes: [
+          expr.sourceBackedSurfaceParameterTypes?.[0] ??
+            expr.surfaceParameterTypes?.[0] ??
+            expr.parameterTypes?.[0],
+          expr.sourceBackedSurfaceParameterTypes?.[1] ??
+            expr.surfaceParameterTypes?.[1] ??
+            expr.parameterTypes?.[1],
+          receiverElementType,
+        ],
+        sourceBackedRestParameter: {
+          index: 2,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+        surfaceParameterTypes: [
+          expr.surfaceParameterTypes?.[0] ?? expr.parameterTypes?.[0],
+          expr.surfaceParameterTypes?.[1] ?? expr.parameterTypes?.[1],
+          receiverElementType,
+        ],
+        surfaceRestParameter: {
+          index: 2,
+          arrayType: receiverType,
+          elementType: receiverElementType,
+        },
+      };
+    default:
+      return expr;
+  }
+};
 
 type CapturedAssignableArrayTarget = {
   readonly readExpression: CSharpExpressionAst;
@@ -333,11 +439,76 @@ export const emitArrayMutationInteropCall = (
     identifier: resultTemp.emittedName,
   };
 
-  const [argAsts, argContext] = emitCallArguments(
-    expr.arguments,
+  const argumentSurfaceExpr = withArrayMutationArgumentSurface(
     expr,
+    binding.member,
+    receiverType,
+    receiverElementType
+  );
+  const [emittedArgAsts, argContext] = emitCallArguments(
+    expr.arguments,
+    argumentSurfaceExpr,
     currentContext
   );
+  const argAsts = emittedArgAsts.map((argAst, index) => {
+    const sourceArg = expr.arguments[index];
+    const actualType =
+      resolveDirectValueSurfaceType(argAst, argContext) ??
+      (sourceArg
+        ? (resolveEffectiveExpressionType(sourceArg, argContext) ??
+          sourceArg.inferredType)
+        : undefined);
+    if (!actualType) {
+      return argAst;
+    }
+    const [receiverElementLayout, receiverElementLayoutContext] =
+      buildRuntimeUnionLayout(receiverElementType, argContext, emitTypeAst);
+    const [actualRuntimeLayout] = buildRuntimeUnionLayout(
+      actualType,
+      receiverElementLayoutContext,
+      emitTypeAst
+    );
+    const directRuntimeUnionMemberIndex =
+      receiverElementLayout?.members.findIndex(
+        (member) =>
+          runtimeUnionAliasReferencesMatch(
+            member,
+            actualType,
+            receiverElementLayoutContext
+          ) ||
+          (!actualRuntimeLayout &&
+            matchesExpectedEmissionType(
+              actualType,
+              member,
+              receiverElementLayoutContext
+            ))
+      ) ?? -1;
+    const directRuntimeUnionMemberWrappedArg =
+      receiverElementLayout && directRuntimeUnionMemberIndex >= 0
+        ? buildRuntimeUnionFactoryCallAst(
+            buildRuntimeUnionTypeAst(receiverElementLayout),
+            directRuntimeUnionMemberIndex + 1,
+            argAst
+          )
+        : undefined;
+    const normalizedArg =
+      directRuntimeUnionMemberWrappedArg ??
+      adaptValueToExpectedTypeAst({
+        valueAst: argAst,
+        actualType,
+        context: argContext,
+        expectedType: receiverElementType,
+      })?.[0] ??
+      tryBuildRuntimeMaterializationAst(
+        argAst,
+        actualType,
+        receiverElementType,
+        argContext,
+        emitTypeAst
+      )?.[0] ??
+      argAst;
+    return normalizedArg;
+  });
   currentContext = argContext;
 
   const mutationCall: CSharpExpressionAst = {

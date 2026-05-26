@@ -54,13 +54,7 @@ export const lambdaHasExpectedTypeContext = (
     ts.isPropertyAssignment(parent) &&
     ts.isObjectLiteralExpression(parent.parent)
   ) {
-    const grandparent = parent.parent.parent;
-    if (ts.isVariableDeclaration(grandparent) && grandparent.type) {
-      return true;
-    }
-    if (ts.isCallExpression(grandparent) || ts.isNewExpression(grandparent)) {
-      return true;
-    }
+    return objectLiteralHasContextualType(parent.parent);
   }
 
   // Case 6: Lambda is an array element where the array has a type

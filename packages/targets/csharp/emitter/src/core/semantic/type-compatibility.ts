@@ -305,6 +305,18 @@ export const isAssignableToType = (
     );
   }
 
+  if (fromType.kind === "dictionaryType" && toType.kind === "dictionaryType") {
+    return (
+      isAssignableToType(fromType.keyType, toType.keyType, context, visited) &&
+      isAssignableToType(
+        fromType.valueType,
+        toType.valueType,
+        context,
+        visited
+      )
+    );
+  }
+
   if (fromType.kind === "referenceType" && toType.kind === "referenceType") {
     return isReferenceAssignableThroughHeritage(
       fromType,

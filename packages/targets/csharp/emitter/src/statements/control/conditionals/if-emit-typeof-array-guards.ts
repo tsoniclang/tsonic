@@ -33,6 +33,10 @@ import {
   isArrayLikeNarrowingCandidate,
 } from "./guard-extraction.js";
 import {
+  buildRuntimeArrayShapeCondition,
+  shouldReuseDirectRuntimeMemberArrayGuard,
+} from "../../../core/semantic/array-shape-narrowing.js";
+import {
   buildExprBinding,
   buildAnyIsNCondition,
   buildIsNCondition,
@@ -68,6 +72,7 @@ import {
 } from "../../../core/format/backend-ast/builders.js";
 import { applyIrBranchNarrowings } from "./ir-branch-narrowings.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
+import { tryBuildRuntimeMaterializationAst } from "../../../core/semantic/runtime-reification.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
 type GuardResult = [readonly CSharpStatementAst[], EmitterContext] | undefined;
@@ -119,6 +124,37 @@ const buildOrCondition = (
         : condition,
     undefined
   ) ?? booleanLiteral(false);
+
+const buildArrayShapeExprBinding = (
+  receiverAst: CSharpExpressionAst,
+  sourceType: IrType,
+  narrowedType: IrType,
+  context: EmitterContext
+): [ReturnType<typeof buildExprBinding>, EmitterContext] | undefined => {
+  const materialized = tryBuildRuntimeMaterializationAst(
+    receiverAst,
+    sourceType,
+    narrowedType,
+    context,
+    emitTypeAst
+  );
+  if (materialized) {
+    return [
+      buildExprBinding(
+        materialized[0],
+        narrowedType,
+        sourceType,
+        receiverAst,
+        sourceType,
+        receiverAst,
+        sourceType
+      ),
+      materialized[1],
+    ];
+  }
+
+  return undefined;
+};
 
 const buildNonUnionTypeofCondition = (
   expression: CSharpExpressionAst,
@@ -534,10 +570,28 @@ export const tryEmitArrayIsArrayGuard = (
 
   const runtimeArrayPair =
     runtimeArrayPairs.length === 1 ? runtimeArrayPairs[0] : undefined;
+  const arrayShapeCondition =
+    runtimeCarrierType &&
+    buildRuntimeArrayShapeCondition(
+      runtimeCarrierAst,
+      runtimeCarrierType,
+      condCtxAfterCond,
+      emitTypeAst
+    );
+  const canUseDirectRuntimeMemberArrayGuard =
+    !!runtimeCarrierType &&
+    !!runtimeArrayPair &&
+    shouldReuseDirectRuntimeMemberArrayGuard(
+      runtimeCarrierType,
+      runtimeArrayPairs.length,
+      condCtxAfterCond,
+      emitTypeAst
+    );
 
   if (
     runtimeUnionFrame &&
     runtimeArrayPair &&
+    canUseDirectRuntimeMemberArrayGuard &&
     runtimeUnionFrame.runtimeUnionArity >= 2
   ) {
     const [, condCtxAfterCondAst] = emitBooleanConditionAst(
@@ -545,6 +599,10 @@ export const tryEmitArrayIsArrayGuard = (
       emitExprAstCb,
       condCtxAfterCond
     );
+    const conditionBaseContext: EmitterContext = {
+      ...condCtxAfterCondAst,
+      narrowedBindings: condCtxAfterCond.narrowedBindings,
+    };
 
     const arrayBranchContext = withRuntimeUnionMemberNarrowing(
       arrayIsArrayGuard.originalName,
@@ -552,10 +610,10 @@ export const tryEmitArrayIsArrayGuard = (
       runtimeArrayPair.runtimeMemberN,
       runtimeArrayPair.memberType,
       runtimeCarrierType,
-      condCtxAfterCondAst,
+      conditionBaseContext,
       resolveRuntimeArrayMemberStorageType(
         runtimeArrayPair.memberType,
-        condCtxAfterCondAst
+        conditionBaseContext
       )
     );
     const nonArrayBranchContext = withComplementNarrowing(
@@ -565,7 +623,7 @@ export const tryEmitArrayIsArrayGuard = (
       runtimeUnionFrame.candidateMemberNs,
       runtimeUnionFrame.members,
       runtimeArrayPair.runtimeMemberN,
-      condCtxAfterCondAst
+      conditionBaseContext
     );
 
     const thenCtx =
@@ -580,7 +638,7 @@ export const tryEmitArrayIsArrayGuard = (
     const thenStatementAst = wrapInBlock(thenStmts);
     const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
     const basePostConditionContext = resetBranchFlowState(
-      condCtxAfterCondAst,
+      conditionBaseContext,
       thenCtxAfter
     );
     const fallthroughContext: EmitterContext = arrayIsArrayGuard.narrowsInThen
@@ -589,7 +647,7 @@ export const tryEmitArrayIsArrayGuard = (
     let finalContext: EmitterContext = thenTerminates
       ? mergeBranchContextMeta(fallthroughContext, thenCtxAfter)
       : mergeBranchExitContext(
-          condCtxAfterCondAst,
+          conditionBaseContext,
           thenCtxAfter,
           fallthroughContext
         );
@@ -617,7 +675,7 @@ export const tryEmitArrayIsArrayGuard = (
         finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtxAfter);
       } else {
         finalContext = mergeBranchExitContext(
-          condCtxAfterCondAst,
+          conditionBaseContext,
           thenCtxAfter,
           elseCtxAfter
         );
@@ -634,6 +692,138 @@ export const tryEmitArrayIsArrayGuard = (
         {
           kind: "ifStatement",
           condition: runtimeCondAst,
+          thenStatement: thenStatementAst,
+          elseStatement: elseStmt,
+        },
+      ],
+      finalContext,
+    ];
+  }
+
+  if (
+    runtimeCarrierType &&
+    arrayShapeCondition &&
+    runtimeUnionFrame &&
+    runtimeUnionFrame.runtimeUnionArity >= 2
+  ) {
+    const arrayNarrowedType = narrowTypeByArrayShape(
+      arrayIsArrayGuard.targetExpr.inferredType,
+      true,
+      arrayShapeCondition.context
+    );
+    const nonArrayNarrowedType = narrowTypeByArrayShape(
+      arrayIsArrayGuard.targetExpr.inferredType,
+      false,
+      arrayShapeCondition.context
+    );
+    if (!arrayNarrowedType || !nonArrayNarrowedType) {
+      return undefined;
+    }
+
+    const [, condCtxAfterCondAst] = emitBooleanConditionAst(
+      stmt.condition,
+      emitExprAstCb,
+      arrayShapeCondition.context
+    );
+    const conditionBaseContext: EmitterContext = {
+      ...condCtxAfterCondAst,
+      narrowedBindings: condCtxAfterCond.narrowedBindings,
+    };
+    const arrayBindingResult = buildArrayShapeExprBinding(
+      runtimeCarrierAst,
+      runtimeCarrierType,
+      arrayNarrowedType,
+      conditionBaseContext
+    );
+    const nonArrayBindingResult = buildArrayShapeExprBinding(
+      runtimeCarrierAst,
+      runtimeCarrierType,
+      nonArrayNarrowedType,
+      arrayBindingResult?.[1] ?? conditionBaseContext
+    );
+    if (!arrayBindingResult || !nonArrayBindingResult) {
+      return undefined;
+    }
+
+    const [arrayBinding, arrayBindingContext] = arrayBindingResult;
+    const [nonArrayBinding, nonArrayBindingContext] = nonArrayBindingResult;
+    const arrayBindings = new Map(conditionBaseContext.narrowedBindings ?? []);
+    arrayBindings.set(arrayIsArrayGuard.originalName, arrayBinding);
+    const nonArrayBindings = new Map(
+      nonArrayBindingContext.narrowedBindings ?? []
+    );
+    nonArrayBindings.set(arrayIsArrayGuard.originalName, nonArrayBinding);
+
+    const arrayBranchContext: EmitterContext = {
+      ...arrayBindingContext,
+      narrowedBindings: arrayBindings,
+    };
+    const nonArrayBranchContext: EmitterContext = {
+      ...nonArrayBindingContext,
+      narrowedBindings: nonArrayBindings,
+    };
+    const thenCtx = arrayIsArrayGuard.narrowsInThen
+      ? arrayBranchContext
+      : nonArrayBranchContext;
+    const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
+      stmt.thenStatement,
+      thenCtx
+    );
+    const thenStatementAst = wrapInBlock(thenStmts);
+    const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
+    const basePostConditionContext = resetBranchFlowState(
+      conditionBaseContext,
+      thenCtxAfter
+    );
+    const fallthroughContext: EmitterContext = arrayIsArrayGuard.narrowsInThen
+      ? nonArrayBranchContext
+      : arrayBranchContext;
+    let finalContext: EmitterContext = thenTerminates
+      ? mergeBranchContextMeta(fallthroughContext, thenCtxAfter)
+      : mergeBranchExitContext(
+          conditionBaseContext,
+          thenCtxAfter,
+          fallthroughContext
+        );
+
+    let elseStmt: CSharpStatementAst | undefined;
+    if (stmt.elseStatement) {
+      const elseCtx: EmitterContext = {
+        ...(arrayIsArrayGuard.narrowsInThen
+          ? nonArrayBranchContext
+          : arrayBranchContext),
+        tempVarId: basePostConditionContext.tempVarId,
+        usings: basePostConditionContext.usings,
+        usedLocalNames: basePostConditionContext.usedLocalNames,
+      };
+      const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
+        stmt.elseStatement,
+        elseCtx
+      );
+      elseStmt = wrapInBlock(elseStmts);
+      const elseTerminates = isDefinitelyTerminating(stmt.elseStatement);
+
+      if (thenTerminates && !elseTerminates) {
+        finalContext = mergeBranchContextMeta(elseCtxAfter, thenCtxAfter);
+      } else if (!thenTerminates && elseTerminates) {
+        finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtxAfter);
+      } else {
+        finalContext = mergeBranchExitContext(
+          conditionBaseContext,
+          thenCtxAfter,
+          elseCtxAfter
+        );
+      }
+    }
+
+    return [
+      [
+        {
+          kind: "ifStatement",
+          condition: maybeNegateConditionAst(
+            arrayShapeCondition.condition,
+            !arrayIsArrayGuard.narrowsInThen
+          ),
           thenStatement: thenStatementAst,
           elseStatement: elseStmt,
         },

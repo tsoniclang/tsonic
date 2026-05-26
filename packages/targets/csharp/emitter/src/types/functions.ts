@@ -10,6 +10,7 @@ import {
   identifierType,
   nullableType,
 } from "../core/format/backend-ast/builders.js";
+import { unwrapParameterModifierType } from "../core/semantic/parameter-modifier-types.js";
 
 const objectNullableType = (): CSharpTypeAst =>
   nullableType({ kind: "predefinedType", keyword: "object" });
@@ -53,7 +54,11 @@ export const emitFunctionType = (
 
   for (const param of type.parameters) {
     const paramType = param.type ?? { kind: "anyType" as const };
-    const [typeAst, newContext] = emitTypeAst(paramType, currentContext);
+    const unwrappedParamType = unwrapParameterModifierType(paramType) ?? paramType;
+    const [typeAst, newContext] = emitTypeAst(
+      unwrappedParamType,
+      currentContext
+    );
     paramTypeAsts.push(
       (param.isOptional || param.initializer) && typeAst.kind !== "nullableType"
         ? { kind: "nullableType", underlyingType: typeAst }

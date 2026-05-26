@@ -292,16 +292,31 @@ export const buildRuntimeUnionSubsetBinding = (
     if (!selected) {
       return undefined;
     }
+    const selectedMemberAst = buildMappedUnionNarrowAst(
+      narrowedReceiverAst,
+      selected.runtimeMemberN
+    );
+    const nestedMaterialization = tryBuildRuntimeMaterializationAst(
+      selectedMemberAst,
+      selected.memberType,
+      narrowedType,
+      narrowedReceiverContext,
+      emitTypeAst
+    );
+    const narrowedExprAst =
+      nestedMaterialization?.[0] ?? selectedMemberAst;
+    const narrowedExprContext =
+      nestedMaterialization?.[1] ?? narrowedReceiverContext;
     return [
       buildProjectedExprBinding(
-        buildMappedUnionNarrowAst(narrowedReceiverAst, selected.runtimeMemberN),
+        narrowedExprAst,
         narrowedType,
         narrowedReceiverSourceType,
         narrowedReceiverAst,
         undefined,
         narrowedReceiverSourceType
       ),
-      narrowedReceiverContext,
+      narrowedExprContext,
     ];
   }
 
@@ -523,6 +538,18 @@ export const applyDirectTypeNarrowing = (
           existingBinding.type ??
           currentType ??
           targetExpr.inferredType);
+      if (
+        existingBinding.type &&
+        currentType &&
+        willCarryAsRuntimeUnion(existingBinding.type, context) &&
+        areIrTypesEquivalent(
+          resolveTypeAlias(existingBinding.type, context),
+          resolveTypeAlias(currentType, context),
+          context
+        )
+      ) {
+        return [existingBinding.exprAst, context, existingBinding.type] as const;
+      }
       const exprCarrierFrame = currentType
         ? resolveRuntimeUnionFrame(bindingKey, currentType, context)
         : undefined;

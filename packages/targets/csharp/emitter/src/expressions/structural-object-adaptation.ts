@@ -42,6 +42,7 @@ import {
 } from "./structural-type-shapes.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { localInfoHasStructuralMember } from "../core/semantic/structural-member-matching.js";
+import { isAssignableToType } from "../core/semantic/type-compatibility.js";
 
 const buildStructuralSourceAccess = (
   sourceExpression: CSharpExpressionAst,
@@ -76,6 +77,14 @@ const resolveSourceLocalName = (
   }
 
   return emittedIdentifier;
+};
+
+const isCollectionStructuralType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return resolved.kind === "arrayType" || resolved.kind === "dictionaryType";
 };
 
 const localIdentifierAlreadyHasExpectedSurface = (
@@ -180,13 +189,22 @@ const isStructuralObjectTargetType = (
     return false;
   }
 
+  if (isCompilerGeneratedStructuralReferenceType(type)) {
+    return true;
+  }
+
   const localInfo = resolveLocalTypeInfo(type, context)?.info;
   if (localInfo?.kind === "class" || localInfo?.kind === "enum") {
     return false;
   }
-
-  if (isCompilerGeneratedStructuralReferenceType(type)) {
-    return true;
+  if (localInfo?.kind === "interface") {
+    return localInfo.members.some(
+      (member) => member.kind === "propertySignature"
+    );
+  }
+  if (localInfo?.kind === "typeAlias") {
+    const props = collectStructuralProperties(type, context);
+    return !!props && props.length > 0;
   }
 
   return !!type.structuralMembers?.some(
@@ -298,6 +316,27 @@ export const tryAdaptStructuralObjectExpressionAst = (
   }
   if (
     localIdentifierAlreadyHasExpectedSurface(emittedAst, expectedType, context)
+  ) {
+    return [emittedAst, context];
+  }
+  const expectedInterfaceMembers = getExpectedInterfaceMembers(
+    expectedType,
+    context
+  );
+  const strippedSourceType = stripNullish(sourceType);
+  const sourceRequiresStructuralMaterialization =
+    !isSameNominalType(sourceType, expectedType, context) &&
+    (strippedSourceType.kind === "objectType" ||
+      (strippedSourceType.kind === "referenceType" &&
+        isCompilerGeneratedStructuralReferenceType(strippedSourceType)));
+  if (
+    !sourceRequiresStructuralMaterialization &&
+    (expectedInterfaceMembers?.length ?? 0) === 0 &&
+    !isCollectionStructuralType(sourceType, context) &&
+    !isCollectionStructuralType(expectedType, context) &&
+    willCarryAsRuntimeUnion(sourceType, context) ===
+      willCarryAsRuntimeUnion(expectedType, context) &&
+    isAssignableToType(sourceType, expectedType, context)
   ) {
     return [emittedAst, context];
   }

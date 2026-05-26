@@ -2,7 +2,11 @@ import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
-import { unionMemberMatchesTarget } from "./type-resolution.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+  unionMemberMatchesTarget,
+} from "./type-resolution.js";
 import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
 
 export const buildRuntimeUnionMemberIndexByAstKey = (
@@ -33,14 +37,33 @@ export const findMappedRuntimeUnionMemberIndex = (opts: {
     return astMatch;
   }
 
-  const semanticMatch = opts.targetMembers.findIndex(
-    (targetMember) =>
+  const actualMemberIsRuntimeUnion =
+    resolveTypeAlias(stripNullish(opts.actualMember), opts.context).kind ===
+    "unionType";
+  const semanticMatch = opts.targetMembers.findIndex((targetMember) => {
+    if (
       runtimeUnionAliasReferencesMatch(
         opts.actualMember,
         targetMember,
         opts.context
-      ) ||
-      unionMemberMatchesTarget(opts.actualMember, targetMember, opts.context)
-  );
+      )
+    ) {
+      return true;
+    }
+
+    if (
+      actualMemberIsRuntimeUnion &&
+      resolveTypeAlias(stripNullish(targetMember), opts.context).kind !==
+        "unionType"
+    ) {
+      return false;
+    }
+
+    return unionMemberMatchesTarget(
+      opts.actualMember,
+      targetMember,
+      opts.context
+    );
+  });
   return semanticMatch >= 0 ? semanticMatch : undefined;
 };

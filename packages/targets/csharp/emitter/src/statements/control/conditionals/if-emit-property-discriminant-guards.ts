@@ -1,15 +1,17 @@
 /** Property-truthiness, discriminant-equality, and negated-predicate union-narrowing guard emission. */
 
-import { IrStatement } from "@tsonic/frontend";
+import { IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterContext, storageCarrier } from "../../../types.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
+import { emitTypeAst } from "../../../type-emitter.js";
+import { toBooleanConditionAst } from "../../../core/semantic/boolean-context.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { makeNarrowedLocalName } from "../../../core/semantic/narrowing-keys.js";
 import { buildRuntimeUnionMatchAst } from "../../../core/semantic/runtime-union-projection.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import {
-  buildAnyIsNCondition,
   buildProjectedExprBinding,
   buildSubsetUnionType,
   toReceiverAst,
@@ -22,6 +24,7 @@ import {
   buildCastLocalDecl,
   buildIsNCondition,
   emitBranchScopedStatementAst,
+  withoutNarrowedBinding,
 } from "./branch-context.js";
 import {
   tryResolvePredicateGuard,
@@ -30,9 +33,84 @@ import {
   tryResolveDiscriminantEqualityGuard,
   isDefinitelyTerminating,
 } from "./guard-analysis.js";
+import { tryBuildRuntimeMaterializationAst } from "../../../core/semantic/runtime-reification.js";
+import type { RuntimeMaterializationSourceFrame } from "../../../core/semantic/runtime-reification.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
 type GuardResult = [readonly CSharpStatementAst[], EmitterContext] | undefined;
+
+const buildPredicateSourceFrame = (
+  runtimeUnionArity: number,
+  candidateMembers: readonly IrType[],
+  candidateMemberNs: readonly number[],
+  sourceMembers: readonly IrType[] | undefined,
+  sourceCandidateMemberNs: readonly number[] | undefined
+): RuntimeMaterializationSourceFrame | undefined => {
+  if (
+    sourceMembers &&
+    sourceCandidateMemberNs &&
+    sourceMembers.length === sourceCandidateMemberNs.length
+  ) {
+    return {
+      members: sourceMembers,
+      candidateMemberNs: sourceCandidateMemberNs,
+      runtimeUnionArity,
+    };
+  }
+
+  return candidateMembers.length === candidateMemberNs.length
+    ? {
+        members: candidateMembers,
+        candidateMemberNs,
+        runtimeUnionArity,
+      }
+    : undefined;
+};
+
+const buildMaterializedPredicateNarrowLocal = (
+  varName: string,
+  receiverAst: CSharpExpressionAst,
+  sourceType: IrType | undefined,
+  fallbackSourceMembers: readonly IrType[],
+  targetType: IrType,
+  selectedMemberN: number,
+  runtimeUnionArity: number,
+  candidateMemberNs: readonly number[],
+  sourceMembers: readonly IrType[] | undefined,
+  sourceCandidateMemberNs: readonly number[] | undefined,
+  context: EmitterContext
+): [CSharpStatementAst, EmitterContext] | undefined => {
+  const carrierSourceType =
+    sourceType ?? buildSubsetUnionType(fallbackSourceMembers) ?? targetType;
+  const materialized = tryBuildRuntimeMaterializationAst(
+    receiverAst,
+    carrierSourceType,
+    targetType,
+    context,
+    emitTypeAst,
+    new Set([selectedMemberN]),
+    buildPredicateSourceFrame(
+      runtimeUnionArity,
+      fallbackSourceMembers,
+      candidateMemberNs,
+      sourceMembers,
+      sourceCandidateMemberNs
+    )
+  );
+  if (!materialized) {
+    return undefined;
+  }
+
+  return [
+    {
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type: { kind: "varType" },
+      declarators: [{ name: varName, initializer: materialized[0] }],
+    },
+    materialized[1],
+  ];
+};
 
 const buildRuntimeUnionPropertyTruthinessCondition = (
   receiver: string,
@@ -356,6 +434,7 @@ export const tryEmitDiscriminantEqualityGuard = (
 
   const {
     originalName,
+    receiverExpr,
     operator,
     memberN,
     unionArity,
@@ -363,21 +442,29 @@ export const tryEmitDiscriminantEqualityGuard = (
     candidateMemberNs,
     candidateMembers,
     ctxWithId,
-    escapedOrig,
     escapedNarrow,
     narrowedMap,
   } = eqGuard;
 
+  const [receiverAst, receiverContext] = emitExpressionAst(
+    receiverExpr,
+    withoutNarrowedBinding(ctxWithId, originalName)
+  );
+  const guardContext: EmitterContext = {
+    ...receiverContext,
+    tempVarId: ctxWithId.tempVarId,
+    narrowedBindings: ctxWithId.narrowedBindings,
+  };
   const isInequality = operator === "!==" || operator === "!=";
-  const condAst = buildIsNCondition(escapedOrig, memberN, isInequality);
+  const condAst = buildIsNCondition(receiverAst, memberN, isInequality);
 
-  let finalContext: EmitterContext = ctxWithId;
+  let finalContext: EmitterContext = guardContext;
 
   // Equality: narrow THEN to memberN. Inequality: narrow ELSE to memberN.
   if (!isInequality) {
-    const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
+    const castStmt = buildCastLocalDecl(escapedNarrow, receiverAst, memberN);
     const thenCtx: EmitterContext = {
-      ...ctxWithId,
+      ...guardContext,
       narrowedBindings: narrowedMap,
     };
     const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
@@ -386,7 +473,7 @@ export const tryEmitDiscriminantEqualityGuard = (
       thenCtx
     );
     const basePostConditionContext = resetBranchFlowState(
-      ctxWithId,
+      guardContext,
       thenBodyCtx
     );
     finalContext = basePostConditionContext;
@@ -398,7 +485,7 @@ export const tryEmitDiscriminantEqualityGuard = (
           stmt.elseStatement,
           withComplementNarrowing(
             originalName,
-            escapedOrig,
+            receiverAst,
             runtimeUnionArity,
             candidateMemberNs,
             candidateMembers,
@@ -453,7 +540,7 @@ export const tryEmitDiscriminantEqualityGuard = (
     if (isDefinitelyTerminating(stmt.thenStatement)) {
       finalContext = withComplementNarrowing(
         originalName,
-        escapedOrig,
+        receiverAst,
         runtimeUnionArity,
         candidateMemberNs,
         candidateMembers,
@@ -493,12 +580,12 @@ export const tryEmitDiscriminantEqualityGuard = (
         {
           ...withComplementNarrowing(
             originalName,
-            escapedOrig,
+            receiverAst,
             runtimeUnionArity,
             candidateMemberNs,
             candidateMembers,
             memberN,
-            ctxWithId
+            guardContext
           ),
         }
       );
@@ -507,7 +594,7 @@ export const tryEmitDiscriminantEqualityGuard = (
     } else {
       const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
         stmt.thenStatement,
-        ctxWithId
+        guardContext
       );
       thenStmt = wrapInBlock(thenStmts);
       thenCtx = thenCtxAfter;
@@ -517,11 +604,11 @@ export const tryEmitDiscriminantEqualityGuard = (
 
     let elseStmt: CSharpStatementAst | undefined;
     if (stmt.elseStatement) {
-      const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
+      const castStmt = buildCastLocalDecl(escapedNarrow, receiverAst, memberN);
       const [elseBlock, elseBodyCtx] = emitForcedBlockWithPreambleAst(
         [castStmt],
         stmt.elseStatement,
-        { ...ctxWithId, narrowedBindings: narrowedMap }
+        { ...guardContext, narrowedBindings: narrowedMap }
       );
       elseStmt = elseBlock;
       finalContext = {
@@ -547,14 +634,14 @@ export const tryEmitDiscriminantEqualityGuard = (
       narrowedBindings.set(
         originalName,
         buildProjectedExprBinding(
-          buildUnionNarrowAst(escapedOrig, memberN),
+          buildUnionNarrowAst(receiverAst, memberN),
           candidateMembers[
             candidateMemberNs.findIndex(
               (runtimeMemberN) => runtimeMemberN === memberN
             )
           ],
           undefined,
-          toReceiverAst(escapedOrig)
+          toReceiverAst(receiverAst)
         )
       );
       finalContext = { ...finalContext, narrowedBindings };
@@ -625,7 +712,15 @@ export const tryEmitNegatedPredicateGuard = (
     sourceCandidateMemberNs,
   } = guard;
 
-  const condAst = buildAnyIsNCondition(receiverAst, memberNs, true);
+  const [predicateCallAst, predicateCallContext] = emitExpressionAst(
+    stmt.condition,
+    context
+  );
+  const [condAst, conditionContext] = toBooleanConditionAst(
+    stmt.condition,
+    predicateCallAst,
+    predicateCallContext
+  );
 
   // THEN branch: for 2-member unions narrow to OTHER member
   let thenStmt: CSharpStatementAst;
@@ -644,9 +739,9 @@ export const tryEmitNegatedPredicateGuard = (
         "ICE: Failed to resolve complement runtime union member for negated predicate guard."
       );
     }
-    const nextId = (ctxWithId.tempVarId ?? 0) + 1;
+    const nextId = (conditionContext.tempVarId ?? 0) + 1;
     const thenCtxWithId: EmitterContext = {
-      ...ctxWithId,
+      ...conditionContext,
       tempVarId: nextId,
     };
 
@@ -665,12 +760,26 @@ export const tryEmitNegatedPredicateGuard = (
       sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
     });
 
-    const thenCastStmt = buildCastLocalDecl(
-      escapedThenNarrow,
-      receiverAst,
-      otherMemberN
+    const [thenCastStmt, thenMaterializedContext] =
+      buildMaterializedPredicateNarrowLocal(
+        escapedThenNarrow,
+        receiverAst,
+        sourceType,
+        candidateMembers,
+        otherMemberType,
+        otherMemberN,
+        runtimeUnionArity,
+        candidateMemberNs,
+        sourceMembers,
+        sourceCandidateMemberNs,
+        thenCtxWithId
+      ) ?? [
+        buildCastLocalDecl(escapedThenNarrow, receiverAst, otherMemberN),
+        thenCtxWithId,
+      ];
+    const thenLocalValueTypes = new Map(
+      thenMaterializedContext.localValueTypes ?? []
     );
-    const thenLocalValueTypes = new Map(thenCtxWithId.localValueTypes ?? []);
     thenLocalValueTypes.set(thenNarrowedName, storageCarrier(otherMemberType));
     if (escapedThenNarrow !== thenNarrowedName) {
       thenLocalValueTypes.set(
@@ -683,7 +792,7 @@ export const tryEmitNegatedPredicateGuard = (
       [thenCastStmt],
       thenStatement,
       {
-        ...thenCtxWithId,
+        ...thenMaterializedContext,
         localValueTypes: thenLocalValueTypes,
         narrowedBindings: thenNarrowedMap,
       }
@@ -700,7 +809,7 @@ export const tryEmitNegatedPredicateGuard = (
         candidateMemberNs,
         candidateMembers,
         memberNs,
-        context
+        conditionContext
       )
     );
     thenStmt = wrapInBlock(thenStmts);
@@ -713,10 +822,12 @@ export const tryEmitNegatedPredicateGuard = (
         ? emitForcedBlockWithPreambleAst(
             [buildCastLocalDecl(escapedNarrow, receiverAst, memberN)],
             stmt.elseStatement,
-            { ...ctxWithId, narrowedBindings: narrowedMap }
+            { ...conditionContext, narrowedBindings: narrowedMap }
           )
         : (() => {
-            const narrowedBindings = new Map(ctxWithId.narrowedBindings ?? []);
+            const narrowedBindings = new Map(
+              conditionContext.narrowedBindings ?? []
+            );
             narrowedBindings.set(originalName, {
               kind: "runtimeSubset",
               runtimeMemberNs: memberNs,
@@ -732,7 +843,7 @@ export const tryEmitNegatedPredicateGuard = (
             const [elseStmts, nextElseCtx] = emitBranchScopedStatementAst(
               stmt.elseStatement,
               {
-                ...ctxWithId,
+                ...conditionContext,
                 narrowedBindings,
               }
             );
@@ -767,13 +878,39 @@ export const tryEmitNegatedPredicateGuard = (
         );
       }
 
+      const carrierSourceType =
+        sourceType ?? buildSubsetUnionType(candidateMembers) ?? selectedMemberType;
+      const sourceFrame = buildPredicateSourceFrame(
+        runtimeUnionArity,
+        candidateMembers,
+        candidateMemberNs,
+        sourceMembers,
+        sourceCandidateMemberNs
+      );
+      const materialized = tryBuildRuntimeMaterializationAst(
+        receiverAst,
+        carrierSourceType,
+        selectedMemberType,
+        finalContext,
+        emitTypeAst,
+        new Set([memberN]),
+        sourceFrame
+      );
+      const narrowedExprAst =
+        materialized?.[0] ?? buildUnionNarrowAst(receiverAst, memberN);
+      if (materialized) {
+        finalContext = materialized[1];
+      }
+
       narrowedBindings.set(
         originalName,
         buildProjectedExprBinding(
-          buildUnionNarrowAst(receiverAst, memberN),
+          narrowedExprAst,
           selectedMemberType,
-          sourceType,
-          toReceiverAst(receiverAst)
+          carrierSourceType,
+          toReceiverAst(receiverAst),
+          undefined,
+          carrierSourceType
         )
       );
     } else {

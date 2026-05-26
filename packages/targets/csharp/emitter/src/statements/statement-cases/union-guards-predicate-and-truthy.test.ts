@@ -151,7 +151,7 @@ describe("Statement Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("if (isA(s))");
-    expect(result).to.include("if (isB(s.Match");
+    expect(result).to.include("if (isB(s))");
     expect(result).to.not.include("if (s.Is1())");
     expect(result).to.not.include("if (s.Is2())");
   });
@@ -298,7 +298,7 @@ describe("Statement Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("if (isB(s.Match");
+    expect(result).to.include("if (isB(s))");
     expect(result).to.not.include("if (s.Is2())");
     expect(result).to.not.include("As2()).Is2()");
   });

@@ -10,6 +10,7 @@ import { tryResolveRuntimeUnionMemberType } from "../../core/semantic/narrowed-e
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import { stripNullish } from "../../core/semantic/type-resolution.js";
 import { isStorageErasedBroadObjectPassThroughType } from "../../core/semantic/broad-object-types.js";
+import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-union-alias-identity.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { isBroadStorageTarget } from "./broad-storage-target.js";
 import { matchesEmittedStorageSurface } from "./storage-surface-match.js";
@@ -62,13 +63,27 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     isBroadStorageTarget(expectedType, context) &&
     narrowed.carrierExprAst !== undefined &&
     narrowed.carrierExprAst !== narrowed.exprAst;
+  const hasProjectedRuntimeCarrier =
+    !!narrowed.carrierExprAst &&
+    !!narrowed.storageExprAst &&
+    narrowed.carrierExprAst !== narrowed.storageExprAst &&
+    !!narrowed.type &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    willCarryAsRuntimeUnion(narrowed.type, context);
   const shouldPreserveMaterializedValueNarrowing =
     preservesMaterializedValueTypeNarrowing(narrowed, context);
   const shouldAvoidStorageReuse =
     shouldAvoidBroadStorageReuse ||
     shouldAvoidProjectedRuntimeUnionStorageReuse ||
     shouldAvoidBroadCarrierReuseForProjectedNarrowing ||
+    hasProjectedRuntimeCarrier ||
     shouldPreserveMaterializedValueNarrowing;
+  const shouldMaterializeRuntimeUnionExpectedTarget =
+    !!expectedType &&
+    !!narrowed.type &&
+    willCarryAsRuntimeUnion(narrowed.type, context) &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    !runtimeUnionAliasReferencesMatch(narrowed.type, expectedType, context);
   const originalRuntimeCarrierAst =
     narrowed.carrierExprAst ??
     narrowed.storageExprAst ??
@@ -76,6 +91,16 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   const originalRuntimeCarrierType = narrowed.carrierExprAst
     ? (narrowed.carrierType ?? context.localValueTypes?.get(expr.name))
     : storageType;
+  if (
+    expectedType &&
+    isBroadStorageTarget(expectedType, context) &&
+    originalRuntimeCarrierAst &&
+    originalRuntimeCarrierType &&
+    willCarryAsRuntimeUnion(originalRuntimeCarrierType, context)
+  ) {
+    return [originalRuntimeCarrierAst, context];
+  }
+
   const [sameSourceCarrierSurface, carrierSurfaceContext] =
     expectedType && originalRuntimeCarrierType
       ? matchesEmittedStorageSurface(
@@ -97,6 +122,7 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     !!expectedType &&
     !!originalRuntimeCarrierAst &&
     !!originalRuntimeCarrierType &&
+    !willCarryAsRuntimeUnion(originalRuntimeCarrierType, context) &&
     sameSourceCarrierSurface &&
     !shouldAvoidStorageReuse &&
     !requiresValueTypeMaterialization(
@@ -159,6 +185,10 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     return undefined;
   }
 
+  if (shouldMaterializeRuntimeUnionExpectedTarget) {
+    return undefined;
+  }
+
   if (!narrowed.storageExprAst) {
     if (!remappedLocal) {
       return undefined;
@@ -205,6 +235,16 @@ export const tryEmitExactStorageCompatibleNarrowedIdentifier = (
   const originalRuntimeCarrierType = narrowed.carrierExprAst
     ? (narrowed.carrierType ?? context.localValueTypes?.get(expr.name))
     : storageType;
+  const hasProjectedRuntimeCarrier =
+    !!narrowed.carrierExprAst &&
+    !!narrowed.storageExprAst &&
+    narrowed.carrierExprAst !== narrowed.storageExprAst &&
+    !!narrowed.type &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    willCarryAsRuntimeUnion(narrowed.type, context);
+  if (hasProjectedRuntimeCarrier) {
+    return undefined;
+  }
   const [sameSourceCarrierSurface, carrierSurfaceContext] =
     originalRuntimeCarrierAst && originalRuntimeCarrierType
       ? matchesEmittedStorageSurface(
@@ -214,6 +254,15 @@ export const tryEmitExactStorageCompatibleNarrowedIdentifier = (
         )
       : [false, context];
   if (preservesMaterializedValueTypeNarrowing(narrowed, context)) {
+    return undefined;
+  }
+
+  const shouldMaterializeRuntimeUnionExpectedTarget =
+    !!narrowed.type &&
+    willCarryAsRuntimeUnion(narrowed.type, context) &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    !runtimeUnionAliasReferencesMatch(narrowed.type, expectedType, context);
+  if (shouldMaterializeRuntimeUnionExpectedTarget) {
     return undefined;
   }
 
@@ -228,6 +277,7 @@ export const tryEmitExactStorageCompatibleNarrowedIdentifier = (
     originalRuntimeCarrierAst &&
     sameSourceCarrierSurface &&
     originalRuntimeCarrierType &&
+    !willCarryAsRuntimeUnion(originalRuntimeCarrierType, context) &&
     !requiresValueTypeMaterialization(
       originalRuntimeCarrierType,
       expectedType,

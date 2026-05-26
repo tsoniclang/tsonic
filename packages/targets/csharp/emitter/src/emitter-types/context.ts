@@ -103,6 +103,7 @@ type ScopedFields = Pick<
   | "returnType"
   | "localNameMap"
   | "conditionAliases"
+  | "dictionaryReadPresenceLocals"
   | "localSemanticTypes"
   | "localValueTypes"
   | "narrowedBindings"
@@ -144,6 +145,7 @@ export const withScoped = <T>(
     returnType: context.returnType,
     localNameMap: context.localNameMap,
     conditionAliases: context.conditionAliases,
+    dictionaryReadPresenceLocals: context.dictionaryReadPresenceLocals,
     localSemanticTypes: context.localSemanticTypes,
     localValueTypes: context.localValueTypes,
     narrowedBindings: context.narrowedBindings,

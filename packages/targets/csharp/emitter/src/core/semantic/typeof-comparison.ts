@@ -59,6 +59,13 @@ const resolveNarrowableTarget = (
   };
 };
 
+export const tryExtractTypeofUnaryTarget = (
+  expr: IrExpression
+): IrExpression | undefined =>
+  expr.kind === "unary" && expr.operator === "typeof"
+    ? expr.expression
+    : undefined;
+
 export const tryExtractTypeofComparison = (
   expr: IrExpression
 ): TypeofComparison | undefined => {

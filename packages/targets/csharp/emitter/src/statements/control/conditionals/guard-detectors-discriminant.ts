@@ -9,6 +9,7 @@ import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 import { makeNarrowedLocalName } from "../../../core/semantic/narrowing-keys.js";
 import { tryGetLiteralSet } from "../../../core/semantic/guard-primitives.js";
+import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
 import type {
   DiscriminantEqualityGuardInfo,
   PropertyExistenceGuardInfo,
@@ -18,6 +19,7 @@ import {
   getGuardPropertyType,
   extractTransparentIdentifierTarget,
   extractTransparentMemberAccessTarget,
+  extractTransparentNarrowableMemberAccessTarget,
   resolveGuardRuntimeUnionFrame,
   buildRenameNarrowedMap,
   isDefinitelyFalsyType,
@@ -71,12 +73,16 @@ export const tryResolveDiscriminantEqualityGuard = (
     right: IrExpression
   ):
     | {
-        readonly receiver: Extract<IrExpression, { kind: "identifier" }>;
+        readonly receiver: Extract<
+          IrExpression,
+          { kind: "identifier" | "memberAccess" }
+        >;
+        readonly receiverKey: string;
         readonly propertyName: string;
         readonly literal: string | number | boolean;
       }
     | undefined => {
-    const target = extractTransparentMemberAccessTarget(left);
+    const target = extractTransparentNarrowableMemberAccessTarget(left);
     if (!target) return undefined;
     if (right.kind !== "literal") return undefined;
     if (
@@ -89,6 +95,7 @@ export const tryResolveDiscriminantEqualityGuard = (
 
     return {
       receiver: target.receiver,
+      receiverKey: target.receiverKey,
       propertyName: target.access.property,
       literal: right.value,
     };
@@ -99,16 +106,17 @@ export const tryResolveDiscriminantEqualityGuard = (
   const match = direct ?? swapped;
   if (!match) return undefined;
 
-  const { receiver, propertyName, literal } = match;
-  const originalName = receiver.name;
+  const { receiver, receiverKey, propertyName, literal } = match;
+  const originalName = receiverKey;
 
-  const unionSourceType = receiver.inferredType;
+  const unionSourceType =
+    resolveEffectiveExpressionType(receiver, context) ?? receiver.inferredType;
   if (!unionSourceType) return undefined;
 
   const frame = resolveGuardRuntimeUnionFrame(
     originalName,
     unionSourceType,
-    receiver,
+    receiver.kind === "identifier" ? receiver : undefined,
     context
   );
   if (!frame) return undefined;
@@ -163,6 +171,7 @@ export const tryResolveDiscriminantEqualityGuard = (
 
   return {
     originalName,
+    receiverExpr: receiver,
     propertyName,
     literal,
     operator: condition.operator,

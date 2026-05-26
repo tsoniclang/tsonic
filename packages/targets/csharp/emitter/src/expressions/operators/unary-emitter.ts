@@ -14,7 +14,11 @@ import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js"
 import {
   identifierExpression,
   identifierType,
+  stringLiteral,
 } from "../../core/format/backend-ast/builders.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
+import { matchesTypeofTag } from "../../core/semantic/type-resolution.js";
 import { emitWritableTargetAst } from "./write-targets.js";
 import {
   castBitwiseOperandToInt,
@@ -25,6 +29,62 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+
+const TYPEOF_TAGS = [
+  "undefined",
+  "string",
+  "number",
+  "boolean",
+  "bigint",
+  "function",
+  "object",
+] as const;
+
+const resolveRuntimeUnionTypeofTag = (
+  type: IrType,
+  context: EmitterContext
+): string =>
+  TYPEOF_TAGS.find((tag) => matchesTypeofTag(type, tag, context)) ?? "object";
+
+const tryEmitRuntimeUnionTypeof = (
+  operand: IrExpression,
+  operandAst: CSharpExpressionAst,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const operandType =
+    resolveEffectiveExpressionType(operand, context) ?? operand.inferredType;
+  if (!operandType) {
+    return undefined;
+  }
+
+  const [layout, layoutContext] = buildRuntimeUnionLayout(
+    operandType,
+    context,
+    emitTypeAst
+  );
+  if (!layout) {
+    return undefined;
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: operandAst,
+        memberName: "Match",
+      },
+      typeArguments: [{ kind: "predefinedType", keyword: "string" }],
+      arguments: layout.members.map((member, index) => ({
+        kind: "lambdaExpression" as const,
+        isAsync: false,
+        parameters: [{ name: `__tsonic_typeof_member_${index + 1}` }],
+        body: stringLiteral(resolveRuntimeUnionTypeofTag(member, layoutContext)),
+      })),
+    },
+    layoutContext,
+  ];
+};
 
 /**
  * Emit a unary operator expression as CSharpExpressionAst (-, +, !, ~, typeof, void, delete)
@@ -68,9 +128,25 @@ export const emitUnary = (
   const [operandAst, newContext] = emitExpressionAst(expr.expression, context);
 
   if (expr.operator === "typeof") {
-    throw new Error(
-      "ICE: Runtime typeof expression reached emitter - validation missed TSN2001"
+    const runtimeUnionTypeof = tryEmitRuntimeUnionTypeof(
+      expr.expression,
+      operandAst,
+      newContext
     );
+    if (runtimeUnionTypeof) {
+      return runtimeUnionTypeof;
+    }
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: identifierExpression(
+          "global::Tsonic.Runtime.Operators.@typeof"
+        ),
+        arguments: [operandAst],
+      },
+      newContext,
+    ];
   }
 
   if (expr.operator === "void") {

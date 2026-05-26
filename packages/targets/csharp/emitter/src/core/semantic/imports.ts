@@ -10,7 +10,12 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
+import {
+  IrImport,
+  IrModule,
+  IrImportSpecifier,
+  type IrType,
+} from "@tsonic/frontend";
 import { EmitterContext, ImportBinding, LocalTypeInfo } from "../../types.js";
 import type { ModuleIdentity } from "../../emitter-types/core.js";
 import { canonicalizeFilePath, resolveImportPath } from "./module-map.js";
@@ -305,6 +310,7 @@ export const processImports = (
               actualExportName,
               targetModule.hasTypeCollision,
               targetModule.exportedValueKinds,
+              targetModule.exportedValueTypes,
               targetModule.exportedValueCallArities,
               targetModule.localTypes,
               ctx
@@ -449,6 +455,7 @@ const createImportBinding = (
   resolvedExportName: string,
   hasTypeCollision: boolean = false,
   exportedValueKinds: ReadonlyMap<string, "function" | "variable"> | undefined,
+  exportedValueTypes: ReadonlyMap<string, IrType> | undefined,
   exportedValueCallArities: ReadonlyMap<string, readonly number[]> | undefined,
   targetLocalTypes: ReadonlyMap<string, LocalTypeInfo> | undefined,
   context: EmitterContext
@@ -532,6 +539,7 @@ const createImportBinding = (
           member: emitCSharpName(resolvedExportName, bucket, context),
           valueKind,
           typeAst,
+          valueType: exportedValueTypes?.get(resolvedExportName),
           runtimeOmittableCallArities:
             exportedValueCallArities?.get(resolvedExportName),
         },

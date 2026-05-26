@@ -7,7 +7,6 @@ import {
 } from "../../core/format/backend-ast/utils.js";
 import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-narrowing.js";
-import { tryBuildRuntimeMaterializationAst } from "../../core/semantic/runtime-reification.js";
 import { tryResolveRuntimeUnionMemberType } from "../../core/semantic/narrowed-expression-types.js";
 import {
   buildRuntimeUnionLayout,
@@ -19,19 +18,12 @@ import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-un
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { wrapMaterializedTargetAst } from "./storage-surface-shared.js";
-
-const isRuntimeUnionProjectionAst = (
-  exprAst: CSharpExpressionAst
-): boolean => {
-  const directAst =
-    exprAst.kind === "parenthesizedExpression" ? exprAst.expression : exprAst;
-  return (
-    directAst.kind === "invocationExpression" &&
-    directAst.arguments.length === 0 &&
-    directAst.expression.kind === "memberAccessExpression" &&
-    /^As\d+$/.test(directAst.expression.memberName)
-  );
-};
+import { isRuntimeUnionProjectionAst } from "./runtime-projection-ast.js";
+import { tryMaterializeRuntimeUnionNarrowingForExpectedTarget } from "./runtime-union-narrowing-target.js";
+import {
+  tryEmitSourceCarrierMemberProjection,
+  tryMaterializeStorageRuntimeUnionMember,
+} from "./materialized-narrowed-carrier.js";
 
 export const tryEmitMaterializedNarrowedIdentifier = (
   narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
@@ -61,96 +53,69 @@ export const tryEmitMaterializedNarrowedIdentifier = (
     return undefined;
   }
 
-  if (
-    narrowed.storageExprAst &&
-    narrowed.sourceType &&
-    (runtimeUnionAliasReferencesMatch(effectiveType, expectedType, context) ||
-      matchesExpectedEmissionType(effectiveType, expectedType, context))
-  ) {
-    const [sourceLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
-      narrowed.sourceType,
-      context,
-      emitTypeAst
-    );
-    const matchingMemberIndices = sourceLayout?.members.flatMap(
-      (member, index) =>
-        member &&
-        matchesExpectedEmissionType(member, expectedType, sourceLayoutContext)
-          ? [index]
-          : []
-    );
-    if (sourceLayout && matchingMemberIndices?.length === 1) {
-      const [memberIndex] = matchingMemberIndices;
-      const sourceMemberTypeAst =
-        memberIndex !== undefined
-          ? sourceLayout.memberTypeAsts[memberIndex]
-          : undefined;
-      const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+  const sourceCarrierAst = narrowed.carrierExprAst ?? narrowed.storageExprAst;
+  if (sourceCarrierAst && narrowed.sourceType && narrowed.type) {
+    const materializedNarrowedCarrier =
+      tryMaterializeRuntimeUnionNarrowingForExpectedTarget({
+        sourceCarrierAst,
+        sourceType: narrowed.sourceType,
+        narrowedType: narrowed.type,
         expectedType,
-        sourceLayoutContext
-      );
-      if (
-        memberIndex !== undefined &&
-        sourceMemberTypeAst &&
-        sameTypeAstSurface(
-          stripNullableTypeAst(sourceMemberTypeAst),
-          stripNullableTypeAst(expectedTypeAst)
-        )
-      ) {
-        return [
-          {
-            kind: "invocationExpression",
-            expression: {
-              kind: "memberAccessExpression",
-              expression: narrowed.storageExprAst,
-              memberName: `As${memberIndex + 1}`,
-            },
-            arguments: [],
-          },
-          expectedTypeContext,
-        ];
-      }
+        context,
+      });
+    if (materializedNarrowedCarrier) {
+      return materializedNarrowedCarrier;
+    }
+  }
+
+  if (sourceCarrierAst && narrowed.sourceType) {
+    const sourceCarrierMemberProjection = tryEmitSourceCarrierMemberProjection({
+      sourceCarrierAst,
+      sourceType: narrowed.sourceType,
+      effectiveType,
+      expectedType,
+      context,
+    });
+    if (sourceCarrierMemberProjection) {
+      return sourceCarrierMemberProjection;
     }
   }
 
   if (
-    narrowed.storageExprAst &&
+    sourceCarrierAst &&
     narrowed.sourceType &&
-    willCarryAsRuntimeUnion(expectedType, context)
+    !willCarryAsRuntimeUnion(expectedType, context) &&
+    matchesExpectedEmissionType(effectiveType, expectedType, context)
   ) {
-    const [sourceLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
-      narrowed.sourceType,
-      context,
-      emitTypeAst
-    );
-    const selectedSourceMemberNs = sourceLayout?.members.flatMap(
-      (member, index) =>
-        member &&
-        (runtimeUnionAliasReferencesMatch(
-          member,
-          expectedType,
-          sourceLayoutContext
-        ) ||
-          matchesExpectedEmissionType(member, expectedType, sourceLayoutContext))
-          ? [index + 1]
-          : []
-    );
-    if (selectedSourceMemberNs?.length === 1) {
-      const storageMaterialized = tryBuildRuntimeMaterializationAst(
-        narrowed.storageExprAst,
-        narrowed.sourceType,
+    const resolvedSourceType = narrowed.sourceType;
+    if (
+      resolvedSourceType.kind === "referenceType" &&
+      resolvedSourceType.name === "object"
+    ) {
+      const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
         expectedType,
-        sourceLayoutContext,
-        emitTypeAst,
-        new Set(selectedSourceMemberNs)
+        context
       );
-      if (storageMaterialized) {
-        return wrapMaterializedTargetAst(
-          storageMaterialized[0],
-          expectedType,
-          storageMaterialized[1]
-        );
-      }
+      return [
+        {
+          kind: "castExpression",
+          type: stripNullableTypeAst(expectedTypeAst),
+          expression: sourceCarrierAst,
+        },
+        expectedTypeContext,
+      ];
+    }
+  }
+
+  if (narrowed.storageExprAst && narrowed.sourceType) {
+    const storageMaterialized = tryMaterializeStorageRuntimeUnionMember({
+      storageExprAst: narrowed.storageExprAst,
+      sourceType: narrowed.sourceType,
+      expectedType,
+      context,
+    });
+    if (storageMaterialized) {
+      return storageMaterialized;
     }
   }
 

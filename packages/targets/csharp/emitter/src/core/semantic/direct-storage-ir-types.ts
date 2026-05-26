@@ -77,12 +77,79 @@ const getAwaitedCarrierCandidate = (
   type: IrType | undefined
 ): IrType | undefined => (type ? (getAwaitedIrType(type) ?? type) : undefined);
 
+const resolveObjectStaticDictionaryCallReturnType = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): IrType | undefined => {
+  if (
+    expr.callee.kind !== "memberAccess" ||
+    expr.callee.object.kind !== "identifier" ||
+    expr.callee.object.name !== "Object" ||
+    typeof expr.callee.property !== "string" ||
+    expr.arguments.length !== 1
+  ) {
+    return undefined;
+  }
+
+  const memberName = expr.callee.property;
+  if (
+    memberName !== "entries" &&
+    memberName !== "keys" &&
+    memberName !== "values"
+  ) {
+    return undefined;
+  }
+
+  const argument = expr.arguments[0];
+  if (!argument || argument.kind === "spread") {
+    return undefined;
+  }
+
+  const argumentType =
+    resolveDirectStorageIrType(argument, context) ??
+    resolveEffectiveExpressionType(argument, context) ??
+    argument.inferredType;
+  const resolvedArgumentType = argumentType
+    ? resolveTypeAlias(stripNullish(argumentType), context)
+    : undefined;
+  if (resolvedArgumentType?.kind !== "dictionaryType") {
+    return undefined;
+  }
+
+  switch (memberName) {
+    case "entries":
+      return {
+        kind: "arrayType",
+        elementType: {
+          kind: "tupleType",
+          elementTypes: [
+            resolvedArgumentType.keyType,
+            resolvedArgumentType.valueType,
+          ],
+        },
+      };
+    case "keys":
+      return {
+        kind: "arrayType",
+        elementType: resolvedArgumentType.keyType,
+      };
+    case "values":
+      return {
+        kind: "arrayType",
+        elementType: resolvedArgumentType.valueType,
+      };
+  }
+};
+
 const resolveDirectReturnType = (
   expr: IrExpression,
   context: EmitterContext
 ): IrType | undefined =>
   pickPreferredCarrierCandidate(
     context,
+    expr.kind === "call"
+      ? resolveObjectStaticDictionaryCallReturnType(expr, context)
+      : undefined,
     getExpressionSourceBackedReturnType(expr),
     expr.kind === "call"
       ? resolveFunctionCallStorageReturnType(expr, context)

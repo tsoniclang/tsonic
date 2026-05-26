@@ -178,7 +178,26 @@ export const extractArgumentPassingFromBinding = (
 
 const getVisibleParameterOffset = (candidate: {
   readonly isExtensionMethod?: boolean;
-}): number => (candidate.isExtensionMethod ? 1 : 0);
+  readonly parameterCount?: number;
+  readonly semanticSignature?: {
+    readonly parameters: readonly unknown[];
+  };
+}): number => {
+  if (!candidate.isExtensionMethod) {
+    return 0;
+  }
+
+  const semanticParameterCount = candidate.semanticSignature?.parameters.length;
+  if (
+    typeof semanticParameterCount === "number" &&
+    typeof candidate.parameterCount === "number" &&
+    semanticParameterCount < candidate.parameterCount
+  ) {
+    return 0;
+  }
+
+  return 1;
+};
 
 const candidateAcceptsArgumentCount = (
   candidate: NonNullable<

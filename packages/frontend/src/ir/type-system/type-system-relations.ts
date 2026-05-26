@@ -707,6 +707,13 @@ const isAssignableToInternalUncached = (
     );
   }
 
+  if (source.kind === "dictionaryType" && target.kind === "dictionaryType") {
+    return (
+      isAssignableToInternal(state, source.keyType, target.keyType, context) &&
+      isAssignableToInternal(state, source.valueType, target.valueType, context)
+    );
+  }
+
   // Reference types - check nominal compatibility via TypeId
   if (source.kind === "referenceType" && target.kind === "referenceType") {
     const sourceIterable = getIterableShape(state, source);

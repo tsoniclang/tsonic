@@ -64,6 +64,12 @@ import {
 } from "../symbols/index.js";
 import type { TypeSymbolId } from "../symbols/index.js";
 
+const isConstAssertionType = (node: ts.TypeNode): boolean =>
+  ts.isTypeReferenceNode(node) &&
+  ts.isIdentifier(node.typeName) &&
+  node.typeName.text === "const" &&
+  (!node.typeArguments || node.typeArguments.length === 0);
+
 const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
   ts.isImportClause(decl) ||
   ts.isImportSpecifier(decl) ||
@@ -833,7 +839,17 @@ export const convertExpression = (
     const narrowed = stripNullish(inner.inferredType);
     return narrowed ? { ...inner, inferredType: narrowed } : inner;
   }
+  if (ts.isSatisfiesExpression(node)) {
+    const satisfiedType = ctx.typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(node.type)
+    );
+    return convertExpression(node.expression, ctx, satisfiedType);
+  }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+    if (isConstAssertionType(node.type)) {
+      return convertExpression(node.expression, ctx, expectedType);
+    }
+
     // Convert the asserted type through the TypeSystem.
     const assertedTypeNode = node.type;
     const assertedType = ctx.typeSystem.typeFromSyntax(

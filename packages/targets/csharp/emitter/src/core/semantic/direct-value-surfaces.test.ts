@@ -14,6 +14,7 @@ import {
 
 const stringType: IrType = { kind: "primitiveType", name: "string" };
 const numberType: IrType = { kind: "primitiveType", name: "number" };
+const charType: IrType = { kind: "primitiveType", name: "char" };
 const uint8ArrayType: IrType = {
   kind: "referenceType",
   name: "Uint8Array",
@@ -48,6 +49,46 @@ describe("direct-value-surfaces", () => {
         context
       )
     ).to.equal(numberType);
+  });
+
+  it("resolves fully-qualified static value-symbol surfaces", () => {
+    const context = {
+      ...createContext({ rootNamespace: "nodejs" }),
+      moduleNamespace: "nodejs",
+      moduleStaticClassName: "PathModule",
+      valueSymbols: new Map([
+        [
+          "sep",
+          {
+            kind: "variable" as const,
+            csharpName: "sep",
+            valueType: charType,
+          },
+        ],
+      ]),
+    };
+
+    expect(
+      resolveDirectValueSurfaceType(
+        {
+          kind: "identifierExpression",
+          identifier: "global::nodejs.PathModule.sep",
+        },
+        context
+      )
+    ).to.equal(charType);
+    expect(
+      resolveDirectValueSurfaceType(
+        {
+          kind: "qualifiedIdentifierExpression",
+          name: {
+            aliasQualifier: "global",
+            segments: ["nodejs", "PathModule", "sep"],
+          },
+        },
+        context
+      )
+    ).to.equal(charType);
   });
 
   it("returns undefined for non-identifier ASTs", () => {

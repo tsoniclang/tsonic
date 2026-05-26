@@ -44,17 +44,23 @@ export const tryEmitStorageCompatibleIdentifier = (
     strippedEffectiveType.structuralOrigin === "namedReference" &&
     (strippedEffectiveType.structuralMembers?.length ?? 0) > 0 &&
     strippedEffectiveType.name === strippedExpectedType.name;
+  const storageMatchesExpected = matchesExpectedEmissionType(
+    storageType,
+    expectedType,
+    context
+  );
   if (
     !isBroadStorageTarget(expectedType, context) &&
+    !willCarryAsRuntimeUnion(storageType, context) &&
     !willCarryAsRuntimeUnion(expectedType, context) &&
     matchesExpectedEmissionType(effectiveType, expectedType, context)
   ) {
-    return effectiveNamedStructuralAliasMatchesExpected
+    return effectiveNamedStructuralAliasMatchesExpected || storageMatchesExpected
       ? storageIdentifierAst
       : undefined;
   }
 
-  if (!matchesExpectedEmissionType(storageType, expectedType, context)) {
+  if (!storageMatchesExpected) {
     return undefined;
   }
 

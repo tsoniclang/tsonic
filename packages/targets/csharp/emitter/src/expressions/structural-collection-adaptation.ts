@@ -30,12 +30,18 @@ import {
   getIterableSourceShape,
   canPreferAnonymousStructuralTarget,
 } from "./structural-type-shapes.js";
-import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
+import {
+  normalizeStructuralEmissionType,
+  resolveTypeAlias,
+  stripNullish,
+} from "../core/semantic/type-resolution.js";
+import { isCompilerGeneratedStructuralReferenceType } from "../core/semantic/structural-resolution.js";
 import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
 import { isBroadObjectSlotType } from "../core/semantic/broad-object-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { collectStructuralProperties } from "./structural-property-model.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import {
   isExactArrayCreationToType,
   isExactExpressionToType,
@@ -243,6 +249,48 @@ const isDirectlyReusableExpression = (
   expression.kind === "memberAccessExpression" ||
   expression.kind === "elementAccessExpression";
 
+const isSameDirectExpression = (
+  left: CSharpExpressionAst,
+  right: CSharpExpressionAst
+): boolean => {
+  if (left.kind === "parenthesizedExpression") {
+    return isSameDirectExpression(left.expression, right);
+  }
+  if (right.kind === "parenthesizedExpression") {
+    return isSameDirectExpression(left, right.expression);
+  }
+
+  if (left.kind !== right.kind) {
+    return false;
+  }
+
+  switch (left.kind) {
+    case "identifierExpression":
+      return (
+        right.kind === "identifierExpression" &&
+        left.identifier === right.identifier
+      );
+    case "memberAccessExpression":
+      return (
+        right.kind === "memberAccessExpression" &&
+        left.memberName === right.memberName &&
+        isSameDirectExpression(left.expression, right.expression)
+      );
+    case "elementAccessExpression":
+      return (
+        right.kind === "elementAccessExpression" &&
+        isSameDirectExpression(left.expression, right.expression) &&
+        left.arguments.length === right.arguments.length &&
+        left.arguments.every((argument, index) => {
+          const other = right.arguments[index];
+          return other !== undefined && isSameDirectExpression(argument, other);
+        })
+      );
+    default:
+      return false;
+  }
+};
+
 const isArrayEmptyInvocation = (
   expression: CSharpExpressionAst
 ): expression is Extract<
@@ -277,6 +325,20 @@ const isIteratorAccessExpression = (
     expression.expression.kind === "memberAccessExpression" &&
     expression.expression.memberName === methodName
   );
+};
+
+const getReferenceIterableElementType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return resolved.kind === "referenceType"
+    ? getDirectIterableElementType(type, context)
+    : undefined;
 };
 
 const isSimpleElementCast = (
@@ -386,11 +448,55 @@ const canReuseSourceCarrierForInlineStructuralElement = (
   });
 };
 
+const requiresNamedStructuralElementMaterialization = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): boolean => {
+  const strippedSource = stripNullish(sourceType);
+  const resolvedSource = resolveTypeAlias(strippedSource, context);
+  const strippedTarget = stripNullish(targetType);
+  const sourceIsInlineStructuralCarrier =
+    resolvedSource.kind === "objectType" ||
+    (strippedSource.kind === "referenceType" &&
+      isCompilerGeneratedStructuralReferenceType(strippedSource));
+  if (!sourceIsInlineStructuralCarrier) {
+    return false;
+  }
+
+  if (
+    strippedTarget.kind !== "referenceType" ||
+    isCompilerGeneratedStructuralReferenceType(strippedTarget)
+  ) {
+    return false;
+  }
+
+  const targetProps = collectStructuralProperties(targetType, context);
+  return targetProps !== undefined && targetProps.length > 0;
+};
+
 export const hasMatchingRuntimeCarrierElementType = (
   sourceType: IrType,
   targetType: IrType,
   context: EmitterContext
 ): boolean => {
+  if (
+    willCarryAsRuntimeUnion(sourceType, context) !==
+    willCarryAsRuntimeUnion(targetType, context)
+  ) {
+    return false;
+  }
+
+  if (
+    requiresNamedStructuralElementMaterialization(
+      sourceType,
+      targetType,
+      context
+    )
+  ) {
+    return false;
+  }
+
   if (
     canReuseSourceCarrierForInlineStructuralElement(
       sourceType,
@@ -520,7 +626,8 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     const adaptedElementAst =
       structuralElementAdaptation?.[0] ?? upcastElementAdaptation?.[0];
     const hasElementAdaptation =
-      adaptedElementAst !== undefined && adaptedElementAst !== itemIdentifier;
+      adaptedElementAst !== undefined &&
+      !isSameDirectExpression(adaptedElementAst, itemIdentifier);
     currentContext =
       structuralElementAdaptation?.[1] ??
       upcastElementAdaptation?.[1] ??
@@ -535,8 +642,29 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       emissionTargetElementType,
       currentContext
     );
+    const [sourceElementTypeAst, , sourceElementTypeContext] =
+      emitRuntimeCarrierTypeAst(
+        emissionSourceElementType,
+        currentContext,
+        emitTypeAst
+      );
+    currentContext = sourceElementTypeContext;
+    const [targetElementTypeAst, , targetElementTypeContext] =
+      emitRuntimeCarrierTypeAst(
+        emissionTargetElementType,
+        currentContext,
+        emitTypeAst
+      );
+    currentContext = targetElementTypeContext;
+    const elementTypeSurfacesMatch = sameTypeAstSurface(
+      sourceElementTypeAst,
+      targetElementTypeAst
+    );
     const needsElementAdaptation =
-      hasElementAdaptation || !runtimeCarrierMatches;
+      hasElementAdaptation ||
+      (!runtimeCarrierMatches &&
+        !canUseImplicitElementConversion &&
+        !elementTypeSurfacesMatch);
     if (
       !needsElementAdaptation &&
       matchesExpectedEmissionType(
@@ -548,20 +676,6 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       return [emittedAst, currentContext];
     }
     if (needsElementAdaptation) {
-      const [sourceElementTypeAst, , sourceElementTypeContext] =
-        emitRuntimeCarrierTypeAst(
-          emissionSourceElementType,
-          currentContext,
-          emitTypeAst
-        );
-      currentContext = sourceElementTypeContext;
-      const [targetElementTypeAst, , targetElementTypeContext] =
-        emitRuntimeCarrierTypeAst(
-          emissionTargetElementType,
-          currentContext,
-          emitTypeAst
-        );
-      currentContext = targetElementTypeContext;
       const effectiveElementAst =
         adaptedElementAst ??
         (!runtimeCarrierMatches && !canUseImplicitElementConversion
@@ -692,10 +806,10 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     }
   }
 
-  const targetIterableElementType =
-    targetElementType === undefined
-      ? getDirectIterableElementType(expectedType, context)
-      : undefined;
+  const targetIterableElementType = getReferenceIterableElementType(
+    expectedType,
+    context
+  );
   const sourceIterable = buildIterableSourceAst(
     emittedAst,
     sourceType,
@@ -758,9 +872,30 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       targetIterableElementType,
       currentContext
     );
+    const [sourceElementTypeAst, , sourceElementTypeContext] =
+      emitRuntimeCarrierTypeAst(
+        emissionSourceIterableElementType,
+        currentContext,
+        emitTypeAst
+      );
+    currentContext = sourceElementTypeContext;
+    const [targetElementTypeAst, , targetElementTypeContext] =
+      emitRuntimeCarrierTypeAst(
+        emissionTargetIterableElementType,
+        currentContext,
+        emitTypeAst
+      );
+    currentContext = targetElementTypeContext;
+    const elementTypeSurfacesMatch = sameTypeAstSurface(
+      sourceElementTypeAst,
+      targetElementTypeAst
+    );
     const needsElementAdaptation =
       hasElementAdaptation ||
-      (!preferDirectBroadElement && !runtimeCarrierMatches);
+      (!preferDirectBroadElement &&
+        !runtimeCarrierMatches &&
+        !canUseImplicitElementConversion &&
+        !elementTypeSurfacesMatch);
 
     if (!needsElementAdaptation) {
       if (
@@ -777,20 +912,6 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       return [sourceIterable.sourceAst, currentContext];
     }
 
-    const [sourceElementTypeAst, , sourceElementTypeContext] =
-      emitRuntimeCarrierTypeAst(
-        emissionSourceIterableElementType,
-        currentContext,
-        emitTypeAst
-      );
-    currentContext = sourceElementTypeContext;
-    const [targetElementTypeAst, , targetElementTypeContext] =
-      emitRuntimeCarrierTypeAst(
-        emissionTargetIterableElementType,
-        currentContext,
-        emitTypeAst
-      );
-    currentContext = targetElementTypeContext;
     const effectiveElementAst =
       adaptedElementAst ??
       (preferDirectBroadElement ||
@@ -923,7 +1044,17 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     currentContext,
     providerValueType,
     upcastFn
-  ) ?? [undefined, currentContext];
+  ) ?? (() => {
+    const materialized = materializeDirectNarrowingAst(
+      entryValueAst,
+      sourceValueType,
+      providerValueType,
+      currentContext
+    );
+    return materialized[0] === entryValueAst
+      ? ([undefined, currentContext] as const)
+      : materialized;
+  })();
   currentContext = adaptedContext;
   if (adaptedValueAst === undefined) {
     return undefined;

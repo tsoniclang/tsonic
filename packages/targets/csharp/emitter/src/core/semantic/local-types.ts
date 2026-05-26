@@ -554,13 +554,52 @@ export const collectStructuralInterfaceContracts = (
       return undefined;
     };
 
+    const markNativeInterfaceAndBases = (
+      resolved: {
+        readonly namespace: string;
+        readonly name: string;
+        readonly info: LocalTypeInfo;
+      },
+      visited: Set<string> = new Set<string>()
+    ): void => {
+      if (resolved.info.kind !== "interface") return;
+      const key = structuralInterfaceContractKey(
+        resolved.namespace,
+        resolved.name
+      );
+      if (visited.has(key)) return;
+      visited.add(key);
+      result.add(key);
+
+      for (const extended of resolved.info.extends) {
+        if (extended.kind !== "referenceType") continue;
+        const extendedResolved = resolveReference(extended);
+        if (extendedResolved?.info.kind === "interface") {
+          markNativeInterfaceAndBases(extendedResolved, visited);
+        }
+      }
+    };
+
     for (const statement of module.body) {
+      if (statement.kind === "interfaceDeclaration") {
+        const info = localTypes.get(statement.name);
+        if (
+          info?.kind === "interface" &&
+          (info.members.some((member) => member.kind === "methodSignature") ||
+            info.extends.length > 1)
+        ) {
+          markNativeInterfaceAndBases({
+            namespace: module.namespace,
+            name: statement.name,
+            info,
+          });
+        }
+      }
+
       collectStatementTypeParameterConstraints(statement, (ref) => {
         const resolved = resolveReference(ref);
         if (resolved?.info.kind !== "interface") return;
-        result.add(
-          structuralInterfaceContractKey(resolved.namespace, resolved.name)
-        );
+        markNativeInterfaceAndBases(resolved);
       });
     }
   }

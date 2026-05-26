@@ -40,7 +40,10 @@ import { resolveTypeMemberKind } from "../../core/semantic/member-surfaces.js";
 import {
   resolveTypeAlias,
   stripNullish,
+  substituteTypeArgs,
 } from "../../core/semantic/type-resolution.js";
+import { resolveDirectStorageIrType } from "../../core/semantic/direct-storage-ir-types.js";
+import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import {
   getDirectIterableElementType,
@@ -60,9 +63,20 @@ import {
 import { emitRuntimeUnionArrayIsArrayCall } from "./call-runtime-union-guards.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { tryEmitExtensionMethodCall } from "./call-extension-methods.js";
+import {
+  resolveDirectStorageCompatibleExpressionAst,
+  resolveDirectStorageCompatibleExpressionType,
+} from "../expected-type-adaptation.js";
 import { stripClrGenericArity } from "../access-resolution.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 import { generateTemp } from "../../patterns/local-lowering.js";
+import { typeArgumentsAreInScope } from "./call-type-argument-safety.js";
+import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
+import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-narrowing.js";
+import {
+  isNumericSourceIrType,
+  maybeCastNumericToExpectedJsNumberAst,
+} from "../post-emission-adaptation.js";
 
 const buildCallTargetExpectedType = (
   expr: Extract<IrExpression, { kind: "call" }>,
@@ -271,6 +285,55 @@ const containsTypeParameterInCSharpInferableSurface = (
   }
 };
 
+const emitStaticNumericGlobalNumberCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext,
+  expectedType?: IrType
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    expr.callee.kind !== "identifier" ||
+    expr.callee.name !== "Number" ||
+    expr.arguments.length !== 1 ||
+    context.importBindings?.has("Number") ||
+    context.localValueTypes?.has("Number") ||
+    context.localSemanticTypes?.has("Number") ||
+    context.valueSymbols?.has("Number")
+  ) {
+    return undefined;
+  }
+
+  const argument = expr.arguments[0];
+  if (!argument || argument.kind === "spread") {
+    return undefined;
+  }
+
+  const numberBinding = context.bindingRegistry?.getExactBindingByKind(
+    "Number",
+    "global"
+  );
+  if (
+    !numberBinding ||
+    numberBinding.assembly !== "js" ||
+    numberBinding.type !== "js.Globals.Number"
+  ) {
+    return undefined;
+  }
+
+  const argumentType =
+    resolveEffectiveExpressionType(argument, context) ?? argument.inferredType;
+  if (!isNumericSourceIrType(argumentType, context)) {
+    return undefined;
+  }
+
+  const [argumentAst, argumentContext] = emitExpressionAst(argument, context);
+  return maybeCastNumericToExpectedJsNumberAst(
+    argumentAst,
+    argumentType,
+    argumentContext,
+    expectedType ?? expr.inferredType ?? { kind: "primitiveType", name: "number" }
+  );
+};
+
 const allImplicitMethodTypeArgumentsAreCSharpInferable = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
@@ -341,6 +404,202 @@ const shouldLetCSharpInferImplicitCallTypeArguments = (
       !!getIterableSourceShape(argumentType, context)
     );
   });
+};
+
+const referenceGenericConstructorsMatch = (
+  left: Extract<IrType, { kind: "referenceType" }>,
+  right: Extract<IrType, { kind: "referenceType" }>
+): boolean => {
+  const leftName =
+    left.providerQualifiedName ?? left.typeId?.providerName ?? left.name;
+  const rightName =
+    right.providerQualifiedName ?? right.typeId?.providerName ?? right.name;
+  return leftName === rightName;
+};
+
+const genericInferenceTypesMatch = (
+  left: IrType,
+  right: IrType,
+  context: EmitterContext
+): boolean =>
+  areIrTypesEquivalent(stripNullish(left), stripNullish(right), context) ||
+  areIrTypesEquivalent(
+    resolveTypeAlias(stripNullish(left), context),
+    resolveTypeAlias(stripNullish(right), context),
+    context
+  );
+
+const inferContextualCallTypeArguments = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): readonly IrType[] | undefined => {
+  if (!expectedType || expr.explicitTypeArguments?.length) {
+    return undefined;
+  }
+
+  const calleeType = expr.callee.inferredType;
+  if (calleeType?.kind !== "functionType") {
+    return undefined;
+  }
+
+  const typeParameters = calleeType.typeParameters;
+  if (!typeParameters || typeParameters.length === 0) {
+    return undefined;
+  }
+
+  const parameterNames = new Set(typeParameters.map((param) => param.name));
+  const visit = (
+    pattern: IrType,
+    actual: IrType,
+    mapped: Map<string, IrType>
+  ): boolean => {
+    const resolvedPattern =
+      pattern.kind === "referenceType"
+        ? pattern
+        : resolveTypeAlias(pattern, context);
+    const resolvedActual =
+      actual.kind === "referenceType"
+        ? actual
+        : resolveTypeAlias(actual, context);
+
+    if (
+      resolvedPattern.kind === "typeParameterType" &&
+      parameterNames.has(resolvedPattern.name)
+    ) {
+      const existing = mapped.get(resolvedPattern.name);
+      if (existing) {
+        return genericInferenceTypesMatch(existing, actual, context);
+      }
+      mapped.set(resolvedPattern.name, actual);
+      return true;
+    }
+
+    if (
+      resolvedPattern.kind === "referenceType" &&
+      resolvedActual.kind === "referenceType" &&
+      referenceGenericConstructorsMatch(resolvedPattern, resolvedActual)
+    ) {
+      const patternArgs = resolvedPattern.typeArguments ?? [];
+      const actualArgs = resolvedActual.typeArguments ?? [];
+      if (patternArgs.length !== actualArgs.length) {
+        return false;
+      }
+      return patternArgs.every((patternArg, index) => {
+        const actualArg = actualArgs[index];
+        return !!actualArg && visit(patternArg, actualArg, mapped);
+      });
+    }
+
+    if (
+      resolvedPattern.kind === "unionType" &&
+      resolvedActual.kind === "unionType" &&
+      resolvedPattern.runtimeCarrierFamilyKey &&
+      resolvedPattern.runtimeCarrierFamilyKey ===
+        resolvedActual.runtimeCarrierFamilyKey
+    ) {
+      const patternArgs =
+        resolvedPattern.runtimeCarrierTypeArguments ??
+        resolvedPattern.runtimeCarrierTypeParameters?.map(
+          (name): IrType => ({ kind: "typeParameterType", name })
+        ) ??
+        [];
+      const actualArgs = resolvedActual.runtimeCarrierTypeArguments ?? [];
+      if (patternArgs.length !== actualArgs.length) {
+        return false;
+      }
+      return patternArgs.every((patternArg, index) => {
+        const actualArg = actualArgs[index];
+        return !!actualArg && visit(patternArg, actualArg, mapped);
+      });
+    }
+
+    return false;
+  };
+
+  const inferFromParameters = (
+    selectArgumentType: (argument: IrExpression) => IrType | undefined
+  ): Map<string, IrType> => {
+    const mapped = new Map<string, IrType>();
+    const params = calleeType.parameters;
+    const restParameter = expr.restParameter ?? expr.surfaceRestParameter;
+
+    expr.arguments.forEach((argument, index) => {
+      const param =
+        params[index] ??
+        (restParameter && restParameter.index <= index
+          ? params[restParameter.index]
+          : undefined);
+      const patternType =
+        restParameter && restParameter.index <= index
+          ? (restParameter.elementType ?? param?.type)
+          : param?.type;
+      const argumentType = selectArgumentType(argument);
+      if (!patternType || !argumentType) {
+        return;
+      }
+      visit(patternType, argumentType, mapped);
+    });
+
+    return mapped;
+  };
+
+  const mapped = new Map<string, IrType>();
+  const returnTypeCandidates = [
+    calleeType.returnType,
+    expr.sourceBackedReturnType,
+    expr.inferredType,
+  ].filter((type): type is IrType => type !== undefined);
+  if (
+    !returnTypeCandidates.some((returnType) => {
+      mapped.clear();
+      return visit(returnType, expectedType, mapped);
+    })
+  ) {
+    return undefined;
+  }
+
+  const inferred = typeParameters.map((param) => mapped.get(param.name));
+  if (!inferred.every((type): type is IrType => type !== undefined)) {
+    return undefined;
+  }
+
+  if (!typeArgumentsAreInScope(inferred, context)) {
+    return undefined;
+  }
+
+  const semanticParameterInferred = inferFromParameters(
+    (argument) =>
+      resolveEffectiveExpressionType(argument, context) ?? argument.inferredType
+  );
+  const emittedSurfaceParameterInferred = inferFromParameters(
+    (argument) =>
+      resolveDirectStorageIrType(argument, context) ??
+      resolveEffectiveExpressionType(argument, context) ??
+      argument.inferredType
+  );
+  const declaredParameterInferred = inferFromParameters(
+    (argument) => argument.inferredType
+  );
+  const csharpWouldInferSameTypeArguments = typeParameters.every((param) => {
+    const parameterType =
+      emittedSurfaceParameterInferred.get(param.name) ??
+      semanticParameterInferred.get(param.name);
+    const declaredParameterType = declaredParameterInferred.get(param.name);
+    const contextualType = mapped.get(param.name);
+    return (
+      parameterType !== undefined &&
+      contextualType !== undefined &&
+      genericInferenceTypesMatch(parameterType, contextualType, context) &&
+      (declaredParameterType === undefined ||
+        genericInferenceTypesMatch(
+          declaredParameterType,
+          contextualType,
+          context
+        ))
+    );
+  });
+  return csharpWouldInferSameTypeArguments ? undefined : inferred;
 };
 
 const isRuntimeNullishType = (type: IrType): boolean =>
@@ -860,8 +1119,104 @@ const emitObjectDictionaryStaticCall = (
     return undefined;
   }
 
+  const rawStorageArgumentAst = resolveDirectStorageCompatibleExpressionAst({
+    expr: argument,
+    context,
+  });
+  const storageArgumentType = resolveDirectStorageIrType(argument, context);
+  const resolvedStorageArgumentType = storageArgumentType
+    ? resolveTypeAlias(stripNullish(storageArgumentType), context)
+    : undefined;
+  const dictionaryTypeFromEntriesReturn = (() => {
+    if (memberName !== "entries") {
+      return undefined;
+    }
+
+    const returnType =
+      ("sourceBackedReturnType" in expr
+        ? expr.sourceBackedReturnType
+        : undefined) ?? expr.inferredType;
+    const resolvedReturnType = returnType
+      ? resolveTypeAlias(stripNullish(returnType), context)
+      : undefined;
+    if (resolvedReturnType?.kind !== "arrayType") {
+      return undefined;
+    }
+
+    const resolvedElementType = resolveTypeAlias(
+      stripNullish(resolvedReturnType.elementType),
+      context
+    );
+    if (
+      resolvedElementType.kind !== "tupleType" ||
+      resolvedElementType.elementTypes.length !== 2
+    ) {
+      return undefined;
+    }
+
+    const [keyType, valueType] = resolvedElementType.elementTypes;
+    return keyType && valueType
+      ? ({
+          kind: "dictionaryType",
+          keyType,
+          valueType,
+        } satisfies IrType)
+      : undefined;
+  })();
+  const unwrapDictionaryStorageAst = (
+    ast: CSharpExpressionAst
+  ): CSharpExpressionAst => {
+    let current = ast;
+    while (current.kind === "parenthesizedExpression") {
+      current = current.expression;
+    }
+
+    if (current.kind !== "castExpression" && current.kind !== "asExpression") {
+      return ast;
+    }
+
+    if (resolvedStorageArgumentType?.kind === "dictionaryType") {
+      return current.expression;
+    }
+
+    const innerType = resolveDirectStorageCompatibleExpressionType({
+      expr: argument,
+      valueAst: current.expression,
+      context,
+    });
+    const resolvedInnerType = innerType
+      ? resolveTypeAlias(stripNullish(innerType), context)
+      : undefined;
+    return resolvedInnerType?.kind === "dictionaryType"
+      ? current.expression
+      : ast;
+  };
+  const storageArgumentAst = rawStorageArgumentAst
+    ? unwrapDictionaryStorageAst(rawStorageArgumentAst)
+    : undefined;
+  const storageExpressionType = storageArgumentAst
+    ? resolveDirectStorageCompatibleExpressionType({
+        expr: argument,
+        valueAst: storageArgumentAst,
+        context,
+      })
+    : undefined;
+  const resolvedStorageExpressionType = storageExpressionType
+    ? resolveTypeAlias(stripNullish(storageExpressionType), context)
+    : undefined;
+  const argumentTypeCandidate =
+    (resolvedStorageArgumentType?.kind === "dictionaryType"
+      ? storageArgumentType
+      : undefined) ??
+    (resolvedStorageExpressionType?.kind === "dictionaryType"
+      ? storageExpressionType
+      : undefined) ??
+    dictionaryTypeFromEntriesReturn ??
+    storageArgumentType ??
+    resolveEffectiveExpressionType(argument, context) ??
+    argument.inferredType;
   const argumentType = resolveTypeAlias(
-    stripNullish(argument.inferredType),
+    stripNullish(argumentTypeCandidate),
     context
   );
   if (argumentType.kind !== "dictionaryType") {
@@ -869,11 +1224,20 @@ const emitObjectDictionaryStaticCall = (
   }
 
   let currentContext = context;
-  const [dictionaryAst, dictionaryContext] = emitExpressionAst(
-    argument,
+  const [rawDictionaryAst, dictionaryContext] =
+    storageArgumentAst
+      ? [storageArgumentAst, currentContext]
+      : emitExpressionAst(argument, currentContext);
+  currentContext = dictionaryContext;
+  const [dictionaryAst, materializedContext] = materializeDirectNarrowingAst(
+    rawDictionaryAst,
+    storageArgumentType ??
+      resolveEffectiveExpressionType(argument, context) ??
+      argument.inferredType,
+    argumentType,
     currentContext
   );
-  currentContext = dictionaryContext;
+  currentContext = materializedContext;
 
   if (memberName === "entries") {
     return [
@@ -923,6 +1287,39 @@ const emitObjectDictionaryStaticCall = (
   ];
 };
 
+const buildGenericCallParameterTypeOverrides = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  typeArguments: readonly IrType[] | undefined
+): readonly (IrType | undefined)[] | undefined => {
+  if (!typeArguments || typeArguments.length === 0) {
+    return undefined;
+  }
+
+  const calleeType = expr.callee.inferredType;
+  if (
+    calleeType?.kind !== "functionType" ||
+    !calleeType.typeParameters ||
+    calleeType.typeParameters.length !== typeArguments.length
+  ) {
+    return undefined;
+  }
+
+  const typeParameterNames = calleeType.typeParameters.map(
+    (parameter) => parameter.name
+  );
+  return calleeType.parameters.map((parameter) => {
+    if (!parameter?.type) {
+      return undefined;
+    }
+
+    return substituteTypeArgs(
+      parameter.type,
+      typeParameterNames,
+      typeArguments
+    );
+  });
+};
+
 /**
  * Emit a function call expression as CSharpExpressionAst
  */
@@ -965,6 +1362,15 @@ export const emitCall = (
   );
   if (bigIntToStringCall) {
     return bigIntToStringCall;
+  }
+
+  const staticNumericGlobalNumberCall = emitStaticNumericGlobalNumberCall(
+    normalizedExpr,
+    context,
+    expectedType
+  );
+  if (staticNumericGlobalNumberCall) {
+    return staticNumericGlobalNumberCall;
   }
 
   const runtimeUnionArrayIsArray = emitRuntimeUnionArrayIsArrayCall(
@@ -1118,7 +1524,8 @@ export const emitCall = (
     context.promiseResolveValueTypes?.has(transparentCalleeIdentifier.name) ===
       true;
   const calleeExpectedType =
-    calleeExprForEmission.kind === "memberAccess"
+    calleeExprForEmission.kind === "memberAccess" ||
+    calleeExprForEmission.kind === "identifier"
       ? undefined
       : buildCallTargetExpectedType(
           normalizedExpr,
@@ -1142,13 +1549,25 @@ export const emitCall = (
     currentContext = castedLambdaTarget[1];
   }
 
+  const irTypeArguments =
+    normalizedExpr.typeArguments && normalizedExpr.typeArguments.length > 0
+      ? normalizedExpr.typeArguments
+      : undefined;
+  const contextualTypeArguments = normalizedExpr.explicitTypeArguments?.length
+    ? undefined
+    : inferContextualCallTypeArguments(
+        normalizedExpr,
+        expectedType,
+        currentContext
+      );
   const typeArgumentsForEmission =
-    shouldLetCSharpInferImplicitCallTypeArguments(
+    contextualTypeArguments ??
+    (shouldLetCSharpInferImplicitCallTypeArguments(
       normalizedExpr,
       currentContext
     )
       ? undefined
-      : normalizedExpr.typeArguments;
+      : irTypeArguments);
 
   if (typeArgumentsForEmission && typeArgumentsForEmission.length > 0) {
     if (normalizedExpr.requiresSpecialization) {
@@ -1177,11 +1596,65 @@ export const emitCall = (
     normalizedExpr.callee,
     currentContext
   );
+  const genericParameterTypes = buildGenericCallParameterTypeOverrides(
+    normalizedExpr,
+    typeArgumentsForEmission
+  );
+  const hasDeclaredArgumentSurface =
+    (normalizedExpr.parameterTypes?.length ?? 0) > 0 ||
+    (normalizedExpr.surfaceParameterTypes?.length ?? 0) > 0 ||
+    (normalizedExpr.sourceBackedParameterTypes?.length ?? 0) > 0 ||
+    (normalizedExpr.sourceBackedSurfaceParameterTypes?.length ?? 0) > 0;
+  const predicateParameterTypeCandidates =
+    !hasDeclaredArgumentSurface &&
+    normalizedExpr.narrowing?.kind === "typePredicate"
+      ? normalizedExpr.arguments.map((argument, index) =>
+          (() => {
+            if (
+              index !== normalizedExpr.narrowing?.argIndex ||
+              argument.kind === "spread"
+            ) {
+              return undefined;
+            }
+
+            const predicateSourceType =
+              resolveDirectStorageIrType(
+                argument,
+                argument.kind === "identifier" &&
+                  currentContext.narrowedBindings?.has(argument.name)
+                  ? {
+                      ...currentContext,
+                      narrowedBindings: new Map(
+                        [...currentContext.narrowedBindings].filter(
+                          ([name]) => name !== argument.name
+                        )
+                      ),
+                    }
+                  : currentContext
+              ) ??
+              argument.inferredType;
+            return predicateSourceType &&
+              willCarryAsRuntimeUnion(
+                stripNullish(predicateSourceType),
+                currentContext
+              )
+              ? argument.inferredType
+              : undefined;
+          })()
+        )
+      : undefined;
+  const predicateParameterTypes = predicateParameterTypeCandidates?.some(
+    (parameterType) => parameterType !== undefined
+  )
+    ? predicateParameterTypeCandidates
+    : undefined;
+  const parameterTypeOverrides =
+    structuralViewParameterTypes ?? genericParameterTypes ?? predicateParameterTypes;
   const [argAsts, argContext] = emitCallArguments(
     normalizedExpr.arguments,
     normalizedExpr,
     currentContext,
-    structuralViewParameterTypes
+    parameterTypeOverrides
   );
   currentContext = argContext;
 

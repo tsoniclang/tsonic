@@ -224,6 +224,32 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       })
     : actualLayout.members;
   const candidateMemberNs = restrictedIndices?.map((index) => index + 1);
+  const effectiveSelectedSourceMemberNs =
+    selectedSourceMemberNs ??
+    (() => {
+      if (ast.kind !== "identifierExpression") {
+        return undefined;
+      }
+      const narrowed = context.narrowedBindings?.get(ast.identifier);
+      if (narrowed?.kind === "runtimeSubset") {
+        return new Set(narrowed.runtimeMemberNs);
+      }
+      if (!narrowed?.type) {
+        return undefined;
+      }
+      const matchingMemberNs = effectiveMembers.flatMap((member, index) => {
+        if (
+          runtimeUnionAliasReferencesMatch(member, narrowed.type!, context) ||
+          areIrTypesEquivalent(member, narrowed.type!, context)
+        ) {
+          return [candidateMemberNs?.[index] ?? index + 1];
+        }
+        return [];
+      });
+      return matchingMemberNs.length === 1
+        ? new Set(matchingMemberNs)
+        : undefined;
+    })();
 
   const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
     projectionExpectedType,
@@ -235,11 +261,14 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = actualTypeContext;
   let sawMatch = false;
+  let directProjectionMemberN: number | undefined;
+  let directProjectionCount = 0;
 
   for (let index = 0; index < effectiveMembers.length; index += 1) {
     const actualMember = effectiveMembers[index];
     if (!actualMember) continue;
 
+    const sourceMemberN = candidateMemberNs?.[index] ?? index + 1;
     const parameterName = `__tsonic_union_member_${index + 1}`;
     const parameterExpr: CSharpExpressionAst = {
       kind: "identifierExpression",
@@ -252,8 +281,8 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     );
 
     if (
-      selectedSourceMemberNs &&
-      !selectedSourceMemberNs.has(candidateMemberNs?.[index] ?? index + 1)
+      effectiveSelectedSourceMemberNs &&
+      !effectiveSelectedSourceMemberNs.has(sourceMemberN)
     ) {
       lambdaArgs.push({
         kind: "lambdaExpression",
@@ -326,6 +355,14 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       }
     }
 
+    if (
+      body.kind === "identifierExpression" &&
+      body.identifier === parameterName
+    ) {
+      directProjectionMemberN = sourceMemberN;
+      directProjectionCount += 1;
+    }
+
     lambdaArgs.push({
       kind: "lambdaExpression",
       isAsync: false,
@@ -336,6 +373,32 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
 
   if (!sawMatch) {
     return undefined;
+  }
+
+  if (
+    (effectiveSelectedSourceMemberNs?.size === 1 ||
+      (!effectiveSelectedSourceMemberNs &&
+        projectionExpectedType.kind === "referenceType")) &&
+    directProjectionCount === 1 &&
+    directProjectionMemberN !== undefined &&
+    (!effectiveSelectedSourceMemberNs ||
+      effectiveSelectedSourceMemberNs.has(directProjectionMemberN))
+  ) {
+    return [
+      {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: ast,
+            memberName: `As${directProjectionMemberN}`,
+          },
+          arguments: [],
+        },
+      },
+      currentContext,
+    ];
   }
 
   return [

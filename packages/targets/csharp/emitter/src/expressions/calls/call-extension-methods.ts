@@ -35,6 +35,22 @@ import {
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { adaptEmittedExpressionAst } from "../expected-type-adaptation.js";
 import { maybeConvertTypedCharToStringAst } from "../post-emission-adaptation.js";
+import { typeArgumentsAreInScope } from "./call-type-argument-safety.js";
+
+const shouldEmitExtensionTypeArguments = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): boolean => {
+  if (!expr.typeArguments || expr.typeArguments.length === 0) {
+    return false;
+  }
+
+  if (expr.explicitTypeArguments?.length || expr.requiresSpecialization) {
+    return true;
+  }
+
+  return typeArgumentsAreInScope(expr.typeArguments, context);
+};
 
 const preserveReceiverTypeAssertionAst = (
   receiverExpr: IrExpression,
@@ -212,9 +228,9 @@ export const tryEmitExtensionMethodCall = (
     }
 
     let typeArgAsts: readonly CSharpTypeAst[] = [];
-    if (expr.typeArguments && expr.typeArguments.length > 0) {
+    if (shouldEmitExtensionTypeArguments(expr, currentContext)) {
       const [typeArgs, typeContext] = emitTypeArgumentsAst(
-        expr.typeArguments,
+        expr.typeArguments!,
         currentContext
       );
       typeArgAsts = typeArgs;
@@ -269,18 +285,18 @@ export const tryEmitExtensionMethodCall = (
   let finalCalleeName = `global::${binding.type}.${binding.member}`;
 
   let typeArgAsts: readonly CSharpTypeAst[] = [];
-  if (expr.typeArguments && expr.typeArguments.length > 0) {
+  if (shouldEmitExtensionTypeArguments(expr, currentContext)) {
     if (expr.requiresSpecialization) {
       const [specializedName, specContext] = generateSpecializedName(
         finalCalleeName,
-        expr.typeArguments,
+        expr.typeArguments!,
         currentContext
       );
       finalCalleeName = specializedName;
       currentContext = specContext;
     } else {
       const [typeArgs, typeContext] = emitTypeArgumentsAst(
-        expr.typeArguments,
+        expr.typeArguments!,
         currentContext
       );
       typeArgAsts = typeArgs;

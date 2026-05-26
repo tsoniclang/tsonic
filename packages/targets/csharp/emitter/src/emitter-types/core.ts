@@ -45,6 +45,12 @@ export type ModuleIdentity = {
    */
   readonly exportedValueKinds?: ReadonlyMap<string, "function" | "variable">;
   /**
+   * Declared source/storage type for exported values, keyed by exported name.
+   * Import adaptation uses this to preserve the imported value's actual emitted
+   * surface when contextual typing widens a value read at the use site.
+   */
+  readonly exportedValueTypes?: ReadonlyMap<string, IrType>;
+  /**
    * Call arities that can omit trailing authored arguments at runtime.
    *
    * Key: exported value name
@@ -193,6 +199,8 @@ export type EmitterOptions = {
   readonly jsonAotRegistry?: JsonAotRegistry;
   /** Registry of compiler-owned runtime union carrier definitions (shared across modules). */
   readonly runtimeUnionRegistry?: RuntimeUnionRegistry;
+  /** Registry of compiler-owned interface object-literal adapters (shared across modules). */
+  readonly interfaceObjectAdapterRegistry?: InterfaceObjectAdapterRegistry;
   /**
    * Enable NativeAOT JSON context generation/rewrite.
    *
@@ -257,6 +265,8 @@ export type ImportBinding =
       readonly valueKind?: ValueSymbolKind;
       /** Type surface for class/enum values that are also valid in type positions. */
       readonly typeAst?: CSharpTypeAst;
+      /** Declared source/storage type for imported variables/functions. */
+      readonly valueType?: IrType;
       /** True when this value comes from a module-object/source-surface export. */
       readonly moduleObject?: boolean;
       /** Supported argument counts that can omit trailing args at runtime. */
@@ -349,6 +359,7 @@ export type ValueSymbolInfo = {
   readonly kind: ValueSymbolKind;
   readonly csharpName: string;
   readonly type?: Extract<IrType, { kind: "functionType" }>;
+  readonly valueType?: IrType;
 };
 
 /**
@@ -459,6 +470,15 @@ export type EmitterContext = {
    * Used to preserve deterministic narrowing through boolean alias conditions.
    */
   readonly conditionAliases?: ReadonlyMap<string, IrExpression>;
+  /**
+   * Scoped map from locals initialized by JavaScript dictionary reads to the
+   * emitted boolean local that records key presence.
+   *
+   * This preserves the TypeScript distinction between an absent property
+   * (`undefined`) and a present property whose value is `null` after the value
+   * has been assigned to a local.
+   */
+  readonly dictionaryReadPresenceLocals?: ReadonlyMap<string, string>;
   /** Semantic (frontend IR) types for locals/parameters — alias names,
    *  union structure, and type-parameter shapes preserved exactly as authored.
    *  Used for narrowing analysis, guard analysis, and effective-type resolution.
@@ -530,4 +550,45 @@ export type JsonAotRegistry = {
   readonly rootTypes: Map<string, CSharpTypeAst>;
   /** Whether any JsonSerializer calls were detected */
   needsJsonAot: boolean;
+};
+
+export type InterfaceObjectAdapterParameter = {
+  readonly name: string;
+  readonly type: CSharpTypeAst;
+  readonly modifiers?: readonly string[];
+};
+
+export type InterfaceObjectAdapterMethod = {
+  readonly kind: "method";
+  readonly name: string;
+  readonly storageName: string;
+  readonly explicitInterface: CSharpTypeAst;
+  readonly delegateType: CSharpTypeAst;
+  readonly returnType: CSharpTypeAst;
+  readonly parameters: readonly InterfaceObjectAdapterParameter[];
+};
+
+export type InterfaceObjectAdapterProperty = {
+  readonly kind: "property";
+  readonly name: string;
+  readonly storageName: string;
+  readonly explicitInterface: CSharpTypeAst;
+  readonly valueType: CSharpTypeAst;
+  readonly isWritable: boolean;
+};
+
+export type InterfaceObjectAdapterMember =
+  | InterfaceObjectAdapterMethod
+  | InterfaceObjectAdapterProperty;
+
+export type InterfaceObjectAdapterDefinition = {
+  readonly key: string;
+  readonly namespaceName: string;
+  readonly className: string;
+  readonly interfaceType: CSharpTypeAst;
+  readonly members: readonly InterfaceObjectAdapterMember[];
+};
+
+export type InterfaceObjectAdapterRegistry = {
+  readonly definitions: Map<string, InterfaceObjectAdapterDefinition>;
 };

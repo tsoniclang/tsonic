@@ -9,6 +9,7 @@ import { emitExpressionAst } from "../expression-emitter.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import {
   identifierType,
+  parseNumericLiteral,
   stringLiteral,
 } from "../core/format/backend-ast/builders.js";
 import type {
@@ -28,22 +29,55 @@ import {
 /**
  * Emit dictionary key type as AST.
  */
-const emitDictKeyTypeAst = (keyType: IrType): CSharpTypeAst => {
+const emitDictKeyTypeAst = (
+  keyType: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
   if (keyType.kind === "primitiveType") {
     switch (keyType.name) {
       case "string":
-        return { kind: "predefinedType", keyword: "string" };
+        return [{ kind: "predefinedType", keyword: "string" }, context];
       case "number":
-        return { kind: "predefinedType", keyword: "double" };
+        return [{ kind: "predefinedType", keyword: "double" }, context];
+    }
+  }
+
+  if (
+    keyType.kind === "referenceType" &&
+    (keyType.name === "object" ||
+      keyType.name === "Symbol" ||
+      keyType.name === "symbol")
+  ) {
+    return [{ kind: "predefinedType", keyword: "object" }, context];
+  }
+
+  return emitTypeAst(keyType, context);
+};
+
+const emitDictionaryLiteralKeyExpression = (
+  key: string,
+  keyType: IrType
+): CSharpExpressionAst => {
+  if (keyType.kind === "primitiveType") {
+    switch (keyType.name) {
+      case "string":
+        return stringLiteral(key);
+      case "number":
+        if (!/^\d+(?:\.\d*)?(?:[eE][+-]?\d+)?$/.test(key)) {
+          throw new Error(
+            `ICE: Non-numeric key '${key}' reached Record<number, T> literal emission - validation missed TSN7413`
+          );
+        }
+        return parseNumericLiteral(key);
     }
   }
 
   if (keyType.kind === "referenceType" && keyType.name === "object") {
-    return { kind: "predefinedType", keyword: "object" };
+    return stringLiteral(key);
   }
 
   throw new Error(
-    `ICE: Unsupported dictionary key type reached emitter - validation missed TSN7413. Got: ${JSON.stringify(keyType)}`
+    `ICE: Unsupported dictionary key type reached literal key emission - validation missed TSN7413. Got: ${JSON.stringify(keyType)}`
   );
 };
 
@@ -57,7 +91,11 @@ export const emitDictionaryLiteral = (
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
-  const keyTypeAst = emitDictKeyTypeAst(dictType.keyType);
+  const [keyTypeAst, keyTypeContext] = emitDictKeyTypeAst(
+    dictType.keyType,
+    currentContext
+  );
+  currentContext = keyTypeContext;
   const [valueTypeAst, ctx2] = emitTypeAst(dictType.valueType, currentContext);
   currentContext = ctx2;
 
@@ -88,7 +126,9 @@ export const emitDictionaryLiteral = (
         operatorToken: "=",
         left: {
           kind: "implicitElementAccessExpression",
-          arguments: [stringLiteral(prop.key)],
+          arguments: [
+            emitDictionaryLiteralKeyExpression(prop.key, dictType.keyType),
+          ],
         },
         right: valueAst,
       });
@@ -114,7 +154,11 @@ export const emitDictionaryLiteralWithSpreads = (
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
-  const keyTypeAst = emitDictKeyTypeAst(dictType.keyType);
+  const [keyTypeAst, keyTypeContext] = emitDictKeyTypeAst(
+    dictType.keyType,
+    currentContext
+  );
+  currentContext = keyTypeContext;
   const [valueTypeAst, ctx2] = emitTypeAst(dictType.valueType, currentContext);
   currentContext = ctx2;
 
@@ -173,7 +217,7 @@ export const emitDictionaryLiteralWithSpreads = (
         operatorToken: "=",
         left: createDictionaryElementAccess(
           "__tmp",
-          createStringLiteralExpression(prop.key)
+          emitDictionaryLiteralKeyExpression(prop.key, dictType.keyType)
         ),
         right: valueAst,
       },
