@@ -15,6 +15,10 @@ import { maybeCastNumericToExpectedIntegralAst } from "../post-emission-adaptati
 import { resolveWritableTargetStorageType } from "../../core/semantic/assignment-flow.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
+import {
+  emitArrayOverlayPropertyWrite,
+  tryResolveArrayOverlayProperty,
+} from "../array-overlay-storage.js";
 
 /**
  * Emit an assignment expression as CSharpExpressionAst
@@ -26,6 +30,70 @@ export const emitAssignment = (
   expr: Extract<IrExpression, { kind: "assignment" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
+  if (
+    expr.operator === "=" &&
+    "kind" in expr.left &&
+    expr.left.kind === "memberAccess" &&
+    !expr.left.isComputed &&
+    typeof expr.left.property === "string"
+  ) {
+    const leftExpr = expr.left as Extract<
+      IrExpression,
+      { kind: "memberAccess" }
+    >;
+    const propertyName = leftExpr.property as string;
+    const receiverType =
+      leftExpr.object.kind === "identifier"
+        ? (context.localSemanticTypes?.get(leftExpr.object.name) ??
+          context.localValueTypes?.get(leftExpr.object.name) ??
+          leftExpr.object.inferredType)
+        : leftExpr.object.inferredType;
+    const receiverStorageType =
+      (leftExpr.object.kind === "identifier" ||
+      leftExpr.object.kind === "memberAccess"
+        ? resolveWritableTargetStorageType(leftExpr.object, context)
+        : undefined) ?? receiverType;
+    const arrayOverlayProperty = tryResolveArrayOverlayProperty(
+      receiverType,
+      receiverStorageType,
+      propertyName,
+      context
+    );
+    if (arrayOverlayProperty) {
+      const [receiverAst, receiverContext] = emitExpressionAst(
+        leftExpr.object,
+        context
+      );
+      const [rightAst, rightContext] = emitExpressionAst(
+        expr.right,
+        receiverContext,
+        arrayOverlayProperty.type
+      );
+      const numericAssignmentActualType =
+        (expr.right.inferredType?.kind === "literalType" &&
+          typeof expr.right.inferredType.value === "number") ||
+        (expr.right.kind === "literal" && typeof expr.right.value === "number")
+          ? ({ kind: "primitiveType", name: "number" } as const)
+          : expr.right.inferredType;
+      const [adaptedRightAst, adaptedRightContext] =
+        numericAssignmentActualType
+          ? maybeCastNumericToExpectedIntegralAst(
+              rightAst,
+              numericAssignmentActualType,
+              rightContext,
+              arrayOverlayProperty.type
+            )
+          : [rightAst, rightContext];
+      return emitArrayOverlayPropertyWrite(
+        receiverAst,
+        propertyName,
+        arrayOverlayProperty,
+        adaptedRightAst,
+        adaptedRightContext
+      );
+    }
+  }
+
   // Array element assignment uses native CLR indexer.
   // Protocol-backed source indexers route through explicit member calls.
 

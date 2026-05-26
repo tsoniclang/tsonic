@@ -28,6 +28,56 @@ const parameterPassingCapabilities = {
   in: "in-parameters",
 } as const;
 
+const isArrayLikeStorageType = (type: IrType): boolean =>
+  type.kind === "arrayType" ||
+  (type.kind === "referenceType" &&
+    (type.name === "Array" ||
+      type.name === "ReadonlyArray" ||
+      type.name === "ArrayLike") &&
+    (type.typeArguments?.length ?? 0) === 1);
+
+const isPropertyOnlyObjectType = (type: IrType): boolean =>
+  type.kind === "objectType" &&
+  type.members.every((member) => member.kind === "propertySignature");
+
+const isPropertyOnlyStructuralReferenceType = (type: IrType): boolean =>
+  type.kind === "referenceType" &&
+  (type.structuralMembers?.length ?? 0) > 0 &&
+  type.structuralMembers!.every(
+    (member) => member.kind === "propertySignature"
+  );
+
+const isArrayOverlayIntersectionType = (
+  type: Extract<IrType, { kind: "intersectionType" }>
+): boolean => {
+  let carrierCount = 0;
+  let propertyOverlayCount = 0;
+  const visit = (member: IrType): boolean => {
+    if (member.kind === "intersectionType") {
+      return member.types.every(visit);
+    }
+    if (isArrayLikeStorageType(member)) {
+      carrierCount += 1;
+      return true;
+    }
+    if (isPropertyOnlyObjectType(member)) {
+      propertyOverlayCount += 1;
+      return true;
+    }
+    if (isPropertyOnlyStructuralReferenceType(member)) {
+      propertyOverlayCount += 1;
+      return true;
+    }
+    return false;
+  };
+
+  return (
+    type.types.every(visit) &&
+    carrierCount === 1 &&
+    propertyOverlayCount > 0
+  );
+};
+
 export const validateType = (
   type: IrType | undefined,
   ctx: ValidationContext,
@@ -126,7 +176,10 @@ export const validateType = (
         break;
 
       case "intersectionType":
+        const isArrayOverlayIntersection =
+          isArrayOverlayIntersectionType(type);
         if (
+          !isArrayOverlayIntersection &&
           shouldReportUnsupportedCapability(
             ctx,
             "intersection-value-storage"
@@ -148,7 +201,14 @@ export const validateType = (
           validateType(
             member,
             ctx,
-            `${typeContext} intersection member ${index}`
+            `${typeContext} intersection member ${index}`,
+            isArrayOverlayIntersection
+              ? {
+                  ...options,
+                  objectRootKind: "semanticMetadata",
+                  intersectionRootKind: "semanticMetadata",
+                }
+              : options
           )
         );
         break;

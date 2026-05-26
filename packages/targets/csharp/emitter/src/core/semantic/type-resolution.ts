@@ -43,6 +43,12 @@ export {
 } from "./structural-resolution.js";
 
 export {
+  resolveArrayOverlayCarrierType,
+  resolveArrayOverlayPropertyType,
+  localInterfaceInfoIsArrayOverlay,
+} from "./array-overlays.js";
+
+export {
   matchesTypeofTag,
   narrowTypeByNotTypeofTag,
   narrowTypeByTypeofTag,

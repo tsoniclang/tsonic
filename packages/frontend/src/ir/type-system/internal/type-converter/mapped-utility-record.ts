@@ -6,7 +6,13 @@
  */
 
 import * as ts from "typescript";
-import { IrType, IrObjectType, IrPropertySignature } from "../../../types.js";
+import {
+  IrType,
+  IrObjectType,
+  IrPropertySignature,
+  IrInterfaceMember,
+} from "../../../types.js";
+import { irTypesEqual } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
 import {
   isTypeParameterNode,
@@ -132,6 +138,81 @@ const extractLiteralKeysFromTypeNode = (
 
 type TriBool = true | false | null;
 
+const structuralMembersOf = (
+  type: IrType
+): readonly IrInterfaceMember[] | undefined => {
+  if (type.kind === "objectType") return type.members;
+  if (type.kind === "referenceType") return type.structuralMembers;
+  return undefined;
+};
+
+const structuralMemberType = (member: IrInterfaceMember): IrType | undefined =>
+  member.kind === "propertySignature"
+    ? member.type
+    : member.returnType
+      ? {
+          kind: "functionType",
+          parameters: member.parameters,
+          returnType: member.returnType,
+        }
+      : undefined;
+
+const isProvablyStructurallyAssignable = (
+  source: IrType,
+  target: IrType
+): TriBool => {
+  const sourceMembers = structuralMembersOf(source);
+  const targetMembers = structuralMembersOf(target);
+  if (!sourceMembers || !targetMembers) {
+    return null;
+  }
+
+  let sawUnknown = false;
+  for (const targetMember of targetMembers) {
+    if (targetMember.kind !== "propertySignature") {
+      sawUnknown = true;
+      continue;
+    }
+
+    const sourceMember = sourceMembers.find(
+      (candidate) => candidate.name === targetMember.name
+    );
+    if (!sourceMember) {
+      if (targetMember.isOptional) {
+        continue;
+      }
+      return false;
+    }
+    if (
+      sourceMember.kind === "propertySignature" &&
+      sourceMember.isOptional &&
+      !targetMember.isOptional
+    ) {
+      return false;
+    }
+
+    const sourceMemberType = structuralMemberType(sourceMember);
+    const targetMemberType = structuralMemberType(targetMember);
+    if (!sourceMemberType || !targetMemberType) {
+      sawUnknown = true;
+      continue;
+    }
+
+    const memberAssignable = isProvablyAssignable(
+      sourceMemberType,
+      targetMemberType
+    );
+    if (memberAssignable === false) {
+      return false;
+    }
+    if (memberAssignable === null) {
+      sawUnknown = true;
+    }
+  }
+
+  return sawUnknown ? null : true;
+};
+
 export const flattenUnionIrType = (type: IrType): readonly IrType[] => {
   if (type.kind === "neverType") return [];
   if (type.kind !== "unionType") return [type];
@@ -147,6 +228,10 @@ export const isProvablyAssignable = (
   source: IrType,
   target: IrType
 ): TriBool => {
+  if (irTypesEqual(source, target)) {
+    return true;
+  }
+
   // Union target: assignable if assignable to any constituent
   if (target.kind === "unionType") {
     let sawUnknown = false;
@@ -197,6 +282,11 @@ export const isProvablyAssignable = (
   // Primitive -> literal is never provable (would require narrowing)
   if (source.kind === "primitiveType" && target.kind === "literalType") {
     return false;
+  }
+
+  const structuralAssignable = isProvablyStructurallyAssignable(source, target);
+  if (structuralAssignable !== null) {
+    return structuralAssignable;
   }
 
   // Other kinds (reference types, functions, objects, etc.) require richer typing.

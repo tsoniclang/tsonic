@@ -24,6 +24,7 @@ import { separateStatements } from "./core/format/module-emitter/separation.js";
 import { planDuplicateTypeSuppression } from "./duplicate-type-suppression.js";
 import {
   generateArrayInteropFile,
+  generateIntersectionStorageFile,
   generateModuleContainerAttributeFile,
   generateJsonAotFile,
   generateRuntimeUnionFile,
@@ -154,6 +155,17 @@ export const emitCSharpFiles = (
     )
   ) {
     results.set("__tsonic_array_interop.g.cs", generateArrayInteropFile());
+  }
+
+  if (
+    [...results.values()].some((code) =>
+      code.includes("global::Tsonic.Internal.IntersectionStorage.")
+    )
+  ) {
+    results.set(
+      "__tsonic_intersection_storage.g.cs",
+      generateIntersectionStorageFile()
+    );
   }
 
   if (runtimeUnionRegistry.definitions.size > 0) {

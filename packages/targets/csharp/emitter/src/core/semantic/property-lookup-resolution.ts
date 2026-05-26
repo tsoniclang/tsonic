@@ -377,6 +377,21 @@ export const resolvePropertyType = (
     return findPropertyInMembers(type.members, propertyName);
   }
 
+  if (type.kind === "intersectionType") {
+    for (const member of type.types) {
+      const propertyType = resolvePropertyType(
+        member,
+        propertyName,
+        context,
+        visitedTypes
+      );
+      if (propertyType) {
+        return propertyType;
+      }
+    }
+    return undefined;
+  }
+
   return undefined;
 };
 

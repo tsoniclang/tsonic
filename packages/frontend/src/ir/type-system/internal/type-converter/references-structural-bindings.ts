@@ -269,26 +269,26 @@ export const isRecursiveUserTypeAliasDeclaration = (
 ): boolean => {
   const recursionCache = getTypeAliasRecursionCache(binding);
   const cached = recursionCache.get(declId);
-  if (cached === "in-progress") {
-    return true;
-  }
   if (typeof cached === "boolean") {
     return cached;
   }
 
-  recursionCache.set(declId, "in-progress");
   const registry = (binding as BindingInternal)._getHandleRegistry();
-  let isRecursive = false;
 
-  const visit = (node: ts.Node): void => {
-    if (isRecursive) return;
-
+  const referencesTargetAlias = (
+    node: ts.Node,
+    targetDeclId: number,
+    activeAliasDeclIds: ReadonlySet<number>
+  ): boolean => {
     if (ts.isTypeReferenceNode(node)) {
       const referencedDecl = binding.resolveTypeReference(node);
       if (referencedDecl) {
-        if (referencedDecl.id === declId) {
-          isRecursive = true;
-          return;
+        if (referencedDecl.id === targetDeclId) {
+          return true;
+        }
+
+        if (activeAliasDeclIds.has(referencedDecl.id)) {
+          return false;
         }
 
         const referencedDeclInfo = registry.getDecl(referencedDecl);
@@ -299,22 +299,32 @@ export const isRecursiveUserTypeAliasDeclaration = (
           referencedNode &&
           ts.isTypeAliasDeclaration(referencedNode) &&
           shouldPreserveUserTypeAliasIdentity(referencedNode) &&
-          isRecursiveUserTypeAliasDeclaration(
-            referencedDecl.id,
+          referencesTargetAlias(
             referencedNode,
-            binding
+            targetDeclId,
+            new Set([...activeAliasDeclIds, referencedDecl.id])
           )
         ) {
-          isRecursive = true;
-          return;
+          return true;
         }
       }
     }
 
-    node.forEachChild(visit);
+    let found = false;
+    node.forEachChild((child) => {
+      if (found) {
+        return;
+      }
+      found = referencesTargetAlias(child, targetDeclId, activeAliasDeclIds);
+    });
+    return found;
   };
 
-  visit(declNode.type);
+  const isRecursive = referencesTargetAlias(
+    declNode.type,
+    declId,
+    new Set([declId])
+  );
   recursionCache.set(declId, isRecursive);
   return isRecursive;
 };

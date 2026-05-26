@@ -48,6 +48,10 @@ import { materializeDirectNarrowingAst } from "../core/semantic/materialized-nar
 import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
+import {
+  emitArrayOverlayPropertyRead,
+  tryResolveArrayOverlayProperty,
+} from "./array-overlay-storage.js";
 
 /**
  * Emit a non-computed property member access expression as CSharpExpressionAst.
@@ -70,6 +74,7 @@ export const emitPropertyAccess = (
   let receiverTypeForMember = objectType;
   let erasedAsInterfaceSourceMemberType: IrType | undefined;
   let erasedAsInterfaceTargetMemberType: IrType | undefined;
+  let arrayOverlayCarrierTypeHint: IrType | undefined;
   const isErasedAsInterfaceReceiver = expr.object.kind === "asinterface";
 
   if (
@@ -103,6 +108,21 @@ export const emitPropertyAccess = (
       expr.isOptional && transparentReceiverType
         ? stripNullish(transparentReceiverType)
         : transparentReceiverType;
+    const assertedReceiverType =
+      expr.object.kind === "typeAssertion" ||
+      expr.object.kind === "asinterface" ||
+      expr.object.kind === "trycast"
+        ? expr.object.targetType
+        : undefined;
+    const assertionViewsArrayOverlayProperty =
+      assertedReceiverType && transparentReceiverType
+        ? tryResolveArrayOverlayProperty(
+            assertedReceiverType,
+            transparentReceiverType,
+            prop,
+            context
+          )
+        : undefined;
     const receiverAlreadyExposesMember =
       !!transparentMemberResolutionType &&
       resolveTypeMemberKind(
@@ -125,6 +145,14 @@ export const emitPropertyAccess = (
     if (preservedBroadArrayReceiver) {
       receiverAst = preservedBroadArrayReceiver[0];
       receiverContext = preservedBroadArrayReceiver[1];
+    } else if (assertionViewsArrayOverlayProperty) {
+      const [transparentReceiverAst, transparentReceiverContext] =
+        emitExpressionAst(transparentReceiver, receiverSourceContext);
+      receiverAst = transparentReceiverAst;
+      receiverContext = transparentReceiverContext;
+      receiverExpressionForMember = transparentReceiver;
+      receiverTypeForMember = assertedReceiverType;
+      arrayOverlayCarrierTypeHint = transparentReceiverType;
     } else if (expr.object.kind === "asinterface") {
       const [transparentReceiverAst, transparentReceiverContext] =
         emitExpressionAst(transparentReceiver, receiverSourceContext);
@@ -324,6 +352,22 @@ export const emitPropertyAccess = (
       },
       receiverContext,
     ];
+  }
+
+  const arrayOverlayProperty = tryResolveArrayOverlayProperty(
+    memberResolutionType,
+    arrayOverlayCarrierTypeHint ?? receiverStorageType ?? receiverTypeForMember,
+    prop,
+    context
+  );
+  if (arrayOverlayProperty) {
+    return emitArrayOverlayPropertyRead(
+      receiverAst,
+      prop,
+      arrayOverlayProperty,
+      receiverContext,
+      expr.isOptional
+    );
   }
 
   // Regular property access

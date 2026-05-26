@@ -127,6 +127,16 @@ export const resolveTypeMemberKind = (
     return found.kind === "methodSignature" ? "method" : "property";
   }
 
+  if (resolved.kind === "intersectionType") {
+    for (const member of resolved.types) {
+      const memberKind = resolveTypeMemberKind(member, memberName, context);
+      if (memberKind) {
+        return memberKind;
+      }
+    }
+    return undefined;
+  }
+
   if (resolved.kind !== "referenceType") {
     return receiverBindingName
       ? lookupLocalTypeMemberKind(receiverBindingName, memberName, context)

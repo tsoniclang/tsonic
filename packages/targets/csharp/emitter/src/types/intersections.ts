@@ -5,6 +5,7 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import { resolveArrayOverlayCarrierType } from "../core/semantic/type-resolution.js";
 import { emitTypeAst } from "./emitter.js";
 
 const isTransparentIntersectionViewMarker = (type: IrType): boolean =>
@@ -38,6 +39,11 @@ export const emitIntersectionType = (
   type: Extract<IrType, { kind: "intersectionType" }>,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
+  const arrayOverlayCarrier = resolveArrayOverlayCarrierType(type, context);
+  if (arrayOverlayCarrier) {
+    return emitTypeAst(arrayOverlayCarrier, context);
+  }
+
   const runtimeMembers = collectRuntimeIntersectionMembers(type);
   if (runtimeMembers.length === 1) {
     const runtimeMember = runtimeMembers[0];
