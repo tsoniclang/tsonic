@@ -364,6 +364,69 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include("object compareStringsCaseSensitive");
   });
 
+  it("does not reinterpret source aliases as same-named target delegates during call adaptation", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/compare.ts": `
+          export type Comparison = -1 | 0 | 1;
+
+          export const ComparisonLessThan: Comparison = -1;
+          export const ComparisonEqual: Comparison = 0;
+          export const ComparisonGreaterThan: Comparison = 1;
+
+          export function compareStringsCaseSensitive(a: string, b: string): Comparison {
+            if (a < b) return ComparisonLessThan;
+            if (a > b) return ComparisonGreaterThan;
+            return ComparisonEqual;
+          }
+        `,
+        "src/index.ts": `
+          export * from "./compare.js";
+        `,
+        "src/test.ts": `
+          import { Assert } from "xunit-types/Xunit.js";
+          import { ComparisonEqual, compareStringsCaseSensitive } from "./index.js";
+
+          export function run(): void {
+            Assert.Equal(
+              ComparisonEqual,
+              compareStringsCaseSensitive("a", "a")
+            );
+          }
+        `,
+        "node_modules/xunit-types/package.json": JSON.stringify({
+          name: "xunit-types",
+          type: "module",
+        }),
+        "node_modules/xunit-types/Xunit.js": "export {};",
+        "node_modules/xunit-types/Xunit.d.ts":
+          'export * from "./Xunit/internal/index.js";',
+        "node_modules/xunit-types/Xunit/internal/index.js": "export {};",
+        "node_modules/xunit-types/Xunit/internal/index.d.ts": [
+          'import type { Func_3, Boolean as ClrBoolean, DateTime } from "@tsonic/dotnet/System/internal/index.js";',
+          'import type { IAsyncEnumerable_1, IEnumerable_1, IEqualityComparer_1 } from "@tsonic/dotnet/System.Collections.Generic/internal/index.js";',
+          "export interface Assert$instance {}",
+          "export declare const Assert: (abstract new() => Assert$instance) & {",
+          "  Equal<T>(expected: IAsyncEnumerable_1<T> | null, actual: IAsyncEnumerable_1<T> | null): void;",
+          "  Equal<T>(expected: IEnumerable_1<T> | null, actual: IEnumerable_1<T> | null): void;",
+          "  Equal(expected: DateTime, actual: DateTime): void;",
+          "  Equal<T>(expected: T, actual: T, comparer: Func_3<T, T, ClrBoolean>): void;",
+          "  Equal<T>(expected: T, actual: T, comparer: IEqualityComparer_1<T>): void;",
+          "  Equal<T>(expected: T, actual: T): void;",
+          "};",
+        ].join("\n"),
+      },
+      "src/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      'Assert.Equal(global::Test.compare.ComparisonEqual, global::Test.compare.compareStringsCaseSensitive("a", "a"));'
+    );
+    expect(csharp).to.not.include("ComparisonEqual(p0, p1)");
+    expect(csharp).to.not.include('compareStringsCaseSensitive("a", "a")(p0, p1)');
+  });
+
   it("types ECMAScript numeric globals and bigint literals before union adaptation", () => {
     const csharp = compileToCSharp(
       `

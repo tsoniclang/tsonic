@@ -186,12 +186,13 @@ const resolveFunctionType = (
   }
 
   const unwrapped = unwrapParameterModifierType(type) ?? type;
-  const resolved = resolveTypeAlias(stripNullish(unwrapped), context);
+  const baseType = stripNullish(unwrapped);
+  const resolved = resolveTypeAlias(baseType, context);
   if (resolved.kind === "functionType") {
     return resolved;
   }
 
-  return resolveBindingDelegateFunctionType(stripNullish(unwrapped), context);
+  return resolveBindingDelegateFunctionType(resolved, context);
 };
 
 const collectTypeParameterNames = (
