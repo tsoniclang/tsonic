@@ -18,7 +18,10 @@ import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
 import { normalizeValueSlotType } from "../../core/semantic/value-slot-types.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
-import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
+import {
+  localInterfaceInfoIsArrayOverlay,
+  resolveLocalTypeInfo,
+} from "../../core/semantic/type-resolution.js";
 import {
   localInterfaceInfoEmitsAsNative,
   referenceTypeEmitsAsNativeInterface,
@@ -146,6 +149,10 @@ export const emitInterfaceDeclaration = (
     const [declAst, newContext] = emitExtractedType(extracted, currentContext);
     extractedDecls.push(declAst);
     currentContext = newContext;
+  }
+
+  if (localInterfaceInfoIsArrayOverlay(localInterfaceInfo, currentContext)) {
+    return [extractedDecls, { ...currentContext, ...savedScoped }];
   }
 
   const needsUnsafe = statementUsesPointer(stmt);

@@ -1097,6 +1097,24 @@ export const inferMethodTypeArgsFromArguments = (
     }
 
     if (
+      parameterType.kind === "tupleType" &&
+      argumentType.kind === "tupleType"
+    ) {
+      if (parameterType.elementTypes.length !== argumentType.elementTypes.length) {
+        return true;
+      }
+      for (let index = 0; index < parameterType.elementTypes.length; index += 1) {
+        const parameterElement = parameterType.elementTypes[index];
+        const argumentElement = argumentType.elementTypes[index];
+        if (!parameterElement || !argumentElement) continue;
+        if (!tryUnify(parameterElement, argumentElement, currentSubstitution)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    if (
       parameterType.kind === "referenceType" &&
       argumentType.kind === "referenceType"
     ) {

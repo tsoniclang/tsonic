@@ -13,6 +13,7 @@ import {
   resolveStructuralReferenceType,
   resolveLocalTypeInfo,
   substituteTypeArgs,
+  resolveArrayOverlayCarrierType,
 } from "../core/semantic/type-resolution.js";
 import { resolveLocalTypeInfoWithoutBindings } from "../core/semantic/property-lookup-resolution.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
@@ -133,6 +134,13 @@ export const emitReferenceType = (
       nullableType({ kind: "predefinedType", keyword: "object" }),
       context,
     ];
+  }
+
+  if (name !== "Array" && name !== "ReadonlyArray" && name !== "ArrayLike") {
+    const arrayOverlayCarrier = resolveArrayOverlayCarrierType(type, context);
+    if (arrayOverlayCarrier) {
+      return emitTypeAst(arrayOverlayCarrier, context);
+    }
   }
 
   const coreTargetType = resolveCoreTargetTypeName(

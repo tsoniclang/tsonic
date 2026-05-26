@@ -1430,4 +1430,192 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include("service.read(41)");
     expect(csharp).to.not.include("Dictionary<string");
   });
+
+  it("infers Map constructor type arguments from readonly map arguments without expected type", () => {
+    const csharp = compileToCSharp(
+      `
+        type SymbolInfo = { name: string };
+        type TypeEnvironment = ReadonlyMap<string, SymbolInfo>;
+
+        export function clone(environment: TypeEnvironment): number {
+          const loopEnvironment = new Map(environment);
+          return loopEnvironment.size;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "new global::js.Map<string, SymbolInfo__Alias>(environment.__tsonic_symbol_iterator())"
+    );
+    expect(csharp).to.not.include("new global::js.Map<object");
+  });
+
+  it("infers Map constructor type arguments through transparent aliases to recursive union values", () => {
+    const csharp = compileToCSharp(
+      `
+        type PrimitiveTypeName = "any" | "boolean" | "number" | "string" | "unknown" | "void";
+
+        type CheckedType =
+          | { readonly kind: PrimitiveTypeName | "unresolved" }
+          | { readonly kind: "function"; readonly returnType: CheckedType };
+
+        type TypeEnvironment = Map<string, CheckedType>;
+
+        export function clone(environment: TypeEnvironment): number {
+          const loopEnvironment = new Map(environment);
+          return loopEnvironment.size;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "new global::js.Map<string, global::Test.CheckedType>(environment.__tsonic_symbol_iterator())"
+    );
+    expect(csharp).to.not.include("new global::js.Map<object");
+  });
+
+  it("expands Extract and narrows recursive discriminated unions without unknown tail members", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        enum Kind {
+          ForStatement = 0,
+          ForInStatement = 1,
+          IfStatement = 2,
+          Block = 3,
+          Identifier = 4,
+          SatisfiesExpression = 5,
+          AsExpression = 6,
+          MissingDeclaration = 7,
+          VariableDeclarationList = 8,
+        }
+
+        interface MissingDeclaration { readonly kind: Kind.MissingDeclaration }
+        interface VariableDeclarationList { readonly kind: Kind.VariableDeclarationList; readonly declarations: readonly BindingElement[] }
+        interface BindingElement { readonly name?: BindingName }
+        interface Identifier { readonly kind: Kind.Identifier; readonly text: string }
+        type BindingName = Identifier;
+        type TypeNode = Identifier;
+        type ConciseBody = Block | Expression;
+        type Expression = Identifier | SatisfiesExpression | AsExpression;
+        interface SatisfiesExpression { readonly kind: Kind.SatisfiesExpression; readonly expression: Expression; readonly type: TypeNode }
+        interface AsExpression { readonly kind: Kind.AsExpression; readonly expression: Expression; readonly type: TypeNode }
+        interface Block { readonly kind: Kind.Block; readonly statements: readonly Statement[] }
+        interface ForStatement { readonly kind: Kind.ForStatement; readonly initializer?: VariableDeclarationList | Expression | MissingDeclaration; readonly statement: Statement }
+        interface ForInStatement { readonly kind: Kind.ForInStatement; readonly initializer: VariableDeclarationList | Expression; readonly expression: Expression; readonly statement: Statement }
+        interface IfStatement { readonly kind: Kind.IfStatement; readonly expression: Expression; readonly thenStatement: Statement; readonly elseStatement?: Statement }
+        type Statement = ForStatement | ForInStatement | IfStatement | Block;
+
+        function isVariableDeclarationList(node: VariableDeclarationList | Expression | MissingDeclaration): node is VariableDeclarationList {
+          return node.kind === Kind.VariableDeclarationList;
+        }
+        function isMissingDeclaration(node: VariableDeclarationList | Expression | MissingDeclaration): node is MissingDeclaration {
+          return node.kind === Kind.MissingDeclaration;
+        }
+        function isIfStatement(node: Statement): node is IfStatement { return node.kind === Kind.IfStatement; }
+        function isBlock(node: Statement | ConciseBody): node is Block { return node.kind === Kind.Block; }
+        function isAsExpression(node: Expression): node is AsExpression { return node.kind === Kind.AsExpression; }
+        function isSatisfiesExpression(node: Expression): node is SatisfiesExpression { return node.kind === Kind.SatisfiesExpression; }
+
+        type CheckedType =
+          | { readonly kind: "unknown" | "unresolved" }
+          | { readonly kind: "function"; readonly returnType: CheckedType };
+
+        const unknownType: CheckedType = { kind: "unknown" };
+
+        export function checkStatement(statement: Statement): int {
+          if (isIfStatement(statement)) {
+            checkStatement(statement.thenStatement);
+            if (statement.elseStatement !== undefined) {
+              checkStatement(statement.elseStatement);
+            }
+            return 1;
+          }
+          if (isBlock(statement)) {
+            return checkStatement(statement.statements[0]);
+          }
+          return 0;
+        }
+
+        function checkForInitializer(initializer: Extract<Statement, { readonly kind: Kind.ForStatement }>["initializer"] | Extract<Statement, { readonly kind: Kind.ForInStatement }>["initializer"]): void {
+          if (initializer === undefined) return;
+          if (isVariableDeclarationList(initializer)) return;
+          if (isMissingDeclaration(initializer)) return;
+          inferExpression(initializer);
+        }
+
+        function inferExpression(expression: Expression): CheckedType {
+          if (isAsExpression(expression) || isSatisfiesExpression(expression)) {
+            inferExpression(expression.expression);
+            return typeFromTypeNode(expression.type);
+          }
+          return unknownType;
+        }
+
+        function typeFromTypeNode(_type: TypeNode): CheckedType {
+          return unknownType;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("checkForInitializer(");
+    expect(csharp).to.include("isSatisfiesExpression");
+    expect(csharp).to.not.include("object? initializer");
+  });
+
+  it("stores array/object intersection properties through compiler-owned side storage", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        interface ReadonlyTextRange {
+          readonly pos: int;
+          readonly end: int;
+        }
+
+        export interface NodeArray<T> extends ReadonlyArray<T>, ReadonlyTextRange {
+          hasTrailingComma?: boolean;
+          transformFlags: int;
+        }
+
+        export function createNodeArray<T>(elements: readonly T[], pos: int, end: int): NodeArray<T> {
+          const array = elements.slice() as unknown as T[] & {
+            pos: int;
+            end: int;
+            transformFlags: int;
+            hasTrailingComma?: boolean;
+          };
+          array.pos = pos;
+          array.end = end;
+          array.transformFlags = 0;
+          return array as unknown as NodeArray<T>;
+        }
+
+        export function span<T>(items: readonly T[]): int {
+          const nodes = createNodeArray(items, 3, 9);
+          return nodes.pos + nodes.end + nodes.length;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("internal static class IntersectionStorage");
+    expect(csharp).to.include("public static T[] createNodeArray<T>");
+    expect(csharp).to.not.include("interface NodeArray");
+    expect(csharp).to.include(
+      'global::Tsonic.Internal.IntersectionStorage.Set<int>(array, "pos", pos)'
+    );
+    expect(csharp).to.include(
+      'global::Tsonic.Internal.IntersectionStorage.GetRequired<int>((T[])nodes, "pos")'
+    );
+    expect(csharp).to.include("nodes.Length");
+  });
 });

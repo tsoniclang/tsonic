@@ -38,6 +38,53 @@ import {
   entityNameToText,
 } from "./references-alias.js";
 
+const tryReadNumericLiteral = (node: ts.Expression): number | undefined => {
+  if (ts.isNumericLiteral(node)) {
+    return Number(node.text);
+  }
+  if (
+    ts.isPrefixUnaryExpression(node) &&
+    ts.isNumericLiteral(node.operand) &&
+    (node.operator === ts.SyntaxKind.MinusToken ||
+      node.operator === ts.SyntaxKind.PlusToken)
+  ) {
+    const value = Number(node.operand.text);
+    return node.operator === ts.SyntaxKind.MinusToken ? -value : value;
+  }
+  return undefined;
+};
+
+const tryReadEnumMemberLiteralValue = (
+  member: ts.EnumMember
+): string | number | undefined => {
+  if (member.initializer) {
+    if (ts.isStringLiteral(member.initializer)) {
+      return member.initializer.text;
+    }
+    return tryReadNumericLiteral(member.initializer);
+  }
+
+  let nextNumericValue = 0;
+  for (const candidate of member.parent.members) {
+    if (candidate === member) {
+      return nextNumericValue;
+    }
+
+    if (!candidate.initializer) {
+      nextNumericValue += 1;
+      continue;
+    }
+
+    const numericValue = tryReadNumericLiteral(candidate.initializer);
+    if (numericValue === undefined) {
+      return undefined;
+    }
+    nextNumericValue = numericValue + 1;
+  }
+
+  return undefined;
+};
+
 /**
  * Convert TypeScript type reference to IR type
  * Handles both primitive type names and user-defined types
@@ -170,6 +217,13 @@ export const convertTypeReference = (
       resolvedDeclNode = declNode;
       if (declNode && ts.isTypeParameterDeclaration(declNode)) {
         return { kind: "typeParameterType", name: typeName };
+      }
+
+      if (declNode && ts.isEnumMember(declNode)) {
+        const literalValue = tryReadEnumMemberLiteralValue(declNode);
+        return literalValue === undefined
+          ? { kind: "unknownType" }
+          : { kind: "literalType", value: literalValue };
       }
 
       // ExtensionMethods import specifier erasure
