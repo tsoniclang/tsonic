@@ -12,7 +12,9 @@ const isTsonicWorkspaceRoot = (candidate: string): boolean => {
       readonly name?: unknown;
       readonly workspaces?: unknown;
     };
-    return parsed.name === "@tsonic/monorepo" && Array.isArray(parsed.workspaces);
+    return (
+      parsed.name === "@tsonic/monorepo" && Array.isArray(parsed.workspaces)
+    );
   } catch {
     return false;
   }

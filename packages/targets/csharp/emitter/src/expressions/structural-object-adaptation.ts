@@ -1,7 +1,4 @@
-import type {
-  IrInterfaceMember,
-  IrType,
-} from "@tsonic/frontend";
+import type { IrInterfaceMember, IrType } from "@tsonic/frontend";
 import { emitTypeAst } from "../type-emitter.js";
 import type {
   CSharpExpressionAst,

@@ -1022,7 +1022,11 @@ const mayContainValueIrType = (
   }
   switch (resolved.kind) {
     case "primitiveType":
-      return resolved.name !== "string" && resolved.name !== "null" && resolved.name !== "undefined";
+      return (
+        resolved.name !== "string" &&
+        resolved.name !== "null" &&
+        resolved.name !== "undefined"
+      );
     case "unionType":
     case "intersectionType":
       return resolved.types.some((member) =>
@@ -1398,8 +1402,7 @@ const isNumericLiteralAst = (ast: CSharpExpressionAst): boolean => {
 };
 
 const isRuntimeUnionFactoryCallAst = (ast: CSharpExpressionAst): boolean => {
-  const current =
-    ast.kind === "parenthesizedExpression" ? ast.expression : ast;
+  const current = ast.kind === "parenthesizedExpression" ? ast.expression : ast;
   return (
     current.kind === "invocationExpression" &&
     current.expression.kind === "memberAccessExpression" &&
@@ -1448,8 +1451,8 @@ const resolveBroadLocalNumericMaterializationSource = (
       )?.[0]
     : undefined;
   const narrowedBinding = identifier
-    ? context.narrowedBindings?.get(identifier) ??
-      (sourceName ? context.narrowedBindings?.get(sourceName) : undefined)
+    ? (context.narrowedBindings?.get(identifier) ??
+      (sourceName ? context.narrowedBindings?.get(sourceName) : undefined))
     : undefined;
   const narrowedStorageType =
     narrowedBinding && narrowedBinding.kind === "expr"
@@ -1522,12 +1525,12 @@ export const maybeCastNumericToExpectedJsNumberAst = (
     isRuntimeUnionFactoryCallAst(ast) ||
     isNumericLiteralAst(ast) ||
     isNumericFactoryCreateCheckedAst(ast, expectedType, context) ||
-    areIrTypesEquivalent(
+    (areIrTypesEquivalent(
       stripNullish(actualType),
       stripNullish(expectedType),
       context
     ) &&
-      !broadLocalNumericMaterializationSource
+      !broadLocalNumericMaterializationSource)
   ) {
     return [ast, context];
   }
@@ -1553,7 +1556,9 @@ export const maybeCastNumericToExpectedJsNumberAst = (
     return [numericTypeParamAdjustedAst, numericTypeParamAdjustedContext];
   }
 
-  if (resolveTypeAlias(stripNullish(expectedType), context).kind === "unionType") {
+  if (
+    resolveTypeAlias(stripNullish(expectedType), context).kind === "unionType"
+  ) {
     const [runtimeUnionMaterializedAst, runtimeUnionMaterializedContext] =
       materializeDirectNarrowingAst(ast, actualType, expectedType, context);
     if (runtimeUnionMaterializedAst !== ast) {

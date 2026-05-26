@@ -22,7 +22,8 @@ describe("Statement Emission", () => {
               type: {
                 kind: "referenceType",
                 name: "List",
-                providerQualifiedName: "global::System.Collections.Generic.List",
+                providerQualifiedName:
+                  "global::System.Collections.Generic.List",
                 typeArguments: [{ kind: "primitiveType", name: "number" }],
               },
               isOptional: false,
@@ -207,7 +208,8 @@ describe("Statement Emission", () => {
               type: {
                 kind: "referenceType",
                 name: "IAsyncEnumerable",
-                providerQualifiedName: "System.Collections.Generic.IAsyncEnumerable",
+                providerQualifiedName:
+                  "System.Collections.Generic.IAsyncEnumerable",
                 typeArguments: [{ kind: "primitiveType", name: "string" }],
               },
               isOptional: false,

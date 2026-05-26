@@ -163,7 +163,11 @@ export const generateFrameworkBindingsAsync = async ({
       );
       if (!genResult.ok) return genResult;
 
-      return installGeneratedBindingsPackage(workspaceRoot, packageName, outDir);
+      return installGeneratedBindingsPackage(
+        workspaceRoot,
+        packageName,
+        outDir
+      );
     })
   );
 };

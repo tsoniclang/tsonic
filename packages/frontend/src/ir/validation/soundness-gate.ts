@@ -111,8 +111,7 @@ const createContext = (
   localTypeNames: extractLocalTypeNames(module.body),
   localTypeAliases: extractLocalTypeAliases(module.body),
   namespaceLocalTypeNames,
-  namespaceTypeAliases:
-    namespaceTypeAliases.get(module.namespace) ?? new Map(),
+  namespaceTypeAliases: namespaceTypeAliases.get(module.namespace) ?? new Map(),
   importedTypeNames,
   knownReferenceTypes,
   backendCapabilities: options.backendCapabilities,
@@ -272,7 +271,11 @@ const addExpressionCapabilityDiagnostics = (
         validateType(typeArgument, ctx, `call type argument ${index}`)
       );
       if (expression.kind === "call") {
-        validateType(expression.narrowing?.targetType, ctx, "type predicate target");
+        validateType(
+          expression.narrowing?.targetType,
+          ctx,
+          "type predicate target"
+        );
       }
       break;
     case "update":
@@ -393,15 +396,24 @@ const addStatementCapabilityDiagnostics = (
         ctx
       );
       statement.typeParameters?.forEach((typeParameter) => {
-        validateType(typeParameter.constraint, ctx, "type parameter constraint", {
-          intersectionRootKind: "typeParameterConstraint",
-        });
+        validateType(
+          typeParameter.constraint,
+          ctx,
+          "type parameter constraint",
+          {
+            intersectionRootKind: "typeParameterConstraint",
+          }
+        );
         validateType(typeParameter.default, ctx, "type parameter default");
       });
       statement.parameters.forEach((parameter) =>
         addParameterCapabilityDiagnostics(parameter, ctx)
       );
-      validateType(statement.returnType, ctx, `function '${statement.name}' return type`);
+      validateType(
+        statement.returnType,
+        ctx,
+        `function '${statement.name}' return type`
+      );
       addStatementCapabilityDiagnostics(statement.body, ctx);
       break;
     case "classDeclaration":
@@ -415,9 +427,17 @@ const addStatementCapabilityDiagnostics = (
         statement.ctorAttributes,
         ctx
       );
-      validateType(statement.superClass, ctx, `class '${statement.name}' extends`);
+      validateType(
+        statement.superClass,
+        ctx,
+        `class '${statement.name}' extends`
+      );
       statement.implements.forEach((heritage, index) =>
-        validateType(heritage, ctx, `class '${statement.name}' implements ${index}`)
+        validateType(
+          heritage,
+          ctx,
+          `class '${statement.name}' implements ${index}`
+        )
       );
       statement.members.forEach((member) => {
         if (member.kind === "methodDeclaration") {
@@ -429,7 +449,11 @@ const addStatementCapabilityDiagnostics = (
           member.parameters.forEach((parameter) =>
             addParameterCapabilityDiagnostics(parameter, ctx)
           );
-          validateType(member.returnType, ctx, `method '${member.name}' return type`);
+          validateType(
+            member.returnType,
+            ctx,
+            `method '${member.name}' return type`
+          );
           if (member.body) addStatementCapabilityDiagnostics(member.body, ctx);
         } else if (member.kind === "propertyDeclaration") {
           addCallableCapabilityDiagnostics(
@@ -467,7 +491,11 @@ const addStatementCapabilityDiagnostics = (
           member.parameters.forEach((parameter) =>
             addParameterCapabilityDiagnostics(parameter, ctx)
           );
-          validateType(member.returnType, ctx, `method '${member.name}' return type`);
+          validateType(
+            member.returnType,
+            ctx,
+            `method '${member.name}' return type`
+          );
         }
       });
       break;
@@ -480,7 +508,11 @@ const addStatementCapabilityDiagnostics = (
             member.parameters.forEach((parameter) =>
               addParameterCapabilityDiagnostics(parameter, ctx)
             );
-            validateType(member.returnType, ctx, `method '${member.name}' return type`);
+            validateType(
+              member.returnType,
+              ctx,
+              `method '${member.name}' return type`
+            );
           }
         });
       }
@@ -489,12 +521,14 @@ const addStatementCapabilityDiagnostics = (
       addExpressionCapabilityDiagnostics(statement.expression, ctx);
       break;
     case "returnStatement":
-      if (statement.expression) addExpressionCapabilityDiagnostics(statement.expression, ctx);
+      if (statement.expression)
+        addExpressionCapabilityDiagnostics(statement.expression, ctx);
       break;
     case "ifStatement":
       addExpressionCapabilityDiagnostics(statement.condition, ctx);
       addStatementCapabilityDiagnostics(statement.thenStatement, ctx);
-      if (statement.elseStatement) addStatementCapabilityDiagnostics(statement.elseStatement, ctx);
+      if (statement.elseStatement)
+        addStatementCapabilityDiagnostics(statement.elseStatement, ctx);
       break;
     case "whileStatement":
       addExpressionCapabilityDiagnostics(statement.condition, ctx);
@@ -508,8 +542,10 @@ const addStatementCapabilityDiagnostics = (
           addExpressionCapabilityDiagnostics(statement.initializer, ctx);
         }
       }
-      if (statement.condition) addExpressionCapabilityDiagnostics(statement.condition, ctx);
-      if (statement.update) addExpressionCapabilityDiagnostics(statement.update, ctx);
+      if (statement.condition)
+        addExpressionCapabilityDiagnostics(statement.condition, ctx);
+      if (statement.update)
+        addExpressionCapabilityDiagnostics(statement.update, ctx);
       addStatementCapabilityDiagnostics(statement.body, ctx);
       break;
     case "forOfStatement":
@@ -529,8 +565,10 @@ const addStatementCapabilityDiagnostics = (
       break;
     case "tryStatement":
       addStatementCapabilityDiagnostics(statement.tryBlock, ctx);
-      if (statement.catchClause) addStatementCapabilityDiagnostics(statement.catchClause.body, ctx);
-      if (statement.finallyBlock) addStatementCapabilityDiagnostics(statement.finallyBlock, ctx);
+      if (statement.catchClause)
+        addStatementCapabilityDiagnostics(statement.catchClause.body, ctx);
+      if (statement.finallyBlock)
+        addStatementCapabilityDiagnostics(statement.finallyBlock, ctx);
       break;
     case "blockStatement":
       statement.statements.forEach((nested) =>
@@ -539,7 +577,8 @@ const addStatementCapabilityDiagnostics = (
       break;
     case "enumDeclaration":
       statement.members.forEach((member) => {
-        if (member.initializer) addExpressionCapabilityDiagnostics(member.initializer, ctx);
+        if (member.initializer)
+          addExpressionCapabilityDiagnostics(member.initializer, ctx);
       });
       break;
     case "breakStatement":

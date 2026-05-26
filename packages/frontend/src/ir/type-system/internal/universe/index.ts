@@ -45,10 +45,7 @@ export type {
   RawBindingsPayload,
 } from "./types.js";
 
-export {
-  makeTypeId,
-  parseStableId,
-} from "./types.js";
+export { makeTypeId, parseStableId } from "./types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // target CATALOG

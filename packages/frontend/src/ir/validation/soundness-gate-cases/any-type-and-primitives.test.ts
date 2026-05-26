@@ -38,7 +38,8 @@ const capabilityEntry = (
 const manifestWith = (
   name: FeatureKey,
   status: BackendCapability["status"]
-): BackendCapabilityManifest => new Map([[name, capabilityEntry(name, status)]]);
+): BackendCapabilityManifest =>
+  new Map([[name, capabilityEntry(name, status)]]);
 
 describe("IR Soundness Gate", () => {
   describe("anyType Detection (TSN7414)", () => {
@@ -217,7 +218,10 @@ describe("IR Soundness Gate", () => {
 
       const result = validateCapabilityAcceptability([module], {
         knownReferenceTypes: new Set(["Foo", "Bar"]),
-        backendCapabilities: manifestWith("intersection-value-storage", "supported"),
+        backendCapabilities: manifestWith(
+          "intersection-value-storage",
+          "supported"
+        ),
       });
 
       expect(result.ok).to.equal(true);

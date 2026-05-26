@@ -321,7 +321,8 @@ export const adaptStorageErasedValueAst = (opts: {
     needsPlanContext
   );
   const storageHasRuntimeNullish = hasTopLevelRuntimeNullishMember(storageType);
-  const expectedHasRuntimeNullish = hasTopLevelRuntimeNullishMember(expectedType);
+  const expectedHasRuntimeNullish =
+    hasTopLevelRuntimeNullishMember(expectedType);
   const requiresNullishValueMaterialization =
     storageHasRuntimeNullish &&
     !expectedHasRuntimeNullish &&

@@ -194,10 +194,16 @@ export const tryInferTypeFromInitializer = (
     if (resolved.returnType.kind === "unknownType") {
       return undefined;
     }
-    const constructorType = inferExpressionType(state, init.expression, new Map());
+    const constructorType = inferExpressionType(
+      state,
+      init.expression,
+      new Map()
+    );
     return (
-      attachConstructedReferenceMetadata(resolved.returnType, constructorType) ??
-      resolved.returnType
+      attachConstructedReferenceMetadata(
+        resolved.returnType,
+        constructorType
+      ) ?? resolved.returnType
     );
   }
 

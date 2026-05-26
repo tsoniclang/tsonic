@@ -19,7 +19,10 @@ export const createBindingTargetSurfaceProvider = (
 ): TargetSurfaceProvider => ({
   targetId: options.targetId,
   resolveImport: (specifier: string): TargetImportResolution => {
-    const moduleBinding = options.bindings.getBindingByKind(specifier, "module");
+    const moduleBinding = options.bindings.getBindingByKind(
+      specifier,
+      "module"
+    );
     if (!moduleBinding || moduleBinding.kind !== "module") {
       return { kind: "notTargetSurface" };
     }

@@ -879,7 +879,9 @@ export const tryEmitNegatedPredicateGuard = (
       }
 
       const carrierSourceType =
-        sourceType ?? buildSubsetUnionType(candidateMembers) ?? selectedMemberType;
+        sourceType ??
+        buildSubsetUnionType(candidateMembers) ??
+        selectedMemberType;
       const sourceFrame = buildPredicateSourceFrame(
         runtimeUnionArity,
         candidateMembers,

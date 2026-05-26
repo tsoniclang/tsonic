@@ -54,7 +54,9 @@ const typeAcceptsRuntimeAbsence = (
   if (isRuntimeNullishType(resolvedType)) {
     return true;
   }
-  return splitRuntimeNullishUnionMembers(resolvedType)?.hasRuntimeNullish ?? false;
+  return (
+    splitRuntimeNullishUnionMembers(resolvedType)?.hasRuntimeNullish ?? false
+  );
 };
 
 const getSingleAwaitableRuntimeType = (

@@ -333,7 +333,11 @@ const tryBuildRuntimeUnionSubsetMaterializationAst = (
     const nextSeen = new Set([...seen, pairKey]);
 
     if (
-      unionMemberMatchesTarget(sourceMember, expectedType, materializationContext)
+      unionMemberMatchesTarget(
+        sourceMember,
+        expectedType,
+        materializationContext
+      )
     ) {
       return true;
     }
@@ -350,7 +354,11 @@ const tryBuildRuntimeUnionSubsetMaterializationAst = (
     }
 
     const [sourceMemberLayout, sourceMemberLayoutContext] =
-      buildRuntimeUnionLayout(sourceMember, materializationContext, emitTypeAst);
+      buildRuntimeUnionLayout(
+        sourceMember,
+        materializationContext,
+        emitTypeAst
+      );
     if (
       sourceMemberLayout?.members.some((nestedSourceMember) =>
         nestedSourceMember
@@ -498,7 +506,10 @@ const isJsNumberMaterializationTarget = (
     (resolved.name === "number" ||
       resolved.name === "double" ||
       resolved.name === "Double" ||
-      referenceTypeHasClrIdentity(resolved, JS_NUMBER_MATERIALIZATION_CLR_NAMES))
+      referenceTypeHasClrIdentity(
+        resolved,
+        JS_NUMBER_MATERIALIZATION_CLR_NAMES
+      ))
   );
 };
 
@@ -791,18 +802,14 @@ export const materializeDirectNarrowingAst = (
     comparableEmissionTargetType,
     context
   );
-  const sourceWasParameterModifierWrapped =
-    comparableSourceType !== sourceType;
+  const sourceWasParameterModifierWrapped = comparableSourceType !== sourceType;
 
   if (containsOutOfScopeTypeParameter(comparableEmissionTargetType, context)) {
     return [sourceAst, context];
   }
 
   if (
-    referenceTypeEmitsAsNativeInterface(
-      materializationNarrowedType,
-      context
-    ) ||
+    referenceTypeEmitsAsNativeInterface(materializationNarrowedType, context) ||
     referenceTypeEmitsAsNativeInterface(comparableEmissionTargetType, context)
   ) {
     const [targetTypeAst, nextContext] = emitTypeAst(
@@ -1122,11 +1129,17 @@ export const materializeDirectNarrowingAst = (
       : [undefined, nextContext];
   const matchingFallbackTargetMemberIndices =
     fallbackTargetLayout?.memberTypeAsts.flatMap((memberTypeAst, index) =>
-      sameConcreteTypeAstSurface(concreteSourceTypeAst, stripNullableTypeAst(memberTypeAst))
+      sameConcreteTypeAstSurface(
+        concreteSourceTypeAst,
+        stripNullableTypeAst(memberTypeAst)
+      )
         ? [index]
         : []
     ) ?? [];
-  if (fallbackTargetLayout && matchingFallbackTargetMemberIndices.length === 1) {
+  if (
+    fallbackTargetLayout &&
+    matchingFallbackTargetMemberIndices.length === 1
+  ) {
     const [targetMemberIndex] = matchingFallbackTargetMemberIndices;
     if (targetMemberIndex !== undefined) {
       return [

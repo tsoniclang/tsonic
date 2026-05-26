@@ -138,10 +138,7 @@ const tryGetKnownReferenceIterableShape = (
   const firstTypeArg = type.typeArguments?.[0];
   const secondTypeArg = type.typeArguments?.[1];
 
-  if (
-    SYNC_ITERABLE_TS_NAMES.has(normalizedSourceName ?? "") &&
-    firstTypeArg
-  ) {
+  if (SYNC_ITERABLE_TS_NAMES.has(normalizedSourceName ?? "") && firstTypeArg) {
     if (
       normalizedSourceName === "Map" ||
       normalizedSourceName === "ReadonlyMap"
@@ -163,10 +160,7 @@ const tryGetKnownReferenceIterableShape = (
     };
   }
 
-  if (
-    ASYNC_ITERABLE_TS_NAMES.has(normalizedSourceName ?? "") &&
-    firstTypeArg
-  ) {
+  if (ASYNC_ITERABLE_TS_NAMES.has(normalizedSourceName ?? "") && firstTypeArg) {
     return {
       mode: "async",
       elementType: firstTypeArg,
@@ -206,15 +200,13 @@ const tryGetInheritedReferenceIterableShape = (
       continue;
     }
 
-    const typeArguments = state.unifiedCatalog
-      .getTypeParameters(typeId)
-      .map(
-        (parameter): IrType =>
-          substitution.get(parameter.name) ?? {
-            kind: "typeParameterType",
-            name: parameter.name,
-          }
-      );
+    const typeArguments = state.unifiedCatalog.getTypeParameters(typeId).map(
+      (parameter): IrType =>
+        substitution.get(parameter.name) ?? {
+          kind: "typeParameterType",
+          name: parameter.name,
+        }
+    );
 
     const inheritedType: Extract<IrType, { kind: "referenceType" }> = {
       kind: "referenceType",

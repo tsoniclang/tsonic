@@ -321,7 +321,11 @@ const tryPreserveNullishReturnAdaptationAst = (
 
   const sourceValue = allocateLocalName("__tsonic_return_value", context);
   const sourceValueAst = identifierExpression(sourceValue.emittedName);
-  const replacedAst = replaceReturnExpressionAst(ast, receiverAst, sourceValueAst);
+  const replacedAst = replaceReturnExpressionAst(
+    ast,
+    receiverAst,
+    sourceValueAst
+  );
   if (replacedAst === ast) {
     return undefined;
   }

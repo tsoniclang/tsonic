@@ -223,7 +223,10 @@ export const tryExtractAttributeArg = (
 // ATTRIBUTE TYPE RESOLUTION
 // ═══════════════════════════════════════════════════════════════════════════
 
-type AttributeCtorReference = Extract<IrType, { readonly kind: "referenceType" }>;
+type AttributeCtorReference = Extract<
+  IrType,
+  { readonly kind: "referenceType" }
+>;
 
 export const resolveAttributeCtorReference = (
   ctorIdent: IrIdentifierExpression,
@@ -246,7 +249,9 @@ export const resolveAttributeCtorReference = (
         ? { symbolId: ctorIdent.inferredType.symbolId }
         : {}),
       ...(ctorIdent.inferredType.providerQualifiedName
-        ? { providerQualifiedName: ctorIdent.inferredType.providerQualifiedName }
+        ? {
+            providerQualifiedName: ctorIdent.inferredType.providerQualifiedName,
+          }
         : {}),
     };
   }

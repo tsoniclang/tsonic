@@ -8,10 +8,7 @@
 import * as ts from "typescript";
 import { IrType, IrDictionaryType, IrInterfaceMember } from "../../../types.js";
 import { substituteIrType } from "../../../types/ir-substitution.js";
-import {
-  CORE_PRIMITIVE_TYPE_SET,
-  getCorePrimitiveType,
-} from "./primitives.js";
+import { CORE_PRIMITIVE_TYPE_SET, getCorePrimitiveType } from "./primitives.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 import { isOverloadStubImplementation } from "../../../syntax/overload-stubs.js";
@@ -133,7 +130,9 @@ export const extractStructuralMembersFromDeclarations = (
       name: ts.PropertyName | ts.PrivateIdentifier | undefined
     ): string | undefined => tryResolveDeterministicPropertyName(name);
 
-    const collectMembersFromIrType = (type: IrType): readonly IrInterfaceMember[] => {
+    const collectMembersFromIrType = (
+      type: IrType
+    ): readonly IrInterfaceMember[] => {
       if (type.kind === "referenceType") {
         return type.structuralMembers ?? [];
       }
@@ -361,7 +360,8 @@ export const extractStructuralMembersFromDeclarations = (
         : [...inheritedMembers, ...members].reduce<IrInterfaceMember[]>(
             (acc, member) => {
               const existingIndex = acc.findIndex(
-                (candidate) => memberMergeKey(candidate) === memberMergeKey(member)
+                (candidate) =>
+                  memberMergeKey(candidate) === memberMergeKey(member)
               );
               if (existingIndex >= 0) {
                 acc[existingIndex] = member;

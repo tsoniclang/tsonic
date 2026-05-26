@@ -361,7 +361,11 @@ export const inferExpressionType = (
     if (resolved.returnType.kind === "unknownType") {
       return undefined;
     }
-    const constructorType = inferExpressionType(state, unwrapped.expression, env);
+    const constructorType = inferExpressionType(
+      state,
+      unwrapped.expression,
+      env
+    );
     return attachConstructedReferenceMetadata(
       resolved.returnType,
       constructorType

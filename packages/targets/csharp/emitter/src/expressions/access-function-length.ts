@@ -58,10 +58,7 @@ const functionLengthFromType = (
     return functionLengthFromParameters(resolved.parameters);
   }
 
-  if (
-    resolved.kind === "intersectionType" &&
-    resolved.types.length > 0
-  ) {
+  if (resolved.kind === "intersectionType" && resolved.types.length > 0) {
     const functionTypes = resolved.types.filter(
       (member): member is Extract<IrType, { kind: "functionType" }> =>
         member.kind === "functionType"
@@ -175,12 +172,14 @@ export const tryEmitFunctionLengthAccess = (
         memberName: "Match",
       },
       typeArguments: [INT_TYPE_AST],
-      arguments: lengths.map((length, index): CSharpExpressionAst => ({
-        kind: "lambdaExpression",
-        isAsync: false,
-        parameters: [{ name: `__m${index + 1}` }],
-        body: numericLengthLiteral(length!),
-      })),
+      arguments: lengths.map(
+        (length, index): CSharpExpressionAst => ({
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [{ name: `__m${index + 1}` }],
+          body: numericLengthLiteral(length!),
+        })
+      ),
     },
     objectContext,
   ];

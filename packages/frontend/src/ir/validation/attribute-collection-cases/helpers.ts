@@ -70,7 +70,10 @@ export const createModule = (
 /**
  * Helper to create a minimal identifier IR
  */
-export const makeIdentifier = (name: string, providerQualifiedName?: string) => ({
+export const makeIdentifier = (
+  name: string,
+  providerQualifiedName?: string
+) => ({
   kind: "identifier" as const,
   name,
   providerQualifiedName,

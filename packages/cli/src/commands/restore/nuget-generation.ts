@@ -376,11 +376,7 @@ export const generateNugetBindingsAsync = async ({
     if (declared?.types !== undefined) continue;
 
     const packageName = defaultBindingsPackageNameForNuget(node.packageId);
-    const defaultOutDir = bindingsStoreDir(
-      workspaceRoot,
-      "nuget",
-      packageName
-    );
+    const defaultOutDir = bindingsStoreDir(workspaceRoot, "nuget", packageName);
     const seedDlls = [...node.dlls];
 
     if (seedDlls.length === 0) {
@@ -501,7 +497,10 @@ export const generateNugetBindingsAsync = async ({
           if (!depNode) continue;
 
           const depPkgNorm = normalizePkgId(depNode.packageId);
-          if (plan.typesFalsePkgIds.has(depPkgNorm) && depNode.dlls.length > 0) {
+          if (
+            plan.typesFalsePkgIds.has(depPkgNorm) &&
+            depNode.dlls.length > 0
+          ) {
             return {
               ok: false,
               error:

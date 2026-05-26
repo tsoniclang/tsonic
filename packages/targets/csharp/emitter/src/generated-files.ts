@@ -227,12 +227,10 @@ const adapterFieldName = (member: InterfaceObjectAdapterMember): string =>
 const adapterConstructorParameterName = (index: number): string =>
   `__tsonic_arg_${index}`;
 
-const adapterParameterReference = (
-  parameter: {
-    readonly name: string;
-    readonly modifiers?: readonly string[];
-  }
-): CSharpExpressionAst => {
+const adapterParameterReference = (parameter: {
+  readonly name: string;
+  readonly modifiers?: readonly string[];
+}): CSharpExpressionAst => {
   const reference: CSharpExpressionAst = {
     kind: "identifierExpression",
     identifier: parameter.name,

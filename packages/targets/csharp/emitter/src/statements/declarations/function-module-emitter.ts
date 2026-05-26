@@ -114,8 +114,10 @@ export const emitFunctionDeclaration = (
       )
     : [];
   const emittedReturnType = stmt.returnType
-    ? (resolveErasedNullableGenericStorageType(stmt.returnType, currentContext) ??
-      stmt.returnType)
+    ? (resolveErasedNullableGenericStorageType(
+        stmt.returnType,
+        currentContext
+      ) ?? stmt.returnType)
     : undefined;
 
   let returnTypeAst: CSharpTypeAst;

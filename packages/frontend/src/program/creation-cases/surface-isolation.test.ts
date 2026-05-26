@@ -232,7 +232,7 @@ describe("Program Creation – surface isolation", function () {
       if (!result.ok) return;
       expect(
         result.value.declarationSourceFiles.some((sourceFile) =>
-            sourceFile.fileName.endsWith("__core_globals__.d.ts")
+          sourceFile.fileName.endsWith("__core_globals__.d.ts")
         )
       ).to.equal(false);
       expect(

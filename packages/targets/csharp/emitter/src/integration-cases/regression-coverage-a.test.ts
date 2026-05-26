@@ -25,7 +25,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "__tsonic_index == global::System.Math.Truncate(__tsonic_index)"
       );
-      expect(csharp).to.include("__tsonic_string[(int)__tsonic_index].ToString()");
+      expect(csharp).to.include(
+        "__tsonic_string[(int)__tsonic_index].ToString()"
+      );
     });
 
     it("emits safe JavaScript string indexing for source-number parameters", () => {
@@ -48,9 +50,7 @@ describe("End-to-End Integration", () => {
         surface: "@tsonic/js",
       });
 
-      expect(csharp).to.include(
-        "global::System.Func<string, double, string>"
-      );
+      expect(csharp).to.include("global::System.Func<string, double, string>");
       expect(csharp).to.include("__tsonic_index < __tsonic_string.Length");
       expect(csharp).to.include(
         "__tsonic_index == global::System.Math.Truncate(__tsonic_index)"

@@ -417,7 +417,9 @@ const getReferenceLeafNameForContract = (
     return ref.typeId.sourceName.split(".").pop() ?? ref.typeId.sourceName;
   }
   if (ref.providerQualifiedName) {
-    return ref.providerQualifiedName.split(".").pop() ?? ref.providerQualifiedName;
+    return (
+      ref.providerQualifiedName.split(".").pop() ?? ref.providerQualifiedName
+    );
   }
   return ref.name.split(".").pop() ?? ref.name;
 };
@@ -473,7 +475,11 @@ export const collectStructuralInterfaceContracts = (
   );
   const typeByFullyQualifiedName = new Map<
     string,
-    { readonly namespace: string; readonly name: string; readonly info: LocalTypeInfo }
+    {
+      readonly namespace: string;
+      readonly name: string;
+      readonly info: LocalTypeInfo;
+    }
   >();
 
   for (const { module, localTypes } of moduleInfos) {

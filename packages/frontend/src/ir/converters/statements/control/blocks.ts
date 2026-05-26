@@ -82,7 +82,9 @@ const getNumericLiteralExpressionType = (
   return Number.isInteger(Number(text)) ? intType : numberType;
 };
 
-const isIntegerNumericLiteralExpression = (expression: ts.Expression): boolean => {
+const isIntegerNumericLiteralExpression = (
+  expression: ts.Expression
+): boolean => {
   const type = getNumericLiteralExpressionType(expression);
   return type?.kind === "primitiveType" && type.name === "int";
 };
@@ -104,7 +106,8 @@ const getIterableElementType = (
   type: IrType | undefined,
   ctx: ProgramContext
 ): IrType | undefined =>
-  getArrayElementType(type) ?? ctx.typeSystem.getIterableShape(type)?.elementType;
+  getArrayElementType(type) ??
+  ctx.typeSystem.getIterableShape(type)?.elementType;
 
 const resolveIdentifierReadType = (
   identifier: ts.Identifier,
@@ -207,7 +210,10 @@ const resolveSimpleNumericAssignmentType = (
     );
   }
 
-  if (ts.isElementAccessExpression(expression) && expression.argumentExpression) {
+  if (
+    ts.isElementAccessExpression(expression) &&
+    expression.argumentExpression
+  ) {
     if (
       ts.isStringLiteral(expression.argumentExpression) ||
       ts.isNoSubstitutionTemplateLiteral(expression.argumentExpression)
@@ -308,9 +314,15 @@ const collectMutableNumericLiteralWideningDeclIds = (
   const rememberDeclaration = (decl: ts.VariableDeclaration): void => {
     if (ts.isIdentifier(decl.name)) {
       const declaredType = decl.type
-        ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(decl.type))
+        ? ctx.typeSystem.typeFromSyntax(
+            ctx.binding.captureTypeSyntax(decl.type)
+          )
         : decl.initializer
-          ? resolveSimpleNumericAssignmentType(decl.initializer, ctx, localTypes)
+          ? resolveSimpleNumericAssignmentType(
+              decl.initializer,
+              ctx,
+              localTypes
+            )
           : undefined;
       if (declaredType && declaredType.kind !== "unknownType") {
         localTypes.set(decl.name.text, declaredType);

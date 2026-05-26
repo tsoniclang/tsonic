@@ -81,9 +81,7 @@ const buildCanonicalInterfaceRef = (
     `${namespace}.${name}`,
 });
 
-const isInterfaceMarkerProperty = (
-  member: IrInterfaceMember
-): boolean =>
+const isInterfaceMarkerProperty = (member: IrInterfaceMember): boolean =>
   member.kind === "propertySignature" &&
   member.name.startsWith("__tsonic_iface_");
 

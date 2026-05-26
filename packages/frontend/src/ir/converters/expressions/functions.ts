@@ -57,8 +57,7 @@ const isExpressionTreeReferenceType = (type: IrType | undefined): boolean => {
   if (!type || type.kind !== "referenceType") return false;
   if (type.typeArguments?.length !== 1) return false;
   return (
-    type.typeId?.sourceName === "Expression_1" ||
-    type.name === "Expression_1"
+    type.typeId?.sourceName === "Expression_1" || type.name === "Expression_1"
   );
 };
 
@@ -365,9 +364,10 @@ export const convertArrowFunction = (
   const expressionBodyReturnType = !ts.isBlock(node.body)
     ? (body as ReturnType<typeof convertExpression>).inferredType
     : undefined;
-  const inferredBlockReturnType = ts.isBlock(node.body) && body.kind === "blockStatement"
-    ? inferDeterministicBlockReturnType(body)
-    : undefined;
+  const inferredBlockReturnType =
+    ts.isBlock(node.body) && body.kind === "blockStatement"
+      ? inferDeterministicBlockReturnType(body)
+      : undefined;
 
   const returnType =
     contextualReturnType ?? expressionBodyReturnType ?? inferredBlockReturnType;

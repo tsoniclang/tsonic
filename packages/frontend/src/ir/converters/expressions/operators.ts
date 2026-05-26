@@ -510,15 +510,14 @@ export const convertUnaryExpression = (
     operandExpr.kind === "literal" &&
     typeof operandExpr.value === "number" &&
     Object.is(operandExpr.value, 0);
-  const effectiveOperandExpr =
-    isNegativeZeroLiteral
-      ? ({
-          ...operandExpr,
-          raw: "0.0",
-          numericIntent: "float64",
-          inferredType: { kind: "primitiveType", name: "number" },
-        } as const)
-      : operandExpr;
+  const effectiveOperandExpr = isNegativeZeroLiteral
+    ? ({
+        ...operandExpr,
+        raw: "0.0",
+        numericIntent: "float64",
+        inferredType: { kind: "primitiveType", name: "number" },
+      } as const)
+    : operandExpr;
 
   // Check if it's an increment/decrement (++ or --)
   if (

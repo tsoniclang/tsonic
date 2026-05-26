@@ -224,7 +224,9 @@ export const emitReferenceType = (
     type.symbolId ?? typeId?.symbolId
   );
   if (symbolRenderInfo && !currentModuleLocalResolution) {
-    const typeAst = targetTypeNameToTypeAst(toGlobalClr(symbolRenderInfo.qualifiedName));
+    const typeAst = targetTypeNameToTypeAst(
+      toGlobalClr(symbolRenderInfo.qualifiedName)
+    );
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
       return [attachTypeArgumentsIfSupported(typeAst, typeArgAsts), newContext];
@@ -444,7 +446,9 @@ export const emitReferenceType = (
   }
 
   const numericKindTargetType =
-    !providerQualifiedName && !typeId ? getReferenceClrTargetName(type) : undefined;
+    !providerQualifiedName && !typeId
+      ? getReferenceClrTargetName(type)
+      : undefined;
   if (numericKindTargetType) {
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
@@ -655,7 +659,10 @@ export const emitReferenceType = (
   // to define a real exported class named Array, and that must not be erased to T[].
   if (name === "Array" || name === "ReadonlyArray" || name === "ArrayLike") {
     if (providerQualifiedName) {
-      return [targetTypeNameToTypeAst(toGlobalClr(providerQualifiedName)), context];
+      return [
+        targetTypeNameToTypeAst(toGlobalClr(providerQualifiedName)),
+        context,
+      ];
     }
     const firstArg = typeArguments?.[0];
     if (!firstArg) {

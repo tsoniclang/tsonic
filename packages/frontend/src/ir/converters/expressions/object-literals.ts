@@ -66,6 +66,38 @@ const isBroadObjectLiteralContext = (type: IrType | undefined): boolean => {
   return type.typeId?.sourceName === "Object";
 };
 
+const isJsValueContext = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (type.kind === "referenceType") {
+    return (
+      type.name === "JsValue" ||
+      type.typeId?.sourceName === "JsValue" ||
+      type.providerQualifiedName === "core:Object"
+    );
+  }
+
+  return (
+    type.kind === "unionType" &&
+    type.types.some((member) => isJsValueContext(member))
+  );
+};
+
+const createJsValueReferenceType = (): IrType => ({
+  kind: "referenceType",
+  name: "JsValue",
+  providerQualifiedName: "core:Object",
+  structuralOrigin: "namedReference",
+});
+
+const createDynamicJsonObjectType = (): IrType => ({
+  kind: "dictionaryType",
+  keyType: { kind: "primitiveType", name: "string" },
+  valueType: createJsValueReferenceType(),
+});
+
 /**
  * Convert object literal expression
  *
@@ -106,9 +138,14 @@ export const convertObjectLiteral = (
   const hasBroadObjectLiteralContext = isBroadObjectLiteralContext(
     contextualCandidateFromParent
   );
-  const contextualCandidateRaw = hasBroadObjectLiteralContext
-    ? undefined
-    : contextualCandidateFromParent;
+  const dynamicJsonObjectContext = isJsValueContext(
+    contextualCandidateFromParent
+  )
+    ? createDynamicJsonObjectType()
+    : undefined;
+  const contextualCandidateRaw =
+    dynamicJsonObjectContext ??
+    (hasBroadObjectLiteralContext ? undefined : contextualCandidateFromParent);
   const literalKeys = node.properties
     .map((prop) => {
       if (ts.isPropertyAssignment(prop)) {
@@ -154,7 +191,11 @@ export const convertObjectLiteral = (
     }
   }
 
-  if (hasBroadObjectLiteralContext && !emitAsAnonymousObject) {
+  if (
+    hasBroadObjectLiteralContext &&
+    !dynamicJsonObjectContext &&
+    !emitAsAnonymousObject
+  ) {
     ctx.diagnostics.push(
       createDiagnostic(
         "TSN7403",
@@ -190,7 +231,13 @@ export const convertObjectLiteral = (
   const getObjectLiteralPropertyExpectedType = (
     keyName: string | undefined
   ): IrType | undefined =>
-    keyName ? getPropertyExpectedType(keyName, expectedType, ctx) : undefined;
+    keyName
+      ? getPropertyExpectedType(
+          keyName,
+          contextualCandidateRaw ?? expectedType,
+          ctx
+        )
+      : undefined;
 
   // Track if we have any spreads (needed for emitter IIFE lowering)
   let hasSpreads = false;

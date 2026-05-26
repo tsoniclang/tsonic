@@ -321,14 +321,16 @@ export class ExternalMetadataRegistry {
 
       const kind = kindMap[type.kind ?? ""] ?? "class";
 
-      const visibilityMap: Record<string, ExternalMemberMetadata["visibility"]> =
-        {
-          Public: "public",
-          Protected: "protected",
-          ProtectedInternal: "protected internal",
-          Internal: "internal",
-          Private: "private",
-        };
+      const visibilityMap: Record<
+        string,
+        ExternalMemberMetadata["visibility"]
+      > = {
+        Public: "public",
+        Protected: "protected",
+        ProtectedInternal: "protected internal",
+        Internal: "internal",
+        Private: "private",
+      };
 
       const properties = new Map<string, ExternalMemberMetadata>();
       for (const prop of type.properties ?? []) {

@@ -385,6 +385,14 @@ export const extractDeclaringIdentity = (
     }
   }
 
+  if (ts.isConstructSignatureDeclaration(decl)) {
+    const parent = decl.parent;
+    if (ts.isInterfaceDeclaration(parent) && parent.name) {
+      const typeTsName = normalizeCapturedDeclaringTypeName(parent.name.text);
+      return { typeTsName, memberName: "constructor" };
+    }
+  }
+
   // Getter/setter declarations
   if (ts.isGetAccessorDeclaration(decl) || ts.isSetAccessorDeclaration(decl)) {
     const parent = decl.parent;

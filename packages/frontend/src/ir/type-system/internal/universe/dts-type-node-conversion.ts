@@ -220,7 +220,8 @@ export const dtsTypeNodeToIrType = (
       const magnitude = Number(lit.operand.text);
       return {
         kind: "literalType",
-        value: lit.operator === ts.SyntaxKind.MinusToken ? -magnitude : magnitude,
+        value:
+          lit.operator === ts.SyntaxKind.MinusToken ? -magnitude : magnitude,
       };
     }
     if (lit.kind === ts.SyntaxKind.TrueKeyword)

@@ -38,7 +38,8 @@ const isSourceNumberLikeIndex = (
 const isJsStringIndexRead = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>
 ): boolean =>
-  expr.accessKind === "stringChar" && isPrimitiveType(expr.inferredType, "string");
+  expr.accessKind === "stringChar" &&
+  isPrimitiveType(expr.inferredType, "string");
 
 /**
  * Process an expression, proving numeric narrowings and returning

@@ -280,7 +280,11 @@ export const convertTypeReference = (
       const map = new Map<string, IrType>();
       for (
         let i = 0;
-        i < Math.min(formalTypeParameters.length, convertedTypeArguments?.length ?? 0);
+        i <
+        Math.min(
+          formalTypeParameters.length,
+          convertedTypeArguments?.length ?? 0
+        );
         i++
       ) {
         const formal = formalTypeParameters[i];

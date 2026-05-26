@@ -199,7 +199,10 @@ describe("IR Builder", function () {
           (stmt): stmt is IrReturnStatement => stmt.kind === "returnStatement"
         );
         expect(returnStmt?.expression?.kind).to.equal("object");
-        if (!returnStmt?.expression || returnStmt.expression.kind !== "object") {
+        if (
+          !returnStmt?.expression ||
+          returnStmt.expression.kind !== "object"
+        ) {
           return;
         }
 

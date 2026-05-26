@@ -303,8 +303,7 @@ export const buildRuntimeUnionSubsetBinding = (
       narrowedReceiverContext,
       emitTypeAst
     );
-    const narrowedExprAst =
-      nestedMaterialization?.[0] ?? selectedMemberAst;
+    const narrowedExprAst = nestedMaterialization?.[0] ?? selectedMemberAst;
     const narrowedExprContext =
       nestedMaterialization?.[1] ?? narrowedReceiverContext;
     return [
@@ -548,7 +547,11 @@ export const applyDirectTypeNarrowing = (
           context
         )
       ) {
-        return [existingBinding.exprAst, context, existingBinding.type] as const;
+        return [
+          existingBinding.exprAst,
+          context,
+          existingBinding.type,
+        ] as const;
       }
       const exprCarrierFrame = currentType
         ? resolveRuntimeUnionFrame(bindingKey, currentType, context)

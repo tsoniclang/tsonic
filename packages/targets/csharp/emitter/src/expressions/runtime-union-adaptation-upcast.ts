@@ -807,8 +807,7 @@ const maybeAdaptTopLevelNullishOptionalUnionAst = (
     if (isExactExpressionToType(ast, expectedTypeAst)) {
       return [ast, expectedTypeContext];
     }
-  } catch {
-  }
+  } catch {}
 
   const nonNullishActualType = stripNullish(actualType);
   const nonNullishExpectedType = stripNullish(expectedType);
@@ -1520,7 +1519,11 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
         }
 
         return [
-          buildRuntimeUnionFactoryCallAst(runtimeLayoutTypeAst, selectedIndex + 1, selectedValueAst),
+          buildRuntimeUnionFactoryCallAst(
+            runtimeLayoutTypeAst,
+            selectedIndex + 1,
+            selectedValueAst
+          ),
           selectedValue?.[1] ?? layoutContext,
         ];
       }
@@ -1554,7 +1557,11 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       }
 
       return [
-        buildRuntimeUnionFactoryCallAst(runtimeLayoutTypeAst, candidate.index + 1, candidate.value[0]),
+        buildRuntimeUnionFactoryCallAst(
+          runtimeLayoutTypeAst,
+          candidate.index + 1,
+          candidate.value[0]
+        ),
         candidate.value[1],
       ];
     }
@@ -1623,7 +1630,9 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       if (isExactExpressionToType(selectedValueAst, runtimeLayoutTypeAst)) {
         return [
           selectedValueAst,
-          directMemberValue?.[1] ?? nestedMemberAdaptation?.[1] ?? layoutContext,
+          directMemberValue?.[1] ??
+            nestedMemberAdaptation?.[1] ??
+            layoutContext,
         ];
       }
 
@@ -1688,18 +1697,20 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
           context: layoutContext,
           visited: nextVisited,
         });
-        const directlyAssignableMemberValue = runtimeUnionMemberCanAcceptValue(
-          directMember,
-          emissionActualType,
-          layoutContext
-        ) && valueSurfaceCanBeUsedAsRuntimeUnionMember(
-          ast,
-          emissionActualType,
-          directMemberTypeAst,
-          layoutContext
-        )
-          ? ast
-          : undefined;
+        const directlyAssignableMemberValue =
+          runtimeUnionMemberCanAcceptValue(
+            directMember,
+            emissionActualType,
+            layoutContext
+          ) &&
+          valueSurfaceCanBeUsedAsRuntimeUnionMember(
+            ast,
+            emissionActualType,
+            directMemberTypeAst,
+            layoutContext
+          )
+            ? ast
+            : undefined;
         const selectedValueAst =
           directMemberValue?.[0] ??
           directlyAssignableMemberValue ??

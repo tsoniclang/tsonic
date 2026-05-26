@@ -345,9 +345,10 @@ describe("CLR member binding disambiguation (failure)", () => {
       rootNamespace: "TestApp",
     });
 
-    expect(irResult.ok, "IR build must fail on missing external bindings").to.equal(
-      false
-    );
+    expect(
+      irResult.ok,
+      "IR build must fail on missing external bindings"
+    ).to.equal(false);
 
     if (irResult.ok) return;
 

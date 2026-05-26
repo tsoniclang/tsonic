@@ -75,7 +75,9 @@ const resolveDeclaringTypeCandidates = (
       : undefined
   );
   pushCandidate(
-    declaringTargetType ? resolveTypeIdByName(state, declaringTargetType) : undefined
+    declaringTargetType
+      ? resolveTypeIdByName(state, declaringTargetType)
+      : undefined
   );
 
   for (const candidateName of enumerateEquivalentDeclaringTypeNames(

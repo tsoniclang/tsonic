@@ -41,7 +41,9 @@ const collectAliasResolutionCandidates = (
       )
     );
   }
-  pushCandidate(resolveTypeIdByName(state, type.name, type.typeArguments?.length ?? 0));
+  pushCandidate(
+    resolveTypeIdByName(state, type.name, type.typeArguments?.length ?? 0)
+  );
 
   return candidates;
 };

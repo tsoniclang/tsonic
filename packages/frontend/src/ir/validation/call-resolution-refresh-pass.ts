@@ -84,8 +84,7 @@ const getDeterministicReferenceIdentity = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): string | undefined => {
   const identity = referenceTypeIdentity(type);
-  return identity !== undefined &&
-    identity.startsWith("id:")
+  return identity !== undefined && identity.startsWith("id:")
     ? identity
     : undefined;
 };
@@ -226,7 +225,11 @@ const extensionReceiverParameterIsHidden = (
     return false;
   }
 
-  return invocationTypesEquivalent(receiverParameterType, receiverExpectedType, ctx);
+  return invocationTypesEquivalent(
+    receiverParameterType,
+    receiverExpectedType,
+    ctx
+  );
 };
 
 const isUndefinedType = (type: IrType): boolean =>
@@ -238,7 +241,10 @@ const stripUndefinedFromUnionType = (type: IrType): IrType => {
   }
 
   const retainedTypes = type.types.filter((member) => !isUndefinedType(member));
-  if (retainedTypes.length === type.types.length || retainedTypes.length === 0) {
+  if (
+    retainedTypes.length === type.types.length ||
+    retainedTypes.length === 0
+  ) {
     return type;
   }
 
@@ -308,15 +314,14 @@ const stripHiddenExtensionReceiverParameter = (
 ): readonly (IrType | undefined)[] | undefined =>
   extensionParameterTypesAreAlreadyVisible(callee, parameterTypes, ctx)
     ? parameterTypes
-    :
-  extensionReceiverParameterIsHidden(
-    callee,
-    visibleArgumentCount,
-    parameterTypes,
-    ctx
-  )
-    ? parameterTypes?.slice(1)
-    : parameterTypes;
+    : extensionReceiverParameterIsHidden(
+          callee,
+          visibleArgumentCount,
+          parameterTypes,
+          ctx
+        )
+      ? parameterTypes?.slice(1)
+      : parameterTypes;
 
 const stripHiddenExtensionReceiverRestParameter = (
   restParameter: CallRestParameter | undefined,

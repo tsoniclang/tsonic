@@ -83,8 +83,12 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("TaskCompletionSource<bool>");
       expect(csharp).to.include("global::System.Action __tsonic_resolve");
-      expect(csharp).to.not.include("Action<global::System.Threading.Tasks.Task?");
-      expect(csharp).to.not.include("Task<global::System.Threading.Tasks.Task?");
+      expect(csharp).to.not.include(
+        "Action<global::System.Threading.Tasks.Task?"
+      );
+      expect(csharp).to.not.include(
+        "Task<global::System.Threading.Tasks.Task?"
+      );
     });
 
     it("normalizes Promise executor resolve callbacks to the promised value type", () => {

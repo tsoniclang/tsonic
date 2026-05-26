@@ -2271,7 +2271,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "var value = __tsonic_value_present ? __tsonic_value_dict[__tsonic_value_key] : default(int);"
       );
-      expect(csharp).not.to.include("var value = ((global::System.Func<int>)(() =>");
+      expect(csharp).not.to.include(
+        "var value = ((global::System.Func<int>)(() =>"
+      );
       expect(csharp).not.to.include("settings.Count = value.Value;");
     });
 
@@ -2932,7 +2934,9 @@ describe("End-to-End Integration", () => {
         "isErrorHandler((object)handler is global::Test.MiddlewareHandler"
       );
       expect(csharp).to.include(", false)");
-      expect(csharp).to.include("!isErrorHandler((object)handler is global::Test.MiddlewareHandler");
+      expect(csharp).to.include(
+        "!isErrorHandler((object)handler is global::Test.MiddlewareHandler"
+      );
       expect(csharp).to.include(", true)");
       expect(csharp).to.include(
         "MiddlewareHandler From1(global::System.Func<Request__Alias, Response__Alias"
@@ -3564,9 +3568,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From2(global::js.TypedArrayInput<byte>.From1(buffer)))"
       );
-      expect(csharp).not.to.include(
-        "(global::js.TypedArrayInput<byte>)buffer"
-      );
+      expect(csharp).not.to.include("(global::js.TypedArrayInput<byte>)buffer");
     });
 
     it("rewraps identifier typed-array constructor arguments through the selected source-backed surface arm", () => {
@@ -5122,8 +5124,12 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.match(/if \(\(key\.As2\(\)\) is PublicKeyObject key__is_\d+\)/);
-      expect(csharp).to.match(/if \(\(key\.As2\(\)\) is PrivateKeyObject key__is_\d+\)/);
+      expect(csharp).to.match(
+        /if \(\(key\.As2\(\)\) is PublicKeyObject key__is_\d+\)/
+      );
+      expect(csharp).to.match(
+        /if \(\(key\.As2\(\)\) is PrivateKeyObject key__is_\d+\)/
+      );
       expect(csharp).to.include("if (key.Is2())");
       expect(csharp).not.to.include("if (key is KeyObject");
     });

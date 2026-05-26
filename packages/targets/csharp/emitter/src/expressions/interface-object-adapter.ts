@@ -1,17 +1,11 @@
 import { createHash } from "node:crypto";
-import type {
-  IrExpression,
-  IrInterfaceMember,
-  IrType,
-} from "@tsonic/frontend";
+import type { IrExpression, IrInterfaceMember, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitParameters } from "../statements/classes/parameters.js";
 import { emitCSharpName } from "../naming-policy.js";
-import {
-  identifierType,
-} from "../core/format/backend-ast/builders.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 import { printType } from "../core/format/backend-ast/printer-precedence.js";
 import type {
   CSharpExpressionAst,
@@ -62,8 +56,7 @@ const adapterTypeAst = (
       : className
   );
 
-const memberStorageName = (index: number): string =>
-  `__tsonic_member_${index}`;
+const memberStorageName = (index: number): string => `__tsonic_member_${index}`;
 
 const isInterfaceMarkerMember = (member: IrInterfaceMember): boolean =>
   member.kind === "propertySignature" &&
@@ -161,7 +154,10 @@ export const tryEmitInterfaceObjectAdapter = (
   context: EmitterContext,
   targetType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  if (!targetType || !referenceTypeEmitsAsNativeInterface(targetType, context)) {
+  if (
+    !targetType ||
+    !referenceTypeEmitsAsNativeInterface(targetType, context)
+  ) {
     return undefined;
   }
 

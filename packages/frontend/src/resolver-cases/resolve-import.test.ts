@@ -645,8 +645,12 @@ describe("Module Resolver", () => {
         if (!result.ok) continue;
 
         expect(result.value.isLocal, specifier).to.equal(false);
-        expect(result.value.resolutionKind, specifier).to.equal("externalSurface");
-        expect(result.value.providerOwnerIdentity, specifier).to.equal("nodejs");
+        expect(result.value.resolutionKind, specifier).to.equal(
+          "externalSurface"
+        );
+        expect(result.value.providerOwnerIdentity, specifier).to.equal(
+          "nodejs"
+        );
         expect(result.value.providerQualifiedName, specifier).to.equal(
           providerQualifiedName
         );

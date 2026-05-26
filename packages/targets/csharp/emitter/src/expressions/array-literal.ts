@@ -213,7 +213,11 @@ export const emitArray = (
     expectedElementType: IrType
   ): boolean => {
     if (
-      matchesExpectedEmissionType(actualElementType, expectedElementType, context)
+      matchesExpectedEmissionType(
+        actualElementType,
+        expectedElementType,
+        context
+      )
     ) {
       return true;
     }

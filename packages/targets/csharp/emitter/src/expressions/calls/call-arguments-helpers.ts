@@ -44,10 +44,7 @@ const argumentMayBeNullish = (
   }
 
   const transparentArg = unwrapTransparentExpression(arg);
-  const effectiveType = resolveEffectiveExpressionType(
-    transparentArg,
-    context
-  );
+  const effectiveType = resolveEffectiveExpressionType(transparentArg, context);
   if (
     effectiveType &&
     effectiveType.kind !== "unknownType" &&

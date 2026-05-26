@@ -127,7 +127,10 @@ export const validateType = (
 
       case "intersectionType":
         if (
-          shouldReportUnsupportedCapability(ctx, "intersection-value-storage") &&
+          shouldReportUnsupportedCapability(
+            ctx,
+            "intersection-value-storage"
+          ) &&
           (options.intersectionRootKind ?? "runtimeStorage") ===
             "runtimeStorage"
         ) {
@@ -202,7 +205,7 @@ export const validateType = (
             ctx.knownReferenceTypes.has(candidate)
           ) ||
           candidateNames.some((candidate) =>
-              ctx.typeParameterNames.has(candidate)
+            ctx.typeParameterNames.has(candidate)
           );
 
         const referencedAlias = candidateNames

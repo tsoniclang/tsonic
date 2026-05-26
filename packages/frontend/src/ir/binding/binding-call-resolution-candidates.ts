@@ -17,6 +17,7 @@ import {
 import {
   extractParameterNodes,
   convertTypeParameterDeclarations,
+  normalizeCapturedDeclaringTypeName,
 } from "./binding-helpers.js";
 import { isOverloadSurfaceDeclaration } from "../syntax/overload-stubs.js";
 
@@ -51,7 +52,8 @@ const getClassMemberStaticIntent = (
 const isClassValueReceiver = (
   ctx: BindingContext,
   expr: ts.Expression
-): boolean => ctx.checker.getTypeAtLocation(expr).getConstructSignatures().length > 0;
+): boolean =>
+  ctx.checker.getTypeAtLocation(expr).getConstructSignatures().length > 0;
 
 const filterPropertyAccessDeclarationsByReceiver = (
   ctx: BindingContext,
@@ -176,11 +178,72 @@ export const resolveConstructorSignature = (
   if (!signature) return undefined;
 
   const sigId = getOrCreateSignatureId(ctx, signature);
+  const declaredConstructorMetadata = (() => {
+    const decl = signature.getDeclaration();
+    if (!decl) {
+      return undefined;
+    }
+
+    if (ts.isConstructorDeclaration(decl)) {
+      const parent = decl.parent;
+      if (!ts.isClassDeclaration(parent) || !parent.name) {
+        return undefined;
+      }
+
+      const parentSymbol = ctx.checker.getSymbolAtLocation(parent.name);
+      const declId = parentSymbol
+        ? getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, parentSymbol))
+        : undefined;
+      const declaringTypeTsName =
+        (declId ? ctx.declMap.get(declId.id)?.fqName : undefined) ??
+        normalizeCapturedDeclaringTypeName(parent.name.text);
+
+      return {
+        declaringTypeTsName,
+        typeParameters: convertTypeParameterDeclarations(parent.typeParameters),
+        declaringTypeParameterNames: parent.typeParameters?.map(
+          (tp) => tp.name.text
+        ),
+      };
+    }
+
+    if (ts.isConstructSignatureDeclaration(decl)) {
+      const parent = decl.parent;
+      if (!ts.isInterfaceDeclaration(parent) || !parent.name) {
+        return undefined;
+      }
+
+      return {
+        declaringTypeTsName: normalizeCapturedDeclaringTypeName(
+          parent.name.text
+        ),
+        typeParameters: convertTypeParameterDeclarations(decl.typeParameters),
+        declaringTypeParameterNames: decl.typeParameters?.map(
+          (tp) => tp.name.text
+        ),
+      };
+    }
+
+    return undefined;
+  })();
 
   // For implicit default constructors, TypeScript may return a signature with no declaration.
   // We still need a SignatureEntry that identifies the constructed type so TypeSystem can
   // synthesize the constructor return type deterministically.
   const entry = ctx.signatureMap.get(sigId.id);
+  if (entry && declaredConstructorMetadata) {
+    ctx.signatureMap.set(sigId.id, {
+      ...entry,
+      declaringTypeTsName: declaredConstructorMetadata.declaringTypeTsName,
+      declaringMemberName: "constructor",
+      typeParameters:
+        declaredConstructorMetadata.typeParameters ?? entry.typeParameters,
+      declaringTypeParameterNames:
+        declaredConstructorMetadata.declaringTypeParameterNames ??
+        entry.declaringTypeParameterNames,
+    });
+  }
+
   if (entry && !entry.decl) {
     const expr = node.expression;
 

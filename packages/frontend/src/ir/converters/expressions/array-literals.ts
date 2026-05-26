@@ -185,10 +185,7 @@ const computeArrayElementType = (
       return { kind: "primitiveType", name: "number" };
     }
     // Any int64/uint64 → fall back to TS inference (no primitive for long)
-    if (
-      numericIntents.includes("int64") ||
-      numericIntents.includes("uint64")
-    ) {
+    if (numericIntents.includes("int64") || numericIntents.includes("uint64")) {
       return fallbackType;
     }
     // All int32 or smaller → int
@@ -241,6 +238,33 @@ export const normalizeExpectedArrayType = (
   ctx: ProgramContext
 ): Extract<IrType, { kind: "arrayType" }> | undefined => {
   if (!expectedType) return undefined;
+
+  const isJsValueContext = (type: IrType): boolean => {
+    if (type.kind === "referenceType") {
+      return (
+        type.name === "JsValue" ||
+        type.typeId?.sourceName === "JsValue" ||
+        type.providerQualifiedName === "core:Object"
+      );
+    }
+
+    return (
+      type.kind === "unionType" &&
+      type.types.some((member) => isJsValueContext(member))
+    );
+  };
+
+  if (isJsValueContext(expectedType)) {
+    return {
+      kind: "arrayType",
+      elementType: {
+        kind: "referenceType",
+        name: "JsValue",
+        providerQualifiedName: "core:Object",
+        structuralOrigin: "namedReference",
+      },
+    };
+  }
 
   const matchesRecursiveElementTarget = (
     left: IrType,

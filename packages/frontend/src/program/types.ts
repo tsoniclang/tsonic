@@ -20,24 +20,21 @@ export type SurfaceMode = string;
 
 export type ProgramInputScope = "package" | "entrypoint";
 
-export type CompilerOptions<
-  Target extends BackendTargetId = BackendTargetId,
-> = {
-  readonly projectRoot: string; // Directory containing package.json (for node_modules resolution)
-  readonly sourceRoot: string;
-  readonly rootNamespace: string;
-  readonly surface?: SurfaceMode;
-  readonly strict?: boolean;
-  readonly typeRoots?: readonly string[];
-  readonly verbose?: boolean;
-  readonly backendCapabilities?: BackendCapabilityManifest;
-  readonly backendTargetId?: Target;
-  readonly programInputScope?: ProgramInputScope;
-};
+export type CompilerOptions<Target extends BackendTargetId = BackendTargetId> =
+  {
+    readonly projectRoot: string; // Directory containing package.json (for node_modules resolution)
+    readonly sourceRoot: string;
+    readonly rootNamespace: string;
+    readonly surface?: SurfaceMode;
+    readonly strict?: boolean;
+    readonly typeRoots?: readonly string[];
+    readonly verbose?: boolean;
+    readonly backendCapabilities?: BackendCapabilityManifest;
+    readonly backendTargetId?: Target;
+    readonly programInputScope?: ProgramInputScope;
+  };
 
-export type TsonicProgram<
-  Target extends BackendTargetId = BackendTargetId,
-> = {
+export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
   readonly options: CompilerOptions<Target>;

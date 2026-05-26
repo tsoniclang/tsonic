@@ -2,7 +2,12 @@
  * Module map for resolving cross-file imports
  */
 
-import { IrModule, Diagnostic, type IrStatement, type IrType } from "@tsonic/frontend";
+import {
+  IrModule,
+  Diagnostic,
+  type IrStatement,
+  type IrType,
+} from "@tsonic/frontend";
 import type {
   ModuleIdentity,
   ModuleMap,

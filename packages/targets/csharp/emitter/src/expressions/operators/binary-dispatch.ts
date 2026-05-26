@@ -237,7 +237,9 @@ const emitStrictEqualityCall = (
     kind: "invocationExpression",
     expression: {
       kind: "memberAccessExpression",
-      expression: identifierExpression("global::Tsonic.Internal.StrictEquality"),
+      expression: identifierExpression(
+        "global::Tsonic.Internal.StrictEquality"
+      ),
       memberName: "Equals",
     },
     arguments: [leftAst, rightAst],
@@ -709,7 +711,11 @@ export const emitBinary = (
         kind: "binaryExpression",
         operatorToken: op,
         left: castBitwiseOperandToInt(leftAst, leftResolvedType, context),
-        right: castBitwiseOperandToInt(rightAst, rightResolvedType, rightContext),
+        right: castBitwiseOperandToInt(
+          rightAst,
+          rightResolvedType,
+          rightContext
+        ),
       },
       rightContext,
     ];

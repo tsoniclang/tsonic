@@ -14,7 +14,8 @@ describe("iterable type shapes", () => {
       providerName: "System.Collections.Generic.Dictionary`2+ValueCollection",
     };
     const enumerableId: TypeId = {
-      stableId: "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
+      stableId:
+        "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
       sourceName: "IEnumerable_1",
       ownerIdentity: "System.Private.CoreLib",
       providerName: "System.Collections.Generic.IEnumerable`1",

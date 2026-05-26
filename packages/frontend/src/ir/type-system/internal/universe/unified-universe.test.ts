@@ -177,7 +177,9 @@ describe("buildUnifiedUniverse", () => {
       {
         entries: new Map([[errorTypeId.stableId, assemblyEntry]]),
         tsNameToTypeId: new Map([[errorTypeId.sourceName, errorTypeId]]),
-        providerNameToTypeId: new Map([[errorTypeId.providerName, errorTypeId]]),
+        providerNameToTypeId: new Map([
+          [errorTypeId.providerName, errorTypeId],
+        ]),
         namespaceToTypeIds: new Map(),
       },
       "project"

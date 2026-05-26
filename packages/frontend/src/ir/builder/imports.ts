@@ -45,7 +45,10 @@ const typeSymbolIdForExternalType = (
   ownerIdentity: string,
   providerQualifiedName: string,
   stableId?: string
-) => typeSymbolIdFromStableId(stableId ?? `${ownerIdentity}:${providerQualifiedName}`);
+) =>
+  typeSymbolIdFromStableId(
+    stableId ?? `${ownerIdentity}:${providerQualifiedName}`
+  );
 
 const typeBindingOwnerIdentity = (
   type: TypeBinding,
@@ -367,7 +370,10 @@ export const extractImports = (
                 ? `${owningNamespace}.${spec.name}`
                 : spec.providerQualifiedName;
             const ownerIdentity = resolvedTypeBinding
-              ? typeBindingOwnerIdentity(resolvedTypeBinding, importOwnerIdentity)
+              ? typeBindingOwnerIdentity(
+                  resolvedTypeBinding,
+                  importOwnerIdentity
+                )
               : (importOwnerIdentity ?? "external-surface");
             return {
               ...spec,
@@ -385,7 +391,10 @@ export const extractImports = (
 
           if (owningNamespace || resolvedTypeBinding?.name) {
             const ownerIdentity = resolvedTypeBinding
-              ? typeBindingOwnerIdentity(resolvedTypeBinding, importOwnerIdentity)
+              ? typeBindingOwnerIdentity(
+                  resolvedTypeBinding,
+                  importOwnerIdentity
+                )
               : (importOwnerIdentity ?? "external-surface");
             const resolvedTypeName =
               (resolvedTypeBinding?.name
@@ -421,7 +430,10 @@ export const extractImports = (
             ...spec,
             providerQualifiedName: resolvedTypeName,
             typeSymbolId: typeSymbolIdForExternalType(
-              typeBindingOwnerIdentity(resolvedTypeBinding, importOwnerIdentity),
+              typeBindingOwnerIdentity(
+                resolvedTypeBinding,
+                importOwnerIdentity
+              ),
               resolvedTypeName,
               resolvedTypeBinding.stableId
             ),

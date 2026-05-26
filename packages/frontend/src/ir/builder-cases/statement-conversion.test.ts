@@ -241,7 +241,8 @@ describe("IR Builder", function () {
       if (!cls) return;
 
       const method = cls.members.find(
-        (member) => member.kind === "methodDeclaration" && member.name === "read"
+        (member) =>
+          member.kind === "methodDeclaration" && member.name === "read"
       );
       expect(method?.kind).to.equal("methodDeclaration");
       if (!method || method.kind !== "methodDeclaration") return;

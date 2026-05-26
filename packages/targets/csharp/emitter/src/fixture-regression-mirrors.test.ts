@@ -84,9 +84,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "var joinedDefault = global::Tsonic.Internal.ArrayInterop.WrapArray(filtered).join();"
       );
-      expect(csharp).to.include(
-        'global::js.Globals.parseInt("123")'
-      );
+      expect(csharp).to.include('global::js.Globals.parseInt("123")');
     });
 
     it("mirrors js-string-array-returns", () => {
@@ -344,9 +342,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include(
-        "fromArray((double[])(value.As1()));"
-      );
+      expect(csharp).to.include("fromArray((double[])(value.As1()));");
       expect(csharp).to.include(
         "fromUint8Array((global::js.Uint8Array)(value.As2()));"
       );

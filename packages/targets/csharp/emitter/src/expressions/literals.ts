@@ -215,7 +215,9 @@ export const emitLiteral = (
         kind: "invocationExpression",
         expression: {
           kind: "memberAccessExpression",
-          expression: identifierExpression("global::System.Numerics.BigInteger"),
+          expression: identifierExpression(
+            "global::System.Numerics.BigInteger"
+          ),
           memberName: "Parse",
         },
         arguments: [stringLiteral(value.toString())],

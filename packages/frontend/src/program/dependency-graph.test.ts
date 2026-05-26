@@ -264,8 +264,7 @@ describe("Dependency Graph", function () {
 
       const globalsModules = result.value.modules.filter(
         (module) =>
-          module.namespace === "Fixture.Js" &&
-          module.className === "globals"
+          module.namespace === "Fixture.Js" && module.className === "globals"
       );
       const indexModules = result.value.modules.filter(
         (module) =>

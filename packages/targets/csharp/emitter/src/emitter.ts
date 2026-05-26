@@ -8,10 +8,7 @@
  */
 
 import * as path from "node:path";
-import {
-  type Diagnostic,
-  type IrModule,
-} from "@tsonic/frontend";
+import { type Diagnostic, type IrModule } from "@tsonic/frontend";
 import {
   EmitterOptions,
   JsonAotRegistry,

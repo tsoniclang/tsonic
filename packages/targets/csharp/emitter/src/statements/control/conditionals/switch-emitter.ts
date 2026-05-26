@@ -78,7 +78,10 @@ const collectFiniteLiteralUnionKeys = (
 };
 
 const getLiteralCaseKey = (
-  test: Extract<IrStatement, { kind: "switchStatement" }>["cases"][number]["test"]
+  test: Extract<
+    IrStatement,
+    { kind: "switchStatement" }
+  >["cases"][number]["test"]
 ): string | undefined => {
   if (!test || test.kind !== "literal") {
     return undefined;
@@ -128,7 +131,10 @@ const isExhaustiveLiteralSwitch = (
 };
 
 type SwitchCaseNarrowing = {
-  readonly receiverExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
+  readonly receiverExpr: Extract<
+    IrExpression,
+    { kind: "identifier" | "memberAccess" }
+  >;
   readonly receiverKey: string;
   readonly memberNs: readonly number[];
   readonly runtimeUnionArity: number;
@@ -139,7 +145,10 @@ type SwitchCaseNarrowing = {
 
 const getTypeofSwitchCaseNarrowing = (
   switchExpression: IrExpression,
-  switchCase: Extract<IrStatement, { kind: "switchStatement" }>["cases"][number],
+  switchCase: Extract<
+    IrStatement,
+    { kind: "switchStatement" }
+  >["cases"][number],
   context: EmitterContext
 ): SwitchCaseNarrowing | undefined => {
   const typeofTarget = tryExtractTypeofUnaryTarget(switchExpression);
@@ -204,7 +213,10 @@ const getTypeofSwitchCaseNarrowing = (
 
 const getSwitchCaseNarrowing = (
   switchExpression: IrExpression,
-  switchCase: Extract<IrStatement, { kind: "switchStatement" }>["cases"][number],
+  switchCase: Extract<
+    IrStatement,
+    { kind: "switchStatement" }
+  >["cases"][number],
   context: EmitterContext
 ): SwitchCaseNarrowing | undefined => {
   if (!switchCase.test) {
@@ -257,9 +269,7 @@ const withSwitchSectionNarrowing = (
   const [first] = narrowings;
   if (
     !first ||
-    narrowings.some(
-      (narrowing) => narrowing.receiverKey !== first.receiverKey
-    )
+    narrowings.some((narrowing) => narrowing.receiverKey !== first.receiverKey)
   ) {
     return context;
   }

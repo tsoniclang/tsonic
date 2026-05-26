@@ -355,7 +355,10 @@ export const emitConditional = (
     const branchStorageType =
       branchType &&
       resolveErasedNullableGenericStorageType(branchType, branchContext);
-    if (!branchStorageType || !isBroadObjectSlotType(branchStorageType, branchContext)) {
+    if (
+      !branchStorageType ||
+      !isBroadObjectSlotType(branchStorageType, branchContext)
+    ) {
       return [branchAst, branchContext];
     }
 
@@ -679,13 +682,12 @@ export const emitConditional = (
       rawTrueContext,
       branchExpectedType
     );
-    const [numericTrueAst, numericTrueContext] =
-      castBranchToContextualJsNumber(
-        expr.whenTrue,
-        trueAst,
-        trueContext,
-        branchExpectedType
-      );
+    const [numericTrueAst, numericTrueContext] = castBranchToContextualJsNumber(
+      expr.whenTrue,
+      trueAst,
+      trueContext,
+      branchExpectedType
+    );
     const [finalTrueAst, finalTrueContext] =
       castStorageErasedBranchToTypeParameter(
         expr.whenTrue,

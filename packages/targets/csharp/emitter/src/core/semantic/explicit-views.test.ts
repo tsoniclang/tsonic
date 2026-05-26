@@ -22,9 +22,11 @@ describe("explicit interface views", () => {
       "((ICollection)list)"
     );
     assert.equal(
-      generateGenericInterfaceCast("list", "System.Collections.Generic.IList`1", [
-        "string",
-      ]),
+      generateGenericInterfaceCast(
+        "list",
+        "System.Collections.Generic.IList`1",
+        ["string"]
+      ),
       "((IList<string>)list)"
     );
   });

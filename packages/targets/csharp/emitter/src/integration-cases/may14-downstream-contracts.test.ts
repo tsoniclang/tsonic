@@ -235,9 +235,7 @@ describe("May 14 downstream contract coverage", () => {
     expect(csharp).to.match(
       /global::Acme\.Runtime\.Router\.register\(\(string ctx\) => handle\(ctx\)\);/
     );
-    expect(csharp).not.to.include(
-      "(global::Acme.Runtime.StringHandler)handle"
-    );
+    expect(csharp).not.to.include("(global::Acme.Runtime.StringHandler)handle");
   });
 
   it("materializes explicit block-lambda empty returns as contextual runtime absence", () => {
@@ -325,8 +323,7 @@ describe("May 14 downstream contract coverage", () => {
     expect(csharp).to.include('res.json("method");');
     expect(csharp).to.include('res.json("static");');
     expect(
-      csharp.match(/return default\(global::Test\.MaybeHandlerResult\);/g) ??
-        []
+      csharp.match(/return default\(global::Test\.MaybeHandlerResult\);/g) ?? []
     ).to.have.length(5);
   });
 
@@ -626,10 +623,12 @@ describe("May 14 downstream contract coverage", () => {
       }
     `);
 
-    expect([...csharp.matchAll(/Result\.From\d\(ok\(\)\)/g)]).to.have.length
-      .greaterThanOrEqual(10);
-    expect([...csharp.matchAll(/Result\.From\d\(err\(\)\)/g)]).to.have.length
-      .greaterThanOrEqual(2);
+    expect([
+      ...csharp.matchAll(/Result\.From\d\(ok\(\)\)/g),
+    ]).to.have.length.greaterThanOrEqual(10);
+    expect([
+      ...csharp.matchAll(/Result\.From\d\(err\(\)\)/g),
+    ]).to.have.length.greaterThanOrEqual(2);
     expect(csharp).to.match(/take\(global::Test\.Result\.From\d\(ok\(\)\)\);/);
     expect(csharp).to.match(/return global::Test\.Result\.From\d\(ok\(\)\);/);
     expect(csharp).to.not.match(/return ok\(\);/);
@@ -738,7 +737,9 @@ describe("May 14 downstream contract coverage", () => {
     expect(csharp).to.include(
       "accept(global::System.Threading.Tasks.Task.Run<global::Test.Result>(async"
     );
-    expect(csharp).to.match(/var __tsonic_await_value(?:_\d+)? = await okAsync\(\);/);
+    expect(csharp).to.match(
+      /var __tsonic_await_value(?:_\d+)? = await okAsync\(\);/
+    );
     expect(csharp).to.match(
       /return global::Test\.Result\.From\d\(__tsonic_await_value(?:_\d+)?\);/
     );
@@ -1483,7 +1484,7 @@ describe("May 14 downstream contract coverage", () => {
     expect(csharp).to.include(
       "global::System.Collections.Generic.Dictionary<PageContext, string>"
     );
-    expect(csharp).to.include("bodies.Add(page, \"body\");");
+    expect(csharp).to.include('bodies.Add(page, "body");');
     expect(csharp).to.not.include("Unsupported dictionary key type");
   });
 
@@ -1501,6 +1502,8 @@ describe("May 14 downstream contract coverage", () => {
     `);
 
     expect(csharp).to.include("parent.TryGetValue(key, out child)");
-    expect(csharp).to.not.include("out (global::System.Collections.Generic.Dictionary<string, string>)child");
+    expect(csharp).to.not.include(
+      "out (global::System.Collections.Generic.Dictionary<string, string>)child"
+    );
   });
 });

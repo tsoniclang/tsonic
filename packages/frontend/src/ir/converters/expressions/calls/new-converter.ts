@@ -202,7 +202,9 @@ export const convertNewExpression = (
         sigId,
         argumentCount,
         declaringTargetType:
-          callee.kind === "identifier" ? callee.providerQualifiedName : undefined,
+          callee.kind === "identifier"
+            ? callee.providerQualifiedName
+            : undefined,
         explicitTypeArgs,
         argTypes,
         expectedReturnType: expectedType,

@@ -538,7 +538,11 @@ export const resolveEffectiveExpressionType = (
       if (
         expressionType &&
         expressionType !== stripNullish(expressionType) &&
-        areIrTypesEquivalent(stripNullish(expressionType), expr.targetType, context)
+        areIrTypesEquivalent(
+          stripNullish(expressionType),
+          expr.targetType,
+          context
+        )
       ) {
         return expressionType;
       }

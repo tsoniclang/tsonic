@@ -70,7 +70,9 @@ describe("Binding Resolution in IR", () => {
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.providerQualifiedName).to.equal("Tsonic.Runtime.console");
+      expect(consoleExpr.providerQualifiedName).to.equal(
+        "Tsonic.Runtime.console"
+      );
       expect(consoleExpr.providerOwnerIdentity).to.equal("Tsonic.Runtime");
     });
 
@@ -1032,7 +1034,9 @@ describe("Binding Resolution in IR", () => {
       const runtimeHandlerType = callExpr.parameterTypes?.[0];
       expect(runtimeHandlerType?.kind).to.equal("referenceType");
       if (runtimeHandlerType?.kind === "referenceType") {
-        expect(runtimeHandlerType.providerQualifiedName).to.equal("System.Action");
+        expect(runtimeHandlerType.providerQualifiedName).to.equal(
+          "System.Action"
+        );
       }
 
       const surfaceHandlerType = callExpr.surfaceParameterTypes?.[0];

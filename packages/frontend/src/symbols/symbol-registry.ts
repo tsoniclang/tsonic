@@ -19,7 +19,10 @@ export class TargetSymbolRegistry {
   private readonly typeSymbols = new Map<TypeSymbolId, TypeSymbol>();
   private readonly memberSymbols = new Map<MemberSymbolId, MemberSymbol>();
   private readonly moduleSymbols = new Map<ModuleSymbolId, ModuleSymbol>();
-  private readonly typeRenderInfo = new Map<TypeSymbolId, TargetTypeRenderInfo>();
+  private readonly typeRenderInfo = new Map<
+    TypeSymbolId,
+    TargetTypeRenderInfo
+  >();
   private readonly memberRenderInfo = new Map<
     MemberSymbolId,
     TargetMemberRenderInfo

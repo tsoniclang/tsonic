@@ -79,7 +79,9 @@ const tryEmitRuntimeUnionTypeof = (
         kind: "lambdaExpression" as const,
         isAsync: false,
         parameters: [{ name: `__tsonic_typeof_member_${index + 1}` }],
-        body: stringLiteral(resolveRuntimeUnionTypeofTag(member, layoutContext)),
+        body: stringLiteral(
+          resolveRuntimeUnionTypeofTag(member, layoutContext)
+        ),
       })),
     },
     layoutContext,

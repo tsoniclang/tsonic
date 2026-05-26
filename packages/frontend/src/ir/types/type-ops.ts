@@ -269,6 +269,10 @@ export const referenceTypeIdentity = (
     return `symbol:${symbolId}`;
   }
 
+  if (type.providerQualifiedName) {
+    return `provider:${type.providerQualifiedName}/${type.typeArguments?.length ?? 0}`;
+  }
+
   const intrinsicIdentity = INTRINSIC_REFERENCE_IDENTITIES.get(type.name);
   if (intrinsicIdentity) {
     return `${intrinsicIdentity}/${type.typeArguments?.length ?? 0}`;

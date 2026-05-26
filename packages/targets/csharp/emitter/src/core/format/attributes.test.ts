@@ -97,7 +97,8 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "MarshalAsAttribute",
-          providerQualifiedName: "System.Runtime.InteropServices.MarshalAsAttribute",
+          providerQualifiedName:
+            "System.Runtime.InteropServices.MarshalAsAttribute",
         },
         positionalArgs: [
           {
@@ -105,7 +106,8 @@ describe("Attribute Emission", () => {
             type: {
               kind: "referenceType",
               name: "UnmanagedType",
-              providerQualifiedName: "System.Runtime.InteropServices.UnmanagedType",
+              providerQualifiedName:
+                "System.Runtime.InteropServices.UnmanagedType",
             },
             member: "Bool",
           },
@@ -179,7 +181,8 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "DataContractAttribute",
-          providerQualifiedName: "System.Runtime.Serialization.DataContractAttribute",
+          providerQualifiedName:
+            "System.Runtime.Serialization.DataContractAttribute",
         },
         positionalArgs: [],
         namedArgs: new Map([
@@ -372,7 +375,8 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "NotNullAttribute",
-          providerQualifiedName: "System.Diagnostics.CodeAnalysis.NotNullAttribute",
+          providerQualifiedName:
+            "System.Diagnostics.CodeAnalysis.NotNullAttribute",
         },
         positionalArgs: [],
         namedArgs: new Map(),
@@ -412,7 +416,8 @@ describe("Attribute Emission", () => {
           attributeType: {
             kind: "referenceType",
             name: "NotNullAttribute",
-            providerQualifiedName: "System.Diagnostics.CodeAnalysis.NotNullAttribute",
+            providerQualifiedName:
+              "System.Diagnostics.CodeAnalysis.NotNullAttribute",
           },
           positionalArgs: [],
           namedArgs: new Map(),

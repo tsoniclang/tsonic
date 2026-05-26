@@ -72,9 +72,14 @@ export const isPrimitiveTypeName = (
   | "bigint"
   | "null"
   | "undefined" => {
-  return ["string", "number", "boolean", "bigint", "null", "undefined"].includes(
-    typeName
-  );
+  return [
+    "string",
+    "number",
+    "boolean",
+    "bigint",
+    "null",
+    "undefined",
+  ].includes(typeName);
 };
 
 /**

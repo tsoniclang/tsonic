@@ -38,8 +38,7 @@ import {
  */
 export const isWellKnownLibrary = (fileName: string): boolean => {
   return (
-    fileName.includes("@tsonic/globals") ||
-    fileName.includes("@tsonic/core")
+    fileName.includes("@tsonic/globals") || fileName.includes("@tsonic/core")
   );
 };
 

@@ -16,6 +16,7 @@ import type {
   IrExpression,
   IrExpressionStatement,
   IrVariableDeclaration,
+  IrReturnStatement,
 } from "../types.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
@@ -736,7 +737,9 @@ describe("IR Builder", function () {
         expect(callExpr.parameterTypes[0].typeArguments).to.deep.equal([
           { kind: "primitiveType", name: "number" },
         ]);
-        expect(callExpr.parameterTypes[0].typeId?.sourceName).to.equal("Iterable");
+        expect(callExpr.parameterTypes[0].typeId?.sourceName).to.equal(
+          "Iterable"
+        );
         expect(callExpr.parameterTypes?.[1]?.kind).to.equal("unionType");
         expect(callExpr.surfaceParameterTypes?.[0]?.kind).to.equal(
           "referenceType"
@@ -1689,22 +1692,32 @@ describe("IR Builder", function () {
         if (!finalModule) return;
 
         const readdirDecl = finalModule.body.find(
-          (statement): statement is IrVariableDeclaration =>
-            statement.kind === "variableDeclaration" &&
-            statement.declarations.some(
-              (declaration) =>
-                declaration.name.kind === "identifierPattern" &&
-                declaration.name.name === "readdirSync"
-            )
+          (statement): statement is IrFunctionDeclaration =>
+            statement.kind === "functionDeclaration" &&
+            statement.name === "readdirSync_names"
         );
         expect(readdirDecl).to.not.equal(undefined);
         if (!readdirDecl) return;
 
-        const readdirInit = readdirDecl.declarations[0]?.initializer;
-        expect(readdirInit?.kind).to.equal("arrowFunction");
-        if (!readdirInit || readdirInit.kind !== "arrowFunction") return;
+        expect(readdirDecl.returnType).to.deep.equal({
+          kind: "arrayType",
+          elementType: {
+            kind: "primitiveType",
+            name: "string",
+          },
+          origin: "explicit",
+        });
 
-        const filterCall = readdirInit.body;
+        const returnStatement = readdirDecl.body.statements.find(
+          (statement): statement is IrReturnStatement =>
+            statement.kind === "returnStatement"
+        );
+        expect(returnStatement).to.not.equal(undefined);
+        if (!returnStatement) return;
+
+        const filterCall = returnStatement.expression;
+        expect(filterCall).to.not.equal(undefined);
+        if (!filterCall) return;
         expect(filterCall.kind).to.equal("call");
         if (filterCall.kind !== "call") return;
 

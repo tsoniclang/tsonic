@@ -277,9 +277,7 @@ export const getReferenceLoweringStableKey = (
   type: IrReferenceType
 ): string | undefined => {
   const baseKey =
-    type.typeId?.stableId ??
-    type.providerQualifiedName ??
-    undefined;
+    type.typeId?.stableId ?? type.providerQualifiedName ?? undefined;
   if (!baseKey) return undefined;
 
   const trySerializeTypeArgument = (arg: IrType): string | undefined => {
@@ -299,7 +297,9 @@ export const getReferenceLoweringStableKey = (
   const typeArgsKey =
     type.typeArguments && type.typeArguments.length > 0
       ? (() => {
-          const serializedArgs = type.typeArguments.map(trySerializeTypeArgument);
+          const serializedArgs = type.typeArguments.map(
+            trySerializeTypeArgument
+          );
           if (serializedArgs.some((arg) => arg === undefined)) {
             return undefined;
           }

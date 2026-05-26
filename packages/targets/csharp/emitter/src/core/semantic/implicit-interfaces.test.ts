@@ -342,7 +342,9 @@ describe("implicit-interfaces", () => {
 
     expect(matches).to.have.length(1);
     expect(matches[0]?.isExplicit).to.equal(true);
-    expect(matches[0]?.ref.providerQualifiedName).to.equal("System.IDisposable");
+    expect(matches[0]?.ref.providerQualifiedName).to.equal(
+      "System.IDisposable"
+    );
     expect(
       matches[0]?.methodMatches.map((match) => match.classMember.name)
     ).to.deep.equal(["Dispose"]);

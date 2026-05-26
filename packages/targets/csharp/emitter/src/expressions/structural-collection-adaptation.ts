@@ -1038,23 +1038,25 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     },
     memberName: "Value",
   };
-  const [adaptedValueAst, adaptedContext] = adaptStructuralExpressionAst(
-    entryValueAst,
-    sourceValueType,
-    currentContext,
-    providerValueType,
-    upcastFn
-  ) ?? (() => {
-    const materialized = materializeDirectNarrowingAst(
+  const [adaptedValueAst, adaptedContext] =
+    adaptStructuralExpressionAst(
       entryValueAst,
       sourceValueType,
+      currentContext,
       providerValueType,
-      currentContext
-    );
-    return materialized[0] === entryValueAst
-      ? ([undefined, currentContext] as const)
-      : materialized;
-  })();
+      upcastFn
+    ) ??
+    (() => {
+      const materialized = materializeDirectNarrowingAst(
+        entryValueAst,
+        sourceValueType,
+        providerValueType,
+        currentContext
+      );
+      return materialized[0] === entryValueAst
+        ? ([undefined, currentContext] as const)
+        : materialized;
+    })();
   currentContext = adaptedContext;
   if (adaptedValueAst === undefined) {
     return undefined;

@@ -27,7 +27,11 @@ const parameterTypesMatch = (
 
   return (
     areIrTypesEquivalent(sourceParameter.type, targetParameter.type, context) ||
-    matchesExpectedEmissionType(sourceParameter.type, targetParameter.type, context)
+    matchesExpectedEmissionType(
+      sourceParameter.type,
+      targetParameter.type,
+      context
+    )
   );
 };
 
@@ -60,7 +64,11 @@ export const interfaceMembersMatchStructurally = (
       sourceMember.name === targetMember.name &&
       targetMember.kind === "propertySignature" &&
       (areIrTypesEquivalent(sourceMember.type, targetMember.type, context) ||
-        matchesExpectedEmissionType(sourceMember.type, targetMember.type, context))
+        matchesExpectedEmissionType(
+          sourceMember.type,
+          targetMember.type,
+          context
+        ))
     );
   }
 
@@ -104,7 +112,11 @@ export const classMemberMatchesInterfaceMemberStructurally = (
           parameterTypesMatch(sourceParameter, targetParameter, context)
         );
       }) &&
-      returnTypesMatch(sourceMember.returnType, targetMember.returnType, context)
+      returnTypesMatch(
+        sourceMember.returnType,
+        targetMember.returnType,
+        context
+      )
     );
   }
 
@@ -117,7 +129,11 @@ export const classMemberMatchesInterfaceMemberStructurally = (
       sourceMember.name === targetMember.name &&
       !!sourceMember.type &&
       (areIrTypesEquivalent(sourceMember.type, targetMember.type, context) ||
-        matchesExpectedEmissionType(sourceMember.type, targetMember.type, context))
+        matchesExpectedEmissionType(
+          sourceMember.type,
+          targetMember.type,
+          context
+        ))
     );
   }
 

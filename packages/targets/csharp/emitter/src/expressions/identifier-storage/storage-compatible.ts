@@ -55,7 +55,8 @@ export const tryEmitStorageCompatibleIdentifier = (
     !willCarryAsRuntimeUnion(expectedType, context) &&
     matchesExpectedEmissionType(effectiveType, expectedType, context)
   ) {
-    return effectiveNamedStructuralAliasMatchesExpected || storageMatchesExpected
+    return effectiveNamedStructuralAliasMatchesExpected ||
+      storageMatchesExpected
       ? storageIdentifierAst
       : undefined;
   }

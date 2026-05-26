@@ -37,10 +37,12 @@ export const tryEmitSourceCarrierMemberProjection = ({
     context,
     emitTypeAst
   );
-  const matchingMemberIndices = sourceLayout?.members.flatMap((member, index) =>
-    member && matchesExpectedEmissionType(member, expectedType, sourceLayoutContext)
-      ? [index]
-      : []
+  const matchingMemberIndices = sourceLayout?.members.flatMap(
+    (member, index) =>
+      member &&
+      matchesExpectedEmissionType(member, expectedType, sourceLayoutContext)
+        ? [index]
+        : []
   );
   const materializableMemberIndices = sourceLayout?.members.flatMap(
     (member, index) => {
@@ -48,7 +50,9 @@ export const tryEmitSourceCarrierMemberProjection = ({
         return [];
       }
 
-      if (matchesExpectedEmissionType(member, expectedType, sourceLayoutContext)) {
+      if (
+        matchesExpectedEmissionType(member, expectedType, sourceLayoutContext)
+      ) {
         return [index];
       }
 
@@ -75,7 +79,9 @@ export const tryEmitSourceCarrierMemberProjection = ({
 
   const [memberIndex] = matchingMemberIndices;
   const sourceMemberTypeAst =
-    memberIndex !== undefined ? sourceLayout.memberTypeAsts[memberIndex] : undefined;
+    memberIndex !== undefined
+      ? sourceLayout.memberTypeAsts[memberIndex]
+      : undefined;
   const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
     expectedType,
     sourceLayoutContext
@@ -121,30 +127,36 @@ export const tryMaterializeStorageRuntimeUnionMember = ({
     context,
     emitTypeAst
   );
-  const selectedSourceMemberNs = sourceLayout?.members.flatMap((member, index) => {
-    if (!member) {
-      return [];
-    }
+  const selectedSourceMemberNs = sourceLayout?.members.flatMap(
+    (member, index) => {
+      if (!member) {
+        return [];
+      }
 
-    if (
-      runtimeUnionAliasReferencesMatch(member, expectedType, sourceLayoutContext) ||
-      matchesExpectedEmissionType(member, expectedType, sourceLayoutContext)
-    ) {
-      return [index + 1];
-    }
+      if (
+        runtimeUnionAliasReferencesMatch(
+          member,
+          expectedType,
+          sourceLayoutContext
+        ) ||
+        matchesExpectedEmissionType(member, expectedType, sourceLayoutContext)
+      ) {
+        return [index + 1];
+      }
 
-    const nestedMaterialization = tryBuildRuntimeMaterializationAst(
-      {
-        kind: "identifierExpression",
-        identifier: `__tsonic_source_member_${index + 1}`,
-      },
-      member,
-      expectedType,
-      sourceLayoutContext,
-      emitTypeAst
-    );
-    return nestedMaterialization ? [index + 1] : [];
-  });
+      const nestedMaterialization = tryBuildRuntimeMaterializationAst(
+        {
+          kind: "identifierExpression",
+          identifier: `__tsonic_source_member_${index + 1}`,
+        },
+        member,
+        expectedType,
+        sourceLayoutContext,
+        emitTypeAst
+      );
+      return nestedMaterialization ? [index + 1] : [];
+    }
+  );
   if (selectedSourceMemberNs?.length !== 1) {
     return undefined;
   }

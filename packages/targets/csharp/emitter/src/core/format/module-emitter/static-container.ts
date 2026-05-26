@@ -93,10 +93,8 @@ const expressionDirectlyMutatesArrayParameter = (
         parameterNames.has(callee.object.name) &&
         callee.memberBinding &&
         surfaceMemberMutatesReceiver(callee.memberBinding, context) &&
-        resolveArrayLikeReceiverType(
-          callee.object.inferredType,
-          context
-        ) !== undefined
+        resolveArrayLikeReceiverType(callee.object.inferredType, context) !==
+          undefined
       ) {
         mutated.add(callee.object.name);
       }
@@ -133,9 +131,7 @@ const inferArrayMutationRefParameters = (
 ): readonly IrStatement[] => {
   const mutableArrayParameters = new Map<string, Set<string>>();
   const functions = members.filter(
-    (
-      member
-    ): member is Extract<IrStatement, { kind: "functionDeclaration" }> =>
+    (member): member is Extract<IrStatement, { kind: "functionDeclaration" }> =>
       member.kind === "functionDeclaration"
   );
 
@@ -183,7 +179,8 @@ const inferArrayMutationRefParameters = (
         continue;
       }
 
-      const inherited = mutableArrayParameters.get(fn.name) ?? new Set<string>();
+      const inherited =
+        mutableArrayParameters.get(fn.name) ?? new Set<string>();
       const visit = (
         candidate: unknown,
         visited: WeakSet<object> = new WeakSet<object>()
@@ -201,7 +198,10 @@ const inferArrayMutationRefParameters = (
         }
 
         const node = candidate as { readonly kind?: unknown };
-        if (node.kind === "functionExpression" || node.kind === "arrowFunction") {
+        if (
+          node.kind === "functionExpression" ||
+          node.kind === "arrowFunction"
+        ) {
           return;
         }
 
@@ -209,9 +209,7 @@ const inferArrayMutationRefParameters = (
           const call = candidate as Extract<IrExpression, { kind: "call" }>;
           if (call.callee.kind === "identifier") {
             const calleeName = call.callee.name;
-            const calleeMutatedParams = mutableArrayParameters.get(
-              calleeName
-            );
+            const calleeMutatedParams = mutableArrayParameters.get(calleeName);
             if (calleeMutatedParams) {
               const callee = functions.find(
                 (candidateFunction) => candidateFunction.name === calleeName

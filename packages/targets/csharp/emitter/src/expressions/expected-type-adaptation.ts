@@ -239,7 +239,11 @@ const containsOutOfScopeTypeParameter = (
     case "typeParameterType":
       return !(context.typeParameters?.has(type.name) ?? false);
     case "arrayType":
-      return containsOutOfScopeTypeParameter(type.elementType, context, visited);
+      return containsOutOfScopeTypeParameter(
+        type.elementType,
+        context,
+        visited
+      );
     case "dictionaryType":
       return (
         containsOutOfScopeTypeParameter(type.keyType, context, visited) ||
@@ -270,7 +274,11 @@ const containsOutOfScopeTypeParameter = (
       return type.members.some((member) =>
         member.kind === "propertySignature"
           ? containsOutOfScopeTypeParameter(member.type, context, visited)
-          : containsOutOfScopeTypeParameter(member.returnType, context, visited) ||
+          : containsOutOfScopeTypeParameter(
+              member.returnType,
+              context,
+              visited
+            ) ||
             member.parameters.some((parameter) =>
               containsOutOfScopeTypeParameter(parameter.type, context, visited)
             )
@@ -582,7 +590,8 @@ const hasMismatchedStructuralObjectCarrier = (
   if (
     resolvedTarget.kind === "unknownType" ||
     resolvedTarget.kind === "anyType" ||
-    (resolvedTarget.kind === "referenceType" && resolvedTarget.name === "object")
+    (resolvedTarget.kind === "referenceType" &&
+      resolvedTarget.name === "object")
   ) {
     return false;
   }
@@ -1694,7 +1703,8 @@ const tryGetConditionalNullishProbeAst = (
   if (
     ast.kind !== "conditionalExpression" ||
     ast.condition.kind !== "binaryExpression" ||
-    (ast.condition.operatorToken !== "==" && ast.condition.operatorToken !== "!=")
+    (ast.condition.operatorToken !== "==" &&
+      ast.condition.operatorToken !== "!=")
   ) {
     return undefined;
   }
@@ -1932,7 +1942,10 @@ const preferNarrowedEffectiveActualType = (
       effectiveExpressionType,
       context
     ) &&
-    isDefinitelyValueType(resolveTypeAlias(directNullableBase, context), context)
+    isDefinitelyValueType(
+      resolveTypeAlias(directNullableBase, context),
+      context
+    )
   ) {
     const expectedRetainsRuntimeNullish = expectedType
       ? (splitRuntimeNullishUnionMembers(expectedType)?.hasRuntimeNullish ??
@@ -2076,7 +2089,11 @@ const callReturnIsContextualizedToExpected = (
   expr.kind === "call" &&
   expectedType !== undefined &&
   expr.resolutionExpectedReturnType !== undefined &&
-  areIrTypesEquivalent(expr.resolutionExpectedReturnType, expectedType, context) &&
+  areIrTypesEquivalent(
+    expr.resolutionExpectedReturnType,
+    expectedType,
+    context
+  ) &&
   expr.arguments.some((argument, index) => {
     if (
       argument.kind !== "arrowFunction" &&
@@ -2304,12 +2321,13 @@ const adaptValueToExpectedTypeAstResult = (opts: {
     directSourceSurfaceAst === valueAst
       ? directValueSurfaceType
       : resolveDirectValueSurfaceType(directSourceSurfaceAst, context);
-  const nullishReferenceSurface = tryReuseNullishReferenceSurfaceAst({
-    valueAst: directSourceSurfaceAst,
-    surfaceType: directSourceSurfaceType,
-    expectedType,
-    context,
-  }) ??
+  const nullishReferenceSurface =
+    tryReuseNullishReferenceSurfaceAst({
+      valueAst: directSourceSurfaceAst,
+      surfaceType: directSourceSurfaceType,
+      expectedType,
+      context,
+    }) ??
     tryReuseNullishReferenceSurfaceAst({
       valueAst: directSourceSurfaceAst,
       surfaceType: actualType,
@@ -2464,11 +2482,12 @@ const adaptValueToExpectedTypeAstResult = (opts: {
               return runtimeMemberIndices;
             }
 
-            const assignableMemberIndices = findRuntimeUnionAssignableMemberIndices(
-              expectedRuntimeLayout.members,
-              scalarSourceType,
-              expectedRuntimeLayoutContext
-            );
+            const assignableMemberIndices =
+              findRuntimeUnionAssignableMemberIndices(
+                expectedRuntimeLayout.members,
+                scalarSourceType,
+                expectedRuntimeLayoutContext
+              );
             if (assignableMemberIndices.length === 1) {
               return assignableMemberIndices;
             }
@@ -2485,8 +2504,8 @@ const adaptValueToExpectedTypeAstResult = (opts: {
             );
           })();
     if (matchingMemberIndices.length !== 1) {
-      const recursivelyMaterializedMembers = expectedRuntimeLayout.members.flatMap(
-        (member, index) => {
+      const recursivelyMaterializedMembers =
+        expectedRuntimeLayout.members.flatMap((member, index) => {
           if (!member) {
             return [];
           }
@@ -2514,8 +2533,7 @@ const adaptValueToExpectedTypeAstResult = (opts: {
             )
             ? [{ index, materialized }]
             : [];
-        }
-      );
+        });
       if (recursivelyMaterializedMembers.length !== 1) {
         return undefined;
       }
@@ -2558,13 +2576,14 @@ const adaptValueToExpectedTypeAstResult = (opts: {
       return undefined;
     }
 
-    const nestedMemberMaterializationCandidate = tryBuildRuntimeMaterializationAst(
-      valueAst,
-      scalarSourceType,
-      member,
-      expectedRuntimeLayoutContext,
-      emitTypeAst
-    );
+    const nestedMemberMaterializationCandidate =
+      tryBuildRuntimeMaterializationAst(
+        valueAst,
+        scalarSourceType,
+        member,
+        expectedRuntimeLayoutContext,
+        emitTypeAst
+      );
     const nestedMemberMaterialization =
       nestedMemberMaterializationCandidate &&
       materializedExpressionMatchesExpectedType(
@@ -2574,22 +2593,22 @@ const adaptValueToExpectedTypeAstResult = (opts: {
       )
         ? nestedMemberMaterializationCandidate
         : undefined;
-	    const structuralMember = tryAdaptStructuralExpressionAst(
-	      valueAst,
-	      scalarSourceType,
-	      expectedRuntimeLayoutContext,
-	      member,
-	      maybeAdaptRuntimeUnionExpressionAst
-	    );
+    const structuralMember = tryAdaptStructuralExpressionAst(
+      valueAst,
+      scalarSourceType,
+      expectedRuntimeLayoutContext,
+      member,
+      maybeAdaptRuntimeUnionExpressionAst
+    );
     const structuralCopyMember = (() => {
       if (structuralMember) {
         return undefined;
       }
 
-	      const sourceProps = collectStructuralProperties(
-	        scalarSourceType,
-	        expectedRuntimeLayoutContext
-	      );
+      const sourceProps = collectStructuralProperties(
+        scalarSourceType,
+        expectedRuntimeLayoutContext
+      );
       if (!sourceProps || sourceProps.length === 0) {
         return undefined;
       }
@@ -2623,7 +2642,10 @@ const adaptValueToExpectedTypeAstResult = (opts: {
     })();
     const numericMember = (() => {
       if (
-        !isNumericSourceIrType(scalarSourceType, expectedRuntimeLayoutContext) ||
+        !isNumericSourceIrType(
+          scalarSourceType,
+          expectedRuntimeLayoutContext
+        ) ||
         (!isExpectedIntegralIrType(member, expectedRuntimeLayoutContext) &&
           !isExpectedJsNumberIrType(member, expectedRuntimeLayoutContext))
       ) {
@@ -2644,42 +2666,48 @@ const adaptValueToExpectedTypeAstResult = (opts: {
         member
       );
     })();
-    const memberValue = structuralMember?.[0] ?? structuralCopyMember ?? numericMember?.[0] ?? nestedMemberMaterialization?.[0] ?? (() => {
-      const directSurfaceType =
-        directValueSurfaceType ?? resolveDirectValueSurfaceType(valueAst, context);
-      if (!directSurfaceType) {
-        return undefined;
-      }
-      try {
-        const [surfaceTypeAst] = emitTypeAst(
-          directSurfaceType,
-          expectedRuntimeLayoutContext
-        );
-        return sameTypeAstSurface(
-          stripNullableTypeAst(surfaceTypeAst),
-          stripNullableTypeAst(memberTypeAst)
-        )
-          ? valueAst
-          : matchesExpectedEmissionType(
-                directSurfaceType,
-                member,
-                expectedRuntimeLayoutContext
-              ) ||
-              findRuntimeUnionAssignableMemberIndices(
-                [member],
-                directSurfaceType,
-                expectedRuntimeLayoutContext
-              ).length === 1
-            ? {
-                kind: "castExpression" as const,
-                type: stripNullableTypeAst(memberTypeAst),
-                expression: valueAst,
-              }
-            : undefined;
-      } catch {
-        return undefined;
-      }
-    })();
+    const memberValue =
+      structuralMember?.[0] ??
+      structuralCopyMember ??
+      numericMember?.[0] ??
+      nestedMemberMaterialization?.[0] ??
+      (() => {
+        const directSurfaceType =
+          directValueSurfaceType ??
+          resolveDirectValueSurfaceType(valueAst, context);
+        if (!directSurfaceType) {
+          return undefined;
+        }
+        try {
+          const [surfaceTypeAst] = emitTypeAst(
+            directSurfaceType,
+            expectedRuntimeLayoutContext
+          );
+          return sameTypeAstSurface(
+            stripNullableTypeAst(surfaceTypeAst),
+            stripNullableTypeAst(memberTypeAst)
+          )
+            ? valueAst
+            : matchesExpectedEmissionType(
+                  directSurfaceType,
+                  member,
+                  expectedRuntimeLayoutContext
+                ) ||
+                findRuntimeUnionAssignableMemberIndices(
+                  [member],
+                  directSurfaceType,
+                  expectedRuntimeLayoutContext
+                ).length === 1
+              ? {
+                  kind: "castExpression" as const,
+                  type: stripNullableTypeAst(memberTypeAst),
+                  expression: valueAst,
+                }
+              : undefined;
+        } catch {
+          return undefined;
+        }
+      })();
     if (!memberValue) {
       return undefined;
     }
@@ -3003,9 +3031,8 @@ export const adaptEmittedExpressionAst = (opts: {
           castedContext
         )
       : undefined;
-  const localStorageSourceExpr = unwrapTransparentExpression(
-    adaptationSourceExpr
-  );
+  const localStorageSourceExpr =
+    unwrapTransparentExpression(adaptationSourceExpr);
   const importedValueSurfaceType = resolveImportedValueSurfaceType(
     localStorageSourceExpr,
     castedContext
@@ -3178,18 +3205,21 @@ export const adaptEmittedExpressionAst = (opts: {
   ) {
     return [normalizedCastedAst, castedContext];
   }
-  const directStorageSourceExpr = unwrapTransparentExpression(adaptationSourceExpr);
-  const rawDirectStorageExpressionType = resolveDirectStorageExpressionType(
-    directStorageSourceExpr,
-    normalizedCastedAst,
-    castedContext
-  ) ?? (directStorageSourceExpr === adaptationSourceExpr
-    ? undefined
-    : resolveDirectStorageExpressionType(
-        adaptationSourceExpr,
-        normalizedCastedAst,
-        castedContext
-      ));
+  const directStorageSourceExpr =
+    unwrapTransparentExpression(adaptationSourceExpr);
+  const rawDirectStorageExpressionType =
+    resolveDirectStorageExpressionType(
+      directStorageSourceExpr,
+      normalizedCastedAst,
+      castedContext
+    ) ??
+    (directStorageSourceExpr === adaptationSourceExpr
+      ? undefined
+      : resolveDirectStorageExpressionType(
+          adaptationSourceExpr,
+          normalizedCastedAst,
+          castedContext
+        ));
   const directStorageExpressionType =
     ((adaptationSourceExpr.kind === "call" ||
       adaptationSourceExpr.kind === "new") &&
@@ -3371,14 +3401,14 @@ export const adaptEmittedExpressionAst = (opts: {
     (adaptationSourceExpr.kind === "await"
       ? getAsyncWrapperSourceResultType(adaptationSourceExpr.expression)
       : undefined) ??
-	    structuralViewReturnType ??
-	    (expr.kind === "call" || expr.kind === "new"
-	      ? expr.sourceBackedReturnType
-	      : undefined) ??
-	    importedValueSurfaceType ??
-	    preferNarrowedEffectiveActualType(
-	      directStorageExpressionType,
-	      effectiveExpressionType,
+    structuralViewReturnType ??
+    (expr.kind === "call" || expr.kind === "new"
+      ? expr.sourceBackedReturnType
+      : undefined) ??
+    importedValueSurfaceType ??
+    preferNarrowedEffectiveActualType(
+      directStorageExpressionType,
+      effectiveExpressionType,
       expectedType,
       castedContext
     ) ??

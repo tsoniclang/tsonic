@@ -28,7 +28,9 @@ const normalizeSourceWrapperName = (typeName: string): string | undefined => {
   }
 };
 
-export const normalizeProviderInternalQualifiedName = (typeName: string): string => {
+export const normalizeProviderInternalQualifiedName = (
+  typeName: string
+): string => {
   const lastDot = typeName.lastIndexOf(".");
   if (lastDot <= 0) return typeName;
 

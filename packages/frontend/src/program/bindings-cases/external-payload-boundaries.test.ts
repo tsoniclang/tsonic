@@ -115,7 +115,10 @@ describe("external binding payload boundaries", () => {
       extractRawExternalOwnerIdentity({
         namespace: "System",
         types: [
-          { targetName: "System.String", ownerIdentity: "System.Private.CoreLib" },
+          {
+            targetName: "System.String",
+            ownerIdentity: "System.Private.CoreLib",
+          },
         ],
       })
     ).to.equal("System.Private.CoreLib");
@@ -124,7 +127,9 @@ describe("external binding payload boundaries", () => {
       extractRawExternalOwnerIdentity({
         namespace: "Acme.Core",
         targetSurface: {
-          types: [{ targetName: "Acme.Core.Widget", ownerIdentity: "Acme.Core" }],
+          types: [
+            { targetName: "Acme.Core.Widget", ownerIdentity: "Acme.Core" },
+          ],
         },
       })
     ).to.equal("Acme.Core");

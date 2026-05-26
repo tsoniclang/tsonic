@@ -330,7 +330,8 @@ const emitStaticNumericGlobalNumberCall = (
     argumentAst,
     argumentType,
     argumentContext,
-    expectedType ?? expr.inferredType ?? { kind: "primitiveType", name: "number" }
+    expectedType ??
+      expr.inferredType ?? { kind: "primitiveType", name: "number" }
   );
 };
 
@@ -397,7 +398,8 @@ const shouldLetCSharpInferImplicitCallTypeArguments = (
 
     const parameterType = parameterTypes[index];
     const argumentType =
-      resolveEffectiveExpressionType(argument, context) ?? argument.inferredType;
+      resolveEffectiveExpressionType(argument, context) ??
+      argument.inferredType;
 
     return (
       !!getDirectIterableElementType(parameterType, context) &&
@@ -1224,10 +1226,9 @@ const emitObjectDictionaryStaticCall = (
   }
 
   let currentContext = context;
-  const [rawDictionaryAst, dictionaryContext] =
-    storageArgumentAst
-      ? [storageArgumentAst, currentContext]
-      : emitExpressionAst(argument, currentContext);
+  const [rawDictionaryAst, dictionaryContext] = storageArgumentAst
+    ? [storageArgumentAst, currentContext]
+    : emitExpressionAst(argument, currentContext);
   currentContext = dictionaryContext;
   const [dictionaryAst, materializedContext] = materializeDirectNarrowingAst(
     rawDictionaryAst,
@@ -1356,10 +1357,7 @@ export const emitCall = (
   const promiseChain = emitPromiseThenCatchFinally(normalizedExpr, context);
   if (promiseChain) return promiseChain;
 
-  const bigIntToStringCall = emitBigIntToStringCall(
-    normalizedExpr,
-    context
-  );
+  const bigIntToStringCall = emitBigIntToStringCall(normalizedExpr, context);
   if (bigIntToStringCall) {
     return bigIntToStringCall;
   }
@@ -1631,8 +1629,7 @@ export const emitCall = (
                       ),
                     }
                   : currentContext
-              ) ??
-              argument.inferredType;
+              ) ?? argument.inferredType;
             return predicateSourceType &&
               willCarryAsRuntimeUnion(
                 stripNullish(predicateSourceType),
@@ -1649,7 +1646,9 @@ export const emitCall = (
     ? predicateParameterTypeCandidates
     : undefined;
   const parameterTypeOverrides =
-    structuralViewParameterTypes ?? genericParameterTypes ?? predicateParameterTypes;
+    structuralViewParameterTypes ??
+    genericParameterTypes ??
+    predicateParameterTypes;
   const [argAsts, argContext] = emitCallArguments(
     normalizedExpr.arguments,
     normalizedExpr,
@@ -1692,11 +1691,12 @@ export const emitCall = (
     expectedType.kind !== "anyType" &&
     expectedType.kind !== "unknownType";
 
-  const rewrittenOptionalInvocation = maybeRewriteOptionalGenericNullishInvocation(
-    invocation,
-    normalizedExpr,
-    currentContext
-  );
+  const rewrittenOptionalInvocation =
+    maybeRewriteOptionalGenericNullishInvocation(
+      invocation,
+      normalizedExpr,
+      currentContext
+    );
   const genericNullishMethodInvocation =
     rewrittenOptionalInvocation === undefined
       ? maybeWrapGenericNullishMethodInvocation(

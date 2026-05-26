@@ -43,7 +43,8 @@ const createStructuralTypeParameters = (
       continue;
     }
     for (const parameter of member.parameters) {
-      if (parameter.type) collectTypeParameterNames(parameter.type, typeParamNames);
+      if (parameter.type)
+        collectTypeParameterNames(parameter.type, typeParamNames);
     }
     if (member.returnType) {
       collectTypeParameterNames(member.returnType, typeParamNames);

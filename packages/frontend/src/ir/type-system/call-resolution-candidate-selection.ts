@@ -22,9 +22,7 @@ import {
   stripTsonicExtensionWrappers,
   emitDiagnostic,
 } from "./type-system-state-helpers.js";
-import {
-  getIterableShape,
-} from "./iterable-type-shapes.js";
+import { getIterableShape } from "./iterable-type-shapes.js";
 
 type CandidateSelection = {
   readonly sigId: SignatureId | undefined;

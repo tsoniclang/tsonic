@@ -31,7 +31,7 @@ const isJsBitwiseNumberishType = (
       (resolved.name === "int" ||
         resolved.name === "double" ||
         referenceTypeHasClrIdentity(resolved, JS_BITWISE_NUMBERISH_CLR_NAMES)))
-    );
+  );
 };
 
 const isJsNumberBitwiseType = (

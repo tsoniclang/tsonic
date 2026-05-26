@@ -90,7 +90,9 @@ export const extractRawExternalBindingsPayload = (
         candidate.targetSurface.exports &&
         typeof candidate.targetSurface.exports === "object" &&
         !Array.isArray(candidate.targetSurface.exports)
-          ? (candidate.targetSurface.exports as Readonly<Record<string, unknown>>)
+          ? (candidate.targetSurface.exports as Readonly<
+              Record<string, unknown>
+            >)
           : undefined,
     };
   }

@@ -537,9 +537,14 @@ export const tryResolveSimpleNullableGuard = (
   const effectiveType =
     resolveEffectiveExpressionType(operand, context) ?? operand.inferredType;
   const idType = (() => {
-    if (storageType && splitRuntimeNullishUnionMembers(storageType)?.hasRuntimeNullish) {
+    if (
+      storageType &&
+      splitRuntimeNullishUnionMembers(storageType)?.hasRuntimeNullish
+    ) {
       const storageStripped = stripNullish(storageType);
-      const semanticStripped = semanticType ? stripNullish(semanticType) : undefined;
+      const semanticStripped = semanticType
+        ? stripNullish(semanticType)
+        : undefined;
       const effectiveStripped = effectiveType
         ? stripNullish(effectiveType)
         : undefined;

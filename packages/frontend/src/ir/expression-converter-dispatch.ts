@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type {
   IrExpression,
+  IrInterfaceMember,
   IrNumericNarrowingExpression,
   IrType,
 } from "./types.js";
@@ -63,6 +64,61 @@ import {
   typeSymbolIdFromStableId,
 } from "../symbols/index.js";
 import type { TypeSymbolId } from "../symbols/index.js";
+
+type LiteralObjectProperty = Extract<
+  Extract<IrExpression, { kind: "object" }>["properties"][number],
+  { kind: "property" }
+> & { readonly key: string };
+
+const isLiteralObjectProperty = (
+  property: Extract<IrExpression, { kind: "object" }>["properties"][number]
+): property is LiteralObjectProperty =>
+  property.kind === "property" && typeof property.key === "string";
+
+const inferSatisfiesExpressionResultType = (
+  expr: IrExpression
+): IrType | undefined => {
+  if (expr.kind !== "object") {
+    return undefined;
+  }
+
+  const members: IrInterfaceMember[] = [];
+  for (const property of expr.properties) {
+    if (!isLiteralObjectProperty(property) || !property.value.inferredType) {
+      return undefined;
+    }
+
+    members.push({
+      kind: "propertySignature" as const,
+      name: property.key,
+      type:
+        inferSatisfiesExpressionResultType(property.value) ??
+        property.value.inferredType,
+      isOptional: false,
+      isReadonly: false,
+    });
+  }
+
+  return {
+    kind: "objectType",
+    members,
+  };
+};
+
+const preserveSatisfiesExpressionResultType = (
+  expr: IrExpression
+): IrExpression => {
+  const naturalObjectType = inferSatisfiesExpressionResultType(expr);
+  if (!naturalObjectType || expr.kind !== "object") {
+    return expr;
+  }
+
+  return {
+    ...expr,
+    inferredType: naturalObjectType,
+    contextualType: naturalObjectType,
+  };
+};
 
 const isConstAssertionType = (node: ts.TypeNode): boolean =>
   ts.isTypeReferenceNode(node) &&
@@ -205,7 +261,9 @@ const typeSymbolIdForExternalType = (
   providerQualifiedName: string,
   stableId?: string
 ): TypeSymbolId =>
-  typeSymbolIdFromStableId(stableId ?? `${ownerIdentity}:${providerQualifiedName}`);
+  typeSymbolIdFromStableId(
+    stableId ?? `${ownerIdentity}:${providerQualifiedName}`
+  );
 
 type SourceFileExportKind =
   | "class"
@@ -634,8 +692,7 @@ export const convertExpression = (
       "global"
     );
     const ambientIntrinsicType =
-      isAmbientGlobal &&
-      (node.text === "NaN" || node.text === "Infinity")
+      isAmbientGlobal && (node.text === "NaN" || node.text === "Infinity")
         ? ({ kind: "primitiveType", name: "number" } as const)
         : undefined;
     const effectiveExpressionType =
@@ -692,7 +749,8 @@ export const convertExpression = (
       providerQualifiedName:
         importResolvedExternalBinding?.providerQualifiedName ??
         ambientSourceOwner,
-      providerOwnerIdentity: importResolvedExternalBinding?.providerOwnerIdentity,
+      providerOwnerIdentity:
+        importResolvedExternalBinding?.providerOwnerIdentity,
       typeSymbolId:
         importResolvedExternalBinding?.typeSymbolId ??
         (ambientSourceOwner
@@ -843,7 +901,9 @@ export const convertExpression = (
     const satisfiedType = ctx.typeSystem.typeFromSyntax(
       ctx.binding.captureTypeSyntax(node.type)
     );
-    return convertExpression(node.expression, ctx, satisfiedType);
+    return preserveSatisfiesExpressionResultType(
+      convertExpression(node.expression, ctx, satisfiedType)
+    );
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     if (isConstAssertionType(node.type)) {

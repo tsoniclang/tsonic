@@ -61,7 +61,8 @@ const typeHasTargetTypeIdentity = (
 ): boolean => typeHasTargetIdentity(type);
 
 const expressionHasTargetIdentity = (expr: IrExpression): boolean =>
-  ("providerQualifiedName" in expr && typeof expr.providerQualifiedName === "string") ||
+  ("providerQualifiedName" in expr &&
+    typeof expr.providerQualifiedName === "string") ||
   typeHasTargetIdentity(expr.inferredType);
 
 /**

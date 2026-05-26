@@ -52,7 +52,8 @@ export const resolveLocalTypesForReference = (
 
   // Disambiguate by CLR FQN when available.
   const fqn =
-    type.providerQualifiedName ?? (type.name.includes(".") ? type.name : undefined);
+    type.providerQualifiedName ??
+    (type.name.includes(".") ? type.name : undefined);
   if (fqn && fqn.includes(".")) {
     const lastDot = fqn.lastIndexOf(".");
     const ns = fqn.slice(0, lastDot);

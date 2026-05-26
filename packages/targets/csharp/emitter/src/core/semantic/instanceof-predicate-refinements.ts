@@ -328,11 +328,7 @@ export const applyPredicateCallRefinement = (
 
   const narrowedType =
     branch === "truthy"
-      ? narrowTypeByPredicateTarget(
-          currentType,
-          narrowing.targetType,
-          context
-        )
+      ? narrowTypeByPredicateTarget(currentType, narrowing.targetType, context)
       : narrowTypeByNotAssignableTarget(
           currentType,
           narrowing.targetType,
