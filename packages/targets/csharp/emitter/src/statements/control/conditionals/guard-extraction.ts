@@ -17,50 +17,10 @@ import { isAssignable } from "../../../core/semantic/index.js";
 import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../../core/semantic/narrowing-keys.js";
 import { tryExtractTypeofComparison } from "../../../core/semantic/typeof-comparison.js";
-
-export const isArrayLikeNarrowingCandidate = (
-  type: IrType,
-  context: EmitterContext
-): boolean => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (resolved.kind === "arrayType" || resolved.kind === "tupleType") {
-    return true;
-  }
-  if (
-    resolved.kind === "referenceType" &&
-    (resolved.name === "Array" || resolved.name === "ReadonlyArray")
-  ) {
-    return true;
-  }
-  return false;
-};
-
-export const narrowTypeByArrayShape = (
-  currentType: IrType | undefined,
-  wantArray: boolean,
-  context: EmitterContext
-): IrType | undefined => {
-  if (!currentType) return undefined;
-
-  const resolved = resolveTypeAlias(stripNullish(currentType), context);
-  if (resolved.kind === "unionType") {
-    const kept = resolved.types.filter((member): member is IrType => {
-      if (!member) return false;
-      const isArrayLike = isArrayLikeNarrowingCandidate(member, context);
-      return wantArray ? isArrayLike : !isArrayLike;
-    });
-    const narrowed = kept;
-    if (narrowed.length === 0) return undefined;
-    if (narrowed.length === 1) return narrowed[0];
-    return normalizedUnionType(narrowed);
-  }
-
-  const isArrayLike = isArrayLikeNarrowingCandidate(resolved, context);
-  if (wantArray) {
-    return isArrayLike ? resolved : undefined;
-  }
-  return isArrayLike ? undefined : resolved;
-};
+export {
+  isArrayLikeNarrowingCandidate,
+  narrowTypeByArrayShape,
+} from "../../../core/semantic/array-shape-narrowing.js";
 
 export const narrowTypeByNotAssignableTarget = (
   currentType: IrType | undefined,

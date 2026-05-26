@@ -26,6 +26,8 @@ import {
   resolveStructuralReferenceType,
   resolveTypeAlias,
   getArrayLikeElementType,
+  isDefinitelyValueType,
+  splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
 import {
@@ -76,6 +78,7 @@ import {
   adaptValueToExpectedTypeAst,
   resolveCarrierPreservingSourceType,
 } from "./expected-type-adaptation.js";
+import { isGlobalJsonCall } from "./calls/call-analysis.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
 import { isExactArrayCreationToType } from "./exact-comparison.js";
 import { tryAdaptStructuralCollectionExpressionAst } from "./structural-collection-adaptation.js";
@@ -91,9 +94,13 @@ import {
   isBroadObjectSlotType,
 } from "../core/semantic/broad-object-types.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
-import { resolveRuntimeStorageType } from "../core/semantic/storage-types.js";
+import {
+  resolveRuntimeStoragePropertyType,
+  resolveRuntimeStorageType,
+} from "../core/semantic/storage-types.js";
 import { referenceTypeEmitsAsNativeInterface } from "../core/semantic/native-interfaces.js";
 import {
+  buildExpectedRuntimeCarrierTarget,
   tryBuildRuntimeMaterializationAst,
   tryBuildRuntimeReificationPlan,
 } from "../core/semantic/runtime-reification.js";
@@ -109,6 +116,19 @@ export const isPolymorphicThisType = (type: IrType | undefined): boolean =>
   ((type.kind === "typeParameterType" &&
     type.name === POLYMORPHIC_THIS_MARKER) ||
     (type.kind === "referenceType" && type.name === POLYMORPHIC_THIS_MARKER));
+
+const typeCarriesRuntimeUnionSurface = (
+  type: IrType,
+  context: EmitterContext
+): boolean =>
+  willCarryAsRuntimeUnion(type, context) ||
+  (() => {
+    const resolved = resolveTypeAlias(stripNullish(type), context);
+    return (
+      resolved.kind === "unionType" ||
+      willCarryAsRuntimeUnion(resolved, context)
+    );
+  })();
 
 export const isSuperMemberCallExpression = (expr: IrExpression): boolean =>
   expr.kind === "call" &&
@@ -678,6 +698,16 @@ export const emitTypeAssertion = (
     (transparentSourceExpression.kind === "identifier"
       ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
       : undefined);
+  const transparentMemberRuntimeStorageType =
+    transparentSourceExpression.kind === "memberAccess" &&
+    typeof transparentSourceExpression.property === "string"
+      ? resolveRuntimeStoragePropertyType(
+          resolveEffectiveExpressionType(transparentSourceExpression.object, context),
+          transparentSourceExpression.property,
+          transparentSourceExpression.inferredType,
+          context
+        )
+      : undefined;
   const strippedSourceExpressionTypeAtEntry = sourceExpressionTypeAtEntry
     ? stripNullish(sourceExpressionTypeAtEntry)
     : undefined;
@@ -781,6 +811,52 @@ export const emitTypeAssertion = (
       runtimeAssertionStorageTarget,
       context
     )[0];
+  const transparentNullishReferenceAssertionAlreadySatisfiesTarget = (() => {
+    if (
+      !isTransparentFlowAssertion ||
+      isDefinitelyValueType(stripNullish(runtimeAssertionTarget), context)
+    ) {
+      return false;
+    }
+
+    const sourceStorageSurface =
+      transparentMemberRuntimeStorageType ?? sourceStorageTypeAtEntry;
+    const sourceSurface =
+      sourceExpressionTypeAtEntry ??
+      currentTransparentSourceType ??
+      sourceStorageSurface;
+    if (
+      !sourceSurface ||
+      isBroadObjectSlotType(sourceStorageSurface, context) ||
+      isStorageErasedBroadObjectPassThroughType(sourceStorageSurface, context)
+    ) {
+      return false;
+    }
+
+    const splitSource = splitRuntimeNullishUnionMembers(sourceSurface);
+    if (
+      !splitSource?.hasRuntimeNullish ||
+      splitSource.nonNullishMembers.length !== 1
+    ) {
+      return false;
+    }
+
+    const [nonNullishSource] = splitSource.nonNullishMembers;
+    if (!nonNullishSource) {
+      return false;
+    }
+    if (nonNullishSource.kind === "typeParameterType") {
+      if (context.typeParamConstraints?.get(nonNullishSource.name) !== "class") {
+        return false;
+      }
+    }
+
+    return matchesExpectedEmissionType(
+      nonNullishSource,
+      runtimeAssertionTarget,
+      context
+    );
+  })();
   const sourceHasStructuredStorage = (sourceType: IrType | undefined): boolean => {
     if (!sourceType) {
       return false;
@@ -814,13 +890,25 @@ export const emitTypeAssertion = (
     );
 
   if (
+    transparentNullishReferenceAssertionAlreadySatisfiesTarget &&
+    !mustPreserveExplicitRuntimeAssertion &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    return emitExpressionAst(
+      transparentSourceExpression,
+      withoutNarrowedBinding(transparentSourceExpression, context)
+    );
+  }
+
+  if (
     sourceStorageAlreadySatisfiesAssertion &&
     !mustPreserveExplicitRuntimeAssertion &&
     !involvesDegenerateDuplicateUnion
   ) {
     return emitExpressionAst(
       transparentSourceExpression,
-      context
+      context,
+      runtimeAssertionTarget
     );
   }
 
@@ -909,6 +997,28 @@ export const emitTypeAssertion = (
   }
 
   if (narrowedArrayCarrierAssertion && !involvesDegenerateDuplicateUnion) {
+    if (sourceNarrowedBinding.kind === "expr") {
+      const sourceCarrierAst =
+        sourceNarrowedBinding.carrierExprAst ??
+        sourceNarrowedBinding.storageExprAst;
+      const sourceCarrierType =
+        sourceNarrowedBinding.carrierType ??
+        sourceNarrowedBinding.sourceType ??
+        sourceNarrowedBinding.storageType;
+      if (sourceCarrierAst && sourceCarrierType) {
+        const materializedArrayAssertion = tryBuildRuntimeMaterializationAst(
+          sourceCarrierAst,
+          sourceCarrierType,
+          runtimeAssertionTarget,
+          context,
+          emitTypeAst
+        );
+        if (materializedArrayAssertion) {
+          return materializedArrayAssertion;
+        }
+      }
+    }
+
     return emitExpressionAst(
       transparentSourceExpression,
       context,
@@ -1134,10 +1244,15 @@ export const emitTypeAssertion = (
     expr.targetType,
     context
   );
+  const isStructuredJsonParseAssertion =
+    expr.expression.kind === "call" &&
+    isGlobalJsonCall(expr.expression.callee, context)?.method ===
+      "Deserialize";
   const assertionTargetRequiresOuterReification =
-    willCarryAsRuntimeUnion(runtimeEmissionTarget, context) ||
-    runtimeEmissionTarget.kind === "arrayType" ||
-    runtimeEmissionTarget.kind === "dictionaryType";
+    !isStructuredJsonParseAssertion &&
+    (willCarryAsRuntimeUnion(runtimeEmissionTarget, context) ||
+      runtimeEmissionTarget.kind === "arrayType" ||
+      runtimeEmissionTarget.kind === "dictionaryType");
   const preserveTransparentFlowNarrowing =
     !!sourceNarrowedBinding && isTransparentFlowAssertion;
   const preserveNarrowedSourceStorage =
@@ -1226,6 +1341,7 @@ export const emitTypeAssertion = (
         );
   const authoredStructuredAssertionWithoutStructuredSource =
     targetNeedsStructuredReification &&
+    !sourceCarriesRuntimeUnionAtEntry &&
     !sourceHasStructuredStorage(sourceStorageTypeAtEntry) &&
     !sourceHasStructuredStorage(sourceExpressionType);
   const preservedBroadArrayStorageType = resolveBroadArrayAssertionStorageType(
@@ -1246,7 +1362,11 @@ export const emitTypeAssertion = (
   const runtimeCastTarget =
     preservedBroadArrayExpectedType ??
     preservedBroadArrayStorageType ??
-    runtimeTarget;
+    buildExpectedRuntimeCarrierTarget(
+      resolvedAssertionTarget,
+      sourceLayoutContext,
+      emitTypeAst
+    );
   const [
     runtimeTargetTypeAst,
     runtimeTargetUnionLayout,
@@ -1462,7 +1582,7 @@ export const emitTypeAssertion = (
     const materializedRuntimeUnionSource = tryBuildRuntimeMaterializationAst(
       castSourceAst,
       actualExpressionType,
-      runtimeTarget,
+      runtimeCastTarget,
       sourceLayoutContext,
       emitTypeAst,
       expr.selectedRuntimeUnionMembers
@@ -1481,14 +1601,14 @@ export const emitTypeAssertion = (
   ) {
     const reificationPlan = tryBuildRuntimeReificationPlan(
       castSourceAst,
-      runtimeTarget,
+      runtimeCastTarget,
       sourceLayoutContext,
       emitTypeAst,
       runtimeTargetUnionLayout
         ? {
             typeAst: runtimeTargetTypeAst,
             layout: runtimeTargetUnionLayout,
-            layoutType: runtimeTarget,
+            layoutType: runtimeCastTarget,
             context: runtimeTargetTypeContext,
           }
         : undefined
@@ -1504,7 +1624,7 @@ export const emitTypeAssertion = (
         valueAst: castSourceAst,
         actualType: actualExpressionType,
         context: sourceLayoutContext,
-        expectedType: runtimeTarget,
+        expectedType: runtimeCastTarget,
         selectedSourceMemberNs: expr.selectedRuntimeUnionMembers
           ? new Set(expr.selectedRuntimeUnionMembers)
           : undefined,
@@ -1540,7 +1660,9 @@ export const emitTypeAssertion = (
               return [_ast, adaptationContext];
             }
 
-            if (willCarryAsRuntimeUnion(expectedType, adaptationContext)) {
+            if (
+              typeCarriesRuntimeUnionSurface(expectedType, adaptationContext)
+            ) {
               return adaptValueToExpectedTypeAst({
                 valueAst: _ast,
                 actualType,

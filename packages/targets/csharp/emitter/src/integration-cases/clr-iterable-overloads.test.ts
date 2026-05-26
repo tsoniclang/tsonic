@@ -2,6 +2,13 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { compileProjectToCSharp, compileToCSharp } from "./helpers.js";
 
+const expectBoxedNumericEquality = (csharp: string): void => {
+  expect(csharp).to.match(
+    /Assert\.Equal\(\(object\)\(double\)42, (?:received|\(received switch \{ int __tsonic_number_int_\d+ => \(double\)__tsonic_number_int_\d+, double __tsonic_number_double_\d+ => __tsonic_number_double_\d+, var __tsonic_number_value_\d+ => \(double\)__tsonic_number_value_\d+ \}\))\);/
+  );
+  expect(csharp).to.not.include("Assert.Equal(42, received);");
+};
+
 describe("Integration: CLR iterable overloads", () => {
   it("routes iterator-bearing class arguments through symbol iterators for CLR IEnumerable overloads", () => {
     const csharp = compileToCSharp(`
@@ -122,7 +129,7 @@ describe("Integration: CLR iterable overloads", () => {
       }
     `);
 
-    expect(csharp).to.include("socket.connect((portOrPath.As2()), listener);");
+    expect(csharp).to.include("socket.connect(portOrPath.As2(), listener);");
     expect(csharp).to.not.include(
       "socket.connect((string)(portOrPath.As2()), global::Tsonic.Internal.Union<global::System.Action, string>.From1(listener));"
     );
@@ -498,8 +505,7 @@ describe("Integration: CLR iterable overloads", () => {
       { surface: "@tsonic/js" }
     );
 
-    expect(csharp).to.include("Assert.Equal((object)(double)42, received);");
-    expect(csharp).to.not.include("Assert.Equal(42, received);");
+    expectBoxedNumericEquality(csharp);
   });
 
   it("boxes numeric literals for optional broad-object equality assertions over real xunit overloads", () => {
@@ -550,8 +556,7 @@ describe("Integration: CLR iterable overloads", () => {
       { surface: "@tsonic/js" }
     );
 
-    expect(csharp).to.include("Assert.Equal((object)(double)42, received);");
-    expect(csharp).to.not.include("Assert.Equal(42, received);");
+    expectBoxedNumericEquality(csharp);
   });
 
   it("boxes numeric literals for source-backed broad-object equality assertions", () => {
@@ -610,8 +615,7 @@ describe("Integration: CLR iterable overloads", () => {
       { surface: "@tsonic/js" }
     );
 
-    expect(csharp).to.include("Assert.Equal((object)(double)42, received);");
-    expect(csharp).to.not.include("Assert.Equal(42, received);");
+    expectBoxedNumericEquality(csharp);
   });
 
   it("widens generic equality to object over Memory<char> siblings for unknown array elements", () => {
@@ -724,8 +728,7 @@ describe("Integration: CLR iterable overloads", () => {
       { surface: "@tsonic/js" }
     );
 
-    expect(csharp).to.include("Assert.Equal((object)(double)42, received);");
-    expect(csharp).to.not.include("Assert.Equal(42, received);");
+    expectBoxedNumericEquality(csharp);
   });
 
   it("keeps broad NotNull overloads when sibling source overloads still mention Nullable<T>", () => {

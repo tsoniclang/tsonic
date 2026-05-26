@@ -5,9 +5,10 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
+import { toBooleanConditionAst } from "../../../core/semantic/boolean-context.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import {
-  buildAnyIsNCondition,
   buildCastLocalDecl,
   buildSubsetUnionType,
   withComplementNarrowing,
@@ -55,7 +56,15 @@ export const tryEmitPredicateGuard = (
     sourceCandidateMemberNs,
   } = guard;
 
-  const condAst = buildAnyIsNCondition(receiverAst, memberNs, false);
+  const [predicateCallAst, predicateCallContext] = emitExpressionAst(
+    stmt.condition,
+    context
+  );
+  const [condAst, conditionContext] = toBooleanConditionAst(
+    stmt.condition,
+    predicateCallAst,
+    predicateCallContext
+  );
 
   const [thenBlock, thenBodyCtx] =
     memberN !== undefined
@@ -63,12 +72,14 @@ export const tryEmitPredicateGuard = (
           [buildCastLocalDecl(escapedNarrow, receiverAst, memberN)],
           stmt.thenStatement,
           {
-            ...ctxWithId,
+            ...conditionContext,
             narrowedBindings: narrowedMap,
           }
         )
       : (() => {
-          const narrowedBindings = new Map(ctxWithId.narrowedBindings ?? []);
+          const narrowedBindings = new Map(
+            conditionContext.narrowedBindings ?? []
+          );
           narrowedBindings.set(originalName, {
             kind: "runtimeSubset",
             runtimeMemberNs: memberNs,
@@ -84,7 +95,7 @@ export const tryEmitPredicateGuard = (
           const [thenStmts, nextThenCtx] = emitBranchScopedStatementAst(
             stmt.thenStatement,
             {
-              ...ctxWithId,
+              ...conditionContext,
               narrowedBindings,
             }
           );

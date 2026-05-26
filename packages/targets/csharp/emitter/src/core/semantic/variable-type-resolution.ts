@@ -16,6 +16,7 @@ import {
 import type { EmitterContext } from "../../types.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
 import {
+  isTypeOnlyStructuralTarget,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
@@ -541,6 +542,19 @@ export const resolveLocalStorageType = (
     !decl.type && decl.initializer
       ? resolveSemanticVariableInitializerType(decl.initializer, context)
       : undefined;
+  if (
+    decl.initializer?.kind === "typeAssertion" &&
+    decl.initializer.targetType &&
+    !isTypeOnlyStructuralTarget(decl.initializer.targetType, context)
+  ) {
+    const assertionStorageType =
+      decl.type ?? semanticInitializerType ?? decl.initializer.targetType;
+    return (
+      normalizeRuntimeStorageType(assertionStorageType, context) ??
+      assertionStorageType
+    );
+  }
+
   if (
     shouldPreserveSemanticRuntimeCarrierStorage(
       semanticInitializerType,

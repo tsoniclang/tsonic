@@ -22,6 +22,16 @@ import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { wrapArgModifier } from "./call-arguments-helpers.js";
 import { buildNativeArrayInteropWrapAst } from "../array-interop.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
+import { adaptValueToExpectedTypeAst } from "../expected-type-adaptation.js";
+import { tryBuildRuntimeMaterializationAst } from "../../core/semantic/runtime-reification.js";
+import { resolveDirectValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
+import {
+  buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+} from "../../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionFactoryCallAst } from "../../core/semantic/runtime-union-projection.js";
+import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-union-alias-identity.js";
+import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import {
   getBorrowedMutationWriteBackSemantics,
@@ -435,11 +445,70 @@ export const emitArrayMutationInteropCall = (
     receiverType,
     receiverElementType
   );
-  const [argAsts, argContext] = emitCallArguments(
+  const [emittedArgAsts, argContext] = emitCallArguments(
     expr.arguments,
     argumentSurfaceExpr,
     currentContext
   );
+  const argAsts = emittedArgAsts.map((argAst, index) => {
+    const sourceArg = expr.arguments[index];
+    const actualType =
+      resolveDirectValueSurfaceType(argAst, argContext) ??
+      (sourceArg
+        ? (resolveEffectiveExpressionType(sourceArg, argContext) ??
+          sourceArg.inferredType)
+        : undefined);
+    if (!actualType) {
+      return argAst;
+    }
+    const [receiverElementLayout, receiverElementLayoutContext] =
+      buildRuntimeUnionLayout(receiverElementType, argContext, emitTypeAst);
+    const [actualRuntimeLayout] = buildRuntimeUnionLayout(
+      actualType,
+      receiverElementLayoutContext,
+      emitTypeAst
+    );
+    const directRuntimeUnionMemberIndex =
+      receiverElementLayout?.members.findIndex(
+        (member) =>
+          runtimeUnionAliasReferencesMatch(
+            member,
+            actualType,
+            receiverElementLayoutContext
+          ) ||
+          (!actualRuntimeLayout &&
+            matchesExpectedEmissionType(
+              actualType,
+              member,
+              receiverElementLayoutContext
+            ))
+      ) ?? -1;
+    const directRuntimeUnionMemberWrappedArg =
+      receiverElementLayout && directRuntimeUnionMemberIndex >= 0
+        ? buildRuntimeUnionFactoryCallAst(
+            buildRuntimeUnionTypeAst(receiverElementLayout),
+            directRuntimeUnionMemberIndex + 1,
+            argAst
+          )
+        : undefined;
+    const normalizedArg =
+      directRuntimeUnionMemberWrappedArg ??
+      adaptValueToExpectedTypeAst({
+        valueAst: argAst,
+        actualType,
+        context: argContext,
+        expectedType: receiverElementType,
+      })?.[0] ??
+      tryBuildRuntimeMaterializationAst(
+        argAst,
+        actualType,
+        receiverElementType,
+        argContext,
+        emitTypeAst
+      )?.[0] ??
+      argAst;
+    return normalizedArg;
+  });
   currentContext = argContext;
 
   const mutationCall: CSharpExpressionAst = {

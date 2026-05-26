@@ -443,6 +443,7 @@ export const collectStaticContainerValueSymbols = (
             kind: "variable",
             csharpName: getCSharpName(name, "fields", context),
             type: functionType,
+            valueType: decl.type ?? decl.initializer?.inferredType,
           });
         }
       }

@@ -829,6 +829,10 @@ export const resolveDirectStorageExpressionAst = (
     return undefined;
   }
 
+  if (context.importBindings?.has(expr.name)) {
+    return undefined;
+  }
+
   return identifierExpression(
     context.localNameMap?.get(expr.name) ?? escapeCSharpIdentifier(expr.name)
   );
@@ -941,6 +945,10 @@ export const resolveRuntimeCarrierExpressionAst = (
   }
 
   if (expr.kind !== "identifier") {
+    return undefined;
+  }
+
+  if (context.importBindings?.has(expr.name)) {
     return undefined;
   }
 

@@ -325,6 +325,53 @@ export const emitConditional = (
       numericExpectedType
     );
   };
+  const castStorageErasedBranchToTypeParameter = (
+    branchExpr: IrExpression,
+    branchAst: CSharpExpressionAst,
+    branchContext: EmitterContext,
+    branchExpectedType: IrType | undefined
+  ): [CSharpExpressionAst, EmitterContext] => {
+    if (!branchExpectedType) {
+      return [branchAst, branchContext];
+    }
+
+    const strippedExpected = stripNullish(branchExpectedType);
+    const typeParameterName =
+      strippedExpected.kind === "typeParameterType"
+        ? strippedExpected.name
+        : strippedExpected.kind === "referenceType" &&
+            (branchContext.typeParameters?.has(strippedExpected.name) ??
+              false) &&
+            (!strippedExpected.typeArguments ||
+              strippedExpected.typeArguments.length === 0)
+          ? strippedExpected.name
+          : undefined;
+    if (!typeParameterName) {
+      return [branchAst, branchContext];
+    }
+
+    const branchType =
+      resolveBranchType(branchExpr, branchContext) ?? branchExpr.inferredType;
+    const branchStorageType =
+      branchType &&
+      resolveErasedNullableGenericStorageType(branchType, branchContext);
+    if (!branchStorageType || !isBroadObjectSlotType(branchStorageType, branchContext)) {
+      return [branchAst, branchContext];
+    }
+
+    const [targetTypeAst, targetContext] = emitTypeAst(
+      { kind: "typeParameterType", name: typeParameterName },
+      branchContext
+    );
+    return [
+      {
+        kind: "castExpression",
+        type: targetTypeAst,
+        expression: branchAst,
+      },
+      targetContext,
+    ];
+  };
 
   const deriveBranchExpectedType = (
     whenTrueContext: EmitterContext,
@@ -639,6 +686,13 @@ export const emitConditional = (
         trueContext,
         branchExpectedType
       );
+    const [finalTrueAst, finalTrueContext] =
+      castStorageErasedBranchToTypeParameter(
+        expr.whenTrue,
+        numericTrueAst,
+        numericTrueContext,
+        branchExpectedType
+      );
 
     const [rawFalseAst, rawFalseContext] =
       polarity === "negative"
@@ -667,17 +721,24 @@ export const emitConditional = (
         falseContext,
         branchExpectedType
       );
+    const [finalFalseAst, finalFalseContext] =
+      castStorageErasedBranchToTypeParameter(
+        expr.whenFalse,
+        numericFalseAst,
+        numericFalseContext,
+        branchExpectedType
+      );
 
     // Return context WITHOUT narrowing (don't leak)
     const finalContext: EmitterContext = {
-      ...numericFalseContext,
+      ...finalFalseContext,
       tempVarId: Math.max(
-        numericTrueContext.tempVarId ?? 0,
-        numericFalseContext.tempVarId ?? 0
+        finalTrueContext.tempVarId ?? 0,
+        finalFalseContext.tempVarId ?? 0
       ),
       usings: new Set([
-        ...(numericTrueContext.usings ?? []),
-        ...(numericFalseContext.usings ?? []),
+        ...(finalTrueContext.usings ?? []),
+        ...(finalFalseContext.usings ?? []),
       ]),
       narrowedBindings: context.narrowedBindings,
     };
@@ -686,8 +747,8 @@ export const emitConditional = (
       {
         kind: "conditionalExpression",
         condition: condAst,
-        whenTrue: numericTrueAst,
-        whenFalse: numericFalseAst,
+        whenTrue: finalTrueAst,
+        whenFalse: finalFalseAst,
       },
       finalContext,
     ];
@@ -743,6 +804,13 @@ export const emitConditional = (
     trueContext,
     branchExpectedType
   );
+  const [finalTrueAst, finalTrueContext] =
+    castStorageErasedBranchToTypeParameter(
+      expr.whenTrue,
+      numericTrueAst,
+      numericTrueContext,
+      branchExpectedType
+    );
   const [rawFalseAst, rawFalseContext] = emitExpressionAst(
     expr.whenFalse,
     falsyBranchContext,
@@ -762,16 +830,23 @@ export const emitConditional = (
     falseContext,
     branchExpectedType
   );
+  const [finalFalseAst, finalFalseContext] =
+    castStorageErasedBranchToTypeParameter(
+      expr.whenFalse,
+      numericFalseAst,
+      numericFalseContext,
+      branchExpectedType
+    );
 
   const finalContext: EmitterContext = {
-    ...numericFalseContext,
+    ...finalFalseContext,
     tempVarId: Math.max(
-      numericTrueContext.tempVarId ?? 0,
-      numericFalseContext.tempVarId ?? 0
+      finalTrueContext.tempVarId ?? 0,
+      finalFalseContext.tempVarId ?? 0
     ),
     usings: new Set([
-      ...(numericTrueContext.usings ?? []),
-      ...(numericFalseContext.usings ?? []),
+      ...(finalTrueContext.usings ?? []),
+      ...(finalFalseContext.usings ?? []),
     ]),
     narrowedBindings: condContext.narrowedBindings,
   };
@@ -780,8 +855,8 @@ export const emitConditional = (
     {
       kind: "conditionalExpression",
       condition: condAst,
-      whenTrue: numericTrueAst,
-      whenFalse: numericFalseAst,
+      whenTrue: finalTrueAst,
+      whenFalse: finalFalseAst,
     },
     finalContext,
   ];

@@ -80,7 +80,7 @@ export type TypeBinding = {
   readonly stableIds?: readonly string[];
   readonly name: string; // Target type name (e.g., "Enumerable")
   readonly alias: string; // TS identifier (e.g., "enumerable")
-  readonly kind: "class" | "interface" | "struct" | "enum";
+  readonly kind: "class" | "interface" | "struct" | "enum" | "delegate";
   readonly members: readonly MemberBinding[];
 };
 
@@ -178,13 +178,13 @@ export type TsbindgenType = {
   readonly baseType?: TsbindgenTypeRef;
   readonly interfaces?: readonly TsbindgenTypeRef[];
   /**
-   * Target type kind from the binding provider (e.g., "Class", "Interface", "Struct", "Enum").
+   * Target type kind from the binding provider (e.g., "Class", "Interface", "Struct", "Enum", "Delegate").
    *
    * This is used for airplane-grade emission decisions (e.g., whether a name in
    * a TS `implements` clause is a target interface and should be emitted in the target
    * heritage list).
    */
-  readonly kind?: "Class" | "Interface" | "Struct" | "Enum";
+  readonly kind?: "Class" | "Interface" | "Struct" | "Enum" | "Delegate";
   readonly methods: readonly TsbindgenMethod[];
   readonly properties: readonly TsbindgenProperty[];
   readonly fields: readonly TsbindgenField[];

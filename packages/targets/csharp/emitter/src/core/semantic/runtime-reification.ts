@@ -23,18 +23,21 @@ import {
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
   findRuntimeUnionMemberIndices,
+  getCanonicalRuntimeUnionMembers,
 } from "./runtime-unions.js";
 import type { RuntimeUnionLayout } from "./runtime-unions.js";
 import {
   buildRuntimeUnionFactoryCallAst,
   buildInvalidRuntimeUnionMaterializationExpression,
   buildRuntimeUnionMatchAst,
+  isRuntimeUnionMemberProjectionAst,
   tryBuildRuntimeUnionProjectionToLayoutAst,
 } from "./runtime-union-projection.js";
 import {
   resolveDirectRuntimeCarrierType,
   resolveDirectValueSurfaceType,
 } from "./direct-value-surfaces.js";
+import { resolveRuntimeStorageType } from "./storage-types.js";
 import {
   getArrayLikeElementType,
   resolveTypeAlias,
@@ -55,7 +58,17 @@ import {
   runtimeUnionAliasReferencesMatch,
 } from "./runtime-union-alias-identity.js";
 import { resolveRuntimeMaterializationTargetType } from "./runtime-materialization-targets.js";
-import { matchesExpectedEmissionType } from "./expected-type-matching.js";
+import {
+  matchesExpectedEmissionType,
+  requiresValueTypeMaterialization,
+} from "./expected-type-matching.js";
+import { areIrTypesEquivalent } from "./type-equivalence.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
+import {
+  getDirectIterableElementType,
+  getIterableSourceShape,
+} from "../../expressions/structural-type-shapes.js";
+import { emitCSharpName } from "../../naming-policy.js";
 
 export type EmitTypeAstFn = (
   type: IrType,
@@ -102,6 +115,65 @@ const stripRuntimeCarrierFamilyForSubset = (type: IrType): IrType => {
   return type.runtimeUnionLayout === "carrierSlotOrder"
     ? { ...stripped, runtimeUnionLayout: "carrierSlotOrder" }
     : stripped;
+};
+
+export const buildExpectedRuntimeCarrierTarget = (
+  expectedType: IrType,
+  context: EmitterContext,
+  emitTypeAst?: EmitTypeAstFn
+): IrType => {
+  const resolvedExpectedType =
+    expectedType.kind === "referenceType"
+      ? resolveTypeAlias(expectedType, context, {
+          preserveObjectTypeAliases: true,
+        })
+      : expectedType;
+  if (
+    expectedType.kind === "referenceType" &&
+    resolvedExpectedType.kind === "unionType" &&
+    resolvedExpectedType.runtimeCarrierFamilyKey
+  ) {
+    return expectedType;
+  }
+  if (resolvedExpectedType.kind !== "unionType") {
+    return expectedType;
+  }
+
+  if (emitTypeAst) {
+    const [layout] = buildRuntimeUnionLayout(expectedType, context, emitTypeAst);
+    if (layout) {
+      return {
+        ...resolvedExpectedType,
+        types: layout.members,
+        runtimeUnionLayout: "carrierSlotOrder",
+      };
+    }
+  }
+
+  if (
+    resolvedExpectedType.runtimeCarrierTypeArguments &&
+    resolvedExpectedType.runtimeCarrierTypeArguments.length ===
+      resolvedExpectedType.types.length
+  ) {
+    return {
+      ...resolvedExpectedType,
+      types: resolvedExpectedType.runtimeCarrierTypeArguments,
+      runtimeUnionLayout: "carrierSlotOrder",
+    };
+  }
+
+  const storageType = resolveRuntimeStorageType(resolvedExpectedType, context);
+  if (storageType && storageType.kind !== "unionType") {
+    return storageType;
+  }
+
+  return {
+    ...resolvedExpectedType,
+    types: resolvedExpectedType.types.map(
+      (member) => resolveRuntimeStorageType(member, context) ?? member
+    ),
+    runtimeUnionLayout: "carrierSlotOrder",
+  };
 };
 
 const isBroadObjectRuntimeMemberType = (
@@ -154,6 +226,56 @@ const runtimeReificationHelperName = (unionTypeAst: CSharpTypeAst): string => {
     .replace(/^_+|_+$/g, "")
     .slice(-64);
   return `__tsonic_reify_${suffix || "runtime_union"}`;
+};
+
+const materializedExpressionMatchesTargetType = (
+  valueAst: CSharpExpressionAst,
+  targetType: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): boolean => {
+  const directType =
+    resolveDirectRuntimeCarrierType(valueAst, context) ??
+    resolveDirectValueSurfaceType(valueAst, context);
+  if (!directType) {
+    return false;
+  }
+  const [directRuntimeLayout] = buildRuntimeUnionLayout(
+    directType,
+    context,
+    emitTypeAst
+  );
+  const [targetRuntimeLayout] = buildRuntimeUnionLayout(
+    targetType,
+    context,
+    emitTypeAst
+  );
+
+  if (
+    runtimeUnionAliasReferencesMatch(directType, targetType, context) ||
+    (matchesExpectedEmissionType(directType, targetType, context) &&
+      (!directRuntimeLayout || targetRuntimeLayout !== undefined)) ||
+    areIrTypesEquivalent(directType, targetType, context)
+  ) {
+    return true;
+  }
+
+  const [directTypeAst, directTypeContext] = emitTypeAst(directType, context);
+  const [targetTypeAst, targetTypeContext] = emitTypeAst(
+    targetType,
+    directTypeContext
+  );
+  return (
+    sameTypeAstSurface(
+      stripNullableTypeAst(directTypeAst),
+      stripNullableTypeAst(targetTypeAst)
+    ) &&
+    !requiresValueTypeMaterialization(
+      directType,
+      targetType,
+      targetTypeContext
+    )
+  );
 };
 
 const buildRuntimeReificationHelperCallAst = (
@@ -362,7 +484,8 @@ const typeContainsRecursiveReificationTarget = (
 const precomputedRuntimeLayoutAppliesTo = (
   expectedType: IrType,
   options: RuntimeReificationOptions,
-  context: EmitterContext
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
 ): boolean => {
   if (!options.layout || !options.typeAst || !options.layoutType) {
     return false;
@@ -372,7 +495,29 @@ const precomputedRuntimeLayoutAppliesTo = (
   const layoutType = stripNullish(options.layoutType);
   return (
     expected === layoutType ||
-    runtimeUnionAliasReferencesMatch(expected, layoutType, context)
+    (runtimeUnionAliasReferencesMatch(expected, layoutType, context) &&
+      runtimeUnionCarrierSurfacesMatch(expected, layoutType, context, emitTypeAst))
+  );
+};
+
+const runtimeUnionCarrierSurfacesMatch = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): boolean => {
+  const [sourceTypeAst, sourceContext] = emitTypeAst(
+    sourceType,
+    context,
+  );
+  const [targetTypeAst] = emitTypeAst(
+    targetType,
+    sourceContext,
+  );
+
+  return sameTypeAstSurface(
+    stripNullableTypeAst(sourceTypeAst),
+    stripNullableTypeAst(targetTypeAst)
   );
 };
 
@@ -971,6 +1116,8 @@ const tryBuildArrayElementMaterializationAst = (
   if (!sourceElementType || !targetElementType) {
     return undefined;
   }
+  const materializationSourceElementType =
+    resolveRuntimeStorageType(sourceElementType, context) ?? sourceElementType;
 
   const [sourceElementTypeAst, sourceTypeContext] = emitTypeAst(
     sourceElementType,
@@ -985,7 +1132,7 @@ const tryBuildArrayElementMaterializationAst = (
   }
 
   const [sourceElementLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
-    sourceElementType,
+    materializationSourceElementType,
     targetTypeContext,
     emitTypeAst
   );
@@ -1022,7 +1169,7 @@ const tryBuildArrayElementMaterializationAst = (
           ] as [CSharpExpressionAst, EmitterContext])
         : tryBuildRuntimeMaterializationAst(
             itemExpr,
-            sourceElementType,
+            materializationSourceElementType,
             targetElementType,
             targetTypeContext,
             emitTypeAst
@@ -1075,17 +1222,39 @@ const tryBuildArrayElementMaterializationAst = (
   if (
     !sourceElementLayout &&
     targetElementLayout &&
-    !isBroadObjectSlotType(sourceElementType, targetLayoutContext) &&
+    !isBroadObjectSlotType(materializationSourceElementType, targetLayoutContext) &&
     !isObjectTypeAst(sourceElementTypeAst)
   ) {
     const targetMemberIndex = findRuntimeUnionMemberIndex(
       targetElementLayout.members,
-      sourceElementType,
+      materializationSourceElementType,
       targetLayoutContext
     );
     if (targetMemberIndex !== undefined) {
+      const targetMember = targetElementLayout.members[targetMemberIndex];
+      const targetMemberTypeAst =
+        targetElementLayout.memberTypeAsts[targetMemberIndex];
+      if (!targetMember || !targetMemberTypeAst) {
+        return undefined;
+      }
+
       const itemName = "__tsonic_array_item";
       const itemExpr = identifierExpression(itemName);
+      const materializedMember = tryBuildRuntimeMaterializationAst(
+        itemExpr,
+        materializationSourceElementType,
+        targetMember,
+        targetLayoutContext,
+        emitTypeAst
+      );
+      const memberValueAst =
+        materializedMember?.[0] ??
+        maybeCastMaterializedValueAst(
+          itemExpr,
+          sourceElementTypeAst,
+          targetMemberTypeAst
+        );
+      const memberValueContext = materializedMember?.[1] ?? targetLayoutContext;
       const selectAst: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: identifierExpression(
@@ -1101,7 +1270,7 @@ const tryBuildArrayElementMaterializationAst = (
             body: buildRuntimeUnionFactoryCallAst(
               buildRuntimeUnionTypeAst(targetElementLayout),
               targetMemberIndex + 1,
-              itemExpr
+              memberValueAst
             ),
           },
         ],
@@ -1116,7 +1285,7 @@ const tryBuildArrayElementMaterializationAst = (
       };
       const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
         expectedType,
-        targetLayoutContext
+        memberValueContext
       );
 
       return [
@@ -1138,7 +1307,7 @@ const tryBuildArrayElementMaterializationAst = (
   const itemExpr = identifierExpression(itemName);
   const materializedElement = tryBuildRuntimeMaterializationAst(
     itemExpr,
-    sourceElementType,
+    materializationSourceElementType,
     targetElementType,
     targetTypeContext,
     emitTypeAst
@@ -1243,6 +1412,38 @@ const canUseScalarRuntimeUnionFallbackCast = (
   );
 };
 
+const keepMaterializationIfValidForSourceCarrier = (
+  materialization: [CSharpExpressionAst, EmitterContext] | undefined,
+  sourceType: IrType,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined =>
+  materialization &&
+  !(
+    !willCarryAsRuntimeUnion(sourceType, context) &&
+    isRuntimeUnionMemberProjectionAst(materialization[0])
+  )
+    ? materialization
+    : undefined;
+
+const tryGetRuntimeUnionMemberProjectionN = (
+  valueAst: CSharpExpressionAst
+): number | undefined => {
+  let target = valueAst;
+  while (target.kind === "parenthesizedExpression") {
+    target = target.expression;
+  }
+  if (
+    target.kind !== "invocationExpression" ||
+    target.arguments.length !== 0 ||
+    target.expression.kind !== "memberAccessExpression"
+  ) {
+    return undefined;
+  }
+
+  const match = /^As([1-9][0-9]*)$/.exec(target.expression.memberName);
+  return match?.[1] ? Number.parseInt(match[1], 10) : undefined;
+};
+
 const canMaterializeArrayToObjectArrayAst = (
   sourceType: IrType,
   targetTypeAst: CSharpTypeAst,
@@ -1254,6 +1455,173 @@ const canMaterializeArrayToObjectArrayAst = (
     targetTypeAst.kind === "arrayType" &&
     isObjectTypeAst(targetTypeAst.elementType)
   );
+};
+
+const getReferenceIterableElementType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return resolved.kind === "referenceType"
+    ? getDirectIterableElementType(type, context)
+    : undefined;
+};
+
+const buildIterableSourceAst = (
+  valueAst: CSharpExpressionAst,
+  sourceType: IrType,
+  context: EmitterContext
+):
+  | {
+      readonly ast: CSharpExpressionAst;
+      readonly elementType: IrType;
+      readonly context: EmitterContext;
+    }
+  | undefined => {
+  const shape = getIterableSourceShape(sourceType, context);
+  if (!shape) {
+    return undefined;
+  }
+
+  if (shape.accessKind === "direct") {
+    return {
+      ast: valueAst,
+      elementType: shape.elementType,
+      context,
+    };
+  }
+
+  const memberName = emitCSharpName(
+    "[symbol:iterator]",
+    shape.accessKind === "iteratorMethod" ? "methods" : "properties",
+    context
+  );
+  const memberAccessAst: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: valueAst,
+    memberName,
+  };
+
+  return {
+    ast:
+      shape.accessKind === "iteratorMethod"
+        ? {
+            kind: "invocationExpression",
+            expression: memberAccessAst,
+            arguments: [],
+          }
+        : memberAccessAst,
+    elementType: shape.elementType,
+    context,
+  };
+};
+
+const tryBuildScalarIterableToRuntimeUnionMaterializationAst = (
+  valueAst: CSharpExpressionAst,
+  sourceType: IrType,
+  targetLayout: NonNullable<ReturnType<typeof buildRuntimeUnionLayout>[0]>,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    willCarryAsRuntimeUnion(sourceType, context) ||
+    isRuntimeUnionMemberProjectionAst(valueAst)
+  ) {
+    return undefined;
+  }
+
+  const sourceIterable = buildIterableSourceAst(valueAst, sourceType, context);
+  if (!sourceIterable) {
+    return undefined;
+  }
+
+  const iterableMemberCandidates = targetLayout.members.flatMap(
+    (member, index) => {
+      const targetElementType = getReferenceIterableElementType(
+        member,
+        sourceIterable.context
+      );
+      return member && targetElementType
+        ? [{ index, member, targetElementType }]
+        : [];
+    }
+  );
+  if (iterableMemberCandidates.length !== 1) {
+    return undefined;
+  }
+
+  const [candidate] = iterableMemberCandidates;
+  if (!candidate) {
+    return undefined;
+  }
+
+  let currentContext = sourceIterable.context;
+  const [sourceElementTypeAst, sourceElementContext] = emitTypeAst(
+    sourceIterable.elementType,
+    currentContext
+  );
+  currentContext = sourceElementContext;
+  const [targetElementTypeAst, targetElementContext] = emitTypeAst(
+    candidate.targetElementType,
+    currentContext
+  );
+  currentContext = targetElementContext;
+  const [targetMemberTypeAst, targetMemberContext] = emitTypeAst(
+    candidate.member,
+    currentContext
+  );
+  currentContext = targetMemberContext;
+
+  const itemIdentifier = identifierExpression("__item");
+  const elementBody =
+    sameTypeAstSurface(sourceElementTypeAst, targetElementTypeAst) ||
+    matchesExpectedEmissionType(
+      sourceIterable.elementType,
+      candidate.targetElementType,
+      currentContext
+    )
+      ? itemIdentifier
+      : maybeCastMaterializedValueAst(
+          itemIdentifier,
+          sourceElementTypeAst,
+          targetElementTypeAst
+        );
+  const iterableValueAst = sameTypeAstSurface(
+    sourceElementTypeAst,
+    targetElementTypeAst
+  )
+    ? sourceIterable.ast
+    : {
+        kind: "invocationExpression" as const,
+        expression: identifierExpression("global::System.Linq.Enumerable.Select"),
+        typeArguments: [sourceElementTypeAst, targetElementTypeAst],
+        arguments: [
+          sourceIterable.ast,
+          {
+            kind: "lambdaExpression" as const,
+            isAsync: false,
+            parameters: [{ name: "__item" }],
+            body: elementBody,
+          },
+        ],
+      };
+
+  return [
+    buildRuntimeUnionFactoryCallAst(
+      buildRuntimeUnionTypeAst(targetLayout),
+      candidate.index + 1,
+      maybeCastMaterializedValueAst(
+        iterableValueAst,
+        targetMemberTypeAst,
+        targetMemberTypeAst
+      )
+    ),
+    currentContext,
+  ];
 };
 
 const tryBuildScalarToRuntimeUnionMaterializationAst = (
@@ -1269,7 +1637,53 @@ const tryBuildScalarToRuntimeUnionMaterializationAst = (
     context
   );
   if (matchingMemberIndices.length !== 1) {
-    return undefined;
+    const recursivelyMaterializedMembers = targetLayout.members.flatMap(
+      (targetMember, index) => {
+        if (!targetMember) {
+          return [];
+        }
+
+        const nestedMaterialization = keepMaterializationIfValidForSourceCarrier(
+          tryBuildRuntimeMaterializationAst(
+            valueAst,
+            sourceType,
+            targetMember,
+            context,
+            emitTypeAst
+          ),
+          sourceType,
+          context
+        );
+        return nestedMaterialization
+          ? [{ index, materialized: nestedMaterialization }]
+          : [];
+      }
+    );
+    if (recursivelyMaterializedMembers.length !== 1) {
+      return recursivelyMaterializedMembers.length === 0
+        ? tryBuildScalarIterableToRuntimeUnionMaterializationAst(
+            valueAst,
+            sourceType,
+            targetLayout,
+            context,
+            emitTypeAst
+          )
+        : undefined;
+    }
+
+    const [materializedMember] = recursivelyMaterializedMembers;
+    if (!materializedMember) {
+      return undefined;
+    }
+
+    return [
+      buildRuntimeUnionFactoryCallAst(
+        buildRuntimeUnionTypeAst(targetLayout),
+        materializedMember.index + 1,
+        materializedMember.materialized[0]
+      ),
+      materializedMember.materialized[1],
+    ];
   }
 
   const memberIndex = matchingMemberIndices[0];
@@ -1284,13 +1698,23 @@ const tryBuildScalarToRuntimeUnionMaterializationAst = (
   }
 
   const [sourceTypeAst, sourceTypeContext] = emitTypeAst(sourceType, context);
-  const nestedMaterialization = tryBuildRuntimeMaterializationAst(
-    valueAst,
-    sourceType,
-    targetMember,
-    sourceTypeContext,
-    emitTypeAst
+  const sourceAndTargetSurfacesAlreadyMatch = sameTypeAstSurface(
+    stripNullableTypeAst(sourceTypeAst),
+    stripNullableTypeAst(targetMemberTypeAst)
   );
+  const nestedMaterialization = sourceAndTargetSurfacesAlreadyMatch
+    ? undefined
+    : keepMaterializationIfValidForSourceCarrier(
+        tryBuildRuntimeMaterializationAst(
+          valueAst,
+          sourceType,
+          targetMember,
+          sourceTypeContext,
+          emitTypeAst
+        ),
+        sourceType,
+        sourceTypeContext
+      );
   const fallbackCast = canUseScalarRuntimeUnionFallbackCast(
     sourceType,
     targetMember,
@@ -1305,7 +1729,13 @@ const tryBuildScalarToRuntimeUnionMaterializationAst = (
       )
     : undefined;
   if (!nestedMaterialization && !fallbackCast) {
-    return undefined;
+    return tryBuildScalarIterableToRuntimeUnionMaterializationAst(
+      valueAst,
+      sourceType,
+      targetLayout,
+      sourceTypeContext,
+      emitTypeAst
+    );
   }
 
   const materializedValueAst = nestedMaterialization?.[0] ?? fallbackCast;
@@ -1323,6 +1753,77 @@ const tryBuildScalarToRuntimeUnionMaterializationAst = (
   ];
 };
 
+const tryBuildNestedRuntimeUnionToTargetLayoutAst = (
+  valueAst: CSharpExpressionAst,
+  sourceType: IrType,
+  targetType: IrType,
+  targetLayout: RuntimeUnionLayout,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const [sourceLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
+    sourceType,
+    context,
+    emitTypeAst
+  );
+  if (!sourceLayout) {
+    return undefined;
+  }
+
+  return tryBuildRuntimeUnionProjectionToLayoutAst({
+    valueAst,
+    sourceLayout,
+    targetLayout,
+    context: sourceLayoutContext,
+    buildMappedMemberValue: ({
+      actualMember,
+      actualMemberTypeAst,
+      parameterExpr,
+      targetMember,
+      targetMemberTypeAst,
+      context: nextContext,
+    }) => {
+      const memberSurfacesAlreadyMatch = sameTypeAstSurface(
+        stripNullableTypeAst(actualMemberTypeAst),
+        stripNullableTypeAst(targetMemberTypeAst)
+      );
+      const nestedMaterialization = memberSurfacesAlreadyMatch
+        ? undefined
+        : tryBuildRuntimeMaterializationAst(
+            parameterExpr,
+            actualMember,
+            targetMember,
+            nextContext,
+            emitTypeAst
+          );
+      return [
+        nestedMaterialization?.[0] ??
+          maybeCastMaterializedValueAst(
+            parameterExpr,
+            actualMemberTypeAst,
+            targetMemberTypeAst
+          ),
+        nestedMaterialization?.[1] ?? nextContext,
+      ];
+    },
+    buildExcludedMemberBody: ({ actualMember }) =>
+      buildInvalidRuntimeUnionMaterializationExpression(actualMember, targetType),
+    buildUnmappedMemberBody: ({
+      actualMember,
+      parameterExpr,
+      context: nextContext,
+    }) =>
+      tryBuildRuntimeMaterializationAst(
+        parameterExpr,
+        actualMember,
+        targetType,
+        nextContext,
+        emitTypeAst
+      ) ??
+      buildInvalidRuntimeUnionMaterializationExpression(actualMember, targetType),
+  });
+};
+
 export const tryBuildRuntimeMaterializationAst = (
   valueAst: CSharpExpressionAst,
   sourceType: IrType,
@@ -1332,10 +1833,100 @@ export const tryBuildRuntimeMaterializationAst = (
   selectedSourceMemberNs?: ReadonlySet<number>,
   sourceFrame?: RuntimeMaterializationSourceFrame
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const materializationTargetType =
-    selectedSourceMemberNs && selectedSourceMemberNs.size > 0
+  const targetHasNamedRuntimeCarrier =
+    targetType.kind === "unionType" &&
+    (targetType.runtimeCarrierFamilyKey !== undefined ||
+      targetType.runtimeCarrierName !== undefined ||
+      targetType.runtimeCarrierNamespace !== undefined);
+  const semanticMaterializationTargetType =
+    selectedSourceMemberNs &&
+    selectedSourceMemberNs.size > 0 &&
+    !targetHasNamedRuntimeCarrier
       ? stripRuntimeCarrierFamilyForSubset(targetType)
       : targetType;
+  const materializationTargetType =
+    semanticMaterializationTargetType.kind === "unionType"
+      ? buildExpectedRuntimeCarrierTarget(
+          semanticMaterializationTargetType,
+          context,
+          emitTypeAst
+        )
+      : semanticMaterializationTargetType;
+
+  if (!sourceFrame && valueAst.kind === "identifierExpression") {
+    const narrowed = context.narrowedBindings?.get(valueAst.identifier);
+    const contextualSourceType =
+      narrowed?.kind === "runtimeSubset"
+        ? (narrowed.sourceType ?? context.localValueTypes?.get(valueAst.identifier))
+        : undefined;
+    const contextualSourceMembers = contextualSourceType
+      ? getCanonicalRuntimeUnionMembers(contextualSourceType, context)
+      : undefined;
+    if (
+      narrowed?.kind === "runtimeSubset" &&
+      narrowed.runtimeMemberNs.length > 0 &&
+      contextualSourceType &&
+      contextualSourceMembers &&
+      contextualSourceMembers.length >= Math.max(...narrowed.runtimeMemberNs)
+    ) {
+      return tryBuildRuntimeMaterializationAst(
+        valueAst,
+        contextualSourceType,
+        targetType,
+        context,
+        emitTypeAst,
+        selectedSourceMemberNs ?? new Set(narrowed.runtimeMemberNs),
+        {
+          members: contextualSourceMembers,
+          candidateMemberNs: contextualSourceMembers.map(
+            (_member, index) => index + 1
+          ),
+          runtimeUnionArity: contextualSourceMembers.length,
+        }
+      );
+    }
+  }
+
+  const directSourceCarrierType = sourceFrame
+    ? undefined
+    : resolveDirectRuntimeCarrierType(valueAst, context);
+  if (
+    directSourceCarrierType &&
+    runtimeUnionCarrierSurfacesMatch(
+      directSourceCarrierType,
+      materializationTargetType,
+      context,
+      emitTypeAst
+    )
+  ) {
+    return [valueAst, context];
+  }
+  if (
+    directSourceCarrierType &&
+    directSourceCarrierType !== sourceType &&
+    !areIrTypesEquivalent(directSourceCarrierType, sourceType, context)
+  ) {
+    const directSourceFrame: RuntimeMaterializationSourceFrame | undefined =
+      directSourceCarrierType.kind === "unionType" &&
+      !isRuntimeUnionMemberProjectionAst(valueAst)
+        ? {
+            members: directSourceCarrierType.types,
+            candidateMemberNs: directSourceCarrierType.types.map(
+              (_member, index) => index + 1
+            ),
+            runtimeUnionArity: directSourceCarrierType.types.length,
+          }
+        : undefined;
+    return tryBuildRuntimeMaterializationAst(
+      valueAst,
+      directSourceCarrierType,
+      targetType,
+      context,
+      emitTypeAst,
+      selectedSourceMemberNs,
+      directSourceFrame ?? sourceFrame
+    );
+  }
 
   if (
     !selectedSourceMemberNs &&
@@ -1343,6 +1934,12 @@ export const tryBuildRuntimeMaterializationAst = (
       sourceType,
       materializationTargetType,
       context
+    ) &&
+    runtimeUnionCarrierSurfacesMatch(
+      sourceType,
+      materializationTargetType,
+      context,
+      emitTypeAst
     )
   ) {
     return [valueAst, context];
@@ -1356,13 +1953,24 @@ export const tryBuildRuntimeMaterializationAst = (
         context,
         emitTypeAst
       );
-      if (!sourceLayout) {
-        return undefined;
-      }
-      const restrictedIndices = tryResolveRuntimeUnionCastSourceIndices(
-        valueAst,
-        sourceLayout.memberTypeAsts
-      );
+	      if (!sourceLayout) {
+	        return undefined;
+	      }
+	      const projectedMemberN = tryGetRuntimeUnionMemberProjectionN(valueAst);
+	      if (projectedMemberN !== undefined) {
+	        const projectedMember = sourceLayout.members[projectedMemberN - 1];
+	        return projectedMember
+	          ? {
+	              members: [projectedMember],
+	              candidateMemberNs: [projectedMemberN],
+	              runtimeUnionArity: sourceLayout.runtimeUnionArity,
+	            }
+	          : undefined;
+	      }
+	      const restrictedIndices = tryResolveRuntimeUnionCastSourceIndices(
+	        valueAst,
+	        sourceLayout.memberTypeAsts
+	      );
       if (!restrictedIndices) {
         return undefined;
       }
@@ -1447,37 +2055,165 @@ export const tryBuildRuntimeMaterializationAst = (
   if (
     !targetLayout &&
     sourceLayout &&
+    materializationTargetType.kind !== "unionType"
+  ) {
+    const [targetTypeAst, targetTypeContext] = emitTypeAst(
+      materializationTargetType,
+      targetLayoutContext
+    );
+    const sourceMemberIndexBySlot = new Map<number, number>();
+    for (let index = 0; index < sourceLayout.members.length; index += 1) {
+      sourceMemberIndexBySlot.set(
+        effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1,
+        index
+      );
+    }
+
+    const lambdaArgs: CSharpExpressionAst[] = [];
+    let matchContext = targetTypeContext;
+    let materializableCount = 0;
+    for (
+      let slotIndex = 0;
+      slotIndex < sourceLayout.runtimeUnionArity;
+      slotIndex += 1
+    ) {
+      const sourceMemberN = slotIndex + 1;
+      const index = sourceMemberIndexBySlot.get(sourceMemberN);
+      const actualMember =
+        index !== undefined ? sourceLayout.members[index] : undefined;
+      const parameterName = `__tsonic_union_member_${sourceMemberN}`;
+      const parameterExpr = identifierExpression(parameterName);
+      const materializedCandidate =
+        actualMember &&
+        (!selectedSourceMemberNs || selectedSourceMemberNs.has(sourceMemberN))
+          ? tryBuildRuntimeMaterializationAst(
+              parameterExpr,
+              actualMember,
+              materializationTargetType,
+              matchContext,
+              emitTypeAst
+            )
+          : undefined;
+      const materialized =
+        materializedCandidate &&
+        materializedExpressionMatchesTargetType(
+          materializedCandidate[0],
+          materializationTargetType,
+          materializedCandidate[1],
+          emitTypeAst
+        )
+          ? materializedCandidate
+          : undefined;
+      if (materialized) {
+        materializableCount += 1;
+        matchContext = materialized[1];
+      }
+      lambdaArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: parameterName }],
+        body:
+          materialized?.[0] ??
+          buildInvalidRuntimeUnionMaterializationExpression(
+            actualMember ?? { kind: "unknownType" },
+            materializationTargetType
+          ),
+      });
+    }
+
+    if (materializableCount > 1) {
+      return [
+        buildRuntimeUnionMatchAst(valueAst, lambdaArgs, [
+          stripNullableTypeAst(targetTypeAst),
+        ]),
+        matchContext,
+      ];
+    }
+  }
+
+  const hasAdditionalMaterializableScalarSourceMembers =
+    !targetLayout &&
+    sourceLayout &&
     selectedScalarSourceMemberNs?.size === 1 &&
     materializationTargetType.kind !== "unionType"
+      ? sourceLayout.members.some((member, index) => {
+          if (!member) {
+            return false;
+          }
+          const memberN =
+            effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1;
+          if (selectedScalarSourceMemberNs.has(memberN)) {
+            return false;
+          }
+          const materialized = tryBuildRuntimeMaterializationAst(
+              identifierExpression(`__tsonic_member_probe_${memberN}`),
+              member,
+              materializationTargetType,
+              targetLayoutContext,
+              emitTypeAst
+            );
+          return (
+            materialized !== undefined &&
+            materializedExpressionMatchesTargetType(
+              materialized[0],
+              materializationTargetType,
+              materialized[1],
+              emitTypeAst
+            )
+          );
+        })
+      : false;
+
+  if (
+    !targetLayout &&
+    sourceLayout &&
+    selectedScalarSourceMemberNs?.size === 1 &&
+    materializationTargetType.kind !== "unionType" &&
+    !hasAdditionalMaterializableScalarSourceMembers
   ) {
     const [selectedMemberN] = selectedScalarSourceMemberNs;
     const selectedIndex = selectedMemberN ? selectedMemberN - 1 : undefined;
     const selectedMember =
       selectedIndex !== undefined ? sourceLayout.members[selectedIndex] : undefined;
-    if (
-      selectedMemberN !== undefined &&
-      selectedMember &&
-      matchesExpectedEmissionType(
+    if (selectedMemberN !== undefined && selectedMember) {
+      const [selectedMemberTypeAst, selectedMemberTypeContext] = emitTypeAst(
         selectedMember,
-        materializationTargetType,
         targetLayoutContext
-      )
-    ) {
-      return [
-        {
-          kind: "parenthesizedExpression",
-          expression: {
-            kind: "invocationExpression",
+      );
+      const [materializationTargetTypeAst, materializationTargetTypeContext] =
+        emitTypeAst(materializationTargetType, selectedMemberTypeContext);
+      const canProjectSelectedMemberDirectly =
+        runtimeUnionAliasReferencesMatch(
+          selectedMember,
+          materializationTargetType,
+          materializationTargetTypeContext
+        ) ||
+        (sameTypeAstSurface(
+          stripNullableTypeAst(selectedMemberTypeAst),
+          stripNullableTypeAst(materializationTargetTypeAst)
+        ) &&
+          !requiresValueTypeMaterialization(
+            selectedMember,
+            materializationTargetType,
+            materializationTargetTypeContext
+          ));
+      if (canProjectSelectedMemberDirectly) {
+        return [
+          {
+            kind: "parenthesizedExpression",
             expression: {
-              kind: "memberAccessExpression",
-              expression: valueAst,
-              memberName: `As${selectedMemberN}`,
+              kind: "invocationExpression",
+              expression: {
+                kind: "memberAccessExpression",
+                expression: valueAst,
+                memberName: `As${selectedMemberN}`,
+              },
+              arguments: [],
             },
-            arguments: [],
           },
-        },
-        targetLayoutContext,
-      ];
+          materializationTargetTypeContext,
+        ];
+      }
     }
   }
 
@@ -1491,6 +2227,12 @@ export const tryBuildRuntimeMaterializationAst = (
         directRuntimeCarrierType,
         materializationTargetType,
         targetLayoutContext
+      ) &&
+      runtimeUnionCarrierSurfacesMatch(
+        directRuntimeCarrierType,
+        materializationTargetType,
+        targetLayoutContext,
+        emitTypeAst
       )
     ) {
       return [valueAst, targetLayoutContext];
@@ -1522,6 +2264,28 @@ export const tryBuildRuntimeMaterializationAst = (
     }
   }
 
+  if (!sourceLayout && !targetLayout) {
+    const [sourceTypeAst, sourceTypeContext] = emitTypeAst(
+      sourceType,
+      targetLayoutContext
+    );
+    const [targetTypeAst, targetTypeContext] = emitTypeAst(
+      materializationTargetType,
+      sourceTypeContext
+    );
+    return sameTypeAstSurface(
+      stripNullableTypeAst(sourceTypeAst),
+      stripNullableTypeAst(targetTypeAst)
+    ) &&
+      !requiresValueTypeMaterialization(
+        sourceType,
+        materializationTargetType,
+        targetTypeContext
+      )
+      ? [valueAst, targetTypeContext]
+      : undefined;
+  }
+
   if (!sourceLayout) {
     return targetLayout
       ? tryBuildScalarToRuntimeUnionMaterializationAst(
@@ -1535,16 +2299,22 @@ export const tryBuildRuntimeMaterializationAst = (
   }
 
   if (targetLayout) {
+    const namedReferenceTarget =
+      materializationTargetType.kind === "referenceType"
+        ? emitTypeAst(materializationTargetType, targetLayoutContext)
+        : undefined;
     if (
       getRuntimeUnionAliasReferenceKey(
         materializationTargetType,
         targetLayoutContext
-      )
+      ) ||
+      namedReferenceTarget !== undefined
     ) {
-      const targetUnionTypeAst = buildRuntimeUnionTypeAst(targetLayout);
+      const targetUnionTypeAst =
+        namedReferenceTarget?.[0] ?? buildRuntimeUnionTypeAst(targetLayout);
       const lambdaArgs: CSharpExpressionAst[] = [];
       let sawReachableMatch = false;
-      let currentContext = targetLayoutContext;
+      let currentContext = namedReferenceTarget?.[1] ?? targetLayoutContext;
       const sourceMemberIndexBySlot = new Map<number, number>();
       for (let index = 0; index < sourceLayout.members.length; index += 1) {
         sourceMemberIndexBySlot.set(
@@ -1586,10 +2356,19 @@ export const tryBuildRuntimeMaterializationAst = (
             materializationTargetType
           );
         } else if (
-          runtimeUnionAliasReferencesMatch(
+          (runtimeUnionAliasReferencesMatch(
             actualMember,
             materializationTargetType,
             currentContext
+          ) ||
+            matchesExpectedEmissionType(
+              actualMember,
+              materializationTargetType,
+              currentContext
+            )) &&
+          sameTypeAstSurface(
+            stripNullableTypeAst(actualMemberTypeAst),
+            stripNullableTypeAst(targetUnionTypeAst)
           )
         ) {
           body = parameterExpr;
@@ -1613,27 +2392,75 @@ export const tryBuildRuntimeMaterializationAst = (
             !targetMember ||
             !targetMemberTypeAst
           ) {
-            body = buildInvalidRuntimeUnionMaterializationExpression(
-              actualMember,
-              materializationTargetType
-            );
+            if (
+              sameTypeAstSurface(
+                stripNullableTypeAst(actualMemberTypeAst),
+                stripNullableTypeAst(targetUnionTypeAst)
+              )
+            ) {
+              body = parameterExpr;
+              sawReachableMatch = true;
+            } else {
+              const nestedMaterialization =
+                tryBuildNestedRuntimeUnionToTargetLayoutAst(
+                  parameterExpr,
+                  actualMember,
+                  materializationTargetType,
+                  targetLayout,
+                  currentContext,
+                  emitTypeAst
+                ) ??
+                tryBuildRuntimeMaterializationAst(
+                  parameterExpr,
+                  actualMember,
+                  materializationTargetType,
+                  currentContext,
+                  emitTypeAst
+                );
+              if (nestedMaterialization) {
+                body = nestedMaterialization[0];
+                currentContext = nestedMaterialization[1];
+                sawReachableMatch = true;
+              } else {
+                body = buildInvalidRuntimeUnionMaterializationExpression(
+                  actualMember,
+                  materializationTargetType
+                );
+              }
+            }
           } else {
-            const nestedMaterialization = tryBuildRuntimeMaterializationAst(
-              parameterExpr,
-              actualMember,
-              targetMember,
-              currentContext,
-              emitTypeAst
+            const memberSurfacesAlreadyMatch = sameTypeAstSurface(
+              stripNullableTypeAst(actualMemberTypeAst),
+              stripNullableTypeAst(targetMemberTypeAst)
             );
+            const nestedMaterialization = memberSurfacesAlreadyMatch
+              ? undefined
+              : tryBuildRuntimeMaterializationAst(
+                  parameterExpr,
+                  actualMember,
+                  targetMember,
+                  currentContext,
+                  emitTypeAst
+                );
+            const nestedMaterializedValueAst =
+              nestedMaterialization &&
+              !(
+                !willCarryAsRuntimeUnion(actualMember, currentContext) &&
+                isRuntimeUnionMemberProjectionAst(nestedMaterialization[0])
+              )
+              ? nestedMaterialization[0]
+              : undefined;
+            const fallbackValueAst = maybeCastMaterializedValueAst(
+              parameterExpr,
+              actualMemberTypeAst,
+              targetMemberTypeAst
+            );
+            const wrappedValueAst =
+              nestedMaterializedValueAst ?? fallbackValueAst;
             body = buildRuntimeUnionFactoryCallAst(
               targetUnionTypeAst,
               targetMemberIndex + 1,
-              nestedMaterialization?.[0] ??
-                maybeCastMaterializedValueAst(
-                  parameterExpr,
-                  actualMemberTypeAst,
-                  targetMemberTypeAst
-                )
+              wrappedValueAst
             );
             currentContext = nestedMaterialization?.[1] ?? currentContext;
             sawReachableMatch = true;
@@ -1673,13 +2500,19 @@ export const tryBuildRuntimeMaterializationAst = (
         targetMemberTypeAst,
         context: nextContext,
       }) => {
-        const nestedMaterialization = tryBuildRuntimeMaterializationAst(
-          parameterExpr,
-          actualMember,
-          targetMember,
-          nextContext,
-          emitTypeAst
+        const memberSurfacesAlreadyMatch = sameTypeAstSurface(
+          stripNullableTypeAst(actualMemberTypeAst),
+          stripNullableTypeAst(targetMemberTypeAst)
         );
+        const nestedMaterialization = memberSurfacesAlreadyMatch
+          ? undefined
+          : tryBuildRuntimeMaterializationAst(
+              parameterExpr,
+              actualMember,
+              targetMember,
+              nextContext,
+              emitTypeAst
+            );
         return [
           nestedMaterialization?.[0] ??
             maybeCastMaterializedValueAst(
@@ -1700,6 +2533,14 @@ export const tryBuildRuntimeMaterializationAst = (
         parameterExpr,
         context: nextContext,
       }) =>
+        tryBuildNestedRuntimeUnionToTargetLayoutAst(
+          parameterExpr,
+          actualMember,
+          materializationTargetType,
+          targetLayout,
+          nextContext,
+          emitTypeAst
+        ) ??
         tryBuildRuntimeMaterializationAst(
           parameterExpr,
           actualMember,
@@ -1771,6 +2612,31 @@ export const tryBuildRuntimeMaterializationAst = (
         materializationTargetType,
         nextContext
       ) ||
+      tryBuildArrayElementMaterializationAst(
+        identifierExpression("__tsonic_array_probe"),
+        member,
+        materializationTargetType,
+        nextContext,
+        emitTypeAst
+      ) !== undefined ||
+      (() => {
+        const materialized = tryBuildRuntimeMaterializationAst(
+          identifierExpression("__tsonic_member_probe"),
+          member,
+          materializationTargetType,
+          nextContext,
+          emitTypeAst
+        );
+        return (
+          materialized !== undefined &&
+          materializedExpressionMatchesTargetType(
+            materialized[0],
+            materializationTargetType,
+            materialized[1],
+            emitTypeAst
+          )
+        );
+      })() ||
       canMaterializeStringKeyDictionary(
         member,
         materializationTargetType,
@@ -1807,19 +2673,65 @@ export const tryBuildRuntimeMaterializationAst = (
       const matchingSourceMemberN =
         effectiveSourceFrame?.candidateMemberNs?.[matchingSourceIndex] ??
         matchingSourceIndex + 1;
-      return [
-        {
-          kind: "parenthesizedExpression",
+      const matchingSourceMember = sourceLayout.members[matchingSourceIndex];
+      const projectedMemberAst: CSharpExpressionAst = {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "invocationExpression",
           expression: {
-            kind: "invocationExpression",
-            expression: {
-              kind: "memberAccessExpression",
-              expression: valueAst,
-              memberName: `As${matchingSourceMemberN}`,
-            },
-            arguments: [],
+            kind: "memberAccessExpression",
+            expression: valueAst,
+            memberName: `As${matchingSourceMemberN}`,
           },
+          arguments: [],
         },
+      };
+      const arrayElementMaterialization = matchingSourceMember
+        ? tryBuildArrayElementMaterializationAst(
+            projectedMemberAst,
+            matchingSourceMember,
+            materializationTargetType,
+            nextContext,
+            emitTypeAst
+          )
+        : undefined;
+      if (arrayElementMaterialization) {
+        return arrayElementMaterialization;
+      }
+      const dictionaryMemberMaterialization = matchingSourceMember
+        ? tryBuildDictionaryMemberMaterializationAst(
+            projectedMemberAst,
+            matchingSourceMember,
+            materializationTargetType,
+            nextContext,
+            emitTypeAst
+          )
+        : undefined;
+      if (dictionaryMemberMaterialization) {
+        return dictionaryMemberMaterialization;
+      }
+      const nestedMemberMaterialization = matchingSourceMember
+        ? tryBuildRuntimeMaterializationAst(
+            projectedMemberAst,
+            matchingSourceMember,
+            materializationTargetType,
+            nextContext,
+            emitTypeAst
+          )
+        : undefined;
+      if (
+        nestedMemberMaterialization &&
+        materializedExpressionMatchesTargetType(
+          nestedMemberMaterialization[0],
+          materializationTargetType,
+          nestedMemberMaterialization[1],
+          emitTypeAst
+        )
+      ) {
+        return nestedMemberMaterialization;
+      }
+      return [
+        projectedMemberAst,
         nextContext,
       ];
     }
@@ -1827,8 +2739,6 @@ export const tryBuildRuntimeMaterializationAst = (
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let matchContext = nextContext;
-  let directProjectionMemberN: number | undefined;
-  let directProjectionCount = 0;
   const sourceMemberIndexBySlot = new Map<number, number>();
   for (let index = 0; index < sourceLayout.members.length; index += 1) {
     sourceMemberIndexBySlot.set(
@@ -1925,46 +2835,44 @@ export const tryBuildRuntimeMaterializationAst = (
           concreteTargetTypeAst
         )
       : undefined;
+    const nestedMemberMaterializationCandidate =
+      !arrayElementMaterialization && !dictionaryMemberMaterialization
+        ? tryBuildRuntimeMaterializationAst(
+            parameterExpr,
+            actualMember,
+            materializationTargetType,
+            matchContext,
+            emitTypeAst
+          )
+        : undefined;
+    const nestedMemberMaterialization =
+      nestedMemberMaterializationCandidate &&
+      materializedExpressionMatchesTargetType(
+        nestedMemberMaterializationCandidate[0],
+        materializationTargetType,
+        nestedMemberMaterializationCandidate[1],
+        emitTypeAst
+      )
+        ? nestedMemberMaterializationCandidate
+        : undefined;
+    if (nestedMemberMaterialization) {
+      matchContext = nestedMemberMaterialization[1];
+    }
     const memberBody =
       arrayElementMaterialization?.[0] ??
       dictionaryMemberMaterialization?.[0] ??
+      nestedMemberMaterialization?.[0] ??
       castMaterializedValue ??
       buildInvalidRuntimeUnionMaterializationExpression(
         actualMember,
         materializationTargetType
       );
-    if (
-      memberBody.kind === "identifierExpression" &&
-      memberBody.identifier === parameterName
-    ) {
-      directProjectionMemberN = sourceMemberN;
-      directProjectionCount += 1;
-    }
-
     lambdaArgs.push({
       kind: "lambdaExpression",
       isAsync: false,
       parameters: [{ name: parameterName }],
       body: memberBody,
     });
-  }
-
-  if (directProjectionCount === 1 && directProjectionMemberN !== undefined) {
-    return [
-      {
-        kind: "parenthesizedExpression",
-        expression: {
-          kind: "invocationExpression",
-          expression: {
-            kind: "memberAccessExpression",
-            expression: valueAst,
-            memberName: `As${directProjectionMemberN}`,
-          },
-          arguments: [],
-        },
-      },
-      matchContext,
-    ];
   }
 
   return [
@@ -2074,7 +2982,7 @@ export const tryBuildRuntimeReificationPlan = (
   }
 
   let [unionTypeAst, runtimeLayout, unionTypeContext] =
-    precomputedRuntimeLayoutAppliesTo(expectedType, options, context)
+    precomputedRuntimeLayoutAppliesTo(expectedType, options, context, emitTypeAst)
       ? [
           options.typeAst!,
           options.layout!,
@@ -2102,6 +3010,7 @@ export const tryBuildRuntimeReificationPlan = (
   ) {
     if (
       directRuntimeCarrierType &&
+      !isRuntimeUnionMemberProjectionAst(valueAst) &&
       !isBroadObjectRuntimeMemberType(directRuntimeCarrierType, context)
     ) {
       const materialized = tryBuildRuntimeMaterializationAst(
@@ -2132,6 +3041,7 @@ export const tryBuildRuntimeReificationPlan = (
     }
     if (
       directValueSurfaceType &&
+      !isRuntimeUnionMemberProjectionAst(valueAst) &&
       !isBroadObjectRuntimeMemberType(directValueSurfaceType, context)
     ) {
       const materialized = tryBuildRuntimeMaterializationAst(

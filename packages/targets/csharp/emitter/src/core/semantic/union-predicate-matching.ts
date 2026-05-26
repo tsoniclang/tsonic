@@ -465,7 +465,7 @@ export const findUnionMemberIndex = (
       context
     )}=>${getContextualTypeVisitKey(resolvedCandidate, context)}`;
     if (visited.has(visitedKey)) {
-      return true;
+      return false;
     }
     const nextVisited = new Set(visited);
     nextVisited.add(visitedKey);

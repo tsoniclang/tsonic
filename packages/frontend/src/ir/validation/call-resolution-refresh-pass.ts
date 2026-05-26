@@ -229,12 +229,86 @@ const extensionReceiverParameterIsHidden = (
   return invocationTypesEquivalent(receiverParameterType, receiverExpectedType, ctx);
 };
 
+const isUndefinedType = (type: IrType): boolean =>
+  type.kind === "primitiveType" && type.name === "undefined";
+
+const stripUndefinedFromUnionType = (type: IrType): IrType => {
+  if (type.kind !== "unionType") {
+    return type;
+  }
+
+  const retainedTypes = type.types.filter((member) => !isUndefinedType(member));
+  if (retainedTypes.length === type.types.length || retainedTypes.length === 0) {
+    return type;
+  }
+
+  return retainedTypes.length === 1
+    ? retainedTypes[0]!
+    : {
+        ...type,
+        types: retainedTypes,
+      };
+};
+
+const extensionParameterTypeMatchesVisibleParameter = (
+  parameterType: IrType | undefined,
+  visibleParameter: IrParameter | undefined,
+  ctx: ProgramContext
+): boolean => {
+  if (!parameterType || !visibleParameter?.type) {
+    return false;
+  }
+
+  if (invocationTypesEquivalent(parameterType, visibleParameter.type, ctx)) {
+    return true;
+  }
+
+  return (
+    visibleParameter.isOptional &&
+    invocationTypesEquivalent(
+      stripUndefinedFromUnionType(parameterType),
+      visibleParameter.type,
+      ctx
+    )
+  );
+};
+
+const extensionParameterTypesAreAlreadyVisible = (
+  callee: IrExpression,
+  parameterTypes: readonly (IrType | undefined)[] | undefined,
+  ctx: ProgramContext
+): boolean => {
+  if (
+    callee.kind !== "memberAccess" ||
+    !callee.memberBinding?.isExtensionMethod ||
+    callee.inferredType?.kind !== "functionType" ||
+    !parameterTypes ||
+    callee.inferredType.parameters.some((parameter) => parameter.isRest) ||
+    parameterTypes.length !== callee.inferredType.parameters.length
+  ) {
+    return false;
+  }
+
+  return parameterTypes.every((parameterType, index) =>
+    extensionParameterTypeMatchesVisibleParameter(
+      parameterType,
+      callee.inferredType?.kind === "functionType"
+        ? callee.inferredType.parameters[index]
+        : undefined,
+      ctx
+    )
+  );
+};
+
 const stripHiddenExtensionReceiverParameter = (
   callee: IrExpression,
   visibleArgumentCount: number,
   parameterTypes: readonly (IrType | undefined)[] | undefined,
   ctx: ProgramContext
 ): readonly (IrType | undefined)[] | undefined =>
+  extensionParameterTypesAreAlreadyVisible(callee, parameterTypes, ctx)
+    ? parameterTypes
+    :
   extensionReceiverParameterIsHidden(
     callee,
     visibleArgumentCount,

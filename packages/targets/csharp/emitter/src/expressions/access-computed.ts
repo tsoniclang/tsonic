@@ -50,8 +50,10 @@ import {
 } from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import { getAcceptedSurfaceType } from "../core/semantic/defaults.js";
-import { resolveDirectStorageCompatibleExpressionType } from "./expected-type-adaptation.js";
-import { resolveDirectStorageExpressionAst } from "./direct-storage-types.js";
+import {
+  resolveDirectStorageCompatibleExpressionAst,
+  resolveDirectStorageCompatibleExpressionType,
+} from "./expected-type-adaptation.js";
 import { contextSurfaceIncludesJs } from "../types.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 
@@ -317,10 +319,11 @@ export const emitComputedAccess = (
         expr.object.kind === "trycast"
           ? unwrapTransparentExpression(expr.object.expression)
           : expr.object;
-      const directStorageObjectAst = resolveDirectStorageExpressionAst(
-        directStorageSourceExpr,
-        receiverSourceContext
-      );
+      const directStorageObjectAst =
+        resolveDirectStorageCompatibleExpressionAst({
+          expr: directStorageSourceExpr,
+          context: receiverSourceContext,
+        });
       const directStorageObjectType = directStorageObjectAst
         ? resolveDirectStorageCompatibleExpressionType({
             expr: directStorageSourceExpr,

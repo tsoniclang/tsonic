@@ -354,6 +354,53 @@ describe("Type Emission", () => {
     expect(result).to.include("store[key] = value;");
   });
 
+  it("should emit target-backed dictionaries with reference-type keys", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "Test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "accept",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "store" },
+              type: {
+                kind: "dictionaryType",
+                keyType: {
+                  kind: "referenceType",
+                  name: "PageContext",
+                  providerQualifiedName: "Tsumo.Engine.models.PageContext",
+                },
+                valueType: { kind: "primitiveType", name: "string" },
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include(
+      "global::System.Collections.Generic.Dictionary<global::Tsumo.Engine.models.PageContext, string> store"
+    );
+  });
+
   it("erases arrays of recursive union elements to object[]", () => {
     const recursiveUnion = {
       kind: "unionType",

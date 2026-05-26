@@ -13,6 +13,7 @@ import {
   compileWithJsSurface,
   findExpression,
 } from "./test-helpers.js";
+import type { IrExpression } from "../../../types.js";
 import type { IrMemberExpression } from "./test-helpers.js";
 
 describe("Declaration-Based Numeric Intent Recovery", function () {
@@ -60,13 +61,64 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
         if (expr.kind !== "call") return false;
         if (expr.callee.kind !== "memberAccess") return false;
         return expr.callee.property === "indexOf";
-      });
+      }) as Extract<IrExpression, { kind: "call" }> | undefined;
 
       expect(indexOfCall).to.not.be.undefined;
       expect(indexOfCall?.inferredType).to.deep.equal({
         kind: "primitiveType",
         name: "int",
       });
+      expect(indexOfCall?.parameterTypes).to.deep.equal([
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+      ]);
+      expect(indexOfCall?.surfaceParameterTypes).to.deep.equal([
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+      ]);
+    });
+
+    it("keeps js-surface string.lastIndexOf() visible parameter metadata", () => {
+      const code = `
+        export function findLastIndex(source: string, value: string): number {
+          return source.lastIndexOf(value);
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const lastIndexOfCall = findExpression(modules, (expr) => {
+        if (expr.kind !== "call") return false;
+        if (expr.callee.kind !== "memberAccess") return false;
+        return expr.callee.property === "lastIndexOf";
+      }) as Extract<IrExpression, { kind: "call" }> | undefined;
+
+      expect(lastIndexOfCall).to.not.be.undefined;
+      expect(lastIndexOfCall?.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+      expect(lastIndexOfCall?.parameterTypes).to.deep.equal([
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "number" },
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        },
+      ]);
+      expect(lastIndexOfCall?.surfaceParameterTypes).to.deep.equal([
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "number" },
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        },
+      ]);
     });
 
     it("recovers 'int' from explicit String.indexOf() receiver type", () => {

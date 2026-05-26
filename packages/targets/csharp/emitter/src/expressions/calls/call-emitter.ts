@@ -64,15 +64,19 @@ import { emitRuntimeUnionArrayIsArrayCall } from "./call-runtime-union-guards.js
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { tryEmitExtensionMethodCall } from "./call-extension-methods.js";
 import {
-  resolveDirectStorageExpressionAst,
-  resolveDirectStorageExpressionType,
-} from "../direct-storage-types.js";
+  resolveDirectStorageCompatibleExpressionAst,
+  resolveDirectStorageCompatibleExpressionType,
+} from "../expected-type-adaptation.js";
 import { stripClrGenericArity } from "../access-resolution.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 import { generateTemp } from "../../patterns/local-lowering.js";
 import { typeArgumentsAreInScope } from "./call-type-argument-safety.js";
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-narrowing.js";
+import {
+  isNumericSourceIrType,
+  maybeCastNumericToExpectedJsNumberAst,
+} from "../post-emission-adaptation.js";
 
 const buildCallTargetExpectedType = (
   expr: Extract<IrExpression, { kind: "call" }>,
@@ -279,6 +283,55 @@ const containsTypeParameterInCSharpInferableSurface = (
     default:
       return false;
   }
+};
+
+const emitStaticNumericGlobalNumberCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext,
+  expectedType?: IrType
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    expr.callee.kind !== "identifier" ||
+    expr.callee.name !== "Number" ||
+    expr.arguments.length !== 1 ||
+    context.importBindings?.has("Number") ||
+    context.localValueTypes?.has("Number") ||
+    context.localSemanticTypes?.has("Number") ||
+    context.valueSymbols?.has("Number")
+  ) {
+    return undefined;
+  }
+
+  const argument = expr.arguments[0];
+  if (!argument || argument.kind === "spread") {
+    return undefined;
+  }
+
+  const numberBinding = context.bindingRegistry?.getExactBindingByKind(
+    "Number",
+    "global"
+  );
+  if (
+    !numberBinding ||
+    numberBinding.assembly !== "js" ||
+    numberBinding.type !== "js.Globals.Number"
+  ) {
+    return undefined;
+  }
+
+  const argumentType =
+    resolveEffectiveExpressionType(argument, context) ?? argument.inferredType;
+  if (!isNumericSourceIrType(argumentType, context)) {
+    return undefined;
+  }
+
+  const [argumentAst, argumentContext] = emitExpressionAst(argument, context);
+  return maybeCastNumericToExpectedJsNumberAst(
+    argumentAst,
+    argumentType,
+    argumentContext,
+    expectedType ?? expr.inferredType ?? { kind: "primitiveType", name: "number" }
+  );
 };
 
 const allImplicitMethodTypeArgumentsAreCSharpInferable = (
@@ -1066,10 +1119,10 @@ const emitObjectDictionaryStaticCall = (
     return undefined;
   }
 
-  const rawStorageArgumentAst = resolveDirectStorageExpressionAst(
-    argument,
-    context
-  );
+  const rawStorageArgumentAst = resolveDirectStorageCompatibleExpressionAst({
+    expr: argument,
+    context,
+  });
   const storageArgumentType = resolveDirectStorageIrType(argument, context);
   const resolvedStorageArgumentType = storageArgumentType
     ? resolveTypeAlias(stripNullish(storageArgumentType), context)
@@ -1126,11 +1179,11 @@ const emitObjectDictionaryStaticCall = (
       return current.expression;
     }
 
-    const innerType = resolveDirectStorageExpressionType(
-      argument,
-      current.expression,
-      context
-    );
+    const innerType = resolveDirectStorageCompatibleExpressionType({
+      expr: argument,
+      valueAst: current.expression,
+      context,
+    });
     const resolvedInnerType = innerType
       ? resolveTypeAlias(stripNullish(innerType), context)
       : undefined;
@@ -1142,7 +1195,11 @@ const emitObjectDictionaryStaticCall = (
     ? unwrapDictionaryStorageAst(rawStorageArgumentAst)
     : undefined;
   const storageExpressionType = storageArgumentAst
-    ? resolveDirectStorageExpressionType(argument, storageArgumentAst, context)
+    ? resolveDirectStorageCompatibleExpressionType({
+        expr: argument,
+        valueAst: storageArgumentAst,
+        context,
+      })
     : undefined;
   const resolvedStorageExpressionType = storageExpressionType
     ? resolveTypeAlias(stripNullish(storageExpressionType), context)
@@ -1307,6 +1364,15 @@ export const emitCall = (
     return bigIntToStringCall;
   }
 
+  const staticNumericGlobalNumberCall = emitStaticNumericGlobalNumberCall(
+    normalizedExpr,
+    context,
+    expectedType
+  );
+  if (staticNumericGlobalNumberCall) {
+    return staticNumericGlobalNumberCall;
+  }
+
   const runtimeUnionArrayIsArray = emitRuntimeUnionArrayIsArrayCall(
     normalizedExpr,
     context
@@ -1458,7 +1524,8 @@ export const emitCall = (
     context.promiseResolveValueTypes?.has(transparentCalleeIdentifier.name) ===
       true;
   const calleeExpectedType =
-    calleeExprForEmission.kind === "memberAccess"
+    calleeExprForEmission.kind === "memberAccess" ||
+    calleeExprForEmission.kind === "identifier"
       ? undefined
       : buildCallTargetExpectedType(
           normalizedExpr,

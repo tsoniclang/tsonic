@@ -29,23 +29,29 @@ import {
 /**
  * Emit dictionary key type as AST.
  */
-const emitDictKeyTypeAst = (keyType: IrType): CSharpTypeAst => {
+const emitDictKeyTypeAst = (
+  keyType: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
   if (keyType.kind === "primitiveType") {
     switch (keyType.name) {
       case "string":
-        return { kind: "predefinedType", keyword: "string" };
+        return [{ kind: "predefinedType", keyword: "string" }, context];
       case "number":
-        return { kind: "predefinedType", keyword: "double" };
+        return [{ kind: "predefinedType", keyword: "double" }, context];
     }
   }
 
-  if (keyType.kind === "referenceType" && keyType.name === "object") {
-    return { kind: "predefinedType", keyword: "object" };
+  if (
+    keyType.kind === "referenceType" &&
+    (keyType.name === "object" ||
+      keyType.name === "Symbol" ||
+      keyType.name === "symbol")
+  ) {
+    return [{ kind: "predefinedType", keyword: "object" }, context];
   }
 
-  throw new Error(
-    `ICE: Unsupported dictionary key type reached emitter - validation missed TSN7413. Got: ${JSON.stringify(keyType)}`
-  );
+  return emitTypeAst(keyType, context);
 };
 
 const emitDictionaryLiteralKeyExpression = (
@@ -85,7 +91,11 @@ export const emitDictionaryLiteral = (
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
-  const keyTypeAst = emitDictKeyTypeAst(dictType.keyType);
+  const [keyTypeAst, keyTypeContext] = emitDictKeyTypeAst(
+    dictType.keyType,
+    currentContext
+  );
+  currentContext = keyTypeContext;
   const [valueTypeAst, ctx2] = emitTypeAst(dictType.valueType, currentContext);
   currentContext = ctx2;
 
@@ -144,7 +154,11 @@ export const emitDictionaryLiteralWithSpreads = (
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
-  const keyTypeAst = emitDictKeyTypeAst(dictType.keyType);
+  const [keyTypeAst, keyTypeContext] = emitDictKeyTypeAst(
+    dictType.keyType,
+    currentContext
+  );
+  currentContext = keyTypeContext;
   const [valueTypeAst, ctx2] = emitTypeAst(dictType.valueType, currentContext);
   currentContext = ctx2;
 

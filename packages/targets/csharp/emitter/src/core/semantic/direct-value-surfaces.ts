@@ -12,11 +12,17 @@ import {
 } from "./runtime-union-matching.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-union-frame.js";
 import { isRuntimeUnionTypeAst } from "./runtime-reification-helpers.js";
-import { getPropertyType, resolveTypeAlias } from "./type-resolution.js";
+import {
+  getPropertyType,
+  resolveLocalTypeInfo,
+  resolveTypeAlias,
+  stripNullish,
+} from "./type-resolution.js";
 import {
   sameTypeAstSurface,
   stripNullableTypeAst,
 } from "../format/backend-ast/utils.js";
+import { emitCSharpName } from "../../naming-policy.js";
 
 const resolveDirectIdentifierName = (
   emittedIdentifier: string,
@@ -41,6 +47,39 @@ const resolveDirectIdentifierName = (
   return Array.from(context.localNameMap ?? []).find(
     ([, emitted]) => emitted === emittedIdentifier
   )?.[0];
+};
+
+const resolveStaticValueSymbolSurfaceType = (
+  emittedIdentifier: string,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!context.valueSymbols) {
+    return undefined;
+  }
+
+  const moduleStaticClassName = context.moduleStaticClassName;
+  const moduleNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+  const containerPrefix = moduleNamespace.startsWith("global::")
+    ? moduleNamespace
+    : `global::${moduleNamespace}`;
+
+  for (const [sourceName, symbol] of context.valueSymbols) {
+    if (!symbol.valueType) {
+      continue;
+    }
+
+    if (
+      emittedIdentifier === sourceName ||
+      emittedIdentifier === symbol.csharpName ||
+      (moduleStaticClassName &&
+        emittedIdentifier ===
+          `${containerPrefix}.${moduleStaticClassName}.${symbol.csharpName}`)
+    ) {
+      return symbol.valueType;
+    }
+  }
+
+  return undefined;
 };
 
 const resolveDirectIdentifierBinding = (
@@ -392,6 +431,30 @@ const tryResolveExplicitRuntimeUnionSurfaceType = (
   return undefined;
 };
 
+const tryResolveExplicitGenericInvocationResultType = (
+  valueAst: CSharpExpressionAst
+): IrType | undefined => {
+  const directAst = unwrapTransparentValueAst(valueAst);
+  if (
+    directAst.kind !== "invocationExpression" ||
+    directAst.expression.kind !== "memberAccessExpression"
+  ) {
+    return undefined;
+  }
+
+  const [resultTypeAst] = directAst.typeArguments ?? [];
+  if (!resultTypeAst) {
+    return undefined;
+  }
+
+  switch (directAst.expression.memberName) {
+    case "Match":
+      return tryConvertSurfaceTypeAstToIrType(resultTypeAst);
+    default:
+      return undefined;
+  }
+};
+
 const tryResolveExplicitSurfaceType = (
   valueAst: CSharpExpressionAst
 ): IrType | undefined => {
@@ -443,7 +506,7 @@ const tryResolveDirectMemberAccessSurfaceType = (
     return undefined;
   }
 
-  const memberType = getPropertyType(
+  const memberType = resolveEmittedPropertySurfaceType(
     receiverType,
     directAst.memberName,
     context
@@ -455,6 +518,43 @@ const tryResolveDirectMemberAccessSurfaceType = (
   return directAst.kind === "conditionalMemberAccessExpression"
     ? withOptionalUndefined(memberType)
     : memberType;
+};
+
+const resolveEmittedPropertySurfaceType = (
+  receiverType: IrType,
+  emittedMemberName: string,
+  context: EmitterContext
+): IrType | undefined => {
+  const direct = getPropertyType(receiverType, emittedMemberName, context);
+  if (direct) {
+    return direct;
+  }
+
+  const resolvedReceiver = resolveTypeAlias(stripNullish(receiverType), context);
+  if (resolvedReceiver.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const localInfo = resolveLocalTypeInfo(resolvedReceiver, context)?.info;
+  if (
+    localInfo?.kind !== "class" &&
+    localInfo?.kind !== "interface"
+  ) {
+    return undefined;
+  }
+
+  for (const member of localInfo.members) {
+    if (
+      (member.kind === "propertyDeclaration" ||
+        member.kind === "propertySignature") &&
+      member.type &&
+      emitCSharpName(member.name, "properties", context) === emittedMemberName
+    ) {
+      return member.type;
+    }
+  }
+
+  return undefined;
 };
 
 const resolveNamedRuntimeCarrierType = (
@@ -600,8 +700,15 @@ export const resolveDirectValueSurfaceType = (
   const directAst = unwrapTransparentValueAst(valueAst);
   if (directAst.kind !== "identifierExpression") {
     return (
+      (directAst.kind === "qualifiedIdentifierExpression"
+        ? resolveStaticValueSymbolSurfaceType(
+            qualifiedIdentifierExpressionName(directAst) ?? "",
+            context
+          )
+        : undefined) ??
       resolveQualifiedImportedValueSurfaceType(directAst, context) ??
       tryResolveExplicitRuntimeUnionSurfaceType(directAst, context) ??
+      tryResolveExplicitGenericInvocationResultType(directAst) ??
       tryResolveExplicitSurfaceType(directAst) ??
       tryResolveRuntimeUnionAsMemberType(directAst, context) ??
       tryResolveDirectMemberAccessSurfaceType(directAst, context)
@@ -613,7 +720,7 @@ export const resolveDirectValueSurfaceType = (
     context
   );
   if (!originalName) {
-    return undefined;
+    return resolveStaticValueSymbolSurfaceType(directAst.identifier, context);
   }
 
   const narrowed = context.narrowedBindings?.get(originalName);
@@ -650,7 +757,8 @@ export const resolveDirectValueSurfaceType = (
 
   return (
     context.localValueTypes?.get(originalName) ??
-    context.localSemanticTypes?.get(originalName)
+    context.localSemanticTypes?.get(originalName) ??
+    resolveStaticValueSymbolSurfaceType(directAst.identifier, context)
   );
 };
 
@@ -721,5 +829,5 @@ export const resolveIdentifierValueSurfaceType = (
     return importBinding.valueType;
   }
 
-  return localValueType;
+  return localValueType ?? context.valueSymbols?.get(expr.name)?.valueType;
 };

@@ -622,7 +622,7 @@ describe("Integration: TSTS blocker regressions", () => {
     );
 
     expect(csharp).to.include("global::System.Func<T, object?> f");
-    expect(csharp).to.include("var mapped = ((global::System.Func<T, object?>)f)(item);");
+    expect(csharp).to.include("var mapped = f(item);");
     expect(csharp).to.include("push((U)mapped)");
     expect(csharp).to.not.include(
       "var mapped = global::Tsonic.Internal.GenericOptional.FromObject<U>"
@@ -817,9 +817,13 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.match(
       /var obj = isJsonObject\(raw\) \? \(raw\.As\d+\(\)\) : new global::System\.Collections\.Generic\.Dictionary<string, global::Test\.JsonValue>/
     );
-    expect(csharp).to.include('return read(obj, "x");');
+    expect(csharp).to.include(
+      "__tsonic_return_value == null ? default(global::Test.JsonValue?) : __tsonic_return_value.Match"
+    );
+    expect(csharp).to.include('))(read(obj, "x"));');
+    expect(csharp).to.not.include('return read(obj, "x").Match');
     expect(csharp).to.match(
-      /public static global::Test\.JsonValue\? run\(global::Test\.JsonValue raw\)\s*\{\s*var obj = isJsonObject\(raw\) \? \(raw\.As\d+\(\)\) : new global::System\.Collections\.Generic\.Dictionary<string, global::Test\.JsonValue>\(\);\s*return read\(obj, "x"\);\s*\}/
+      /public static global::Test\.JsonValue\? run\(global::Test\.JsonValue raw\)\s*\{\s*var obj = isJsonObject\(raw\) \? \(raw\.As\d+\(\)\) : new global::System\.Collections\.Generic\.Dictionary<string, global::Test\.JsonValue>\(\);\s*return \(\(global::System\.Func<global::Test\.JsonValue\?, global::Test\.JsonValue\?>\)\(__tsonic_return_value => __tsonic_return_value == null \? default\(global::Test\.JsonValue\?\) : __tsonic_return_value\.Match/
     );
   });
 
@@ -1081,8 +1085,9 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include(
       "(global::Test.packagejson.Expected__3)global::Test.packagejson.types.absent"
     );
+    expect(csharp).to.include("var __struct = global::Test.packagejson.types.absent;");
     expect(csharp).to.include(
-      "new global::Test.packagejson.Expected__3 { state = global::Test.packagejson.types.absent.state }"
+      "return new Expected__3 { state = __struct.state };"
     );
   });
 

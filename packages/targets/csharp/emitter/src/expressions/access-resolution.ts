@@ -25,6 +25,7 @@ export {
   emitStorageCompatibleArrayWrapperElementTypeAst,
   maybeReifyErasedArrayElement,
   maybeReifyStorageErasedMemberRead,
+  tryReifyStorageErasedMemberRead,
   tryEmitMaterializedNarrowedMemberRead,
   tryEmitStorageCompatibleNarrowedMemberRead,
   resolveEffectiveReceiverType,

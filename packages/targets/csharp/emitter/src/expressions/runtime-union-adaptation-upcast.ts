@@ -786,7 +786,10 @@ const maybeAdaptTopLevelNullishOptionalUnionAst = (
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   const actualNullishSplit = splitRuntimeNullishUnionMembers(actualType);
   const expectedNullishSplit = splitRuntimeNullishUnionMembers(expectedType);
-  if (isBroadObjectSlotType(expectedType, context)) {
+  if (
+    isBroadObjectSlotType(expectedType, context) &&
+    !willCarryAsRuntimeUnion(stripNullish(expectedType), context)
+  ) {
     return undefined;
   }
   if (

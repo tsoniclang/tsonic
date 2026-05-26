@@ -317,15 +317,81 @@ const tryBuildRuntimeUnionSubsetMaterializationAst = (
     return undefined;
   }
 
+  const sourceMemberMayMaterializeToTarget = (
+    sourceMember: IrType,
+    expectedType: IrType,
+    materializationContext: EmitterContext,
+    seen = new Set<string>()
+  ): boolean => {
+    const pairKey = `${getContextualTypeVisitKey(
+      sourceMember,
+      materializationContext
+    )}=>${getContextualTypeVisitKey(expectedType, materializationContext)}`;
+    if (seen.has(pairKey)) {
+      return false;
+    }
+    const nextSeen = new Set([...seen, pairKey]);
+
+    if (
+      unionMemberMatchesTarget(sourceMember, expectedType, materializationContext)
+    ) {
+      return true;
+    }
+
+    if (
+      canDeterministicallyMaterializeSourceType(
+        sourceMember,
+        expectedType,
+        materializationContext,
+        new Set(nextSeen)
+      )
+    ) {
+      return true;
+    }
+
+    const [sourceMemberLayout, sourceMemberLayoutContext] =
+      buildRuntimeUnionLayout(sourceMember, materializationContext, emitTypeAst);
+    if (
+      sourceMemberLayout?.members.some((nestedSourceMember) =>
+        nestedSourceMember
+          ? sourceMemberMayMaterializeToTarget(
+              nestedSourceMember,
+              expectedType,
+              sourceMemberLayoutContext,
+              nextSeen
+            )
+          : false
+      )
+    ) {
+      return true;
+    }
+
+    const [targetLayout, targetLayoutContext] = buildRuntimeUnionLayout(
+      expectedType,
+      sourceMemberLayoutContext,
+      emitTypeAst
+    );
+    return (
+      targetLayout?.members.some((targetMember) =>
+        targetMember
+          ? sourceMemberMayMaterializeToTarget(
+              sourceMember,
+              targetMember,
+              targetLayoutContext,
+              nextSeen
+            )
+          : false
+      ) ?? false
+    );
+  };
+
   const selectedMemberNs = sourceLayout.members.flatMap((member, index) =>
-    member && unionMemberMatchesTarget(member, targetType, sourceLayoutContext)
+    member &&
+    sourceMemberMayMaterializeToTarget(member, targetType, sourceLayoutContext)
       ? [index + 1]
       : []
   );
-  if (
-    selectedMemberNs.length === 0 ||
-    selectedMemberNs.length === sourceLayout.members.length
-  ) {
+  if (selectedMemberNs.length === 0) {
     return undefined;
   }
 
@@ -725,7 +791,8 @@ export const materializeDirectNarrowingAst = (
     comparableEmissionTargetType,
     context
   );
-  const sourceWasParameterModifierWrapped = comparableSourceType !== sourceType;
+  const sourceWasParameterModifierWrapped =
+    comparableSourceType !== sourceType;
 
   if (containsOutOfScopeTypeParameter(comparableEmissionTargetType, context)) {
     return [sourceAst, context];
@@ -1025,6 +1092,7 @@ export const materializeDirectNarrowingAst = (
   const canReuseAssignableSurface =
     !sourceWasParameterModifierWrapped &&
     !isBroadSource &&
+    !willCarryAsRuntimeUnion(comparableSourceType, context) &&
     matchesExpectedEmissionType(
       comparableSourceType,
       comparableNarrowedType,
@@ -1044,6 +1112,33 @@ export const materializeDirectNarrowingAst = (
     return structuralMaterialized;
   }
 
+  const [fallbackTargetLayout, fallbackTargetLayoutContext] =
+    !sourceWasParameterModifierWrapped
+      ? buildRuntimeUnionLayout(
+          comparableEmissionTargetType,
+          nextContext,
+          emitTypeAst
+        )
+      : [undefined, nextContext];
+  const matchingFallbackTargetMemberIndices =
+    fallbackTargetLayout?.memberTypeAsts.flatMap((memberTypeAst, index) =>
+      sameConcreteTypeAstSurface(concreteSourceTypeAst, stripNullableTypeAst(memberTypeAst))
+        ? [index]
+        : []
+    ) ?? [];
+  if (fallbackTargetLayout && matchingFallbackTargetMemberIndices.length === 1) {
+    const [targetMemberIndex] = matchingFallbackTargetMemberIndices;
+    if (targetMemberIndex !== undefined) {
+      return [
+        buildRuntimeUnionFactoryCallAst(
+          buildRuntimeUnionTypeAst(fallbackTargetLayout),
+          targetMemberIndex + 1,
+          sourceAst
+        ),
+        fallbackTargetLayoutContext,
+      ];
+    }
+  }
   return [
     {
       kind: "castExpression",

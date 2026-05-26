@@ -41,6 +41,7 @@ import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   type MemberAccessUsage,
   maybeReifyStorageErasedMemberRead,
+  tryReifyStorageErasedMemberRead,
   tryEmitMaterializedNarrowedMemberRead,
   tryEmitStorageCompatibleNarrowedMemberRead,
   hasPropertyFromBindingsRegistry,
@@ -240,6 +241,15 @@ export const emitMemberAccess = (
         ];
       }
       if (narrowed.kind === "expr") {
+        const storageReified = tryReifyStorageErasedMemberRead(
+          narrowed.exprAst,
+          expr,
+          context,
+          expectedType
+        );
+        if (storageReified) {
+          return storageReified;
+        }
         const materializedNarrowed = tryEmitMaterializedNarrowedMemberRead(
           narrowed,
           context,
@@ -424,11 +434,11 @@ export const emitMemberAccess = (
   const bindingResult = tryEmitMemberBindingAccess(expr, context, usage);
   if (bindingResult) {
     if (usage === "value" && expectedType && expr.inferredType) {
-      return materializeDirectNarrowingAst(
+      return maybeReifyStorageErasedMemberRead(
         bindingResult[0],
-        expr.inferredType,
+        expr,
+        bindingResult[1],
         expectedType,
-        bindingResult[1]
       );
     }
     return bindingResult;

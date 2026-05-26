@@ -84,7 +84,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "var joinedDefault = global::Tsonic.Internal.ArrayInterop.WrapArray(filtered).join();"
       );
-      expect(csharp).to.include('global::js.Globals.parseInt("123")');
+      expect(csharp).to.include(
+        'global::js.Globals.parseInt("123")'
+      );
     });
 
     it("mirrors js-string-array-returns", () => {
@@ -107,7 +109,7 @@ describe("End-to-End Integration", () => {
         'return global::Tsonic.Internal.ArrayInterop.WrapArray(parts).join(",");'
       );
       expect(csharp).to.include(
-        "global::js.ConsoleModule.log(takeParts(parts), firstMatch, firstAll, global::js.Number.toString((double)selected.Length));"
+        "global::js.ConsoleModule.log(takeParts(parts), firstMatch, firstAll, global::js.Number.toString(selected.Length));"
       );
     });
 
@@ -156,7 +158,7 @@ describe("End-to-End Integration", () => {
         'var resolved = maybeDate ?? statSync("tsonic.workspace.json").mtime;'
       );
       expect(csharp).to.include(
-        "global::js.Number.toString((double)resolved.toISOString().Length)"
+        "global::js.Number.toString(resolved.toISOString().Length)"
       );
       expect(csharp).to.not.include("(object)resolved");
     });
@@ -343,7 +345,10 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        ".Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
+        "fromArray((double[])(value.As1()));"
+      );
+      expect(csharp).to.include(
+        "fromUint8Array((global::js.Uint8Array)(value.As2()));"
       );
       expect(csharp).to.not.include(
         '.Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union ref:global::Test.Buffer:: to arr:prim:number:tuple::rest:none"), __tsonic_union_member_3 =>'
@@ -485,7 +490,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("Buffer.fromUint8Array((value.As2()));");
+      expect(csharp).to.include("return Buffer.fromUint8Array(value__2_2);");
       expect(csharp).not.to.include(
         "Buffer.fromUint8Array(((global::Tsonic.Internal.Union<double[], global::js.Uint8Array>)"
       );
@@ -598,7 +603,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => (double)__item), offset);"
+        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => __item), offset);"
       );
       expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
       expect(csharp).not.to.include("result.set(buffer, offset);");
@@ -735,6 +740,72 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.not.include("JSON.stringify(");
       expect(csharp).to.not.include("TsonicJsonRuntime");
+    });
+
+    it("keeps js string member-call argument metadata aligned with visible parameters", () => {
+      const csharp = compileToCSharp(
+        `
+          const separator = "://";
+          const directorySeparator = "/";
+
+          export function findProtocolEnd(path: string): number {
+            return path.indexOf(separator);
+          }
+
+          export function findLastDirectory(path: string): number {
+            return path.lastIndexOf(directorySeparator);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "return global::js.String.indexOf(path, separator);"
+      );
+      expect(csharp).to.include(
+        "return global::js.String.lastIndexOf(path, directorySeparator);"
+      );
+      expect(csharp).to.not.include("(double)separator");
+      expect(csharp).to.not.include("(double)directorySeparator");
+    });
+
+    it("qualifies imported constants re-exported through a local barrel", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/compare.ts": `
+            export type Comparison = -1 | 0 | 1;
+            export const ComparisonEqual: Comparison = 0;
+            export const ComparisonGreaterThan: Comparison = 1;
+          `,
+          "src/index.ts": `
+            export * from "./compare.js";
+          `,
+          "src/test.ts": `
+            import { ComparisonEqual, ComparisonGreaterThan } from "./index.js";
+
+            declare const Assert: {
+              Equal<T>(expected: T, actual: T): void;
+            };
+
+            export function run(): void {
+              Assert.Equal(ComparisonEqual, 0);
+              Assert.Equal(ComparisonGreaterThan, 1);
+            }
+          `,
+        },
+        "src/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "Assert.Equal(global::Test.compare.ComparisonEqual, (object)(double)0);"
+      );
+      expect(csharp).to.include(
+        "Assert.Equal(global::Test.compare.ComparisonGreaterThan, (object)(double)1);"
+      );
+      expect(csharp).to.not.include("Assert.Equal(ComparisonEqual, 0);");
+      expect(csharp).to.not.include("Assert.Equal(ComparisonGreaterThan, 1);");
     });
 
     it("mirrors json-native-roundtrip", () => {

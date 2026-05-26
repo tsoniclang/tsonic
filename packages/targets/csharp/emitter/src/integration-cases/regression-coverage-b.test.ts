@@ -748,8 +748,9 @@ describe("End-to-End Integration", () => {
       });
       expect(csharp).to.include("if (handler.Is1())");
       expect(csharp).to.include(
-        "for (int index = 0; index < (handler.As1()).Length; index += 1)"
+        "for (int index = 0; index < global::Tsonic.Internal.ArrayInterop.WrapArray((handler.As1())).length; index += 1)"
       );
+      expect(csharp).to.include("append((handler.As1())[index]);");
       expect(csharp).to.not.include(
         "new global::js.Array<global::Tsonic.Internal.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
       );
@@ -759,6 +760,7 @@ describe("End-to-End Integration", () => {
         "Router handler__is_1 = (Router)handler.As3();"
       );
       expect(csharp).to.include("if (!isMiddlewareHandler(handler))");
+      expect(csharp).to.not.include("isMiddlewareHandler(handler.Match");
       expect(csharp).to.include(
         'throw new global::js.Error("middleware handlers must be functions");'
       );

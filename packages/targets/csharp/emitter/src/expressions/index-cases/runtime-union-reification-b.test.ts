@@ -700,7 +700,7 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal(
-      "((global::System.Object)(pathSpec)) != null && pathSpec.Is1()"
+      "(((global::System.Object)(pathSpec)) != null && pathSpec.Is1())"
     );
   });
 
@@ -787,7 +787,7 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal(
-      "((global::System.Object)(pathSpec)) != null && pathSpec.Is1()"
+      "(((global::System.Object)(pathSpec)) != null && pathSpec.Is1())"
     );
   });
 

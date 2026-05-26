@@ -17,6 +17,7 @@ import {
 } from "../core/semantic/explicit-views.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
+  getPropertyType,
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
@@ -46,6 +47,7 @@ import { isExactExpressionToType } from "./exact-comparison.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
+import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
 
 /**
  * Emit a non-computed property member access expression as CSharpExpressionAst.
@@ -66,6 +68,8 @@ export const emitPropertyAccess = (
   let receiverContext = context;
   let receiverExpressionForMember: IrExpression = expr.object;
   let receiverTypeForMember = objectType;
+  let erasedAsInterfaceSourceMemberType: IrType | undefined;
+  let erasedAsInterfaceTargetMemberType: IrType | undefined;
   const isErasedAsInterfaceReceiver = expr.object.kind === "asinterface";
 
   if (
@@ -128,6 +132,14 @@ export const emitPropertyAccess = (
       receiverContext = transparentReceiverContext;
       receiverExpressionForMember = transparentReceiver;
       receiverTypeForMember = transparentReceiverType;
+      erasedAsInterfaceSourceMemberType = getPropertyType(
+        transparentMemberResolutionType,
+        prop,
+        receiverSourceContext
+      );
+      erasedAsInterfaceTargetMemberType =
+        getPropertyType(expr.object.targetType, prop, context) ??
+        expr.inferredType;
     } else if (receiverAlreadyExposesMember) {
       const [transparentReceiverAst, transparentReceiverContext] =
         emitExpressionAst(transparentReceiver, receiverSourceContext);
@@ -331,14 +343,30 @@ export const emitPropertyAccess = (
     ];
   }
 
+  const memberAccessAst: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: receiverAst,
+    memberName,
+  };
+  const erasedAsInterfaceAdapted =
+    isErasedAsInterfaceReceiver &&
+    erasedAsInterfaceSourceMemberType &&
+    erasedAsInterfaceTargetMemberType
+      ? tryAdaptStructuralExpressionAst(
+          memberAccessAst,
+          erasedAsInterfaceSourceMemberType,
+          receiverContext,
+          erasedAsInterfaceTargetMemberType
+        )
+      : undefined;
+  if (erasedAsInterfaceAdapted) {
+    return erasedAsInterfaceAdapted;
+  }
+
   return maybeReifyStorageErasedMemberRead(
-    {
-      kind: "memberAccessExpression",
-      expression: receiverAst,
-      memberName,
-    },
+    memberAccessAst,
     expr,
     receiverContext,
-    expectedType
+    expectedType ?? erasedAsInterfaceTargetMemberType
   );
 };

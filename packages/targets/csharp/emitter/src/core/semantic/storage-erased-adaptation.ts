@@ -86,6 +86,47 @@ const hasTopLevelRuntimeNullishMember = (type: IrType): boolean =>
         (member.name === "null" || member.name === "undefined"))
   );
 
+const tryReuseNullishReferenceStorageAst = (
+  valueAst: CSharpExpressionAst,
+  storageType: IrType,
+  expectedType: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const split = splitRuntimeNullishUnionMembers(storageType);
+  if (
+    !split?.hasRuntimeNullish ||
+    split.nonNullishMembers.length !== 1 ||
+    isBroadStorageType(storageType, context) ||
+    isDefinitelyValueType(stripNullish(expectedType), context)
+  ) {
+    return undefined;
+  }
+
+  const nonNullishStorageType = split.nonNullishMembers[0];
+  if (
+    !nonNullishStorageType ||
+    !matchesExpectedEmissionType(nonNullishStorageType, expectedType, context)
+  ) {
+    return undefined;
+  }
+
+  const [storageTypeAst, storageTypeContext] = emitTypeAst(
+    nonNullishStorageType,
+    context
+  );
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    storageTypeContext
+  );
+  return sameTypeAstSurface(
+    stripNullableTypeAst(storageTypeAst),
+    stripNullableTypeAst(expectedTypeAst)
+  )
+    ? [valueAst, expectedTypeContext]
+    : undefined;
+};
+
 const NUMERIC_REFERENCE_TYPE_NAMES = new Set([
   "sbyte",
   "SByte",
@@ -336,6 +377,17 @@ export const adaptStorageErasedValueAst = (opts: {
     return [plan.value, plan.context];
   }
 
+  const nullishReferenceStorage = tryReuseNullishReferenceStorageAst(
+    valueAst,
+    storageType,
+    expectedType,
+    needsPlanContext,
+    emitTypeAst
+  );
+  if (nullishReferenceStorage) {
+    return nullishReferenceStorage;
+  }
+
   if (!allowCastFallback) {
     return undefined;
   }
@@ -350,7 +402,6 @@ export const adaptStorageErasedValueAst = (opts: {
   ) {
     return [valueAst, expectedTypeContext];
   }
-
   return [
     {
       kind: "castExpression",

@@ -31,6 +31,7 @@ import {
 import { resolveEffectiveExpressionType } from "../../../core/semantic/narrowed-expression-types.js";
 import { resolveIdentifierRuntimeCarrierType } from "../../../expressions/direct-storage-types.js";
 import { areIrTypesEquivalent } from "../../../core/semantic/type-equivalence.js";
+import { willCarryAsRuntimeUnion } from "../../../core/semantic/union-semantics.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -322,17 +323,36 @@ export const resolveGuardRuntimeUnionFrame = (
   identifierTarget: Extract<IrExpression, { kind: "identifier" }> | undefined,
   context: EmitterContext
 ): RuntimeUnionFrame | undefined => {
+  const narrowedBinding = context.narrowedBindings?.get(originalName);
+  if (narrowedBinding?.kind === "runtimeSubset") {
+    const narrowedFrame = resolveRuntimeUnionFrame(
+      originalName,
+      effectiveType,
+      context
+    );
+    if (narrowedFrame) {
+      return narrowedFrame;
+    }
+  }
+
+  const narrowedCarrierType =
+    narrowedBinding?.type &&
+    willCarryAsRuntimeUnion(narrowedBinding.type, context)
+      ? narrowedBinding.type
+      : undefined;
+  const frameEffectiveType = narrowedCarrierType ?? effectiveType;
   const carrierSourceType =
+    narrowedCarrierType ??
     (identifierTarget
       ? resolveIdentifierRuntimeCarrierType(identifierTarget, context)
       : undefined) ??
-    context.narrowedBindings?.get(originalName)?.sourceType ??
-    context.narrowedBindings?.get(originalName)?.type;
+    narrowedBinding?.sourceType ??
+    narrowedBinding?.type;
 
   return (
     resolveAlignedRuntimeUnionMembers(
       undefined,
-      effectiveType,
+      frameEffectiveType,
       carrierSourceType,
       context
     ) ?? resolveRuntimeUnionFrame(originalName, effectiveType, context)

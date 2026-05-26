@@ -604,7 +604,9 @@ describe("End-to-End Integration", () => {
         "if (candidate is Application candidate__is_1)"
       );
       expect(csharp).to.include("candidate__is_1.mountpath =");
-      expect(csharp).to.include("return candidate__is_1.mountpath;");
+      expect(csharp).to.include(
+        "return global::Tsonic.Internal.Union<string[], string>.From2((candidate__is_1.mountpath.As2()));"
+      );
       expect(csharp).to.not.include("candidate.mountpath =");
       expect(csharp).to.not.include("candidate__is_1.mountpath.Match<");
     });

@@ -36,6 +36,8 @@ import { getReferenceClrIdentityKey } from "../core/semantic/clr-type-identity.j
 import { referenceTypesShareNominalIdentity } from "../core/semantic/reference-type-identity.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
+import { isRuntimeUnionTypeAst } from "../core/semantic/runtime-reification-helpers.js";
+import { isRuntimeUnionMemberProjectionAst } from "../core/semantic/runtime-union-projection.js";
 
 // ---------------------------------------------------------------------------
 // Nullish type-parameter casting
@@ -77,8 +79,7 @@ const getUnconstrainedNullishTypeParamName = (
   const typeParamName = getBareTypeParameterName(nonNull, context);
   if (!typeParamName) return undefined;
 
-  const constraintKind =
-    context.typeParamConstraints?.get(typeParamName) ?? "unconstrained";
+  const constraintKind = context.typeParamConstraints?.get(typeParamName);
   return constraintKind === "unconstrained" ? typeParamName : undefined;
 };
 
@@ -1006,6 +1007,36 @@ const isDefinitelyValueIrType = (
   return isDefinitelyValueType(resolveTypeAlias(stripNullish(type), context));
 };
 
+const mayContainValueIrType = (
+  type: IrType | undefined,
+  context: EmitterContext,
+  seen: ReadonlySet<IrType> = new Set()
+): boolean => {
+  if (!type || seen.has(type)) {
+    return true;
+  }
+  const nextSeen = new Set([...seen, type]);
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (isDefinitelyValueType(resolved)) {
+    return true;
+  }
+  switch (resolved.kind) {
+    case "primitiveType":
+      return resolved.name !== "string" && resolved.name !== "null" && resolved.name !== "undefined";
+    case "unionType":
+    case "intersectionType":
+      return resolved.types.some((member) =>
+        mayContainValueIrType(member, context, nextSeen)
+      );
+    case "typeParameterType":
+    case "unknownType":
+    case "anyType":
+      return true;
+    default:
+      return false;
+  }
+};
+
 const canRemoveObjectBridgeBeforeReferenceCast = (
   targetTypeAst: Parameters<typeof stripNullableTypeAst>[0],
   actualType: IrType | undefined,
@@ -1016,7 +1047,10 @@ const canRemoveObjectBridgeBeforeReferenceCast = (
   if (target.kind === "arrayType" || target.kind === "pointerType") {
     return false;
   }
-  if (target.kind === "predefinedType" && target.keyword !== "string") {
+  if (isRuntimeUnionTypeAst(target)) {
+    return false;
+  }
+  if (target.kind === "predefinedType") {
     return false;
   }
   if (target.kind === "tupleType" || target.kind === "varType") {
@@ -1028,6 +1062,9 @@ const canRemoveObjectBridgeBeforeReferenceCast = (
   if (actualType && isDefinitelyValueIrType(actualType, context)) {
     return false;
   }
+  if (!actualType || mayContainValueIrType(actualType, context)) {
+    return false;
+  }
   return !!expectedType || !!actualType;
 };
 
@@ -1037,34 +1074,142 @@ export const simplifyRedundantObjectBridgeCastsAst = (
   context: EmitterContext,
   expectedType: IrType | undefined
 ): CSharpExpressionAst => {
-  if (ast.kind === "parenthesizedExpression") {
-    const simplifiedExpression = simplifyRedundantObjectBridgeCastsAst(
-      ast.expression,
+  const simplifyChild = (child: CSharpExpressionAst): CSharpExpressionAst =>
+    simplifyRedundantObjectBridgeCastsAst(
+      child,
       actualType,
       context,
       expectedType
     );
-    return simplifiedExpression === ast.expression
-      ? ast
-      : { ...ast, expression: simplifiedExpression };
+
+  const simplifyChildren = (
+    current: CSharpExpressionAst
+  ): CSharpExpressionAst => {
+    switch (current.kind) {
+      case "parenthesizedExpression":
+      case "memberAccessExpression":
+      case "conditionalMemberAccessExpression":
+      case "castExpression":
+      case "asExpression":
+      case "isExpression":
+      case "awaitExpression":
+      case "throwExpression":
+      case "suppressNullableWarningExpression":
+        return { ...current, expression: simplifyChild(current.expression) };
+      case "elementAccessExpression":
+      case "conditionalElementAccessExpression":
+      case "implicitElementAccessExpression":
+        return {
+          ...current,
+          arguments: current.arguments.map(simplifyChild),
+        };
+      case "invocationExpression":
+        return {
+          ...current,
+          expression: simplifyChild(current.expression),
+          arguments: current.arguments.map(simplifyChild),
+        };
+      case "objectCreationExpression":
+        return {
+          ...current,
+          arguments: current.arguments.map(simplifyChild),
+          ...(current.initializer
+            ? { initializer: current.initializer.map(simplifyChild) }
+            : {}),
+        };
+      case "anonymousObjectCreationExpression":
+        return {
+          ...current,
+          initializer: current.initializer.map(simplifyChild),
+        };
+      case "arrayCreationExpression":
+        return {
+          ...current,
+          ...(current.sizeExpression
+            ? { sizeExpression: simplifyChild(current.sizeExpression) }
+            : {}),
+          ...(current.initializer
+            ? { initializer: current.initializer.map(simplifyChild) }
+            : {}),
+        };
+      case "stackAllocArrayCreationExpression":
+        return {
+          ...current,
+          sizeExpression: simplifyChild(current.sizeExpression),
+        };
+      case "assignmentExpression":
+      case "binaryExpression":
+        return {
+          ...current,
+          left: simplifyChild(current.left),
+          right: simplifyChild(current.right),
+        };
+      case "prefixUnaryExpression":
+      case "postfixUnaryExpression":
+        return { ...current, operand: simplifyChild(current.operand) };
+      case "conditionalExpression":
+        return {
+          ...current,
+          condition: simplifyChild(current.condition),
+          whenTrue: simplifyChild(current.whenTrue),
+          whenFalse: simplifyChild(current.whenFalse),
+        };
+      case "lambdaExpression":
+        return current.body.kind === "blockStatement"
+          ? current
+          : { ...current, body: simplifyChild(current.body) };
+      case "interpolatedStringExpression":
+        return {
+          ...current,
+          parts: current.parts.map((part) =>
+            part.kind === "interpolation"
+              ? { ...part, expression: simplifyChild(part.expression) }
+              : part
+          ),
+        };
+      case "switchExpression":
+        return {
+          ...current,
+          governingExpression: simplifyChild(current.governingExpression),
+          arms: current.arms.map((arm) => ({
+            ...arm,
+            ...(arm.whenClause
+              ? { whenClause: simplifyChild(arm.whenClause) }
+              : {}),
+            expression: simplifyChild(arm.expression),
+          })),
+        };
+      case "argumentModifierExpression":
+        return { ...current, expression: simplifyChild(current.expression) };
+      case "tupleExpression":
+        return { ...current, elements: current.elements.map(simplifyChild) };
+      case "nullLiteralExpression":
+      case "booleanLiteralExpression":
+      case "stringLiteralExpression":
+      case "charLiteralExpression":
+      case "numericLiteralExpression":
+      case "identifierExpression":
+      case "qualifiedIdentifierExpression":
+      case "typeReferenceExpression":
+      case "defaultExpression":
+      case "sizeOfExpression":
+      case "typeofExpression":
+      case "declarationExpression":
+        return current;
+    }
+  };
+
+  const currentAst = simplifyChildren(ast);
+  if (currentAst.kind !== "castExpression") {
+    return currentAst;
   }
 
-  if (ast.kind !== "castExpression") {
-    return ast;
-  }
-
-  const simplifiedExpression = simplifyRedundantObjectBridgeCastsAst(
-    ast.expression,
-    actualType,
-    context,
-    expectedType
-  );
-  const currentAst =
-    simplifiedExpression === ast.expression
-      ? ast
-      : { ...ast, expression: simplifiedExpression };
   if (currentAst.expression.kind !== "castExpression") {
     return currentAst;
+  }
+
+  if (sameTypeAstSurface(currentAst.type, currentAst.expression.type)) {
+    return currentAst.expression;
   }
 
   const castsToObject = isObjectTypeAst(currentAst.type);
@@ -1079,6 +1224,7 @@ export const simplifyRedundantObjectBridgeCastsAst = (
   if (
     !castsToObject &&
     innerCastsToObject &&
+    !isRuntimeUnionMemberProjectionAst(currentAst.expression.expression) &&
     canRemoveObjectBridgeBeforeReferenceCast(
       currentAst.type,
       actualType,
@@ -1324,6 +1470,42 @@ const resolveBroadLocalNumericMaterializationSource = (
     : undefined;
 };
 
+const materializeNarrowedNumericCarrierAst = (
+  ast: CSharpExpressionAst,
+  actualType: IrType,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const identifier =
+    ast.kind === "identifierExpression" ? ast.identifier : undefined;
+  if (!identifier) {
+    return undefined;
+  }
+
+  const sourceName = [...(context.localNameMap ?? [])].find(
+    ([, emittedName]) => emittedName === identifier
+  )?.[0];
+  const narrowedBinding =
+    context.narrowedBindings?.get(identifier) ??
+    (sourceName ? context.narrowedBindings?.get(sourceName) : undefined);
+  if (
+    !narrowedBinding ||
+    narrowedBinding.kind !== "expr" ||
+    !narrowedBinding.sourceType ||
+    !narrowedBinding.type ||
+    !matchesExpectedEmissionType(narrowedBinding.type, actualType, context)
+  ) {
+    return undefined;
+  }
+
+  const materialized = materializeDirectNarrowingAst(
+    ast,
+    narrowedBinding.sourceType,
+    narrowedBinding.type,
+    context
+  );
+  return materialized[0] === ast ? undefined : materialized;
+};
+
 export const maybeCastNumericToExpectedJsNumberAst = (
   ast: CSharpExpressionAst,
   actualType: IrType | undefined,
@@ -1371,6 +1553,14 @@ export const maybeCastNumericToExpectedJsNumberAst = (
     return [numericTypeParamAdjustedAst, numericTypeParamAdjustedContext];
   }
 
+  if (resolveTypeAlias(stripNullish(expectedType), context).kind === "unionType") {
+    const [runtimeUnionMaterializedAst, runtimeUnionMaterializedContext] =
+      materializeDirectNarrowingAst(ast, actualType, expectedType, context);
+    if (runtimeUnionMaterializedAst !== ast) {
+      return [runtimeUnionMaterializedAst, runtimeUnionMaterializedContext];
+    }
+  }
+
   const [typeAst, newContext] = emitTypeAst(expectedType, context);
   if (ast.kind === "castExpression" && sameTypeAstSurface(ast.type, typeAst)) {
     return [ast, newContext];
@@ -1406,6 +1596,13 @@ export const maybeBoxJsNumberAsObjectAst = (
   }
   if (!expectsBoxedObjectIrType(expectedType, context)) return [ast, context];
 
+  const narrowedNumericMaterialized =
+    !isNumericLiteral && actualType
+      ? materializeNarrowedNumericCarrierAst(ast, actualType, context)
+      : undefined;
+  const boxedSourceAst = narrowedNumericMaterialized?.[0] ?? ast;
+  const boxedSourceContext = narrowedNumericMaterialized?.[1] ?? context;
+
   const nullableNumericBaseType = actualType
     ? getNullableUnionBaseType(actualType)
     : undefined;
@@ -1425,7 +1622,7 @@ export const maybeBoxJsNumberAsObjectAst = (
       const widenedNumericAst: CSharpExpressionAst = {
         kind: "castExpression",
         type: { kind: "predefinedType", keyword: "double" },
-        expression: ast,
+        expression: boxedSourceAst,
       };
 
       return [
@@ -1434,14 +1631,14 @@ export const maybeBoxJsNumberAsObjectAst = (
           type: { kind: "predefinedType", keyword: "object" },
           expression: widenedNumericAst,
         },
-        context,
+        boxedSourceContext,
       ];
     }
 
     const widenedNullableValueAst: CSharpExpressionAst = {
       kind: "castExpression",
       type: { kind: "predefinedType", keyword: "double" },
-      expression: ast,
+      expression: boxedSourceAst,
     };
 
     return [
@@ -1453,7 +1650,7 @@ export const maybeBoxJsNumberAsObjectAst = (
           left: {
             kind: "castExpression",
             type: { kind: "predefinedType", keyword: "object" },
-            expression: ast,
+            expression: boxedSourceAst,
           },
           right: nullLiteral(),
         },
@@ -1464,14 +1661,14 @@ export const maybeBoxJsNumberAsObjectAst = (
           expression: widenedNullableValueAst,
         },
       },
-      context,
+      boxedSourceContext,
     ];
   }
 
   const widenedNumericAst: CSharpExpressionAst = {
     kind: "castExpression",
     type: { kind: "predefinedType", keyword: "double" },
-    expression: ast,
+    expression: boxedSourceAst,
   };
 
   return [
@@ -1480,6 +1677,6 @@ export const maybeBoxJsNumberAsObjectAst = (
       type: { kind: "predefinedType", keyword: "object" },
       expression: widenedNumericAst,
     },
-    context,
+    boxedSourceContext,
   ];
 };

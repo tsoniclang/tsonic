@@ -80,6 +80,166 @@ describe("May 14 downstream contract coverage", () => {
     );
   });
 
+  it("adapts function values to nominal external delegate arguments without invalid casts", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "package.json": JSON.stringify(
+          {
+            name: "external-delegate-regression",
+            version: "1.0.0",
+            type: "module",
+          },
+          null,
+          2
+        ),
+        "node_modules/@fixture/runtime/package.json": JSON.stringify(
+          { name: "@fixture/runtime", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "node_modules/@fixture/runtime/tsonic.surface.json": JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@fixture/runtime",
+            extends: ["core"],
+            requiredTypeRoots: ["."],
+          },
+          null,
+          2
+        ),
+        "node_modules/@fixture/runtime/index.js": "export {};\n",
+        "node_modules/@fixture/runtime/index.d.ts": [
+          "declare global {",
+          "  function register(handler: (ctx: string) => void): void;",
+          "}",
+          "export {};",
+        ].join("\n"),
+        "node_modules/@fixture/runtime/bindings.json": JSON.stringify(
+          {
+            bindings: {
+              register: {
+                kind: "global",
+                assembly: "Acme.Runtime",
+                type: "Acme.Runtime.Router",
+                providerMemberName: "Router.register",
+              },
+            },
+          },
+          null,
+          2
+        ),
+        "node_modules/@fixture/runtime/Acme.Runtime.d.ts": "export {};\n",
+        "node_modules/@fixture/runtime/Acme.Runtime/bindings.json":
+          JSON.stringify(
+            {
+              namespace: "Acme.Runtime",
+              types: [
+                {
+                  targetName: "Acme.Runtime.StringHandler",
+                  ownerIdentity: "Acme.Runtime",
+                  kind: "Delegate",
+                  methods: [
+                    {
+                      targetName: "Invoke",
+                      normalizedSignature:
+                        "Invoke|(System.String):System.Void|static=false",
+                      parameterCount: 1,
+                      ownerQualifiedName: "Acme.Runtime.StringHandler",
+                      ownerIdentity: "Acme.Runtime",
+                      semanticSignature: {
+                        parameters: [
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "ctx",
+                            },
+                            type: {
+                              kind: "primitiveType",
+                              name: "string",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                        ],
+                        returnType: {
+                          kind: "voidType",
+                        },
+                      },
+                    },
+                  ],
+                  properties: [],
+                  fields: [],
+                },
+                {
+                  targetName: "Acme.Runtime.Router",
+                  ownerIdentity: "Acme.Runtime",
+                  methods: [
+                    {
+                      targetName: "register",
+                      normalizedSignature:
+                        "register|(Acme.Runtime.StringHandler):System.Void|static=true",
+                      parameterCount: 1,
+                      ownerQualifiedName: "Acme.Runtime.Router",
+                      ownerIdentity: "Acme.Runtime",
+                      semanticSignature: {
+                        parameters: [
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "handler",
+                            },
+                            type: {
+                              kind: "referenceType",
+                              name: "StringHandler",
+                              providerQualifiedName:
+                                "Acme.Runtime.StringHandler",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                        ],
+                        returnType: {
+                          kind: "voidType",
+                        },
+                      },
+                    },
+                  ],
+                  properties: [],
+                  fields: [],
+                },
+              ],
+            },
+            null,
+            2
+          ),
+        "src/index.ts": [
+          "",
+          "const handle = (ctx: string): void => {",
+          "  void ctx;",
+          "};",
+          "",
+          "export function main(): void {",
+          "  register(handle);",
+          "}",
+        ].join("\n"),
+      },
+      "src/index.ts",
+      { surface: "@fixture/runtime" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.match(
+      /global::Acme\.Runtime\.Router\.register\(\(string ctx\) => handle\(ctx\)\);/
+    );
+    expect(csharp).not.to.include(
+      "(global::Acme.Runtime.StringHandler)handle"
+    );
+  });
+
   it("materializes explicit block-lambda empty returns as contextual runtime absence", () => {
     const csharp = compileToCSharp(`
       class Request {
@@ -1010,7 +1170,7 @@ describe("May 14 downstream contract coverage", () => {
       }
     `);
 
-    expect(csharp).to.include("consume(value.Value)");
+    expect(csharp).to.include("consume((int)value)");
     expect(csharp).to.not.include("consume(value)");
   });
 
@@ -1176,8 +1336,8 @@ describe("May 14 downstream contract coverage", () => {
       { surface: "@tsonic/nodejs" }
     );
 
-    expect(csharp).to.match(
-      /areUint8ArraysEqual\((?:\(global::js\.Uint8Array\))?left, \(global::js\.Uint8Array\)right\)/
+    expect(csharp).to.include(
+      "areUint8ArraysEqual((global::js.Uint8Array)left, (global::js.Uint8Array)right)"
     );
     expect(csharp).to.not.include("areUint8ArraysEqual(left, right)");
   });
@@ -1303,5 +1463,44 @@ describe("May 14 downstream contract coverage", () => {
     expect(csharp).to.include("for (int i = 0;");
     expect(csharp).to.include("return i;");
     expect(csharp).to.not.include("for (double i = 0;");
+  });
+
+  it("preserves reference-type keys on first-party target dictionaries", () => {
+    const csharp = compileToCSharp(`
+      import { Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
+
+      export class PageContext {
+        title: string = "";
+      }
+
+      export function create(page: PageContext): Dictionary<PageContext, string> {
+        const bodies = new Dictionary<PageContext, string>();
+        bodies.Add(page, "body");
+        return bodies;
+      }
+    `);
+
+    expect(csharp).to.include(
+      "global::System.Collections.Generic.Dictionary<PageContext, string>"
+    );
+    expect(csharp).to.include("bodies.Add(page, \"body\");");
+    expect(csharp).to.not.include("Unsupported dictionary key type");
+  });
+
+  it("emits ref and out dictionary arguments as assignable lvalues", () => {
+    const csharp = compileToCSharp(`
+      import { Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
+
+      export function hasChild(
+        parent: Dictionary<string, Dictionary<string, string>>,
+        key: string
+      ): boolean {
+        let child = new Dictionary<string, string>();
+        return parent.TryGetValue(key, child);
+      }
+    `);
+
+    expect(csharp).to.include("parent.TryGetValue(key, out child)");
+    expect(csharp).to.not.include("out (global::System.Collections.Generic.Dictionary<string, string>)child");
   });
 });

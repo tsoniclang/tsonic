@@ -302,14 +302,14 @@ export const maybeReifyErasedArrayElement = (
   return [plan.value, plan.context];
 };
 
-export const maybeReifyStorageErasedMemberRead = (
+export const tryReifyStorageErasedMemberRead = (
   accessAst: CSharpExpressionAst,
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   context: EmitterContext,
   expectedType: IrType | undefined
-): [CSharpExpressionAst, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (!expectedType || expr.isComputed || typeof expr.property !== "string") {
-    return [accessAst, context];
+    return undefined;
   }
 
   const semanticType = resolveEffectiveExpressionType(expr, context);
@@ -329,8 +329,19 @@ export const maybeReifyStorageErasedMemberRead = (
     context,
     emitTypeAst,
   });
-  return adapted ?? [accessAst, context];
+  return adapted;
 };
+
+export const maybeReifyStorageErasedMemberRead = (
+  accessAst: CSharpExpressionAst,
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] =>
+  tryReifyStorageErasedMemberRead(accessAst, expr, context, expectedType) ?? [
+    accessAst,
+    context,
+  ];
 
 export const tryEmitStorageCompatibleNarrowedMemberRead = (
   narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
@@ -375,6 +386,18 @@ export const tryEmitMaterializedNarrowedMemberRead = (
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (expectedType) {
+    const storageAwareRead = adaptStorageErasedValueAst({
+      valueAst: narrowed.storageExprAst ?? narrowed.exprAst,
+      semanticType: narrowed.type,
+      storageType: narrowed.storageType ?? narrowed.sourceType,
+      expectedType,
+      context,
+      emitTypeAst,
+    });
+    if (storageAwareRead) {
+      return storageAwareRead;
+    }
+
     const carrierAst = narrowed.carrierExprAst ?? narrowed.storageExprAst;
     const carrierType =
       narrowed.carrierType ?? narrowed.sourceType ?? narrowed.storageType;

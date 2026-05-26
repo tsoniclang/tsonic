@@ -11,15 +11,18 @@ import { identifierType } from "../core/format/backend-ast/builders.js";
 /**
  * Emit dictionary type as CSharpTypeAst (identifierType node)
  *
- * IrDictionaryType represents:
+ * IrDictionaryType represents dictionary/map intent:
  * - `{ [k: string]: T }` → Dictionary<string, T>
  * - `{ [k: number]: T }` → Dictionary<double, T>
  * - `{ [k: symbol]: T }` → Dictionary<object, T>
  * - `Record<string, T>` → Dictionary<string, T>
  * - `Record<number, T>` → Dictionary<double, T>
  * - `Record<symbol, T>` → Dictionary<object, T>
+ * - first-party target dictionaries with nominal/reference-type keys
  *
- * Allowed key types: string, number, symbol/object key domain (enforced by TSN7413).
+ * Source structural dictionaries are restricted to JS key domains by frontend
+ * validation (TSN7413). Target-backed dictionaries can use any statically
+ * emittable key type because the target dictionary owns key equality semantics.
  */
 export const emitDictionaryType = (
   type: IrDictionaryType,
@@ -42,8 +45,10 @@ export const emitDictionaryType = (
 
 /**
  * Emit dictionary key type as CSharpTypeAst.
- * Allowed: string, number (→ double), symbol/object (→ object).
- * Unsupported keys trigger ICE - validation should have caught them.
+ *
+ * String, number, and symbol/object preserve JS structural dictionary
+ * conventions. Other key types are emitted through the normal type emitter for
+ * target-backed dictionaries.
  */
 const emitDictionaryKeyType = (
   keyType: IrDictionaryType["keyType"],
@@ -67,8 +72,5 @@ const emitDictionaryKeyType = (
     return [{ kind: "predefinedType", keyword: "object" }, context];
   }
 
-  // ICE: Unsupported key type (should have been caught by TSN7413)
-  throw new Error(
-    `ICE: Unsupported dictionary key type reached emitter - validation missed TSN7413. Got: ${JSON.stringify(keyType)}`
-  );
+  return emitTypeAst(keyType, context);
 };

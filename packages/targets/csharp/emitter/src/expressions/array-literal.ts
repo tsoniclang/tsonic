@@ -32,6 +32,7 @@ import {
 } from "./expected-type-adaptation.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { maybeCastNumericToExpectedIntegralAst } from "./post-emission-adaptation.js";
+import { resolveRuntimeStorageType } from "../core/semantic/storage-types.js";
 
 const preserveScopedExpressionFlowContext = (
   baseContext: EmitterContext,
@@ -165,7 +166,15 @@ const emitArrayElementAst = (
       willCarryAsRuntimeUnion(adaptationExpectedElementType, rawContext) &&
       directStorageElementType
         ? directStorageElementType
-        : (effectiveElementType ?? transparentElement.inferredType);
+        : adaptationExpectedElementType &&
+            willCarryAsRuntimeUnion(adaptationExpectedElementType, rawContext)
+          ? (resolveRuntimeStorageType(
+              effectiveElementType ?? transparentElement.inferredType,
+              rawContext
+            ) ??
+            effectiveElementType ??
+            transparentElement.inferredType)
+          : (effectiveElementType ?? transparentElement.inferredType);
 
     const [adaptedElementAst, adaptedElementContext] =
       adaptValueToExpectedTypeAst({

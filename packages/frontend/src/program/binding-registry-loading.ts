@@ -1136,6 +1136,8 @@ export const addBindingsToState = (
 
       const kindFromBindings = (() => {
         switch (tsbType.kind) {
+          case "Delegate":
+            return "delegate" as const;
           case "Interface":
             return "interface" as const;
           case "Struct":

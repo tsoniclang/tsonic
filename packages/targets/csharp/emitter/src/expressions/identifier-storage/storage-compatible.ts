@@ -51,6 +51,7 @@ export const tryEmitStorageCompatibleIdentifier = (
   );
   if (
     !isBroadStorageTarget(expectedType, context) &&
+    !willCarryAsRuntimeUnion(storageType, context) &&
     !willCarryAsRuntimeUnion(expectedType, context) &&
     matchesExpectedEmissionType(effectiveType, expectedType, context)
   ) {

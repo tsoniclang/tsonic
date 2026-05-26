@@ -34,9 +34,11 @@ import {
   emitBranchScopedStatementAst,
 } from "./branch-context.js";
 import {
+  tryEmitPredicateGuard,
   tryEmitPropertyExistenceGuard,
   tryEmitPropertyTruthinessGuard,
   tryEmitDiscriminantEqualityGuard,
+  tryEmitNegatedPredicateGuard,
 } from "./if-emit-union-guards.js";
 import {
   tryEmitInstanceofGuard,
@@ -186,6 +188,13 @@ export const emitIfStatementAst = (
   // Case E: Typeof guard (typeof x === "string")
   {
     const result = tryEmitTypeofGuard(stmt, context);
+    if (result) return result;
+  }
+
+  {
+    const result =
+      tryEmitNegatedPredicateGuard(stmt, context) ??
+      tryEmitPredicateGuard(stmt, context);
     if (result) return result;
   }
 

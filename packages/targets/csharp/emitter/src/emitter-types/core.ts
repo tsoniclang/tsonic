@@ -359,6 +359,7 @@ export type ValueSymbolInfo = {
   readonly kind: ValueSymbolKind;
   readonly csharpName: string;
   readonly type?: Extract<IrType, { kind: "functionType" }>;
+  readonly valueType?: IrType;
 };
 
 /**

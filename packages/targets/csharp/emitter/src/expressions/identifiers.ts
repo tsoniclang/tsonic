@@ -294,6 +294,31 @@ export const emitIdentifier = (
     }
   }
 
+  // Imported identifiers are declarations in another module, not locals. Resolve
+  // them before storage-compatible local reuse so imported constants/functions
+  // stay fully qualified even when their inferred type matches the call context.
+  if (context.importBindings) {
+    const binding = context.importBindings.get(expr.name);
+    if (binding) {
+      if (binding.kind === "value") {
+        return maybeMaterializeValueReference(
+          identifierExpression(`${binding.clrName}.${binding.member}`),
+          context
+        );
+      }
+      if (binding.kind === "type") {
+        return [
+          {
+            kind: "typeReferenceExpression",
+            type: binding.typeAst,
+          },
+          context,
+        ];
+      }
+      return [identifierExpression(binding.clrName), context];
+    }
+  }
+
   const contextualReturnStorageFallback =
     expectedType === undefined && context.returnType
       ? tryEmitStorageCompatibleIdentifier(expr, context, context.returnType)
@@ -335,32 +360,6 @@ export const emitIdentifier = (
       identifierExpression(remappedLocal),
       context
     );
-  }
-
-  // Check if this identifier is from an import
-  if (context.importBindings) {
-    const binding = context.importBindings.get(expr.name);
-    if (binding) {
-      // Imported identifier - always use fully-qualified reference
-      if (binding.kind === "value") {
-        // Value import with member - Container.member
-        return maybeMaterializeValueReference(
-          identifierExpression(`${binding.clrName}.${binding.member}`),
-          context
-        );
-      }
-      if (binding.kind === "type") {
-        return [
-          {
-            kind: "typeReferenceExpression",
-            type: binding.typeAst,
-          },
-          context,
-        ];
-      }
-      // Namespace import - use precomputed container name directly
-      return [identifierExpression(binding.clrName), context];
-    }
   }
 
   // Static module members (functions/fields) in the current file's container class.
