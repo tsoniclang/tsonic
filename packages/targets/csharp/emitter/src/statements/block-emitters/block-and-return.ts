@@ -18,6 +18,7 @@ import type {
   CSharpBlockStatementAst,
   CSharpExpressionAst,
   CSharpStatementAst,
+  CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import {
   expressionProducesAsyncWrapper,
@@ -52,6 +53,7 @@ import {
 import { sameTypeAstSurface } from "../../core/format/backend-ast/utils.js";
 import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-union-alias-identity.js";
 import { buildInvokedLambdaExpressionAst } from "../../expressions/invoked-lambda.js";
+import { adaptValueToExpectedTypeAst } from "../../expressions/expected-type-adaptation.js";
 
 const getBareTypeParameterName = (
   type: IrType | undefined,
@@ -198,6 +200,35 @@ const isStableNullishProbeAst = (ast: CSharpExpressionAst): boolean => {
       return true;
     case "parenthesizedExpression":
       return isStableNullishProbeAst(ast.expression);
+    default:
+      return false;
+  }
+};
+
+const isObjectTypeAst = (type: CSharpTypeAst): boolean => {
+  switch (type.kind) {
+    case "predefinedType":
+      return type.keyword === "object";
+    case "identifierType":
+      return (
+        type.name === "object" ||
+        type.name === "System.Object" ||
+        type.name === "global::System.Object"
+      );
+    case "nullableType":
+      return isObjectTypeAst(type.underlyingType);
+    default:
+      return false;
+  }
+};
+
+const isLeadingObjectBridgeCastAst = (ast: CSharpExpressionAst): boolean => {
+  switch (ast.kind) {
+    case "castExpression":
+      return isObjectTypeAst(ast.type);
+    case "parenthesizedExpression":
+    case "suppressNullableWarningExpression":
+      return isLeadingObjectBridgeCastAst(ast.expression);
     default:
       return false;
   }
@@ -504,9 +535,26 @@ export const emitReturnStatementAst = (
       context,
       returnExpectedType
     );
+    const expectedAdaptedReturn =
+      returnExpectedType && returnExpressionType
+        ? adaptValueToExpectedTypeAst({
+            valueAst: exprAst,
+            actualType: returnExpressionType,
+            context: newContext,
+            expectedType: returnExpectedType,
+          })
+        : undefined;
+    const expectedAdaptedReturnAst = expectedAdaptedReturn?.[0] ?? exprAst;
+    const expectedAdaptedReturnContext = expectedAdaptedReturn?.[1] ?? newContext;
     const emittedReturnType =
-      resolveDirectRuntimeCarrierType(exprAst, newContext) ??
-      resolveDirectValueSurfaceType(exprAst, newContext);
+      resolveDirectRuntimeCarrierType(
+        expectedAdaptedReturnAst,
+        expectedAdaptedReturnContext
+      ) ??
+      resolveDirectValueSurfaceType(
+        expectedAdaptedReturnAst,
+        expectedAdaptedReturnContext
+      );
     const returnTypeAlreadyMatches =
       returnExpectedType &&
       returnExpressionType &&
@@ -521,23 +569,26 @@ export const emitReturnStatementAst = (
       typeAlreadyMatchesReturnExpected(
         emittedReturnType,
         returnExpectedType,
-        newContext
+        expectedAdaptedReturnContext
       );
     const materializedReturn =
       returnExpectedType &&
       returnExpressionType &&
-      !returnTypeAlreadyMatches &&
-      !emittedReturnAlreadyMatches
+      !emittedReturnAlreadyMatches &&
+      (!returnTypeAlreadyMatches ||
+        emittedReturnType !== undefined ||
+        isLeadingObjectBridgeCastAst(expectedAdaptedReturnAst))
         ? tryBuildRuntimeMaterializationAst(
-            exprAst,
+            expectedAdaptedReturnAst,
             returnExpressionType,
             returnExpectedType,
-            newContext,
+            expectedAdaptedReturnContext,
             emitTypeAst
           )
         : undefined;
-    const rawReturnAst = materializedReturn?.[0] ?? exprAst;
-    const rawReturnContext = materializedReturn?.[1] ?? newContext;
+    const rawReturnAst = materializedReturn?.[0] ?? expectedAdaptedReturnAst;
+    const rawReturnContext =
+      materializedReturn?.[1] ?? expectedAdaptedReturnContext;
     const nullishPreservedReturn =
       returnExpressionType && effectiveReturnExpectedType
         ? tryPreserveNullishReturnAdaptationAst(

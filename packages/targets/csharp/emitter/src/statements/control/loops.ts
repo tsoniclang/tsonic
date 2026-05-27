@@ -20,7 +20,10 @@ import {
   registerForInKeySymbolTypes,
   registerForOfElementSymbolTypes,
 } from "../../core/semantic/symbol-types.js";
-import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
+import {
+  decimalIntegerLiteral,
+  identifierType,
+} from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpExpressionAst,
@@ -34,6 +37,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { isSystemArrayStorageType } from "../../core/semantic/broad-array-storage.js";
 import {
   detectCanonicalIntLoop,
   wrapInBlock,
@@ -45,6 +49,14 @@ const buildForOfSourceAst = (
   iterableType: ReturnType<typeof resolveEffectiveExpressionType> | undefined,
   context: EmitterContext
 ): CSharpExpressionAst => {
+  if (isSystemArrayStorageType(iterableType, context)) {
+    return {
+      kind: "castExpression",
+      type: identifierType("global::System.Array"),
+      expression: exprAst.kind === "castExpression" ? exprAst.expression : exprAst,
+    };
+  }
+
   const iterableShape = getIterableSourceShape(iterableType, context);
   if (!iterableShape || iterableShape.accessKind === "direct") {
     return exprAst;
@@ -340,10 +352,12 @@ export const emitForOfStatementAst = (
     ) ??
     resolveDirectStorageExpressionType(stmt.expression, exprAst, exprContext);
   const effectiveIterableStorageType =
-    (emittedIterableStorageType &&
-    deriveForOfElementType(emittedIterableStorageType, exprContext)
-      ? emittedIterableStorageType
-      : undefined) ?? iterableStorageType;
+    isSystemArrayStorageType(iterableStorageType, exprContext)
+      ? iterableStorageType
+      : ((emittedIterableStorageType &&
+          deriveForOfElementType(emittedIterableStorageType, exprContext)
+          ? emittedIterableStorageType
+          : undefined) ?? iterableStorageType);
   const outerNameMap = exprContext.localNameMap;
   const outerConditionAliases = exprContext.conditionAliases;
   const outerSemanticTypes = exprContext.localSemanticTypes;
@@ -355,13 +369,15 @@ export const emitForOfStatementAst = (
   };
 
   const loopElementSourceType =
-    emittedIterableStorageType &&
-    deriveForOfElementType(emittedIterableStorageType, loopContext)
-      ? emittedIterableStorageType
-      : directIterableStorageType &&
-          deriveForOfElementType(directIterableStorageType, loopContext)
-        ? directIterableStorageType
-        : iterableExpressionType;
+    isSystemArrayStorageType(iterableStorageType, loopContext)
+      ? iterableStorageType
+      : emittedIterableStorageType &&
+          deriveForOfElementType(emittedIterableStorageType, loopContext)
+        ? emittedIterableStorageType
+        : directIterableStorageType &&
+            deriveForOfElementType(directIterableStorageType, loopContext)
+          ? directIterableStorageType
+          : iterableExpressionType;
   const semanticElementType = deriveForOfElementType(
     loopElementSourceType,
     loopContext

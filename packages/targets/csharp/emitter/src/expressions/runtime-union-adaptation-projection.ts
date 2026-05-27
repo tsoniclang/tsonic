@@ -21,7 +21,11 @@ import {
   normalizeBroadObjectSinkType,
 } from "../core/semantic/broad-object-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
-import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
+import {
+  sameTypeAstSurface,
+  stableTypeKeyFromAst,
+  stripNullableTypeAst,
+} from "../core/format/backend-ast/utils.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   valueAst: CSharpExpressionAst
@@ -234,13 +238,24 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       if (narrowed?.kind === "runtimeSubset") {
         return new Set(narrowed.runtimeMemberNs);
       }
-      if (!narrowed?.type) {
+      const narrowedMatchTypes = [
+        narrowed?.type,
+        narrowed?.kind === "expr" ? narrowed.storageType : undefined,
+        narrowed?.kind === "expr" ? narrowed.carrierType : undefined,
+      ].filter((type): type is IrType => type !== undefined);
+      if (narrowedMatchTypes.length === 0) {
         return undefined;
       }
       const matchingMemberNs = effectiveMembers.flatMap((member, index) => {
         if (
-          runtimeUnionAliasReferencesMatch(member, narrowed.type!, context) ||
-          areIrTypesEquivalent(member, narrowed.type!, context)
+          narrowedMatchTypes.some(
+            (narrowedMatchType) =>
+              runtimeUnionAliasReferencesMatch(
+                member,
+                narrowedMatchType,
+                context
+              ) || areIrTypesEquivalent(member, narrowedMatchType, context)
+          )
         ) {
           return [candidateMemberNs?.[index] ?? index + 1];
         }
@@ -250,7 +265,6 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
         ? new Set(matchingMemberNs)
         : undefined;
     })();
-
   const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
     projectionExpectedType,
     expectedLayoutContext
@@ -261,12 +275,18 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = actualTypeContext;
   let sawMatch = false;
+  let matchedProjectionCount = 0;
   let directProjectionMemberN: number | undefined;
   let directProjectionCount = 0;
 
   for (let index = 0; index < effectiveMembers.length; index += 1) {
     const actualMember = effectiveMembers[index];
     if (!actualMember) continue;
+    const actualLayoutIndex = restrictedIndices?.[index] ?? index;
+    const actualMemberTypeAst =
+      actualLayoutIndex !== undefined
+        ? actualLayout.memberTypeAsts[actualLayoutIndex]
+        : undefined;
 
     const sourceMemberN = candidateMemberNs?.[index] ?? index + 1;
     const parameterName = `__tsonic_union_member_${index + 1}`;
@@ -275,10 +295,11 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       identifier: parameterName,
     };
 
-    let body: CSharpExpressionAst = buildInvalidRuntimeUnionCastExpression(
+    const invalidBody = buildInvalidRuntimeUnionCastExpression(
       actualMember,
       projectionExpectedType
     );
+    let body: CSharpExpressionAst = invalidBody;
 
     if (
       effectiveSelectedSourceMemberNs &&
@@ -304,6 +325,15 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       sawMatch = true;
     } else if (
       areIrTypesEquivalent(actualMember, projectionExpectedType, currentContext)
+    ) {
+      body = parameterExpr;
+      sawMatch = true;
+    } else if (
+      actualMemberTypeAst &&
+      sameTypeAstSurface(
+        stripNullableTypeAst(actualMemberTypeAst),
+        stripNullableTypeAst(expectedTypeAst)
+      )
     ) {
       body = parameterExpr;
       sawMatch = true;
@@ -362,7 +392,9 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       directProjectionMemberN = sourceMemberN;
       directProjectionCount += 1;
     }
-
+    if (body !== invalidBody) {
+      matchedProjectionCount += 1;
+    }
     lambdaArgs.push({
       kind: "lambdaExpression",
       isAsync: false,
@@ -378,7 +410,10 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
   if (
     (effectiveSelectedSourceMemberNs?.size === 1 ||
       (!effectiveSelectedSourceMemberNs &&
-        projectionExpectedType.kind === "referenceType")) &&
+        (projectionExpectedType.kind === "referenceType" ||
+          (projectionExpectedType.kind === "arrayType" &&
+            normalizedExpected.kind === "arrayType" &&
+            matchedProjectionCount === 1)))) &&
     directProjectionCount === 1 &&
     directProjectionMemberN !== undefined &&
     (!effectiveSelectedSourceMemberNs ||

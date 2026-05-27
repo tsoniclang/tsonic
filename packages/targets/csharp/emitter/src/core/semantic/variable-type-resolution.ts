@@ -31,6 +31,7 @@ import { applyConditionBranchNarrowing } from "./condition-branch-narrowing.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { isAssignableToType } from "./type-compatibility.js";
 import { getReferenceDeterministicIdentityKey } from "./clr-type-identity.js";
+import { resolveBroadArrayAssertionStorageType } from "./broad-array-storage.js";
 
 /**
  * Resolve the target type from an `asinterface` expression, unwrapping
@@ -549,6 +550,18 @@ export const resolveLocalStorageType = (
   ) {
     const assertionStorageType =
       decl.type ?? semanticInitializerType ?? decl.initializer.targetType;
+    const preservedBroadArrayStorageType =
+      resolveBroadArrayAssertionStorageType(
+        assertionStorageType,
+        initializerStorageType,
+        context,
+        resolveEffectiveExpressionType(decl.initializer.expression, context) ??
+          decl.initializer.expression.inferredType
+      );
+    if (preservedBroadArrayStorageType) {
+      return preservedBroadArrayStorageType;
+    }
+
     return (
       normalizeRuntimeStorageType(assertionStorageType, context) ??
       assertionStorageType

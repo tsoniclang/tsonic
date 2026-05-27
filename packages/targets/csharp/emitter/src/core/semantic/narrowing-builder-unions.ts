@@ -51,6 +51,9 @@ import {
 } from "./narrowing-builder-core.js";
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { isBroadObjectSlotType } from "./broad-object-types.js";
+import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
+import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
+import { matchesExpectedEmissionType } from "./expected-type-matching.js";
 
 const getNullableValueStorageProjectionSourceType = (
   targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
@@ -93,6 +96,55 @@ const getNullableValueStorageProjectionSourceType = (
     : undefined;
 };
 
+const runtimeUnionLayoutsMatch = (
+  left: IrType,
+  right: IrType,
+  context: EmitterContext
+): boolean => {
+  const [leftLayout, leftContext] = buildRuntimeUnionLayout(
+    left,
+    context,
+    emitTypeAst
+  );
+  if (!leftLayout) {
+    return false;
+  }
+
+  const [rightLayout] = buildRuntimeUnionLayout(right, leftContext, emitTypeAst);
+  return (
+    !!rightLayout &&
+    leftLayout.carrierFullName === rightLayout.carrierFullName &&
+    leftLayout.carrierTypeArgumentAsts.length ===
+      rightLayout.carrierTypeArgumentAsts.length &&
+    leftLayout.carrierTypeArgumentAsts.every((typeArgument, index) => {
+      const rightTypeArgument = rightLayout.carrierTypeArgumentAsts[index];
+      return (
+        rightTypeArgument !== undefined &&
+        stableTypeKeyFromAst(typeArgument) ===
+          stableTypeKeyFromAst(rightTypeArgument)
+      );
+    })
+  );
+};
+
+const selectExactCarrierPreservingNarrowedType = (
+  memberType: IrType,
+  narrowedType: IrType,
+  context: EmitterContext
+): IrType =>
+  willCarryAsRuntimeUnion(memberType, context) &&
+  willCarryAsRuntimeUnion(narrowedType, context) &&
+  (runtimeUnionAliasReferencesMatch(memberType, narrowedType, context) ||
+    runtimeUnionLayoutsMatch(memberType, narrowedType, context) ||
+    matchesExpectedEmissionType(memberType, narrowedType, context) ||
+    areIrTypesEquivalent(
+      resolveTypeAlias(memberType, context),
+      resolveTypeAlias(narrowedType, context),
+      context
+    ))
+    ? memberType
+    : narrowedType;
+
 export const buildRuntimeUnionComplementBinding = (
   receiver: CSharpExpressionAst,
   runtimeUnionFrame: RuntimeUnionFrame,
@@ -133,10 +185,15 @@ export const buildRuntimeUnionComplementBinding = (
       receiver,
       remaining.runtimeMemberN
     );
+    const narrowedBindingType = selectExactCarrierPreservingNarrowedType(
+      remaining.memberType,
+      narrowedType,
+      context
+    );
     if (!hasRuntimeNullish) {
       return buildProjectedExprBinding(
         narrowedExpr,
-        narrowedType,
+        narrowedBindingType,
         carrierSourceType,
         toReceiverAst(receiver),
         undefined,
@@ -296,20 +353,31 @@ export const buildRuntimeUnionSubsetBinding = (
       narrowedReceiverAst,
       selected.runtimeMemberN
     );
-    const nestedMaterialization = tryBuildRuntimeMaterializationAst(
-      selectedMemberAst,
-      selected.memberType,
-      narrowedType,
-      narrowedReceiverContext,
-      emitTypeAst
-    );
+    const selectedMemberPreservesNarrowedCarrier =
+      selectExactCarrierPreservingNarrowedType(
+        selected.memberType,
+        narrowedType,
+        narrowedReceiverContext
+      ) === selected.memberType;
+    const narrowedBindingType = selectedMemberPreservesNarrowedCarrier
+      ? selected.memberType
+      : narrowedType;
+    const nestedMaterialization = selectedMemberPreservesNarrowedCarrier
+      ? undefined
+      : tryBuildRuntimeMaterializationAst(
+          selectedMemberAst,
+          selected.memberType,
+          narrowedType,
+          narrowedReceiverContext,
+          emitTypeAst
+        );
     const narrowedExprAst = nestedMaterialization?.[0] ?? selectedMemberAst;
     const narrowedExprContext =
       nestedMaterialization?.[1] ?? narrowedReceiverContext;
     return [
       buildProjectedExprBinding(
         narrowedExprAst,
-        narrowedType,
+        narrowedBindingType,
         narrowedReceiverSourceType,
         narrowedReceiverAst,
         undefined,
@@ -458,13 +526,15 @@ export const applyDirectTypeNarrowing = (
       narrowedType,
       context
     );
+  const existingBindingType = existingBinding?.type;
   if (
-    existingBinding?.type &&
-    areIrTypesEquivalent(
-      resolveTypeAlias(existingBinding.type, context),
+    existingBindingType &&
+    (areIrTypesEquivalent(
+      resolveTypeAlias(existingBindingType, context),
       resolveTypeAlias(narrowedType, context),
       context
-    ) &&
+    ) ||
+      matchesExpectedEmissionType(existingBindingType, narrowedType, context)) &&
     !nullableValueStorageProjectionSourceType &&
     !preexistingStorageNeedsMaterializedBinding
   ) {

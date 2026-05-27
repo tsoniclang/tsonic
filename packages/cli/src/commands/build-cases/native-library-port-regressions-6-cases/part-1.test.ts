@@ -434,7 +434,10 @@ describe("build command (native library port regressions)", function () {
         "global::Tsonic.Internal.Union<global::Tsonic.Internal.Union<global::Tsonic.Internal.Union<object[]"
       );
       expect(tree).to.not.include("var items = value;");
-      expect(tree).to.include("object?[] items = (object?[])value;");
+      expect(tree).to.include(
+        "global::System.Array items = (global::System.Array)value;"
+      );
+      expect(tree).to.include("items.GetValue(index)");
       expect(tree).to.match(
         /class MemoryResponse\s*:\s*global::.*TransportResponse/
       );

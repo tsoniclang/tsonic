@@ -101,14 +101,15 @@ export const createUnsupportedCapabilityDiagnostic = (
   capabilityName: FeatureKey,
   fallbackCode: Diagnostic["code"],
   fallbackMessage: string,
-  fallbackRemediation: string
+  fallbackRemediation: string,
+  location: SourceLocation = moduleLocation(ctx)
 ): Diagnostic => {
   const backendCapability = capability(ctx.backendCapabilities, capabilityName);
   return createDiagnostic(
     backendCapability?.diagnosticCode ?? fallbackCode,
     "error",
     backendCapability?.diagnosticMessage ?? fallbackMessage,
-    moduleLocation(ctx),
+    location,
     backendCapability?.remediation ?? fallbackRemediation
   );
 };

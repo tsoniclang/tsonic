@@ -570,7 +570,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.not.include(".Value");
       expect(csharp).to.include(
-        "return ((global::System.Object)(lengthOrEncoding)) == null || ((global::System.Object)(lengthOrEncoding)) != null && lengthOrEncoding.Is2() ? 0 : lengthOrEncoding.As1();"
+        "return ((global::System.Object)(lengthOrEncoding)) == null || ((global::System.Object)(lengthOrEncoding)) != null && lengthOrEncoding.Is2() ? 0 : (lengthOrEncoding.As1());"
       );
     });
 

@@ -56,6 +56,7 @@ import {
 } from "./expected-type-adaptation.js";
 import { contextSurfaceIncludesJs } from "../types.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
+import { isSystemArrayStorageType } from "../core/semantic/broad-array-storage.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst
@@ -585,6 +586,34 @@ export const emitComputedAccess = (
     });
     return adapted ?? [valueAst, nextContext];
   };
+  const directStorageObjectAst = resolveDirectStorageCompatibleExpressionAst({
+    expr: expr.object,
+    context: receiverResolutionContext,
+  });
+  const directStorageObjectType = directStorageObjectAst
+    ? resolveDirectStorageCompatibleExpressionType({
+        expr: expr.object,
+        valueAst: directStorageObjectAst,
+        context: finalContext,
+      })
+    : undefined;
+  if (
+    directStorageObjectAst &&
+    isSystemArrayStorageType(directStorageObjectType, context)
+  ) {
+    return adaptBroadArrayElementRead(
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: directStorageObjectAst,
+          memberName: "GetValue",
+        },
+        arguments: [propAst],
+      },
+      finalContext
+    );
+  }
   const effectiveObjectAst = preservedReceiver?.[0] ?? objectAst;
   const effectiveObjectContext =
     preservedReceiver?.[1] ?? receiverResolutionContext;

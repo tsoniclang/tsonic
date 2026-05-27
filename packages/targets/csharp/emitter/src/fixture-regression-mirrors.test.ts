@@ -342,10 +342,8 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("fromArray((double[])(value.As1()));");
-      expect(csharp).to.include(
-        "fromUint8Array((global::js.Uint8Array)(value.As2()));"
-      );
+      expect(csharp).to.match(/fromArray\(\(+value\.As1\(\)\)+\);/);
+      expect(csharp).to.match(/fromUint8Array\(\(+value\.As2\(\)\)+\);/);
       expect(csharp).to.not.include(
         '.Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union ref:global::Test.Buffer:: to arr:prim:number:tuple::rest:none"), __tsonic_union_member_3 =>'
       );

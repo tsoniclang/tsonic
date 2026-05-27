@@ -165,7 +165,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include('payload.email = payloadObject["email"];');
     });
 
-    it("rejects broad unknown Array.isArray narrowing before emission", () => {
+    it("emits broad unknown Array.isArray narrowing through System.Array storage", () => {
       const source = `
 
         declare function parseJsonValueText(value: string): unknown;
@@ -187,11 +187,14 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() =>
-        compileToCSharp(source, "/test/test.ts", {
-          surface: "@tsonic/js",
-        })
-      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("if (!(parsed is global::System.Array))");
+      expect(csharp).to.include("for (int i = 0; i < parsed.Length; i++)");
+      expect(csharp).to.include("var item = parsed.GetValue(i);");
+      expect(csharp).to.not.include("ArrayInterop.WrapArray((object?)parsed)");
+      expect(csharp).to.not.include("((object?)parsed)[i]");
     });
 
     it("compares optional runtime-union member reads to literals without Match projections", () => {
@@ -2972,6 +2975,26 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("new global::System.InvalidCastException");
     });
 
+    it("preserves whole conditional aliases when narrowed branches are assignable to them", () => {
+      const csharp = compileToCSharp(`
+        class Router {}
+
+        type PathSpec = string | RegExp | readonly PathSpec[] | null | undefined;
+        type RequestHandler = (request: string) => void;
+        type MiddlewareLike = RequestHandler | Router | readonly MiddlewareLike[];
+
+        declare function isPathSpec(value: unknown): value is PathSpec;
+
+        export function run(first: PathSpec | MiddlewareLike): PathSpec {
+          return isPathSpec(first) ? first : "/";
+        }
+      `);
+
+      expect(csharp).to.include("return first.Is");
+      expect(csharp).to.match(/global::Test\.PathSpec\.From[0-9]+\("\/"\)/);
+      expect(csharp).not.to.include("Union<string, global::Test.PathSpec>");
+    });
+
     it("narrows predicate-guarded source unions before exact branch-local call arguments", () => {
       const csharp = compileToCSharp(`
         class Router {}
@@ -3053,10 +3076,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("return leftValue == rightValue;");
     });
 
-    it("rejects concrete array assertions after broad Array.isArray guards", () => {
-      expect(() =>
-        compileToCSharp(
-          `
+    it("emits explicit concrete array assertions after broad Array.isArray guards as authored casts", () => {
+      const csharp = compileToCSharp(
+        `
 
             export function run(value: unknown): string[] | undefined {
               if (Array.isArray(value)) {
@@ -3068,10 +3090,13 @@ describe("End-to-End Integration", () => {
               return undefined;
             }
           `,
-          "/test/test.ts",
-          { surface: "@tsonic/js" }
-        )
-      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("if (value is global::System.Array)");
+      expect(csharp).to.include("string[] list = (string[])value;");
+      expect(csharp).to.include("return list;");
     });
 
     it("casts concrete union Array.isArray-narrowed storage directly for concrete array assertions", () => {
@@ -4654,7 +4679,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("x.Is1()");
       expect(csharp).to.include("x.Is2()");
-      expect(csharp).to.include("y = b(x.As2());");
+      expect(csharp).to.include("y = b((x.As2()));");
       expect(csharp).not.to.include("y = b((string)x);");
     });
 
@@ -4680,7 +4705,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("acceptBacklog(hostname.As2());");
+      expect(csharp).to.include("acceptBacklog((hostname.As2()));");
       expect(csharp).not.to.include(
         "global::Tsonic.Internal.Union<global::System.Action, double>.From2((hostname.As2()))"
       );

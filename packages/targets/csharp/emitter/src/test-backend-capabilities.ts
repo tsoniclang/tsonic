@@ -20,7 +20,6 @@ const unsupportedCapabilities = new Set<FeatureKey>([
   "broad-json-targets",
   "broad-json-stringify-source",
   "dynamic-function-arity-introspection",
-  "broad-array-narrowing",
 ]);
 
 export const CSHARP_TEST_CAPABILITIES: BackendCapabilityManifest = new Map(

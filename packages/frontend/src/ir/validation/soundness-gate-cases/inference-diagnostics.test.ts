@@ -129,5 +129,50 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.false;
       expect(result.diagnostics.some((d) => d.code === "TSN5202")).to.be.true;
     });
+
+    it("reports unrepresentable expression-owned types at the expression source span", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/checker.ts",
+        namespace: "Test",
+        className: "checker",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "typeAssertion",
+              expression: {
+                kind: "literal",
+                value: 1,
+                raw: "1",
+                inferredType: { kind: "primitiveType", name: "number" },
+              },
+              targetType: { kind: "unknownType" },
+              inferredType: { kind: "unknownType" },
+              sourceSpan: {
+                file: "/src/checker.ts",
+                line: 128,
+                column: 17,
+                length: 24,
+              },
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+      const diagnostic = result.diagnostics.find(
+        (candidate) => candidate.code === "TSN7414"
+      );
+
+      expect(result.ok).to.equal(false);
+      expect(diagnostic?.location).to.deep.include({
+        line: 128,
+        column: 17,
+      });
+    });
   });
 });

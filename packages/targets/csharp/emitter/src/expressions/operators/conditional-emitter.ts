@@ -18,7 +18,10 @@ import { applyConditionBranchNarrowing } from "../../core/semantic/condition-bra
 import { tryResolveTernaryGuard } from "../../core/semantic/ternary-guards.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
-import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
+import {
+  matchesExpectedEmissionType,
+  matchesSemanticExpectedType,
+} from "../../core/semantic/expected-type-matching.js";
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import {
   buildRuntimeUnionLayout,
@@ -39,6 +42,7 @@ import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { stableTypeKeyFromAst } from "../../core/format/backend-ast/utils.js";
 import { maybeCastNumericToExpectedJsNumberAst } from "../post-emission-adaptation.js";
+import { adaptValueToExpectedTypeAst } from "../expected-type-adaptation.js";
 
 const NUMERIC_CLR_NAMES = new Set([
   "System.SByte",
@@ -375,6 +379,31 @@ export const emitConditional = (
       targetContext,
     ];
   };
+  const adaptBranchToExpectedType = (
+    branchExpr: IrExpression,
+    branchAst: CSharpExpressionAst,
+    branchContext: EmitterContext,
+    branchExpectedType: IrType | undefined
+  ): [CSharpExpressionAst, EmitterContext] => {
+    if (!branchExpectedType) {
+      return [branchAst, branchContext];
+    }
+
+    const branchType =
+      resolveBranchType(branchExpr, branchContext) ?? branchExpr.inferredType;
+    if (!branchType) {
+      return [branchAst, branchContext];
+    }
+
+    return (
+      adaptValueToExpectedTypeAst({
+        valueAst: branchAst,
+        actualType: branchType,
+        context: branchContext,
+        expectedType: branchExpectedType,
+      }) ?? [branchAst, branchContext]
+    );
+  };
 
   const deriveBranchExpectedType = (
     whenTrueContext: EmitterContext,
@@ -476,6 +505,38 @@ export const emitConditional = (
       return undefined;
     })();
     let commonBranchType: IrType | undefined;
+    const branchTypeFitsDirectly = (
+      actual: IrType,
+      target: IrType
+    ): boolean =>
+      areIrTypesEquivalent(actual, target, context) ||
+      isAssignableToType(actual, target, context) ||
+      matchesSemanticExpectedType(actual, target, context) ||
+      matchesExpectedEmissionType(actual, target, context);
+    const branchTypeFits = (actual: IrType, target: IrType): boolean => {
+      if (branchTypeFitsDirectly(actual, target)) {
+        return true;
+      }
+
+      const resolvedTarget = resolveTypeAlias(stripNullish(target), context);
+      if (resolvedTarget.kind !== "unionType") {
+        return false;
+      }
+
+      return resolvedTarget.types.some(
+        (member) =>
+          member.kind !== "voidType" &&
+          !(
+            member.kind === "primitiveType" &&
+            (member.name === "null" || member.name === "undefined")
+          ) &&
+          !(
+            member.kind === "literalType" &&
+            (member.value === null || member.value === undefined)
+          ) &&
+          branchTypeFitsDirectly(actual, member)
+      );
+    };
 
     if (
       trueType &&
@@ -483,10 +544,24 @@ export const emitConditional = (
       areIrTypesEquivalent(trueType, falseType, context)
     ) {
       commonBranchType = trueType;
+    } else if (trueType && falseType && branchTypeFits(falseType, trueType)) {
+      commonBranchType = trueType;
+    } else if (trueType && falseType && branchTypeFits(trueType, falseType)) {
+      commonBranchType = falseType;
+    } else if (
+      trueType &&
+      falseType &&
+      conditionalType &&
+      (areIrTypesEquivalent(trueType, conditionalType, context) ||
+        branchTypeFits(trueType, conditionalType)) &&
+      (areIrTypesEquivalent(falseType, conditionalType, context) ||
+        branchTypeFits(falseType, conditionalType))
+    ) {
+      commonBranchType = conditionalType;
     } else if (trueType && falseType) {
-      if (isAssignableToType(trueType, falseType, context)) {
+      if (branchTypeFits(trueType, falseType)) {
         commonBranchType = falseType;
-      } else if (isAssignableToType(falseType, trueType, context)) {
+      } else if (branchTypeFits(falseType, trueType)) {
         commonBranchType = trueType;
       } else {
         commonBranchType = normalizedUnionType([trueType, falseType]);
@@ -695,6 +770,12 @@ export const emitConditional = (
         numericTrueContext,
         branchExpectedType
       );
+    const [adaptedTrueAst, adaptedTrueContext] = adaptBranchToExpectedType(
+      expr.whenTrue,
+      finalTrueAst,
+      finalTrueContext,
+      branchExpectedType
+    );
 
     const [rawFalseAst, rawFalseContext] =
       polarity === "negative"
@@ -730,17 +811,23 @@ export const emitConditional = (
         numericFalseContext,
         branchExpectedType
       );
+    const [adaptedFalseAst, adaptedFalseContext] = adaptBranchToExpectedType(
+      expr.whenFalse,
+      finalFalseAst,
+      finalFalseContext,
+      branchExpectedType
+    );
 
     // Return context WITHOUT narrowing (don't leak)
     const finalContext: EmitterContext = {
-      ...finalFalseContext,
+      ...adaptedFalseContext,
       tempVarId: Math.max(
-        finalTrueContext.tempVarId ?? 0,
-        finalFalseContext.tempVarId ?? 0
+        adaptedTrueContext.tempVarId ?? 0,
+        adaptedFalseContext.tempVarId ?? 0
       ),
       usings: new Set([
-        ...(finalTrueContext.usings ?? []),
-        ...(finalFalseContext.usings ?? []),
+        ...(adaptedTrueContext.usings ?? []),
+        ...(adaptedFalseContext.usings ?? []),
       ]),
       narrowedBindings: context.narrowedBindings,
     };
@@ -749,8 +836,8 @@ export const emitConditional = (
       {
         kind: "conditionalExpression",
         condition: condAst,
-        whenTrue: finalTrueAst,
-        whenFalse: finalFalseAst,
+        whenTrue: adaptedTrueAst,
+        whenFalse: adaptedFalseAst,
       },
       finalContext,
     ];
@@ -813,6 +900,12 @@ export const emitConditional = (
       numericTrueContext,
       branchExpectedType
     );
+  const [adaptedTrueAst, adaptedTrueContext] = adaptBranchToExpectedType(
+    expr.whenTrue,
+    finalTrueAst,
+    finalTrueContext,
+    branchExpectedType
+  );
   const [rawFalseAst, rawFalseContext] = emitExpressionAst(
     expr.whenFalse,
     falsyBranchContext,
@@ -839,16 +932,22 @@ export const emitConditional = (
       numericFalseContext,
       branchExpectedType
     );
+  const [adaptedFalseAst, adaptedFalseContext] = adaptBranchToExpectedType(
+    expr.whenFalse,
+    finalFalseAst,
+    finalFalseContext,
+    branchExpectedType
+  );
 
   const finalContext: EmitterContext = {
-    ...finalFalseContext,
+    ...adaptedFalseContext,
     tempVarId: Math.max(
-      finalTrueContext.tempVarId ?? 0,
-      finalFalseContext.tempVarId ?? 0
+      adaptedTrueContext.tempVarId ?? 0,
+      adaptedFalseContext.tempVarId ?? 0
     ),
     usings: new Set([
-      ...(finalTrueContext.usings ?? []),
-      ...(finalFalseContext.usings ?? []),
+      ...(adaptedTrueContext.usings ?? []),
+      ...(adaptedFalseContext.usings ?? []),
     ]),
     narrowedBindings: condContext.narrowedBindings,
   };
@@ -857,8 +956,8 @@ export const emitConditional = (
     {
       kind: "conditionalExpression",
       condition: condAst,
-      whenTrue: finalTrueAst,
-      whenFalse: finalFalseAst,
+      whenTrue: adaptedTrueAst,
+      whenFalse: adaptedFalseAst,
     },
     finalContext,
   ];

@@ -1422,6 +1422,124 @@ describe("expected-type-adaptation", () => {
     );
   });
 
+  it("passes nested runtime-union alias projections without reifying an already materialized carrier", () => {
+    const runtimeUnionRegistry = createRuntimeUnionRegistry();
+    const elementType: IrType = {
+      kind: "typeParameterType",
+      name: "TElement",
+    };
+    const innerCarrier = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        { kind: "arrayType", elementType },
+        {
+          kind: "referenceType",
+          name: "IEnumerable",
+          providerQualifiedName: "System.Collections.Generic.IEnumerable",
+          typeArguments: [{ kind: "primitiveType", name: "number" }],
+        },
+      ]),
+      {
+        aliasName: "InnerInput",
+        fullyQualifiedName: "Test.InnerInput",
+        typeParameters: ["TElement"],
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+    const innerReference: IrType = {
+      kind: "referenceType",
+      name: "InnerInput",
+      providerQualifiedName: "Test.InnerInput",
+      typeId: testTypeId("Test", "Test.InnerInput", "InnerInput"),
+      typeArguments: [elementType],
+    };
+    const outerCarrier = stampRuntimeUnionAliasCarrier(
+      normalizedUnionType([
+        { kind: "primitiveType", name: "int" },
+        innerReference,
+      ]),
+      {
+        aliasName: "OuterInput",
+        fullyQualifiedName: "Test.OuterInput",
+        typeParameters: ["TElement"],
+      }
+    ) as Extract<IrType, { kind: "unionType" }>;
+    const outerReference: IrType = {
+      kind: "referenceType",
+      name: "OuterInput",
+      providerQualifiedName: "Test.OuterInput",
+      typeId: testTypeId("Test", "Test.OuterInput", "OuterInput"),
+      typeArguments: [elementType],
+    };
+
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        runtimeUnionRegistry,
+      }),
+      moduleNamespace: "Test",
+      localTypes: new Map([
+        [
+          "InnerInput",
+          {
+            kind: "typeAlias" as const,
+            isExported: true,
+            typeParameters: ["TElement"],
+            type: innerCarrier,
+          },
+        ],
+        [
+          "OuterInput",
+          {
+            kind: "typeAlias" as const,
+            isExported: true,
+            typeParameters: ["TElement"],
+            type: outerCarrier,
+          },
+        ],
+      ]),
+      publicLocalTypes: new Set(["InnerInput", "OuterInput"]),
+      localSemanticTypes: semanticTypeMap([["value", outerReference]]),
+      typeParameters: new Set(["TElement"]),
+    };
+
+    const result = adaptValueToExpectedTypeAst({
+      valueAst: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: identifierExpression("value"),
+          memberName: "As2",
+        },
+        arguments: [],
+      },
+      actualType: outerReference,
+      context,
+      expectedType: innerReference,
+      allowUnionNarrowing: false,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(printExpression(result![0])).to.equal("value.As2()");
+
+    const resolvedAliasResult = adaptValueToExpectedTypeAst({
+      valueAst: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: identifierExpression("value"),
+          memberName: "As2",
+        },
+        arguments: [],
+      },
+      actualType: innerCarrier,
+      context,
+      expectedType: innerReference,
+      allowUnionNarrowing: false,
+    });
+
+    expect(resolvedAliasResult).to.not.equal(undefined);
+    expect(printExpression(resolvedAliasResult![0])).to.equal("value.As2()");
+  });
+
   it("does not cast unproven JS numeric expressions into integral expected slots", () => {
     const context = createContext({
       rootNamespace: "Test",

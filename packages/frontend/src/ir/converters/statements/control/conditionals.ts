@@ -7,6 +7,7 @@
 import * as ts from "typescript";
 import {
   IrBranchNarrowing,
+  IrExpression,
   IrStatement,
   IrIfStatement,
   IrSwitchStatement,
@@ -40,11 +41,10 @@ const convertBranchNarrowings = (
       continue;
     }
 
-    const targetExpr = convertExpression(narrowing.targetNode, ctx, undefined);
-    if (
-      targetExpr.kind !== "identifier" &&
-      targetExpr.kind !== "memberAccess"
-    ) {
+    const targetExpr = unwrapBranchNarrowingTarget(
+      convertExpression(narrowing.targetNode, ctx, undefined)
+    );
+    if (!targetExpr) {
       continue;
     }
 
@@ -56,6 +56,22 @@ const convertBranchNarrowings = (
   }
 
   return converted;
+};
+
+const unwrapBranchNarrowingTarget = (
+  expression: IrExpression
+): IrBranchNarrowing["targetExpr"] | undefined => {
+  let current = expression;
+  while (
+    current.kind === "typeAssertion" ||
+    current.kind === "numericNarrowing"
+  ) {
+    current = current.expression;
+  }
+
+  return current.kind === "identifier" || current.kind === "memberAccess"
+    ? current
+    : undefined;
 };
 
 /**

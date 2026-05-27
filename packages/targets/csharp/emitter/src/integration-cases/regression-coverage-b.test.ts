@@ -45,7 +45,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("return dims;");
     });
 
-    it("rejects Array.isArray-narrowed unknown locals before array storage declarations", () => {
+    it("preserves System.Array storage for Array.isArray-narrowed unknown locals", () => {
       const source = `
         export function parseJsonStringArray(value: unknown): string[] | undefined {
           if (!Array.isArray(value)) return undefined;
@@ -59,14 +59,20 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() =>
-        compileToCSharp(source, "/test/test.ts", {
-          surface: "@tsonic/js",
-        })
-      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include(
+        "global::System.Array values = (global::System.Array)value;"
+      );
+      expect(csharp).to.include(
+        "var current = (object?)values.GetValue(i);"
+      );
+      expect(csharp).to.not.include("object?[] values =");
+      expect(csharp).to.not.include("(object?[])value");
     });
 
-    it("rejects broad array assertions after Array.isArray fallthrough guards", () => {
+    it("emits broad array assertions after Array.isArray fallthrough guards as System.Array reads", () => {
       const source = `
         export function firstDefined(value: unknown): boolean {
           if (!Array.isArray(value)) {
@@ -77,11 +83,15 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() =>
-        compileToCSharp(source, "/test/test.ts", {
-          surface: "@tsonic/js",
-        })
-      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("value is global::System.Array");
+      expect(csharp).to.include("((global::System.Array)value).Length > 0");
+      expect(csharp).to.include(
+        "(object?)((global::System.Array)value).GetValue(0) != null"
+      );
+      expect(csharp).to.not.include("(object?[])value");
     });
 
     it("uses narrowed array storage for JS array wrapper member calls after Array.isArray fallthrough guards", () => {
@@ -159,7 +169,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("return (double)left == (double)right;");
     });
 
-    it("rejects broad array assertions inside nested callbacks", () => {
+    it("keeps broad Array.isArray storage through nested callback reads", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
 
@@ -180,14 +190,20 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() =>
-        compileToCSharp(source, "/test/test.ts", {
-          surface: "@tsonic/js",
-        })
-      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include(
+        "(int index) => (object?)((global::System.Array)left).GetValue(index)"
+      );
+      expect(csharp).to.include(
+        "(int index) => (object?)((global::System.Array)right).GetValue(index)"
+      );
+      expect(csharp).to.not.include("(object?[])left");
+      expect(csharp).to.not.include("(object?[])right");
     });
 
-    it("rejects broad Array.isArray boolean alias gates", () => {
+    it("keeps broad Array.isArray storage through boolean alias gates", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
 
@@ -222,14 +238,22 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() =>
-        compileToCSharp(source, "/test/test.ts", {
-          surface: "@tsonic/js",
-        })
-      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("var leftIsArray = left is global::System.Array;");
+      expect(csharp).to.include(
+        "((global::System.Array)left).Length"
+      );
+      expect(csharp).to.include(
+        "(int index) => (object?)((global::System.Array)left).GetValue(index)"
+      );
+      expect(csharp).to.include(
+        "(int index) => (object?)((global::System.Array)right).GetValue(index)"
+      );
     });
 
-    it("rejects broad bound Array.isArray boolean alias gates", () => {
+    it("keeps broad Array.isArray storage through bound boolean alias gates", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
 
@@ -264,14 +288,22 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() =>
-        compileToCSharp(source, "/test/assert-module.ts", {
-          surface: "@tsonic/js",
-        })
-      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+      const csharp = compileToCSharp(source, "/test/assert-module.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("var leftIsArray = left is global::System.Array;");
+      expect(csharp).to.include(
+        "((global::System.Array)left).Length"
+      );
+      expect(csharp).to.include(
+        "(int index) => (object?)((global::System.Array)left).GetValue(index)"
+      );
+      expect(csharp).to.include(
+        "(int index) => (object?)((global::System.Array)right).GetValue(index)"
+      );
     });
 
-    it("rejects Object.entries Array.isArray fallthrough assertions over broad values", () => {
+    it("keeps Object.entries Array.isArray fallthrough assertions on System.Array storage", () => {
       const source = `
         export function parse(root: unknown): number {
           if (root === null || typeof root !== "object" || Array.isArray(root)) {
@@ -293,11 +325,15 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      expect(() =>
-        compileToCSharp(source, "/test/test.ts", {
-          surface: "@tsonic/js",
-        })
-      ).to.throw(/Array\.isArray cannot narrow a broad runtime value/);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("value is global::System.Array");
+      expect(csharp).to.include(
+        "global::System.Array mountsValue = (global::System.Array)value;"
+      );
+      expect(csharp).to.include("return mountsValue.Length;");
+      expect(csharp).to.not.include("object?[] mountsValue");
     });
 
     it("keeps nullable reference assignments nominal after local null guards", () => {

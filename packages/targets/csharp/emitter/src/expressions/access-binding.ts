@@ -39,6 +39,7 @@ import { buildNativeArrayInteropWrapAst } from "./array-interop.js";
 import { tryEmitJsSurfaceArrayLikeLengthAccess } from "./access-length.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
 import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
+import { isSystemArrayStorageType } from "../core/semantic/broad-array-storage.js";
 import { getClrIdentityKey } from "../core/semantic/clr-type-identity.js";
 import {
   getSurfaceEmittedMemberName,
@@ -122,6 +123,27 @@ export const tryEmitMemberBindingAccess = (
     !!receiverType &&
     resolveTypeMemberKind(receiverType, sourcePropertyName, context) !==
       undefined;
+  if (
+    usage === "value" &&
+    readsArrayLength &&
+    isSystemArrayStorageType(directReceiverStorageType, context)
+  ) {
+    const [objectAst, withObject] = emitExpressionAst(
+      expr.object,
+      context,
+      directReceiverStorageType
+    );
+    return [
+      {
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: objectAst,
+        memberName: "Length",
+      },
+      withObject,
+    ];
+  }
   if (usage === "value" && readsArrayLength && directArrayLikeReceiver) {
     const [objectAst, withObject] = emitExpressionAst(expr.object, context);
     return tryEmitJsSurfaceArrayLikeLengthAccess(

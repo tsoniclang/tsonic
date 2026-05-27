@@ -1,4 +1,5 @@
 import { isKnownBuiltinReferenceType } from "./known-builtin-reference-types.js";
+import type { SourceLocation } from "../../types/diagnostic.js";
 import {
   createUnsupportedCapabilityDiagnostic,
   createDiagnostic,
@@ -21,6 +22,12 @@ type IntersectionRootKind =
   | "runtimeStorage"
   | "typeParameterConstraint"
   | "semanticMetadata";
+type TypeValidationOptions = {
+  readonly unknownRootKind?: UnknownRootKind;
+  readonly objectRootKind?: ObjectRootKind;
+  readonly intersectionRootKind?: IntersectionRootKind;
+  readonly diagnosticLocation?: SourceLocation;
+};
 
 const parameterPassingCapabilities = {
   out: "out-parameters",
@@ -78,15 +85,16 @@ const isArrayOverlayIntersectionType = (
   );
 };
 
+const typeDiagnosticLocation = (
+  ctx: ValidationContext,
+  options: TypeValidationOptions
+): SourceLocation => options.diagnosticLocation ?? moduleLocation(ctx);
+
 export const validateType = (
   type: IrType | undefined,
   ctx: ValidationContext,
   typeContext: string,
-  options: {
-    readonly unknownRootKind?: UnknownRootKind;
-    readonly objectRootKind?: ObjectRootKind;
-    readonly intersectionRootKind?: IntersectionRootKind;
-  } = {}
+  options: TypeValidationOptions = {}
 ): void => {
   if (!type) return;
   if (typeof type === "object" && type !== null) {
@@ -105,7 +113,7 @@ export const validateType = (
               "TSN7414",
               "error",
               `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'any' which is not supported.`,
-              moduleLocation(ctx),
+              typeDiagnosticLocation(ctx, options),
               "Ensure the type can be explicitly annotated or is a recognized type alias."
             )
           );
@@ -140,7 +148,7 @@ export const validateType = (
               "TSN7421",
               "error",
               `Anonymous object type in ${typeContext} was not lowered to a named type. This is an internal compiler error.`,
-              moduleLocation(ctx),
+              typeDiagnosticLocation(ctx, options),
               "Please report this issue with a minimal reproduction."
             )
           );
@@ -156,12 +164,12 @@ export const validateType = (
           if (ctx.validationMode !== "capability") {
             ctx.diagnostics.push(
               createDiagnostic(
-                "TSN7419",
-                "error",
-                "'never' cannot be used as a generic type argument.",
-                moduleLocation(ctx),
-                "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
-              )
+              "TSN7419",
+              "error",
+              "'never' cannot be used as a generic type argument.",
+              typeDiagnosticLocation(ctx, options),
+              "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
+            )
             );
           }
         }
@@ -193,7 +201,8 @@ export const validateType = (
               "intersection-value-storage",
               "TSN7414",
               `Intersection type in ${typeContext} cannot be emitted as a runtime storage type.`,
-              "Use a named interface/class that represents the required runtime shape, or keep the intersection only as a generic constraint."
+              "Use a named interface/class that represents the required runtime shape, or keep the intersection only as a generic constraint.",
+              typeDiagnosticLocation(ctx, options)
             )
           );
         }
@@ -226,7 +235,7 @@ export const validateType = (
                 "TSN7414",
                 "error",
                 `Reference type '${name}' in ${typeContext} has structural members without structural-origin metadata.`,
-                moduleLocation(ctx),
+                typeDiagnosticLocation(ctx, options),
                 "Preserve whether the source used a named reference or a compiler-owned structural carrier before the soundness gate."
               )
             );
@@ -294,7 +303,7 @@ export const validateType = (
                 "TSN7414",
                 "error",
                 `Unresolved reference type '${name}' in ${typeContext}. The type is not local, not imported, and has no native target binding.`,
-                moduleLocation(ctx),
+                typeDiagnosticLocation(ctx, options),
                 "Ensure the type is imported or defined locally, or that external bindings are available."
               )
             );
@@ -306,12 +315,12 @@ export const validateType = (
             if (ctx.validationMode !== "capability") {
               ctx.diagnostics.push(
                 createDiagnostic(
-                  "TSN7419",
-                  "error",
-                  "'never' cannot be used as a generic type argument.",
-                  moduleLocation(ctx),
-                  "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
-                )
+                "TSN7419",
+                "error",
+                "'never' cannot be used as a generic type argument.",
+                typeDiagnosticLocation(ctx, options),
+                "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
+              )
               );
             }
           }
@@ -355,7 +364,7 @@ export const validateType = (
               "TSN7414",
               "error",
               `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'unknown' which must have been eliminated before emission.`,
-              moduleLocation(ctx),
+              typeDiagnosticLocation(ctx, options),
               "Replace explicit 'unknown' with a concrete type, and ensure unresolved placeholder types are eliminated before the soundness gate."
             )
           );
