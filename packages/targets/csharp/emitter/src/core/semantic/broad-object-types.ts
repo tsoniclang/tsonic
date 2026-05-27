@@ -81,7 +81,6 @@ export const isBroadObjectSlotType = (
   if (resolved.kind === "unknownType" || resolved.kind === "anyType") {
     return true;
   }
-
   return (
     isSystemObjectReferenceType(resolved) ||
     (resolved.kind === "unionType" &&

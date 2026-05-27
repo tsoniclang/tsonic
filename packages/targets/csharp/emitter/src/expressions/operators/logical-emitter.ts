@@ -14,11 +14,15 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import { isBooleanType } from "./helpers.js";
-import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../../core/format/backend-ast/types.js";
 import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";
 import {
   adaptValueToExpectedTypeAst,
   resolveDirectStorageCompatibleExpressionType,
+  resolveDirectStorageCompatibleIrType,
 } from "../expected-type-adaptation.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
@@ -259,6 +263,27 @@ const isRepeatableExpressionAst = (ast: CSharpExpressionAst): boolean => {
   }
 };
 
+const isNonNullableValueTypeAst = (type: CSharpTypeAst): boolean =>
+  type.kind === "predefinedType" &&
+  type.keyword !== "string" &&
+  type.keyword !== "object" &&
+  type.keyword !== "void";
+
+const stripNullishErasingValueCastAst = (
+  ast: CSharpExpressionAst
+): CSharpExpressionAst => {
+  if (ast.kind === "parenthesizedExpression") {
+    const stripped = stripNullishErasingValueCastAst(ast.expression);
+    return stripped === ast.expression ? ast : { ...ast, expression: stripped };
+  }
+
+  if (ast.kind === "castExpression" && isNonNullableValueTypeAst(ast.type)) {
+    return stripNullishErasingValueCastAst(ast.expression);
+  }
+
+  return ast;
+};
+
 const getMapValueType = (
   receiverType: IrType | undefined,
   context: EmitterContext
@@ -426,9 +451,19 @@ export const emitLogical = (
       valueAst: leftAst,
       context: leftContext,
     }) ?? resolveDirectValueSurfaceType(leftAst, leftContext);
+  const directLeftIrStorageType = resolveDirectStorageCompatibleIrType({
+    expr: expr.left,
+    context: leftContext,
+  });
   const leftPreservesRuntimeNullish =
     hasUnionMember(directLeftStorageType, isUndefinedPrimitive) ||
-    hasUnionMember(directLeftStorageType, isNullPrimitive);
+    hasUnionMember(directLeftStorageType, isNullPrimitive) ||
+    hasUnionMember(directLeftIrStorageType, isUndefinedPrimitive) ||
+    hasUnionMember(directLeftIrStorageType, isNullPrimitive);
+  const nullishLeftAst =
+    operator === "??" && leftPreservesRuntimeNullish
+      ? stripNullishErasingValueCastAst(leftAst)
+      : leftAst;
   if (
     operator === "??" &&
     expr.left.inferredType &&
@@ -439,16 +474,16 @@ export const emitLogical = (
     // underlying member type is non-nullable (e.g., `string?.Length` → `int?`).
     // In that case the fallback is still meaningful and must be preserved.
     if (
-      !preservesNullableValueFallback(leftAst) &&
+      !preservesNullableValueFallback(nullishLeftAst) &&
       !leftPreservesRuntimeNullish
     ) {
-      return [leftAst, leftContext];
+      return [nullishLeftAst, leftContext];
     }
   }
 
   const genericNullish = buildSingleEvalGenericNullishAst(
     { ...expr, operator },
-    leftAst,
+    nullishLeftAst,
     leftContext,
     expectedType
   );
@@ -493,7 +528,7 @@ export const emitLogical = (
 
   const mapGetFallback = tryEmitMapGetUndefinedFallback(
     expr,
-    leftAst,
+    nullishLeftAst,
     rightAst,
     rightContext,
     context
@@ -506,7 +541,7 @@ export const emitLogical = (
     {
       kind: "binaryExpression",
       operatorToken: operator,
-      left: leftAst,
+      left: nullishLeftAst,
       right: rightAst,
     },
     rightContext,

@@ -31,6 +31,12 @@ import {
   needsExplicitLocalType,
   shouldTreatStructuralAssertionAsErased,
 } from "./variable-type-helpers.js";
+import { resolveDirectStorageIrType } from "../../core/semantic/direct-storage-ir-types.js";
+import {
+  isSystemArrayStorageType,
+  resolveBroadArrayAssertionStorageType,
+} from "../../core/semantic/broad-array-storage.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 
 /**
  * Determine the C# type AST for a local variable declaration.
@@ -85,6 +91,23 @@ export const resolveLocalTypeAst = (
         context
       );
       if (resolvedAssertedTarget.kind === "arrayType") {
+        const assertionInitializer = decl.initializer as Extract<
+          IrExpression,
+          { kind: "typeAssertion" }
+        >;
+        const preservedBroadArrayStorageType =
+          resolveBroadArrayAssertionStorageType(
+            assertedTarget,
+            resolveDirectStorageIrType(assertionInitializer, context),
+            context,
+            assertionInitializer.expression.inferredType
+          );
+        if (
+          isSystemArrayStorageType(preservedBroadArrayStorageType, context)
+        ) {
+          return [identifierType("global::System.Array"), context];
+        }
+
         return emitTypeAst(assertedTarget, context);
       }
       return [{ kind: "varType" }, context];

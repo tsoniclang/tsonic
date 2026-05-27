@@ -19,6 +19,7 @@ import {
   resolveTypeAlias,
   stripNullish,
   isDefinitelyValueType,
+  splitRuntimeNullishUnionMembers,
 } from "../../core/semantic/type-resolution.js";
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import {
@@ -39,6 +40,7 @@ import {
 } from "../../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { astTypeMatchesClrIdentity } from "../../core/format/backend-ast/utils.js";
+import { stripNullableTypeAst } from "../../core/format/backend-ast/utils.js";
 import {
   getTransparentComparisonTarget,
   resolveComparisonOperandType,
@@ -54,6 +56,9 @@ import {
   castBitwiseOperandToInt,
   emitJsNumberBitwiseOperation,
 } from "./bitwise-helpers.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
+import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 
 const emitInOperator = (
   expr: Extract<IrExpression, { kind: "binary" }>,
@@ -206,6 +211,125 @@ const buildExponentiationAst = (
     },
     arguments: [leftAst, rightAst],
   };
+};
+
+const isRawIdentifierAst = (
+  ast: CSharpExpressionAst,
+  emittedIdentifier: string
+): boolean => {
+  switch (ast.kind) {
+    case "identifierExpression":
+      return ast.identifier === emittedIdentifier;
+    case "parenthesizedExpression":
+    case "suppressNullableWarningExpression":
+      return isRawIdentifierAst(ast.expression, emittedIdentifier);
+    default:
+      return false;
+  }
+};
+
+const nullableValueStorageMatchesNumericExpected = (
+  nullableSourceType: IrType | undefined,
+  actualType: IrType | undefined,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  const nullableSourceSplit = nullableSourceType
+    ? splitRuntimeNullishUnionMembers(nullableSourceType)
+    : undefined;
+  const nonNullishSourceType =
+    nullableSourceSplit?.nonNullishMembers.length === 1
+      ? nullableSourceSplit.nonNullishMembers[0]
+      : undefined;
+  if (
+    !nullableSourceSplit?.hasRuntimeNullish ||
+    !nonNullishSourceType ||
+    !isDefinitelyValueType(stripNullish(expectedType), context) ||
+    !isNumericOperandType(stripNullish(expectedType))
+  ) {
+    return false;
+  }
+
+  const sourceMatchesExpected =
+    areIrTypesEquivalent(
+      resolveTypeAlias(stripNullish(nonNullishSourceType), context),
+      resolveTypeAlias(stripNullish(expectedType), context),
+      context
+    ) || matchesExpectedEmissionType(nonNullishSourceType, expectedType, context);
+  if (!sourceMatchesExpected) {
+    return false;
+  }
+
+  return (
+    !actualType ||
+    areIrTypesEquivalent(
+      resolveTypeAlias(stripNullish(actualType), context),
+      resolveTypeAlias(stripNullish(expectedType), context),
+      context
+    ) ||
+    matchesExpectedEmissionType(actualType, expectedType, context)
+  );
+};
+
+const castNullableNumericOperandStorageAst = (
+  operand: IrExpression,
+  operandAst: CSharpExpressionAst,
+  actualType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!expectedType) {
+    return [operandAst, context];
+  }
+
+  const target = getTransparentComparisonTarget(operand);
+  if (target.kind !== "identifier") {
+    return [operandAst, context];
+  }
+
+  const emittedIdentifier =
+    context.localNameMap?.get(target.name) ?? target.name;
+  if (!isRawIdentifierAst(operandAst, emittedIdentifier)) {
+    return [operandAst, context];
+  }
+
+  const narrowed = context.narrowedBindings?.get(target.name);
+  const narrowedSourceType =
+    narrowed?.kind === "expr" ||
+    narrowed?.kind === "runtimeSubset" ||
+    narrowed?.kind === "rename"
+      ? narrowed.sourceType
+      : undefined;
+  const narrowedStorageType =
+    narrowed?.kind === "expr" ? narrowed.storageType : undefined;
+  const nullableSourceType =
+    narrowedSourceType ??
+    narrowedStorageType ??
+    context.localValueTypes?.get(target.name);
+
+  if (
+    !nullableValueStorageMatchesNumericExpected(
+      nullableSourceType,
+      actualType,
+      expectedType,
+      context
+    )
+  ) {
+    return [operandAst, context];
+  }
+
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    context
+  );
+  return [
+    {
+      kind: "castExpression",
+      type: stripNullableTypeAst(expectedTypeAst),
+      expression: operandAst,
+    },
+    expectedTypeContext,
+  ];
 };
 
 const isTypeParameterBackedType = (
@@ -842,14 +966,32 @@ export const emitBinary = (
         leftResolvedType
       )
     : rightAst;
+  const [arithmeticLeftAst, arithmeticLeftContext] = isArithmeticOp
+    ? castNullableNumericOperandStorageAst(
+        expr.left,
+        comparisonLeftAst,
+        leftResolvedType,
+        leftExpectedType,
+        rightContext
+      )
+    : [comparisonLeftAst, rightContext];
+  const [arithmeticRightAst, arithmeticRightContext] = isArithmeticOp
+    ? castNullableNumericOperandStorageAst(
+        expr.right,
+        comparisonRightAst,
+        rightResolvedType,
+        rightExpectedType,
+        arithmeticLeftContext
+      )
+    : [comparisonRightAst, arithmeticLeftContext];
 
   return [
     {
       kind: "binaryExpression",
       operatorToken: op,
-      left: comparisonLeftAst,
-      right: comparisonRightAst,
+      left: arithmeticLeftAst,
+      right: arithmeticRightAst,
     },
-    rightContext,
+    arithmeticRightContext,
   ];
 };

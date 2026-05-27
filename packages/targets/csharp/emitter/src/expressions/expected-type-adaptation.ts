@@ -73,6 +73,7 @@ import {
   isStorageErasedBroadObjectPassThroughType,
   isBroadObjectSlotType,
 } from "../core/semantic/broad-object-types.js";
+import { isSystemArrayStorageType } from "../core/semantic/broad-array-storage.js";
 import {
   adaptMatch,
   adaptNoMatch,
@@ -2115,6 +2116,101 @@ const callReturnIsContextualizedToExpected = (
     );
   });
 
+const nullableValueStorageMatchesExpected = (
+  nullableSourceType: IrType | undefined,
+  actualType: IrType | undefined,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  const nullableSourceSplit = nullableSourceType
+    ? splitRuntimeNullishUnionMembers(nullableSourceType)
+    : undefined;
+  const nonNullishSourceType =
+    nullableSourceSplit?.nonNullishMembers.length === 1
+      ? nullableSourceSplit.nonNullishMembers[0]
+      : undefined;
+  const expectedSplit = splitRuntimeNullishUnionMembers(expectedType);
+  if (
+    !nullableSourceSplit?.hasRuntimeNullish ||
+    expectedSplit?.hasRuntimeNullish ||
+    !nonNullishSourceType ||
+    !isDefinitelyValueType(stripNullish(expectedType), context)
+  ) {
+    return false;
+  }
+
+  const sourceMatchesExpected =
+    areIrTypesEquivalent(
+      resolveTypeAlias(stripNullish(nonNullishSourceType), context),
+      resolveTypeAlias(stripNullish(expectedType), context),
+      context
+    ) ||
+    matchesExpectedEmissionType(nonNullishSourceType, expectedType, context);
+  if (!sourceMatchesExpected) {
+    return false;
+  }
+
+  return (
+    !actualType ||
+    areIrTypesEquivalent(
+      resolveTypeAlias(stripNullish(actualType), context),
+      resolveTypeAlias(stripNullish(expectedType), context),
+      context
+    ) ||
+    matchesExpectedEmissionType(actualType, expectedType, context)
+  );
+};
+
+const tryCastNullableValueStorageIdentifierAst = (
+  valueAst: CSharpExpressionAst,
+  actualType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (valueAst.kind !== "identifierExpression" || !expectedType) {
+    return undefined;
+  }
+
+  const sourceName = resolveSourceLocalName(valueAst.identifier, context);
+  const narrowed = context.narrowedBindings?.get(sourceName);
+  const narrowedSourceType =
+    narrowed?.kind === "expr" ||
+    narrowed?.kind === "runtimeSubset" ||
+    narrowed?.kind === "rename"
+      ? narrowed.sourceType
+      : undefined;
+  const narrowedStorageType =
+    narrowed?.kind === "expr" ? narrowed.storageType : undefined;
+  const nullableSourceType =
+    narrowedSourceType ??
+    narrowedStorageType ??
+    context.localValueTypes?.get(sourceName);
+
+  if (
+    !nullableValueStorageMatchesExpected(
+      nullableSourceType,
+      actualType,
+      expectedType,
+      context
+    )
+  ) {
+    return undefined;
+  }
+
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    context
+  );
+  return [
+    {
+      kind: "castExpression",
+      type: stripNullableTypeAst(expectedTypeAst),
+      expression: valueAst,
+    },
+    expectedTypeContext,
+  ];
+};
+
 const adaptValueToExpectedTypeAstResult = (opts: {
   readonly valueAst: CSharpExpressionAst;
   readonly actualType: IrType | undefined;
@@ -2138,6 +2234,16 @@ const adaptValueToExpectedTypeAstResult = (opts: {
     return adaptNoMatch();
   }
 
+  const nullableStorageCast = tryCastNullableValueStorageIdentifierAst(
+    valueAst,
+    actualType,
+    expectedType,
+    context
+  );
+  if (nullableStorageCast) {
+    return adaptMatch(nullableStorageCast);
+  }
+
   if (
     runtimeUnionAliasReferencesMatch(actualType, expectedType, context) &&
     !runtimeUnionCarrierSurfaceDiffers(actualType, expectedType, context)
@@ -2158,6 +2264,23 @@ const adaptValueToExpectedTypeAstResult = (opts: {
     return adaptMatch([valueAst, context]);
   }
 
+  if (
+    isBroadObjectSlotType(expectedType, context) &&
+    valueAst.kind === "identifierExpression"
+  ) {
+    const sourceName = resolveSourceLocalName(valueAst.identifier, context);
+    const narrowed = context.narrowedBindings?.get(sourceName);
+    const narrowedStorageType =
+      narrowed?.kind === "expr"
+        ? (narrowed.storageType ??
+          narrowed.sourceType ??
+          narrowed.carrierType)
+        : narrowed?.sourceType;
+    if (isSystemArrayStorageType(narrowedStorageType, context)) {
+      return adaptMatch([valueAst, context]);
+    }
+  }
+
   if (valueAst.kind === "identifierExpression") {
     const sourceName = resolveSourceLocalName(valueAst.identifier, context);
     const narrowed = context.narrowedBindings?.get(sourceName);
@@ -2173,6 +2296,8 @@ const adaptValueToExpectedTypeAstResult = (opts: {
       narrowed?.kind === "rename"
         ? narrowed.sourceType
         : undefined;
+    const narrowedStorageType =
+      narrowed?.kind === "expr" ? narrowed.storageType : undefined;
     const narrowedMatchesExpected =
       narrowedType &&
       !willCarryAsRuntimeUnion(stripNullish(expectedType), context) &&
@@ -2206,6 +2331,32 @@ const adaptValueToExpectedTypeAstResult = (opts: {
             },
             context,
           ]);
+        }
+      }
+
+      if (
+        nullableValueStorageMatchesExpected(
+          narrowedSourceType ?? narrowedStorageType,
+          narrowedType,
+          expectedType,
+          context
+        )
+      ) {
+        try {
+          const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+            expectedType,
+            context
+          );
+          return adaptMatch([
+            {
+              kind: "castExpression",
+              type: stripNullableTypeAst(expectedTypeAst),
+              expression: valueAst,
+            },
+            expectedTypeContext,
+          ]);
+        } catch {
+          return adaptNoMatch();
         }
       }
 
@@ -2928,7 +3079,15 @@ export const adaptEmittedExpressionAst = (opts: {
       return undefined;
     }
 
+    const narrowedCarrier = context.narrowedBindings?.get(
+      adaptationSourceExpr.name
+    );
     const originalCarrierType =
+      (narrowedCarrier?.kind === "expr"
+        ? (narrowedCarrier.storageType ??
+          narrowedCarrier.sourceType ??
+          narrowedCarrier.carrierType)
+        : narrowedCarrier?.sourceType) ??
       context.localValueTypes?.get(adaptationSourceExpr.name) ??
       adaptationSourceExpr.inferredType;
     if (

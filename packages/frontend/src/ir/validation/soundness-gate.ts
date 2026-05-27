@@ -211,12 +211,14 @@ const addExpressionCapabilityDiagnostics = (
   if ("contextualType" in expression) {
     validateType(expression.contextualType, ctx, "expression contextual type", {
       intersectionRootKind: "semanticMetadata",
+      diagnosticLocation: expression.sourceSpan,
     });
   }
   if ("inferredType" in expression) {
     validateType(expression.inferredType, ctx, "expression inferred type", {
       intersectionRootKind: "semanticMetadata",
       unknownRootKind: "expressionInferredType",
+      diagnosticLocation: expression.sourceSpan,
     });
   }
 
@@ -248,7 +250,9 @@ const addExpressionCapabilityDiagnostics = (
       expression.parameters.forEach((parameter) =>
         addParameterCapabilityDiagnostics(parameter, ctx)
       );
-      validateType(expression.returnType, ctx, "function return type");
+      validateType(expression.returnType, ctx, "function return type", {
+        diagnosticLocation: expression.sourceSpan,
+      });
       if (expression.body.kind === "blockStatement") {
         addStatementCapabilityDiagnostics(expression.body, ctx);
       } else {
@@ -268,13 +272,16 @@ const addExpressionCapabilityDiagnostics = (
         addExpressionCapabilityDiagnostics(argument, ctx)
       );
       expression.typeArguments?.forEach((typeArgument, index) =>
-        validateType(typeArgument, ctx, `call type argument ${index}`)
+        validateType(typeArgument, ctx, `call type argument ${index}`, {
+          diagnosticLocation: expression.sourceSpan,
+        })
       );
       if (expression.kind === "call") {
         validateType(
           expression.narrowing?.targetType,
           ctx,
-          "type predicate target"
+          "type predicate target",
+          { diagnosticLocation: expression.sourceSpan }
         );
       }
       break;
@@ -326,17 +333,25 @@ const addExpressionCapabilityDiagnostics = (
     case "asinterface":
     case "trycast":
       addExpressionCapabilityDiagnostics(expression.expression, ctx);
-      validateType(expression.targetType, ctx, "assertion target type");
+      validateType(expression.targetType, ctx, "assertion target type", {
+        diagnosticLocation: expression.sourceSpan,
+      });
       break;
     case "stackalloc":
-      validateType(expression.elementType, ctx, "stackalloc element type");
+      validateType(expression.elementType, ctx, "stackalloc element type", {
+        diagnosticLocation: expression.sourceSpan,
+      });
       addExpressionCapabilityDiagnostics(expression.size, ctx);
       break;
     case "defaultof":
-      validateType(expression.targetType, ctx, `${expression.kind} type`);
+      validateType(expression.targetType, ctx, `${expression.kind} type`, {
+        diagnosticLocation: expression.sourceSpan,
+      });
       break;
     case "sizeof":
-      validateType(expression.targetType, ctx, `${expression.kind} type`);
+      validateType(expression.targetType, ctx, `${expression.kind} type`, {
+        diagnosticLocation: expression.sourceSpan,
+      });
       break;
     case "nameof":
       break;

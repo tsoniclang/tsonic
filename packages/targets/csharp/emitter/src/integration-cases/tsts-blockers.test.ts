@@ -48,6 +48,183 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include('["0"] = "warning"');
   });
 
+  it("allows Array.isArray predicates over unknown as type-erased System.Array guards", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        interface Node {
+          readonly kind: int;
+        }
+
+        interface NodeArray<T> extends ReadonlyArray<T> {
+          readonly pos?: int;
+          readonly end?: int;
+        }
+
+        export function isNodeArray(value: unknown): value is NodeArray<Node> {
+          return Array.isArray(value)
+            && typeof (value as { readonly pos?: unknown }).pos === "number"
+            && typeof (value as { readonly end?: unknown }).end === "number";
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("public static bool isNodeArray(object? value)");
+    expect(csharp).to.include("return value is global::System.Array");
+    expect(csharp).to.include(".pos) is int");
+    expect(csharp).to.include(".end) is int");
+    expect(csharp).to.not.include(
+      "Array.isArray cannot narrow a broad runtime value"
+    );
+  });
+
+  it("iterates Array.isArray-narrowed unknown values directly as System.Array", () => {
+    const csharp = compileToCSharp(
+      `
+        interface Node {
+          parent?: Node;
+        }
+
+        declare function isNode(value: unknown): value is Node;
+
+        export function attachParent(parent: Node, value: unknown): void {
+          if (isNode(value)) {
+            (value as { parent: Node }).parent = parent;
+            return;
+          }
+
+          if (Array.isArray(value)) {
+            for (const element of value) {
+              attachParent(parent, element);
+            }
+          }
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("if (value is global::System.Array)");
+    expect(csharp).to.include(
+      "foreach (var element in (global::System.Array)value)"
+    );
+    expect(csharp).to.include("attachParent(parent, element);");
+    expect(csharp).to.not.include("(object?[])value");
+  });
+
+  it("recovers Web DataView and Node Buffer API types from first-party surfaces", () => {
+    const csharp = compileToCSharp(
+      `
+        import { Buffer } from "node:buffer";
+
+        export function encodeExtendedData(extendedData: number[]): string {
+          const extendedDataBytes = new Uint8Array(extendedData.length * 4);
+          const extendedDataView = new DataView(extendedDataBytes.buffer);
+          for (let index = 0; index < extendedData.length; index += 1) {
+            extendedDataView.setUint32(index * 4, extendedData[index]! >>> 0, true);
+          }
+          return Buffer.from(extendedDataBytes).toString("base64");
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/nodejs" }
+    );
+
+    expect(csharp).to.include("new global::js.DataView");
+    expect(csharp).to.include("extendedDataBytes.buffer");
+    expect(csharp).to.include(".setUint32(");
+    expect(csharp).to.include("global::nodejs.buffer.Buffer.from");
+    expect(csharp).to.include('.toString("base64")');
+  });
+
+  it("preserves nested runtime-union alias carriers after typeof fallthrough narrowing", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        export type NestedInput<TElement extends number> =
+          | readonly TElement[]
+          | Iterable<number>;
+        export type ConstructorInput<TElement extends number> =
+          | int
+          | NestedInput<TElement>;
+
+        export class TypedArrayLike<TElement extends number> {
+          data: TElement[];
+
+          constructor(lengthOrValues: ConstructorInput<TElement>) {
+            if (typeof lengthOrValues === "number") {
+              this.data = [];
+              return;
+            }
+
+            this.data = this.materializeInput(lengthOrValues);
+          }
+
+          materializeInput(source: NestedInput<TElement>): TElement[] {
+            if (Array.isArray(source)) {
+              return [...source];
+            }
+
+            return [...source] as TElement[];
+          }
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("this.materializeInput(");
+    expect(csharp).to.include("this.materializeInput((lengthOrValues.As2()))");
+    expect(csharp).to.not.include("this.materializeInput(lengthOrValues);");
+    expect(csharp).to.not.include("Unreachable runtime union reification path");
+    expect(csharp).to.not.include("Unreachable array reification path");
+    expect(csharp).to.not.include(
+      "global::Tsonic.Internal.Union<TElement[], global::System.Collections.Generic.IEnumerable<double>>.From1"
+    );
+  });
+
+  it("projects transparent flow assertions from narrowed raw runtime unions", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        export type NestedInput<TElement extends number> =
+          | readonly TElement[]
+          | Iterable<number>;
+
+        export class TypedArrayLike<TElement extends number> {
+          data: TElement[];
+
+          constructor(lengthOrValues: int | NestedInput<TElement>) {
+            if (typeof lengthOrValues === "number") {
+              this.data = [];
+              return;
+            }
+
+            this.data = this.materializeInput(lengthOrValues);
+          }
+
+          materializeInput(source: NestedInput<TElement>): TElement[] {
+            void source;
+            return [];
+          }
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "public TypedArrayLike(global::Tsonic.Internal.Union<int, global::Test.NestedInput<TElement>> lengthOrValues)"
+    );
+    expect(csharp).to.include("this.materializeInput((lengthOrValues.As2()))");
+    expect(csharp).to.not.include("this.materializeInput(lengthOrValues);");
+  });
+
   it("emits runtime typeof expressions through closed union dispatch", () => {
     const csharp = compileToCSharp(`
       type JsonValue =
@@ -1617,5 +1794,83 @@ describe("Integration: TSTS blocker regressions", () => {
       'global::Tsonic.Internal.IntersectionStorage.GetRequired<int>((T[])nodes, "pos")'
     );
     expect(csharp).to.include("nodes.Length");
+  });
+
+  it("adapts narrowed optional value-type returns to declared non-null value types", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        export function normalizeDelay(value?: int): int {
+          if (value === undefined || value <= 0) {
+            return 0 as int;
+          }
+          return value;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    const normalizeDelayBody =
+      /private static int normalizeDelay__Impl\(int\? value = default\)\s*\{(?<body>[\s\S]*?)\n        \}/.exec(
+        csharp
+      )?.groups?.body;
+    expect(normalizeDelayBody).to.include("return (int)value;");
+    expect(normalizeDelayBody).to.not.include("return value;");
+  });
+
+  it("adapts optional value-type conditional branches to declared non-null returns", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function getBufferLength(): int;
+
+        export const resolveWriteLength = (
+          offset: int,
+          length?: int
+        ): int =>
+          length === undefined
+            ? ((getBufferLength() - offset) as int)
+            : length;
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "return length == null ? (int)(getBufferLength() - offset) : (int)length;"
+    );
+    expect(csharp).to.not.include(
+      "return length == null ? (int)(getBufferLength() - offset) : length;"
+    );
+  });
+
+  it("does not preserve stale nullish flow assertions after try-block assignments", () => {
+    const csharp = compileToCSharp(`
+      class Bytes {}
+
+      export class Holder {
+        body: Bytes | null = null;
+
+        load(): Bytes {
+          if (this.body !== null) {
+            return this.body;
+          }
+
+          try {
+            this.body = new Bytes();
+          } finally {
+            void 0;
+          }
+
+          return this.body;
+        }
+      }
+    `);
+
+    expect(csharp).to.include("return this.body;");
+    expect(csharp).to.not.include("return (object)this.body;");
   });
 });

@@ -9,6 +9,7 @@
 import { IrExpression, normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import { isSystemArrayStorageType } from "./broad-array-storage.js";
 
 const normalizeForIteration = (
   type: IrExpression["inferredType"],
@@ -86,6 +87,10 @@ export const deriveForOfElementType = (
 
   if (normalized.kind === "tupleType") {
     return deriveTupleIterationElementType(normalized.elementTypes);
+  }
+
+  if (isSystemArrayStorageType(normalized, context)) {
+    return { kind: "unknownType", explicit: true };
   }
 
   if (normalized.kind === "primitiveType" && normalized.name === "string") {

@@ -37,7 +37,6 @@ export const isSystemArrayStorageType = (
   return (
     resolved.kind === "referenceType" &&
     (referenceTypeHasClrIdentity(resolved, SYSTEM_ARRAY_CLR_NAMES) ||
-      resolved.name === "Array" ||
       resolved.name === "System.Array" ||
       resolved.name === "global::System.Array")
   );

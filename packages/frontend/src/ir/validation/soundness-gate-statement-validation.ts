@@ -91,7 +91,9 @@ const validateIfBranchPlan = (
   validateGuardShape(plan.guardShape, ctx);
   for (const narrowing of plan.narrowedBindings) {
     validateExpression(narrowing.targetExpr, ctx);
-    validateType(narrowing.targetType, ctx, `${label} branch narrowing`);
+    validateType(narrowing.targetType, ctx, `${label} branch narrowing`, {
+      diagnosticLocation: narrowing.targetExpr.sourceSpan,
+    });
   }
 };
 

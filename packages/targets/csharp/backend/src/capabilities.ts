@@ -63,15 +63,7 @@ const capabilityEntries = [
       "Use function.length only on identifiers or this-bound functions whose callable type is known at compile time."
     ),
   ],
-  [
-    "broad-array-narrowing",
-    unsupported(
-      "broad-array-narrowing",
-      "TSN5001",
-      "Array.isArray cannot narrow a broad runtime value without a closed carrier.",
-      "Use Array.isArray only on values whose possible runtime carriers are known at compile time."
-    ),
-  ],
+  ["broad-array-narrowing", supported("broad-array-narrowing")],
   ["dynamic-json-parsing", supported("dynamic-json-parsing")],
   ["typed-json-parsing", supported("typed-json-parsing")],
   ["closed-array-narrowing", supported("closed-array-narrowing")],

@@ -45,6 +45,7 @@ import {
   buildRuntimeUnionMatchAst,
 } from "../core/semantic/runtime-union-projection.js";
 import { resolveIdentifierValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
+import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { resolveRuntimeMaterializationTargetType } from "../core/semantic/runtime-materialization-targets.js";
@@ -695,6 +696,7 @@ export const emitTypeAssertion = (
       : undefined) ??
     directLocalValueSurfaceType ??
     sourceNarrowedBinding?.sourceType ??
+    resolveDirectStorageIrType(transparentSourceExpression, context) ??
     (transparentSourceExpression.kind === "identifier"
       ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
       : undefined);
@@ -753,6 +755,97 @@ export const emitTypeAssertion = (
     runtimeAssertionTarget.kind !== "arrayType" &&
     runtimeAssertionTarget.kind !== "dictionaryType" &&
     !willCarryAsRuntimeUnion(runtimeAssertionTarget, context);
+  const narrowedBindingMatchesAssertion =
+    sourceNarrowedBinding?.kind === "expr" &&
+    !!sourceNarrowedBinding.type &&
+    (areIrTypesEquivalent(
+      sourceNarrowedBinding.type,
+      runtimeAssertionTarget,
+      context
+    ) ||
+      matchesExpectedEmissionType(
+        sourceNarrowedBinding.type,
+        runtimeAssertionTarget,
+        context
+      ));
+  const projectedTransparentFlowNarrowing = (() => {
+    if (
+      !isTransparentFlowAssertion ||
+      sourceNarrowedBinding?.kind !== "expr" ||
+      !narrowedBindingMatchesAssertion
+    ) {
+      return undefined;
+    }
+
+    return [sourceNarrowedBinding.exprAst, context] as [
+      CSharpExpressionAst,
+      EmitterContext,
+    ];
+  })();
+  if (projectedTransparentFlowNarrowing) {
+    return projectedTransparentFlowNarrowing;
+  }
+  const renamedTransparentFlowAssertion = (() => {
+    if (
+      !isTransparentFlowAssertion ||
+      sourceNarrowedBinding?.kind !== "rename" ||
+      !currentTransparentSourceType
+    ) {
+      return undefined;
+    }
+
+    const projectionTarget = expectedType ?? runtimeAssertionTarget;
+    if (
+      !areIrTypesEquivalent(
+        currentTransparentSourceType,
+        projectionTarget,
+        context
+      ) &&
+      !matchesExpectedEmissionType(
+        currentTransparentSourceType,
+        projectionTarget,
+        context
+      )
+    ) {
+      return undefined;
+    }
+
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      projectionTarget
+    );
+  })();
+  if (renamedTransparentFlowAssertion) {
+    return renamedTransparentFlowAssertion;
+  }
+  const projectedRuntimeUnionStorageAssertion = (() => {
+    const projectionTarget = expectedType ?? runtimeAssertionTarget;
+    if (
+      !isTransparentFlowAssertion ||
+      !sourceStorageTypeAtEntry ||
+      !willCarryAsRuntimeUnion(sourceStorageTypeAtEntry, context)
+    ) {
+      return undefined;
+    }
+
+    const [rawSourceAst, rawSourceContext] = emitExpressionAst(
+      transparentSourceExpression,
+      withoutNarrowedBinding(transparentSourceExpression, context)
+    );
+    return adaptValueToExpectedTypeAst({
+      valueAst: rawSourceAst,
+      actualType: sourceStorageTypeAtEntry,
+      context: rawSourceContext,
+      expectedType: projectionTarget,
+      selectedSourceMemberNs: expr.selectedRuntimeUnionMembers
+        ? new Set(expr.selectedRuntimeUnionMembers)
+        : undefined,
+    });
+  })();
+  if (projectedRuntimeUnionStorageAssertion) {
+    return projectedRuntimeUnionStorageAssertion;
+  }
   const preservedBroadArrayStorageAtEntry =
     resolveBroadArrayAssertionStorageType(
       resolvedAssertionTarget,
@@ -765,6 +858,68 @@ export const emitTypeAssertion = (
   const preservedSystemArrayStorageAtEntry =
     runtimeAssertionTarget.kind === "arrayType" &&
     isSystemArrayStorageType(sourceStorageTypeAtEntry, context);
+  if (isSystemArrayStorageType(preservedBroadArrayStorageAtEntry, context)) {
+    const sourceStorageAst =
+      sourceNarrowedBinding?.kind === "expr"
+        ? (sourceNarrowedBinding.storageExprAst ??
+          sourceNarrowedBinding.carrierExprAst)
+        : undefined;
+    if (sourceStorageAst) {
+      return [
+        {
+          kind: "castExpression",
+          type: identifierType("global::System.Array"),
+          expression: sourceStorageAst,
+        },
+        context,
+      ];
+    }
+
+    const [sourceAst, sourceContext] = emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      preservedBroadArrayStorageAtEntry
+    );
+    return [
+      {
+        kind: "castExpression",
+        type: identifierType("global::System.Array"),
+        expression: sourceAst,
+      },
+      sourceContext,
+    ];
+  }
+  if (
+    currentTransparentSourceType &&
+    resolveTypeAlias(stripNullish(currentTransparentSourceType), context)
+      .kind === "arrayType" &&
+    isBroadObjectSlotType(runtimeAssertionTarget, context) &&
+    !mustPreserveExplicitRuntimeAssertion &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    return emitExpressionAst(transparentSourceExpression, context);
+  }
+  if (
+    isSystemArrayStorageType(sourceStorageTypeAtEntry, context) &&
+    isBroadObjectSlotType(runtimeAssertionTarget, context) &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    const sourceStorageAst =
+      sourceNarrowedBinding?.kind === "expr"
+        ? (sourceNarrowedBinding.storageExprAst ??
+          sourceNarrowedBinding.carrierExprAst)
+        : undefined;
+    if (sourceStorageAst) {
+      return [sourceStorageAst, context];
+    }
+
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      sourceStorageTypeAtEntry
+    );
+  }
+
   const transparentStorageSurfaceType =
     transparentSourceExpression.kind === "identifier"
       ? context.localValueTypes?.get(transparentSourceExpression.name)
@@ -1005,6 +1160,30 @@ export const emitTypeAssertion = (
 
   if (narrowedArrayCarrierAssertion && !involvesDegenerateDuplicateUnion) {
     if (sourceNarrowedBinding.kind === "expr") {
+      const preservedSystemArrayAssertion =
+        resolveBroadArrayAssertionStorageType(
+          runtimeAssertionTarget,
+          sourceNarrowedBinding.storageType,
+          context,
+          sourceNarrowedBinding.type
+        );
+      const sourceStorageAst =
+        sourceNarrowedBinding.storageExprAst ??
+        sourceNarrowedBinding.carrierExprAst;
+      if (
+        sourceStorageAst &&
+        isSystemArrayStorageType(preservedSystemArrayAssertion, context)
+      ) {
+        return [
+          {
+            kind: "castExpression",
+            type: identifierType("global::System.Array"),
+            expression: sourceStorageAst,
+          },
+          context,
+        ];
+      }
+
       const sourceCarrierAst =
         sourceNarrowedBinding.carrierExprAst ??
         sourceNarrowedBinding.storageExprAst;

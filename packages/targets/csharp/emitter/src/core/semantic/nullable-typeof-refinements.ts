@@ -44,6 +44,7 @@ import {
 import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 import { tryExtractTypeofComparison } from "./typeof-comparison.js";
+import { resolveAlignedRuntimeUnionMembers } from "./narrowed-union-resolution.js";
 
 const stripNullishForRefinement = (
   type: IrType,
@@ -590,16 +591,29 @@ export const applyDirectTypeofRefinement = (
     directGuard.targetExpr.kind === "identifier"
       ? rawTargetContext.localValueTypes?.get(directGuard.targetExpr.name)
       : undefined;
+  const runtimeCarrierType =
+    directGuard.targetExpr.kind === "identifier"
+      ? (resolveIdentifierRuntimeCarrierType(
+          directGuard.targetExpr,
+          rawTargetContext
+        ) ?? rawIdentifierStorageType)
+      : undefined;
   const storageCanUseRuntimeUnionCarrier =
     !rawIdentifierStorageType ||
     willCarryAsRuntimeUnion(rawIdentifierStorageType, rawTargetContext);
   const runtimeUnionFrame =
     storageCanUseRuntimeUnionCarrier && currentType
-      ? resolveRuntimeUnionFrame(
+      ? (resolveAlignedRuntimeUnionMembers(
+          directGuard.bindingKey,
+          currentType,
+          runtimeCarrierType,
+          runtimeFrameContext
+        ) ??
+        resolveRuntimeUnionFrame(
           directGuard.bindingKey,
           currentType,
           runtimeFrameContext
-        )
+        ))
       : undefined;
   const matchingRuntimeMemberIndex =
     runtimeUnionFrame?.members.findIndex((member) =>

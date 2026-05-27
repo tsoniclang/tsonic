@@ -7,8 +7,10 @@ import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
 import {
   IrBlockStatement,
+  IrClassDeclaration,
   IrFunctionDeclaration,
   IrIfStatement,
+  IrMethodDeclaration,
   IrReturnStatement,
   IrVariableDeclaration,
 } from "../types.js";
@@ -367,6 +369,58 @@ describe("IR Builder", function () {
       }
     });
 
+    it("keeps frontend typeof facts after an earlier returning guard narrows the expression", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare function acceptBacklog(value: number): void;",
+            "export function run(hostname?: number | string | (() => void) | null): void {",
+            '  if (typeof hostname === "function") return;',
+            '  if (typeof hostname === "number") {',
+            "    acceptBacklog(hostname);",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const branches = runFn.body.statements.filter(
+          (stmt): stmt is IrIfStatement => stmt.kind === "ifStatement"
+        );
+        expect(branches).to.have.length(2);
+
+        const numberBranch = branches[1];
+        expect(numberBranch?.thenPlan.narrowedBindings[0]?.bindingKey).to.equal(
+          "hostname"
+        );
+        expect(numberBranch?.thenPlan.narrowedBindings[0]?.targetType).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("prefers the assignable common nominal supertype for conditional expressions", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -419,6 +473,75 @@ describe("IR Builder", function () {
         expect(stableIrTypeKey(returnStmt.expression.inferredType)).to.include(
           "TemplateValue"
         );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("invalidates stale access-path narrowings after assignments inside try blocks", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class Bytes {}",
+            "export class Holder {",
+            "  body: Bytes | null = null;",
+            "  load(): Bytes {",
+            "    if (this.body !== null) {",
+            "      return this.body;",
+            "    }",
+            "    try {",
+            "      this.body = new Bytes();",
+            "    } finally {",
+            "      void 0;",
+            "    }",
+            "    return this.body;",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const holderClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "Holder"
+        );
+        expect(holderClass).to.not.equal(undefined);
+        if (!holderClass) return;
+
+        const loadMethod = holderClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "load"
+        );
+        expect(loadMethod?.body).to.not.equal(undefined);
+        if (!loadMethod?.body) return;
+
+        const finalReturn = loadMethod.body.statements.at(-1);
+        expect(finalReturn?.kind).to.equal("returnStatement");
+        if (!finalReturn || finalReturn.kind !== "returnStatement") return;
+
+        const finalExpression = finalReturn.expression;
+        expect(finalExpression).to.not.equal(undefined);
+        if (!finalExpression) return;
+        if (finalExpression.kind === "typeAssertion") {
+          expect(finalExpression.targetType).to.deep.equal({
+            kind: "referenceType",
+            name: "Bytes",
+          });
+        } else {
+          expect(finalExpression.kind).to.equal("memberAccess");
+        }
       } finally {
         fixture.cleanup();
       }

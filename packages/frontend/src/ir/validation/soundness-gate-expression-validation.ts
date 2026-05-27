@@ -173,7 +173,8 @@ export const validateExpression = (
         validateType(
           expr.contextualType,
           ctx,
-          "object literal contextual type"
+          "object literal contextual type",
+          { diagnosticLocation: expr.sourceSpan }
         );
       }
       expr.properties.forEach((property) => {
@@ -197,9 +198,13 @@ export const validateExpression = (
         validatePattern(parameter.pattern, ctx)
       );
       expr.parameters.forEach((parameter) =>
-        validateType(parameter.type, ctx, "function expression parameter")
+        validateType(parameter.type, ctx, "function expression parameter", {
+          diagnosticLocation: expr.sourceSpan,
+        })
       );
-      validateType(expr.returnType, ctx, "function expression return type");
+      validateType(expr.returnType, ctx, "function expression return type", {
+        diagnosticLocation: expr.sourceSpan,
+      });
       validateStatement(expr.body, ctx);
       break;
 
@@ -212,9 +217,13 @@ export const validateExpression = (
         validatePattern(parameter.pattern, ctx)
       );
       expr.parameters.forEach((parameter) =>
-        validateType(parameter.type, ctx, "arrow function parameter")
+        validateType(parameter.type, ctx, "arrow function parameter", {
+          diagnosticLocation: expr.sourceSpan,
+        })
       );
-      validateType(expr.returnType, ctx, "arrow function return type");
+      validateType(expr.returnType, ctx, "arrow function return type", {
+        diagnosticLocation: expr.sourceSpan,
+      });
       if (expr.body.kind === "blockStatement") {
         validateStatement(expr.body, ctx);
       } else {
@@ -228,7 +237,8 @@ export const validateExpression = (
         validateType(
           expr.object.inferredType,
           ctx,
-          "computed access receiver inferred type"
+          "computed access receiver inferred type",
+          { diagnosticLocation: expr.object.sourceSpan ?? expr.sourceSpan }
         );
       }
       if (typeof expr.property !== "string") {
@@ -292,10 +302,14 @@ export const validateExpression = (
       validateExpression(expr.callee, ctx);
       expr.arguments.forEach((argument) => validateExpression(argument, ctx));
       expr.typeArguments?.forEach((typeArgument, index) =>
-        validateType(typeArgument, ctx, `call type argument ${index}`)
+        validateType(typeArgument, ctx, `call type argument ${index}`, {
+          diagnosticLocation: expr.sourceSpan,
+        })
       );
       if (expr.narrowing) {
-        validateType(expr.narrowing.targetType, ctx, "type predicate target");
+        validateType(expr.narrowing.targetType, ctx, "type predicate target", {
+          diagnosticLocation: expr.sourceSpan,
+        });
       }
       if (
         expr.inferredType?.kind === "unknownType" &&
@@ -317,7 +331,9 @@ export const validateExpression = (
       validateExpression(expr.callee, ctx);
       expr.arguments.forEach((argument) => validateExpression(argument, ctx));
       expr.typeArguments?.forEach((typeArgument, index) =>
-        validateType(typeArgument, ctx, `new type argument ${index}`)
+        validateType(typeArgument, ctx, `new type argument ${index}`, {
+          diagnosticLocation: expr.sourceSpan,
+        })
       );
       if (
         expr.inferredType?.kind === "unknownType" &&
@@ -391,10 +407,14 @@ export const validateExpression = (
         validateExpression(expr.expression, ctx);
       }
       if ("targetType" in expr && expr.targetType) {
-        validateType(expr.targetType, ctx, `${expr.kind} target type`);
+        validateType(expr.targetType, ctx, `${expr.kind} target type`, {
+          diagnosticLocation: expr.sourceSpan,
+        });
       }
       if ("elementType" in expr && expr.elementType) {
-        validateType(expr.elementType, ctx, `${expr.kind} element type`);
+        validateType(expr.elementType, ctx, `${expr.kind} element type`, {
+          diagnosticLocation: expr.sourceSpan,
+        });
       }
       if ("size" in expr && expr.size) {
         validateExpression(expr.size, ctx);
@@ -402,6 +422,7 @@ export const validateExpression = (
       if (expr.inferredType) {
         validateType(expr.inferredType, ctx, `${expr.kind} inferred type`, {
           unknownRootKind: "expressionInferredType",
+          diagnosticLocation: expr.sourceSpan,
         });
       }
       break;

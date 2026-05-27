@@ -11,6 +11,7 @@ import {
   IrType,
   IrVariableDeclaration,
 } from "../../../types.js";
+import type { BindingInternal } from "../../../binding/index.js";
 import {
   convertStatement,
   flattenStatementResult,
@@ -25,9 +26,13 @@ import {
 } from "../../flow-narrowing.js";
 import {
   getAccessPathTarget,
+  getAccessPathKey,
+  getCurrentTypeForAccessPath,
   getCurrentTypeForAccessExpression,
+  type AccessPathTarget,
 } from "../../access-paths.js";
 import { getReadableMemberTypeForNarrowing } from "../../narrowing-property-helpers.js";
+import { isAssignmentOperator } from "../../expressions/helpers.js";
 
 const stripRuntimeNullish = (type: IrType | undefined): IrType | undefined => {
   if (!type || type.kind !== "unionType") {
@@ -464,7 +469,7 @@ const resolveAssignedAccessPathFlowType = (
     return assignedType;
   }
 
-  if (!assignedType) {
+  if (!assignedType || assignedType.kind === "unknownType") {
     return readableType;
   }
 
@@ -503,6 +508,136 @@ const statementAlwaysTerminates = (stmt: IrStatement): boolean => {
   }
 };
 
+const addAssignedAccessTarget = (
+  expr: ts.Expression,
+  ctx: ProgramContext,
+  targets: Map<string, AccessPathTarget>
+): void => {
+  const target = getAccessPathTarget(expr, ctx);
+  if (!target) {
+    return;
+  }
+
+  targets.set(getAccessPathKey(target), target);
+};
+
+const normalizeFlowResetType = (type: IrType | undefined): IrType | undefined =>
+  type?.kind === "unknownType" && type.explicit !== true ? undefined : type;
+
+const optionalReadType = (type: IrType): IrType => {
+  if (type.kind === "unionType") {
+    return type.types.some(
+      (member) =>
+        member.kind === "primitiveType" && member.name === "undefined"
+    )
+      ? type
+      : {
+          kind: "unionType",
+          types: [...type.types, { kind: "primitiveType", name: "undefined" }],
+        };
+  }
+
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
+};
+
+const resolveDeclaredRootAccessType = (
+  target: AccessPathTarget,
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (target.kind !== "decl" || target.segments.length !== 0) {
+    return undefined;
+  }
+
+  const declInfo = (ctx.binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(target.declId);
+  const declaration = (declInfo?.valueDeclNode ?? declInfo?.declNode) as
+    | ts.Declaration
+    | undefined;
+  if (!declaration) {
+    return normalizeFlowResetType(ctx.typeEnv?.get(target.declId.id));
+  }
+
+  if (ts.isVariableDeclaration(declaration) && declaration.type) {
+    return normalizeFlowResetType(
+      ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(declaration.type)
+      )
+    );
+  }
+
+  if (ts.isParameter(declaration) && declaration.type) {
+    const parameterType = ctx.typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(declaration.type)
+    );
+    return normalizeFlowResetType(
+      declaration.questionToken ? optionalReadType(parameterType) : parameterType
+    );
+  }
+
+  return normalizeFlowResetType(ctx.typeEnv?.get(target.declId.id));
+};
+
+const collectAssignedAccessTargets = (
+  node: ts.Node,
+  ctx: ProgramContext
+): readonly AccessPathTarget[] => {
+  const targets = new Map<string, AccessPathTarget>();
+
+  const visit = (current: ts.Node): void => {
+    if (
+      current !== node &&
+      (ts.isFunctionLike(current) ||
+        ts.isClassLike(current) ||
+        ts.isInterfaceDeclaration(current) ||
+        ts.isTypeAliasDeclaration(current))
+    ) {
+      return;
+    }
+
+    if (
+      ts.isBinaryExpression(current) &&
+      isAssignmentOperator(current.operatorToken)
+    ) {
+      addAssignedAccessTarget(current.left, ctx, targets);
+    } else if (
+      (ts.isPrefixUnaryExpression(current) ||
+        ts.isPostfixUnaryExpression(current)) &&
+      (current.operator === ts.SyntaxKind.PlusPlusToken ||
+        current.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      addAssignedAccessTarget(current.operand, ctx, targets);
+    }
+
+    ts.forEachChild(current, visit);
+  };
+
+  visit(node);
+  return [...targets.values()];
+};
+
+const invalidateAssignedAccessTargets = (
+  ctx: ProgramContext,
+  node: ts.Node
+): ProgramContext => {
+  let currentCtx = ctx;
+  for (const target of collectAssignedAccessTargets(node, ctx)) {
+    const clearedCtx = withAssignedAccessPathType(currentCtx, target, undefined);
+    const resetType =
+      resolveDeclaredRootAccessType(target, currentCtx) ??
+      normalizeFlowResetType(getCurrentTypeForAccessPath(target, clearedCtx));
+    currentCtx = withAssignedAccessPathType(
+      clearedCtx,
+      target,
+      resetType
+    );
+  }
+  return currentCtx;
+};
+
 /**
  * Convert block statement
  *
@@ -534,6 +669,7 @@ export const convertBlockStatement = (
     }
     const converted = convertStatement(s, currentCtx, expectedReturnType);
     statements.push(...flattenStatementResult(converted));
+    let statementFlowHandled = false;
 
     // Variable declarations introduce new bindings. Thread their inferred types forward
     // so later statements in the same block can use deterministic types (no "unknown").
@@ -565,7 +701,7 @@ export const convertBlockStatement = (
       const expr = s.expression;
       if (
         ts.isBinaryExpression(expr) &&
-        expr.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        isAssignmentOperator(expr.operatorToken) &&
         single.expression.kind === "assignment"
       ) {
         const target = getAccessPathTarget(expr.left, currentCtx);
@@ -575,12 +711,14 @@ export const convertBlockStatement = (
             target,
             resolveAssignedAccessPathFlowType(
               expr.left,
-              single.expression.right.inferredType,
+              expr.operatorToken.kind === ts.SyntaxKind.EqualsToken
+                ? single.expression.right.inferredType
+                : single.expression.inferredType,
               currentCtx
             )
           );
         }
-        continue;
+        statementFlowHandled = true;
       }
 
       if (
@@ -597,6 +735,7 @@ export const convertBlockStatement = (
             single.expression.inferredType
           );
         }
+        statementFlowHandled = true;
       }
     }
 
@@ -623,7 +762,13 @@ export const convertBlockStatement = (
           currentCtx,
           collectTypeNarrowingsInFalsyExpr(s.expression, currentCtx)
         );
-        continue;
+        if (s.elseStatement) {
+          currentCtx = invalidateAssignedAccessTargets(
+            currentCtx,
+            s.elseStatement
+          );
+        }
+        statementFlowHandled = true;
       }
 
       if (elseTerminates && !thenTerminates) {
@@ -631,7 +776,20 @@ export const convertBlockStatement = (
           currentCtx,
           collectTypeNarrowingsInTruthyExpr(s.expression, currentCtx)
         );
+        currentCtx = invalidateAssignedAccessTargets(
+          currentCtx,
+          s.thenStatement
+        );
+        statementFlowHandled = true;
       }
+
+      if (thenTerminates && elseTerminates) {
+        statementFlowHandled = true;
+      }
+    }
+
+    if (!statementFlowHandled) {
+      currentCtx = invalidateAssignedAccessTargets(currentCtx, s);
     }
   }
 
