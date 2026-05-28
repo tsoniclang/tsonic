@@ -11,7 +11,6 @@ import {
   IrType,
   IrVariableDeclaration,
 } from "../../../types.js";
-import type { BindingInternal } from "../../../binding/index.js";
 import {
   convertStatement,
   flattenStatementResult,
@@ -521,14 +520,15 @@ const addAssignedAccessTarget = (
   targets.set(getAccessPathKey(target), target);
 };
 
-const normalizeFlowResetType = (type: IrType | undefined): IrType | undefined =>
+const normalizeFlowResetType = (
+  type: IrType | undefined
+): IrType | undefined =>
   type?.kind === "unknownType" && type.explicit !== true ? undefined : type;
 
 const optionalReadType = (type: IrType): IrType => {
   if (type.kind === "unionType") {
     return type.types.some(
-      (member) =>
-        member.kind === "primitiveType" && member.name === "undefined"
+      (member) => member.kind === "primitiveType" && member.name === "undefined"
     )
       ? type
       : {
@@ -551,12 +551,7 @@ const resolveDeclaredRootAccessType = (
     return undefined;
   }
 
-  const declInfo = (ctx.binding as BindingInternal)
-    ._getHandleRegistry()
-    .getDecl(target.declId);
-  const declaration = (declInfo?.valueDeclNode ?? declInfo?.declNode) as
-    | ts.Declaration
-    | undefined;
+  const declaration = ctx.binding.getValueDeclarationNode(target.declId);
   if (!declaration) {
     return normalizeFlowResetType(ctx.typeEnv?.get(target.declId.id));
   }
@@ -574,7 +569,9 @@ const resolveDeclaredRootAccessType = (
       ctx.binding.captureTypeSyntax(declaration.type)
     );
     return normalizeFlowResetType(
-      declaration.questionToken ? optionalReadType(parameterType) : parameterType
+      declaration.questionToken
+        ? optionalReadType(parameterType)
+        : parameterType
     );
   }
 
@@ -625,15 +622,15 @@ const invalidateAssignedAccessTargets = (
 ): ProgramContext => {
   let currentCtx = ctx;
   for (const target of collectAssignedAccessTargets(node, ctx)) {
-    const clearedCtx = withAssignedAccessPathType(currentCtx, target, undefined);
+    const clearedCtx = withAssignedAccessPathType(
+      currentCtx,
+      target,
+      undefined
+    );
     const resetType =
       resolveDeclaredRootAccessType(target, currentCtx) ??
       normalizeFlowResetType(getCurrentTypeForAccessPath(target, clearedCtx));
-    currentCtx = withAssignedAccessPathType(
-      clearedCtx,
-      target,
-      resetType
-    );
+    currentCtx = withAssignedAccessPathType(clearedCtx, target, resetType);
   }
   return currentCtx;
 };

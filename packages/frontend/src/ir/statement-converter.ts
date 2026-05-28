@@ -9,7 +9,6 @@ import * as ts from "typescript";
 import { IrStatement, IrType } from "./types.js";
 import { convertExpression } from "./expression-converter.js";
 import type { ProgramContext } from "./program-context.js";
-import type { BindingInternal } from "./binding/index.js";
 
 // Import converters from specialized modules
 import {
@@ -69,12 +68,7 @@ const isCompileTimeNoopAssertionCall = (
     return false;
   }
 
-  const declInfo = (ctx.binding as BindingInternal)
-    ._getHandleRegistry()
-    .getDecl(declId);
-  const decl = (declInfo?.valueDeclNode ?? declInfo?.declNode) as
-    | ts.Declaration
-    | undefined;
+  const decl = ctx.binding.getValueDeclarationNode(declId);
   if (!decl || !ts.isFunctionDeclaration(decl)) {
     return false;
   }

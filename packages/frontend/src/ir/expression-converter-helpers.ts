@@ -5,7 +5,6 @@
  */
 
 import * as ts from "typescript";
-import type { BindingInternal } from "./binding/binding-types.js";
 import type { IrType, NumericKind } from "./types.js";
 import { TSONIC_TO_NUMERIC_KIND } from "./types.js";
 import type { ProgramContext } from "./program-context.js";
@@ -172,10 +171,7 @@ export const shouldPreserveExplicitStorageType = (
     return false;
   }
 
-  const declInfo = (ctx.binding as BindingInternal)
-    ._getHandleRegistry()
-    .getDecl(declId);
-  if (!declInfo?.typeNode) {
+  if (!ctx.binding.getTypeNodeOfDecl(declId)) {
     return false;
   }
 
@@ -197,13 +193,9 @@ export const getIdentifierStorageType = (
   if (!fromDecl) return fromEnv;
   if (!declId) return fromEnv ?? fromDecl;
 
-  const declInfo = (ctx.binding as BindingInternal)
-    ._getHandleRegistry()
-    .getDecl(declId);
-  if (!declInfo) return fromEnv ?? fromDecl;
-  if (declInfo.typeNode) return fromDecl;
+  if (ctx.binding.getTypeNodeOfDecl(declId)) return fromDecl;
 
-  const declNode = declInfo.declNode as ts.Node | undefined;
+  const declNode = ctx.binding.getValueDeclarationNode(declId);
   if (declNode) {
     if (
       ts.isVariableDeclaration(declNode) ||

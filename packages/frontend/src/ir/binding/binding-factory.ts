@@ -131,6 +131,37 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     return checker.getFullyQualifiedName(entry.symbol);
   };
 
+  const getKindOfDecl = (declId: DeclId) => ctx.declMap.get(declId.id)?.kind;
+
+  const getTypeNodeOfDecl = (declId: DeclId): ts.TypeNode | undefined => {
+    const node = ctx.declMap.get(declId.id)?.typeNode;
+    return node && ts.isTypeNode(node) ? node : undefined;
+  };
+
+  const getValueDeclarationNode = (
+    declId: DeclId
+  ): ts.Declaration | undefined => {
+    const entry = ctx.declMap.get(declId.id);
+    return entry?.valueDeclNode ?? entry?.decl;
+  };
+
+  const getDeclarationNodesOfDecl = (
+    declId: DeclId
+  ): readonly ts.Declaration[] => {
+    const entry = ctx.declMap.get(declId.id);
+    if (!entry) return [];
+
+    return [entry.decl, entry.valueDeclNode, entry.typeDeclNode].filter(
+      (node): node is ts.Declaration => node !== undefined
+    );
+  };
+
+  const getTypeNodeOfMember = (member: MemberId): ts.TypeNode | undefined => {
+    const key = `${member.declId.id}:${member.name}`;
+    const node = ctx.memberMap.get(key)?.typeNode;
+    return node && ts.isTypeNode(node) ? node : undefined;
+  };
+
   const getTypePredicateOfSignature = (
     sigId: SignatureId
   ): TypePredicateInfo | undefined => {
@@ -278,6 +309,11 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     getSourceFilePathOfMember,
     getSourceFilePathOfDecl,
     getFullyQualifiedName,
+    getKindOfDecl,
+    getTypeNodeOfDecl,
+    getValueDeclarationNode,
+    getDeclarationNodesOfDecl,
+    getTypeNodeOfMember,
     getTypePredicateOfSignature,
     getThisTypeNodeOfSignature,
     getDeclaringTypeNameOfSignature,

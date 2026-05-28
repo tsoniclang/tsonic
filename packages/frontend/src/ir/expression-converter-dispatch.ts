@@ -64,6 +64,7 @@ import {
   typeSymbolIdFromStableId,
 } from "../symbols/index.js";
 import type { TypeSymbolId } from "../symbols/index.js";
+import { typesEqual } from "./types/ir-substitution.js";
 
 type LiteralObjectProperty = Extract<
   Extract<IrExpression, { kind: "object" }>["properties"][number],
@@ -75,48 +76,143 @@ const isLiteralObjectProperty = (
 ): property is LiteralObjectProperty =>
   property.kind === "property" && typeof property.key === "string";
 
+type SatisfiesExpressionResultTypeInference = {
+  readonly type: IrType;
+  readonly recoveredContextualShape: boolean;
+};
+
+const mergeSatisfiesArrayElementTypes = (types: readonly IrType[]): IrType => {
+  const [first, ...rest] = types;
+  if (first && rest.every((type) => typesEqual(type, first))) {
+    return first;
+  }
+
+  return {
+    kind: "unionType",
+    types,
+  };
+};
+
 const inferSatisfiesExpressionResultType = (
   expr: IrExpression
-): IrType | undefined => {
+): SatisfiesExpressionResultTypeInference | undefined => {
+  if (expr.kind === "array") {
+    const elementTypes: IrType[] = [];
+    const recoveredElementTypes: (IrType | undefined)[] = [];
+    let recoveredContextualShape = false;
+
+    for (const element of expr.elements) {
+      if (!element || element.kind === "spread") {
+        return undefined;
+      }
+
+      const recovered = inferSatisfiesExpressionResultType(element);
+      const elementType = recovered?.type ?? element.inferredType;
+      if (!elementType) {
+        return undefined;
+      }
+
+      elementTypes.push(elementType);
+      recoveredElementTypes.push(recovered?.type);
+      recoveredContextualShape =
+        recoveredContextualShape || !!recovered?.recoveredContextualShape;
+    }
+
+    if (!recoveredContextualShape || elementTypes.length === 0) {
+      return undefined;
+    }
+
+    if (
+      expr.inferredType?.kind === "tupleType" &&
+      expr.inferredType.elementTypes.length === elementTypes.length
+    ) {
+      return {
+        type: {
+          ...expr.inferredType,
+          elementTypes: expr.inferredType.elementTypes.map(
+            (elementType, index) => recoveredElementTypes[index] ?? elementType
+          ),
+        },
+        recoveredContextualShape: true,
+      };
+    }
+
+    if (expr.inferredType?.kind === "arrayType") {
+      const recoveredTypes = recoveredElementTypes.filter(
+        (type): type is IrType => type !== undefined
+      );
+      return {
+        type: {
+          kind: "arrayType",
+          elementType:
+            recoveredTypes.length === elementTypes.length
+              ? mergeSatisfiesArrayElementTypes(recoveredTypes)
+              : mergeSatisfiesArrayElementTypes([
+                  expr.inferredType.elementType,
+                  ...recoveredTypes,
+                ]),
+        },
+        recoveredContextualShape: true,
+      };
+    }
+
+    return {
+      type: {
+        kind: "arrayType",
+        elementType: mergeSatisfiesArrayElementTypes(elementTypes),
+      },
+      recoveredContextualShape: true,
+    };
+  }
+
   if (expr.kind !== "object") {
     return undefined;
   }
 
   const members: IrInterfaceMember[] = [];
   for (const property of expr.properties) {
-    if (!isLiteralObjectProperty(property) || !property.value.inferredType) {
+    if (!isLiteralObjectProperty(property)) {
+      return undefined;
+    }
+
+    const recovered = inferSatisfiesExpressionResultType(property.value);
+    const propertyType = recovered?.type ?? property.value.inferredType;
+    if (!propertyType) {
       return undefined;
     }
 
     members.push({
       kind: "propertySignature" as const,
       name: property.key,
-      type:
-        inferSatisfiesExpressionResultType(property.value) ??
-        property.value.inferredType,
+      type: propertyType,
       isOptional: false,
       isReadonly: false,
     });
   }
 
   return {
-    kind: "objectType",
-    members,
+    type: {
+      kind: "objectType",
+      members,
+    },
+    recoveredContextualShape: true,
   };
 };
 
 const preserveSatisfiesExpressionResultType = (
   expr: IrExpression
 ): IrExpression => {
-  const naturalObjectType = inferSatisfiesExpressionResultType(expr);
-  if (!naturalObjectType || expr.kind !== "object") {
+  const naturalResultType = inferSatisfiesExpressionResultType(expr);
+  if (!naturalResultType) {
     return expr;
   }
 
   return {
     ...expr,
-    inferredType: naturalObjectType,
-    contextualType: naturalObjectType,
+    inferredType: naturalResultType.type,
+    ...(expr.kind === "object"
+      ? { contextualType: naturalResultType.type }
+      : {}),
   };
 };
 

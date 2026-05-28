@@ -67,4 +67,24 @@ describe("dotnet binding payload architecture invariants", () => {
 
     expect(hits).to.deep.equal([]);
   });
+
+  it("keeps handle-registry access behind binding and type-system boundaries", () => {
+    const allowedFiles = new Set([
+      "ir/binding/binding-factory.ts",
+      "ir/binding/binding-types.ts",
+      "ir/binding/index.ts",
+      "ir/program-context-factory.ts",
+    ]);
+
+    const hits = productionFiles()
+      .map((file) => relative(srcRoot, file))
+      .filter((file) => !allowedFiles.has(file))
+      .filter((file) => !file.startsWith("ir/type-system/"))
+      .filter((file) => {
+        const text = readFileSync(join(srcRoot, file), "utf8");
+        return /\b(?:BindingInternal|_getHandleRegistry)\b/.test(text);
+      });
+
+    expect(hits).to.deep.equal([]);
+  });
 });

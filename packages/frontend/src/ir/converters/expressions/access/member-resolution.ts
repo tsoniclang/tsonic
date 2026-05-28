@@ -11,7 +11,6 @@ import {
   ComputedAccessProtocol,
 } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
-import type { BindingInternal } from "../../../binding/index.js";
 import { getNumericKindFromIrType } from "../../../type-system/inference-utilities.js";
 import { surfaceIncludesJs } from "../../../../surface/profiles.js";
 
@@ -24,10 +23,7 @@ const memberHasExplicitUnknownAnnotation = (
     return false;
   }
 
-  const memberInfo = (ctx.binding as BindingInternal)
-    ._getHandleRegistry()
-    .getMember(memberId);
-  const typeNode = memberInfo?.typeNode;
+  const typeNode = ctx.binding.getTypeNodeOfMember(memberId);
   return (
     !!typeNode &&
     typeof typeNode === "object" &&

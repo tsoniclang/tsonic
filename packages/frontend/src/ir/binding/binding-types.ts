@@ -149,6 +149,42 @@ export type Binding = {
   getSourceFilePathOfDecl(decl: DeclId): string | undefined;
 
   /**
+   * Get the kind captured for a resolved declaration.
+   *
+   * This is a narrow syntactic query for converter logic that must distinguish
+   * classes from values without reaching into the internal handle registry.
+   */
+  getKindOfDecl(decl: DeclId): DeclKind | undefined;
+
+  /**
+   * Get the explicit type annotation captured for a resolved declaration.
+   *
+   * Returns undefined for declarations without a syntactic type annotation.
+   */
+  getTypeNodeOfDecl(decl: DeclId): ts.TypeNode | undefined;
+
+  /**
+   * Get the value-side declaration node captured for a resolved declaration.
+   *
+   * For merged value/type symbols, this prefers the value declaration and falls
+   * back to the canonical declaration node.
+   */
+  getValueDeclarationNode(decl: DeclId): ts.Declaration | undefined;
+
+  /**
+   * Get every declaration node captured for a resolved declaration.
+   *
+   * This intentionally returns declaration nodes only, never raw symbols or
+   * registry entries.
+   */
+  getDeclarationNodesOfDecl(decl: DeclId): readonly ts.Declaration[];
+
+  /**
+   * Get the explicit type annotation captured for a resolved member.
+   */
+  getTypeNodeOfMember(member: MemberId): ts.TypeNode | undefined;
+
+  /**
    * Get type predicate information from a signature.
    * For functions with `x is T` return type.
    */
