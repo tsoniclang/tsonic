@@ -284,6 +284,14 @@ describe("Maximus Validation Coverage", () => {
           console.log(count(1, 2, 3));
         `,
       },
+      {
+        name: "contextual typing via satisfies",
+        source: `
+          type Mapper = (x: number) => number;
+          const f = ((x) => x + 1) satisfies Mapper;
+          console.log(f(1));
+        `,
+      },
     ];
 
     for (const c of allowCases) {

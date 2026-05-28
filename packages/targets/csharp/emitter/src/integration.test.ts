@@ -9,3 +9,4 @@ import "./integration-cases/regression-coverage-c.test.js";
 import "./integration-cases/object-literals-and-channels.test.js";
 import "./integration-cases/may14-downstream-contracts.test.js";
 import "./integration-cases/tsts-blockers.test.js";
+import "./integration-cases/satisfies-expression.test.js";

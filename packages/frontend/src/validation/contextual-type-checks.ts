@@ -24,7 +24,10 @@ import * as ts from "typescript";
 export const lambdaHasExpectedTypeContext = (
   lambda: ts.ArrowFunction | ts.FunctionExpression
 ): boolean => {
-  const parent = lambda.parent;
+  let parent = lambda.parent;
+  while (ts.isParenthesizedExpression(parent)) {
+    parent = parent.parent;
+  }
 
   // Case 1: Lambda is a call argument
   if (ts.isCallExpression(parent)) {
@@ -41,7 +44,12 @@ export const lambdaHasExpectedTypeContext = (
     return true;
   }
 
-  // Case 4: Lambda is in a return statement in a function with return type
+  // Case 4: Lambda is constrained by a satisfies expression
+  if (ts.isSatisfiesExpression(parent) && parent.type) {
+    return true;
+  }
+
+  // Case 5: Lambda is in a return statement in a function with return type
   if (ts.isReturnStatement(parent)) {
     const containingFunction = findContainingFunction(parent);
     if (containingFunction && containingFunction.type) {
@@ -49,7 +57,7 @@ export const lambdaHasExpectedTypeContext = (
     }
   }
 
-  // Case 5: Lambda is a property value where the object has contextual type
+  // Case 6: Lambda is a property value where the object has contextual type
   if (
     ts.isPropertyAssignment(parent) &&
     ts.isObjectLiteralExpression(parent.parent)
@@ -57,12 +65,12 @@ export const lambdaHasExpectedTypeContext = (
     return objectLiteralHasContextualType(parent.parent);
   }
 
-  // Case 6: Lambda is an array element where the array has a type
+  // Case 7: Lambda is an array element where the array has a type
   if (ts.isArrayLiteralExpression(parent)) {
     return arrayLiteralHasContextualType(parent);
   }
 
-  // Case 7: Lambda is the expression body of another arrow function
+  // Case 8: Lambda is the expression body of another arrow function
   if (ts.isArrowFunction(parent) || ts.isFunctionExpression(parent)) {
     if (parent.body === lambda) {
       if (parent.type) {

@@ -12,7 +12,6 @@ import { IrMemberExpression } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { MemberBinding } from "../../../../program/bindings.js";
-import type { BindingInternal } from "../../../binding/binding-types.js";
 import { tsbindgenTargetTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { extractTypeName } from "./member-resolution.js";
 
@@ -69,18 +68,9 @@ export const resolveHierarchicalBinding = (
     if (object.kind !== "identifier") return false;
     if (!object.declId) return true;
 
-    const declInfo = (ctx.binding as BindingInternal)
-      ._getHandleRegistry()
-      .getDecl(object.declId);
-    if (!declInfo) {
-      return true;
-    }
-
-    const declarationNodes = [
-      declInfo.declNode,
-      declInfo.valueDeclNode,
-      declInfo.typeDeclNode,
-    ].filter((node): node is ts.Declaration => node !== undefined);
+    const declarationNodes = ctx.binding.getDeclarationNodesOfDecl(
+      object.declId
+    );
 
     if (declarationNodes.length === 0) {
       return true;

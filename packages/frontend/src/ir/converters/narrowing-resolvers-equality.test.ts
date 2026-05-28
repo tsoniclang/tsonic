@@ -53,13 +53,37 @@ const createMockContext = (options: {
     sourceRoot: options.sourceRoot ?? "/workspace/src",
     binding: {
       resolveIdentifier: options.resolveIdentifier,
-      ...(options.getDecl
-        ? {
-            _getHandleRegistry: () => ({
-              getDecl: options.getDecl,
-            }),
-          }
-        : {}),
+      getKindOfDecl: (declId: DeclId) =>
+        (options.getDecl?.(declId) as { readonly kind?: string } | undefined)
+          ?.kind,
+      getTypeNodeOfDecl: (declId: DeclId) => {
+        const decl = options.getDecl?.(declId) as
+          | { readonly typeNode?: ts.TypeNode }
+          | undefined;
+        return decl?.typeNode;
+      },
+      getValueDeclarationNode: (declId: DeclId) => {
+        const decl = options.getDecl?.(declId) as
+          | {
+              readonly declNode?: ts.Declaration;
+              readonly valueDeclNode?: ts.Declaration;
+            }
+          | undefined;
+        return decl?.valueDeclNode ?? decl?.declNode;
+      },
+      getDeclarationNodesOfDecl: (declId: DeclId) => {
+        const decl = options.getDecl?.(declId) as
+          | {
+              readonly declNode?: ts.Declaration;
+              readonly valueDeclNode?: ts.Declaration;
+              readonly typeDeclNode?: ts.Declaration;
+            }
+          | undefined;
+        return [decl?.declNode, decl?.valueDeclNode, decl?.typeDeclNode].filter(
+          (node): node is ts.Declaration => node !== undefined
+        );
+      },
+      getTypeNodeOfMember: () => undefined,
     },
     typeSystem: {
       typeOfDecl:

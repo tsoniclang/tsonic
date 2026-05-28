@@ -9,7 +9,6 @@ import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
 import { stableIrTypeKeyIfDeterministic, type IrType } from "../types.js";
 import { referenceTypeIdentity } from "../types/type-ops.js";
-import type { BindingInternal } from "../binding/binding-types.js";
 import { simpleBindingContributesTypeIdentity } from "../../program/binding-registry.js";
 import { tsbindgenTargetTypeNameToTsTypeName } from "../../tsbindgen/names.js";
 import {
@@ -303,22 +302,9 @@ export const resolveInstanceofTargetType = (
   const tryResolveConstructTargetFromDecl = (
     declId: DeclId
   ): IrType | undefined => {
-    const handleRegistryGetter = (ctx.binding as Partial<BindingInternal>)
-      ._getHandleRegistry;
-    if (typeof handleRegistryGetter !== "function") {
-      return undefined;
-    }
-
-    const declInfo = handleRegistryGetter.call(ctx.binding).getDecl(declId);
-    if (!declInfo) {
-      return undefined;
-    }
-
-    const declNode = (declInfo.valueDeclNode ?? declInfo.declNode) as
-      | ts.Declaration
-      | undefined;
+    const declNode = ctx.binding.getValueDeclarationNode(declId);
     if (
-      declInfo.kind === "class" &&
+      ctx.binding.getKindOfDecl(declId) === "class" &&
       declNode &&
       ts.isClassDeclaration(declNode) &&
       declNode.name
@@ -367,12 +353,9 @@ export const resolveInstanceofTargetType = (
     }
 
     const nodes: (ts.TypeNode | undefined)[] = [
-      declInfo.typeNode as ts.TypeNode | undefined,
-      declInfo.valueDeclNode &&
-      ts.isVariableDeclaration(declInfo.valueDeclNode as ts.Node)
-        ? ((declInfo.valueDeclNode as ts.VariableDeclaration).type as
-            | ts.TypeNode
-            | undefined)
+      ctx.binding.getTypeNodeOfDecl(declId),
+      declNode && ts.isVariableDeclaration(declNode)
+        ? declNode.type
         : undefined,
     ];
 
