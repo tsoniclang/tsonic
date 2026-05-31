@@ -194,6 +194,9 @@ export const collectEffectiveInterfaceMemberEntries = (
   }
 
   for (const member of info.members) {
+    if (membersByKey.has(interfaceMemberKey(member))) {
+      continue;
+    }
     setMember({
       member: specializeInterfaceMember(
         member,

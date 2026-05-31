@@ -3466,10 +3466,16 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "(object)global::nodejs.FsModule.statSync(path).mtimeMs is global::Tsonic.Internal.Union<double, string>"
+        "object? __tsonic_reify_source = (object)global::nodejs.FsModule.statSync(path).mtimeMs;"
+      );
+      expect(csharp.match(/statSync\(path\)\.mtimeMs/g) ?? []).to.have.length(
+        1
       );
       expect(csharp).to.include(
-        "global::Tsonic.Internal.Union<double, string>.From2((string)(object)global::nodejs.FsModule.statSync(path).mtimeMs)"
+        "(object)__tsonic_reify_source is global::Tsonic.Internal.Union<double, string>"
+      );
+      expect(csharp).to.include(
+        "global::Tsonic.Internal.Union<double, string>.From2((string)(object)__tsonic_reify_source)"
       );
       expect(csharp).to.not.include(
         "? (global::Tsonic.Internal.Union<double, string>)global::nodejs.FsModule.statSync(path).mtimeMs"
@@ -6039,10 +6045,14 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "return new global::js.Uint8Array(global::js.TypedArrayConstructorInput<byte>.From2(global::js.TypedArrayInput<byte>.From2("
+        "object? __tsonic_reify_source = (object)global::nodejs.FsModule.readFileSync(filePath);"
+      );
+      expect(csharp.match(/readFileSync\(filePath\)/g)).to.have.lengthOf(1);
+      expect(csharp).to.include(
+        "return (object)__tsonic_reify_source is global::js.TypedArrayInput<byte>"
       );
       expect(csharp).to.include(
-        "global::System.Linq.Enumerable.Select<byte, double>(global::nodejs.FsModule.readFileSync(filePath).__tsonic_symbol_iterator(), __item => (double)__item)"
+        "global::js.TypedArrayInput<byte>.From2((global::System.Collections.Generic.IEnumerable<double>)(object)__tsonic_reify_source)"
       );
       expect(csharp).not.to.include(
         ".Match<global::js.TypedArrayConstructorInput<byte>>"

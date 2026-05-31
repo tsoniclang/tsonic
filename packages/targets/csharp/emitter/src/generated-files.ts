@@ -403,6 +403,10 @@ const generateInterfaceObjectAdapterDeclaration = (
     attributes: [],
     modifiers: ["internal", "sealed"],
     name: definition.className,
+    typeParameters:
+      definition.typeParameters.length > 0
+        ? definition.typeParameters.map((name) => ({ name }))
+        : undefined,
     interfaces: [definition.interfaceType],
     members: [
       ...fields,

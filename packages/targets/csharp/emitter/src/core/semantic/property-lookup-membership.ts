@@ -158,33 +158,37 @@ const collectInterfaceProps = (
   out: Map<string, IrPropertySignature>,
   visitedTypes: readonly string[]
 ): void => {
-  // Prevent cycles
-  const cycleKey = ref.providerQualifiedName ?? ref.name;
-  if (visitedTypes.includes(cycleKey)) return;
-  const nextVisited = [...visitedTypes, cycleKey];
+  const queue: {
+    readonly ref: Extract<IrType, { kind: "referenceType" }>;
+    readonly typeInfo: Extract<LocalTypeInfo, { kind: "interface" }>;
+  }[] = [{ ref, typeInfo }];
+  const visited = new Set(visitedTypes);
 
-  // Add own properties first (derived overrides base)
-  for (const m of typeInfo.members) {
-    if (m.kind === "propertySignature") {
-      out.set(m.name, m);
-    }
-  }
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
 
-  // Walk base interfaces
-  for (const base of typeInfo.extends) {
-    if (base.kind !== "referenceType") continue;
-    const baseInfoResult = resolveLocalTypeInfo(base, context);
-    const baseInfo = baseInfoResult?.info;
-    if (!baseInfo || baseInfo.kind !== "interface") continue;
+    const resolvedRefInfo = resolveLocalTypeInfo(current.ref, context);
+    const cycleKey = resolvedRefInfo
+      ? `${resolvedRefInfo.namespace}.${resolvedRefInfo.name}`
+      : (current.ref.providerQualifiedName ??
+        current.ref.typeId?.providerName ??
+        current.ref.name);
+    if (visited.has(cycleKey)) continue;
+    visited.add(cycleKey);
 
-    // Recurse. If derived already set the name, we keep the derived one.
-    const basePropMap = new Map<string, IrPropertySignature>();
-    collectInterfaceProps(base, baseInfo, context, basePropMap, nextVisited);
-
-    for (const [name, sig] of basePropMap.entries()) {
-      if (!out.has(name)) {
-        out.set(name, sig);
+    for (const member of current.typeInfo.members) {
+      if (member.kind === "propertySignature" && !out.has(member.name)) {
+        out.set(member.name, member);
       }
+    }
+
+    for (const base of current.typeInfo.extends) {
+      if (base.kind !== "referenceType") continue;
+      const baseInfoResult = resolveLocalTypeInfo(base, context);
+      const baseInfo = baseInfoResult?.info;
+      if (!baseInfo || baseInfo.kind !== "interface") continue;
+      queue.push({ ref: base, typeInfo: baseInfo });
     }
   }
 };

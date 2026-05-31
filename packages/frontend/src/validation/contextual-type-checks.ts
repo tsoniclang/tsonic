@@ -148,10 +148,27 @@ export const findContainingFunction = (
   return undefined;
 };
 
-const isBroadObjectLiteralContextType = (typeNode: ts.TypeNode): boolean =>
-  typeNode.kind === ts.SyntaxKind.ObjectKeyword ||
-  typeNode.kind === ts.SyntaxKind.UnknownKeyword ||
-  typeNode.kind === ts.SyntaxKind.AnyKeyword;
+const isBroadObjectLiteralContextType = (typeNode: ts.TypeNode): boolean => {
+  if (
+    typeNode.kind === ts.SyntaxKind.ObjectKeyword ||
+    typeNode.kind === ts.SyntaxKind.UnknownKeyword ||
+    typeNode.kind === ts.SyntaxKind.AnyKeyword
+  ) {
+    return true;
+  }
+
+  if (ts.isParenthesizedTypeNode(typeNode)) {
+    return isBroadObjectLiteralContextType(typeNode.type);
+  }
+
+  if (ts.isUnionTypeNode(typeNode)) {
+    return typeNode.types.some((member) =>
+      isBroadObjectLiteralContextType(member)
+    );
+  }
+
+  return false;
+};
 
 export const objectLiteralHasBroadContextualType = (
   node: ts.ObjectLiteralExpression

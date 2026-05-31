@@ -527,7 +527,11 @@ describe("Expression Emission", () => {
         identifierType("global::Test.Router"),
       ]
     );
-    expect(text).to.include(`handler.As1()[index] is ${handlerCarrier}`);
+    expect(text).to.include(
+      "object? __tsonic_reify_source = (object)handler.As1()[index];"
+    );
+    expect(text.match(/handler\.As1\(\)\[index\]/g) ?? []).to.have.length(1);
+    expect(text).to.include(`(object)__tsonic_reify_source is ${handlerCarrier}`);
     expect(text).to.include(`${handlerCarrier}.From1`);
     expect(text).to.include(`${handlerCarrier}.From2`);
     expect(text).to.include(`${handlerCarrier}.From3`);

@@ -269,7 +269,8 @@ export const isDefinitelyValueType = (
  */
 export const getArrayLikeElementType = (
   type: IrType | undefined,
-  context: EmitterContext
+  context: EmitterContext,
+  seen: WeakSet<object> = new WeakSet<object>()
 ): IrType | undefined => {
   if (!type) return undefined;
 
@@ -277,19 +278,44 @@ export const getArrayLikeElementType = (
   if (resolved.kind === "arrayType") {
     return resolved.elementType;
   }
-  if (
-    contextSurfaceIncludesJs(context) &&
-    resolved.kind === "referenceType" &&
-    (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray" ||
-      resolved.name === "ArrayLike") &&
-    resolved.typeArguments?.length === 1
-  ) {
+  if (contextSurfaceIncludesJs(context) && resolved.kind === "referenceType") {
     const localTypeInfo = resolveLocalTypeInfo(resolved, context);
+    if (
+      (resolved.name === "Array" ||
+        resolved.name === "ReadonlyArray" ||
+        resolved.name === "ArrayLike") &&
+      resolved.typeArguments?.length === 1
+    ) {
+      if (localTypeInfo?.info.kind === "class") {
+        return undefined;
+      }
+      return resolved.typeArguments[0];
+    }
+
     if (localTypeInfo?.info.kind === "class") {
       return undefined;
     }
-    return resolved.typeArguments[0];
+    if (localTypeInfo?.info.kind === "interface") {
+      if (seen.has(resolved)) {
+        return undefined;
+      }
+      seen.add(resolved);
+      for (const extended of localTypeInfo.info.extends) {
+        const substituted = substituteTypeArgs(
+          extended,
+          localTypeInfo.info.typeParameters,
+          resolved.typeArguments ?? []
+        );
+        const elementType = getArrayLikeElementType(
+          substituted,
+          context,
+          seen
+        );
+        if (elementType) {
+          return elementType;
+        }
+      }
+    }
   }
 
   return undefined;

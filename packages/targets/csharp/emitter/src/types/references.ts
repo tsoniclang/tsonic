@@ -10,6 +10,7 @@ import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";
 import {
   resolveTypeAlias,
+  isCompilerGeneratedStructuralReferenceType,
   resolveStructuralReferenceType,
   resolveLocalTypeInfo,
   substituteTypeArgs,
@@ -105,6 +106,9 @@ const isQualifiedClrIdentity = (name: string | undefined): boolean => {
 const isSystemObjectClrIdentity = (name: string | undefined): boolean =>
   clrNameMatchesClrIdentity(name, ["System.Object"]);
 
+const normalizedClrIdentity = (name: string | undefined): string | undefined =>
+  name?.startsWith("global::") ? name.slice("global::".length) : name;
+
 const isJsPrimitiveReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): boolean =>
@@ -134,6 +138,30 @@ export const emitReferenceType = (
       nullableType({ kind: "predefinedType", keyword: "object" }),
       context,
     ];
+  }
+
+  if (isCompilerGeneratedStructuralReferenceType(type)) {
+    const syntheticNs = context.options.syntheticTypeNamespaces?.get(name);
+    const structuralTypeAst = syntheticNs
+      ? identifierType(
+          toGlobalClr(`${syntheticNs}.${escapeCSharpIdentifier(name)}`)
+        )
+      : resolveCanonicalStructuralReferenceTypeAst(type, context);
+
+    if (structuralTypeAst) {
+      if (typeArguments && typeArguments.length > 0) {
+        const [typeArgAsts, newContext] = emitTypeArgAsts(
+          typeArguments,
+          context
+        );
+        return [
+          attachTypeArgumentsIfSupported(structuralTypeAst, typeArgAsts),
+          newContext,
+        ];
+      }
+
+      return [structuralTypeAst, context];
+    }
   }
 
   if (name !== "Array" && name !== "ReadonlyArray" && name !== "ArrayLike") {
@@ -208,6 +236,13 @@ export const emitReferenceType = (
     currentModuleLocalResolution?.namespace === currentModuleNamespace
       ? currentModuleLocalResolution.name
       : undefined;
+  const providerNamesResolvedLocalType =
+    providerQualifiedName !== undefined &&
+    currentModuleLocalResolution !== undefined &&
+    normalizedClrIdentity(providerQualifiedName)?.toLocaleLowerCase("en-US") ===
+      `${currentModuleLocalResolution.namespace}.${currentModuleLocalResolution.name}`.toLocaleLowerCase(
+        "en-US"
+      );
 
   // Explicit import contracts are authoritative and must win before any
   // structural or binding-backed rebound. Otherwise same-named sibling types
@@ -543,8 +578,9 @@ export const emitReferenceType = (
   // If the type has a pre-resolved CLR type (from IR), use it
   if (
     (!currentModuleLocalType ||
-      context.preferResolvedLocalClrIdentity ||
-      isSystemObjectClrIdentity(providerQualifiedName)) &&
+      isSystemObjectClrIdentity(providerQualifiedName) ||
+      (context.preferResolvedLocalClrIdentity &&
+        providerNamesResolvedLocalType)) &&
     isQualifiedClrIdentity(providerQualifiedName)
   ) {
     const typeAst = targetTypeNameToTypeAst(

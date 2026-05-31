@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
 import type { IrExpression, IrInterfaceMember, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../types.js";
+import type { EmitterContext, ModuleIdentity } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitParameters } from "../statements/classes/parameters.js";
 import { emitCSharpName } from "../naming-policy.js";
-import { identifierType } from "../core/format/backend-ast/builders.js";
+import {
+  identifierType,
+  nullableType,
+} from "../core/format/backend-ast/builders.js";
 import { printType } from "../core/format/backend-ast/printer-precedence.js";
 import type {
   CSharpExpressionAst,
@@ -21,7 +24,9 @@ import {
   referenceTypeEmitsAsNativeInterface,
   type EffectiveInterfaceMember,
 } from "../core/semantic/native-interfaces.js";
+import { isMutablePropertySlot } from "../core/semantic/mutable-storage-helpers.js";
 import { getDeterministicObjectKeyName } from "./object-helpers.js";
+import { normalizeValueSlotType } from "../core/semantic/value-slot-types.js";
 
 type ObjectProperty = Extract<
   Extract<IrExpression, { kind: "object" }>["properties"][number],
@@ -34,7 +39,7 @@ type AdapterMemberPlan = {
     { readonly name: string; readonly kind: "indexSignature" }
   >;
   readonly declaringType?: Extract<IrType, { kind: "referenceType" }>;
-  readonly property: ObjectProperty;
+  readonly property?: ObjectProperty;
   readonly expectedValueType: IrType;
 };
 
@@ -48,12 +53,14 @@ const adapterClassNameForKey = (key: string): string =>
 
 const adapterTypeAst = (
   namespaceName: string,
-  className: string
+  className: string,
+  typeArguments: readonly CSharpTypeAst[] = []
 ): CSharpTypeAst =>
   identifierType(
     namespaceName.length > 0
       ? `global::${namespaceName}.${className}`
-      : className
+      : className,
+    typeArguments.length > 0 ? typeArguments : undefined
   );
 
 const memberStorageName = (index: number): string => `__tsonic_member_${index}`;
@@ -78,12 +85,32 @@ const getMemberExpectedValueType = (member: IrInterfaceMember): IrType => {
   return functionTypeForMethod(member);
 };
 
+const interfaceMemberHasSetter = (
+  member: Extract<
+    AdapterMemberPlan["interfaceMember"],
+    { kind: "propertySignature" }
+  >,
+  declaringType: Extract<IrType, { kind: "referenceType" }> | undefined,
+  fallbackInterface: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): boolean =>
+  !member.isReadonly ||
+  isMutablePropertySlot(
+    (declaringType ?? fallbackInterface).name,
+    member.name,
+    context
+  );
+
 const buildAdapterKey = (
   interfaceTypeAst: CSharpTypeAst,
+  typeParameters: readonly string[],
   members: readonly InterfaceObjectAdapterMember[]
 ): string =>
   [
     printType(interfaceTypeAst),
+    typeParameters.length > 0
+      ? `typeparams:${typeParameters.join(",")}`
+      : "typeparams:",
     ...members.map((member) =>
       member.kind === "method"
         ? [
@@ -103,6 +130,76 @@ const buildAdapterKey = (
           ].join(":")
     ),
   ].join("|");
+
+const emitAdapterTypeAst = (
+  type: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  const [typeAst, nextContext] = emitTypeAst(type, {
+    ...context,
+    qualifyLocalTypes: true,
+  });
+  return [
+    typeAst,
+    { ...nextContext, qualifyLocalTypes: context.qualifyLocalTypes },
+  ];
+};
+
+const findModuleByLocalType = (
+  context: EmitterContext,
+  namespaceName: string,
+  typeName: string
+): ModuleIdentity | undefined => {
+  for (const moduleInfo of context.options.moduleMap?.values() ?? []) {
+    if (
+      moduleInfo.namespace === namespaceName &&
+      moduleInfo.localTypes?.has(typeName)
+    ) {
+      return moduleInfo;
+    }
+  }
+  return undefined;
+};
+
+const interfaceMemberTypeContext = (
+  interfaceType: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): EmitterContext => {
+  const resolved = resolveLocalTypeInfo(interfaceType, context);
+  if (!resolved) {
+    return context;
+  }
+
+  const moduleInfo = findModuleByLocalType(
+    context,
+    resolved.namespace,
+    resolved.name
+  );
+  return {
+    ...context,
+    moduleNamespace: resolved.namespace,
+    localTypes: moduleInfo?.localTypes ?? context.localTypes,
+    publicLocalTypes: moduleInfo?.publicLocalTypes ?? context.publicLocalTypes,
+  };
+};
+
+const restoreAdapterContext = (
+  nextContext: EmitterContext,
+  consumerContext: EmitterContext
+): EmitterContext => ({
+  ...nextContext,
+  moduleNamespace: consumerContext.moduleNamespace,
+  moduleStaticClassName: consumerContext.moduleStaticClassName,
+  localTypes: consumerContext.localTypes,
+  publicLocalTypes: consumerContext.publicLocalTypes,
+  typeParameters: consumerContext.typeParameters,
+  typeParamConstraints: consumerContext.typeParamConstraints,
+  typeParameterNameMap: consumerContext.typeParameterNameMap,
+  declaringTypeName: consumerContext.declaringTypeName,
+  declaringTypeParameterNames: consumerContext.declaringTypeParameterNames,
+  declaringTypeParameterNameMap: consumerContext.declaringTypeParameterNameMap,
+  qualifyLocalTypes: consumerContext.qualifyLocalTypes,
+});
 
 const collectInterfaceMemberPlans = (
   expr: Extract<IrExpression, { kind: "object" }>,
@@ -136,7 +233,15 @@ const collectInterfaceMemberPlans = (
 
     const property = properties.get(member.name);
     if (!property) {
-      return undefined;
+      if (member.kind !== "propertySignature" || !member.isOptional) {
+        return undefined;
+      }
+      plans.push({
+        interfaceMember: member,
+        declaringType: entry.declaringType,
+        expectedValueType: getMemberExpectedValueType(member),
+      });
+      continue;
     }
     plans.push({
       interfaceMember: member,
@@ -149,15 +254,96 @@ const collectInterfaceMemberPlans = (
   return plans.length > 0 ? plans : undefined;
 };
 
+const collectReferencedTypeParameterNames = (
+  types: readonly IrType[],
+  context: EmitterContext
+): readonly string[] => {
+  const inScope = context.typeParameters;
+  if (!inScope || inScope.size === 0) {
+    return [];
+  }
+
+  const result: string[] = [];
+  const seenNames = new Set<string>();
+  const seenTypes = new WeakSet<object>();
+  const add = (name: string): void => {
+    if (!inScope.has(name)) return;
+    const rendered = context.typeParameterNameMap?.get(name) ?? name;
+    if (seenNames.has(rendered)) return;
+    seenNames.add(rendered);
+    result.push(rendered);
+  };
+
+  const visit = (type: IrType | undefined): void => {
+    if (!type) return;
+    if (typeof type === "object" && type !== null) {
+      if (seenTypes.has(type)) return;
+      seenTypes.add(type);
+    }
+
+    switch (type.kind) {
+      case "typeParameterType":
+        add(type.name);
+        return;
+      case "referenceType":
+        for (const arg of type.typeArguments ?? []) visit(arg);
+        for (const member of type.structuralMembers ?? []) {
+          if (member.kind === "propertySignature") {
+            visit(member.type);
+            continue;
+          }
+          for (const param of member.parameters) visit(param.type);
+          visit(member.returnType);
+        }
+        return;
+      case "arrayType":
+        visit(type.elementType);
+        return;
+      case "tupleType":
+        for (const element of type.elementTypes) visit(element);
+        return;
+      case "functionType":
+        for (const param of type.parameters) visit(param.type);
+        visit(type.returnType);
+        return;
+      case "objectType":
+        for (const member of type.members) {
+          if (member.kind === "propertySignature") {
+            visit(member.type);
+            continue;
+          }
+          for (const param of member.parameters) visit(param.type);
+          visit(member.returnType);
+        }
+        return;
+      case "dictionaryType":
+        visit(type.keyType);
+        visit(type.valueType);
+        return;
+      case "unionType":
+      case "intersectionType":
+        for (const nested of type.types) visit(nested);
+        return;
+      case "primitiveType":
+      case "literalType":
+      case "anyType":
+      case "unknownType":
+      case "voidType":
+      case "neverType":
+        return;
+    }
+  };
+
+  for (const type of types) visit(type);
+  return result;
+};
+
 export const tryEmitInterfaceObjectAdapter = (
   expr: Extract<IrExpression, { kind: "object" }>,
   context: EmitterContext,
   targetType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  if (
-    !targetType ||
-    !referenceTypeEmitsAsNativeInterface(targetType, context)
-  ) {
+  if (!targetType) {
     return undefined;
   }
 
@@ -168,6 +354,9 @@ export const tryEmitInterfaceObjectAdapter = (
 
   const resolved = resolveLocalTypeInfo(strippedTarget, context);
   if (!resolved || resolved.info.kind !== "interface") {
+    return undefined;
+  }
+  if (!referenceTypeEmitsAsNativeInterface(strippedTarget, context)) {
     return undefined;
   }
 
@@ -184,7 +373,14 @@ export const tryEmitInterfaceObjectAdapter = (
   }
 
   let currentContext = context;
-  const [interfaceTypeAst, interfaceContext] = emitTypeAst(
+  const adapterTypeParameterNames = collectReferencedTypeParameterNames(
+    [strippedTarget, ...memberPlans.map((plan) => plan.expectedValueType)],
+    currentContext
+  );
+  const adapterTypeArguments = adapterTypeParameterNames.map((name) =>
+    identifierType(name)
+  );
+  const [interfaceTypeAst, interfaceContext] = emitAdapterTypeAst(
     strippedTarget,
     currentContext
   );
@@ -201,25 +397,37 @@ export const tryEmitInterfaceObjectAdapter = (
     const plan = memberPlans[index];
     if (!plan) continue;
 
-    const [valueAst, valueContext] = emitExpressionAst(
-      plan.property.value,
-      currentContext,
-      plan.expectedValueType
-    );
-    currentContext = valueContext;
-    argumentsAst.push(valueAst);
-
     if (plan.interfaceMember.kind === "propertySignature") {
-      const [explicitInterfaceAst, explicitInterfaceContext] = emitTypeAst(
+      const [explicitInterfaceAst, explicitInterfaceContext] =
+        emitAdapterTypeAst(
+          plan.declaringType ?? strippedTarget,
+          currentContext
+        );
+      currentContext = explicitInterfaceContext;
+      const memberTypeContext = interfaceMemberTypeContext(
         plan.declaringType ?? strippedTarget,
         currentContext
       );
-      currentContext = explicitInterfaceContext;
-      const [valueTypeAst, valueTypeContext] = emitTypeAst(
-        plan.interfaceMember.type,
-        currentContext
+      const [baseValueTypeAst, valueTypeContext] = emitAdapterTypeAst(
+        normalizeValueSlotType(plan.interfaceMember.type),
+        memberTypeContext
       );
-      currentContext = valueTypeContext;
+      currentContext = restoreAdapterContext(valueTypeContext, currentContext);
+      const valueTypeAst = plan.interfaceMember.isOptional
+        ? nullableType(baseValueTypeAst)
+        : baseValueTypeAst;
+      const [valueAst, valueContext] = plan.property
+        ? emitExpressionAst(
+            plan.property.value,
+            currentContext,
+            plan.expectedValueType
+          )
+        : ([
+            { kind: "defaultExpression", type: valueTypeAst },
+            currentContext,
+          ] as const);
+      currentContext = valueContext;
+      argumentsAst.push(valueAst);
       adapterMembers.push({
         kind: "property",
         name: emitCSharpName(
@@ -230,32 +438,54 @@ export const tryEmitInterfaceObjectAdapter = (
         storageName: memberStorageName(index),
         explicitInterface: explicitInterfaceAst,
         valueType: valueTypeAst,
-        isWritable: !plan.interfaceMember.isReadonly,
+        isWritable: interfaceMemberHasSetter(
+          plan.interfaceMember,
+          plan.declaringType,
+          strippedTarget,
+          currentContext
+        ),
       });
       continue;
     }
 
-    const [explicitInterfaceAst, explicitInterfaceContext] = emitTypeAst(
+    if (!plan.property) {
+      return undefined;
+    }
+
+    const [valueAst, valueContext] = emitExpressionAst(
+      plan.property.value,
+      currentContext,
+      plan.expectedValueType
+    );
+    currentContext = valueContext;
+    argumentsAst.push(valueAst);
+
+    const [explicitInterfaceAst, explicitInterfaceContext] =
+      emitAdapterTypeAst(
+        plan.declaringType ?? strippedTarget,
+        currentContext
+      );
+    currentContext = explicitInterfaceContext;
+    const methodType = functionTypeForMethod(plan.interfaceMember);
+    const memberTypeContext = interfaceMemberTypeContext(
       plan.declaringType ?? strippedTarget,
       currentContext
     );
-    currentContext = explicitInterfaceContext;
-    const methodType = functionTypeForMethod(plan.interfaceMember);
-    const [delegateTypeAst, delegateTypeContext] = emitTypeAst(
+    const [delegateTypeAst, delegateTypeContext] = emitAdapterTypeAst(
       methodType,
-      currentContext
+      memberTypeContext
     );
-    currentContext = delegateTypeContext;
-    const [returnTypeAst, returnTypeContext] = emitTypeAst(
+    currentContext = restoreAdapterContext(delegateTypeContext, currentContext);
+    const [returnTypeAst, returnTypeContext] = emitAdapterTypeAst(
       plan.interfaceMember.returnType ?? VOID_TYPE,
-      currentContext
+      memberTypeContext
     );
-    currentContext = returnTypeContext;
+    currentContext = restoreAdapterContext(returnTypeContext, currentContext);
     const [parameterAsts, parameterContext] = emitParameters(
       plan.interfaceMember.parameters,
-      currentContext
+      { ...memberTypeContext, qualifyLocalTypes: true }
     );
-    currentContext = parameterContext;
+    currentContext = restoreAdapterContext(parameterContext, currentContext);
 
     adapterMembers.push({
       kind: "method",
@@ -276,7 +506,11 @@ export const tryEmitInterfaceObjectAdapter = (
     });
   }
 
-  const key = buildAdapterKey(safeInterfaceTypeAst, adapterMembers);
+  const key = buildAdapterKey(
+    safeInterfaceTypeAst,
+    adapterTypeParameterNames,
+    adapterMembers
+  );
   const className = adapterClassNameForKey(key);
   const namespaceName = context.options.rootNamespace;
   const registry = context.options.interfaceObjectAdapterRegistry;
@@ -285,6 +519,7 @@ export const tryEmitInterfaceObjectAdapter = (
       key,
       namespaceName,
       className,
+      typeParameters: adapterTypeParameterNames,
       interfaceType: safeInterfaceTypeAst,
       members: adapterMembers,
     });
@@ -293,7 +528,7 @@ export const tryEmitInterfaceObjectAdapter = (
   return [
     {
       kind: "objectCreationExpression",
-      type: adapterTypeAst(namespaceName, className),
+      type: adapterTypeAst(namespaceName, className, adapterTypeArguments),
       arguments: argumentsAst,
     },
     currentContext,

@@ -670,6 +670,147 @@ export const inferMethodTypeArgsFromArguments = (
       }
     };
 
+    const tryUnifyExpectedInterfaceSurface = (
+      parameterRef: IrReferenceType,
+      argumentRef: IrReferenceType
+    ): boolean => {
+      const pairKey = `expected-interface:${inferenceTypeVisitKey(
+        parameterRef
+      )}=>${inferenceTypeVisitKey(argumentRef)}`;
+      if (activeStructuralPairs.has(pairKey)) {
+        return true;
+      }
+
+      const argumentNominal = normalizeToNominal(state, argumentRef);
+      if (!argumentNominal) {
+        return true;
+      }
+
+      const argumentEntry = state.unifiedCatalog.getByTypeId(
+        argumentNominal.typeId
+      );
+      if (argumentEntry?.kind !== "interface") {
+        return true;
+      }
+
+      const argumentMembers = state.unifiedCatalog.getMembers(
+        argumentNominal.typeId
+      );
+      if (argumentMembers.size === 0) {
+        return true;
+      }
+
+      const argumentInstantiation = state.nominalEnv.getInstantiation(
+        argumentNominal.typeId,
+        argumentNominal.typeArgs,
+        argumentNominal.typeId
+      );
+      if (!argumentInstantiation) {
+        return true;
+      }
+
+      activeStructuralPairs.add(pairKey);
+      try {
+        for (const [memberName, argumentMember] of argumentMembers) {
+          if (memberName.startsWith("__tsonic_")) {
+            continue;
+          }
+
+          const parameterSurface = resolveDeclaredMemberSurface(
+            parameterRef,
+            memberName
+          );
+          const argumentSurface = buildMemberSurface(
+            argumentMember,
+            argumentInstantiation
+          );
+          if (!parameterSurface || !argumentSurface) {
+            continue;
+          }
+
+          const parameterCarriesMethodTypeParameter =
+            containsMethodTypeParameter(parameterSurface.type) ||
+            parameterSurface.signatures.some(
+              (signature) =>
+                containsMethodTypeParameter(signature.returnType) ||
+                signature.parameters.some((parameter) =>
+                  containsMethodTypeParameter(parameter.type)
+                )
+            );
+          if (!parameterCarriesMethodTypeParameter) {
+            continue;
+          }
+
+          if (parameterSurface.type && argumentSurface.type) {
+            if (
+              !tryUnify(
+                parameterSurface.type,
+                argumentSurface.type,
+                currentSubstitution
+              )
+            ) {
+              return false;
+            }
+          }
+
+          for (const parameterSignature of parameterSurface.signatures) {
+            const matchingSignatures = argumentSurface.signatures.filter(
+              (signature) =>
+                signature.parameters.length ===
+                parameterSignature.parameters.length
+            );
+            if (matchingSignatures.length !== 1) {
+              continue;
+            }
+
+            const argumentSignature = matchingSignatures[0];
+            if (!argumentSignature) {
+              continue;
+            }
+
+            for (
+              let parameterIndex = 0;
+              parameterIndex < parameterSignature.parameters.length;
+              parameterIndex += 1
+            ) {
+              const parameterParameter =
+                parameterSignature.parameters[parameterIndex];
+              const argumentParameter =
+                argumentSignature.parameters[parameterIndex];
+              if (!parameterParameter?.type || !argumentParameter?.type) {
+                continue;
+              }
+              if (
+                !tryUnify(
+                  parameterParameter.type,
+                  argumentParameter.type,
+                  currentSubstitution
+                )
+              ) {
+                return false;
+              }
+            }
+
+            if (parameterSignature.returnType && argumentSignature.returnType) {
+              if (
+                !tryUnify(
+                  parameterSignature.returnType,
+                  argumentSignature.returnType,
+                  currentSubstitution
+                )
+              ) {
+                return false;
+              }
+            }
+          }
+        }
+
+        return true;
+      } finally {
+        activeStructuralPairs.delete(pairKey);
+      }
+    };
+
     const tryUnifyStructuralReferenceMembers = (
       parameterRef: IrReferenceType,
       argumentRef: IrReferenceType
@@ -1225,9 +1366,41 @@ export const inferMethodTypeArgsFromArguments = (
               }
             }
           }
+
+          const parameterAsArgumentType = state.nominalEnv.getInstantiation(
+            paramNominal.typeId,
+            paramNominal.typeArgs,
+            argNominal.typeId
+          );
+          if (parameterAsArgumentType) {
+            const targetTypeParams = state.unifiedCatalog.getTypeParameters(
+              argNominal.typeId
+            );
+            const projectedParameterArgs = targetTypeParams.map((tp) =>
+              parameterAsArgumentType.get(tp.name)
+            );
+            const argArgs = argRef.typeArguments ?? [];
+            if (
+              projectedParameterArgs.every((t) => t !== undefined) &&
+              projectedParameterArgs.length === argArgs.length
+            ) {
+              for (let i = 0; i < projectedParameterArgs.length; i++) {
+                const parameterArg = projectedParameterArgs[i];
+                const argumentArg = argArgs[i];
+                if (!parameterArg || !argumentArg) continue;
+                if (!tryUnify(parameterArg, argumentArg, currentSubstitution)) {
+                  return false;
+                }
+              }
+            }
+          }
         }
 
         if (!tryUnifyNominalMemberSurface(parameterType, argRef)) {
+          return false;
+        }
+
+        if (!tryUnifyExpectedInterfaceSurface(parameterType, argRef)) {
           return false;
         }
 

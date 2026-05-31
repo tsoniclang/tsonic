@@ -2,6 +2,7 @@ import type { IrType } from "../types/index.js";
 import { substituteIrType as irSubstitute } from "../types/ir-substitution.js";
 import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 import {
+  containsMethodTypeParameter,
   collectExpectedReturnCandidates,
   expandParameterTypesForInference,
 } from "./call-resolution-utilities.js";
@@ -37,16 +38,141 @@ export const resolveMethodTypeSubstitution = (
 ): MethodTypeSubstitutionResult => {
   const methodTypeParams = rawSig.typeParameters;
   const callSubst = new Map<string, IrType>();
+  const containsMethodTypeParameterInInputSurface = (
+    type: IrType | undefined,
+    unresolved: ReadonlySet<string>,
+    seen: WeakSet<object> = new WeakSet<object>()
+  ): boolean => {
+    if (!type) {
+      return false;
+    }
+
+    if (seen.has(type)) {
+      return false;
+    }
+    seen.add(type);
+
+    switch (type.kind) {
+      case "typeParameterType":
+        return unresolved.has(type.name);
+      case "referenceType":
+        return (
+          (type.typeArguments ?? []).some((typeArgument) =>
+            containsMethodTypeParameterInInputSurface(
+              typeArgument,
+              unresolved,
+              seen
+            )
+          ) ||
+          (type.structuralMembers ?? []).some((member) =>
+            member.kind === "propertySignature"
+              ? containsMethodTypeParameterInInputSurface(
+                  member.type,
+                  unresolved,
+                  seen
+                )
+              : member.parameters.some((parameter) =>
+                  containsMethodTypeParameterInInputSurface(
+                    parameter.type,
+                    unresolved,
+                    seen
+                  )
+                )
+          )
+        );
+      case "arrayType":
+        return containsMethodTypeParameterInInputSurface(
+          type.elementType,
+          unresolved,
+          seen
+        );
+      case "tupleType":
+        return type.elementTypes.some((typeArgument) =>
+          containsMethodTypeParameterInInputSurface(
+            typeArgument,
+            unresolved,
+            seen
+          )
+        );
+      case "dictionaryType":
+        return (
+          containsMethodTypeParameterInInputSurface(
+            type.keyType,
+            unresolved,
+            seen
+          ) ||
+          containsMethodTypeParameterInInputSurface(
+            type.valueType,
+            unresolved,
+            seen
+          )
+        );
+      case "functionType":
+        return type.parameters.some((parameter) =>
+          containsMethodTypeParameterInInputSurface(
+            parameter.type,
+            unresolved,
+            seen
+          )
+        );
+      case "objectType":
+        return type.members.some((member) =>
+          member.kind === "propertySignature"
+            ? containsMethodTypeParameterInInputSurface(
+                member.type,
+                unresolved,
+                seen
+              )
+            : member.parameters.some((parameter) =>
+                containsMethodTypeParameterInInputSurface(
+                  parameter.type,
+                  unresolved,
+                  seen
+                )
+              )
+        );
+      case "unionType":
+      case "intersectionType":
+        return type.types.some((typeArgument) =>
+          containsMethodTypeParameterInInputSurface(
+            typeArgument,
+            unresolved,
+            seen
+          )
+        );
+      default:
+        return false;
+    }
+  };
   const typeRelations = {
     typesEqual,
     isAssignableTo: (source: IrType, target: IrType) =>
       isAssignableTo(state, source, target),
   } as const;
+  const parameterSurfaceTypeParameterNames = new Set(
+    methodTypeParams
+      .map((typeParameter) => typeParameter.name)
+      .filter((name) => {
+        const names = new Set([name]);
+        return (
+          (workingThisParam
+            ? containsMethodTypeParameter(workingThisParam, names)
+            : false) ||
+          workingParams.some((parameterType) =>
+            parameterType
+              ? containsMethodTypeParameterInInputSurface(parameterType, names)
+              : false
+          )
+        );
+      })
+  );
   const mergeSubstitutionType = (
     existing: IrType,
     next: IrType
   ): IrType | undefined =>
     choosePreferredEquivalentInferenceType(typeRelations, existing, next);
+  const allowExpectedReturnInferenceForParameterSurface =
+    rawSig.declaringMemberName === "constructor" || query.argTypes === undefined;
   const selectExpectedReturnSubstitution = ():
     | Map<string, IrType>
     | undefined => {
@@ -90,21 +216,23 @@ export const resolveMethodTypeSubstitution = (
       );
       if (!inferred || inferred.size === 0) continue;
 
-      let conflictsWithExisting = false;
+      const unresolvedInferred = new Map<string, IrType>();
       for (const [name, inferredType] of inferred) {
-        const existing = callSubst.get(name);
-        if (existing && !mergeSubstitutionType(existing, inferredType)) {
-          conflictsWithExisting = true;
-          break;
+        if (
+          !callSubst.has(name) &&
+          (allowExpectedReturnInferenceForParameterSurface ||
+            !parameterSurfaceTypeParameterNames.has(name))
+        ) {
+          unresolvedInferred.set(name, inferredType);
         }
       }
-      if (conflictsWithExisting) continue;
+      if (unresolvedInferred.size === 0) continue;
 
       let mergedIntoGroup = false;
       for (let index = 0; index < groups.length; index += 1) {
         const group = groups[index];
         if (!group) continue;
-        const merged = mergeInferenceMap(group, inferred);
+        const merged = mergeInferenceMap(group, unresolvedInferred);
         if (!merged) continue;
         groups[index] = merged;
         mergedIntoGroup = true;
@@ -112,7 +240,7 @@ export const resolveMethodTypeSubstitution = (
       }
 
       if (!mergedIntoGroup) {
-        groups.push(new Map(inferred));
+        groups.push(unresolvedInferred);
       }
     }
 

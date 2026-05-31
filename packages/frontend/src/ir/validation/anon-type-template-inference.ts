@@ -21,10 +21,64 @@ import {
   getOrCreateTypeName,
 } from "./anon-type-naming.js";
 
+type InferenceState = {
+  readonly activePairs: WeakMap<object, WeakSet<object>>;
+};
+
+const createInferenceState = (): InferenceState => ({
+  activePairs: new WeakMap<object, WeakSet<object>>(),
+});
+
+const enterInferencePair = (
+  template: IrType,
+  concrete: IrType,
+  state: InferenceState
+): boolean => {
+  if (
+    typeof template !== "object" ||
+    template === null ||
+    typeof concrete !== "object" ||
+    concrete === null
+  ) {
+    return false;
+  }
+
+  const concretePairs = state.activePairs.get(template);
+  if (concretePairs?.has(concrete)) {
+    return true;
+  }
+
+  if (concretePairs) {
+    concretePairs.add(concrete);
+  } else {
+    state.activePairs.set(template, new WeakSet<object>([concrete]));
+  }
+
+  return false;
+};
+
+const leaveInferencePair = (
+  template: IrType,
+  concrete: IrType,
+  state: InferenceState
+): void => {
+  if (
+    typeof template !== "object" ||
+    template === null ||
+    typeof concrete !== "object" ||
+    concrete === null
+  ) {
+    return;
+  }
+
+  state.activePairs.get(template)?.delete(concrete);
+};
+
 export const inferTemplateTypeArguments = (
   template: IrType,
   concrete: IrType,
-  substitution: Map<string, IrType>
+  substitution: Map<string, IrType>,
+  state: InferenceState = createInferenceState()
 ): boolean => {
   if (template.kind === "typeParameterType") {
     const existing = substitution.get(template.name);
@@ -39,207 +93,133 @@ export const inferTemplateTypeArguments = (
     return false;
   }
 
-  switch (template.kind) {
-    case "primitiveType":
-      return (
-        concrete.kind === "primitiveType" && template.name === concrete.name
-      );
-    case "literalType":
-      return (
-        concrete.kind === "literalType" && template.value === concrete.value
-      );
-    case "voidType":
-    case "unknownType":
-    case "anyType":
-    case "neverType":
-      return true;
-    case "referenceType": {
-      if (concrete.kind !== "referenceType") {
-        return false;
-      }
-      const templateIdentity = referenceTypeIdentity(template);
-      const concreteIdentity = referenceTypeIdentity(concrete);
-      if (
-        templateIdentity === undefined ||
-        concreteIdentity === undefined ||
-        templateIdentity !== concreteIdentity
-      ) {
-        return false;
-      }
-      const templateArgs = template.typeArguments ?? [];
-      const concreteArgs = concrete.typeArguments ?? [];
-      if (templateArgs.length !== concreteArgs.length) {
-        return false;
-      }
-      for (let index = 0; index < templateArgs.length; index += 1) {
-        const templateArg = templateArgs[index];
-        const concreteArg = concreteArgs[index];
-        if (!templateArg || !concreteArg) {
+  if (enterInferencePair(template, concrete, state)) {
+    return true;
+  }
+
+  try {
+    switch (template.kind) {
+      case "primitiveType":
+        return (
+          concrete.kind === "primitiveType" && template.name === concrete.name
+        );
+      case "literalType":
+        return (
+          concrete.kind === "literalType" && template.value === concrete.value
+        );
+      case "voidType":
+      case "unknownType":
+      case "anyType":
+      case "neverType":
+        return true;
+      case "referenceType": {
+        if (concrete.kind !== "referenceType") {
           return false;
         }
+        const templateIdentity = referenceTypeIdentity(template);
+        const concreteIdentity = referenceTypeIdentity(concrete);
         if (
-          !inferTemplateTypeArguments(templateArg, concreteArg, substitution)
+          templateIdentity === undefined ||
+          concreteIdentity === undefined ||
+          templateIdentity !== concreteIdentity
         ) {
           return false;
         }
-      }
-      return true;
-    }
-    case "arrayType":
-      if (concrete.kind !== "arrayType") {
-        return false;
-      }
-      return inferTemplateTypeArguments(
-        template.elementType,
-        concrete.elementType,
-        substitution
-      );
-    case "tupleType":
-      if (concrete.kind !== "tupleType") {
-        return false;
-      }
-      if (template.elementTypes.length !== concrete.elementTypes.length) {
-        return false;
-      }
-      for (let index = 0; index < template.elementTypes.length; index += 1) {
-        const templateElement = template.elementTypes[index];
-        const concreteElement = concrete.elementTypes[index];
-        if (!templateElement || !concreteElement) {
+        const templateArgs = template.typeArguments ?? [];
+        const concreteArgs = concrete.typeArguments ?? [];
+        if (templateArgs.length !== concreteArgs.length) {
           return false;
         }
-        if (
-          !inferTemplateTypeArguments(
-            templateElement,
-            concreteElement,
-            substitution
-          )
-        ) {
-          return false;
-        }
-      }
-      return true;
-    case "unionType":
-    case "intersectionType":
-      if (concrete.kind !== template.kind) {
-        return false;
-      }
-      if (template.types.length !== concrete.types.length) {
-        return false;
-      }
-      for (let index = 0; index < template.types.length; index += 1) {
-        const templateMember = template.types[index];
-        const concreteMember = concrete.types[index];
-        if (!templateMember || !concreteMember) {
-          return false;
-        }
-        if (
-          !inferTemplateTypeArguments(
-            templateMember,
-            concreteMember,
-            substitution
-          )
-        ) {
-          return false;
-        }
-      }
-      return true;
-    case "functionType":
-      if (concrete.kind !== "functionType") {
-        return false;
-      }
-      if (template.parameters.length !== concrete.parameters.length) {
-        return false;
-      }
-      for (let index = 0; index < template.parameters.length; index += 1) {
-        const templateParam = template.parameters[index];
-        const concreteParam = concrete.parameters[index];
-        if (!templateParam || !concreteParam) {
-          return false;
-        }
-        if (
-          templateParam.isOptional !== concreteParam.isOptional ||
-          templateParam.isRest !== concreteParam.isRest ||
-          templateParam.passing !== concreteParam.passing
-        ) {
-          return false;
-        }
-        if (templateParam.type && concreteParam.type) {
-          if (
-            !inferTemplateTypeArguments(
-              templateParam.type,
-              concreteParam.type,
-              substitution
-            )
-          ) {
-            return false;
-          }
-        } else if (templateParam.type || concreteParam.type) {
-          return false;
-        }
-      }
-      return inferTemplateTypeArguments(
-        template.returnType,
-        concrete.returnType,
-        substitution
-      );
-    case "objectType":
-      if (concrete.kind !== "objectType") {
-        return false;
-      }
-      if (template.members.length !== concrete.members.length) {
-        return false;
-      }
-      for (let index = 0; index < template.members.length; index += 1) {
-        const templateMember = template.members[index];
-        const concreteMember = concrete.members[index];
-        if (!templateMember || !concreteMember) {
-          return false;
-        }
-        if (
-          templateMember.kind !== concreteMember.kind ||
-          templateMember.name !== concreteMember.name
-        ) {
-          return false;
-        }
-        if (
-          templateMember.kind === "propertySignature" &&
-          concreteMember.kind === "propertySignature"
-        ) {
-          if (
-            templateMember.isOptional !== concreteMember.isOptional ||
-            templateMember.isReadonly !== concreteMember.isReadonly
-          ) {
+        for (let index = 0; index < templateArgs.length; index += 1) {
+          const templateArg = templateArgs[index];
+          const concreteArg = concreteArgs[index];
+          if (!templateArg || !concreteArg) {
             return false;
           }
           if (
             !inferTemplateTypeArguments(
-              templateMember.type,
-              concreteMember.type,
-              substitution
+              templateArg,
+              concreteArg,
+              substitution,
+              state
             )
           ) {
             return false;
           }
-          continue;
         }
-        if (
-          templateMember.kind !== "methodSignature" ||
-          concreteMember.kind !== "methodSignature"
-        ) {
+        return true;
+      }
+      case "arrayType":
+        if (concrete.kind !== "arrayType") {
           return false;
         }
-        if (
-          templateMember.parameters.length !== concreteMember.parameters.length
-        ) {
+        return inferTemplateTypeArguments(
+          template.elementType,
+          concrete.elementType,
+          substitution,
+          state
+        );
+      case "tupleType":
+        if (concrete.kind !== "tupleType") {
           return false;
         }
-        for (
-          let paramIndex = 0;
-          paramIndex < templateMember.parameters.length;
-          paramIndex += 1
-        ) {
-          const templateParam = templateMember.parameters[paramIndex];
-          const concreteParam = concreteMember.parameters[paramIndex];
+        if (template.elementTypes.length !== concrete.elementTypes.length) {
+          return false;
+        }
+        for (let index = 0; index < template.elementTypes.length; index += 1) {
+          const templateElement = template.elementTypes[index];
+          const concreteElement = concrete.elementTypes[index];
+          if (!templateElement || !concreteElement) {
+            return false;
+          }
+          if (
+            !inferTemplateTypeArguments(
+              templateElement,
+              concreteElement,
+              substitution,
+              state
+            )
+          ) {
+            return false;
+          }
+        }
+        return true;
+      case "unionType":
+      case "intersectionType":
+        if (concrete.kind !== template.kind) {
+          return false;
+        }
+        if (template.types.length !== concrete.types.length) {
+          return false;
+        }
+        for (let index = 0; index < template.types.length; index += 1) {
+          const templateMember = template.types[index];
+          const concreteMember = concrete.types[index];
+          if (!templateMember || !concreteMember) {
+            return false;
+          }
+          if (
+            !inferTemplateTypeArguments(
+              templateMember,
+              concreteMember,
+              substitution,
+              state
+            )
+          ) {
+            return false;
+          }
+        }
+        return true;
+      case "functionType":
+        if (concrete.kind !== "functionType") {
+          return false;
+        }
+        if (template.parameters.length !== concrete.parameters.length) {
+          return false;
+        }
+        for (let index = 0; index < template.parameters.length; index += 1) {
+          const templateParam = template.parameters[index];
+          const concreteParam = concrete.parameters[index];
           if (!templateParam || !concreteParam) {
             return false;
           }
@@ -255,7 +235,8 @@ export const inferTemplateTypeArguments = (
               !inferTemplateTypeArguments(
                 templateParam.type,
                 concreteParam.type,
-                substitution
+                substitution,
+                state
               )
             ) {
               return false;
@@ -264,39 +245,136 @@ export const inferTemplateTypeArguments = (
             return false;
           }
         }
-        if (templateMember.returnType && concreteMember.returnType) {
+        return inferTemplateTypeArguments(
+          template.returnType,
+          concrete.returnType,
+          substitution,
+          state
+        );
+      case "objectType":
+        if (concrete.kind !== "objectType") {
+          return false;
+        }
+        if (template.members.length !== concrete.members.length) {
+          return false;
+        }
+        for (let index = 0; index < template.members.length; index += 1) {
+          const templateMember = template.members[index];
+          const concreteMember = concrete.members[index];
+          if (!templateMember || !concreteMember) {
+            return false;
+          }
           if (
-            !inferTemplateTypeArguments(
-              templateMember.returnType,
-              concreteMember.returnType,
-              substitution
-            )
+            templateMember.kind !== concreteMember.kind ||
+            templateMember.name !== concreteMember.name
           ) {
             return false;
           }
-        } else if (templateMember.returnType || concreteMember.returnType) {
+          if (
+            templateMember.kind === "propertySignature" &&
+            concreteMember.kind === "propertySignature"
+          ) {
+            if (
+              templateMember.isOptional !== concreteMember.isOptional ||
+              templateMember.isReadonly !== concreteMember.isReadonly
+            ) {
+              return false;
+            }
+            if (
+              !inferTemplateTypeArguments(
+                templateMember.type,
+                concreteMember.type,
+                substitution,
+                state
+              )
+            ) {
+              return false;
+            }
+            continue;
+          }
+          if (
+            templateMember.kind !== "methodSignature" ||
+            concreteMember.kind !== "methodSignature"
+          ) {
+            return false;
+          }
+          if (
+            templateMember.parameters.length !==
+            concreteMember.parameters.length
+          ) {
+            return false;
+          }
+          for (
+            let paramIndex = 0;
+            paramIndex < templateMember.parameters.length;
+            paramIndex += 1
+          ) {
+            const templateParam = templateMember.parameters[paramIndex];
+            const concreteParam = concreteMember.parameters[paramIndex];
+            if (!templateParam || !concreteParam) {
+              return false;
+            }
+            if (
+              templateParam.isOptional !== concreteParam.isOptional ||
+              templateParam.isRest !== concreteParam.isRest ||
+              templateParam.passing !== concreteParam.passing
+            ) {
+              return false;
+            }
+            if (templateParam.type && concreteParam.type) {
+              if (
+                !inferTemplateTypeArguments(
+                  templateParam.type,
+                  concreteParam.type,
+                  substitution,
+                  state
+                )
+              ) {
+                return false;
+              }
+            } else if (templateParam.type || concreteParam.type) {
+              return false;
+            }
+          }
+          if (templateMember.returnType && concreteMember.returnType) {
+            if (
+              !inferTemplateTypeArguments(
+                templateMember.returnType,
+                concreteMember.returnType,
+                substitution,
+                state
+              )
+            ) {
+              return false;
+            }
+          } else if (templateMember.returnType || concreteMember.returnType) {
+            return false;
+          }
+        }
+        return true;
+      case "dictionaryType":
+        if (concrete.kind !== "dictionaryType") {
           return false;
         }
-      }
-      return true;
-    case "dictionaryType":
-      if (concrete.kind !== "dictionaryType") {
+        return (
+          inferTemplateTypeArguments(
+            template.keyType,
+            concrete.keyType,
+            substitution,
+            state
+          ) &&
+          inferTemplateTypeArguments(
+            template.valueType,
+            concrete.valueType,
+            substitution,
+            state
+          )
+        );
+      default:
         return false;
-      }
-      return (
-        inferTemplateTypeArguments(
-          template.keyType,
-          concrete.keyType,
-          substitution
-        ) &&
-        inferTemplateTypeArguments(
-          template.valueType,
-          concrete.valueType,
-          substitution
-        )
-      );
-    default:
-      return false;
+    }
+  } finally {
+    leaveInferencePair(template, concrete, state);
   }
 };
 

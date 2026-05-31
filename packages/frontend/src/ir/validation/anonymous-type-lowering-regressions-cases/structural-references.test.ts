@@ -5,12 +5,68 @@ import type {
   IrClassDeclaration,
   IrInterfaceDeclaration,
   IrModule,
+  IrObjectType,
   IrReferenceType,
   IrType,
 } from "../../types.js";
 import { computeShapeSignature } from "../anon-type-shape-analysis.js";
+import { inferTemplateTypeArguments } from "../anon-type-template-inference.js";
 
 describe("Anonymous Type Lowering Regression Coverage (structural references)", () => {
+  it("matches recursive structural carrier templates without unbounded recursion", () => {
+    const template = {
+      kind: "objectType",
+      members: [],
+    } as unknown as IrObjectType & { members: IrObjectType["members"] };
+    const concrete = {
+      kind: "objectType",
+      members: [],
+    } as unknown as IrObjectType & { members: IrObjectType["members"] };
+
+    template.members = [
+      {
+        kind: "propertySignature",
+        name: "value",
+        type: { kind: "primitiveType", name: "string" },
+        isOptional: false,
+        isReadonly: false,
+      },
+      {
+        kind: "propertySignature",
+        name: "next",
+        type: {
+          kind: "unionType",
+          types: [template, { kind: "primitiveType", name: "undefined" }],
+        },
+        isOptional: true,
+        isReadonly: false,
+      },
+    ];
+    concrete.members = [
+      {
+        kind: "propertySignature",
+        name: "value",
+        type: { kind: "primitiveType", name: "string" },
+        isOptional: false,
+        isReadonly: false,
+      },
+      {
+        kind: "propertySignature",
+        name: "next",
+        type: {
+          kind: "unionType",
+          types: [concrete, { kind: "primitiveType", name: "undefined" }],
+        },
+        isOptional: true,
+        isReadonly: false,
+      },
+    ];
+
+    expect(
+      inferTemplateTypeArguments(template, concrete, new Map<string, IrType>())
+    ).to.equal(true);
+  });
+
   it("does not recurse infinitely through cyclic structural reference members", () => {
     const routerType = {
       kind: "referenceType",

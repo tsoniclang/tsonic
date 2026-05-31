@@ -38,8 +38,12 @@ import {
   isSameNominalType,
 } from "./structural-type-shapes.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
-import { localInfoHasStructuralMember } from "../core/semantic/structural-member-matching.js";
+import {
+  interfaceMembersMatchStructurally,
+  localInfoHasStructuralMember,
+} from "../core/semantic/structural-member-matching.js";
 import { isAssignableToType } from "../core/semantic/type-compatibility.js";
+import { tryContextualTypeIdentityKey } from "../core/semantic/deterministic-type-keys.js";
 
 const buildStructuralSourceAccess = (
   sourceExpression: CSharpExpressionAst,
@@ -138,6 +142,211 @@ const getExpectedInterfaceMembers = (
   return localInfo?.kind === "interface" ? localInfo.members : undefined;
 };
 
+const referenceIdentity = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): string => ref.providerQualifiedName ?? ref.typeId?.providerName ?? ref.name;
+
+const structuralObjectAdaptationPairKey = (
+  sourceType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): string | undefined => {
+  if (!sourceType || !expectedType) {
+    return undefined;
+  }
+
+  const sourceKey = tryContextualTypeIdentityKey(
+    stripNullish(sourceType),
+    context
+  );
+  const expectedKey = tryContextualTypeIdentityKey(
+    stripNullish(expectedType),
+    context
+  );
+  return sourceKey && expectedKey ? `${sourceKey}=>${expectedKey}` : undefined;
+};
+
+const referenceTypeArgumentsMatchExactly = (
+  sourceRef: Extract<IrType, { kind: "referenceType" }>,
+  expectedRef: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): boolean => {
+  const sourceArgs = sourceRef.typeArguments ?? [];
+  const expectedArgs = expectedRef.typeArguments ?? [];
+  if (sourceArgs.length !== expectedArgs.length) {
+    return false;
+  }
+
+  return sourceArgs.every((sourceArg, index) => {
+    const expectedArg = expectedArgs[index];
+    if (!expectedArg) {
+      return false;
+    }
+    if (isSameNominalType(sourceArg, expectedArg, context)) {
+      return true;
+    }
+    const sourceKey = tryContextualTypeIdentityKey(sourceArg, context);
+    const expectedKey = tryContextualTypeIdentityKey(expectedArg, context);
+    return (
+      sourceKey !== undefined &&
+      expectedKey !== undefined &&
+      sourceKey === expectedKey
+    );
+  });
+};
+
+const localReferenceInheritsExpectedInterface = (
+  sourceRef: Extract<IrType, { kind: "referenceType" }>,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  const expectedRef = stripNullish(expectedType);
+  if (expectedRef.kind !== "referenceType") {
+    return false;
+  }
+
+  const expectedLocal = resolveLocalTypeInfo(expectedRef, context);
+  if (!expectedLocal || expectedLocal.info.kind !== "interface") {
+    return false;
+  }
+
+  const queue: Extract<IrType, { kind: "referenceType" }>[] = [sourceRef];
+  const visited = new Set<string>();
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    if (referenceIdentity(current) === referenceIdentity(expectedRef)) {
+      return referenceTypeArgumentsMatchExactly(current, expectedRef, context);
+    }
+
+    const currentLocal = resolveLocalTypeInfo(current, context);
+    if (!currentLocal) {
+      continue;
+    }
+    if (
+      currentLocal.namespace === expectedLocal.namespace &&
+      currentLocal.name === expectedLocal.name
+    ) {
+      return referenceTypeArgumentsMatchExactly(current, expectedRef, context);
+    }
+
+    const currentKey = `${currentLocal.namespace}.${currentLocal.name}`;
+    if (visited.has(currentKey)) {
+      continue;
+    }
+    visited.add(currentKey);
+
+    const currentInfo = currentLocal.info;
+    const bases =
+      currentInfo.kind === "interface"
+        ? currentInfo.extends
+        : currentInfo.kind === "class"
+          ? [
+              ...(currentInfo.superClass ? [currentInfo.superClass] : []),
+              ...currentInfo.implements,
+            ]
+          : [];
+    for (const base of bases) {
+      if (base.kind === "referenceType") {
+        queue.push(base);
+      }
+    }
+  }
+
+  return false;
+};
+
+const localTypeInheritsExpectedInterface = (
+  sourceType: IrType,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  const sourceRef = stripNullish(sourceType);
+  const expectedRef = stripNullish(expectedType);
+  return (
+    sourceRef.kind === "referenceType" &&
+    expectedRef.kind === "referenceType" &&
+    referenceTypeEmitsAsNativeInterface(expectedRef, context) &&
+    resolveLocalTypeInfo(expectedRef, context)?.info.kind === "interface" &&
+    localReferenceInheritsExpectedInterface(sourceRef, expectedType, context)
+  );
+};
+
+const collectLocalInterfaceMembers = (
+  sourceRef: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): readonly IrInterfaceMember[] | undefined => {
+  const queue: Extract<IrType, { kind: "referenceType" }>[] = [sourceRef];
+  const visited = new Set<string>();
+  const members: IrInterfaceMember[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+
+    const currentLocal = resolveLocalTypeInfo(current, context);
+    if (!currentLocal || currentLocal.info.kind !== "interface") {
+      continue;
+    }
+
+    const currentKey = `${currentLocal.namespace}.${currentLocal.name}`;
+    if (visited.has(currentKey)) {
+      continue;
+    }
+    visited.add(currentKey);
+
+    members.push(...currentLocal.info.members);
+    for (const base of currentLocal.info.extends) {
+      if (base.kind === "referenceType") {
+        queue.push(base);
+      }
+    }
+  }
+
+  return members.length > 0 ? members : undefined;
+};
+
+const localTypeStructurallySatisfiesExpectedInterface = (
+  sourceType: IrType,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  const strippedExpected = stripNullish(expectedType);
+  if (strippedExpected.kind !== "referenceType") {
+    return false;
+  }
+  const expectedInfo = resolveLocalTypeInfo(strippedExpected, context)?.info;
+  if (expectedInfo?.kind !== "interface") {
+    return false;
+  }
+
+  const strippedSource = stripNullish(sourceType);
+  if (strippedSource.kind !== "referenceType") {
+    return false;
+  }
+
+  const sourceInfo = resolveLocalTypeInfo(strippedSource, context)?.info;
+  if (sourceInfo?.kind !== "class" && sourceInfo?.kind !== "interface") {
+    return false;
+  }
+
+  const inheritedMembers =
+    sourceInfo.kind === "interface"
+      ? collectLocalInterfaceMembers(strippedSource, context)
+      : undefined;
+  return expectedInfo.members.every((targetMember) => {
+    if (localInfoHasStructuralMember(sourceInfo, targetMember, context)) {
+      return true;
+    }
+    return inheritedMembers?.some((sourceMember) =>
+      interfaceMembersMatchStructurally(sourceMember, targetMember, context)
+    ) === true;
+  });
+};
+
 const localIdentifierStructurallySatisfiesExpectedInterface = (
   emittedAst: CSharpExpressionAst,
   sourceType: IrType,
@@ -153,23 +362,10 @@ const localIdentifierStructurallySatisfiesExpectedInterface = (
     context.localSemanticTypes?.get(sourceName) ??
     context.localValueTypes?.get(sourceName) ??
     sourceType;
-  const strippedSource = stripNullish(declaredSourceType);
-  if (strippedSource.kind !== "referenceType") {
-    return false;
-  }
-
-  const sourceInfo = context.localTypes?.get(strippedSource.name);
-  if (sourceInfo?.kind !== "class" && sourceInfo?.kind !== "interface") {
-    return false;
-  }
-
-  const targetMembers = getExpectedInterfaceMembers(expectedType, context);
-  return (
-    targetMembers !== undefined &&
-    targetMembers.length > 0 &&
-    targetMembers.every((targetMember) =>
-      localInfoHasStructuralMember(sourceInfo, targetMember, context)
-    )
+  return localTypeStructurallySatisfiesExpectedInterface(
+    declaredSourceType,
+    expectedType,
+    context
   );
 };
 
@@ -314,6 +510,9 @@ export const tryAdaptStructuralObjectExpressionAst = (
   if (
     localIdentifierAlreadyHasExpectedSurface(emittedAst, expectedType, context)
   ) {
+    return [emittedAst, context];
+  }
+  if (localTypeInheritsExpectedInterface(sourceType, expectedType, context)) {
     return [emittedAst, context];
   }
   const expectedInterfaceMembers = getExpectedInterfaceMembers(
@@ -486,50 +685,78 @@ export const tryAdaptStructuralObjectExpressionAst = (
   }
 
   const sourcePropMap = new Map(sourceProps.map((prop) => [prop.name, prop]));
+  const adaptationPairKey = structuralObjectAdaptationPairKey(
+    sourceType,
+    expectedType,
+    currentContext
+  );
+  if (adaptationPairKey) {
+    currentContext = {
+      ...currentContext,
+      structuralObjectAdaptationStack: new Set([
+        ...(currentContext.structuralObjectAdaptationStack ?? []),
+        adaptationPairKey,
+      ]),
+    };
+  }
 
   const buildInitializer = (
     sourceExpression: CSharpExpressionAst,
     initContext: EmitterContext
   ): [CSharpExpressionAst, EmitterContext] => {
     let currentInitContext = initContext;
-    const assignments = materializedProps
-      .filter((prop) => sourcePropNames.has(prop.name))
-      .map((prop) => {
-        const sourceProp = sourcePropMap.get(prop.name);
-        const sourceAccess = buildStructuralSourceAccess(
-          sourceExpression,
-          sourceType,
-          prop.name,
-          currentInitContext
-        );
-        const acceptedTargetType = getAcceptedSurfaceType(
-          prop.type,
-          prop.isOptional
-        );
-        const [adaptedValueAst, adaptedValueContext] =
-          adaptStructuralExpressionAst(
-            sourceAccess,
-            sourceProp?.type,
-            currentInitContext,
-            acceptedTargetType,
-            upcastFn
-          ) ?? [sourceAccess, currentInitContext];
-        currentInitContext = adaptedValueContext;
+    const assignments: CSharpExpressionAst[] = [];
+    for (const prop of materializedProps.filter((prop) =>
+      sourcePropNames.has(prop.name)
+    )) {
+      const sourceProp = sourcePropMap.get(prop.name);
+      const sourceAccess = buildStructuralSourceAccess(
+        sourceExpression,
+        sourceType,
+        prop.name,
+        currentInitContext
+      );
+      const acceptedTargetType = getAcceptedSurfaceType(
+        prop.type,
+        prop.isOptional
+      );
+      const nestedPairKey = structuralObjectAdaptationPairKey(
+        sourceProp?.type,
+        acceptedTargetType,
+        currentInitContext
+      );
+      if (
+        prop.isOptional &&
+        nestedPairKey &&
+        currentInitContext.structuralObjectAdaptationStack?.has(nestedPairKey)
+      ) {
+        continue;
+      }
 
-        return {
-          kind: "assignmentExpression" as const,
-          operatorToken: "=" as const,
-          left: {
-            kind: "identifierExpression" as const,
-            identifier: emitCSharpName(
-              prop.name,
-              "properties",
-              currentInitContext
-            ),
-          },
-          right: adaptedValueAst,
-        };
+      const [adaptedValueAst, adaptedValueContext] =
+        adaptStructuralExpressionAst(
+          sourceAccess,
+          sourceProp?.type,
+          currentInitContext,
+          acceptedTargetType,
+          upcastFn
+        ) ?? [sourceAccess, currentInitContext];
+      currentInitContext = adaptedValueContext;
+
+      assignments.push({
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: {
+          kind: "identifierExpression",
+          identifier: emitCSharpName(
+            prop.name,
+            "properties",
+            currentInitContext
+          ),
+        },
+        right: adaptedValueAst,
       });
+    }
 
     return [
       {

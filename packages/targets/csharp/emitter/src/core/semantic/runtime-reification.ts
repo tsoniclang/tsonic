@@ -14,6 +14,7 @@ import {
 } from "../format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
+  CSharpPatternAst,
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../format/backend-ast/types.js";
@@ -562,6 +563,874 @@ const buildInvalidCastThrowStatement = (
     ],
   },
 });
+
+const allocateRuntimeReificationLocalName = (
+  baseName: string,
+  context: EmitterContext
+): { readonly name: string; readonly context: EmitterContext } => {
+  const used = context.usedLocalNames ?? new Set<string>();
+  if (!used.has(baseName)) {
+    return {
+      name: baseName,
+      context: {
+        ...context,
+        usedLocalNames: new Set([...used, baseName]),
+      },
+    };
+  }
+
+  let suffix = 1;
+  while (true) {
+    const candidate = `${baseName}__${suffix}`;
+    if (!used.has(candidate)) {
+      return {
+        name: candidate,
+        context: {
+          ...context,
+          usedLocalNames: new Set([...used, candidate]),
+        },
+      };
+    }
+    suffix += 1;
+  }
+};
+
+const isStableRuntimeReificationInputAst = (
+  ast: CSharpExpressionAst
+): boolean => {
+  switch (ast.kind) {
+    case "identifierExpression":
+    case "qualifiedIdentifierExpression":
+    case "nullLiteralExpression":
+    case "booleanLiteralExpression":
+    case "stringLiteralExpression":
+    case "charLiteralExpression":
+    case "numericLiteralExpression":
+      return true;
+    case "parenthesizedExpression":
+    case "suppressNullableWarningExpression":
+      return isStableRuntimeReificationInputAst(ast.expression);
+    case "castExpression":
+    case "asExpression":
+      return isStableRuntimeReificationInputAst(ast.expression);
+    default:
+      return false;
+  }
+};
+
+const countExpressionReferenceAst = (
+  ast: CSharpExpressionAst,
+  sourceAst: CSharpExpressionAst
+): number => {
+  if (ast === sourceAst) {
+    return 1;
+  }
+
+  switch (ast.kind) {
+    case "parenthesizedExpression":
+    case "memberAccessExpression":
+    case "conditionalMemberAccessExpression":
+    case "castExpression":
+    case "asExpression":
+    case "awaitExpression":
+    case "throwExpression":
+    case "suppressNullableWarningExpression":
+    case "argumentModifierExpression":
+      return countExpressionReferenceAst(ast.expression, sourceAst);
+    case "elementAccessExpression":
+    case "conditionalElementAccessExpression":
+      return (
+        countExpressionReferenceAst(ast.expression, sourceAst) +
+        ast.arguments.reduce(
+          (count, argument) =>
+            count + countExpressionReferenceAst(argument, sourceAst),
+          0
+        )
+      );
+    case "implicitElementAccessExpression":
+      return ast.arguments.reduce(
+        (count, argument) =>
+          count + countExpressionReferenceAst(argument, sourceAst),
+        0
+      );
+    case "invocationExpression":
+      return (
+        countExpressionReferenceAst(ast.expression, sourceAst) +
+        ast.arguments.reduce(
+          (count, argument) =>
+            count + countExpressionReferenceAst(argument, sourceAst),
+          0
+        )
+      );
+    case "objectCreationExpression":
+      return (
+        ast.arguments.reduce(
+          (count, argument) =>
+            count + countExpressionReferenceAst(argument, sourceAst),
+          0
+        ) +
+        (ast.initializer ?? []).reduce(
+          (count, entry) => count + countExpressionReferenceAst(entry, sourceAst),
+          0
+        )
+      );
+    case "anonymousObjectCreationExpression":
+      return ast.initializer.reduce(
+        (count, entry) => count + countExpressionReferenceAst(entry, sourceAst),
+        0
+      );
+    case "arrayCreationExpression":
+      return (
+        (ast.sizeExpression
+          ? countExpressionReferenceAst(ast.sizeExpression, sourceAst)
+          : 0) +
+        (ast.initializer ?? []).reduce(
+          (count, entry) => count + countExpressionReferenceAst(entry, sourceAst),
+          0
+        )
+      );
+    case "stackAllocArrayCreationExpression":
+      return countExpressionReferenceAst(ast.sizeExpression, sourceAst);
+    case "assignmentExpression":
+    case "binaryExpression":
+      return (
+        countExpressionReferenceAst(ast.left, sourceAst) +
+        countExpressionReferenceAst(ast.right, sourceAst)
+      );
+    case "prefixUnaryExpression":
+    case "postfixUnaryExpression":
+      return countExpressionReferenceAst(ast.operand, sourceAst);
+    case "conditionalExpression":
+      return (
+        countExpressionReferenceAst(ast.condition, sourceAst) +
+        countExpressionReferenceAst(ast.whenTrue, sourceAst) +
+        countExpressionReferenceAst(ast.whenFalse, sourceAst)
+      );
+    case "isExpression":
+      return countExpressionReferenceAst(ast.expression, sourceAst);
+    case "lambdaExpression":
+      return ast.body.kind === "blockStatement"
+        ? countStatementReferenceAst(ast.body, sourceAst)
+        : countExpressionReferenceAst(ast.body, sourceAst);
+    case "interpolatedStringExpression":
+      return ast.parts.reduce(
+        (count, part) =>
+          part.kind === "interpolation"
+            ? count + countExpressionReferenceAst(part.expression, sourceAst)
+            : count,
+        0
+      );
+    case "switchExpression":
+      return (
+        countExpressionReferenceAst(ast.governingExpression, sourceAst) +
+        ast.arms.reduce(
+          (count, arm) =>
+            count +
+            (arm.whenClause
+              ? countExpressionReferenceAst(arm.whenClause, sourceAst)
+              : 0) +
+            countExpressionReferenceAst(arm.expression, sourceAst),
+          0
+        )
+      );
+    case "tupleExpression":
+      return ast.elements.reduce(
+        (count, element) => count + countExpressionReferenceAst(element, sourceAst),
+        0
+      );
+    case "nullLiteralExpression":
+    case "booleanLiteralExpression":
+    case "stringLiteralExpression":
+    case "charLiteralExpression":
+    case "numericLiteralExpression":
+    case "identifierExpression":
+    case "qualifiedIdentifierExpression":
+    case "typeReferenceExpression":
+    case "defaultExpression":
+    case "sizeOfExpression":
+    case "typeofExpression":
+    case "declarationExpression":
+      return 0;
+  }
+};
+
+const countPatternReferenceAst = (
+  pattern: CSharpPatternAst,
+  sourceAst: CSharpExpressionAst
+): number => {
+  switch (pattern.kind) {
+    case "constantPattern":
+      return countExpressionReferenceAst(pattern.expression, sourceAst);
+    case "negatedPattern":
+      return countPatternReferenceAst(pattern.pattern, sourceAst);
+    default:
+      return 0;
+  }
+};
+
+const countStatementReferenceAst = (
+  statement: CSharpStatementAst,
+  sourceAst: CSharpExpressionAst
+): number => {
+  switch (statement.kind) {
+    case "blockStatement":
+      return statement.statements.reduce(
+        (count, nested) => count + countStatementReferenceAst(nested, sourceAst),
+        0
+      );
+    case "localDeclarationStatement":
+      return statement.declarators.reduce(
+        (count, declarator) =>
+          count +
+          (declarator.initializer
+            ? countExpressionReferenceAst(declarator.initializer, sourceAst)
+            : 0),
+        0
+      );
+    case "localFunctionStatement":
+      return countStatementReferenceAst(statement.body, sourceAst);
+    case "expressionStatement":
+    case "throwStatement":
+    case "returnStatement":
+    case "yieldStatement":
+      return statement.expression
+        ? countExpressionReferenceAst(statement.expression, sourceAst)
+        : 0;
+    case "ifStatement":
+      return (
+        countExpressionReferenceAst(statement.condition, sourceAst) +
+        countStatementReferenceAst(statement.thenStatement, sourceAst) +
+        (statement.elseStatement
+          ? countStatementReferenceAst(statement.elseStatement, sourceAst)
+          : 0)
+      );
+    case "whileStatement":
+      return (
+        countExpressionReferenceAst(statement.condition, sourceAst) +
+        countStatementReferenceAst(statement.body, sourceAst)
+      );
+    case "forStatement":
+      return (
+        (statement.declaration
+          ? countStatementReferenceAst(statement.declaration, sourceAst)
+          : 0) +
+        (statement.initializers ?? []).reduce(
+          (count, initializer) =>
+            count + countExpressionReferenceAst(initializer, sourceAst),
+          0
+        ) +
+        (statement.condition
+          ? countExpressionReferenceAst(statement.condition, sourceAst)
+          : 0) +
+        statement.incrementors.reduce(
+          (count, incrementor) =>
+            count + countExpressionReferenceAst(incrementor, sourceAst),
+          0
+        ) +
+        countStatementReferenceAst(statement.body, sourceAst)
+      );
+    case "foreachStatement":
+      return (
+        countExpressionReferenceAst(statement.expression, sourceAst) +
+        countStatementReferenceAst(statement.body, sourceAst)
+      );
+    case "switchStatement":
+      return (
+        countExpressionReferenceAst(statement.expression, sourceAst) +
+        statement.sections.reduce(
+          (count, section) =>
+            count +
+            section.labels.reduce(
+              (labelCount, label) =>
+                label.kind === "caseSwitchLabel"
+                  ? labelCount + countExpressionReferenceAst(label.value, sourceAst)
+                  : label.kind === "casePatternSwitchLabel"
+                    ? labelCount +
+                      countPatternReferenceAst(label.pattern, sourceAst) +
+                      (label.whenClause
+                        ? countExpressionReferenceAst(label.whenClause, sourceAst)
+                        : 0)
+                    : labelCount,
+              0
+            ) +
+            section.statements.reduce(
+              (statementCount, nested) =>
+                statementCount + countStatementReferenceAst(nested, sourceAst),
+              0
+            ),
+          0
+        )
+      );
+    case "tryStatement":
+      return (
+        countStatementReferenceAst(statement.body, sourceAst) +
+        statement.catches.reduce(
+          (count, clause) => count + countStatementReferenceAst(clause.body, sourceAst),
+          0
+        ) +
+        (statement.finallyBody
+          ? countStatementReferenceAst(statement.finallyBody, sourceAst)
+          : 0)
+      );
+    case "breakStatement":
+    case "continueStatement":
+    case "emptyStatement":
+      return 0;
+  }
+};
+
+const replaceExpressionReferenceAst = (
+  ast: CSharpExpressionAst,
+  sourceAst: CSharpExpressionAst,
+  replacementAst: CSharpExpressionAst
+): CSharpExpressionAst => {
+  if (ast === sourceAst) {
+    return replacementAst;
+  }
+
+  switch (ast.kind) {
+    case "parenthesizedExpression":
+    case "memberAccessExpression":
+    case "conditionalMemberAccessExpression":
+    case "castExpression":
+    case "asExpression":
+    case "awaitExpression":
+    case "throwExpression":
+    case "suppressNullableWarningExpression":
+    case "argumentModifierExpression":
+      return {
+        ...ast,
+        expression: replaceExpressionReferenceAst(
+          ast.expression,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "elementAccessExpression":
+    case "conditionalElementAccessExpression":
+      return {
+        ...ast,
+        expression: replaceExpressionReferenceAst(
+          ast.expression,
+          sourceAst,
+          replacementAst
+        ),
+        arguments: ast.arguments.map((argument) =>
+          replaceExpressionReferenceAst(argument, sourceAst, replacementAst)
+        ),
+      };
+    case "implicitElementAccessExpression":
+      return {
+        ...ast,
+        arguments: ast.arguments.map((argument) =>
+          replaceExpressionReferenceAst(argument, sourceAst, replacementAst)
+        ),
+      };
+    case "invocationExpression":
+      return {
+        ...ast,
+        expression: replaceExpressionReferenceAst(
+          ast.expression,
+          sourceAst,
+          replacementAst
+        ),
+        arguments: ast.arguments.map((argument) =>
+          replaceExpressionReferenceAst(argument, sourceAst, replacementAst)
+        ),
+      };
+    case "objectCreationExpression":
+      return {
+        ...ast,
+        arguments: ast.arguments.map((argument) =>
+          replaceExpressionReferenceAst(argument, sourceAst, replacementAst)
+        ),
+        initializer: ast.initializer?.map((entry) =>
+          replaceExpressionReferenceAst(entry, sourceAst, replacementAst)
+        ),
+      };
+    case "anonymousObjectCreationExpression":
+      return {
+        ...ast,
+        initializer: ast.initializer.map((entry) =>
+          replaceExpressionReferenceAst(entry, sourceAst, replacementAst)
+        ),
+      };
+    case "arrayCreationExpression":
+      return {
+        ...ast,
+        sizeExpression: ast.sizeExpression
+          ? replaceExpressionReferenceAst(
+              ast.sizeExpression,
+              sourceAst,
+              replacementAst
+            )
+          : undefined,
+        initializer: ast.initializer?.map((entry) =>
+          replaceExpressionReferenceAst(entry, sourceAst, replacementAst)
+        ),
+      };
+    case "stackAllocArrayCreationExpression":
+      return {
+        ...ast,
+        sizeExpression: replaceExpressionReferenceAst(
+          ast.sizeExpression,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "assignmentExpression":
+    case "binaryExpression":
+      return {
+        ...ast,
+        left: replaceExpressionReferenceAst(ast.left, sourceAst, replacementAst),
+        right: replaceExpressionReferenceAst(ast.right, sourceAst, replacementAst),
+      };
+    case "prefixUnaryExpression":
+    case "postfixUnaryExpression":
+      return {
+        ...ast,
+        operand: replaceExpressionReferenceAst(
+          ast.operand,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "conditionalExpression":
+      return {
+        ...ast,
+        condition: replaceExpressionReferenceAst(
+          ast.condition,
+          sourceAst,
+          replacementAst
+        ),
+        whenTrue: replaceExpressionReferenceAst(
+          ast.whenTrue,
+          sourceAst,
+          replacementAst
+        ),
+        whenFalse: replaceExpressionReferenceAst(
+          ast.whenFalse,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "isExpression":
+      return {
+        ...ast,
+        expression: replaceExpressionReferenceAst(
+          ast.expression,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "lambdaExpression":
+      return {
+        ...ast,
+        body:
+          ast.body.kind === "blockStatement"
+            ? (replaceStatementReferenceAst(
+                ast.body,
+                sourceAst,
+                replacementAst
+              ) as Extract<CSharpStatementAst, { kind: "blockStatement" }>)
+            : replaceExpressionReferenceAst(
+                ast.body,
+                sourceAst,
+                replacementAst
+              ),
+      };
+    case "interpolatedStringExpression":
+      return {
+        ...ast,
+        parts: ast.parts.map((part) =>
+          part.kind === "interpolation"
+            ? {
+                ...part,
+                expression: replaceExpressionReferenceAst(
+                  part.expression,
+                  sourceAst,
+                  replacementAst
+                ),
+              }
+            : part
+        ),
+      };
+    case "switchExpression":
+      return {
+        ...ast,
+        governingExpression: replaceExpressionReferenceAst(
+          ast.governingExpression,
+          sourceAst,
+          replacementAst
+        ),
+        arms: ast.arms.map((arm) => ({
+          ...arm,
+          whenClause: arm.whenClause
+            ? replaceExpressionReferenceAst(
+                arm.whenClause,
+                sourceAst,
+                replacementAst
+              )
+            : undefined,
+          expression: replaceExpressionReferenceAst(
+            arm.expression,
+            sourceAst,
+            replacementAst
+          ),
+        })),
+      };
+    case "tupleExpression":
+      return {
+        ...ast,
+        elements: ast.elements.map((element) =>
+          replaceExpressionReferenceAst(element, sourceAst, replacementAst)
+        ),
+      };
+    case "nullLiteralExpression":
+    case "booleanLiteralExpression":
+    case "stringLiteralExpression":
+    case "charLiteralExpression":
+    case "numericLiteralExpression":
+    case "identifierExpression":
+    case "qualifiedIdentifierExpression":
+    case "typeReferenceExpression":
+    case "defaultExpression":
+    case "sizeOfExpression":
+    case "typeofExpression":
+    case "declarationExpression":
+      return ast;
+  }
+};
+
+const replacePatternReferenceAst = (
+  pattern: CSharpPatternAst,
+  sourceAst: CSharpExpressionAst,
+  replacementAst: CSharpExpressionAst
+): CSharpPatternAst => {
+  switch (pattern.kind) {
+    case "constantPattern":
+      return {
+        ...pattern,
+        expression: replaceExpressionReferenceAst(
+          pattern.expression,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "negatedPattern":
+      return {
+        ...pattern,
+        pattern: replacePatternReferenceAst(
+          pattern.pattern,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    default:
+      return pattern;
+  }
+};
+
+const replaceStatementReferenceAst = (
+  statement: CSharpStatementAst,
+  sourceAst: CSharpExpressionAst,
+  replacementAst: CSharpExpressionAst
+): CSharpStatementAst => {
+  switch (statement.kind) {
+    case "blockStatement":
+      return {
+        ...statement,
+        statements: statement.statements.map((nested) =>
+          replaceStatementReferenceAst(nested, sourceAst, replacementAst)
+        ),
+      };
+    case "localDeclarationStatement":
+      return {
+        ...statement,
+        declarators: statement.declarators.map((declarator) => ({
+          ...declarator,
+          initializer: declarator.initializer
+            ? replaceExpressionReferenceAst(
+                declarator.initializer,
+                sourceAst,
+                replacementAst
+              )
+            : undefined,
+        })),
+      };
+    case "localFunctionStatement":
+      return {
+        ...statement,
+        body: replaceStatementReferenceAst(
+          statement.body,
+          sourceAst,
+          replacementAst
+        ) as Extract<CSharpStatementAst, { kind: "blockStatement" }>,
+      };
+    case "expressionStatement":
+    case "throwStatement":
+    case "returnStatement":
+    case "yieldStatement":
+      return statement.expression
+        ? {
+            ...statement,
+            expression: replaceExpressionReferenceAst(
+              statement.expression,
+              sourceAst,
+              replacementAst
+            ),
+          }
+        : statement;
+    case "ifStatement":
+      return {
+        ...statement,
+        condition: replaceExpressionReferenceAst(
+          statement.condition,
+          sourceAst,
+          replacementAst
+        ),
+        thenStatement: replaceStatementReferenceAst(
+          statement.thenStatement,
+          sourceAst,
+          replacementAst
+        ),
+        elseStatement: statement.elseStatement
+          ? replaceStatementReferenceAst(
+              statement.elseStatement,
+              sourceAst,
+              replacementAst
+            )
+          : undefined,
+      };
+    case "whileStatement":
+      return {
+        ...statement,
+        condition: replaceExpressionReferenceAst(
+          statement.condition,
+          sourceAst,
+          replacementAst
+        ),
+        body: replaceStatementReferenceAst(
+          statement.body,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "forStatement":
+      return {
+        ...statement,
+        declaration: statement.declaration
+          ? (replaceStatementReferenceAst(
+              statement.declaration,
+              sourceAst,
+              replacementAst
+            ) as Extract<CSharpStatementAst, { kind: "localDeclarationStatement" }>)
+          : undefined,
+        initializers: statement.initializers?.map((initializer) =>
+          replaceExpressionReferenceAst(initializer, sourceAst, replacementAst)
+        ),
+        condition: statement.condition
+          ? replaceExpressionReferenceAst(
+              statement.condition,
+              sourceAst,
+              replacementAst
+            )
+          : undefined,
+        incrementors: statement.incrementors.map((incrementor) =>
+          replaceExpressionReferenceAst(incrementor, sourceAst, replacementAst)
+        ),
+        body: replaceStatementReferenceAst(
+          statement.body,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "foreachStatement":
+      return {
+        ...statement,
+        expression: replaceExpressionReferenceAst(
+          statement.expression,
+          sourceAst,
+          replacementAst
+        ),
+        body: replaceStatementReferenceAst(
+          statement.body,
+          sourceAst,
+          replacementAst
+        ),
+      };
+    case "switchStatement":
+      return {
+        ...statement,
+        expression: replaceExpressionReferenceAst(
+          statement.expression,
+          sourceAst,
+          replacementAst
+        ),
+        sections: statement.sections.map((section) => ({
+          ...section,
+          labels: section.labels.map((label) =>
+            label.kind === "caseSwitchLabel"
+              ? {
+                  ...label,
+                  value: replaceExpressionReferenceAst(
+                    label.value,
+                    sourceAst,
+                    replacementAst
+                  ),
+                }
+              : label.kind === "casePatternSwitchLabel"
+                ? {
+                    ...label,
+                    pattern: replacePatternReferenceAst(
+                      label.pattern,
+                      sourceAst,
+                      replacementAst
+                    ),
+                    whenClause: label.whenClause
+                      ? replaceExpressionReferenceAst(
+                          label.whenClause,
+                          sourceAst,
+                          replacementAst
+                        )
+                      : undefined,
+                  }
+                : label
+          ),
+          statements: section.statements.map((nested) =>
+            replaceStatementReferenceAst(nested, sourceAst, replacementAst)
+          ),
+        })),
+      };
+    case "tryStatement":
+      return {
+        ...statement,
+        body: replaceStatementReferenceAst(
+          statement.body,
+          sourceAst,
+          replacementAst
+        ) as Extract<CSharpStatementAst, { kind: "blockStatement" }>,
+        catches: statement.catches.map((clause) => ({
+          ...clause,
+          filter: clause.filter
+            ? replaceExpressionReferenceAst(
+                clause.filter,
+                sourceAst,
+                replacementAst
+              )
+            : undefined,
+          body: replaceStatementReferenceAst(
+            clause.body,
+            sourceAst,
+            replacementAst
+          ) as Extract<CSharpStatementAst, { kind: "blockStatement" }>,
+        })),
+        finallyBody: statement.finallyBody
+          ? (replaceStatementReferenceAst(
+              statement.finallyBody,
+              sourceAst,
+              replacementAst
+            ) as Extract<CSharpStatementAst, { kind: "blockStatement" }>)
+          : undefined,
+      };
+    case "breakStatement":
+    case "continueStatement":
+    case "emptyStatement":
+      return statement;
+  }
+};
+
+const singleEvaluateMaterializationAst = (
+  valueAst: CSharpExpressionAst,
+  sourceType: IrType,
+  returnType: IrType,
+  materialized: [CSharpExpressionAst, EmitterContext],
+  emitTypeAst: EmitTypeAstFn
+): [CSharpExpressionAst, EmitterContext] => {
+  const [materializedAst, materializedContext] = materialized;
+  if (
+    isStableRuntimeReificationInputAst(valueAst) ||
+    countExpressionReferenceAst(materializedAst, valueAst) < 2
+  ) {
+    return materialized;
+  }
+
+  const [sourceTypeAst, sourceTypeContext] = emitTypeAst(
+    sourceType,
+    materializedContext
+  );
+  const [returnTypeAst, returnTypeContext] = emitTypeAst(
+    returnType,
+    sourceTypeContext
+  );
+  const local = allocateRuntimeReificationLocalName(
+    "__tsonic_reify_source",
+    returnTypeContext
+  );
+  const localAst = identifierExpression(local.name);
+  const replacedAst = replaceExpressionReferenceAst(
+    materializedAst,
+    valueAst,
+    localAst
+  );
+
+  return [
+    buildZeroArgLambdaInvocationAst(returnTypeAst, [
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: sourceTypeAst,
+        declarators: [{ name: local.name, initializer: valueAst }],
+      },
+      {
+        kind: "returnStatement",
+        expression: replacedAst,
+      },
+    ]),
+    local.context,
+  ];
+};
+
+const singleEvaluateRuntimeReificationValueAst = (
+  valueAst: CSharpExpressionAst,
+  returnTypeAst: CSharpTypeAst,
+  valueExpression: CSharpExpressionAst,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (
+    isStableRuntimeReificationInputAst(valueAst) ||
+    countExpressionReferenceAst(valueExpression, valueAst) < 2
+  ) {
+    return [valueExpression, context];
+  }
+
+  const local = allocateRuntimeReificationLocalName(
+    "__tsonic_reify_source",
+    context
+  );
+  const localAst = identifierExpression(local.name);
+  const replacedAst = replaceExpressionReferenceAst(
+    valueExpression,
+    valueAst,
+    localAst
+  );
+
+  return [
+    buildZeroArgLambdaInvocationAst(returnTypeAst, [
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: objectNullableTypeAst(),
+        declarators: [{ name: local.name, initializer: boxValueAst(valueAst) }],
+      },
+      {
+        kind: "returnStatement",
+        expression: replacedAst,
+      },
+    ]),
+    local.context,
+  ];
+};
 
 const getStringKeyDictionaryValueType = (
   type: IrType,
@@ -1840,6 +2709,36 @@ const tryBuildNestedRuntimeUnionToTargetLayoutAst = (
 };
 
 export const tryBuildRuntimeMaterializationAst = (
+  valueAst: CSharpExpressionAst,
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn,
+  selectedSourceMemberNs?: ReadonlySet<number>,
+  sourceFrame?: RuntimeMaterializationSourceFrame
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const materialized = tryBuildRuntimeMaterializationAstCore(
+    valueAst,
+    sourceType,
+    targetType,
+    context,
+    emitTypeAst,
+    selectedSourceMemberNs,
+    sourceFrame
+  );
+
+  return materialized
+    ? singleEvaluateMaterializationAst(
+        valueAst,
+        sourceType,
+        targetType,
+        materialized,
+        emitTypeAst
+      )
+    : undefined;
+};
+
+const tryBuildRuntimeMaterializationAstCore = (
   valueAst: CSharpExpressionAst,
   sourceType: IrType,
   targetType: IrType,
@@ -3303,11 +4202,18 @@ export const tryBuildRuntimeReificationPlan = (
       };
       finalContext = currentCase.context;
     }
+    const [singleEvaluatedValueExpression, singleEvaluatedContext] =
+      singleEvaluateRuntimeReificationValueAst(
+        valueAst,
+        concreteUnionTypeAst,
+        valueExpression,
+        finalContext
+      );
 
     return {
       condition: conditionAst,
-      value: valueExpression,
-      context: finalContext,
+      value: singleEvaluatedValueExpression,
+      context: singleEvaluatedContext,
     };
   }
 

@@ -398,7 +398,8 @@ const collectReferencedAnonymousTypeNames = (
   value: unknown,
   referencedNames: Set<string>,
   seen: WeakSet<object>,
-  includeInferredTypeMetadata = false
+  includeInferredTypeMetadata = false,
+  anonymousReferencePresenceCache = new WeakMap<object, boolean>()
 ): void => {
   if (!value || typeof value !== "object") {
     return;
@@ -430,7 +431,8 @@ const collectReferencedAnonymousTypeNames = (
         entry,
         referencedNames,
         seen,
-        includeInferredTypeMetadata
+        includeInferredTypeMetadata,
+        anonymousReferencePresenceCache
       );
     }
     for (const entry of asModule.exports ?? []) {
@@ -438,7 +440,8 @@ const collectReferencedAnonymousTypeNames = (
         entry,
         referencedNames,
         seen,
-        includeInferredTypeMetadata
+        includeInferredTypeMetadata,
+        anonymousReferencePresenceCache
       );
     }
     return;
@@ -453,7 +456,8 @@ const collectReferencedAnonymousTypeNames = (
       asObjectExpression.inferredType,
       referencedNames,
       seen,
-      includeInferredTypeMetadata
+      includeInferredTypeMetadata,
+      anonymousReferencePresenceCache
     );
   }
 
@@ -463,7 +467,8 @@ const collectReferencedAnonymousTypeNames = (
         entry,
         referencedNames,
         seen,
-        includeInferredTypeMetadata
+        includeInferredTypeMetadata,
+        anonymousReferencePresenceCache
       );
     }
     return;
@@ -473,7 +478,11 @@ const collectReferencedAnonymousTypeNames = (
     if (
       key === "inferredType" &&
       !includeInferredTypeMetadata &&
-      !shouldTraverseInferredTypeMetadata(value, entry)
+      !shouldTraverseInferredTypeMetadata(
+        value,
+        entry,
+        anonymousReferencePresenceCache
+      )
     ) {
       continue;
     }
@@ -481,16 +490,24 @@ const collectReferencedAnonymousTypeNames = (
       entry,
       referencedNames,
       seen,
-      includeInferredTypeMetadata
+      includeInferredTypeMetadata,
+      anonymousReferencePresenceCache
     );
   }
 };
 
 const shouldTraverseInferredTypeMetadata = (
   owner: unknown,
-  inferredType: unknown
+  inferredType: unknown,
+  anonymousReferencePresenceCache: WeakMap<object, boolean>
 ): boolean => {
-  if (!containsAnonymousReferenceType(inferredType, new WeakSet<object>())) {
+  if (
+    !containsAnonymousReferenceType(
+      inferredType,
+      new WeakSet<object>(),
+      anonymousReferencePresenceCache
+    )
+  ) {
     return false;
   }
 
@@ -509,10 +526,16 @@ const shouldTraverseInferredTypeMetadata = (
 
 const containsAnonymousReferenceType = (
   value: unknown,
-  seen: WeakSet<object>
+  seen: WeakSet<object>,
+  cache: WeakMap<object, boolean>
 ): boolean => {
   if (!value || typeof value !== "object") {
     return false;
+  }
+
+  const cached = cache.get(value);
+  if (cached !== undefined) {
+    return cached;
   }
 
   if (seen.has(value)) {
@@ -521,16 +544,23 @@ const containsAnonymousReferenceType = (
   seen.add(value);
 
   if (isAnonymousReferenceType(value)) {
+    cache.set(value, true);
     return true;
   }
 
   if (Array.isArray(value)) {
-    return value.some((entry) => containsAnonymousReferenceType(entry, seen));
+    const contains = value.some((entry) =>
+      containsAnonymousReferenceType(entry, seen, cache)
+    );
+    cache.set(value, contains);
+    return contains;
   }
 
-  return Object.values(value as Record<string, unknown>).some((entry) =>
-    containsAnonymousReferenceType(entry, seen)
+  const contains = Object.values(value as Record<string, unknown>).some(
+    (entry) => containsAnonymousReferenceType(entry, seen, cache)
   );
+  cache.set(value, contains);
+  return contains;
 };
 
 const collectPriorSyntheticAnonymousDeclarations = (

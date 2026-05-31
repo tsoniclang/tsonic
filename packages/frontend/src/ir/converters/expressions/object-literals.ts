@@ -33,7 +33,9 @@ import {
   rebindObjectLiteralThisInExpression,
 } from "./object-literal-helpers.js";
 
-const isBroadObjectLiteralContext = (type: IrType | undefined): boolean => {
+const isDirectBroadObjectLiteralContext = (
+  type: IrType | undefined
+): boolean => {
   if (!type) {
     return false;
   }
@@ -64,6 +66,43 @@ const isBroadObjectLiteralContext = (type: IrType | undefined): boolean => {
   }
 
   return type.typeId?.sourceName === "Object";
+};
+
+const containsBroadObjectLiteralContext = (
+  type: IrType | undefined
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (isDirectBroadObjectLiteralContext(type)) {
+    return true;
+  }
+
+  if (type.kind === "unionType") {
+    return type.types.some((member) =>
+      containsBroadObjectLiteralContext(member)
+    );
+  }
+
+  return false;
+};
+
+const contextualTypeContainsBroadObjectLiteralContext = (
+  type: IrType | undefined,
+  ctx: ProgramContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (containsBroadObjectLiteralContext(type)) {
+    return true;
+  }
+
+  return ctx.typeSystem
+    .collectNarrowingCandidates(type)
+    .some((candidate) => containsBroadObjectLiteralContext(candidate));
 };
 
 const isJsValueContext = (type: IrType | undefined): boolean => {
@@ -135,17 +174,18 @@ export const convertObjectLiteral = (
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
   const contextualCandidateFromParent =
     expectedType ?? getContextualType(node, ctx);
-  const hasBroadObjectLiteralContext = isBroadObjectLiteralContext(
-    contextualCandidateFromParent
-  );
+  const hasBroadObjectLiteralContext =
+    contextualTypeContainsBroadObjectLiteralContext(
+      contextualCandidateFromParent,
+      ctx
+    );
   const dynamicJsonObjectContext = isJsValueContext(
     contextualCandidateFromParent
   )
     ? createDynamicJsonObjectType()
     : undefined;
   const contextualCandidateRaw =
-    dynamicJsonObjectContext ??
-    (hasBroadObjectLiteralContext ? undefined : contextualCandidateFromParent);
+    dynamicJsonObjectContext ?? contextualCandidateFromParent;
   const literalKeys = node.properties
     .map((prop) => {
       if (ts.isPropertyAssignment(prop)) {
@@ -189,22 +229,6 @@ export const convertObjectLiteral = (
         )
       );
     }
-  }
-
-  if (
-    hasBroadObjectLiteralContext &&
-    !dynamicJsonObjectContext &&
-    !emitAsAnonymousObject
-  ) {
-    ctx.diagnostics.push(
-      createDiagnostic(
-        "TSN7403",
-        "error",
-        "Object literal cannot target a broad runtime object type deterministically.",
-        getSourceSpan(node),
-        "Use a concrete object type, dictionary type, or expression-tree projection context."
-      )
-    );
   }
 
   // Type parameters are NOT valid instantiation targets for object literals.
@@ -410,6 +434,24 @@ export const convertObjectLiteral = (
   );
 
   let contextualType = contextualCandidate;
+
+  if (
+    hasBroadObjectLiteralContext &&
+    !dynamicJsonObjectContext &&
+    !emitAsAnonymousObject &&
+    contextualTypeContainsBroadObjectLiteralContext(contextualType, ctx)
+  ) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN7403",
+        "error",
+        "Object literal cannot target a broad runtime object type deterministically.",
+        getSourceSpan(node),
+        "Use a concrete object type, dictionary type, or expression-tree projection context."
+      )
+    );
+    contextualType = undefined;
+  }
 
   // If no contextual type, check if eligible for synthesis
   // DETERMINISTIC IR TYPING (INV-0 compliant): Uses AST-based synthesis

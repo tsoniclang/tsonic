@@ -71,6 +71,23 @@ export const resolveLocalTypeInfoWithoutBindings = (
       readonly name: string;
     }
   | undefined => {
+  const currentModuleBareLocal = resolveCurrentModuleBareLocalTypeInfo(
+    ref,
+    context
+  );
+  if (currentModuleBareLocal) {
+    return currentModuleBareLocal;
+  }
+
+  const scoped = resolveScopedLocalTypeInfo(ref, context);
+  if (scoped) {
+    return scoped;
+  }
+
+  if (hasAuthoritativeScopedIdentity(ref)) {
+    return undefined;
+  }
+
   const lookupCandidates = getLocalTypeLookupCandidates(ref.name);
 
   for (const candidate of lookupCandidates) {
@@ -114,9 +131,7 @@ export const resolveLocalTypeInfoWithoutBindings = (
     };
   }
 
-  const rawFqn =
-    ref.providerQualifiedName ??
-    (ref.name.includes(".") ? ref.name : undefined);
+  const rawFqn = getScopedReferenceIdentityCandidates(ref)[0];
   const fqn = rawFqn?.startsWith("global::")
     ? rawFqn.slice("global::".length)
     : rawFqn;
@@ -134,9 +149,285 @@ export const resolveLocalTypeInfoWithoutBindings = (
         name: scopedMatch.name,
       };
     }
+
+    const canonicalNamespace = namespace.toLocaleLowerCase("en-US");
+    const canonicalScoped = matches.filter(
+      (m) => m.namespace.toLocaleLowerCase("en-US") === canonicalNamespace
+    );
+    if (canonicalScoped.length === 1) {
+      const scopedMatch = canonicalScoped[0];
+      if (!scopedMatch) {
+        return undefined;
+      }
+      return {
+        info: scopedMatch.info,
+        namespace: scopedMatch.namespace,
+        name: scopedMatch.name,
+      };
+    }
   }
 
   return undefined;
+};
+
+const normalizeScopedTypeIdentity = (
+  value: string | undefined
+): string | undefined => {
+  if (!value || !value.includes(".")) {
+    return undefined;
+  }
+  return value.startsWith("global::") ? value.slice("global::".length) : value;
+};
+
+const getScopedReferenceIdentityCandidates = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): readonly string[] => {
+  const values =
+    ref.typeId?.origin === "source"
+      ? [
+          ref.typeId.providerName,
+          ref.name.includes(".") ? ref.name : undefined,
+          ref.providerQualifiedName,
+        ]
+      : [
+          ref.providerQualifiedName,
+          ref.name.includes(".") ? ref.name : undefined,
+          ref.typeId?.providerName,
+        ];
+
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const normalized = normalizeScopedTypeIdentity(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    candidates.push(normalized);
+  }
+  return candidates;
+};
+
+const hasAuthoritativeScopedIdentity = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): boolean => getScopedReferenceIdentityCandidates(ref).length > 0;
+
+const resolveCurrentModuleBareLocalTypeInfo = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+):
+  | {
+      readonly info: LocalTypeInfo;
+      readonly namespace: string;
+      readonly name: string;
+    }
+  | undefined => {
+  if (ref.name.includes(".")) {
+    return undefined;
+  }
+
+  const localHit = context.localTypes?.get(ref.name);
+  if (!localHit) {
+    return undefined;
+  }
+
+  return {
+    info: localHit,
+    namespace: context.moduleNamespace ?? context.options.rootNamespace,
+    name: ref.name,
+  };
+};
+
+const collectReferenceMemberNames = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): ReadonlySet<string> | undefined => {
+  if (!ref.structuralMembers || ref.structuralMembers.length === 0) {
+    return undefined;
+  }
+  return new Set(ref.structuralMembers.map((member) => member.name));
+};
+
+const collectLocalTypeMemberNames = (
+  info: LocalTypeInfo
+): ReadonlySet<string> | undefined => {
+  if (info.kind === "interface" || info.kind === "class") {
+    return new Set(
+      info.members.flatMap((member) =>
+        "name" in member && typeof member.name === "string"
+          ? [member.name]
+          : []
+      )
+    );
+  }
+  if (info.kind === "typeAlias" && info.type.kind === "objectType") {
+    return new Set(info.type.members.map((member) => member.name));
+  }
+  return undefined;
+};
+
+const localTypeShapeIsCarriedByReference = (
+  info: LocalTypeInfo,
+  ref: Extract<IrType, { kind: "referenceType" }>
+): boolean => {
+  const referenceMembers = collectReferenceMemberNames(ref);
+  const localMembers = collectLocalTypeMemberNames(info);
+  if (!referenceMembers || !localMembers || localMembers.size === 0) {
+    return false;
+  }
+  for (const memberName of localMembers) {
+    if (!referenceMembers.has(memberName)) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const leafName = (value: string | undefined): string | undefined => {
+  if (!value || value.length === 0) {
+    return undefined;
+  }
+  const normalized = value.startsWith("global::")
+    ? value.slice("global::".length)
+    : value;
+  return normalized.split(".").pop() ?? normalized;
+};
+
+const getReferenceLeafNameCandidates = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): readonly string[] => {
+  const candidates = new Set<string>();
+  const add = (value: string | undefined): void => {
+    const leaf = leafName(value);
+    if (leaf) {
+      candidates.add(leaf);
+    }
+  };
+
+  add(ref.name);
+  add(ref.providerQualifiedName);
+  add(ref.typeId?.providerName);
+  add(ref.typeId?.sourceName);
+
+  return [...candidates];
+};
+
+const collectShapeMatchedLocalTypeCandidates = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): readonly {
+  readonly info: LocalTypeInfo;
+  readonly namespace: string;
+  readonly name: string;
+}[] => {
+  if (!collectReferenceMemberNames(ref)) {
+    return [];
+  }
+
+  const currentNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+  const matches: {
+    readonly info: LocalTypeInfo;
+    readonly namespace: string;
+    readonly name: string;
+  }[] = [];
+  const seen = new Set<string>();
+  const addMatch = (
+    namespace: string,
+    name: string,
+    info: LocalTypeInfo
+  ): void => {
+    const key = `${namespace}::${name}`;
+    if (seen.has(key) || !localTypeShapeIsCarriedByReference(info, ref)) {
+      return;
+    }
+    seen.add(key);
+    matches.push({ namespace, name, info });
+  };
+
+  for (const leaf of getReferenceLeafNameCandidates(ref)) {
+    for (const candidate of getLocalTypeLookupCandidates(leaf)) {
+      const localHit = context.localTypes?.get(candidate.name);
+      if (localHit && canUseLocalTypeLookupCandidate(localHit, candidate)) {
+        addMatch(currentNamespace, candidate.name, localHit);
+      }
+
+      for (const moduleInfo of context.options.moduleMap?.values() ?? []) {
+        const moduleHit = moduleInfo.localTypes?.get(candidate.name);
+        if (!moduleHit || !canUseLocalTypeLookupCandidate(moduleHit, candidate)) {
+          continue;
+        }
+        addMatch(moduleInfo.namespace, candidate.name, moduleHit);
+      }
+    }
+  }
+
+  return matches;
+};
+
+const resolveScopedLocalTypeInfo = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+):
+  | {
+      readonly info: LocalTypeInfo;
+      readonly namespace: string;
+      readonly name: string;
+    }
+  | undefined => {
+  const moduleMap = context.options.moduleMap;
+  const currentNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+  const canonicalCurrentNamespace =
+    currentNamespace.toLocaleLowerCase("en-US");
+  const matches: {
+    readonly info: LocalTypeInfo;
+    readonly namespace: string;
+    readonly name: string;
+  }[] = [];
+
+  for (const scopedIdentity of getScopedReferenceIdentityCandidates(ref)) {
+    const namespace = scopedIdentity.slice(0, scopedIdentity.lastIndexOf("."));
+    const name = scopedIdentity.slice(scopedIdentity.lastIndexOf(".") + 1);
+    if (!namespace || !name) {
+      continue;
+    }
+    const canonicalNamespace = namespace.toLocaleLowerCase("en-US");
+
+    if (canonicalNamespace === canonicalCurrentNamespace) {
+      const localHit = context.localTypes?.get(name);
+      if (localHit) {
+        matches.push({ info: localHit, namespace: currentNamespace, name });
+      }
+    }
+
+    if (!moduleMap) {
+      continue;
+    }
+
+    for (const moduleInfo of moduleMap.values()) {
+      if (
+        moduleInfo.namespace.toLocaleLowerCase("en-US") !== canonicalNamespace
+      ) {
+        continue;
+      }
+      const info = moduleInfo.localTypes?.get(name);
+      if (info) {
+        matches.push({ info, namespace: moduleInfo.namespace, name });
+      }
+    }
+  }
+
+  const scopedShapeMatch = matches.find((match) =>
+    localTypeShapeIsCarriedByReference(match.info, ref)
+  );
+  if (scopedShapeMatch) {
+    return scopedShapeMatch;
+  }
+
+  const shapeMatches = collectShapeMatchedLocalTypeCandidates(ref, context);
+  if (shapeMatches.length === 1) {
+    return shapeMatches[0];
+  }
+
+  return matches[0] ?? undefined;
 };
 
 const getReferenceBindingLookupCandidates = (

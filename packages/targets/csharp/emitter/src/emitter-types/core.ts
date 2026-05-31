@@ -458,6 +458,8 @@ export type EmitterContext = {
   readonly activeTypeEmissionKeys?: ReadonlySet<string>;
   /** Active runtime-union layout construction stack keyed by carrier/type identity. */
   readonly activeRuntimeUnionLayoutKeys?: ReadonlySet<string>;
+  /** Active structural object conversions, used to avoid infinitely materializing recursive optional properties. */
+  readonly structuralObjectAdaptationStack?: ReadonlySet<string>;
   /** Scoped identifier remaps for union narrowing */
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
@@ -585,6 +587,7 @@ export type InterfaceObjectAdapterDefinition = {
   readonly key: string;
   readonly namespaceName: string;
   readonly className: string;
+  readonly typeParameters: readonly string[];
   readonly interfaceType: CSharpTypeAst;
   readonly members: readonly InterfaceObjectAdapterMember[];
 };

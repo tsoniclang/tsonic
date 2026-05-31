@@ -19,6 +19,20 @@ import {
   emitArrayOverlayPropertyWrite,
   tryResolveArrayOverlayProperty,
 } from "../array-overlay-storage.js";
+import {
+  castBitwiseOperandToInt,
+  emitJsNumberBitwiseOperation,
+  isEnumLikeType,
+} from "./bitwise-helpers.js";
+
+const COMPOUND_BITWISE_OPERATORS: Readonly<Record<string, string>> = {
+  "&=": "&",
+  "|=": "|",
+  "^=": "^",
+  "<<=": "<<",
+  ">>=": ">>",
+  ">>>=": ">>>",
+};
 
 /**
  * Emit an assignment expression as CSharpExpressionAst
@@ -285,6 +299,62 @@ export const emitAssignment = (
     leftContext,
     leftType
   );
+  const compoundBitwiseOperator = COMPOUND_BITWISE_OPERATORS[expr.operator];
+  if (compoundBitwiseOperator) {
+    const jsNumberBitwiseAst = emitJsNumberBitwiseOperation(
+      compoundBitwiseOperator,
+      leftAst,
+      rightAst,
+      leftType,
+      expr.right.inferredType,
+      rightContext
+    );
+    const compoundValueAst =
+      jsNumberBitwiseAst ??
+      ({
+        kind: "binaryExpression",
+        operatorToken: compoundBitwiseOperator,
+        left: castBitwiseOperandToInt(leftAst, leftType, rightContext),
+        right: castBitwiseOperandToInt(
+          rightAst,
+          expr.right.inferredType,
+          rightContext
+        ),
+      } as const);
+
+    const compoundResultType: IrType = jsNumberBitwiseAst
+      ? { kind: "primitiveType", name: "number" }
+      : { kind: "primitiveType", name: "int" };
+
+    let adaptedValueAst = compoundValueAst;
+    let adaptedContext = rightContext;
+    if (leftType && isEnumLikeType(leftType, rightContext)) {
+      const [leftTypeAst, typeContext] = emitTypeAst(leftType, rightContext);
+      adaptedValueAst = {
+        kind: "castExpression",
+        type: leftTypeAst,
+        expression: compoundValueAst,
+      };
+      adaptedContext = typeContext;
+    } else {
+      [adaptedValueAst, adaptedContext] = maybeCastNumericToExpectedIntegralAst(
+        compoundValueAst,
+        compoundResultType,
+        rightContext,
+        leftType
+      );
+    }
+
+    return [
+      {
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: leftAst,
+        right: adaptedValueAst,
+      },
+      adaptedContext,
+    ];
+  }
 
   return [
     {

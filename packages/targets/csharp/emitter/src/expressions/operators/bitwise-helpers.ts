@@ -1,6 +1,7 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import {
+  resolveLocalTypeInfo,
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
@@ -49,6 +50,18 @@ const isJsNumberBitwiseType = (
           "System.Double",
           "global::System.Double",
         ])))
+  );
+};
+
+export const isEnumLikeType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    resolved.kind === "referenceType" &&
+    resolveLocalTypeInfo(resolved, context)?.info.kind === "enum"
   );
 };
 
@@ -107,7 +120,7 @@ export const castBitwiseOperandToInt = (
   type: IrType | undefined,
   context: EmitterContext
 ): CSharpExpressionAst =>
-  isJsBitwiseNumberishType(type, context)
+  isJsBitwiseNumberishType(type, context) || isEnumLikeType(type, context)
     ? {
         kind: "castExpression",
         type: { kind: "predefinedType", keyword: "int" },
