@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/cli",
-  "version": "0.0.82",
+  "version": "0.0.83",
   "description": "Command-line interface for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -26,10 +26,10 @@
     "test:watch": "mocha --require ../../test/mocha/checkpoint.cjs --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js' --watch"
   },
   "dependencies": {
-    "@tsonic/csharp-backend": "0.0.82",
-    "@tsonic/csharp-emitter": "0.0.82",
-    "@tsonic/frontend": "0.0.82",
-    "@tsonic/tsbindgen": "0.7.54"
+    "@tsonic/csharp-backend": "0.0.83",
+    "@tsonic/csharp-emitter": "0.0.83",
+    "@tsonic/frontend": "0.0.83",
+    "@tsonic/tsbindgen": "0.7.55"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",
