@@ -65,15 +65,35 @@ export const convertNewExpression = (
       )
     : undefined;
 
-  // Initial resolution (without argTypes) for parameter type threading
-  const initialResolved = sigId
+  // Initial resolution (without argTypes) for parameter type threading.
+  //
+  // Expected return context is useful for return-only constructor type
+  // parameters, but it must not pre-shape value arguments when a constructor
+  // parameter still contains an unresolved type parameter. The final resolution
+  // below receives actual argument types and the expected return context, so
+  // argument evidence remains authoritative.
+  const initialResolvedWithoutReturnContext = sigId
     ? typeSystem.resolveCall({
         sigId,
         argumentCount,
         explicitTypeArgs,
-        expectedReturnType: expectedType,
       })
     : undefined;
+  const expectedTypeForInitialArgumentContext =
+    initialResolvedWithoutReturnContext?.parameterTypes?.some((parameterType) =>
+      parameterType ? typeSystem.containsTypeParameter(parameterType) : false
+    )
+      ? undefined
+      : expectedType;
+  const initialResolved =
+    sigId && expectedTypeForInitialArgumentContext === expectedType
+      ? typeSystem.resolveCall({
+          sigId,
+          argumentCount,
+          explicitTypeArgs,
+          expectedReturnType: expectedTypeForInitialArgumentContext,
+        })
+      : initialResolvedWithoutReturnContext;
   const initialParameterTypes = initialResolved?.parameterTypes;
 
   const isLambdaArg = (expr: ts.Expression): boolean => {

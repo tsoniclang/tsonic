@@ -98,13 +98,6 @@ export const emitArrayWrapperInteropCall = (
   if (typeof expr.callee.property !== "string") return undefined;
 
   const binding = expr.callee.memberBinding;
-  if (
-    !binding ||
-    (binding.isExtensionMethod && !isArrayWrapperBindingType(binding.type))
-  ) {
-    return undefined;
-  }
-
   const receiverType =
     resolveEffectiveExpressionType(expr.callee.object, context) ??
     expr.callee.object.inferredType;
@@ -113,10 +106,6 @@ export const emitArrayWrapperInteropCall = (
     context
   )?.elementType;
   if (!receiverElementType) {
-    return undefined;
-  }
-
-  if (isSystemArrayBindingType(binding.type)) {
     return undefined;
   }
 
@@ -135,6 +124,37 @@ export const emitArrayWrapperInteropCall = (
     currentContext
   );
   currentContext = argContext;
+
+  if (
+    expr.callee.property === "at" &&
+    (!binding ||
+      isSystemArrayBindingType(binding.type) ||
+      isArrayWrapperBindingType(binding.type))
+  ) {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: wrapperAst,
+          memberName: binding?.member ?? "at",
+        },
+        arguments: argAsts,
+      },
+      currentContext,
+    ];
+  }
+
+  if (
+    !binding ||
+    (binding.isExtensionMethod && !isArrayWrapperBindingType(binding.type))
+  ) {
+    return undefined;
+  }
+
+  if (isSystemArrayBindingType(binding.type)) {
+    return undefined;
+  }
 
   const invocation: CSharpExpressionAst = {
     kind: "invocationExpression",

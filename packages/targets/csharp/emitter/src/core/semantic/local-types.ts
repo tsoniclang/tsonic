@@ -473,58 +473,119 @@ export const collectStructuralInterfaceContracts = (
   const moduleByPath = new Map(
     moduleInfos.map((info) => [info.normalizedPath, info] as const)
   );
+  const resolveModuleByPath = (
+    filePath: string | undefined
+  ): (typeof moduleInfos)[number] | undefined => {
+    if (!filePath) {
+      return undefined;
+    }
+
+    const normalizedPath = normalizeModulePath(filePath);
+    const exact = moduleByPath.get(normalizedPath);
+    if (exact) {
+      return exact;
+    }
+
+    const suffixMatches = moduleInfos.filter((info) =>
+      normalizedPath.endsWith(`/${info.normalizedPath}`)
+    );
+    return suffixMatches.length === 1 ? suffixMatches[0] : undefined;
+  };
   const typeByFullyQualifiedName = new Map<
     string,
     {
       readonly namespace: string;
       readonly name: string;
       readonly info: LocalTypeInfo;
+      readonly moduleInfo: (typeof moduleInfos)[number];
     }
   >();
+  const typeByCaseInsensitiveFullyQualifiedName = new Map<
+    string,
+    | {
+        readonly namespace: string;
+        readonly name: string;
+        readonly info: LocalTypeInfo;
+        readonly moduleInfo: (typeof moduleInfos)[number];
+      }
+    | "ambiguous"
+  >();
 
-  for (const { module, localTypes } of moduleInfos) {
+  for (const moduleInfo of moduleInfos) {
+    const { module, localTypes } = moduleInfo;
     for (const [name, info] of localTypes) {
-      typeByFullyQualifiedName.set(`${module.namespace}.${name}`, {
+      const entry = {
         namespace: module.namespace,
         name,
         info,
-      });
+        moduleInfo,
+      };
+      const fullyQualifiedName = `${module.namespace}.${name}`;
+      typeByFullyQualifiedName.set(fullyQualifiedName, entry);
+
+      const canonicalName = fullyQualifiedName.toLocaleLowerCase("en-US");
+      const existing =
+        typeByCaseInsensitiveFullyQualifiedName.get(canonicalName);
+      typeByCaseInsensitiveFullyQualifiedName.set(
+        canonicalName,
+        existing && existing !== entry ? "ambiguous" : entry
+      );
     }
   }
 
   const result = new Set<string>();
 
-  for (const { module, localTypes } of moduleInfos) {
-    const resolveReference = (
-      ref: Extract<IrType, { kind: "referenceType" }>
-    ):
+  const resolveReferenceFromModule = (
+    ref: Extract<IrType, { kind: "referenceType" }>,
+    ownerModule: (typeof moduleInfos)[number]
+  ):
       | {
           readonly namespace: string;
           readonly name: string;
           readonly info: LocalTypeInfo;
+          readonly moduleInfo: (typeof moduleInfos)[number];
         }
       | undefined => {
-      const directCandidates = [
-        ref.providerQualifiedName,
-        ref.typeId?.providerName,
-        ref.typeId?.sourceName,
-        ref.name.includes(".") ? ref.name : undefined,
-      ];
+      const directCandidates =
+        ref.typeId?.origin === "source"
+          ? [
+              ref.typeId.providerName,
+              ref.name.includes(".") ? ref.name : undefined,
+              ref.providerQualifiedName,
+              ref.typeId.sourceName,
+            ]
+          : [
+              ref.providerQualifiedName,
+              ref.name.includes(".") ? ref.name : undefined,
+              ref.typeId?.providerName,
+              ref.typeId?.sourceName,
+            ];
       for (const candidate of directCandidates) {
         if (!candidate) continue;
         const direct = typeByFullyQualifiedName.get(candidate);
         if (direct) return direct;
+        const canonicalDirect = typeByCaseInsensitiveFullyQualifiedName.get(
+          candidate.toLocaleLowerCase("en-US")
+        );
+        if (canonicalDirect && canonicalDirect !== "ambiguous") {
+          return canonicalDirect;
+        }
       }
 
       if (!ref.name.includes(".")) {
-        const local = localTypes.get(ref.name);
+        const local = ownerModule.localTypes.get(ref.name);
         if (local) {
-          return { namespace: module.namespace, name: ref.name, info: local };
+          return {
+            namespace: ownerModule.module.namespace,
+            name: ref.name,
+            info: local,
+            moduleInfo: ownerModule,
+          };
         }
       }
 
       const importedName = getReferenceLeafNameForContract(ref);
-      for (const imp of module.imports) {
+      for (const imp of ownerModule.module.imports) {
         const spec = imp.specifiers.find(
           (candidate) =>
             candidate.kind === "named" &&
@@ -541,18 +602,14 @@ export const collectStructuralInterfaceContracts = (
           if (imported) return imported;
         }
 
-        const importedPath = imp.resolvedPath
-          ? normalizeModulePath(imp.resolvedPath)
-          : undefined;
-        const importedModule = importedPath
-          ? moduleByPath.get(importedPath)
-          : undefined;
+        const importedModule = resolveModuleByPath(imp.resolvedPath);
         const importedInfo = importedModule?.localTypes.get(spec.name);
         if (importedModule && importedInfo) {
           return {
             namespace: importedModule.module.namespace,
             name: spec.name,
             info: importedInfo,
+            moduleInfo: importedModule,
           };
         }
       }
@@ -560,11 +617,25 @@ export const collectStructuralInterfaceContracts = (
       return undefined;
     };
 
+  for (const moduleInfo of moduleInfos) {
+    const { module, localTypes } = moduleInfo;
+    const resolveReference = (
+      ref: Extract<IrType, { kind: "referenceType" }>
+    ):
+      | {
+        readonly namespace: string;
+        readonly name: string;
+        readonly info: LocalTypeInfo;
+        readonly moduleInfo: (typeof moduleInfos)[number];
+      }
+      | undefined => resolveReferenceFromModule(ref, moduleInfo);
+
     const markNativeInterfaceAndBases = (
       resolved: {
         readonly namespace: string;
         readonly name: string;
         readonly info: LocalTypeInfo;
+        readonly moduleInfo?: (typeof moduleInfos)[number];
       },
       visited: Set<string> = new Set<string>()
     ): void => {
@@ -579,7 +650,10 @@ export const collectStructuralInterfaceContracts = (
 
       for (const extended of resolved.info.extends) {
         if (extended.kind !== "referenceType") continue;
-        const extendedResolved = resolveReference(extended);
+        const extendedResolved = resolveReferenceFromModule(
+          extended,
+          resolved.moduleInfo ?? moduleInfo
+        );
         if (extendedResolved?.info.kind === "interface") {
           markNativeInterfaceAndBases(extendedResolved, visited);
         }
@@ -592,13 +666,24 @@ export const collectStructuralInterfaceContracts = (
         if (
           info?.kind === "interface" &&
           (info.members.some((member) => member.kind === "methodSignature") ||
-            info.extends.length > 1)
+            info.extends.length > 0)
         ) {
           markNativeInterfaceAndBases({
             namespace: module.namespace,
             name: statement.name,
             info,
+            moduleInfo,
           });
+        }
+      }
+
+      if (statement.kind === "classDeclaration") {
+        for (const implemented of statement.implements) {
+          if (implemented.kind !== "referenceType") continue;
+          const resolved = resolveReference(implemented);
+          if (resolved?.info.kind === "interface") {
+            markNativeInterfaceAndBases(resolved);
+          }
         }
       }
 

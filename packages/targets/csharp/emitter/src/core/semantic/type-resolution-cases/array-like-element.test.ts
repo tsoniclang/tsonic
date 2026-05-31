@@ -91,6 +91,43 @@ describe("type-resolution", () => {
       });
     });
 
+    it("resolves element types through local interfaces that extend ReadonlyArray", () => {
+      const context = createContext(
+        new Map([
+          [
+            "NodeArray",
+            {
+              kind: "interface",
+              typeParameters: ["T"],
+              members: [],
+              extends: [
+                {
+                  kind: "referenceType",
+                  name: "ReadonlyArray",
+                  typeArguments: [{ kind: "typeParameterType", name: "T" }],
+                },
+              ],
+            },
+          ],
+        ]),
+        "@tsonic/js"
+      );
+
+      const result = getArrayLikeElementType(
+        {
+          kind: "referenceType",
+          name: "NodeArray",
+          typeArguments: [{ kind: "referenceType", name: "Statement" }],
+        },
+        context
+      );
+
+      expect(result).to.deep.equal({
+        kind: "referenceType",
+        name: "Statement",
+      });
+    });
+
     it("does not treat JS array-like references as CLR array-like outside the JS surface", () => {
       const context = createContext(new Map());
 

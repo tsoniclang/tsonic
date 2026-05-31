@@ -149,7 +149,7 @@ describe("Interfaces (spec/16 §2)", () => {
     expect(result).to.include("public required T data { get; set; }");
   });
 
-  it("marks derived property-only interface ctors with SetsRequiredMembers", () => {
+  it("emits derived property-only interfaces as native contracts", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/TenantAdmin.ts",
@@ -205,12 +205,11 @@ describe("Interfaces (spec/16 §2)", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("public class CreateTenantInput");
+    expect(result).to.include("public interface CreateTenantInput");
     expect(result).to.include(
-      "public class CreateTenantAdminInput : CreateTenantInput"
+      "public interface CreateTenantAdminInput : CreateTenantInput"
     );
-    expect(result).to.match(
-      /\[global::System\.Diagnostics\.CodeAnalysis\.SetsRequiredMembersAttribute\]\s*public\s+CreateTenantAdminInput\s*\(\s*\)/
-    );
+    expect(result).to.not.include("public class CreateTenantInput");
+    expect(result).to.not.include("SetsRequiredMembersAttribute");
   });
 });

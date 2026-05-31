@@ -96,6 +96,53 @@ describe("IR Builder", function () {
       expect(addProp.value.kind).to.equal("functionExpression");
     });
 
+    it("rejects object literals when a broad object union is the only object target", () => {
+      const source = `
+        type RuntimeValue = string | number | boolean | object | null;
+
+        function marshal(value: RuntimeValue): string {
+          return "";
+        }
+
+        export function run(): string {
+          return marshal({ a: 1 });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      buildIrModule(sourceFile, testProgram, options, ctx);
+
+      const objDiag = ctx.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).not.to.equal(undefined);
+      expect(objDiag?.message).to.include("broad runtime object type");
+    });
+
+    it("selects a concrete union arm instead of a broad object fallback", () => {
+      const source = `
+        interface Payload { a: number }
+        type RuntimeValue = Payload | string | object | null;
+
+        function marshal(value: RuntimeValue): string {
+          return "";
+        }
+
+        export function run(): string {
+          return marshal({ a: 1 });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+    });
+
     it("supports computed string-literal method shorthand during synthesis", () => {
       const source = `
         interface Ops {

@@ -953,6 +953,145 @@ const mergeTypeSubstitutions = (
   }
 };
 
+const containsNamedTypeParameter = (
+  type: IrType | undefined,
+  names: ReadonlySet<string>,
+  seen: WeakSet<object> = new WeakSet<object>()
+): boolean => {
+  if (!type) return false;
+  if (seen.has(type)) return false;
+  seen.add(type);
+
+  switch (type.kind) {
+    case "typeParameterType":
+      return names.has(type.name);
+    case "referenceType":
+      return (
+        type.typeArguments?.some((arg) =>
+          containsNamedTypeParameter(arg, names, seen)
+        ) ?? false
+      );
+    case "arrayType":
+      return containsNamedTypeParameter(type.elementType, names, seen);
+    case "tupleType":
+      return type.elementTypes.some((arg) =>
+        containsNamedTypeParameter(arg, names, seen)
+      );
+    case "dictionaryType":
+      return (
+        containsNamedTypeParameter(type.keyType, names, seen) ||
+        containsNamedTypeParameter(type.valueType, names, seen)
+      );
+    case "functionType":
+      return (
+        type.parameters.some((parameter) =>
+          containsNamedTypeParameter(parameter.type, names, seen)
+        ) || containsNamedTypeParameter(type.returnType, names, seen)
+      );
+    case "objectType":
+      return type.members.some((member) =>
+        member.kind === "propertySignature"
+          ? containsNamedTypeParameter(member.type, names, seen)
+          : member.parameters.some((parameter) =>
+              containsNamedTypeParameter(parameter.type, names, seen)
+            ) || containsNamedTypeParameter(member.returnType, names, seen)
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.some((arg) =>
+        containsNamedTypeParameter(arg, names, seen)
+      );
+    case "primitiveType":
+    case "literalType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return false;
+  }
+};
+
+const containsNamedTypeParameterInInputSurface = (
+  type: IrType | undefined,
+  names: ReadonlySet<string>,
+  seen: WeakSet<object> = new WeakSet<object>()
+): boolean => {
+  if (!type) return false;
+  if (seen.has(type)) return false;
+  seen.add(type);
+
+  switch (type.kind) {
+    case "typeParameterType":
+      return names.has(type.name);
+    case "referenceType":
+      return (
+        (type.typeArguments?.some((arg) =>
+          containsNamedTypeParameterInInputSurface(arg, names, seen)
+        ) ??
+          false) ||
+        (type.structuralMembers?.some((member) =>
+          member.kind === "propertySignature"
+            ? containsNamedTypeParameterInInputSurface(
+                member.type,
+                names,
+                seen
+              )
+            : member.parameters.some((parameter) =>
+                containsNamedTypeParameterInInputSurface(
+                  parameter.type,
+                  names,
+                  seen
+                )
+              )
+        ) ??
+          false)
+      );
+    case "arrayType":
+      return containsNamedTypeParameterInInputSurface(
+        type.elementType,
+        names,
+        seen
+      );
+    case "tupleType":
+      return type.elementTypes.some((arg) =>
+        containsNamedTypeParameterInInputSurface(arg, names, seen)
+      );
+    case "dictionaryType":
+      return (
+        containsNamedTypeParameterInInputSurface(type.keyType, names, seen) ||
+        containsNamedTypeParameterInInputSurface(type.valueType, names, seen)
+      );
+    case "functionType":
+      return type.parameters.some((parameter) =>
+        containsNamedTypeParameterInInputSurface(parameter.type, names, seen)
+      );
+    case "objectType":
+      return type.members.some((member) =>
+        member.kind === "propertySignature"
+          ? containsNamedTypeParameterInInputSurface(member.type, names, seen)
+          : member.parameters.some((parameter) =>
+              containsNamedTypeParameterInInputSurface(
+                parameter.type,
+                names,
+                seen
+              )
+            )
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.some((arg) =>
+        containsNamedTypeParameterInInputSurface(arg, names, seen)
+      );
+    case "primitiveType":
+    case "literalType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return false;
+  }
+};
+
 export const deriveInvocationTypeSubstitutions = (
   parameterTypes: readonly (IrType | undefined)[],
   actualArgTypes: readonly (IrType | undefined)[] | undefined,
@@ -1002,9 +1141,30 @@ export const deriveInvocationTypeSubstitutions = (
   const expectedReturnCandidates = expectedType
     ? ctx.typeSystem.collectExpectedReturnCandidates(expectedType)
     : undefined;
+  const parameterSurfaceTypeParameterNames = new Set(
+    methodTypeParameterNames.filter((name) => {
+      const names = new Set([name]);
+      return parameterTypes.some((parameterType) =>
+        containsNamedTypeParameterInInputSurface(parameterType, names)
+      );
+    })
+  );
+  const expectedReturnSubstitutions = deriveSubstitutionsFromExpectedReturn(
+    returnType,
+    expectedReturnCandidates
+  );
+  const fillOnlyExpectedReturnSubstitutions = expectedReturnSubstitutions
+    ? new Map(
+        [...expectedReturnSubstitutions].filter(
+          ([name]) =>
+            !substitutions.has(name) &&
+            !parameterSurfaceTypeParameterNames.has(name)
+        )
+      )
+    : undefined;
   mergeTypeSubstitutions(
     substitutions,
-    deriveSubstitutionsFromExpectedReturn(returnType, expectedReturnCandidates),
+    fillOnlyExpectedReturnSubstitutions,
     ctx
   );
 

@@ -3,6 +3,174 @@ import { expect } from "chai";
 import { compileProjectToCSharp, compileToCSharp } from "./helpers.js";
 
 describe("Integration: TSTS blocker regressions", () => {
+  it("passes local interface subtypes to base interface parameters without structural rematerialization", () => {
+    const csharp = compileToCSharp(`
+      interface Node {
+        readonly kind: number;
+        visit(): boolean;
+      }
+
+      interface NodeBase extends Node {
+        readonly flags: number;
+      }
+
+      interface PropertyDeclaration extends NodeBase {
+        readonly name: string;
+      }
+
+      declare function visitNode(node: Node): void;
+
+      export function visitProperty(prop: PropertyDeclaration): void {
+        visitNode(prop);
+      }
+    `);
+
+    expect(csharp).to.include("visitNode(prop);");
+    expect(csharp).to.not.include("__TsonicInterfaceObjectAdapter");
+  });
+
+  it("emits implemented property-only interfaces as native contracts", () => {
+    const csharp = compileToCSharp(`
+      interface TextRange {
+        pos: number;
+        end: number;
+      }
+
+      class TextRangeObject implements TextRange {
+        pos: number;
+        end: number;
+
+        constructor(pos: number, end: number) {
+          this.pos = pos;
+          this.end = end;
+        }
+      }
+
+      declare function take(range: TextRange): void;
+
+      export function run(range: TextRangeObject): void {
+        take(range);
+      }
+    `);
+
+    expect(csharp).to.include("public interface TextRange");
+    expect(csharp).to.include("public class TextRangeObject : TextRange");
+    expect(csharp).to.include("take(range);");
+    expect(csharp).to.not.include("new TextRange {");
+  });
+
+  it("emits property-only interfaces as native contracts when native interfaces extend them", () => {
+    const csharp = compileToCSharp(`
+      interface TextRange {
+        pos: number;
+        end: number;
+      }
+
+      interface Node extends TextRange {
+        kind(): number;
+      }
+
+      export function read(node: Node): number {
+        return node.pos + node.kind();
+      }
+    `);
+
+    expect(csharp).to.include("public interface TextRange");
+    expect(csharp).to.include("public interface Node : TextRange");
+    expect(csharp).to.not.include("public class TextRange");
+  });
+
+  it("uses source type identity over stale provider names when marking native interface bases", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/core/text.ts": `
+          export class TextRange {
+            pos: number;
+            end: number;
+
+            constructor(pos: number, end: number) {
+              this.pos = pos;
+              this.end = end;
+            }
+          }
+        `,
+        "src/ast/generated/types.ts": `
+          export interface TextRange {
+            pos: number;
+            end: number;
+          }
+
+          export interface Node extends TextRange {
+            kind(): number;
+          }
+        `,
+        "src/index.ts": `
+          import { TextRange as CoreTextRange } from "./core/text.js";
+          import type { Node } from "./ast/generated/types.js";
+
+          export function read(node: Node): number {
+            return node.pos + node.kind();
+          }
+
+          export function makeCoreRange(): CoreTextRange {
+            return new CoreTextRange(1, 2);
+          }
+        `,
+      },
+      "src/index.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.include("namespace Test.ast.generated");
+    expect(csharp).to.include("public interface TextRange");
+    expect(csharp).to.include("public interface Node : TextRange");
+    expect(csharp).to.include("namespace Test.core");
+    expect(csharp).to.include("public class TextRange");
+  });
+
+  it("emits imported implemented property-only interfaces as native contracts", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/ast/generated/types.ts": `
+          export interface TextRange {
+            pos: number;
+            end: number;
+          }
+        `,
+        "src/ast/accessors.ts": `
+          import type { TextRange } from "./generated/types.js";
+
+          class TextRangeObject implements TextRange {
+            pos: number;
+            end: number;
+
+            constructor(pos: number, end: number) {
+              this.pos = pos;
+              this.end = end;
+            }
+          }
+
+          declare function take(range: TextRange): void;
+
+          export function run(range: TextRangeObject): void {
+            take(range);
+          }
+        `,
+      },
+      "src/ast/accessors.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.include("public interface TextRange");
+    expect(csharp).to.include(
+      "public class TextRangeObject : global::Test.ast.generated.TextRange"
+    );
+    expect(csharp).to.include("take(range);");
+    expect(csharp).to.not.include("new global::Test.ast.generated.TextRange");
+  });
+
   it("adapts object literals to native method interfaces through generated closure adapters", () => {
     const csharp = compileToCSharp(`
       interface Greeter {
@@ -19,13 +187,105 @@ describe("Integration: TSTS blocker regressions", () => {
     `);
 
     expect(csharp).to.include("class __TsonicInterfaceObjectAdapter_");
-    expect(csharp).to.include(": Greeter");
-    expect(csharp).to.include("string Greeter.hello()");
-    expect(csharp).to.include("string Greeter.tagged(string prefix)");
+    expect(csharp).to.include(": global::Test.Greeter");
+    expect(csharp).to.include("string global::Test.Greeter.hello()");
+    expect(csharp).to.include(
+      "string global::Test.Greeter.tagged(string prefix)"
+    );
     expect(csharp).to.include(
       "new global::Test.__TsonicInterfaceObjectAdapter_"
     );
     expect(csharp).to.not.include("new global::Test.Greeter");
+  });
+
+  it("implements inherited interface properties on their declaring native interface", () => {
+    const csharp = compileToCSharp(`
+      interface GlobElement {
+        readonly kind: "slash" | "star";
+      }
+
+      interface StarElement extends GlobElement {
+      }
+
+      export function makeStar(): StarElement {
+        return { kind: "star" };
+      }
+    `);
+
+    expect(csharp).to.include(": global::Test.StarElement");
+    expect(csharp).to.include("string global::Test.GlobElement.kind");
+    expect(csharp).to.not.include("string global::Test.StarElement.kind");
+  });
+
+  it("mirrors mutable property slots when adapting object literals to native interfaces", () => {
+    const csharp = compileToCSharp(
+      `
+        interface State {
+          readonly diagnostics: string[];
+          next(): number;
+        }
+
+        export function append(state: State): void {
+          state.diagnostics.push("x");
+        }
+
+        export function makeState(): State {
+          return {
+            diagnostics: [],
+            next: () => 1,
+          };
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("string[] diagnostics { get; set; }");
+    expect(csharp).to.include("string[] global::Test.State.diagnostics");
+    expect(csharp).to.include("set");
+    expect(csharp).to.include("__tsonic_member_0 = value;");
+  });
+
+  it("qualifies cross-module local interface adapter signatures in generated files", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/scanner/scanner.ts": `
+          export interface ScannerState {
+            pos: number;
+          }
+
+          export interface LiveScanner {
+            mark(): ScannerState;
+            rewind(state: ScannerState): void;
+          }
+        `,
+        "src/parser/parser.ts": `
+          import type { LiveScanner, ScannerState } from "../scanner/scanner.js";
+
+          export function create(scannerState: ScannerState): LiveScanner {
+            return {
+              mark: () => scannerState,
+              rewind: (state: ScannerState): void => {
+                scannerState.pos = state.pos;
+              },
+            };
+          }
+        `,
+      },
+      "src/parser/parser.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.include(": global::Test.scanner.LiveScanner");
+    expect(csharp).to.include(
+      "global::Test.scanner.ScannerState global::Test.scanner.LiveScanner.mark()"
+    );
+    expect(csharp).to.include(
+      "void global::Test.scanner.LiveScanner.rewind(global::Test.scanner.ScannerState state)"
+    );
+    expect(csharp).to.not.include(": LiveScanner");
+    expect(csharp).to.not.include("Func<ScannerState>");
   });
 
   it("emits numeric dictionary literal keys for Record<number, T>", () => {
@@ -289,11 +549,11 @@ describe("Integration: TSTS blocker regressions", () => {
       "public interface PackageJSON : HeaderFields, PathFields, DependencyFields"
     );
     expect(csharp).to.include("class __TsonicInterfaceObjectAdapter_");
-    expect(csharp).to.include(": PackageJSON");
-    expect(csharp).to.include("string HeaderFields.name");
-    expect(csharp).to.include("string PathFields.main");
-    expect(csharp).to.include("string DependencyFields.dependencies");
-    expect(csharp).to.include("string PackageJSON.raw");
+    expect(csharp).to.include(": global::Test.PackageJSON");
+    expect(csharp).to.include("string global::Test.HeaderFields.name");
+    expect(csharp).to.include("string global::Test.PathFields.main");
+    expect(csharp).to.include("string global::Test.DependencyFields.dependencies");
+    expect(csharp).to.include("string global::Test.PackageJSON.raw");
     expect(csharp).to.not.include(
       "class PackageJSON : HeaderFields, PathFields, DependencyFields"
     );
@@ -689,6 +949,62 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include("pair[1]");
   });
 
+  it("reads local interfaces extending ReadonlyArray through array optional-read helpers", () => {
+    const csharp = compileToCSharp(
+      `
+        interface Node {
+          readonly kind: number;
+        }
+
+        interface NodeArray<T> extends ReadonlyArray<T> {
+          readonly pos?: number;
+        }
+
+        interface SourceFile {
+          readonly statements: NodeArray<Node>;
+        }
+
+        export function first(sourceFile: SourceFile): Node {
+          return sourceFile.statements[0]!;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "global::Tsonic.Internal.ArrayInterop.ReadOptionalReference<Node>(sourceFile.statements, 0)"
+    );
+    expect(csharp).to.not.include("sourceFile.statements.at(0)");
+  });
+
+  it("lowers JS number bitwise compound assignments through runtime operators", () => {
+    const csharp = compileToCSharp(
+      `
+        const TokenFlags = {
+          None: 0,
+          Scientific: 1 << 4,
+          ContainsSeparator: 1 << 9,
+        } as const;
+
+        export interface State {
+          tokenFlags: number;
+        }
+
+        export function markScientific(state: State): void {
+          state.tokenFlags |= TokenFlags.Scientific;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "state.tokenFlags = global::Tsonic.Runtime.Operators.BitwiseOr(state.tokenFlags, "
+    );
+    expect(csharp).to.not.include("state.tokenFlags |=");
+  });
+
   it("adapts Map values when returning readonly map views with readonly value supertypes", () => {
     const csharp = compileToCSharp(
       `
@@ -743,21 +1059,30 @@ describe("Integration: TSTS blocker regressions", () => {
       }
     `);
 
-    expect(csharp).to.include("class SlashElement : GlobElement");
-    expect(csharp).to.include("class LiteralElement : GlobElement");
-    expect(csharp).to.include("public required string kind { get; init; }");
+    expect(csharp).to.include("public interface GlobElement");
+    expect(csharp).to.include("public interface SlashElement : GlobElement");
+    expect(csharp).to.include("public interface LiteralElement : GlobElement");
+    expect(csharp).to.include(": global::Test.SlashElement");
+    expect(csharp).to.include(": global::Test.LiteralElement");
+    expect(csharp).to.include("string kind { get; }");
+    expect(csharp).to.include("string global::Test.GlobElement.kind");
+    expect(csharp).to.include("string global::Test.LiteralElement.value");
+    expect(csharp).to.include("string value { get; set; }");
+    expect(csharp).to.not.include("public class SlashElement");
+    expect(csharp).to.not.include("public class LiteralElement");
+    expect(csharp).to.not.include("string global::Test.SlashElement.kind");
     expect(csharp).to.not.match(
       /class\s+SlashElement\s*:\s*GlobElement[\s\S]*?public\s+required\s+string\s+kind\s*\{/
     );
     expect(csharp).to.not.match(
       /class\s+LiteralElement\s*:\s*GlobElement[\s\S]*?public\s+required\s+string\s+kind\s*\{/
     );
-    expect(csharp).to.include("public required string value { get; set; }");
+    expect(csharp).to.not.include("string global::Test.LiteralElement.kind");
     expect(csharp).to.match(
-      /Element\.From\d+\(new SlashElement\s*\{\s*kind = "slash"\s*\}\)/
+      /Element\.From\d+\(new global::Test\.__TsonicInterfaceObjectAdapter_[^(]+\("slash"\)\)/
     );
     expect(csharp).to.match(
-      /Element\.From\d+\(new LiteralElement\s*\{\s*kind = "literal", value = "x"\s*\}\)/
+      /Element\.From\d+\(new global::Test\.__TsonicInterfaceObjectAdapter_[^(]+\("literal", "x"\)\)/
     );
     expect(csharp).to.not.match(/new SlashElement\s*\{\s*kind = "literal"/);
     expect(csharp).to.not.match(/new LiteralElement\s*\{\s*kind = "slash"/);
@@ -1375,7 +1700,7 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include("pkg.exports.type");
   });
 
-  it("uses contextual generic return types when wrapping mutable maps in readonly generic unions", () => {
+  it("adapts inferred generic return types when wrapping mutable maps in readonly generic unions", () => {
     const csharp = compileToCSharp(
       `
         type Expected<T> =
@@ -1395,8 +1720,9 @@ describe("Integration: TSTS blocker regressions", () => {
       { surface: "@tsonic/js" }
     );
 
+    expect(csharp).to.include("return expectedOf(map).Match<global::Test.Expected<global::js.ReadonlyMap<string, string>>>");
     expect(csharp).to.include(
-      "return expectedOf<global::js.ReadonlyMap<string, string>>(map);"
+      "global::Test.Expected<global::js.ReadonlyMap<string, string>>.From1"
     );
     expect(csharp).to.not.include("return expectedOf(map);");
   });
@@ -1470,6 +1796,25 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include(
       "new global::js.Map<string, SymbolInfo>(globals.__tsonic_symbol_iterator())"
     );
+  });
+
+  it("infers empty collection constructors from readonly collection context", () => {
+    const csharp = compileToCSharp(
+      `
+        import type { int } from "@tsonic/core/types.js";
+
+        export function tables(): int {
+          const names: ReadonlySet<string> = new Set();
+          const flags: ReadonlyMap<string, int> = new Map();
+          return names.size + flags.size;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("new global::js.Set<string>()");
+    expect(csharp).to.include("new global::js.Map<string, int>()");
   });
 
   it("resolves Node built-in globals and withFileTypes Dirent overloads from the nodejs surface", () => {
@@ -1872,5 +2217,144 @@ describe("Integration: TSTS blocker regressions", () => {
 
     expect(csharp).to.include("return this.body;");
     expect(csharp).to.not.include("return (object)this.body;");
+  });
+
+  it("uses nominal object initialization for property-only interfaces that emit as classes", () => {
+    const csharp = compileToCSharp(`
+      interface FlagTable {
+        readonly None: number;
+        readonly Any: number;
+      }
+
+      export const Flags: FlagTable = {
+        None: 0,
+        Any: 1,
+      };
+    `);
+
+    expect(csharp).to.include("public class FlagTable");
+    expect(csharp).to.include("new FlagTable { None = 0, Any = 1 }");
+    expect(csharp).to.not.include("__TsonicInterfaceObjectAdapter");
+  });
+
+  it("fills omitted optional members when adapting object literals to native interfaces", () => {
+    const csharp = compileToCSharp(`
+      import type { int } from "@tsonic/core/types.js";
+
+      interface Node {
+        kind(): int;
+      }
+
+      interface Symbol {
+        readonly name?: string;
+        flags?: int;
+        declarations: Node[];
+        describe(): string;
+      }
+
+      export function makeSymbol(declarations: Node[]): Symbol {
+        return {
+          declarations,
+          describe: () => "symbol",
+        };
+      }
+    `);
+
+    expect(csharp).to.include(": global::Test.Symbol");
+    expect(csharp).to.include("string? global::Test.Symbol.name");
+    expect(csharp).to.include("int? global::Test.Symbol.flags");
+    expect(csharp).to.include("default(string?)");
+    expect(csharp).to.include("default(int?)");
+    expect(csharp).to.not.include("new global::Test.Symbol");
+  });
+
+  it("emits generic native-interface object adapters as generic classes", () => {
+    const csharp = compileToCSharp(`
+      interface Box<T> {
+        readonly value: T;
+        readonly stop: boolean;
+        done(): boolean;
+      }
+
+      export function makeBox<T>(value: T): Box<T> {
+        return {
+          value,
+          stop: false,
+          done: () => false,
+        };
+      }
+    `);
+
+    expect(csharp).to.match(
+      /class __TsonicInterfaceObjectAdapter_[a-f0-9]+<T> : global::Test\.Box<T>/
+    );
+    expect(csharp).to.match(/new global::Test\.__TsonicInterfaceObjectAdapter_[a-f0-9]+<T>\(/);
+  });
+
+  it("does not let contextual union returns broaden generic argument inference", () => {
+    const csharp = compileToCSharp(`
+      interface Node {
+        kind(): number;
+      }
+
+      interface ObjectBindingPattern extends Node {
+        readonly elements: string[];
+      }
+
+      interface ArrayBindingPattern extends Node {
+        readonly elements: number[];
+      }
+
+      type BindingName = ObjectBindingPattern | ArrayBindingPattern;
+
+      declare function makeObjectBindingPattern(elements: string[]): ObjectBindingPattern;
+
+      function finishNode<T extends Node>(node: T): T {
+        return node;
+      }
+
+      export function parseBindingName(): BindingName {
+        const node = makeObjectBindingPattern([]);
+        return finishNode(node);
+      }
+    `);
+
+    expect(csharp).to.include("finishNode(node)");
+    expect(csharp).to.not.include("finishNode<global::Test.BindingName>");
+    expect(csharp).to.not.include(
+      "finishNode<global::Test.BindingName>(global::Test.BindingName"
+    );
+  });
+
+  it("infers generic callback result type from the surrounding call result context", () => {
+    const csharp = compileToCSharp(`
+      interface Expression {
+        kind(): number;
+      }
+
+      interface SpreadElement extends Expression {
+        spread(): boolean;
+      }
+
+      declare function parseExpression(): Expression;
+      declare function createSpreadElement(): SpreadElement;
+
+      function inContext<T>(f: () => T): T {
+        return f();
+      }
+
+      export function parseArgumentExpression(condition: boolean): Expression {
+        return inContext(() => {
+          if (condition) {
+            return createSpreadElement();
+          }
+          return parseExpression();
+        });
+      }
+    `);
+
+    expect(csharp).to.include("parseArgumentExpression(bool condition)");
+    expect(csharp).to.not.include("<unknown>");
+    expect(csharp).to.not.include("<object>");
   });
 });

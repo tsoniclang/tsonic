@@ -583,6 +583,24 @@ const inferContextualCallTypeArguments = (
   const declaredParameterInferred = inferFromParameters(
     (argument) => argument.inferredType
   );
+  for (const typeParameter of typeParameters) {
+    const contextualType = mapped.get(typeParameter.name);
+    if (!contextualType) {
+      continue;
+    }
+
+    const parameterType =
+      emittedSurfaceParameterInferred.get(typeParameter.name) ??
+      semanticParameterInferred.get(typeParameter.name) ??
+      declaredParameterInferred.get(typeParameter.name);
+    if (
+      parameterType &&
+      !genericInferenceTypesMatch(parameterType, contextualType, context)
+    ) {
+      return undefined;
+    }
+  }
+
   const csharpWouldInferSameTypeArguments = typeParameters.every((param) => {
     const parameterType =
       emittedSurfaceParameterInferred.get(param.name) ??

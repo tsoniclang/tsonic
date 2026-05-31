@@ -22,6 +22,10 @@ import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
+import {
+  createLocalTypeIdentityState,
+  localTypeIdentityKey,
+} from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type { MemberId } from "./types.js";
 import type { TypeSystemState, Site } from "./type-system-state.js";
@@ -42,6 +46,11 @@ import {
   hasStaticModifier,
 } from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
+
+const indexerInstantiationTypeKeyState = createLocalTypeIdentityState();
+
+const indexerInstantiationTypeArgKey = (type: IrType): string =>
+  localTypeIdentityKey(type, indexerInstantiationTypeKeyState);
 
 const convertMethodTypeParameters = (
   state: TypeSystemState,
@@ -187,6 +196,99 @@ export const getIndexerInfo = (
   const normalized = normalizeToNominal(state, receiver);
   if (!normalized) return undefined;
 
+  const buildSubstitutionForTypeArgs = (
+    typeId: typeof normalized.typeId,
+    typeArgs: readonly IrType[]
+  ): ReadonlyMap<string, IrType> => {
+    const typeParams = state.unifiedCatalog.getTypeParameters(typeId);
+    const subst = new Map<string, IrType>();
+    for (let i = 0; i < Math.min(typeParams.length, typeArgs.length); i++) {
+      const paramName = typeParams[i]?.name;
+      const arg = typeArgs[i];
+      if (paramName && arg) {
+        subst.set(paramName, arg);
+      }
+    }
+    return subst;
+  };
+
+  const resolveInstantiatedDeclaringType = (
+    targetTypeId: typeof normalized.typeId
+  ):
+    | {
+        readonly substitution: ReadonlyMap<string, IrType>;
+        readonly typeArgs: readonly IrType[];
+      }
+    | undefined => {
+    type SearchState = {
+      readonly typeId: typeof normalized.typeId;
+      readonly typeArgs: readonly IrType[];
+    };
+
+    const visited = new Set<string>();
+    const queue: SearchState[] = [
+      { typeId: normalized.typeId, typeArgs: normalized.typeArgs },
+    ];
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) continue;
+
+      const visitKey = `${current.typeId.stableId}|${current.typeArgs
+        .map((arg) => indexerInstantiationTypeArgKey(arg))
+        .join(",")}`;
+      if (visited.has(visitKey)) {
+        continue;
+      }
+      visited.add(visitKey);
+
+      if (current.typeId.stableId === targetTypeId.stableId) {
+        return {
+          substitution: buildSubstitutionForTypeArgs(
+            current.typeId,
+            current.typeArgs
+          ),
+          typeArgs: current.typeArgs,
+        };
+      }
+
+      const currentSubstitution = buildSubstitutionForTypeArgs(
+        current.typeId,
+        current.typeArgs
+      );
+      const heritage = [...state.unifiedCatalog.getHeritage(current.typeId)].sort(
+        (a, b) => {
+          const rank = (k: typeof a.kind) => (k === "extends" ? 0 : 1);
+          const ra = rank(a.kind);
+          const rb = rank(b.kind);
+          if (ra !== rb) return ra - rb;
+          return a.targetStableId.localeCompare(b.targetStableId);
+        }
+      );
+
+      for (const edge of heritage) {
+        const parentEntry = state.unifiedCatalog.getByStableId(
+          edge.targetStableId
+        );
+        if (!parentEntry) {
+          continue;
+        }
+
+        const parentTypeArgs = edge.typeArguments.map((arg) =>
+          currentSubstitution.size > 0
+            ? irSubstitute(arg, currentSubstitution as IrSubstitutionMap)
+            : arg
+        );
+        queue.push({
+          typeId: parentEntry.typeId,
+          typeArgs: parentTypeArgs,
+        });
+      }
+    }
+
+    return undefined;
+  };
+
   // Walk inheritance chain to find the first indexer property.
   const chain = state.nominalEnv.getInheritanceChain(normalized.typeId);
   for (const typeId of chain) {
@@ -204,15 +306,30 @@ export const getIndexerInfo = (
     const keyTypeName = parseIndexerKeyTypeName(indexer.stableId);
     if (!keyTypeName) return undefined;
 
-    const inst = state.nominalEnv.getInstantiation(
+    const instantiatedDeclaringType = resolveInstantiatedDeclaringType(typeId);
+    const nominalInstantiation = state.nominalEnv.getInstantiation(
       normalized.typeId,
       normalized.typeArgs,
       typeId
     );
-    const valueType =
-      inst && inst.size > 0
-        ? irSubstitute(indexer.type, inst as IrSubstitutionMap)
+    const substitution =
+      instantiatedDeclaringType?.substitution ??
+      nominalInstantiation ??
+      new Map<string, IrType>();
+    let valueType =
+      substitution.size > 0
+        ? irSubstitute(indexer.type, substitution as IrSubstitutionMap)
         : indexer.type;
+    if (
+      valueType.kind === "typeParameterType" &&
+      !substitution.has(valueType.name) &&
+      instantiatedDeclaringType?.typeArgs.length === 1
+    ) {
+      const [onlyTypeArg] = instantiatedDeclaringType.typeArgs;
+      if (onlyTypeArg) {
+        valueType = onlyTypeArg;
+      }
+    }
 
     return {
       keyTypeName,

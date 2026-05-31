@@ -476,6 +476,46 @@ export const emitComputedAccess = (
   }
 
   if (expr.accessProtocol?.getterMember) {
+    const desiredType = expectedType ?? expr.inferredType;
+    const arrayLikeReceiver = resolveArrayLikeReceiverType(
+      objectType,
+      context
+    );
+    if (
+      usage === "value" &&
+      expr.accessProtocol.getterMember === "at" &&
+      arrayLikeReceiver &&
+      desiredType &&
+      contextSurfaceIncludesJs(context)
+    ) {
+      const storageType = typeIncludesRuntimeAbsence(
+        expr.inferredType,
+        context
+      )
+        ? expr.inferredType
+        : normalizedUnionType([
+            arrayLikeReceiver.elementType,
+            { kind: "primitiveType", name: "undefined" },
+          ]);
+      const [safeReadAst, safeReadStorageType, safeReadContext] =
+        buildSafeJsArrayReadAst(
+          objectAst,
+          propAst,
+          arrayLikeReceiver.elementType,
+          storageType,
+          finalContext
+        );
+      const adapted = adaptStorageErasedValueAst({
+        valueAst: safeReadAst,
+        semanticType: expr.inferredType,
+        storageType: safeReadStorageType,
+        expectedType: desiredType,
+        context: safeReadContext,
+        emitTypeAst,
+      });
+      return adapted ?? [safeReadAst, safeReadContext];
+    }
+
     const adaptProtocolGetterRead = (
       valueAst: CSharpExpressionAst,
       nextContext: EmitterContext
@@ -484,11 +524,6 @@ export const emitComputedAccess = (
         return [valueAst, nextContext];
       }
 
-      const desiredType = expectedType ?? expr.inferredType;
-      const arrayLikeReceiver = resolveArrayLikeReceiverType(
-        objectType,
-        context
-      );
       const protocolElementType =
         arrayLikeReceiver?.elementType ??
         (expr.inferredType ? stripNullish(expr.inferredType) : undefined);
