@@ -1,11 +1,30 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolvePackageRoot, resolveTsbindgenDllPath } from "./add-common.js";
 
-const compatibleTsbindgenVersion = "0.7.54";
+const readCliTsbindgenDependency = (): string => {
+  const parsed = JSON.parse(
+    readFileSync(new URL("../../package.json", import.meta.url), "utf-8")
+  ) as {
+    readonly dependencies?: Record<string, unknown>;
+  };
+  const version = parsed.dependencies?.["@tsonic/tsbindgen"];
+  if (typeof version !== "string" || version.length === 0) {
+    throw new Error("packages/cli/package.json must depend on @tsonic/tsbindgen");
+  }
+  return version;
+};
+
+const compatibleTsbindgenVersion = readCliTsbindgenDependency();
 
 const writeJson = (path: string, value: unknown): void => {
   writeFileSync(path, JSON.stringify(value, null, 2) + "\n", "utf-8");
