@@ -226,7 +226,7 @@ const resolveMemberOverloadsByHierarchy = (
   }
 
   const getTargetKey = (binding: MemberBinding): string =>
-    `${binding.binding.assembly}:${binding.binding.type}::${binding.binding.member}`;
+    `${binding.binding.ownerIdentity}:${binding.binding.type}::${binding.binding.member}`;
 
   const getModifiersKey = (binding: MemberBinding): string => {
     const modifiers = binding.parameterModifiers ?? [];

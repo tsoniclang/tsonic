@@ -160,7 +160,7 @@ export const buildTypeRegistry = (
         fullyQualifiedName: fqName,
         ownerIdentity,
         isDeclarationFile: sf.isDeclarationFile,
-        preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
+        preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: extractMembers(node.members, convert),
         heritage: extractHeritage(
@@ -191,7 +191,7 @@ export const buildTypeRegistry = (
           fullyQualifiedName: fqName,
           ownerIdentity,
           isDeclarationFile: sf.isDeclarationFile,
-          preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
+          preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
           typeParameters: [],
           members: aliasedMembers,
           heritage: [],
@@ -222,7 +222,7 @@ export const buildTypeRegistry = (
           entries.set(fqName, {
             ...existing,
             isDeclarationFile: existing.isDeclarationFile,
-            preservesAssemblyIdentity: existing.preservesAssemblyIdentity,
+            preservesProviderIdentity: existing.preservesProviderIdentity,
             members: mergedMembers,
             heritage: [
               ...existing.heritage,
@@ -243,7 +243,7 @@ export const buildTypeRegistry = (
             fullyQualifiedName: fqName,
             ownerIdentity,
             isDeclarationFile: sf.isDeclarationFile,
-            preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
+            preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
             typeParameters: extractTypeParameters(node.typeParameters, convert),
             members: extractMembers(node.members, convert),
             heritage: extractHeritage(
@@ -287,7 +287,7 @@ export const buildTypeRegistry = (
         fullyQualifiedName: fqName,
         ownerIdentity,
         isDeclarationFile: sf.isDeclarationFile,
-        preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
+        preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
         typeParameters: [],
         members,
         heritage: [],
@@ -334,7 +334,7 @@ export const buildTypeRegistry = (
           fullyQualifiedName: syntheticFqName,
           ownerIdentity,
           isDeclarationFile: sf.isDeclarationFile,
-          preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
+          preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
           typeParameters:
             synthetic.typeParameters?.map((typeParameter) => ({
               name: typeParameter.name,
@@ -356,7 +356,7 @@ export const buildTypeRegistry = (
         fullyQualifiedName: fqName,
         ownerIdentity,
         isDeclarationFile: sf.isDeclarationFile,
-        preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
+        preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: aliasedMembers,
         heritage: [],
@@ -444,7 +444,7 @@ export const buildTypeRegistry = (
     },
   };
 };
-const preservesAssemblyIdentity = (fileName: string): boolean => {
+const preservesProviderIdentity = (fileName: string): boolean => {
   const normalized = path.sep === "/" ? fileName : fileName.replace(/\\/g, "/");
   return normalized.includes("/tsonic/bindings/");
 };

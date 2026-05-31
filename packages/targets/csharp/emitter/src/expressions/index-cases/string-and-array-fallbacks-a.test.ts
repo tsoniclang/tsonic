@@ -167,7 +167,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "js",
+              ownerIdentity: "js",
               type: "js.Array",
               member: "length",
             },

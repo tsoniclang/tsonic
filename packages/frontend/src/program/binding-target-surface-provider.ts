@@ -28,7 +28,7 @@ export const createBindingTargetSurfaceProvider = (
     }
 
     const moduleSymbolId = moduleSymbolIdFromStableId(
-      `${moduleBinding.assembly}:${moduleBinding.type}`
+      `${moduleBinding.ownerIdentity}:${moduleBinding.type}`
     );
     return {
       kind: "targetSurface",

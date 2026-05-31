@@ -28,15 +28,13 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/globals.json", {
-        bindings: {
+      bindings.addBindings("/test/globals.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -83,18 +81,14 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/globals.json", {
-        bindings: {
+      bindings.addBindings("/test/globals.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
-      bindings.addBindings("/test/js/bindings.json", {
-        namespace: "js",
-        types: [
+        } }, targetSurface: { types: [] } });
+      bindings.addBindings("/test/js/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "js" }, targetSurface: { types: [
           {
             targetName: "js.console",
             ownerIdentity: "js",
@@ -119,11 +113,8 @@ describe("Binding Resolution in IR", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
-      bindings.addBindings("/test/nodejs/bindings.json", {
-        namespace: "nodejs",
-        types: [
+        ] } });
+      bindings.addBindings("/test/nodejs/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: [
           {
             targetName: "nodejs.console",
             ownerIdentity: "nodejs",
@@ -148,11 +139,8 @@ describe("Binding Resolution in IR", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
-      bindings.addBindings("/test/system-console/bindings.json", {
-        namespace: "System",
-        types: [
+        ] } });
+      bindings.addBindings("/test/system-console/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
           {
             targetName: "System.Console",
             ownerIdentity: "System.Console",
@@ -168,8 +156,7 @@ describe("Binding Resolution in IR", () => {
             ],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -214,9 +201,7 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js/bindings.json", {
-        namespace: "js",
-        types: [
+      bindings.addBindings("/test/js/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "js" }, targetSurface: { types: [
           {
             targetName: "System.String",
             ownerIdentity: "js",
@@ -234,8 +219,7 @@ describe("Binding Resolution in IR", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const { testProgram, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];

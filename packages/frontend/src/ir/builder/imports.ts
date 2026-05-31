@@ -21,6 +21,7 @@ import {
   moduleSymbolIdFromStableId,
   typeSymbolIdFromStableId,
 } from "../../symbols/index.js";
+import { extractRawExternalBindingsPayload } from "../../program/external-binding-payload.js";
 
 const getSourceSpan = (
   node: ts.Node
@@ -54,7 +55,7 @@ const typeBindingOwnerIdentity = (
   type: TypeBinding,
   fallbackOwnerIdentity: string | undefined
 ): string =>
-  type.members[0]?.binding.assembly ??
+  type.members[0]?.binding.ownerIdentity ??
   fallbackOwnerIdentity ??
   "external-surface";
 
@@ -230,13 +231,7 @@ export const extractImports = (
         try {
           const raw = readFileSync(bindingsPath, "utf-8");
           const parsed = JSON.parse(raw) as unknown;
-          const ns =
-            parsed &&
-            typeof parsed === "object" &&
-            typeof (parsed as { readonly namespace?: unknown }).namespace ===
-              "string"
-              ? ((parsed as { readonly namespace: string }).namespace as string)
-              : undefined;
+          const ns = extractRawExternalBindingsPayload(parsed)?.namespace;
           bindingsNamespaceCache.set(bindingsPath, ns ?? null);
           return ns;
         } catch {
@@ -338,7 +333,9 @@ export const extractImports = (
 
       const importOwnerIdentity =
         externalOwnerIdentity ??
-        (moduleBinding?.kind === "module" ? moduleBinding.assembly : undefined);
+        (moduleBinding?.kind === "module"
+          ? moduleBinding.ownerIdentity
+          : undefined);
 
       // Resolve target identities for named imports from both external namespace
       // facades and module-bound surface facades (e.g. node:http ->

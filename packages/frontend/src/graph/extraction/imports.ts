@@ -29,6 +29,7 @@ export const extractImport = (
       bindings: program.bindings,
       projectRoot: program.options.projectRoot,
       surface: program.options.surface,
+      backendTargetId: program.options.backendTargetId,
       authoritativeTsonicPackageRoots: program.authoritativeTsonicPackageRoots,
       declarationModuleAliases: program.declarationModuleAliases,
     }

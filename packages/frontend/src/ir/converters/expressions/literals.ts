@@ -142,7 +142,7 @@ export const convertRegularExpressionLiteral = (
         ) ?? undefined);
   const providerOwnerIdentity =
     regExpBinding && regExpBinding.kind === "global"
-      ? regExpBinding.assembly
+      ? regExpBinding.ownerIdentity
       : undefined;
 
   const args: IrNewExpression["arguments"][number][] = [

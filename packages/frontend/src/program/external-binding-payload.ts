@@ -1,49 +1,26 @@
 import type {
   BindingFile,
-  FirstPartyBindingsFileV2,
-  TsbindgenBindingFile,
+  TsbindgenExport,
+  TsbindgenType,
 } from "./binding-types.js";
 
 export type ParsedExternalBindingPayload = {
   readonly namespace: string;
-  readonly types: readonly unknown[];
-  readonly exports?: Readonly<Record<string, unknown>>;
-};
-
-export const isFirstPartyTargetBindingsFileV2 = (
-  manifest: BindingFile
-): manifest is FirstPartyBindingsFileV2 => {
-  return (
-    "namespace" in manifest &&
-    "targetSurface" in manifest &&
-    typeof manifest.targetSurface === "object" &&
-    manifest.targetSurface !== null &&
-    Array.isArray(manifest.targetSurface.types)
-  );
+  readonly types: readonly TsbindgenType[];
+  readonly exports?: Readonly<Record<string, TsbindgenExport>>;
+  readonly ownerIdentities?: readonly string[];
+  readonly targetRuntimeVersion?: string;
 };
 
 export const getExternalBindingPayload = (
   manifest: BindingFile
-): TsbindgenBindingFile | undefined => {
-  if (
-    "namespace" in manifest &&
-    "types" in manifest &&
-    !("namespaces" in manifest) &&
-    !("targetSurface" in manifest)
-  ) {
-    return manifest as TsbindgenBindingFile;
-  }
-
-  if (isFirstPartyTargetBindingsFileV2(manifest)) {
-    return {
-      namespace: manifest.namespace,
-      types: manifest.targetSurface.types,
-      exports: manifest.targetSurface.exports,
-    };
-  }
-
-  return undefined;
-};
+): ParsedExternalBindingPayload => ({
+  namespace: manifest.provider.namespace,
+  types: manifest.targetSurface.types,
+  exports: manifest.targetSurface.exports,
+  ownerIdentities: manifest.provider.ownerIdentities,
+  targetRuntimeVersion: manifest.provider.targetRuntimeVersion,
+});
 
 export const extractRawExternalBindingsPayload = (
   value: unknown
@@ -51,72 +28,81 @@ export const extractRawExternalBindingsPayload = (
   if (typeof value !== "object" || value === null) return undefined;
 
   const candidate = value as {
-    readonly namespace?: unknown;
-    readonly types?: unknown;
-    readonly exports?: unknown;
+    readonly schema?: unknown;
+    readonly provider?: {
+      readonly namespace?: unknown;
+      readonly ownerIdentities?: unknown;
+      readonly targetRuntimeVersion?: unknown;
+    };
     readonly targetSurface?: {
       readonly types?: unknown;
       readonly exports?: unknown;
     };
   };
 
-  if (typeof candidate.namespace !== "string") {
+  if (candidate.schema !== "tsonic.bindings") {
     return undefined;
   }
 
-  if (Array.isArray(candidate.types)) {
-    return {
-      namespace: candidate.namespace,
-      types: candidate.types,
-      exports:
-        candidate.exports &&
-        typeof candidate.exports === "object" &&
-        !Array.isArray(candidate.exports)
-          ? (candidate.exports as Readonly<Record<string, unknown>>)
-          : undefined,
-    };
+  if (
+    candidate.provider === undefined ||
+    typeof candidate.provider !== "object" ||
+    candidate.provider === null ||
+    typeof candidate.provider.namespace !== "string"
+  ) {
+    return undefined;
   }
 
   if (
-    candidate.targetSurface !== undefined &&
-    typeof candidate.targetSurface === "object" &&
-    candidate.targetSurface !== null &&
-    Array.isArray(candidate.targetSurface.types)
+    candidate.targetSurface === undefined ||
+    typeof candidate.targetSurface !== "object" ||
+    candidate.targetSurface === null ||
+    !Array.isArray(candidate.targetSurface.types)
   ) {
-    return {
-      namespace: candidate.namespace,
-      types: candidate.targetSurface.types,
-      exports:
-        candidate.targetSurface.exports &&
-        typeof candidate.targetSurface.exports === "object" &&
-        !Array.isArray(candidate.targetSurface.exports)
-          ? (candidate.targetSurface.exports as Readonly<
-              Record<string, unknown>
-            >)
-          : undefined,
-    };
+    return undefined;
   }
 
-  return undefined;
+  return {
+    namespace: candidate.provider.namespace,
+    types: candidate.targetSurface.types as readonly TsbindgenType[],
+    exports:
+      candidate.targetSurface.exports &&
+      typeof candidate.targetSurface.exports === "object" &&
+      !Array.isArray(candidate.targetSurface.exports)
+        ? (candidate.targetSurface.exports as Readonly<
+            Record<string, TsbindgenExport>
+          >)
+        : undefined,
+    ownerIdentities: Array.isArray(candidate.provider.ownerIdentities)
+      ? candidate.provider.ownerIdentities.filter(
+          (entry): entry is string => typeof entry === "string"
+        )
+      : undefined,
+    targetRuntimeVersion:
+      typeof candidate.provider.targetRuntimeVersion === "string"
+        ? candidate.provider.targetRuntimeVersion
+        : undefined,
+  };
 };
 
 export const extractRawExternalBindingTypes = (
   value: unknown
-): readonly Record<string, unknown>[] | undefined => {
+): readonly TsbindgenType[] | undefined => {
   const payload = extractRawExternalBindingsPayload(value);
   if (!payload) {
     return undefined;
   }
 
-  return payload.types.filter(
-    (entry): entry is Record<string, unknown> =>
-      entry !== null && typeof entry === "object" && !Array.isArray(entry)
-  );
+  return payload.types;
 };
 
 export const extractRawExternalOwnerIdentity = (
   value: unknown
 ): string | undefined => {
+  const payload = extractRawExternalBindingsPayload(value);
+  const [firstProviderOwner] = payload?.ownerIdentities ?? [];
+  if (firstProviderOwner) return firstProviderOwner;
+
   const [firstType] = extractRawExternalBindingTypes(value) ?? [];
   return typeof firstType?.ownerIdentity === "string"
     ? firstType.ownerIdentity

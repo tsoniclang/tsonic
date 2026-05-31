@@ -43,7 +43,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "js",
+              ownerIdentity: "js",
               type: "js.Array",
               member: "length",
             },
@@ -93,7 +93,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "js",
+              ownerIdentity: "js",
               type: "js.Array",
               member: "length",
             },
@@ -141,7 +141,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "js",
+              ownerIdentity: "js",
               type: "js.Array",
               member: "length",
             },
@@ -186,7 +186,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "js",
+              ownerIdentity: "js",
               type: "js.ReadonlyArray",
               member: "length",
             },
@@ -257,7 +257,7 @@ describe("Expression Emission", () => {
       inferredType: { kind: "primitiveType", name: "int" },
       memberBinding: {
         kind: "property",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Array",
         member: "length",
       },
@@ -350,7 +350,7 @@ describe("Expression Emission", () => {
         isOptional: false,
         memberBinding: {
           kind: "method",
-          assembly: "js",
+          ownerIdentity: "js",
           type: "js.Array",
           member: "push",
         },

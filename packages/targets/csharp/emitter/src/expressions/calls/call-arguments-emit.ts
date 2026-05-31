@@ -2615,7 +2615,7 @@ const findMemberBindingExpectedType = (
   const matchingParameterTypes = overloads
     .filter((overload) => {
       if (
-        overload.binding.assembly !== calleeBinding.assembly ||
+        overload.binding.ownerIdentity !== calleeBinding.ownerIdentity ||
         overload.binding.type !== calleeBinding.type ||
         overload.binding.member !== calleeBinding.member
       ) {

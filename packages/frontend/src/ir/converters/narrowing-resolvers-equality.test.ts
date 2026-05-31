@@ -49,41 +49,24 @@ const createMockContext = (options: {
   readonly sourceRoot?: string;
 }): ProgramContext =>
   ({
-    rootNamespace: "Test",
     sourceRoot: options.sourceRoot ?? "/workspace/src",
+    rootNamespace: "Test",
     binding: {
       resolveIdentifier: options.resolveIdentifier,
       getKindOfDecl: (declId: DeclId) =>
-        (options.getDecl?.(declId) as { readonly kind?: string } | undefined)
+        (options.getDecl?.(declId) as { readonly kind?: unknown } | undefined)
           ?.kind,
-      getTypeNodeOfDecl: (declId: DeclId) => {
-        const decl = options.getDecl?.(declId) as
-          | { readonly typeNode?: ts.TypeNode }
-          | undefined;
-        return decl?.typeNode;
-      },
       getValueDeclarationNode: (declId: DeclId) => {
         const decl = options.getDecl?.(declId) as
           | {
-              readonly declNode?: ts.Declaration;
-              readonly valueDeclNode?: ts.Declaration;
+              readonly valueDeclNode?: ts.Node;
+              readonly declNode?: ts.Node;
             }
           | undefined;
         return decl?.valueDeclNode ?? decl?.declNode;
       },
-      getDeclarationNodesOfDecl: (declId: DeclId) => {
-        const decl = options.getDecl?.(declId) as
-          | {
-              readonly declNode?: ts.Declaration;
-              readonly valueDeclNode?: ts.Declaration;
-              readonly typeDeclNode?: ts.Declaration;
-            }
-          | undefined;
-        return [decl?.declNode, decl?.valueDeclNode, decl?.typeDeclNode].filter(
-          (node): node is ts.Declaration => node !== undefined
-        );
-      },
-      getTypeNodeOfMember: () => undefined,
+      getTypeNodeOfDecl: () => undefined,
+      captureTypeSyntax: (node: ts.TypeNode) => node,
     },
     typeSystem: {
       typeOfDecl:
@@ -101,6 +84,9 @@ const createMockContext = (options: {
         (() => ({
           kind: "unknownType",
         })),
+      typeFromSyntax: () => ({
+        kind: "unknownType",
+      }),
     },
     bindings: {
       getType: options.getType ?? (() => undefined),
@@ -226,7 +212,7 @@ describe("narrowing-resolvers-equality", () => {
         name === "Uint8Array" && kind === "global"
           ? {
               kind: "global",
-              assembly: "js",
+              ownerIdentity: "js",
               type: "js.Uint8Array",
               staticType: "js.Uint8Array",
               typeSemantics: {
@@ -267,7 +253,7 @@ describe("narrowing-resolvers-equality", () => {
         name === "Buffer" && kind === "global"
           ? {
               kind: "global",
-              assembly: "System",
+              ownerIdentity: "System",
               type: "System.Buffer",
               staticType: "System.Buffer",
               typeSemantics: {
@@ -316,7 +302,7 @@ describe("narrowing-resolvers-equality", () => {
         name === "Buffer" && kind === "global"
           ? {
               kind: "global",
-              assembly: "System",
+              ownerIdentity: "System",
               type: "System.Buffer",
               staticType: "System.Buffer",
               typeSemantics: {

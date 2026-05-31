@@ -65,6 +65,7 @@ import {
 } from "../symbols/index.js";
 import type { TypeSymbolId } from "../symbols/index.js";
 import { typesEqual } from "./types/ir-substitution.js";
+import { extractRawExternalBindingsPayload } from "../program/external-binding-payload.js";
 
 type LiteralObjectProperty = Extract<
   Extract<IrExpression, { kind: "object" }>["properties"][number],
@@ -336,11 +337,7 @@ const readNamespaceFromBindingsJson = (
   try {
     const raw = readFileSync(bindingsPath, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
-    return parsed &&
-      typeof parsed === "object" &&
-      typeof (parsed as { readonly namespace?: unknown }).namespace === "string"
-      ? (parsed as { readonly namespace: string }).namespace
-      : undefined;
+    return extractRawExternalBindingsPayload(parsed)?.namespace;
   } catch {
     return undefined;
   }
@@ -608,7 +605,8 @@ const resolveImportedIdentifierExternalBinding = (
     return undefined;
   }
   const ownerIdentity =
-    resolvedTypeBinding.members[0]?.binding.assembly ?? "external-surface";
+    resolvedTypeBinding.members[0]?.binding.ownerIdentity ??
+    "external-surface";
   return {
     providerQualifiedName,
     providerOwnerIdentity: ownerIdentity,
@@ -804,14 +802,14 @@ export const convertExpression = (
         inferredType: effectiveExpressionType,
         sourceSpan: getSourceSpan(node),
         providerQualifiedName: externalBinding.type,
-        providerOwnerIdentity: externalBinding.assembly,
+        providerOwnerIdentity: externalBinding.ownerIdentity,
         providerMemberName: externalBinding.providerMemberName,
         typeSymbolId: typeSymbolIdFromStableId(
-          `${externalBinding.assembly}:${externalBinding.staticType ?? externalBinding.type}`
+          `${externalBinding.ownerIdentity}:${externalBinding.staticType ?? externalBinding.type}`
         ),
         memberSymbolId: externalBinding.providerMemberName
           ? memberSymbolIdFromStableId(
-              `${externalBinding.assembly}:${externalBinding.staticType ?? externalBinding.type}.${externalBinding.providerMemberName}`
+              `${externalBinding.ownerIdentity}:${externalBinding.staticType ?? externalBinding.type}.${externalBinding.providerMemberName}`
             )
           : undefined,
         originalName,

@@ -1,3 +1,9 @@
 {
-  "namespace": "nodejs.Http"
+  "schema": "tsonic.bindings",
+  "provider": {
+    "namespace": "nodejs.Http"
+  },
+  "targetSurface": {
+    "types": []
+  }
 }

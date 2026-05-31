@@ -1,17 +1,22 @@
 {
-  "namespace": "System",
-  "types": [
-    {
-      "targetName": "System.String",
-      "kind": "Class",
-      "methods": [
-        {
-          "targetName": "Trim",
-          "parameterCount": 0,
-          "canonicalSignature": "():System.String"
-        }
-      ],
-      "sourcePrimitive": "string"
-    }
-  ]
+  "schema": "tsonic.bindings",
+  "provider": {
+    "namespace": "System"
+  },
+  "targetSurface": {
+    "types": [
+      {
+        "targetName": "System.String",
+        "kind": "Class",
+        "methods": [
+          {
+            "targetName": "Trim",
+            "parameterCount": 0,
+            "canonicalSignature": "():System.String"
+          }
+        ],
+        "sourcePrimitive": "string"
+      }
+    ]
+  }
 }

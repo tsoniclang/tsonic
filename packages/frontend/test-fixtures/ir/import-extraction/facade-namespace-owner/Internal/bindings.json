@@ -1,3 +1,9 @@
 {
-  "namespace": "Internal"
+  "schema": "tsonic.bindings",
+  "provider": {
+    "namespace": "Internal"
+  },
+  "targetSurface": {
+    "types": []
+  }
 }

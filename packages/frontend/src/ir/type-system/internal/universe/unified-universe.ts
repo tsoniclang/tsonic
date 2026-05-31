@@ -958,13 +958,13 @@ export const buildUnifiedUniverse = (
         },
         resolveSourceOwnerIdentity
       );
-      const preserveAssemblyIdentity =
-        entry.preservesAssemblyIdentity === true &&
+      const preserveProviderIdentity =
+        entry.preservesProviderIdentity === true &&
         externalCatalog.tsNameToTypeId.has(entry.name);
 
       // Add to maps (source types won't collide with external types by stableId)
       entries.set(nominalEntry.typeId.stableId, nominalEntry);
-      if (!preserveAssemblyIdentity) {
+      if (!preserveProviderIdentity) {
         const sourcePriority = entry.isDeclarationFile ? 0 : 1;
 
         const existingTsPriority = sourceTsNamePriority.get(

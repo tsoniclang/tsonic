@@ -743,18 +743,10 @@ const resolveSourceBackedExportSourceTarget = (
         };
       }
 
-      const resolved = resolveImport(
+      const resolved = resolveImportForContext(
         statement.moduleSpecifier.text,
         sourceFile.fileName,
-        ctx.sourceRoot,
-        {
-          externalResolver: ctx.externalResolver,
-          bindings: ctx.bindings,
-          projectRoot: ctx.projectRoot,
-          surface: ctx.surface,
-          authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
-          declarationModuleAliases: ctx.declarationModuleAliases,
-        }
+        ctx
       );
       if (!resolved.ok || !resolved.value.resolvedPath) {
         return undefined;
@@ -894,6 +886,20 @@ const getSourceFileForPath = (
   );
 };
 
+const resolveImportForContext = (
+  importSpecifier: string,
+  containingFile: string,
+  ctx: ProgramContext
+) =>
+  resolveImport(importSpecifier, containingFile, ctx.sourceRoot, {
+    externalResolver: ctx.externalResolver,
+    bindings: ctx.bindings,
+    projectRoot: ctx.projectRoot,
+    surface: ctx.surface,
+    authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
+    declarationModuleAliases: ctx.declarationModuleAliases,
+  });
+
 const resolveSourceBackedIdentifierGlobalTarget = (
   node: ts.CallExpression,
   callee: Extract<IrCallExpression["callee"], { kind: "identifier" }>,
@@ -906,25 +912,17 @@ const resolveSourceBackedIdentifierGlobalTarget = (
   const binding = ctx.bindings.getExactBindingByKind(callee.name, "global");
   if (
     !binding ||
-    binding.assembly !== callee.providerOwnerIdentity ||
+    binding.ownerIdentity !== callee.providerOwnerIdentity ||
     !targetBindingTypesMatch(binding.type, callee.providerQualifiedName) ||
     !binding.sourceImport
   ) {
     return undefined;
   }
 
-  const resolved = resolveImport(
+  const resolved = resolveImportForContext(
     binding.sourceImport,
     node.getSourceFile().fileName,
-    ctx.sourceRoot,
-    {
-      externalResolver: ctx.externalResolver,
-      bindings: ctx.bindings,
-      projectRoot: ctx.projectRoot,
-      surface: ctx.surface,
-      authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
-      declarationModuleAliases: ctx.declarationModuleAliases,
-    }
+    ctx
   );
   if (!resolved.ok || !resolved.value.resolvedPath) {
     return undefined;
@@ -971,18 +969,10 @@ const resolveSourceBackedClassDeclarationByName = (
     return undefined;
   }
 
-  const resolved = resolveImport(
+  const resolved = resolveImportForContext(
     binding.sourceImport,
     ctx.sourceRoot,
-    ctx.sourceRoot,
-    {
-      externalResolver: ctx.externalResolver,
-      bindings: ctx.bindings,
-      projectRoot: ctx.projectRoot,
-      surface: ctx.surface,
-      authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
-      declarationModuleAliases: ctx.declarationModuleAliases,
-    }
+    ctx
   );
   if (!resolved.ok || !resolved.value.resolvedPath) {
     return undefined;
@@ -1363,18 +1353,10 @@ const resolveSourceBackedMemberAccessTarget = (
       continue;
     }
 
-    const resolved = resolveImport(
+    const resolved = resolveImportForContext(
       binding.sourceImport,
       node.getSourceFile().fileName,
-      ctx.sourceRoot,
-      {
-        externalResolver: ctx.externalResolver,
-        bindings: ctx.bindings,
-        projectRoot: ctx.projectRoot,
-        surface: ctx.surface,
-        authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
-        declarationModuleAliases: ctx.declarationModuleAliases,
-      }
+      ctx
     );
     if (!resolved.ok || !resolved.value.resolvedPath) {
       continue;
@@ -2732,7 +2714,7 @@ export const getSourceBackedCallParameterTypes = (
   }
 
   const overloads = ctx.bindings.getTargetMemberOverloads(
-    callee.memberBinding.assembly,
+    callee.memberBinding.ownerIdentity,
     callee.memberBinding.type,
     callee.memberBinding.member
   );
@@ -3032,7 +3014,7 @@ const getExplicitExtensionReceiverExpectedType = (
   }
 
   const overloads = ctx.bindings.getTargetMemberOverloads(
-    binding.assembly,
+    binding.ownerIdentity,
     binding.type,
     binding.member
   );

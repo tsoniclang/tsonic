@@ -322,7 +322,7 @@ export const extractArgumentPassingFromTargetMemberOverloads = (
   }
 
   const overloads = ctx.bindings.getTargetMemberOverloads(
-    callee.memberBinding.assembly,
+    callee.memberBinding.ownerIdentity,
     callee.memberBinding.type,
     callee.memberBinding.member
   );

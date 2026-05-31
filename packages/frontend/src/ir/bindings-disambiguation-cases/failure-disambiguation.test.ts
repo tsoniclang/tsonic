@@ -32,17 +32,14 @@ describe("CLR member binding disambiguation (failure)", () => {
     fs.writeFileSync(
       bindingsJsonPath,
       JSON.stringify(
-        {
-          namespace: "nodejs.Http",
-          types: [
+        { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
             {
               targetName: "nodejs.Http.NotServer",
               methods: [],
               properties: [],
               fields: [],
             },
-          ],
-        },
+          ] } },
         null,
         2
       ),
@@ -126,9 +123,7 @@ describe("CLR member binding disambiguation (failure)", () => {
     const checker = program.getTypeChecker();
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/nodejs-http.json", {
-      namespace: "nodejs.Http",
-      types: [
+    bindings.addBindings("/test/nodejs-http.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
         {
           targetName: "nodejs.Http.Server",
           ownerIdentity: "nodejs",
@@ -145,12 +140,9 @@ describe("CLR member binding disambiguation (failure)", () => {
           properties: [],
           fields: [],
         },
-      ],
-    });
+      ] } });
 
-    bindings.addBindings("/test/nodejs.json", {
-      namespace: "nodejs",
-      types: [
+    bindings.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: [
         {
           targetName: "nodejs.Server",
           ownerIdentity: "nodejs",
@@ -167,8 +159,7 @@ describe("CLR member binding disambiguation (failure)", () => {
           properties: [],
           fields: [],
         },
-      ],
-    });
+      ] } });
 
     const testProgram = {
       program,
@@ -215,17 +206,14 @@ describe("CLR member binding disambiguation (failure)", () => {
     fs.writeFileSync(
       bindingsJsonPath,
       JSON.stringify(
-        {
-          namespace: "nodejs.Http",
-          types: [
+        { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
             {
               targetName: "nodejs.Http.Server",
               methods: [],
               properties: [],
               fields: [],
             },
-          ],
-        },
+          ] } },
         null,
         2
       ),
@@ -310,9 +298,7 @@ describe("CLR member binding disambiguation (failure)", () => {
 
     const bindings = new BindingRegistry();
     // NOTE: Intentionally omit the `listen` member from bindings to simulate missing bindings.
-    bindings.addBindings("/test/nodejs-http.json", {
-      namespace: "nodejs.Http",
-      types: [
+    bindings.addBindings("/test/nodejs-http.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
         {
           targetName: "nodejs.Http.Server",
           ownerIdentity: "nodejs",
@@ -320,8 +306,7 @@ describe("CLR member binding disambiguation (failure)", () => {
           properties: [],
           fields: [],
         },
-      ],
-    });
+      ] } });
 
     const testProgram = {
       program,

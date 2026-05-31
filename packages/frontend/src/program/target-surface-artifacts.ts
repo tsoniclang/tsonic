@@ -11,7 +11,7 @@ import type { MemberBinding, TypeBinding } from "./binding-types.js";
 
 const typeOwnerIdentity = (type: TypeBinding): string => {
   for (const member of type.members) {
-    return member.binding.assembly;
+    return member.binding.ownerIdentity;
   }
 
   return "external-surface";
@@ -50,7 +50,7 @@ const addMemberBinding = (
 ): void => {
   const stableId =
     member.stableId ??
-    `${member.binding.assembly}:${member.binding.type}.${member.binding.member}`;
+    `${member.binding.ownerIdentity}:${member.binding.type}.${member.binding.member}`;
   const symbolId = memberSymbolIdFromStableId(stableId);
   registry.addMember(
     {
@@ -58,7 +58,7 @@ const addMemberBinding = (
       ownerTypeSymbolId,
       stableId,
       sourceName: member.alias,
-      ownerIdentity: member.binding.assembly,
+      ownerIdentity: member.binding.ownerIdentity,
       origin: "externalSurface",
     },
     {
@@ -66,7 +66,7 @@ const addMemberBinding = (
       ownerTypeSymbolId,
       ownerQualifiedName: member.binding.type,
       memberName: member.binding.member,
-      ownerIdentity: member.binding.assembly,
+      ownerIdentity: member.binding.ownerIdentity,
     }
   );
 };
@@ -77,7 +77,7 @@ export const createTargetSurfaceArtifactsFromBindings = (
   const registry = new TargetSymbolRegistry();
 
   for (const [, descriptor] of bindings.getAllBindings()) {
-    const ownerIdentity = descriptor.assembly;
+    const ownerIdentity = descriptor.ownerIdentity;
     const typeName = descriptor.staticType ?? descriptor.type;
     const typeSymbolId = typeSymbolFor(
       registry,

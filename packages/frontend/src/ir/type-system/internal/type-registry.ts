@@ -61,7 +61,7 @@ export type TypeRegistryEntry = {
   readonly fullyQualifiedName: string; // FQ name (e.g., "MyApp.Models.User")
   readonly ownerIdentity: string;
   readonly isDeclarationFile: boolean;
-  readonly preservesAssemblyIdentity?: boolean;
+  readonly preservesProviderIdentity?: boolean;
   readonly typeParameters: readonly TypeParameterEntry[]; // PURE IR
   readonly members: ReadonlyMap<string, MemberInfo>; // PURE IR
   readonly heritage: readonly HeritageInfo[]; // PURE IR

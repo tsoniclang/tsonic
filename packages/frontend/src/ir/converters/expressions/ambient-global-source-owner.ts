@@ -8,6 +8,20 @@ import { readSourcePackageMetadata } from "../../../program/source-package-metad
 const normalizeFilePath = (filePath: string): string =>
   filePath.replace(/\\/g, "/");
 
+const resolveImportForContext = (
+  importSpecifier: string,
+  containingFile: string,
+  ctx: ProgramContext
+) =>
+  resolveImport(importSpecifier, containingFile, ctx.sourceRoot, {
+    externalResolver: ctx.externalResolver,
+    bindings: ctx.bindings,
+    projectRoot: ctx.projectRoot,
+    surface: ctx.surface,
+    authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
+    declarationModuleAliases: ctx.declarationModuleAliases,
+  });
+
 const getAmbientDeclarationName = (
   declaration: ts.Declaration
 ): string | undefined => {
@@ -232,18 +246,10 @@ const resolveExportOwnerFromSourceFile = (
         return resolveTopLevelLocalOwner(sourceFile, targetName, ctx);
       }
 
-      const redirected = resolveImport(
+      const redirected = resolveImportForContext(
         statement.moduleSpecifier.text,
         sourceFile.fileName,
-        ctx.sourceRoot,
-        {
-          externalResolver: ctx.externalResolver,
-          bindings: ctx.bindings,
-          projectRoot: ctx.projectRoot,
-          surface: ctx.surface,
-          authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
-          declarationModuleAliases: ctx.declarationModuleAliases,
-        }
+        ctx
       );
       if (!redirected.ok || !redirected.value.resolvedPath) {
         return undefined;
@@ -327,18 +333,10 @@ export const resolveAmbientGlobalSourceOwner = (
       continue;
     }
 
-    const resolved = resolveImport(
+    const resolved = resolveImportForContext(
       target.specifier,
       declaration.getSourceFile().fileName,
-      ctx.sourceRoot,
-      {
-        externalResolver: ctx.externalResolver,
-        bindings: ctx.bindings,
-        projectRoot: ctx.projectRoot,
-        surface: ctx.surface,
-        authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
-        declarationModuleAliases: ctx.declarationModuleAliases,
-      }
+      ctx
     );
     if (!resolved.ok || !resolved.value.resolvedPath) {
       continue;

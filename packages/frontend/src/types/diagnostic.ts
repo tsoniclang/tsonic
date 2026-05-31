@@ -87,8 +87,8 @@ export type DiagnosticCode =
   | "TSN9003" // Invalid JSON in metadata file
   | "TSN9004" // Metadata file must be an object
   | "TSN9005" // Missing or invalid 'namespace' field
-  | "TSN9006" // Missing or invalid 'contributingAssemblies' field
-  | "TSN9007" // All 'contributingAssemblies' must be strings
+  | "TSN9006" // Missing or invalid 'contributingOwners' field
+  | "TSN9007" // All 'contributingOwners' must be strings
   | "TSN9008" // Missing or invalid 'types' field
   | "TSN9009" // Invalid type: must be an object
   | "TSN9010" // Invalid type: missing or invalid field
@@ -110,8 +110,8 @@ export type DiagnosticCode =
   | "TSN9107" // Invalid type binding: must be an object
   | "TSN9108" // Invalid type binding: missing or invalid field
   | "TSN9109" // Invalid type binding: 'metadataToken' must be a number
-  | "TSN9110" // Invalid type binding: V1 field must be an array if present
-  | "TSN9111" // Invalid type binding: V2 field must be an array if present
+  | "TSN9110" // Invalid type binding: member field must be an array if present
+  | "TSN9111" // Invalid type binding: heritage field must be an array if present
   | "TSN9112" // Bindings directory not found
   | "TSN9113" // Not a directory
   | "TSN9114" // No bindings.json files found

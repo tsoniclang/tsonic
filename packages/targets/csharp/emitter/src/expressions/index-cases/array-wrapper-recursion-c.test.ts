@@ -67,7 +67,7 @@ describe("Expression Emission", () => {
       inferredType: { kind: "primitiveType", name: "int" },
       memberBinding: {
         kind: "property",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Array`1",
         member: "length",
       },
@@ -146,7 +146,7 @@ describe("Expression Emission", () => {
       inferredType: { kind: "primitiveType", name: "int" },
       memberBinding: {
         kind: "property",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Array`1",
         member: "length",
       },
@@ -219,7 +219,7 @@ describe("Expression Emission", () => {
       inferredType: { kind: "primitiveType", name: "int" },
       memberBinding: {
         kind: "property",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Array`1",
         member: "length",
       },

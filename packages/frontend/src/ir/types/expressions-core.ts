@@ -214,7 +214,7 @@ export type IrMemberExpression = {
   // the provider binding info.
   readonly memberBinding?: {
     readonly kind: "method" | "property";
-    readonly assembly: string;
+    readonly ownerIdentity: string;
     readonly type: string;
     readonly member: string;
     // Parameter modifiers for ref/out/in parameters

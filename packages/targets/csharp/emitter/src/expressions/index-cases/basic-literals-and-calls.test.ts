@@ -171,7 +171,7 @@ describe("Expression Emission", () => {
       bindingRegistry: createExactGlobalBindingRegistry({
         String: {
           kind: "global",
-          assembly: "js",
+          ownerIdentity: "js",
           type: "js.Globals.String",
         },
       }),
@@ -225,7 +225,7 @@ describe("Expression Emission", () => {
       bindingRegistry: createExactGlobalBindingRegistry({
         String: {
           kind: "global",
-          assembly: "js",
+          ownerIdentity: "js",
           type: "js.Globals.String",
         },
       }),
@@ -681,7 +681,7 @@ describe("Expression Emission", () => {
               },
               memberBinding: {
                 kind: "method",
-                assembly: "System.Text.RegularExpressions",
+                ownerIdentity: "System.Text.RegularExpressions",
                 type: "System.Text.RegularExpressions.Regex",
                 member: "test",
               },

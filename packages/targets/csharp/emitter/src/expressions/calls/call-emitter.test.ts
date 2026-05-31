@@ -210,7 +210,7 @@ describe("call-emitter", () => {
                 name: "setImmediate",
                 alias: "setImmediate",
                 binding: {
-                  assembly: "nodejs",
+                  ownerIdentity: "nodejs",
                   type: "global::nodejs.TimersPromises",
                   member: "setImmediate",
                 },
@@ -296,7 +296,7 @@ describe("call-emitter", () => {
         },
         memberBinding: {
           kind: "method" as const,
-          assembly: "js",
+          ownerIdentity: "js",
           type: "js.String",
           member: "toString",
           isExtensionMethod: true,
@@ -351,7 +351,7 @@ describe("call-emitter", () => {
         },
         memberBinding: {
           kind: "method" as const,
-          assembly: "js",
+          ownerIdentity: "js",
           type: "js.Number",
           member: "toString",
           isExtensionMethod: true,
@@ -405,7 +405,7 @@ describe("call-emitter", () => {
         },
         memberBinding: {
           kind: "property" as const,
-          assembly: "System.Memory",
+          ownerIdentity: "System.Memory",
           type: "System.Buffers.ArrayPool`1",
           member: "Shared",
           emitSemantics: {

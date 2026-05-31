@@ -145,25 +145,21 @@ describe("End-to-End Integration", () => {
             "export {};",
           ].join("\n"),
           "node_modules/@fixture/js/bindings.json": JSON.stringify(
-            {
-              bindings: {
+            { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
                 setInterval: {
                   kind: "global",
-                  assembly: "Acme.ExternalRuntime",
+                  ownerIdentity: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
                   providerMemberName: "Timers.setInterval",
                 },
-              },
-            },
+              } }, targetSurface: { types: [] } },
             null,
             2
           ),
           "node_modules/@fixture/js/Acme.ExternalRuntime.d.ts": "export {};\n",
           "node_modules/@fixture/js/Acme.ExternalRuntime/bindings.json":
             JSON.stringify(
-              {
-                namespace: "Acme.ExternalRuntime",
-                types: [
+              { schema: "tsonic.bindings", provider: { namespace: "Acme.ExternalRuntime" }, targetSurface: { types: [
                   {
                     targetName: "Acme.ExternalRuntime.Timers",
                     ownerIdentity: "Acme.ExternalRuntime",
@@ -283,8 +279,7 @@ describe("End-to-End Integration", () => {
                     properties: [],
                     fields: [],
                   },
-                ],
-              },
+                ] } },
               null,
               2
             ),

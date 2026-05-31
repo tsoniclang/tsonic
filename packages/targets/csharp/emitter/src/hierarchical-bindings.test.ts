@@ -27,9 +27,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
 
     // Create hierarchical binding manifest
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/system-linq.json", {
-      assembly: "System.Linq",
-      namespaces: [
+    bindings.addBindings("/test/system-linq.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
         {
           name: "System.Linq",
           alias: "systemLinq",
@@ -44,7 +42,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
                   name: "SelectMany",
                   alias: "selectMany",
                   binding: {
-                    assembly: "System.Linq",
+                    ownerIdentity: "System.Linq",
                     type: "System.Linq.Enumerable",
                     member: "SelectMany",
                   },
@@ -53,8 +51,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
             },
           ],
         },
-      ],
-    });
+      ] }, targetSurface: { types: [] } });
 
     // Create TypeScript program
     const fileName = "/test/sample.ts";
@@ -159,9 +156,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     `;
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/mylib.json", {
-      assembly: "MyLib",
-      namespaces: [
+    bindings.addBindings("/test/mylib.json", { schema: "tsonic.bindings", provider: { namespace: "MyLib", ownerIdentities: ["MyLib"] }, sourceSurface: { namespaces: [
         {
           name: "MyLib",
           alias: "myLib",
@@ -176,7 +171,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
                   name: "MethodA",
                   alias: "methodA",
                   binding: {
-                    assembly: "MyLib",
+                    ownerIdentity: "MyLib",
                     type: "MyLib.TypeA",
                     member: "MethodA",
                   },
@@ -193,7 +188,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
                   name: "MethodB",
                   alias: "methodB",
                   binding: {
-                    assembly: "MyLib",
+                    ownerIdentity: "MyLib",
                     type: "MyLib.TypeB",
                     member: "MethodB",
                   },
@@ -202,8 +197,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
             },
           ],
         },
-      ],
-    });
+      ] }, targetSurface: { types: [] } });
 
     const fileName = "/test/multi.ts";
     const sourceFile = ts.createSourceFile(

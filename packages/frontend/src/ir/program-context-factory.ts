@@ -37,10 +37,10 @@ import {
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 
 const withSimpleTypeAliases = (
-  assemblyCatalog: ExternalTypeCatalog,
+  externalCatalog: ExternalTypeCatalog,
   bindings: BindingRegistry
 ): ExternalTypeCatalog => {
-  const tsNameToTypeId = new Map(assemblyCatalog.tsNameToTypeId);
+  const tsNameToTypeId = new Map(externalCatalog.tsNameToTypeId);
 
   for (const [alias, descriptor] of bindings.getAllBindings()) {
     if (!simpleBindingContributesTypeIdentity(descriptor)) {
@@ -48,16 +48,16 @@ const withSimpleTypeAliases = (
     }
     if (tsNameToTypeId.has(alias)) continue;
 
-    const typeId = assemblyCatalog.providerNameToTypeId.get(descriptor.type);
+    const typeId = externalCatalog.providerNameToTypeId.get(descriptor.type);
     if (!typeId) continue;
     tsNameToTypeId.set(alias, typeId);
   }
 
   return {
-    entries: assemblyCatalog.entries,
+    entries: externalCatalog.entries,
     tsNameToTypeId,
-    providerNameToTypeId: assemblyCatalog.providerNameToTypeId,
-    namespaceToTypeIds: assemblyCatalog.namespaceToTypeIds,
+    providerNameToTypeId: externalCatalog.providerNameToTypeId,
+    namespaceToTypeIds: externalCatalog.namespaceToTypeIds,
   };
 };
 
@@ -206,19 +206,19 @@ export const createProgramContext = (
     const pkgRoot = resolvePackageRootFromBindingsPath(bindingsPath);
     if (pkgRoot) extraPackageRoots.push(pkgRoot);
   }
-  const assemblyCatalog = withSimpleTypeAliases(
+  const externalCatalog = withSimpleTypeAliases(
     loadExternalCatalog(nodeModulesPath, [
       ...(program.options.typeRoots ?? []),
       ...extraPackageRoots,
     ]),
     program.bindings
   );
-  const aliasTable = buildAliasTable(assemblyCatalog);
+  const aliasTable = buildAliasTable(externalCatalog);
 
-  // Build unified catalog merging source and assembly types
+  // Build unified catalog merging source and external types
   const unifiedCatalog = buildUnifiedUniverse(
     typeRegistry,
-    assemblyCatalog,
+    externalCatalog,
     program.options.rootNamespace
   );
   // Build NominalEnv from UnifiedTypeCatalog with TypeId-based lookup.

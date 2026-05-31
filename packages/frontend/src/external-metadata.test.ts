@@ -26,9 +26,7 @@ describe("ExternalMetadataRegistry", () => {
       name: "string" as const,
     };
 
-    registry.loadBindingsFile("fake", {
-      namespace: "Test",
-      types: [
+    registry.loadBindingsFile("fake", { schema: "tsonic.bindings", provider: { namespace: "Test" }, targetSurface: { types: [
         {
           targetName: "Test.Base",
           kind: "Class",
@@ -58,8 +56,7 @@ describe("ExternalMetadataRegistry", () => {
           ],
           properties: [],
         },
-      ],
-    });
+      ] } });
 
     expect(registry.getMethodOverloadCount("Test.Base", "Write", 1)).to.equal(
       2
@@ -86,9 +83,7 @@ describe("ExternalMetadataRegistry", () => {
     const registry = new ExternalMetadataRegistry();
     const intType = { kind: "primitiveType" as const, name: "int" as const };
 
-    registry.loadBindingsFile("fake", {
-      namespace: "Test",
-      types: [
+    registry.loadBindingsFile("fake", { schema: "tsonic.bindings", provider: { namespace: "Test" }, targetSurface: { types: [
         {
           targetName: "Test.Base",
           kind: "Class",
@@ -120,8 +115,7 @@ describe("ExternalMetadataRegistry", () => {
           ],
           properties: [],
         },
-      ],
-    });
+      ] } });
 
     expect(registry.getMethodOverloadCount("Test.Base", "TryGet", 1)).to.equal(
       2
@@ -147,9 +141,7 @@ describe("ExternalMetadataRegistry", () => {
   it("resolves members through the base type chain (override/shadow detection)", () => {
     const registry = new ExternalMetadataRegistry();
 
-    registry.loadBindingsFile("fake", {
-      namespace: "Test",
-      types: [
+    registry.loadBindingsFile("fake", { schema: "tsonic.bindings", provider: { namespace: "Test" }, targetSurface: { types: [
         {
           targetName: "Test.Base",
           kind: "Class",
@@ -182,8 +174,7 @@ describe("ExternalMetadataRegistry", () => {
           methods: [],
           properties: [],
         },
-      ],
-    });
+      ] } });
 
     const disposeMeta = registry.getMethodMetadata(
       "Test.Derived",
@@ -200,9 +191,7 @@ describe("ExternalMetadataRegistry", () => {
   it("matches canonical target signatures against reference types with local ids", () => {
     const registry = new ExternalMetadataRegistry();
 
-    registry.loadBindingsFile("fake", {
-      namespace: "Provider",
-      types: [
+    registry.loadBindingsFile("fake", { schema: "tsonic.bindings", provider: { namespace: "Provider" }, targetSurface: { types: [
         {
           targetName: "Provider.Base",
           kind: "Class",
@@ -218,8 +207,7 @@ describe("ExternalMetadataRegistry", () => {
           ],
           properties: [],
         },
-      ],
-    });
+      ] } });
 
     const builderType: IrType = {
       kind: "referenceType",

@@ -8,7 +8,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
-import { extractRawExternalOwnerIdentity } from "../program/external-binding-payload.js";
+import {
+  extractRawExternalBindingsPayload,
+  extractRawExternalOwnerIdentity,
+} from "../program/external-binding-payload.js";
 
 /**
  * Resolve package root directory using Node resolution.
@@ -100,16 +103,11 @@ export const extractNamespace = (
   try {
     const content = readFileSync(bindingsPath, "utf-8");
     const parsed = JSON.parse(content) as unknown;
+    const payload = extractRawExternalBindingsPayload(parsed);
 
-    if (
-      parsed !== null &&
-      typeof parsed === "object" &&
-      "namespace" in parsed &&
-      typeof (parsed as Record<string, unknown>).namespace === "string"
-    ) {
-      const namespace = (parsed as Record<string, unknown>).namespace as string;
-      namespaceCache.set(bindingsPath, namespace);
-      return namespace;
+    if (payload) {
+      namespaceCache.set(bindingsPath, payload.namespace);
+      return payload.namespace;
     }
 
     namespaceCache.set(bindingsPath, null);

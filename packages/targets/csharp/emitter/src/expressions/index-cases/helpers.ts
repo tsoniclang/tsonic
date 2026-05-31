@@ -21,7 +21,12 @@ export const createExactGlobalBindingRegistry = (
   bindings: Readonly<Record<string, SimpleBindingDescriptor>>
 ): BindingRegistry => {
   const registry = new BindingRegistry();
-  registry.addBindings("__test__/bindings.json", { bindings });
+  registry.addBindings("__test__/bindings.json", {
+    schema: "tsonic.bindings",
+    provider: { namespace: "sourceSurface" },
+    sourceSurface: { bindings },
+    targetSurface: { types: [] },
+  });
   return registry;
 };
 
@@ -31,12 +36,12 @@ export const createJsSurfaceBindingRegistry = (
   createExactGlobalBindingRegistry({
     Array: {
       kind: "global",
-      assembly: "js",
+      ownerIdentity: "js",
       type: "js.Array",
     },
     JSON: {
       kind: "global",
-      assembly: "js",
+      ownerIdentity: "js",
       type: "js.JSON",
     },
     ...overrides,

@@ -43,7 +43,7 @@ describe("Expression Emission", () => {
                   isOptional: false,
                   memberBinding: {
                     kind: "method",
-                    assembly: "MyLib",
+                    ownerIdentity: "MyLib",
                     type: "MyLib.Math",
                     member: "Add",
                   },
@@ -124,7 +124,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "System.Private.CoreLib",
+              ownerIdentity: "System.Private.CoreLib",
               type: "System.String",
               member: "Length",
             },
@@ -162,7 +162,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "method",
-              assembly: "js",
+              ownerIdentity: "js",
               type: "js.console",
               member: "log",
             },
@@ -204,7 +204,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "System.Private.CoreLib",
+              ownerIdentity: "System.Private.CoreLib",
               type: "System.Environment+SpecialFolder",
               member: "UserProfile",
             },
@@ -248,7 +248,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "Acme.Core",
+              ownerIdentity: "Acme.Core",
               type: "Acme.Core.Entity",
               member: "Maybe",
             },
@@ -286,7 +286,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "method",
-              assembly: "js",
+              ownerIdentity: "js",
               type: "js.String",
               member: "length",
               isExtensionMethod: true,
@@ -330,7 +330,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Array",
                 member: "map",
               },
@@ -384,7 +384,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Array",
                 member: "filter",
               },
@@ -436,7 +436,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.String",
                 member: "split",
                 isExtensionMethod: true,

@@ -45,7 +45,7 @@ describe("access-length", () => {
       inferredType: { kind: "primitiveType" as const, name: "number" as const },
       memberBinding: {
         kind: "property" as const,
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Array",
         member: "length",
       },

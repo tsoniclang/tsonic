@@ -313,7 +313,7 @@ const emitStaticNumericGlobalNumberCall = (
   );
   if (
     !numberBinding ||
-    numberBinding.assembly !== "js" ||
+    numberBinding.ownerIdentity !== "js" ||
     numberBinding.type !== "js.Globals.Number"
   ) {
     return undefined;
@@ -993,7 +993,7 @@ const emitSyntheticArraySliceCall = (
 
   const binding = expr.callee.memberBinding;
   if (
-    binding?.assembly !== "__synthetic" ||
+    binding?.ownerIdentity !== "__synthetic" ||
     binding.type !== "Array" ||
     binding.member !== "slice" ||
     expr.arguments.length !== 1

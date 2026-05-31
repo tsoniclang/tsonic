@@ -91,18 +91,14 @@ describe("IR Builder", function () {
       };
 
       // Provide a minimal tsbindgen bindings.json excerpt with exports.
-      ctx.bindings.addBindings("/x/bindings.json", {
-        namespace: "Demo",
-        types: [],
-        exports: {
+      ctx.bindings.addBindings("/x/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Demo" }, targetSurface: { types: [], exports: {
           buildSite: {
             kind: "method",
             targetName: "buildSite",
             ownerQualifiedName: "Demo.BuildSite",
             ownerIdentity: "Demo",
           },
-        },
-      });
+        } } });
 
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
@@ -153,9 +149,7 @@ describe("IR Builder", function () {
             : { kind: "notExternalSurface" },
       };
 
-      ctx.bindings.addBindings("/x/tasks.bindings.json", {
-        namespace: "Async.Tasks",
-        types: [
+      ctx.bindings.addBindings("/x/tasks.bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Async.Tasks" }, targetSurface: { types: [
           {
             alias: "Task",
             targetName: "Async.Tasks.Task",
@@ -165,9 +159,7 @@ describe("IR Builder", function () {
             properties: [],
             fields: [],
           },
-        ],
-        exports: {},
-      });
+        ], exports: {} } });
 
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
@@ -222,9 +214,7 @@ describe("IR Builder", function () {
             : { kind: "notExternalSurface" },
       };
 
-      ctx.bindings.addBindings(publicBindingsPath, {
-        namespace: "Public",
-        types: [
+      ctx.bindings.addBindings(publicBindingsPath, { schema: "tsonic.bindings", provider: { namespace: "Public" }, targetSurface: { types: [
           {
             alias: "Widget",
             targetName: "Public.Widget",
@@ -234,11 +224,8 @@ describe("IR Builder", function () {
             properties: [],
             fields: [],
           },
-        ],
-      });
-      ctx.bindings.addBindings(internalBindingsPath, {
-        namespace: "Internal",
-        types: [
+        ] } });
+      ctx.bindings.addBindings(internalBindingsPath, { schema: "tsonic.bindings", provider: { namespace: "Internal" }, targetSurface: { types: [
           {
             alias: "Widget",
             targetName: "Internal.Widget",
@@ -248,8 +235,7 @@ describe("IR Builder", function () {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const bindingApi = ctx.binding as unknown as {
         resolveImport: (node: ts.ImportSpecifier) => number | undefined;
@@ -320,9 +306,7 @@ describe("IR Builder", function () {
         tempDir,
         "node_modules/@tsonic/dotnet/System/bindings.json"
       );
-      ctx.bindings.addBindings(systemBindingsPath, {
-        namespace: "System",
-        types: [
+      ctx.bindings.addBindings(systemBindingsPath, { schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
           {
             alias: "Console",
             targetName: "System.Console",
@@ -341,8 +325,7 @@ describe("IR Builder", function () {
             properties: [],
             fields: [],
           },
-        ],
-      } as BindingFile);
+        ] } } as BindingFile);
 
       try {
         const result = buildIrModule(sourceFile, testProgram, options, ctx);
@@ -404,10 +387,7 @@ describe("IR Builder", function () {
       };
 
       // Provide a minimal tsbindgen bindings.json excerpt WITHOUT exports.
-      ctx.bindings.addBindings("/x/bindings.json", {
-        namespace: "Demo",
-        types: [],
-      });
+      ctx.bindings.addBindings("/x/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Demo" }, targetSurface: { types: [] } });
 
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
@@ -439,23 +419,19 @@ describe("IR Builder", function () {
       ).externalResolver = {
         resolve: () => ({ kind: "notExternalSurface" }),
       };
-      ctx.bindings.addBindings("/x/node-modules.json", {
-        bindings: {
+      ctx.bindings.addBindings("/x/node-modules.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           "node:path": {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.path",
           },
           path: {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.path",
           },
-        },
-      });
-      ctx.bindings.addBindings("/x/node-types.json", {
-        namespace: "nodejs",
-        types: [
+        } }, targetSurface: { types: [] } });
+      ctx.bindings.addBindings("/x/node-types.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: [
           {
             targetName: "nodejs.path",
             ownerIdentity: "nodejs",
@@ -463,8 +439,7 @@ describe("IR Builder", function () {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
@@ -505,23 +480,19 @@ describe("IR Builder", function () {
       ).externalResolver = {
         resolve: () => ({ kind: "notExternalSurface" }),
       };
-      ctx.bindings.addBindings("/x/node-modules.json", {
-        bindings: {
+      ctx.bindings.addBindings("/x/node-modules.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           "node:http": {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.Http.http",
           },
           http: {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.Http.http",
           },
-        },
-      });
-      ctx.bindings.addBindings("/x/node-types.json", {
-        namespace: "nodejs.Http",
-        types: [
+        } }, targetSurface: { types: [] } });
+      ctx.bindings.addBindings("/x/node-types.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
           {
             targetName: "nodejs.Http.http",
             ownerIdentity: "nodejs",
@@ -529,8 +500,7 @@ describe("IR Builder", function () {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
@@ -571,19 +541,15 @@ describe("IR Builder", function () {
       ).externalResolver = {
         resolve: () => ({ kind: "notExternalSurface" }),
       };
-      ctx.bindings.addBindings("/x/node-modules.json", {
-        bindings: {
+      ctx.bindings.addBindings("/x/node-modules.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           "@tsonic/nodejs/buffer.js": {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.buffer",
             sourceImport: "@tsonic/nodejs/buffer.js",
           },
-        },
-      });
-      ctx.bindings.addBindings("/x/unrelated-types.json", {
-        namespace: "System",
-        types: [
+        } }, targetSurface: { types: [] } });
+      ctx.bindings.addBindings("/x/unrelated-types.json", { schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
           {
             targetName: "System.Buffer",
             ownerIdentity: "System.Runtime",
@@ -591,8 +557,7 @@ describe("IR Builder", function () {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
@@ -699,15 +664,13 @@ describe("IR Builder", function () {
         surface: "@tsonic/js" as const,
       };
 
-      ctx.bindings.addBindings("/x/node-modules.json", {
-        bindings: {
+      ctx.bindings.addBindings("/x/node-modules.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           "node:http": {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.Http.http",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const fixture = materializeImportExtractionFixture(
         "module-bound-type-clauses"

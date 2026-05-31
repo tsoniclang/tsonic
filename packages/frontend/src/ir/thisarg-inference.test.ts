@@ -59,8 +59,8 @@ describe("thisarg<T> typing", () => {
       program,
       checker,
       options: {
-        projectRoot: process.cwd(),
-        sourceRoot: process.cwd(),
+        projectRoot: "/test",
+        sourceRoot: "/test",
         rootNamespace: "TestApp",
         strict: true,
       },

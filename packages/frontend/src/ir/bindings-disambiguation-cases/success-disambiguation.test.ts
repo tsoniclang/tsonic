@@ -110,18 +110,14 @@ describe("CLR member binding disambiguation (success)", () => {
     const checker = program.getTypeChecker();
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/js-simple.json", {
-      bindings: {
+    bindings.addBindings("/test/js-simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
         console: {
           kind: "global",
-          assembly: "Acme.Js",
+          ownerIdentity: "Acme.Js",
           type: "Acme.Js.console",
         },
-      },
-    });
-    bindings.addBindings("/test/js.json", {
-      namespace: "Acme.Js",
-      types: [
+      } }, targetSurface: { types: [] } });
+    bindings.addBindings("/test/js.json", { schema: "tsonic.bindings", provider: { namespace: "Acme.Js" }, targetSurface: { types: [
         {
           targetName: "Acme.Js.console",
           ownerIdentity: "Acme.Js",
@@ -138,12 +134,9 @@ describe("CLR member binding disambiguation (success)", () => {
           properties: [],
           fields: [],
         },
-      ],
-    });
+      ] } });
 
-    bindings.addBindings("/test/nodejs.json", {
-      namespace: "nodejs",
-      types: [
+    bindings.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: [
         {
           targetName: "nodejs.console",
           ownerIdentity: "nodejs",
@@ -160,8 +153,7 @@ describe("CLR member binding disambiguation (success)", () => {
           properties: [],
           fields: [],
         },
-      ],
-    });
+      ] } });
 
     const testProgram = {
       program,
@@ -234,17 +226,14 @@ describe("CLR member binding disambiguation (success)", () => {
     fs.writeFileSync(
       bindingsJsonPath,
       JSON.stringify(
-        {
-          namespace: "nodejs.Http",
-          types: [
+        { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
             {
               targetName: "nodejs.Http.Server",
               methods: [],
               properties: [],
               fields: [],
             },
-          ],
-        },
+          ] } },
         null,
         2
       ),
@@ -328,9 +317,7 @@ describe("CLR member binding disambiguation (success)", () => {
     const checker = program.getTypeChecker();
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/nodejs-http.json", {
-      namespace: "nodejs.Http",
-      types: [
+    bindings.addBindings("/test/nodejs-http.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
         {
           targetName: "nodejs.Http.Server",
           ownerIdentity: "nodejs",
@@ -347,15 +334,12 @@ describe("CLR member binding disambiguation (success)", () => {
           properties: [],
           fields: [],
         },
-      ],
-    });
+      ] } });
 
     // Collision: another namespace also exports a `Server.listen`, but the CLR member
     // targets differ. Tsonic must select the correct one using the declaration source
     // file's nearest bindings.json.
-    bindings.addBindings("/test/nodejs.json", {
-      namespace: "nodejs",
-      types: [
+    bindings.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: [
         {
           targetName: "nodejs.Server",
           ownerIdentity: "nodejs",
@@ -372,8 +356,7 @@ describe("CLR member binding disambiguation (success)", () => {
           properties: [],
           fields: [],
         },
-      ],
-    });
+      ] } });
 
     const testProgram = {
       program,

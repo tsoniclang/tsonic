@@ -65,6 +65,20 @@ const getSourceFileForPath = (
 const targetBindingTypesMatch = (left: string, right: string): boolean =>
   externalSurfaceTypesMatch(left, right);
 
+const resolveImportForContext = (
+  importSpecifier: string,
+  containingFile: string,
+  ctx: ProgramContext
+) =>
+  resolveImport(importSpecifier, containingFile, ctx.sourceRoot, {
+    externalResolver: ctx.externalResolver,
+    bindings: ctx.bindings,
+    projectRoot: ctx.projectRoot,
+    surface: ctx.surface,
+    authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
+    declarationModuleAliases: ctx.declarationModuleAliases,
+  });
+
 const resolveReferencedClassDeclaration = (
   expression: ts.Expression,
   ctx: ProgramContext
@@ -228,18 +242,10 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
         continue;
       }
 
-      const resolved = resolveImport(
+      const resolved = resolveImportForContext(
         target.specifier,
         declaration.getSourceFile().fileName,
-        ctx.sourceRoot,
-        {
-          externalResolver: ctx.externalResolver,
-          bindings: ctx.bindings,
-          projectRoot: ctx.projectRoot,
-          surface: ctx.surface,
-          authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
-          declarationModuleAliases: ctx.declarationModuleAliases,
-        }
+        ctx
       );
       if (!resolved.ok || !resolved.value.resolvedPath) {
         continue;
@@ -270,25 +276,17 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
   const binding = ctx.bindings.getExactBindingByKind(callee.name, "global");
   if (
     !binding ||
-    binding.assembly !== callee.providerOwnerIdentity ||
+    binding.ownerIdentity !== callee.providerOwnerIdentity ||
     !targetBindingTypesMatch(binding.type, callee.providerQualifiedName) ||
     !binding.sourceImport
   ) {
     return undefined;
   }
 
-  const resolved = resolveImport(
+  const resolved = resolveImportForContext(
     binding.sourceImport,
     sourceNode.getSourceFile().fileName,
-    ctx.sourceRoot,
-    {
-      externalResolver: ctx.externalResolver,
-      bindings: ctx.bindings,
-      projectRoot: ctx.projectRoot,
-      surface: ctx.surface,
-      authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
-      declarationModuleAliases: ctx.declarationModuleAliases,
-    }
+    ctx
   );
   if (!resolved.ok || !resolved.value.resolvedPath) {
     return undefined;

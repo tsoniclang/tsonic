@@ -28,7 +28,7 @@ import { makeTypeId } from "./types.js";
 import { extractRawExternalBindingsPayload } from "../../../../program/external-binding-payload.js";
 import {
   convertRawType,
-  enrichAssemblyEntriesFromTsBindgenDts,
+  enrichExternalEntriesFromTsBindgenDts,
 } from "./external-entry-converter.js";
 
 const isSourcePackageRoot = (packagePath: string): boolean => {
@@ -70,7 +70,7 @@ export type { TsBindgenDtsTypeInfo } from "./external-entry-converter.js";
 
 export {
   extractHeritageFromTsBindgenDts,
-  enrichAssemblyEntriesFromTsBindgenDts,
+  enrichExternalEntriesFromTsBindgenDts,
   parsePropertyType,
   parseFieldType,
   parseMethodSignature,
@@ -431,7 +431,7 @@ export const loadExternalCatalog = (
   // Enrich external catalog with heritage edges and type parameter names by parsing
   // tsbindgen internal `index.d.ts` files. This is required for deterministic
   // generic inference through inheritance (e.g., Collection<T> → Iterable<T>).
-  enrichAssemblyEntriesFromTsBindgenDts(
+  enrichExternalEntriesFromTsBindgenDts(
     entries,
     tsNameToTypeId,
     Array.from(dtsFiles).sort()
@@ -474,7 +474,7 @@ export const loadSinglePackageBindings = (
     | undefined;
   if (!bindings) {
     throw new Error(
-      `Expected external bindings with 'namespace' and either 'types' or 'targetSurface.types' at ${bindingsPath}`
+      `Expected canonical external bindings with 'provider.namespace' and 'targetSurface.types' at ${bindingsPath}`
     );
   }
 
@@ -491,7 +491,7 @@ export const loadSinglePackageBindings = (
   }
 
   if (fs.existsSync(dtsPath)) {
-    enrichAssemblyEntriesFromTsBindgenDts(entries, tsNameToTypeId, [dtsPath]);
+    enrichExternalEntriesFromTsBindgenDts(entries, tsNameToTypeId, [dtsPath]);
   }
 
   return {

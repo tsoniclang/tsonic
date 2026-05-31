@@ -458,14 +458,7 @@ export const buildModuleDependencyGraph = <
       declarationGlobalImport.targetSpecifier,
       declarationGlobalImport.declarationFile,
       sourceRootAbs,
-      {
-        bindings: undefined,
-        projectRoot: options.projectRoot,
-        surface: options.surface,
-        backendTargetId: activeTargetId,
-        authoritativeTsonicPackageRoots: authoritativeSourcePackageRoots,
-        declarationModuleAliases,
-      }
+      { bindings: undefined }
     );
     if (!resolvedGlobalImport.ok) {
       diagnostics.push(resolvedGlobalImport.error);

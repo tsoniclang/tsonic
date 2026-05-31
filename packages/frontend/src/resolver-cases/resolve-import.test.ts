@@ -37,7 +37,7 @@ describe("Module Resolver", () => {
             `node:${moduleName}`,
             {
               kind: "module" as const,
-              assembly: "nodejs",
+              ownerIdentity: "nodejs",
               type: `nodejs.${moduleName}`,
             },
           ],
@@ -45,25 +45,20 @@ describe("Module Resolver", () => {
             moduleName,
             {
               kind: "module" as const,
-              assembly: "nodejs",
+              ownerIdentity: "nodejs",
               type: `nodejs.${moduleName}`,
             },
           ],
         ])
       );
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: moduleBindings,
-      });
-      bindings.addBindings("/test/nodejs-types.json", {
-        namespace: "nodejs",
-        types: moduleNames.map((moduleName) => ({
+      bindings.addBindings("/test/nodejs-bindings.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: moduleBindings }, targetSurface: { types: [] } });
+      bindings.addBindings("/test/nodejs-types.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: moduleNames.map((moduleName) => ({
           targetName: `nodejs.${moduleName}`,
           ownerIdentity: "nodejs",
           methods: [],
           properties: [],
           fields: [],
-        })),
-      });
+        })) } });
       return bindings;
     };
 
@@ -659,24 +654,20 @@ describe("Module Resolver", () => {
 
     it("should resolve module imports even when a global binding shares the same alias", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js.json", {
-        bindings: {
+      bindings.addBindings("/test/js.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
-      bindings.addBindings("/test/nodejs.json", {
-        bindings: {
+        } }, targetSurface: { types: [] } });
+      bindings.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const result = resolveImport(
         "console",
@@ -697,9 +688,7 @@ describe("Module Resolver", () => {
         "node:fs",
         path.join(tempDir, "src", "index.ts"),
         sourceRoot,
-        {
-          bindings: new BindingRegistry(),
-        }
+        { bindings: new BindingRegistry() }
       );
 
       expect(result.ok).to.equal(false);

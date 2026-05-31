@@ -14,23 +14,19 @@ describe("Binding Resolution in IR", () => {
   describe("JS Array member binding resolution", () => {
     const createJsArrayBindings = (): BindingRegistry => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js-root.json", {
-        bindings: {
+      bindings.addBindings("/test/js-root.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Array: {
             kind: "global",
-            assembly: "Acme.Runtime",
+            ownerIdentity: "Acme.Runtime",
             type: "Acme.Runtime.Array`1",
             staticType: "Acme.Runtime.ArrayStatics",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
-      bindings.addBindings("/test/acme-array/bindings.json", {
-        namespace: "Acme.Runtime",
-        types: [
+      bindings.addBindings("/test/acme-array/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Acme.Runtime" }, targetSurface: { types: [
           {
             targetName: "Acme.Runtime.Array`1",
             ownerIdentity: "Acme.Runtime",
@@ -71,8 +67,7 @@ describe("Binding Resolution in IR", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       return bindings;
     };

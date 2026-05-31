@@ -232,7 +232,7 @@ describe("Array Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Array",
                 member: "push",
                 isExtensionMethod: false,
@@ -288,7 +288,7 @@ describe("Array Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Array",
                 member: "push",
                 isExtensionMethod: false,
@@ -400,7 +400,7 @@ describe("Array Emission", () => {
                     isOptional: false,
                     memberBinding: {
                       kind: "method",
-                      assembly: "js",
+                      ownerIdentity: "js",
                       type: "js.Array",
                       member: "push",
                       isExtensionMethod: true,
@@ -486,7 +486,7 @@ describe("Array Emission", () => {
                           isOptional: false,
                           memberBinding: {
                             kind: "method",
-                            assembly: "js",
+                            ownerIdentity: "js",
                             type: "js.Array",
                             member: "includes",
                             isExtensionMethod: true,
@@ -528,7 +528,7 @@ describe("Array Emission", () => {
                               isOptional: false,
                               memberBinding: {
                                 kind: "method",
-                                assembly: "js",
+                                ownerIdentity: "js",
                                 type: "js.Array",
                                 member: "push",
                                 isExtensionMethod: true,

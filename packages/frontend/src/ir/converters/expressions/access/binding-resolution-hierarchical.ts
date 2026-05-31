@@ -14,6 +14,7 @@ import type { ProgramContext } from "../../../program-context.js";
 import type { MemberBinding } from "../../../../program/bindings.js";
 import { tsbindgenTargetTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { extractTypeName } from "./member-resolution.js";
+import { extractRawExternalBindingsPayload } from "../../../../program/external-binding-payload.js";
 
 /**
  * Resolve hierarchical binding for a member access
@@ -202,7 +203,7 @@ export const resolveHierarchicalBinding = (
     if (!first) return undefined;
 
     const getTargetKey = (m: MemberBinding): string =>
-      `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`;
+      `${m.binding.ownerIdentity}:${m.binding.type}::${m.binding.member}`;
     const targetKey = getTargetKey(first);
     if (overloads.some((m) => getTargetKey(m) !== targetKey)) {
       // Unsafe: overloads map to different target members.
@@ -226,7 +227,7 @@ export const resolveHierarchicalBinding = (
 
     return {
       kind: first.kind,
-      assembly: first.binding.assembly,
+      ownerIdentity: first.binding.ownerIdentity,
       type: first.binding.type,
       member: first.binding.member,
       receiverExpectedType: first.receiverExpectedType,
@@ -406,13 +407,11 @@ export const resolveExpectedTargetTypeFromBindings = (
     return tsName === declaringTypeTsName;
   };
 
-  // tsbindgen/full manifest shape
-  const types = raw.types;
-  if (Array.isArray(types)) {
+  const externalPayload = extractRawExternalBindingsPayload(raw);
+  if (externalPayload) {
     const matchingTargetTypes = new Set<string>();
-    for (const t of types) {
-      if (!t || typeof t !== "object") continue;
-      const targetName = (t as { readonly targetName?: unknown }).targetName;
+    for (const t of externalPayload.types) {
+      const targetName = t.targetName;
       if (typeof targetName !== "string") continue;
       if (matchesDeclaringTsName(targetName)) {
         matchingTargetTypes.add(targetName);
@@ -426,8 +425,13 @@ export const resolveExpectedTargetTypeFromBindings = (
     return undefined;
   }
 
-  // simple manifest shape: { bindings: { name: { type: "Namespace.Type" } } }
-  const bindings = raw.bindings;
+  const sourceSurface =
+    raw.sourceSurface &&
+    typeof raw.sourceSurface === "object" &&
+    !Array.isArray(raw.sourceSurface)
+      ? (raw.sourceSurface as { readonly bindings?: unknown })
+      : undefined;
+  const bindings = sourceSurface?.bindings;
   if (!bindings || typeof bindings !== "object" || Array.isArray(bindings)) {
     return undefined;
   }

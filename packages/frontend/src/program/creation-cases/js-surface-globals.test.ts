@@ -118,24 +118,24 @@ describe("Program Creation – JS surface globals", function () {
 
       expect(result.value.bindings.getBinding("console")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.console",
       });
       expect(result.value.bindings.getBinding("parseInt")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Globals",
         providerMemberName: "Globals.parseInt",
       });
       expect(result.value.bindings.getBinding("setInterval")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Timers",
         providerMemberName: "Timers.setInterval",
       });
       expect(result.value.bindings.getBinding("clearInterval")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Timers",
         providerMemberName: "Timers.clearInterval",
       });
@@ -295,7 +295,7 @@ describe("Program Creation – JS surface globals", function () {
         result.value.bindings.getExactBindingByKind("console", "global")
       ).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.console.console",
         staticType: "js.console.console",
         sourceImport: "@tsonic/js/console.js",
@@ -304,7 +304,7 @@ describe("Program Creation – JS surface globals", function () {
         result.value.bindings.getExactBindingByKind("String", "global")
       ).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Globals.String",
         staticType: "js.Globals.String",
         sourceImport: "@tsonic/js/Globals.js",
@@ -314,7 +314,7 @@ describe("Program Creation – JS surface globals", function () {
         "global"
       );
       expect(numberBinding?.kind).to.equal("global");
-      expect(numberBinding?.assembly).to.equal("js");
+      expect(numberBinding?.ownerIdentity).to.equal("js");
       expect(numberBinding?.sourceImport).to.equal("@tsonic/js/Globals.js");
       expect(numberBinding?.type.startsWith("js.")).to.equal(true);
     } finally {

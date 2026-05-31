@@ -108,6 +108,18 @@ When you hit a blocker:
 
 Workarounds hide problems and create technical debt. The correct response to a bug is to fix it or explicitly defer it - never to silently work around it.
 
+### NO LEGACY COMPATIBILITY PATHS
+
+**CRITICAL RULE**: This repo is greenfield. Backward compatibility and dual-format product paths are banned unless the maintainer explicitly approves the exact migration.
+
+- **NEVER** accept both old and new schema, manifest, binding, or metadata formats as product behavior.
+- **NEVER** add "old format or V2 format" readers, transitional normalizers, compatibility adapters, bridge loaders, or branchy fallback paths.
+- **ALWAYS** keep first-party compiler/package metadata on one canonical current shape.
+- **ALWAYS** report existing legacy compatibility when you find it; do not copy it or extend it.
+- **ALWAYS** remove stale first-party formats when working in that area unless the maintainer explicitly says otherwise.
+
+Capability-aware validation is allowed. Legacy compatibility is not. A manifest saying "this target supports feature X" is a product contract; a loader accepting both stale and current manifest shapes is migration debt.
+
 ### ALWAYS SAVE TEST OUTPUT TO LOG FILE
 
 **🚨 CRITICAL RULE: ALWAYS pipe test output to a log file for later analysis. 🚨**

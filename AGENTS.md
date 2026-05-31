@@ -63,6 +63,7 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - Examples must be detailed enough to follow the full flow step by step: user-facing TypeScript input, inferred/semantic IR meaning when relevant, runtime/storage carrier choice, emitted C# shape, expected behavior, actual behavior, and why the difference matters.
 - Reports must explain the causal chain from source code to compiler decision to emitted output; do not give only summaries, labels, or TODO lists when the maintainer is asking for analysis.
 - When classifying issues, group repeated symptoms by root cause and identify which failures are fallout rather than separate bugs.
+- Do not use hedging language such as “mostly”, “probably”, “seems”, or “likely” when the answer can be determined by inspection. State the exact verified fact, the remaining unknown, or the command/source needed to determine it.
 
 Fast iteration (OK while developing / on external testbed projects):
 
@@ -114,6 +115,9 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 - Backward compatibility is not required unless specifically and explicitly requested by the maintainer.
 - Always attempt the final-grade architecture directly. Do not land temporary bridge code, intermediate compatibility paths, or staged “fix it now, clean it later” product changes.
 - Do not preserve, add, or route through compatibility shims, bridge code, dual-path behavior, or legacy codepaths for native first-party packages.
+- Do not support multiple product schema, manifest, binding, or metadata formats for compatibility. First-party compiler/package metadata must have one current canonical shape.
+- Do not add “old-or-new format” readers, dual manifest normalizers, transitional format bridges, compatibility adapters, or branchy fallback loaders unless the maintainer explicitly approves that exact migration.
+- If an older first-party format is still accepted, treat it as technical debt to remove, not as a pattern to copy.
 - Prefer breaking stale assumptions and fixing the real architecture over keeping old paths alive.
 
 ## Truth Over Heuristics (IMPORTANT)

@@ -423,7 +423,8 @@ export const resolveHierarchicalBindingFromMemberId = (
   let overloads: readonly MemberBinding[] = overloadsAll;
   const targetKeys = new Set(
     overloads.map(
-      (m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`
+      (m) =>
+        `${m.binding.ownerIdentity}:${m.binding.type}::${m.binding.member}`
     )
   );
   if (targetKeys.size > 1) {
@@ -441,11 +442,11 @@ export const resolveHierarchicalBindingFromMemberId = (
   const first = overloads[0];
   if (!first) return undefined;
 
-  const targetKey = `${first.binding.assembly}:${first.binding.type}::${first.binding.member}`;
+  const targetKey = `${first.binding.ownerIdentity}:${first.binding.type}::${first.binding.member}`;
   if (
     overloads.some(
       (m) =>
-        `${m.binding.assembly}:${m.binding.type}::${m.binding.member}` !==
+        `${m.binding.ownerIdentity}:${m.binding.type}::${m.binding.member}` !==
         targetKey
     )
   ) {
@@ -495,7 +496,7 @@ export const resolveHierarchicalBindingFromMemberId = (
 
   return {
     kind: first.kind,
-    assembly: first.binding.assembly,
+    ownerIdentity: first.binding.ownerIdentity,
     type: first.binding.type,
     member: first.binding.member,
     receiverExpectedType: first.receiverExpectedType,
@@ -720,7 +721,7 @@ export const resolveExtensionMethodsBinding = (
 
   return {
     kind: resolved.kind,
-    assembly: resolved.binding.assembly,
+    ownerIdentity: resolved.binding.ownerIdentity,
     type: resolved.binding.type,
     member: resolved.binding.member,
     receiverExpectedType: resolved.receiverExpectedType,

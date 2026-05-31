@@ -330,7 +330,7 @@ describe("Expression Emission", () => {
               // Hierarchical member binding from manifest
               memberBinding: {
                 kind: "method",
-                assembly: "System.Linq",
+                ownerIdentity: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "SelectMany",
               },
@@ -383,7 +383,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Array",
                 member: "from",
                 isExtensionMethod: false,
@@ -432,7 +432,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Array",
                 member: "of",
                 isExtensionMethod: false,
@@ -495,7 +495,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "express",
+                ownerIdentity: "express",
                 type: "Express.Express",
                 member: "static",
               },
@@ -523,7 +523,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "property",
-                assembly: "express",
+                ownerIdentity: "express",
                 type: "Express.Request",
                 member: "params",
               },
@@ -569,7 +569,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.String",
                 member: "split",
                 isExtensionMethod: true,
@@ -617,7 +617,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Number",
                 member: "toString",
                 isExtensionMethod: true,

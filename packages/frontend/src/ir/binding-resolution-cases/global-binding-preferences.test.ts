@@ -35,14 +35,17 @@ const addClrBindings = (
   }[]
 ): void => {
   bindings.addBindings(path, {
-    namespace,
-    types: types.map((type) => ({
-      targetName: type.targetName,
-      ownerIdentity: type.ownerIdentity,
-      methods: type.methods ?? [],
-      properties: type.properties ?? [],
-      fields: [],
-    })),
+    schema: "tsonic.bindings",
+    provider: { namespace },
+    targetSurface: {
+      types: types.map((type) => ({
+        targetName: type.targetName,
+        ownerIdentity: type.ownerIdentity,
+        methods: type.methods ?? [],
+        properties: type.properties ?? [],
+        fields: [],
+      })),
+    },
   });
 };
 
@@ -85,7 +88,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Acme.Js",
+        ownerIdentity: "Acme.Js",
         type: "Acme.Js.console",
         member: "error",
       });
@@ -93,16 +96,14 @@ describe("Binding Resolution in IR", () => {
 
     it("prefers simple-binding static owners over resolved runtime generic owners for static members", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js-simple.json", {
-        bindings: {
+      bindings.addBindings("/test/js-simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Array: {
             kind: "global",
-            assembly: "Acme.Js",
+            ownerIdentity: "Acme.Js",
             type: "Acme.Js.ArrayRuntime",
             staticType: "Acme.Js.ArrayStatics",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
       addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
         {
           targetName: "Acme.Js.ArrayRuntime",
@@ -150,7 +151,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Acme.Js",
+        ownerIdentity: "Acme.Js",
         type: "Acme.Js.ArrayStatics",
         member: "isArray",
       });
@@ -158,16 +159,14 @@ describe("Binding Resolution in IR", () => {
 
     it("still prefers simple-binding static owners for ambient globals with declarations", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js-simple.json", {
-        bindings: {
+      bindings.addBindings("/test/js-simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Array: {
             kind: "global",
-            assembly: "Acme.Js",
+            ownerIdentity: "Acme.Js",
             type: "Acme.Js.ArrayRuntime",
             staticType: "Acme.Js.ArrayStatics",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
       addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
         {
           targetName: "Acme.Js.ArrayRuntime",
@@ -208,7 +207,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Acme.Js",
+        ownerIdentity: "Acme.Js",
         type: "Acme.Js.ArrayStatics",
         member: "from",
       });
@@ -216,15 +215,13 @@ describe("Binding Resolution in IR", () => {
 
     it("prefers simple-binding runtime owners for ambient globals without resolved CLR owners", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js-simple.json", {
-        bindings: {
+      bindings.addBindings("/test/js-simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Acme.Js",
+            ownerIdentity: "Acme.Js",
             type: "Acme.Js.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
       addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
         {
           targetName: "Acme.Js.console",
@@ -275,7 +272,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Acme.Js",
+        ownerIdentity: "Acme.Js",
         type: "Acme.Js.console",
         member: "error",
       });
@@ -283,15 +280,13 @@ describe("Binding Resolution in IR", () => {
 
     it("does not misbind lowercase local CLR variables to unrelated global member owners", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs.json", {
-        bindings: {
+      bindings.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           process: {
             kind: "global",
-            assembly: "Acme.Node",
+            ownerIdentity: "Acme.Node",
             type: "Acme.Node.process",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
       addClrBindings(
         bindings,
         "/test/system-diagnostics.json",
@@ -334,7 +329,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "property",
-        assembly: "System.Diagnostics.Process",
+        ownerIdentity: "System.Diagnostics.Process",
         type: "System.Diagnostics.Process",
         member: "ExitCode",
       });
@@ -342,19 +337,15 @@ describe("Binding Resolution in IR", () => {
 
     it("prefers js primitive wrapper owners over CLR instance owners", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js-simple.json", {
-        bindings: {
+      bindings.addBindings("/test/js-simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Boolean: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Boolean",
             providerMemberName: "Globals.Boolean",
           },
-        },
-      });
-      bindings.addBindings("/test/js-index.json", {
-        namespace: "js",
-        types: [
+        } }, targetSurface: { types: [] } });
+      bindings.addBindings("/test/js-index.json", { schema: "tsonic.bindings", provider: { namespace: "js" }, targetSurface: { types: [
           {
             targetName: "js.Boolean",
             ownerIdentity: "js",
@@ -372,11 +363,8 @@ describe("Binding Resolution in IR", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
-      bindings.addBindings("/test/system.json", {
-        namespace: "System",
-        types: [
+        ] } });
+      bindings.addBindings("/test/system.json", { schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
           {
             targetName: "System.Boolean",
             ownerIdentity: "System.Runtime",
@@ -393,8 +381,7 @@ describe("Binding Resolution in IR", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const { ctx } = createTestProgram(
         "export function test(flag: boolean): void {}",
@@ -413,7 +400,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Boolean",
         member: "toString",
       });

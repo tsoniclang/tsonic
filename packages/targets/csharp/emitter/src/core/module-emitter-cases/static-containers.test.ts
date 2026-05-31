@@ -302,7 +302,7 @@ describe("Module Generation", () => {
                     },
                     memberBinding: {
                       kind: "method",
-                      assembly: "js",
+                      ownerIdentity: "js",
                       type: "js.Array",
                       member: "push",
                     },

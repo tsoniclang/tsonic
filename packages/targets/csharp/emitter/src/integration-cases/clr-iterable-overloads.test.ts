@@ -282,9 +282,7 @@ describe("Integration: CLR iterable overloads", () => {
         ),
         "node_modules/@tsonic/dotnet/System.Collections.Generic/bindings.json":
           JSON.stringify(
-            {
-              namespace: "System.Collections.Generic",
-              types: [
+            { schema: "tsonic.bindings", provider: { namespace: "System.Collections.Generic" }, targetSurface: { types: [
                 {
                   stableId:
                     "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
@@ -306,8 +304,7 @@ describe("Integration: CLR iterable overloads", () => {
                   events: [],
                   constructors: [],
                 },
-              ],
-            },
+              ] } },
             null,
             2
           ),
