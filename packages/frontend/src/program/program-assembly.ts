@@ -10,7 +10,7 @@ import { Result, ok, error } from "../types/result.js";
 import { DiagnosticsCollector } from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
 import { loadExternalMetadata } from "./metadata.js";
-import { loadBindings } from "./bindings.js";
+import { loadBindings, TSONIC_BINDINGS_SCHEMA } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
 import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
@@ -632,16 +632,24 @@ export const createProgram = (
   // consumers to import a target exception type explicitly.
   if (!bindings.getBinding("Error")) {
     bindings.addBindings("tsonic:builtins", {
-      bindings: {
-        Error: {
-          kind: "global",
-          assembly: "tsonic.core",
-          type: "core:Error",
-          typeSemantics: {
-            contributesTypeIdentity: true,
+      schema: TSONIC_BINDINGS_SCHEMA,
+      provider: {
+        namespace: "tsonic.core",
+        ownerIdentities: ["tsonic.core"],
+      },
+      sourceSurface: {
+        bindings: {
+          Error: {
+            kind: "global",
+            ownerIdentity: "tsonic.core",
+            type: "core:Error",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
           },
         },
       },
+      targetSurface: { types: [] },
     });
   }
 

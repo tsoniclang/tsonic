@@ -88,12 +88,11 @@ export const createTestProgram = (
     options: {
       projectRoot: "/test",
       sourceRoot: "/test",
-      rootNamespace: "Test",
+      rootNamespace: "TestApp",
+      strict: true,
       ...options,
     },
-    sourceFiles: Array.from(sourceFiles.keys())
-      .map((name) => program.getSourceFile(name))
-      .filter((file): file is ts.SourceFile => file !== undefined),
+    sourceFiles: Array.from(sourceFiles.values()),
     declarationSourceFiles: [],
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
@@ -150,19 +149,27 @@ export const collectCodesInTempProject = (
 
     const program = ts.createProgram(rootNames, compilerOptions);
     const checker = program.getTypeChecker();
-
     return validateProgram({
       program,
       checker,
       options: {
         projectRoot: tempDir,
         sourceRoot: path.join(tempDir, "src"),
-        rootNamespace: "Test",
+        rootNamespace: "TestApp",
+        strict: true,
       },
       sourceFiles: rootNames
-        .map((fileName) => program.getSourceFile(fileName))
-        .filter((file): file is ts.SourceFile => file !== undefined),
-      declarationSourceFiles: [],
+        .filter((filePath) => !filePath.endsWith(".d.ts"))
+        .map((filePath) => program.getSourceFile(filePath))
+        .filter(
+          (candidate): candidate is ts.SourceFile => candidate !== undefined
+        ),
+      declarationSourceFiles: rootNames
+        .filter((filePath) => filePath.endsWith(".d.ts"))
+        .map((filePath) => program.getSourceFile(filePath))
+        .filter(
+          (candidate): candidate is ts.SourceFile => candidate !== undefined
+        ),
       metadata: new ExternalMetadataRegistry(),
       bindings: new BindingRegistry(),
       externalResolver: createExternalBindingsResolver(tempDir),

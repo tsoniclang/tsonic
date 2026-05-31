@@ -1361,27 +1361,25 @@ describe("IR Builder", function () {
         fs.writeFileSync(
           path.join(surfaceRoot, "bindings.json"),
           JSON.stringify(
-            {
-              bindings: {
+            { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
                 console: {
                   kind: "global",
-                  assembly: "js",
+                  ownerIdentity: "js",
                   type: "js.console",
                 },
                 setInterval: {
                   kind: "global",
-                  assembly: "Acme.ExternalRuntime",
+                  ownerIdentity: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
                   providerMemberName: "Timers.setInterval",
                 },
                 clearInterval: {
                   kind: "global",
-                  assembly: "Acme.ExternalRuntime",
+                  ownerIdentity: "Acme.ExternalRuntime",
                   type: "Acme.ExternalRuntime.Timers",
                   providerMemberName: "Timers.clearInterval",
                 },
-              },
-            },
+              } }, targetSurface: { types: [] } },
             null,
             2
           )
@@ -1396,9 +1394,7 @@ describe("IR Builder", function () {
         fs.writeFileSync(
           path.join(surfaceRoot, "Acme.ExternalRuntime", "bindings.json"),
           JSON.stringify(
-            {
-              namespace: "Acme.ExternalRuntime",
-              types: [
+            { schema: "tsonic.bindings", provider: { namespace: "Acme.ExternalRuntime" }, targetSurface: { types: [
                 {
                   targetName: "Acme.ExternalRuntime.Timers",
                   ownerIdentity: "Acme.ExternalRuntime",
@@ -1481,8 +1477,7 @@ describe("IR Builder", function () {
                   properties: [],
                   fields: [],
                 },
-              ],
-            },
+              ] } },
             null,
             2
           )

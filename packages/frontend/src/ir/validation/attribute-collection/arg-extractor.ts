@@ -267,13 +267,22 @@ export const resolveAttributeCtorReference = (
     };
   }
 
-  // Prefer external-surface imports: these are the authoritative mapping for provider type identities.
+  // Prefer resolved import specifier identities: declaration-package facades and
+  // external-surface imports both carry the provider type onto the named import.
   for (const imp of module.imports) {
-    if (imp.resolutionKind !== "externalSurface") continue;
-    if (!imp.resolvedNamespace) continue;
     for (const spec of imp.specifiers) {
       if (spec.kind !== "named") continue;
       if (spec.localName !== ctorIdent.name) continue;
+      if (spec.providerQualifiedName) {
+        return {
+          kind: "referenceType",
+          name: ctorIdent.name,
+          providerQualifiedName: spec.providerQualifiedName,
+          ...(spec.typeSymbolId ? { symbolId: spec.typeSymbolId } : {}),
+        };
+      }
+      if (imp.resolutionKind !== "externalSurface") continue;
+      if (!imp.resolvedNamespace) continue;
       return {
         kind: "referenceType",
         name: ctorIdent.name,

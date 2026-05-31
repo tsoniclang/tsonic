@@ -115,25 +115,21 @@ describe("May 14 downstream contract coverage", () => {
           "export {};",
         ].join("\n"),
         "node_modules/@fixture/runtime/bindings.json": JSON.stringify(
-          {
-            bindings: {
+          { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
               register: {
                 kind: "global",
-                assembly: "Acme.Runtime",
+                ownerIdentity: "Acme.Runtime",
                 type: "Acme.Runtime.Router",
                 providerMemberName: "Router.register",
               },
-            },
-          },
+            } }, targetSurface: { types: [] } },
           null,
           2
         ),
         "node_modules/@fixture/runtime/Acme.Runtime.d.ts": "export {};\n",
         "node_modules/@fixture/runtime/Acme.Runtime/bindings.json":
           JSON.stringify(
-            {
-              namespace: "Acme.Runtime",
-              types: [
+            { schema: "tsonic.bindings", provider: { namespace: "Acme.Runtime" }, targetSurface: { types: [
                 {
                   targetName: "Acme.Runtime.StringHandler",
                   ownerIdentity: "Acme.Runtime",
@@ -211,8 +207,7 @@ describe("May 14 downstream contract coverage", () => {
                   properties: [],
                   fields: [],
                 },
-              ],
-            },
+              ] } },
             null,
             2
           ),

@@ -41,7 +41,7 @@ describe("JSON NativeAOT registry", () => {
                     isOptional: false,
                     memberBinding: {
                       kind: "method",
-                      assembly: "js",
+                      ownerIdentity: "js",
                       type: "js.JSON",
                       member: "parse",
                     },
@@ -146,7 +146,7 @@ describe("JSON NativeAOT registry", () => {
                     isOptional: false,
                     memberBinding: {
                       kind: "method",
-                      assembly: "js",
+                      ownerIdentity: "js",
                       type: "js.JSON",
                       member: "stringify",
                     },
@@ -254,7 +254,7 @@ describe("JSON NativeAOT registry", () => {
                     isOptional: false,
                     memberBinding: {
                       kind: "method",
-                      assembly: "js",
+                      ownerIdentity: "js",
                       type: "js.JSON",
                       member: "stringify",
                     },
@@ -346,7 +346,7 @@ describe("JSON NativeAOT registry", () => {
                     isOptional: false,
                     memberBinding: {
                       kind: "method",
-                      assembly: "System.Text.Json",
+                      ownerIdentity: "System.Text.Json",
                       type: "System.Text.Json.JsonSerializer",
                       member: "Serialize",
                     },
@@ -430,7 +430,7 @@ describe("JSON NativeAOT registry", () => {
                     isOptional: false,
                     memberBinding: {
                       kind: "method",
-                      assembly: "System.Text.Json",
+                      ownerIdentity: "System.Text.Json",
                       type: "System.Text.Json.JsonSerializer",
                       member: "Serialize",
                     },

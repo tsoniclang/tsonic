@@ -15,28 +15,25 @@ export type {
   MemberBinding,
   TypeBinding,
   NamespaceBinding,
-  FullBindingManifest,
   SimpleBindingDescriptor,
-  SimpleBindingFile,
   TsbindgenMethod,
   TsbindgenProperty,
   TsbindgenField,
   TsbindgenTypeRef,
   TsbindgenType,
   TsbindgenExport,
-  TsbindgenBindingFile,
-  FirstPartyBindingsFileV2,
+  BindingProviderDescriptor,
+  BindingSourceSurface,
+  BindingTargetSurface,
   BindingFile,
 } from "./binding-types.js";
 
 export {
-  isFullBindingManifest,
-  isTsbindgenBindingFile,
+  TSONIC_BINDINGS_SCHEMA,
   validateBindingFile,
 } from "./binding-types.js";
 
 export {
-  isFirstPartyTargetBindingsFileV2,
   getExternalBindingPayload,
   extractRawExternalBindingsPayload,
   extractRawExternalBindingTypes,

@@ -10,13 +10,11 @@ import * as path from "node:path";
 import * as ts from "typescript";
 import type {
   BindingFile,
-  FullBindingManifest,
   MemberBinding,
   SimpleBindingDescriptor,
-  SimpleBindingFile,
   TypeBinding,
 } from "./binding-types.js";
-import { validateBindingFile } from "./binding-types.js";
+import { TSONIC_BINDINGS_SCHEMA, validateBindingFile } from "./binding-types.js";
 import { BindingRegistry } from "./binding-registry.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
 import { getClassNameFromPath } from "../resolver/naming.js";
@@ -1036,7 +1034,7 @@ const createSyntheticAmbientInterfaceBindings = (
             alias: member.alias,
             parameterCount: member.parameterCount,
             binding: {
-              assembly: sourceNamespace,
+              ownerIdentity: sourceNamespace,
               type: existing.name,
               member: member.alias,
             },
@@ -1086,7 +1084,7 @@ const createSyntheticAmbientInterfaceBindings = (
             alias: member.alias,
             parameterCount: resolvedOwnerMember.parameterCount,
             binding: {
-              assembly: sourceNamespace,
+              ownerIdentity: sourceNamespace,
               type: resolvedOwnerMember.bindingType,
               member: resolvedOwnerMember.memberName,
             },
@@ -1169,7 +1167,7 @@ const createSyntheticWrapperType = (
         alias: member.alias,
         parameterCount: member.parameterCount,
         binding: {
-          assembly: getSourcePackageNamespace(metadata),
+          ownerIdentity: getSourcePackageNamespace(metadata),
           type: ownerType,
           member: member.alias,
         },
@@ -1248,7 +1246,7 @@ const createSyntheticSourceTypeBindings = (
                   alias: member.alias,
                   parameterCount: member.parameterCount,
                   binding: {
-                    assembly: getSourcePackageNamespace(metadata),
+                    ownerIdentity: getSourcePackageNamespace(metadata),
                     type: ownerType,
                     member: member.alias,
                   },
@@ -1467,7 +1465,7 @@ const extractImportTypeTargets = (
 
 const collectSyntheticSourceGlobals = (
   metadata: SourcePackageMetadata
-): SimpleBindingFile | undefined => {
+): BindingFile | undefined => {
   const ambientSources = readAmbientSourceFiles(metadata);
   if (ambientSources.length === 0) {
     return undefined;
@@ -1500,7 +1498,7 @@ const collectSyntheticSourceGlobals = (
 
     bindings[globalName] = {
       kind: "global",
-      assembly: sourceNamespace,
+      ownerIdentity: sourceNamespace,
       type: ownerType,
       staticType: ownerType,
       sourceImport,
@@ -1593,7 +1591,7 @@ const collectSyntheticSourceGlobals = (
 
           bindings[declaration.name.text] = {
             kind: "global",
-            assembly: sourceNamespace,
+            ownerIdentity: sourceNamespace,
             type: ownerType,
             staticType,
             sourceImport,
@@ -1647,7 +1645,17 @@ const collectSyntheticSourceGlobals = (
     }
   }
 
-  return Object.keys(bindings).length > 0 ? { bindings } : undefined;
+  return Object.keys(bindings).length > 0
+    ? {
+        schema: TSONIC_BINDINGS_SCHEMA,
+        provider: {
+          namespace: sourceNamespace,
+          ownerIdentities: [sourceNamespace],
+        },
+        sourceSurface: { bindings },
+        targetSurface: { types: [] },
+      }
+    : undefined;
 };
 
 const addSyntheticSourcePackageBindings = (
@@ -1657,15 +1665,22 @@ const addSyntheticSourcePackageBindings = (
   const sourceNamespace = getSourcePackageNamespace(metadata);
   const syntheticTypes = createSyntheticSourceTypeBindings(metadata);
   if (syntheticTypes.length > 0) {
-    const manifest: FullBindingManifest = {
-      assembly: sourceNamespace,
-      namespaces: [
-        {
-          name: sourceNamespace,
-          alias: sourceNamespace,
-          types: syntheticTypes,
-        },
-      ],
+    const manifest: BindingFile = {
+      schema: TSONIC_BINDINGS_SCHEMA,
+      provider: {
+        namespace: sourceNamespace,
+        ownerIdentities: [sourceNamespace],
+      },
+      sourceSurface: {
+        namespaces: [
+          {
+            name: sourceNamespace,
+            alias: sourceNamespace,
+            types: syntheticTypes,
+          },
+        ],
+      },
+      targetSurface: { types: [] },
     };
     registry.addBindings(
       `${metadata.packageRoot}::synthetic-source-types`,

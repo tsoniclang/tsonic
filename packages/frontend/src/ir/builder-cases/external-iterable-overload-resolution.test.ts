@@ -460,9 +460,7 @@ describe("IR Builder", function () {
             type: "module",
           }),
           "node_modules/@tsonic/dotnet/System.Collections.Generic/bindings.json":
-            JSON.stringify({
-              namespace: "System.Collections.Generic",
-              types: [
+            JSON.stringify({ schema: "tsonic.bindings", provider: { namespace: "System.Collections.Generic" }, targetSurface: { types: [
                 {
                   stableId:
                     "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
@@ -484,8 +482,7 @@ describe("IR Builder", function () {
                   events: [],
                   constructors: [],
                 },
-              ],
-            }),
+              ] } }),
           "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
             "export {};",
           "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
@@ -607,9 +604,7 @@ describe("IR Builder", function () {
             type: "module",
           }),
           "node_modules/@tsonic/dotnet/System.Collections.Generic/bindings.json":
-            JSON.stringify({
-              namespace: "System.Collections.Generic",
-              types: [
+            JSON.stringify({ schema: "tsonic.bindings", provider: { namespace: "System.Collections.Generic" }, targetSurface: { types: [
                 {
                   stableId:
                     "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
@@ -631,8 +626,7 @@ describe("IR Builder", function () {
                   events: [],
                   constructors: [],
                 },
-              ],
-            }),
+              ] } }),
           "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
             "export {};",
           "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":
@@ -759,9 +753,7 @@ describe("IR Builder", function () {
             type: "module",
           }),
           "node_modules/@tsonic/dotnet/System.Collections.Generic/bindings.json":
-            JSON.stringify({
-              namespace: "System.Collections.Generic",
-              types: [
+            JSON.stringify({ schema: "tsonic.bindings", provider: { namespace: "System.Collections.Generic" }, targetSurface: { types: [
                 {
                   stableId:
                     "System.Private.CoreLib:System.Collections.Generic.IEnumerable`1",
@@ -804,8 +796,7 @@ describe("IR Builder", function () {
                   events: [],
                   constructors: [],
                 },
-              ],
-            }),
+              ] } }),
           "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.js":
             "export {};",
           "node_modules/@tsonic/dotnet/System.Collections.Generic/internal/index.d.ts":

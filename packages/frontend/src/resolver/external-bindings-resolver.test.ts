@@ -83,10 +83,7 @@ describe("ExternalBindingsResolver (npm exports + dist bindings)", () => {
     mkdirSync(internalDir, { recursive: true });
 
     const bindingsPath = join(nsDir, "bindings.json");
-    writeJson(bindingsPath, {
-      namespace: spec.namespace,
-      types: [{ ownerIdentity: spec.ownerIdentity }],
-    });
+    writeJson(bindingsPath, { schema: "tsonic.bindings", provider: { namespace: spec.namespace }, targetSurface: { types: [{ ownerIdentity: spec.ownerIdentity }] } });
     return { bindingsPath };
   };
 
@@ -201,19 +198,13 @@ describe("ExternalBindingsResolver (npm exports + dist bindings)", () => {
     );
 
     // Root bindings.json (empty namespace)
-    writeJson(join(pkgRoot, "bindings.json"), {
-      namespace: "",
-      types: [{ ownerIdentity: "xunit.execution.dotnet" }],
-    });
+    writeJson(join(pkgRoot, "bindings.json"), { schema: "tsonic.bindings", provider: { namespace: "" }, targetSurface: { types: [{ ownerIdentity: "xunit.execution.dotnet" }] } });
 
     // Namespace bindings.json
     const nsDir = join(pkgRoot, namespaceKey);
     mkdirSync(join(nsDir, "internal"), { recursive: true });
     const nsBindingsPath = join(nsDir, "bindings.json");
-    writeJson(nsBindingsPath, {
-      namespace: namespaceKey,
-      types: [{ ownerIdentity: "xunit.core" }],
-    });
+    writeJson(nsBindingsPath, { schema: "tsonic.bindings", provider: { namespace: namespaceKey }, targetSurface: { types: [{ ownerIdentity: "xunit.core" }] } });
 
     const resolver = createExternalBindingsResolver(workspaceRoot);
     const result = resolver.resolve(`${packageName}/${namespaceKey}.js`);

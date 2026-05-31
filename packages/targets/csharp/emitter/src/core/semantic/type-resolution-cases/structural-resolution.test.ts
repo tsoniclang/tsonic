@@ -400,7 +400,7 @@ describe("type-resolution", () => {
                 semanticType: { kind: "primitiveType", name: "boolean" },
                 semanticOptional: true,
                 binding: {
-                  assembly: "js",
+                  ownerIdentity: "js",
                   type: "js.__Anon_7701_6a8c0992",
                   member: "recursive",
                 },
@@ -412,7 +412,7 @@ describe("type-resolution", () => {
                 semanticType: { kind: "primitiveType", name: "int" },
                 semanticOptional: true,
                 binding: {
-                  assembly: "js",
+                  ownerIdentity: "js",
                   type: "js.__Anon_7701_6a8c0992",
                   member: "mode",
                 },
@@ -434,7 +434,7 @@ describe("type-resolution", () => {
                 semanticType: { kind: "primitiveType", name: "boolean" },
                 semanticOptional: true,
                 binding: {
-                  assembly: "nodejs",
+                  ownerIdentity: "nodejs",
                   type: "nodejs.MkdirOptions",
                   member: "recursive",
                 },
@@ -446,7 +446,7 @@ describe("type-resolution", () => {
                 semanticType: { kind: "primitiveType", name: "int" },
                 semanticOptional: true,
                 binding: {
-                  assembly: "nodejs",
+                  ownerIdentity: "nodejs",
                   type: "nodejs.MkdirOptions",
                   member: "mode",
                 },

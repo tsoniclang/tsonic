@@ -61,7 +61,8 @@ export const createTestProgram = (
     options: {
       projectRoot: "/test",
       sourceRoot: "/test",
-      rootNamespace: "Test",
+      rootNamespace: "TestApp",
+      strict: true,
       ...options,
     },
     sourceFiles: [sourceFile],

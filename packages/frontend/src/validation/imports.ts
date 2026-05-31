@@ -123,10 +123,11 @@ export const validateImportDeclaration = (
     sourceFile.fileName,
     program.options.sourceRoot,
     {
-      externalResolver: program.externalResolver,
       bindings: program.bindings,
+      externalResolver: program.externalResolver,
       projectRoot: program.options.projectRoot,
       surface: program.options.surface,
+      backendTargetId: program.options.backendTargetId,
       authoritativeTsonicPackageRoots: program.authoritativeTsonicPackageRoots,
       declarationModuleAliases: program.declarationModuleAliases,
     }

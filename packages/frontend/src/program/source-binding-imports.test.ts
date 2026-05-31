@@ -22,16 +22,14 @@ describe("resolveSourceBindingFiles", () => {
       const authoritativeJsRoot = fixture.path("workspace/js-next/versions/10");
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js.bindings.json", {
-        bindings: {
+      bindings.addBindings("/test/js.bindings.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
             sourceImport: "@tsonic/js/console.js",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const result = resolveSourceBindingFiles(
         bindings,

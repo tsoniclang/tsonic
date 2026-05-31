@@ -27,9 +27,7 @@ describe("Hierarchical Bindings End-to-End", () => {
 
     // Create hierarchical binding manifest
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/system-linq.json", {
-      assembly: "System.Linq",
-      namespaces: [
+    bindings.addBindings("/test/system-linq.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
         {
           name: "System.Linq",
           alias: "systemLinq",
@@ -44,7 +42,7 @@ describe("Hierarchical Bindings End-to-End", () => {
                   name: "SelectMany",
                   alias: "selectMany",
                   binding: {
-                    assembly: "System.Linq",
+                    ownerIdentity: "System.Linq",
                     type: "System.Linq.Enumerable",
                     member: "SelectMany",
                   },
@@ -53,8 +51,7 @@ describe("Hierarchical Bindings End-to-End", () => {
             },
           ],
         },
-      ],
-    });
+      ] }, targetSurface: { types: [] } });
 
     // Create TypeScript program
     const fileName = "/test/sample.ts";
@@ -163,7 +160,7 @@ describe("Hierarchical Bindings End-to-End", () => {
       "Member binding MUST be resolved for systemLinq.enumerable.selectMany"
     ).to.not.equal(undefined);
 
-    expect(memberExpr.memberBinding?.assembly).to.equal("System.Linq");
+    expect(memberExpr.memberBinding?.ownerIdentity).to.equal("System.Linq");
     expect(memberExpr.memberBinding?.type).to.equal("System.Linq.Enumerable");
     expect(memberExpr.memberBinding?.member).to.equal("SelectMany");
 

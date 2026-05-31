@@ -30,7 +30,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "System.Linq",
+                ownerIdentity: "System.Linq",
                 type: "System.Linq.Queryable",
                 member: "Count",
                 isExtensionMethod: true,
@@ -96,7 +96,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "method",
-              assembly: "System.Linq",
+              ownerIdentity: "System.Linq",
               type: "System.Linq.Queryable",
               member: m.member,
               isExtensionMethod: true,
@@ -151,7 +151,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "System.Linq",
+                ownerIdentity: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "ToArray",
                 isExtensionMethod: true,
@@ -184,7 +184,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "System.Linq",
+                ownerIdentity: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "ToList",
                 isExtensionMethod: true,
@@ -218,7 +218,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "System.Linq",
+                ownerIdentity: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "Where",
                 isExtensionMethod: true,
@@ -276,7 +276,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Microsoft.EntityFrameworkCore",
+                ownerIdentity: "Microsoft.EntityFrameworkCore",
                 type: "Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions",
                 member: "AsNoTracking",
                 isExtensionMethod: true,
@@ -330,7 +330,7 @@ describe("Expression Emission", () => {
                   isOptional: false,
                   memberBinding: {
                     kind: "method",
-                    assembly: "System.Linq",
+                    ownerIdentity: "System.Linq",
                     type: "System.Linq.Enumerable",
                     member: "ToList",
                     isExtensionMethod: true,
@@ -347,7 +347,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "System.Linq",
+                ownerIdentity: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "ToArray",
                 isExtensionMethod: true,

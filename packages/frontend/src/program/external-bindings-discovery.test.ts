@@ -57,7 +57,7 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
     fs.mkdirSync(path.join(bindingsRoot, "Root"), { recursive: true });
     fs.writeFileSync(
       path.join(bindingsRoot, "Root", "bindings.json"),
-      JSON.stringify({ namespace: "Root", types: [] }, null, 2)
+      JSON.stringify({ schema: "tsonic.bindings", provider: { namespace: "Root" }, targetSurface: { types: [] } }, null, 2)
     );
     fs.writeFileSync(
       path.join(bindingsRoot, "Root.d.ts"),
@@ -75,18 +75,14 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
     fs.writeFileSync(
       path.join(bindingsRoot, "Other", "bindings.json"),
       JSON.stringify(
-        {
-          namespace: "Other",
-          types: [],
-          exports: {
+        { schema: "tsonic.bindings", provider: { namespace: "Other" }, targetSurface: { types: [], exports: {
             foo: {
               kind: "method",
               targetName: "foo",
               ownerQualifiedName: "Other.Container",
               ownerIdentity: "TestAssembly",
             },
-          },
-        },
+          } } },
         null,
         2
       )
@@ -225,18 +221,14 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
       fs.writeFileSync(
         path.join(efBindingsRoot, "Foo", "bindings.json"),
         JSON.stringify(
-          {
-            namespace: "Foo",
-            types: [],
-            exports: {
+          { schema: "tsonic.bindings", provider: { namespace: "Foo" }, targetSurface: { types: [], exports: {
               mark: {
                 kind: "method",
                 targetName: "mark",
                 ownerQualifiedName: "Foo.Container",
                 ownerIdentity: "TestAssembly",
               },
-            },
-          },
+            } } },
           null,
           2
         )
@@ -291,7 +283,7 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
       fs.mkdirSync(path.join(bindingsRoot, "Root"), { recursive: true });
       fs.writeFileSync(
         path.join(bindingsRoot, "Root", "bindings.json"),
-        JSON.stringify({ namespace: "Root", types: [] }, null, 2)
+        JSON.stringify({ schema: "tsonic.bindings", provider: { namespace: "Root" }, targetSurface: { types: [] } }, null, 2)
       );
 
       const srcDir = path.join(projectRoot, "src");

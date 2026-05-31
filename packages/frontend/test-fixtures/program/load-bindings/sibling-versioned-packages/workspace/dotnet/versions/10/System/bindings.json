@@ -1,9 +1,21 @@
 {
-  "bindings": {
-    "SerializableAttribute": {
-      "kind": "global",
-      "assembly": "System.Runtime",
-      "type": "System.SerializableAttribute"
+  "schema": "tsonic.bindings",
+  "provider": {
+    "namespace": "sourceSurface",
+    "ownerIdentities": [
+      "System.Runtime"
+    ]
+  },
+  "sourceSurface": {
+    "bindings": {
+      "SerializableAttribute": {
+        "kind": "global",
+        "ownerIdentity": "System.Runtime",
+        "type": "System.SerializableAttribute"
+      }
     }
+  },
+  "targetSurface": {
+    "types": []
   }
 }

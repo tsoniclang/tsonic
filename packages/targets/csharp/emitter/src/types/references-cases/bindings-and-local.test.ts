@@ -113,7 +113,7 @@ describe("Reference Type Emission", () => {
             name: "success",
             semanticType: { kind: "literalType", value: true },
             binding: {
-              assembly: "Acme.Messages",
+              ownerIdentity: "Acme.Messages",
               type: "Acme.Messages.__Anon_8be6_614f176b",
               member: "success",
             },
@@ -124,7 +124,7 @@ describe("Reference Type Emission", () => {
             name: "rendered",
             semanticType: { kind: "primitiveType", name: "string" },
             binding: {
-              assembly: "Acme.Messages",
+              ownerIdentity: "Acme.Messages",
               type: "Acme.Messages.__Anon_8be6_614f176b",
               member: "rendered",
             },

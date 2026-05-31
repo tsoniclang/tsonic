@@ -7,14 +7,14 @@ import type {
   MemberInfo,
 } from "../type-registry.js";
 
-const emptyAssemblyCatalog = (): ExternalTypeCatalog => ({
+const emptyExternalCatalog = (): ExternalTypeCatalog => ({
   entries: new Map(),
   tsNameToTypeId: new Map(),
   providerNameToTypeId: new Map(),
   namespaceToTypeIds: new Map(),
 });
 
-const makeAssemblyTypeId = (
+const makeExternalTypeId = (
   stableId: string,
   providerName: string,
   ownerIdentity: string,
@@ -76,7 +76,7 @@ describe("buildUnifiedUniverse", () => {
 
     const catalog = buildUnifiedUniverse(
       makeRegistry(entry),
-      emptyAssemblyCatalog(),
+      emptyExternalCatalog(),
       "project"
     );
     const fooId = catalog.resolveTsName("Foo");
@@ -124,7 +124,7 @@ describe("buildUnifiedUniverse", () => {
 
     const catalog = buildUnifiedUniverse(
       makeRegistry(entry),
-      emptyAssemblyCatalog(),
+      emptyExternalCatalog(),
       "project"
     );
     const fooId = catalog.resolveTsName("Foo");
@@ -147,19 +147,19 @@ describe("buildUnifiedUniverse", () => {
       fullyQualifiedName: "Error",
       ownerIdentity: "project",
       isDeclarationFile: true,
-      preservesAssemblyIdentity: true,
+      preservesProviderIdentity: true,
       typeParameters: [],
       members: new Map(),
       heritage: [],
     };
 
-    const errorTypeId = makeAssemblyTypeId(
+    const errorTypeId = makeExternalTypeId(
       "js:js.Error",
       "js.Error",
       "js",
       "Error"
     );
-    const assemblyEntry: NominalEntry = {
+    const externalEntry: NominalEntry = {
       typeId: errorTypeId,
       kind: "class",
       typeParameters: [],
@@ -175,7 +175,7 @@ describe("buildUnifiedUniverse", () => {
     const catalog = buildUnifiedUniverse(
       makeRegistry(entry),
       {
-        entries: new Map([[errorTypeId.stableId, assemblyEntry]]),
+        entries: new Map([[errorTypeId.stableId, externalEntry]]),
         tsNameToTypeId: new Map([[errorTypeId.sourceName, errorTypeId]]),
         providerNameToTypeId: new Map([
           [errorTypeId.providerName, errorTypeId],

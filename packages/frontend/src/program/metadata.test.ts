@@ -34,23 +34,6 @@ describe("Program Metadata", () => {
     }
   });
 
-  it("should load CLR metadata from the dotnet payload of first-party bindings v2 manifests", () => {
-    const fixture = materializeFrontendFixture(
-      "program/metadata/firstparty-bindings-v2"
-    );
-
-    try {
-      const globalsRoot = fixture.path("app/node_modules/@tsonic/globals");
-
-      const metadata = loadExternalMetadata([globalsRoot]);
-      expect(metadata.getTypeMetadata("Acme.Core.Widget")).to.not.equal(
-        undefined
-      );
-    } finally {
-      fixture.cleanup();
-    }
-  });
-
   it("ignores CLR metadata files inside source package roots while traversing dependencies", () => {
     const fixture = materializeFrontendFixture(
       "program/metadata/ignore-source-package-bindings"

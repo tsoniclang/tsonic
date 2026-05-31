@@ -7,7 +7,9 @@
  * External semantics are loaded from binding metadata and source-package manifests.
  */
 
-import type { BindingSemanticSignature } from "./program/binding-types.js";
+import type {
+  BindingSemanticSignature,
+} from "./program/binding-types.js";
 import type { IrType } from "./ir/types/index.js";
 
 /**
@@ -60,17 +62,24 @@ export type ExternalTypeMetadata = {
  * Target-neutral binding metadata consumed by this registry.
  */
 export type ExternalBindingsFile = {
-  readonly namespace: string;
-  readonly types: readonly ExternalBindingsType[];
+  readonly schema: "tsonic.bindings";
+  readonly provider: {
+    readonly namespace: string;
+  };
+  readonly targetSurface: {
+    readonly types: readonly ExternalBindingsType[];
+  };
 };
 
 export type ExternalBindingsType = {
   readonly targetName: string;
+  readonly ownerIdentity?: string;
   readonly kind?: string;
   readonly baseType?: { readonly targetName: string };
   readonly interfaces?: readonly { readonly targetName: string }[];
   readonly methods?: readonly ExternalBindingsMethod[];
   readonly properties?: readonly ExternalBindingsProperty[];
+  readonly fields?: readonly unknown[];
 };
 
 export type ExternalBindingsMethod = {
@@ -311,7 +320,7 @@ export class ExternalMetadataRegistry {
    * Load a tsbindgen bindings.json file and add its types to the registry.
    */
   loadBindingsFile(_filePath: string, content: ExternalBindingsFile): void {
-    for (const type of content.types) {
+    for (const type of content.targetSurface.types) {
       const kindMap: Record<string, ExternalTypeMetadata["kind"]> = {
         Class: "class",
         Interface: "interface",

@@ -21,9 +21,7 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/system-linq.json", {
-        assembly: "System.Linq",
-        namespaces: [
+      bindings.addBindings("/test/system-linq.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
           {
             name: "System.Linq",
             alias: "systemLinq",
@@ -38,7 +36,7 @@ describe("Binding Resolution in IR", () => {
                     name: "SelectMany",
                     alias: "selectMany",
                     binding: {
-                      assembly: "System.Linq",
+                      ownerIdentity: "System.Linq",
                       type: "System.Linq.Enumerable",
                       member: "SelectMany",
                     },
@@ -47,8 +45,7 @@ describe("Binding Resolution in IR", () => {
               },
             ],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -78,7 +75,7 @@ describe("Binding Resolution in IR", () => {
 
       // Check that the member access has the hierarchical binding resolved
       expect(memberExpr.memberBinding).to.not.equal(undefined);
-      expect(memberExpr.memberBinding?.assembly).to.equal("System.Linq");
+      expect(memberExpr.memberBinding?.ownerIdentity).to.equal("System.Linq");
       expect(memberExpr.memberBinding?.type).to.equal("System.Linq.Enumerable");
       expect(memberExpr.memberBinding?.member).to.equal("SelectMany");
     });
@@ -93,16 +90,13 @@ describe("Binding Resolution in IR", () => {
 
       const bindings = new BindingRegistry();
       // Add some bindings that won't match
-      bindings.addBindings("/test/unrelated.json", {
-        assembly: "Unrelated",
-        namespaces: [
+      bindings.addBindings("/test/unrelated.json", { schema: "tsonic.bindings", provider: { namespace: "Unrelated", ownerIdentities: ["Unrelated"] }, sourceSurface: { namespaces: [
           {
             name: "unrelated",
             alias: "Unrelated",
             types: [],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -138,9 +132,7 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/my-lib.json", {
-        assembly: "MyLib",
-        namespaces: [
+      bindings.addBindings("/test/my-lib.json", { schema: "tsonic.bindings", provider: { namespace: "MyLib", ownerIdentities: ["MyLib"] }, sourceSurface: { namespaces: [
           {
             name: "MyLib",
             alias: "myLib",
@@ -155,7 +147,7 @@ describe("Binding Resolution in IR", () => {
                     name: "KnownMember",
                     alias: "knownMember",
                     binding: {
-                      assembly: "MyLib",
+                      ownerIdentity: "MyLib",
                       type: "MyLib.TypeA",
                       member: "KnownMember",
                     },
@@ -164,8 +156,7 @@ describe("Binding Resolution in IR", () => {
               },
             ],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -212,20 +203,16 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/simple-array.json", {
-        bindings: {
+      bindings.addBindings("/test/simple-array.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Array: {
             kind: "global",
-            assembly: "Acme.Runtime",
+            ownerIdentity: "Acme.Runtime",
             type: "Acme.Runtime.Array`1",
             staticType: "Acme.Runtime.ArrayStatics",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
-      bindings.addBindings("/test/acme-array/bindings.json", {
-        namespace: "Acme.Runtime",
-        types: [
+      bindings.addBindings("/test/acme-array/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Acme.Runtime" }, targetSurface: { types: [
           {
             targetName: "Acme.Runtime.Array`1",
             ownerIdentity: "Acme.Runtime",
@@ -252,8 +239,7 @@ describe("Binding Resolution in IR", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];

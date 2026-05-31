@@ -11,8 +11,8 @@ import {
   ExternalBindingsProperty,
   ExternalBindingsType,
 } from "../external-metadata.js";
-import type { BindingFile, BindingSemanticSignature } from "./binding-types.js";
-import { getExternalBindingPayload } from "./external-binding-payload.js";
+import type { BindingSemanticSignature } from "./binding-types.js";
+import { extractRawExternalBindingsPayload } from "./external-binding-payload.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
 
 type RawExternalBindingsFile = {
@@ -117,8 +117,13 @@ const toExternalBindingsFile = (
   }
 
   return {
-    namespace: asString(payload.namespace) ?? "",
-    types,
+    schema: "tsonic.bindings",
+    provider: {
+      namespace: asString(payload.namespace) ?? "",
+    },
+    targetSurface: {
+      types,
+    },
   };
 };
 
@@ -190,7 +195,7 @@ const loadMetadataFromPackage = (
     try {
       const content = fs.readFileSync(bindingsPath, "utf-8");
       const parsed = JSON.parse(content) as unknown;
-      const externalPayload = getExternalBindingPayload(parsed as BindingFile);
+      const externalPayload = extractRawExternalBindingsPayload(parsed);
       if (externalPayload) {
         discoveredExternalBindingsInPackage = true;
         registry.loadBindingsFile(

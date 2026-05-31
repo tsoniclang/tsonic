@@ -280,7 +280,7 @@ export const resolveImport = (
         resolutionKind: "externalSurface",
         originalSpecifier: importSpecifier,
         providerQualifiedName: binding.type,
-        providerOwnerIdentity: binding.assembly,
+        providerOwnerIdentity: binding.ownerIdentity,
       });
     }
   }

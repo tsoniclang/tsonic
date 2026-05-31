@@ -55,7 +55,7 @@ export type MemberBinding = {
   readonly name: string; // Target member name (e.g., "SelectMany")
   readonly alias: string; // TS identifier (e.g., "selectMany")
   readonly binding: {
-    readonly assembly: string;
+    readonly ownerIdentity: string;
     readonly type: string; // Full target type name (e.g., "Provider.Linq.Enumerable")
     readonly member: string; // Target member name
   };
@@ -94,32 +94,17 @@ export type NamespaceBinding = {
 };
 
 /**
- * Full binding manifest structure (new format from bindings.md)
- */
-export type FullBindingManifest = {
-  readonly assembly: string;
-  readonly namespaces: readonly NamespaceBinding[];
-};
-
-/**
  * Simple binding entry for global/module identifiers
  * Maps identifiers like `console`, `Math`, `fs` to external target types
  */
 export type SimpleBindingDescriptor = {
   readonly kind: "global" | "module";
-  readonly assembly: string;
+  readonly ownerIdentity: string;
   readonly type: string;
   readonly sourceImport?: string; // Optional: resolve the binding through a source-package import instead of a target module type
   readonly staticType?: string; // Optional: separate target type for static member access
   readonly providerMemberName?: string; // Optional target member name for generated calls/references
   readonly typeSemantics?: TypeSemantics;
-};
-
-/**
- * Simple binding file structure for global/module bindings
- */
-export type SimpleBindingFile = {
-  readonly bindings: Readonly<Record<string, SimpleBindingDescriptor>>;
 };
 
 /**
@@ -173,7 +158,7 @@ export type TsbindgenTypeRef = {
 export type TsbindgenType = {
   readonly stableId?: string;
   readonly targetName: string; // Full target type name (e.g., "Provider.Console")
-  readonly alias?: string; // Optional explicit TS lookup alias (used by first-party bindings)
+  readonly alias?: string; // Optional explicit TS lookup alias from provider bindings
   readonly ownerIdentity: string;
   readonly baseType?: TsbindgenTypeRef;
   readonly interfaces?: readonly TsbindgenTypeRef[];
@@ -221,29 +206,29 @@ export type TsbindgenExport = {
   readonly semanticSignature?: BindingSemanticSignature;
 };
 
-export type TsbindgenBindingFile = {
+export const TSONIC_BINDINGS_SCHEMA = "tsonic.bindings";
+
+export type BindingProviderDescriptor = {
   readonly namespace: string;
+  readonly ownerIdentities?: readonly string[];
+  readonly targetRuntimeVersion?: string;
+};
+
+export type BindingSourceSurface = {
+  readonly bindings?: Readonly<Record<string, SimpleBindingDescriptor>>;
+  readonly namespaces?: readonly NamespaceBinding[];
+};
+
+export type BindingTargetSurface = {
   readonly types: readonly TsbindgenType[];
   readonly exports?: Readonly<Record<string, TsbindgenExport>>;
 };
 
-export type FirstPartySemanticSurfaceFile = {
-  readonly types: readonly unknown[];
-  readonly exports?: Readonly<Record<string, unknown>>;
-};
-
-export type FirstPartyBindingsFileV2 = {
-  readonly namespace: string;
-  readonly contributingAssemblies?: readonly string[];
-  readonly producer: {
-    readonly tool: "tsonic";
-    readonly mode: "tsonic-firstparty";
-  };
-  readonly semanticSurface: FirstPartySemanticSurfaceFile;
-  readonly targetSurface: {
-    readonly types: readonly TsbindgenType[];
-    readonly exports?: Readonly<Record<string, TsbindgenExport>>;
-  };
+export type BindingFile = {
+  readonly schema: typeof TSONIC_BINDINGS_SCHEMA;
+  readonly provider: BindingProviderDescriptor;
+  readonly sourceSurface?: BindingSourceSurface;
+  readonly targetSurface: BindingTargetSurface;
 };
 
 const isValidEmitCallStyle = (value: unknown): value is EmitCallStyle =>
@@ -383,38 +368,6 @@ const validateTsbindgenExport = (
 };
 
 /**
- * Union type for all binding formats
- */
-export type BindingFile =
-  | FullBindingManifest
-  | SimpleBindingFile
-  | TsbindgenBindingFile
-  | FirstPartyBindingsFileV2;
-
-/**
- * Type guard to check if a manifest is the full format
- */
-export const isFullBindingManifest = (
-  manifest: BindingFile
-): manifest is FullBindingManifest => {
-  return "assembly" in manifest && "namespaces" in manifest;
-};
-
-/**
- * Type guard to check if a manifest is the tsbindgen format
- */
-export const isTsbindgenBindingFile = (
-  manifest: BindingFile
-): manifest is TsbindgenBindingFile => {
-  return (
-    "namespace" in manifest &&
-    "types" in manifest &&
-    !("namespaces" in manifest) &&
-    !("targetSurface" in manifest)
-  );
-};
-
-/**
  * Validate that a parsed JSON object is a valid binding file format.
  * Returns an error message if invalid, undefined if valid.
  */
@@ -428,188 +381,164 @@ export const validateBindingFile = (
 
   const manifest = obj as Record<string, unknown>;
 
-  if ("namespace" in manifest && "targetSurface" in manifest) {
-    if (typeof manifest.namespace !== "string") {
-      return `${filePath}: 'namespace' must be a string`;
-    }
+  if (manifest.schema !== TSONIC_BINDINGS_SCHEMA) {
+    return `${filePath}: 'schema' must be '${TSONIC_BINDINGS_SCHEMA}'`;
+  }
+
+  if (
+    manifest.provider === null ||
+    typeof manifest.provider !== "object" ||
+    Array.isArray(manifest.provider)
+  ) {
+    return `${filePath}: 'provider' must be an object`;
+  }
+
+  const provider = manifest.provider as Record<string, unknown>;
+  if (typeof provider.namespace !== "string") {
+    return `${filePath}: 'provider.namespace' must be a string`;
+  }
+  if (
+    provider.ownerIdentities !== undefined &&
+    !(
+      Array.isArray(provider.ownerIdentities) &&
+      provider.ownerIdentities.every((entry) => typeof entry === "string")
+    )
+  ) {
+    return `${filePath}: 'provider.ownerIdentities' must be a string array when present`;
+  }
+  if (
+    provider.targetRuntimeVersion !== undefined &&
+    typeof provider.targetRuntimeVersion !== "string"
+  ) {
+    return `${filePath}: 'provider.targetRuntimeVersion' must be a string when present`;
+  }
+
+  if (
+    manifest.targetSurface === null ||
+    typeof manifest.targetSurface !== "object" ||
+    Array.isArray(manifest.targetSurface)
+  ) {
+    return `${filePath}: 'targetSurface' must be an object`;
+  }
+
+  const targetSurface = manifest.targetSurface as Record<string, unknown>;
+  if (!Array.isArray(targetSurface.types)) {
+    return `${filePath}: 'targetSurface.types' must be an array`;
+  }
+
+  for (const [typeIndex, typeValue] of targetSurface.types.entries()) {
+    if (typeValue === null || typeof typeValue !== "object") continue;
+    const typeRecord = typeValue as Record<string, unknown>;
     if (
-      manifest.targetSurface === null ||
-      typeof manifest.targetSurface !== "object" ||
-      Array.isArray(manifest.targetSurface)
+      "alias" in typeRecord &&
+      typeRecord.alias !== undefined &&
+      typeof typeRecord.alias !== "string"
     ) {
-      return `${filePath}: 'targetSurface' must be an object`;
+      return `${filePath}: 'targetSurface.types[${typeIndex}].alias' must be a string when present`;
     }
-    const targetSurfaceRecord = manifest.targetSurface as Record<
-      string,
-      unknown
-    >;
-    if (!Array.isArray(targetSurfaceRecord.types)) {
-      return `${filePath}: 'targetSurface.types' must be an array`;
+    const methods = Array.isArray(typeRecord.methods) ? typeRecord.methods : [];
+    for (const [methodIndex, methodValue] of methods.entries()) {
+      if (methodValue === null || typeof methodValue !== "object") continue;
+      const error = validateEmitSemantics(
+        (methodValue as Record<string, unknown>).emitSemantics,
+        filePath,
+        `targetSurface.types[${typeIndex}].methods[${methodIndex}].emitSemantics`
+      );
+      if (error) return error;
     }
+  }
+
+  if ("exports" in targetSurface) {
+    const exportsValue = targetSurface.exports;
     if (
-      "exports" in targetSurfaceRecord &&
-      targetSurfaceRecord.exports !== undefined &&
-      (targetSurfaceRecord.exports === null ||
-        typeof targetSurfaceRecord.exports !== "object" ||
-        Array.isArray(targetSurfaceRecord.exports))
+      exportsValue !== undefined &&
+      (exportsValue === null ||
+        typeof exportsValue !== "object" ||
+        Array.isArray(exportsValue))
     ) {
       return `${filePath}: 'targetSurface.exports' must be an object when present`;
     }
-    if (
-      !("semanticSurface" in manifest) ||
-      manifest.semanticSurface === null ||
-      typeof manifest.semanticSurface !== "object" ||
-      Array.isArray(manifest.semanticSurface)
-    ) {
-      return `${filePath}: 'semanticSurface' must be an object`;
-    }
-    const semanticSurface = manifest.semanticSurface as Record<string, unknown>;
-    if (!Array.isArray(semanticSurface.types)) {
-      return `${filePath}: 'semanticSurface.types' must be an array`;
-    }
-    if (
-      "exports" in semanticSurface &&
-      semanticSurface.exports !== undefined &&
-      (semanticSurface.exports === null ||
-        typeof semanticSurface.exports !== "object" ||
-        Array.isArray(semanticSurface.exports))
-    ) {
-      return `${filePath}: 'semanticSurface.exports' must be an object when present`;
-    }
-    const producer = manifest.producer;
-    if (
-      producer === null ||
-      typeof producer !== "object" ||
-      Array.isArray(producer)
-    ) {
-      return `${filePath}: 'producer' must be an object`;
-    }
-    const producerRecord = producer as Record<string, unknown>;
-    if (producerRecord.tool !== "tsonic") {
-      return `${filePath}: 'producer.tool' must be "tsonic"`;
-    }
-    if (producerRecord.mode !== "tsonic-firstparty") {
-      return `${filePath}: 'producer.mode' must be "tsonic-firstparty"`;
-    }
-    const normalizedV2: Record<string, unknown> = {
-      namespace: manifest.namespace,
-      types: targetSurfaceRecord.types,
-      exports: targetSurfaceRecord.exports,
-    };
-    return validateBindingFile(normalizedV2, filePath);
-  }
-
-  // Check for tsbindgen format
-  if ("namespace" in manifest && "types" in manifest) {
-    if (typeof manifest.namespace !== "string") {
-      return `${filePath}: 'namespace' must be a string`;
-    }
-    if (!Array.isArray(manifest.types)) {
-      return `${filePath}: 'types' must be an array`;
-    }
-    for (const [typeIndex, typeValue] of manifest.types.entries()) {
-      if (typeValue === null || typeof typeValue !== "object") continue;
-      const typeRecord = typeValue as Record<string, unknown>;
-      if (
-        "alias" in typeRecord &&
-        typeRecord.alias !== undefined &&
-        typeof typeRecord.alias !== "string"
-      ) {
-        return `${filePath}: 'types[${typeIndex}].alias' must be a string when present`;
-      }
-      const methods = Array.isArray(typeRecord.methods)
-        ? typeRecord.methods
-        : [];
-      for (const [methodIndex, methodValue] of methods.entries()) {
-        if (methodValue === null || typeof methodValue !== "object") continue;
-        const error = validateEmitSemantics(
-          (methodValue as Record<string, unknown>).emitSemantics,
+    if (exportsValue && typeof exportsValue === "object") {
+      for (const [exportName, exportValue] of Object.entries(exportsValue)) {
+        const error = validateTsbindgenExport(
+          exportValue,
           filePath,
-          `types[${typeIndex}].methods[${methodIndex}].emitSemantics`
+          `targetSurface.exports.${exportName}`
         );
         if (error) return error;
       }
     }
-    if ("exports" in manifest) {
-      const exportsValue = manifest.exports;
-      if (
-        exportsValue !== undefined &&
-        (exportsValue === null ||
-          typeof exportsValue !== "object" ||
-          Array.isArray(exportsValue))
-      ) {
-        return `${filePath}: 'exports' must be an object when present`;
-      }
-      if (exportsValue && typeof exportsValue === "object") {
-        for (const [exportName, exportValue] of Object.entries(exportsValue)) {
-          const error = validateTsbindgenExport(
-            exportValue,
-            filePath,
-            `exports.${exportName}`
-          );
-          if (error) return error;
-        }
-      }
-    }
-    return undefined; // Valid tsbindgen format
   }
 
-  // Check for full manifest format
-  if ("assembly" in manifest && "namespaces" in manifest) {
-    if (typeof manifest.assembly !== "string") {
-      return `${filePath}: 'assembly' must be a string`;
+  if (manifest.sourceSurface !== undefined) {
+    if (
+      manifest.sourceSurface === null ||
+      typeof manifest.sourceSurface !== "object" ||
+      Array.isArray(manifest.sourceSurface)
+    ) {
+      return `${filePath}: 'sourceSurface' must be an object when present`;
     }
-    if (!Array.isArray(manifest.namespaces)) {
-      return `${filePath}: 'namespaces' must be an array`;
+
+    const sourceSurface = manifest.sourceSurface as Record<string, unknown>;
+    if (
+      sourceSurface.bindings !== undefined &&
+      (typeof sourceSurface.bindings !== "object" ||
+        sourceSurface.bindings === null ||
+        Array.isArray(sourceSurface.bindings))
+    ) {
+      return `${filePath}: 'sourceSurface.bindings' must be an object when present`;
     }
-    for (const [
-      namespaceIndex,
-      namespaceValue,
-    ] of manifest.namespaces.entries()) {
-      if (namespaceValue === null || typeof namespaceValue !== "object")
-        continue;
-      const namespaceRecord = namespaceValue as Record<string, unknown>;
-      const types = Array.isArray(namespaceRecord.types)
-        ? namespaceRecord.types
-        : [];
-      for (const [typeIndex, typeValue] of types.entries()) {
-        if (typeValue === null || typeof typeValue !== "object") continue;
-        const typeRecord = typeValue as Record<string, unknown>;
-        const members = Array.isArray(typeRecord.members)
-          ? typeRecord.members
+    if (sourceSurface.bindings && typeof sourceSurface.bindings === "object") {
+      for (const [bindingName, bindingValue] of Object.entries(
+        sourceSurface.bindings as Record<string, unknown>
+      )) {
+        if (bindingValue === null || typeof bindingValue !== "object") continue;
+        const error = validateTypeSemantics(
+          (bindingValue as Record<string, unknown>).typeSemantics,
+          filePath,
+          `sourceSurface.bindings.${bindingName}.typeSemantics`
+        );
+        if (error) return error;
+      }
+    }
+
+    if (
+      sourceSurface.namespaces !== undefined &&
+      !Array.isArray(sourceSurface.namespaces)
+    ) {
+      return `${filePath}: 'sourceSurface.namespaces' must be an array when present`;
+    }
+    if (Array.isArray(sourceSurface.namespaces)) {
+      for (const [
+        namespaceIndex,
+        namespaceValue,
+      ] of sourceSurface.namespaces.entries()) {
+        if (namespaceValue === null || typeof namespaceValue !== "object")
+          continue;
+        const namespaceRecord = namespaceValue as Record<string, unknown>;
+        const types = Array.isArray(namespaceRecord.types)
+          ? namespaceRecord.types
           : [];
-        for (const [memberIndex, memberValue] of members.entries()) {
-          if (memberValue === null || typeof memberValue !== "object") continue;
-          const error = validateEmitSemantics(
-            (memberValue as Record<string, unknown>).emitSemantics,
-            filePath,
-            `namespaces[${namespaceIndex}].types[${typeIndex}].members[${memberIndex}].emitSemantics`
-          );
-          if (error) return error;
+        for (const [typeIndex, typeValue] of types.entries()) {
+          if (typeValue === null || typeof typeValue !== "object") continue;
+          const typeRecord = typeValue as Record<string, unknown>;
+          const members = Array.isArray(typeRecord.members)
+            ? typeRecord.members
+            : [];
+          for (const [memberIndex, memberValue] of members.entries()) {
+            if (memberValue === null || typeof memberValue !== "object")
+              continue;
+            const error = validateEmitSemantics(
+              (memberValue as Record<string, unknown>).emitSemantics,
+              filePath,
+              `sourceSurface.namespaces[${namespaceIndex}].types[${typeIndex}].members[${memberIndex}].emitSemantics`
+            );
+            if (error) return error;
+          }
         }
       }
     }
-    return undefined; // Valid full format
   }
 
-  // Check for simple format (global/module bindings)
-  if ("bindings" in manifest) {
-    if (typeof manifest.bindings !== "object" || manifest.bindings === null) {
-      return `${filePath}: 'bindings' must be an object`;
-    }
-    for (const [bindingName, bindingValue] of Object.entries(
-      manifest.bindings as Record<string, unknown>
-    )) {
-      if (bindingValue === null || typeof bindingValue !== "object") continue;
-      const error = validateTypeSemantics(
-        (bindingValue as Record<string, unknown>).typeSemantics,
-        filePath,
-        `bindings.${bindingName}.typeSemantics`
-      );
-      if (error) return error;
-    }
-    return undefined; // Valid simple format
-  }
-
-  return `${filePath}: Unrecognized binding file format. Expected tsbindgen (namespace+types), full (assembly+namespaces), or simple (bindings) format.`;
+  return undefined;
 };

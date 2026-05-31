@@ -25,7 +25,7 @@ export const resolveExactGlobalBindingFqn = (
   }
 
   if (descriptor.providerMemberName) {
-    return `global::${descriptor.assembly}.${descriptor.providerMemberName}`;
+    return `global::${descriptor.ownerIdentity}.${descriptor.providerMemberName}`;
   }
 
   const targetType =

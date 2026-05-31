@@ -20,15 +20,13 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/node.json", {
-        bindings: {
+      bindings.addBindings("/test/node.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           fs: {
             kind: "module",
-            assembly: "Tsonic.NodeApi",
+            ownerIdentity: "Tsonic.NodeApi",
             type: "Tsonic.NodeApi.fs",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -124,16 +122,14 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "System",
+            ownerIdentity: "System",
             type: "System.Console",
             providerMemberName: "Console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -183,16 +179,14 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Math: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.Math",
             // No providerMemberName specified
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];

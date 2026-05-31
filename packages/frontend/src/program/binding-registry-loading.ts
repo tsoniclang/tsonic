@@ -17,7 +17,6 @@ import type {
   TsbindgenExport,
   BindingFile,
 } from "./binding-types.js";
-import { isFullBindingManifest } from "./binding-types.js";
 import { getExternalBindingPayload } from "./external-binding-payload.js";
 
 // ---------------------------------------------------------------------------
@@ -55,10 +54,10 @@ export type MutableRegistryState = {
 // ---------------------------------------------------------------------------
 
 export const makeTargetMemberKey = (
-  assembly: string,
+  ownerIdentity: string,
   targetType: string,
   targetMember: string
-): string => `${assembly}:${targetType}::${targetMember}`;
+): string => `${ownerIdentity}:${targetType}::${targetMember}`;
 
 /**
  * Extract external namespace key ('.' -> '_') from a full target type name.
@@ -173,7 +172,7 @@ const getMemberBindingOverloadDiscriminator = (
 };
 
 const getMemberBindingIdentityKey = (member: MemberBinding): string =>
-  `${member.kind}:${member.alias}:${member.binding.assembly}:${member.binding.type}:${member.binding.member}:${getMemberBindingOverloadDiscriminator(member)}`;
+  `${member.kind}:${member.alias}:${member.binding.ownerIdentity}:${member.binding.type}:${member.binding.member}:${getMemberBindingOverloadDiscriminator(member)}`;
 
 const throwMemberBindingConflict = (
   context: string,
@@ -814,7 +813,7 @@ const throwOnExplicitAliasConflict = (
 
 /**
  * Load a binding manifest file and add its bindings to the registry state.
- * Supports simple, full, and tsbindgen formats.
+ * Supports the canonical Tsonic bindings schema only.
  */
 export const addBindingsToState = (
   state: MutableRegistryState,
@@ -839,7 +838,7 @@ export const addBindingsToState = (
     if (member.kind !== "method") return;
 
     const targetMemberKey = makeTargetMemberKey(
-      member.binding.assembly,
+      member.binding.ownerIdentity,
       member.binding.type,
       member.binding.member
     );
@@ -864,93 +863,87 @@ export const addBindingsToState = (
     }
   };
 
-  if (isFullBindingManifest(manifest)) {
-    // Full format: hierarchical namespace/type/member structure
-    // Index by alias (TS identifier) for quick lookup
-    for (const ns of manifest.namespaces) {
-      const canonicalTypes = ns.types.map((type) =>
-        canonicalizeTypeBinding(state, ns.name, type, preferSimpleAlias)
-      );
-      state.namespaces.set(
-        ns.alias,
-        mergeNamespaceBinding(state.namespaces.get(ns.alias), {
-          ...ns,
-          types: canonicalTypes,
-        })
-      );
+  for (const ns of manifest.sourceSurface?.namespaces ?? []) {
+    const canonicalTypes = ns.types.map((type) =>
+      canonicalizeTypeBinding(state, ns.name, type, preferSimpleAlias)
+    );
+    state.namespaces.set(
+      ns.alias,
+      mergeNamespaceBinding(state.namespaces.get(ns.alias), {
+        ...ns,
+        types: canonicalTypes,
+      })
+    );
 
-      // Index types for quick lookup by TS alias
-      for (const type of canonicalTypes) {
-        if (preferSimpleAlias && !type.alias.includes(".")) {
-          state.sourceOwnedTypeAliases.add(type.alias);
-        }
-        const existing = state.types.get(type.alias);
-        const merged = mergeTypeBinding(existing, type, `${ns.alias}`);
-        state.targetTypeNames.add(merged.name);
-        state.types.set(merged.alias, merged);
-        if (!state.typeLookupAliasMap.has(type.name)) {
-          state.typeLookupAliasMap.set(type.name, merged.alias);
-        }
-        if (!merged.alias.includes(".")) {
-          state.typeLookupAliasMap.set(
-            `${ns.name}.${type.alias}`,
-            merged.alias
-          );
-        }
-        const simpleTargetName = merged.name.split(".").pop();
-        if (
-          simpleTargetName &&
-          simpleTargetName !== merged.alias &&
-          !state.types.has(simpleTargetName) &&
-          !state.typeLookupAliasMap.has(simpleTargetName)
-        ) {
-          state.typeLookupAliasMap.set(simpleTargetName, merged.alias);
-        }
-        recordTargetTypeAlias(merged.alias, merged.name);
+    for (const type of canonicalTypes) {
+      if (preferSimpleAlias && !type.alias.includes(".")) {
+        state.sourceOwnedTypeAliases.add(type.alias);
+      }
+      const existing = state.types.get(type.alias);
+      const merged = mergeTypeBinding(existing, type, `${ns.alias}`);
+      state.targetTypeNames.add(merged.name);
+      state.types.set(merged.alias, merged);
+      if (!state.typeLookupAliasMap.has(type.name)) {
+        state.typeLookupAliasMap.set(type.name, merged.alias);
+      }
+      if (!merged.alias.includes(".")) {
+        state.typeLookupAliasMap.set(`${ns.name}.${type.alias}`, merged.alias);
+      }
+      const simpleTargetName = merged.name.split(".").pop();
+      if (
+        simpleTargetName &&
+        simpleTargetName !== merged.alias &&
+        !state.types.has(simpleTargetName) &&
+        !state.typeLookupAliasMap.has(simpleTargetName)
+      ) {
+        state.typeLookupAliasMap.set(simpleTargetName, merged.alias);
+      }
+      recordTargetTypeAlias(merged.alias, merged.name);
 
-        // Index members for quick lookup (keyed by "typeAlias.memberAlias")
-        for (const member of merged.members) {
-          const key = `${merged.alias}.${member.alias}`;
-          state.members.set(key, member);
-          addMemberOverload(key, member);
-          addTargetMemberOverload(member);
-        }
+      for (const member of merged.members) {
+        const key = `${merged.alias}.${member.alias}`;
+        state.members.set(key, member);
+        addMemberOverload(key, member);
+        addTargetMemberOverload(member);
       }
     }
-  } else {
-    const externalPayload = getExternalBindingPayload(manifest);
-    if (!externalPayload) {
-      if (!("bindings" in manifest)) {
-        return;
-      }
-      // Simple format: global/module bindings
-      for (const [name, descriptor] of Object.entries(manifest.bindings)) {
-        if (descriptor.kind === "global") {
-          if (
-            shouldPreferIncomingSimpleBinding(
-              state.simpleGlobalBindings.get(name),
-              descriptor
-            )
-          ) {
-            state.simpleGlobalBindings.set(name, descriptor);
-          }
-        } else {
-          if (
-            shouldPreferIncomingSimpleBinding(
-              state.simpleModuleBindings.get(name),
-              descriptor
-            )
-          ) {
-            state.simpleModuleBindings.set(name, descriptor);
-          }
-        }
-        setPreferredSimpleBinding(name, descriptor);
-      }
-      return;
-    }
+  }
 
-    const manifestNamespace = externalPayload.namespace;
-    // External binding format: convert to internal format
+  for (const [name, descriptor] of Object.entries(
+    manifest.sourceSurface?.bindings ?? {}
+  )) {
+    if (descriptor.kind === "global") {
+      if (
+        shouldPreferIncomingSimpleBinding(
+          state.simpleGlobalBindings.get(name),
+          descriptor
+        )
+      ) {
+        state.simpleGlobalBindings.set(name, descriptor);
+      }
+    } else {
+      if (
+        shouldPreferIncomingSimpleBinding(
+          state.simpleModuleBindings.get(name),
+          descriptor
+        )
+      ) {
+        state.simpleModuleBindings.set(name, descriptor);
+      }
+    }
+    setPreferredSimpleBinding(name, descriptor);
+  }
+
+  const externalPayload = getExternalBindingPayload(manifest);
+  if (
+    externalPayload.types.length === 0 &&
+    externalPayload.exports === undefined
+  ) {
+    return;
+  }
+
+  const manifestNamespace = externalPayload.namespace;
+  // External provider target surface: convert to registry indexes.
     const namespaceTypes: TypeBinding[] = [];
     const derivedAliasCounts = new Map<string, number>();
 
@@ -1017,7 +1010,7 @@ export const addBindingsToState = (
           overloadFamily: method.overloadFamily,
           parameterCount: method.parameterCount,
           binding: {
-            assembly: methodOwnerIdentity,
+            ownerIdentity: methodOwnerIdentity,
             type: methodOwnerTargetName,
             member: method.targetName,
           },
@@ -1079,7 +1072,7 @@ export const addBindingsToState = (
           name: prop.targetName,
           alias: prop.targetName,
           binding: {
-            assembly: propOwnerIdentity,
+            ownerIdentity: propOwnerIdentity,
             type: propOwnerTargetName,
             member: prop.targetName,
           },
@@ -1101,7 +1094,7 @@ export const addBindingsToState = (
           name: field.targetName,
           alias: field.targetName,
           binding: {
-            assembly: fieldOwnerIdentity,
+            ownerIdentity: fieldOwnerIdentity,
             type: fieldOwnerTargetName,
             member: field.targetName,
           },
@@ -1294,13 +1287,12 @@ export const addBindingsToState = (
       state.tsbindgenExports.set(manifestNamespace, nsExports);
     }
 
-    state.namespaces.set(
-      manifestNamespace,
-      mergeNamespaceBinding(state.namespaces.get(manifestNamespace), {
-        name: manifestNamespace,
-        alias: manifestNamespace,
-        types: namespaceTypes,
-      })
-    );
-  }
+  state.namespaces.set(
+    manifestNamespace,
+    mergeNamespaceBinding(state.namespaces.get(manifestNamespace), {
+      name: manifestNamespace,
+      alias: manifestNamespace,
+      types: namespaceTypes,
+    })
+  );
 };

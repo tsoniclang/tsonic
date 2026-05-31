@@ -71,8 +71,9 @@ const createTestProgram = (
     options: {
       projectRoot: sourceRoot,
       sourceRoot,
-      rootNamespace: "Test",
-      surface: options?.surface,
+      rootNamespace: "TestApp",
+      strict: true,
+      surface: options?.surface ?? "core",
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
@@ -111,23 +112,20 @@ const attachNodejsSurfaceBindings = (
   moduleNames: readonly string[]
 ): void => {
   const uniqueModules = Array.from(new Set(moduleNames));
-  testProgram.bindings.addBindings("/test/node-types.json", {
-    namespace: "nodejs",
-    types: uniqueModules.map((moduleName) => ({
+  testProgram.bindings.addBindings("/test/node-types.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: uniqueModules.map((moduleName) => ({
       targetName: `nodejs.${moduleName}`,
       ownerIdentity: "nodejs",
       methods: [],
       properties: [],
       fields: [],
-    })),
-  });
+    })) } });
   const bindings = Object.fromEntries(
     uniqueModules.flatMap((moduleName) => [
       [
         `node:${moduleName}`,
         {
           kind: "module" as const,
-          assembly: "nodejs",
+          ownerIdentity: "nodejs",
           type: `nodejs.${moduleName}`,
         },
       ],
@@ -135,14 +133,17 @@ const attachNodejsSurfaceBindings = (
         moduleName,
         {
           kind: "module" as const,
-          assembly: "nodejs",
+          ownerIdentity: "nodejs",
           type: `nodejs.${moduleName}`,
         },
       ],
     ])
   );
   testProgram.bindings.addBindings("/test/node-bindings.json", {
-    bindings,
+    schema: "tsonic.bindings",
+    provider: { namespace: "sourceSurface" },
+    sourceSurface: { bindings },
+    targetSurface: { types: [] },
   });
 };
 

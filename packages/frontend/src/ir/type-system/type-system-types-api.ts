@@ -436,7 +436,7 @@ export type TypeSystemConfig = {
   readonly convertTypeNode: (node: unknown) => IrType;
 
   /**
-   * Unified type catalog for native target assembly type lookups.
+   * Unified type catalog for native target external type lookups.
    *
    * When provided, member lookups will fall through to this catalog
    * for types not found in TypeRegistry (e.g., provider string, provider int32).

@@ -133,7 +133,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "MyApp",
+              ownerIdentity: "MyApp",
               type: "MyApp.Ok",
               member: "success",
             },
@@ -153,7 +153,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "MyApp",
+              ownerIdentity: "MyApp",
               type: "MyApp.Err",
               member: "error",
             },
@@ -173,7 +173,7 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "MyApp",
+              ownerIdentity: "MyApp",
               type: "MyApp.Ok",
               member: "data",
             },

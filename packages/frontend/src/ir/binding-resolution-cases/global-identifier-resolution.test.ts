@@ -26,15 +26,13 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -120,15 +118,13 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Math: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.Math",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -170,24 +166,20 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js.json", {
-        bindings: {
+      bindings.addBindings("/test/js.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
-      bindings.addBindings("/test/nodejs.json", {
-        bindings: {
+        } }, targetSurface: { types: [] } });
+      bindings.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -813,16 +805,14 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           setInterval: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Timers",
             providerMemberName: "Timers.setInterval",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
@@ -874,19 +864,15 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           setInterval: {
             kind: "global",
-            assembly: "Acme.ExternalRuntime",
+            ownerIdentity: "Acme.ExternalRuntime",
             type: "Acme.ExternalRuntime.Timers",
             providerMemberName: "Timers.setInterval",
           },
-        },
-      });
-      bindings.addBindings("/test/Acme.ExternalRuntime/bindings.json", {
-        namespace: "Acme.ExternalRuntime",
-        types: [
+        } }, targetSurface: { types: [] } });
+      bindings.addBindings("/test/Acme.ExternalRuntime/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Acme.ExternalRuntime" }, targetSurface: { types: [
           {
             targetName: "Acme.ExternalRuntime.Timers",
             ownerIdentity: "Acme.ExternalRuntime",
@@ -1006,8 +992,7 @@ describe("Binding Resolution in IR", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];

@@ -1,12 +1,17 @@
 {
-  "namespace": "Acme.Core",
-  "types": [
-    {
-      "targetName": "Acme.Core.Ok__Alias`1",
-      "ownerIdentity": "Acme.Core",
-      "methods": [],
-      "properties": [],
-      "fields": []
-    }
-  ]
+  "schema": "tsonic.bindings",
+  "provider": {
+    "namespace": "Acme.Core"
+  },
+  "targetSurface": {
+    "types": [
+      {
+        "targetName": "Acme.Core.Ok__Alias`1",
+        "ownerIdentity": "Acme.Core",
+        "methods": [],
+        "properties": [],
+        "fields": []
+      }
+    ]
+  }
 }

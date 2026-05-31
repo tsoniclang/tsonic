@@ -331,7 +331,7 @@ describe("Attribute Collection Pass", () => {
                 isOptional: false,
                 memberBinding: {
                   kind: "property",
-                  assembly: "System.Runtime.InteropServices",
+                  ownerIdentity: "System.Runtime.InteropServices",
                   type: "System.Runtime.InteropServices.LayoutKind",
                   member: "Sequential",
                 },

@@ -1,6 +1,6 @@
 /**
  * Binding Registry - runtime registry of all loaded bindings
- * Supports simple (global/module) and hierarchical (namespace/type/member) formats
+ * Supports source-surface globals/modules and target-surface namespaces/types/members
  *
  * This file is a thin facade. Heavy logic lives in:
  *   - binding-registry-resolution.ts  (member & extension-method resolution)
@@ -51,7 +51,7 @@ const getSimpleBindingIdentityTargetType = (
 
 /**
  * Registry of all loaded bindings
- * Supports simple (global/module) and hierarchical (namespace/type/member) formats
+ * Supports source-surface globals/modules and target-surface namespaces/types/members
  */
 export class BindingRegistry {
   private readonly loadedBindingFiles = new Set<string>();
@@ -117,8 +117,7 @@ export class BindingRegistry {
   }
 
   /**
-   * Load a binding manifest file and add its bindings to the registry
-   * Supports simple, full, and tsbindgen formats
+   * Load a canonical binding file and add its source and target surfaces to the registry
    */
   addBindings(_filePath: string, manifest: BindingFile): void {
     addBindingsToState(
@@ -237,12 +236,12 @@ export class BindingRegistry {
    * Keyed by declaring owner, target type, and target member name.
    */
   getTargetMemberOverloads(
-    assembly: string,
+    ownerIdentity: string,
     targetType: string,
     targetMember: string
   ): readonly MemberBinding[] | undefined {
     return this.targetMemberOverloads.get(
-      makeTargetMemberKey(assembly, targetType, targetMember)
+      makeTargetMemberKey(ownerIdentity, targetType, targetMember)
     );
   }
 

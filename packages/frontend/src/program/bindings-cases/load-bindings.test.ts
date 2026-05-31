@@ -32,15 +32,13 @@ describe("Binding System", () => {
     it("should load bindings from a manifest file in typeRoot", () => {
       // Create a test binding manifest
       const manifestPath = path.join(tempDir, "bindings.json");
-      const manifest = {
-        bindings: {
+      const manifest = { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
-        },
-      };
+        } }, targetSurface: { types: [] } };
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
       const registry = loadBindings([tempDir]);
@@ -48,7 +46,7 @@ describe("Binding System", () => {
       const binding = registry.getBinding("console");
       expect(binding).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.Runtime",
+        ownerIdentity: "Tsonic.Runtime",
         type: "Tsonic.Runtime.console",
       });
     });
@@ -83,22 +81,20 @@ describe("Binding System", () => {
       fs.writeFileSync(
         path.join(tempDir, "bindings.json"),
         JSON.stringify(
-          {
-            bindings: {
+          { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
               setInterval: {
                 kind: "global",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Timers",
                 providerMemberName: "Timers.setInterval",
               },
               clearInterval: {
                 kind: "global",
-                assembly: "js",
+                ownerIdentity: "js",
                 type: "js.Timers",
                 providerMemberName: "Timers.clearInterval",
               },
-            },
-          },
+            } }, targetSurface: { types: [] } },
           null,
           2
         )
@@ -108,13 +104,13 @@ describe("Binding System", () => {
 
       expect(registry.getBinding("setInterval")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Timers",
         providerMemberName: "Timers.setInterval",
       });
       expect(registry.getBinding("clearInterval")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Timers",
         providerMemberName: "Timers.clearInterval",
       });
@@ -127,15 +123,13 @@ describe("Binding System", () => {
 
       const namespaceDir = path.join(tempDir, "Runtime");
       fs.mkdirSync(namespaceDir, { recursive: true });
-      const manifest = {
-        bindings: {
+      const manifest = { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Math: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.Math",
           },
-        },
-      };
+        } }, targetSurface: { types: [] } };
       fs.writeFileSync(
         path.join(namespaceDir, "bindings.json"),
         JSON.stringify(manifest, null, 2)
@@ -146,7 +140,7 @@ describe("Binding System", () => {
       const binding = registry.getBinding("Math");
       expect(binding).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.Runtime",
+        ownerIdentity: "Tsonic.Runtime",
         type: "Tsonic.Runtime.Math",
       });
     });
@@ -164,30 +158,26 @@ describe("Binding System", () => {
       fs.mkdirSync(dir2);
 
       // Create manifest in first directory
-      const manifest1 = {
-        bindings: {
+      const manifest1 = { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
-        },
-      };
+        } }, targetSurface: { types: [] } };
       fs.writeFileSync(
         path.join(dir1, "bindings.json"),
         JSON.stringify(manifest1, null, 2)
       );
 
       // Create manifest in second directory
-      const manifest2 = {
-        bindings: {
+      const manifest2 = { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           fs: {
             kind: "module",
-            assembly: "Tsonic.NodeApi",
+            ownerIdentity: "Tsonic.NodeApi",
             type: "Tsonic.NodeApi.fs",
           },
-        },
-      };
+        } }, targetSurface: { types: [] } };
       fs.writeFileSync(
         path.join(dir2, "bindings.json"),
         JSON.stringify(manifest2, null, 2)
@@ -210,20 +200,18 @@ describe("Binding System", () => {
     });
 
     it("should distinguish between global and module bindings", () => {
-      const manifest = {
-        bindings: {
+      const manifest = { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
           fs: {
             kind: "module",
-            assembly: "Tsonic.NodeApi",
+            ownerIdentity: "Tsonic.NodeApi",
             type: "Tsonic.NodeApi.fs",
           },
-        },
-      };
+        } }, targetSurface: { types: [] } };
       fs.writeFileSync(
         path.join(tempDir, "bindings.json"),
         JSON.stringify(manifest, null, 2)
@@ -248,14 +236,14 @@ describe("Binding System", () => {
 
         expect(registry.getBinding("Date")).to.deep.equal({
           kind: "global",
-          assembly: "fixture.js",
+          ownerIdentity: "fixture.js",
           type: "fixture.js.Date",
           staticType: "fixture.js.Date",
           sourceImport: "@fixture/js/date-object.js",
         });
         expect(registry.getBinding("parseInt")).to.deep.equal({
           kind: "global",
-          assembly: "fixture.js",
+          ownerIdentity: "fixture.js",
           type: "fixture.js.Globals.parseInt",
           staticType: "fixture.js.Globals.parseInt",
           sourceImport: "@fixture/js/Globals.js",
@@ -335,21 +323,21 @@ describe("Binding System", () => {
 
       expect(registry.getBinding("console")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.console.console",
         staticType: "js.console.console",
         sourceImport: "@tsonic/js/console.js",
       });
       expect(registry.getBinding("String")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Globals.String",
         staticType: "js.Globals.String",
         sourceImport: "@tsonic/js/Globals.js",
       });
       expect(registry.getBinding("Number")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Globals.Number",
         staticType: "js.Globals.Number",
         sourceImport: "@tsonic/js/Globals.js",
@@ -366,14 +354,14 @@ describe("Binding System", () => {
 
         expect(registry.getBinding("Date")).to.deep.equal({
           kind: "global",
-          assembly: "fixture.js",
+          ownerIdentity: "fixture.js",
           type: "fixture.js.Date",
           staticType: "fixture.js.Date",
           sourceImport: "@fixture/js/date-object.js",
         });
         expect(registry.getBinding("parseInt")).to.deep.equal({
           kind: "global",
-          assembly: "fixture.js",
+          ownerIdentity: "fixture.js",
           type: "fixture.js.Globals.parseInt",
           staticType: "fixture.js.Globals.parseInt",
           sourceImport: "@fixture/js/Globals.js",
@@ -393,7 +381,7 @@ describe("Binding System", () => {
 
         expect(registry.getBinding("Widget")).to.deep.equal({
           kind: "global",
-          assembly: "fixture.js",
+          ownerIdentity: "fixture.js",
           type: "fixture.js.Widget",
           staticType: "fixture.js.Widget",
           sourceImport: "@fixture/js/Widget.js",
@@ -401,7 +389,7 @@ describe("Binding System", () => {
         });
         expect(registry.getBinding("parse")).to.deep.equal({
           kind: "global",
-          assembly: "fixture.js",
+          ownerIdentity: "fixture.js",
           type: "fixture.js.parse.parse",
           staticType: "fixture.js.parse.parse",
           sourceImport: "@fixture/js/parse.js",
@@ -448,7 +436,7 @@ describe("Binding System", () => {
         expect(overloads).to.not.equal(undefined);
         expect(overloads?.[0]?.isExtensionMethod).to.equal(true);
         expect(overloads?.[0]?.binding).to.deep.equal({
-          assembly: "fixture.js",
+          ownerIdentity: "fixture.js",
           type: "fixture.js.Number",
           member: "toString",
         });
@@ -680,7 +668,7 @@ describe("Binding System", () => {
         const binding = registry.getBinding("runtimeLog");
         expect(binding).to.deep.equal({
           kind: "global",
-          assembly: "Acme.Runtime",
+          ownerIdentity: "Acme.Runtime",
           type: "Acme.Runtime.Log",
         });
       } finally {
@@ -702,7 +690,7 @@ describe("Binding System", () => {
         const binding = registry.getBinding("depGlobal");
         expect(binding).to.deep.equal({
           kind: "global",
-          assembly: "Acme.Dep",
+          ownerIdentity: "Acme.Dep",
           type: "Acme.Dep.Global",
         });
       } finally {
@@ -722,7 +710,7 @@ describe("Binding System", () => {
         const binding = registry.getBinding("SerializableAttribute");
         expect(binding).to.deep.equal({
           kind: "global",
-          assembly: "System.Runtime",
+          ownerIdentity: "System.Runtime",
           type: "System.SerializableAttribute",
         });
       } finally {
@@ -743,7 +731,7 @@ describe("Binding System", () => {
         expect(registry.getBinding("console")).to.equal(undefined);
         expect(registry.getBinding("Guid")).to.deep.equal({
           kind: "module",
-          assembly: "System.Private.CoreLib",
+          ownerIdentity: "System.Private.CoreLib",
           type: "System.Guid",
         });
       } finally {

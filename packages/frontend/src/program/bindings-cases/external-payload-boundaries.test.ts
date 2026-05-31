@@ -7,52 +7,8 @@ import {
 } from "../bindings.js";
 
 describe("external binding payload boundaries", () => {
-  it("returns the target payload for first-party v2 manifests", () => {
-    const manifest = {
-      namespace: "Acme.Core",
-      producer: {
-        tool: "tsonic",
-        mode: "tsonic-firstparty",
-      },
-      semanticSurface: {
-        types: [{ alias: "Widget" }],
-        exports: { loadWidget: { kind: "function" } },
-      },
-      targetSurface: {
-        types: [
-          {
-            targetName: "Acme.Core.Widget",
-            ownerIdentity: "Acme.Core",
-            kind: "Class",
-            methods: [],
-            properties: [],
-            fields: [],
-          },
-        ],
-        exports: {
-          loadWidget: {
-            kind: "method",
-            targetName: "loadWidget",
-            ownerQualifiedName: "Acme.Core.WidgetRuntime",
-            ownerIdentity: "Acme.Core",
-          },
-        },
-      },
-    } as const;
-
-    const payload = getExternalBindingPayload(manifest);
-    expect(payload).to.not.equal(undefined);
-    expect(payload?.namespace).to.equal("Acme.Core");
-    expect(payload?.types[0]?.targetName).to.equal("Acme.Core.Widget");
-    expect(payload?.exports?.loadWidget?.ownerQualifiedName).to.equal(
-      "Acme.Core.WidgetRuntime"
-    );
-  });
-
   it("preserves tsbindgen bindings manifests as the target payload", () => {
-    const manifest = {
-      namespace: "System",
-      types: [
+    const manifest = { schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
         {
           targetName: "System.String",
           ownerIdentity: "System.Private.CoreLib",
@@ -61,41 +17,33 @@ describe("external binding payload boundaries", () => {
           properties: [],
           fields: [],
         },
-      ],
-      exports: {
+      ], exports: {
         format: {
           kind: "method",
           targetName: "Format",
           ownerQualifiedName: "System.String",
           ownerIdentity: "System.Private.CoreLib",
         },
-      },
-    } as const;
+      } } } as const;
 
     const payload = getExternalBindingPayload(manifest);
-    expect(payload).to.equal(manifest);
-    expect(payload?.exports?.format?.targetName).to.equal("Format");
+    expect(payload).to.deep.equal({
+      namespace: "System",
+      types: manifest.targetSurface.types,
+      exports: manifest.targetSurface.exports,
+      ownerIdentities: undefined,
+      targetRuntimeVersion: undefined,
+    });
+    expect(payload.exports?.format?.targetName).to.equal("Format");
   });
 
   it("extracts raw target payloads from parsed bindings content", () => {
-    const parsed = {
-      namespace: "Acme.Core",
-      producer: {
-        tool: "tsonic",
-        mode: "tsonic-firstparty",
-      },
-      semanticSurface: {
-        types: [{ alias: "Widget" }],
-      },
-      targetSurface: {
-        types: [
-          {
-            targetName: "Acme.Core.Widget",
-            ownerIdentity: "Acme.Core",
-          },
-        ],
-      },
-    };
+    const parsed = { schema: "tsonic.bindings", provider: { namespace: "Acme.Core" }, targetSurface: { types: [
+        {
+          targetName: "Acme.Core.Widget",
+          ownerIdentity: "Acme.Core",
+        },
+      ] } };
 
     const payload = extractRawExternalBindingsPayload(parsed);
     expect(payload).to.deep.equal({
@@ -107,31 +55,19 @@ describe("external binding payload boundaries", () => {
         },
       ],
       exports: undefined,
+      ownerIdentities: undefined,
+      targetRuntimeVersion: undefined,
     });
   });
 
   it("extracts the first owner identity from whichever target payload shape is present", () => {
     expect(
-      extractRawExternalOwnerIdentity({
-        namespace: "System",
-        types: [
+      extractRawExternalOwnerIdentity({ schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
           {
             targetName: "System.String",
             ownerIdentity: "System.Private.CoreLib",
           },
-        ],
-      })
+        ] } })
     ).to.equal("System.Private.CoreLib");
-
-    expect(
-      extractRawExternalOwnerIdentity({
-        namespace: "Acme.Core",
-        targetSurface: {
-          types: [
-            { targetName: "Acme.Core.Widget", ownerIdentity: "Acme.Core" },
-          ],
-        },
-      })
-    ).to.equal("Acme.Core");
   });
 });

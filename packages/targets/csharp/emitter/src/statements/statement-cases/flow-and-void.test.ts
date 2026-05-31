@@ -224,7 +224,7 @@ describe("Statement Emission", () => {
                     inferredType: { kind: "anyType" },
                     memberBinding: {
                       kind: "method",
-                      assembly: "nodejs",
+                      ownerIdentity: "nodejs",
                       type: "nodejs.Http.http",
                       member: "createServer",
                     },
@@ -288,7 +288,7 @@ describe("Statement Emission", () => {
                     inferredType: { kind: "anyType" },
                     memberBinding: {
                       kind: "method",
-                      assembly: "nodejs",
+                      ownerIdentity: "nodejs",
                       type: "nodejs.Http.http",
                       member: "createServer",
                     },
@@ -342,7 +342,7 @@ describe("Statement Emission", () => {
                     inferredType: { kind: "anyType" },
                     memberBinding: {
                       kind: "property",
-                      assembly: "nodejs",
+                      ownerIdentity: "nodejs",
                       type: "nodejs.process",
                       member: "platform",
                     },

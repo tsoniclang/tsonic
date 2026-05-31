@@ -12,9 +12,7 @@ describe("Binding System", () => {
     it("should add and retrieve hierarchical namespace bindings", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/system-linq.json", {
-        assembly: "System.Linq",
-        namespaces: [
+      registry.addBindings("/test/system-linq.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
           {
             name: "System.Linq",
             alias: "systemLinq",
@@ -27,8 +25,7 @@ describe("Binding System", () => {
               },
             ],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       const namespace = registry.getNamespace("systemLinq");
       expect(namespace).to.not.equal(undefined);
@@ -39,9 +36,7 @@ describe("Binding System", () => {
     it("should retrieve type bindings from hierarchical manifest", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/system-linq.json", {
-        assembly: "System.Linq",
-        namespaces: [
+      registry.addBindings("/test/system-linq.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
           {
             name: "System.Linq",
             alias: "systemLinq",
@@ -54,8 +49,7 @@ describe("Binding System", () => {
               },
             ],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       const type = registry.getType("enumerable");
       expect(type).to.not.equal(undefined);
@@ -66,9 +60,7 @@ describe("Binding System", () => {
     it("should retrieve member bindings from hierarchical manifest", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/system-linq.json", {
-        assembly: "System.Linq",
-        namespaces: [
+      registry.addBindings("/test/system-linq.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
           {
             name: "System.Linq",
             alias: "systemLinq",
@@ -83,7 +75,7 @@ describe("Binding System", () => {
                     name: "SelectMany",
                     alias: "selectMany",
                     binding: {
-                      assembly: "System.Linq",
+                      ownerIdentity: "System.Linq",
                       type: "System.Linq.Enumerable",
                       member: "SelectMany",
                     },
@@ -92,8 +84,7 @@ describe("Binding System", () => {
               },
             ],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       const member = registry.getMember("enumerable", "selectMany");
       expect(member).to.not.equal(undefined);
@@ -105,9 +96,7 @@ describe("Binding System", () => {
     it("should handle multiple namespaces in one manifest", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/multi-namespace.json", {
-        assembly: "MyLib",
-        namespaces: [
+      registry.addBindings("/test/multi-namespace.json", { schema: "tsonic.bindings", provider: { namespace: "MyLib", ownerIdentities: ["MyLib"] }, sourceSurface: { namespaces: [
           {
             name: "MyLib.Namespace1",
             alias: "ns1",
@@ -118,8 +107,7 @@ describe("Binding System", () => {
             alias: "ns2",
             types: [],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       expect(registry.getNamespace("ns1")).to.not.equal(undefined);
       expect(registry.getNamespace("ns2")).to.not.equal(undefined);
@@ -130,27 +118,22 @@ describe("Binding System", () => {
       const registry = new BindingRegistry();
 
       // Add simple manifest
-      registry.addBindings("/test/simple.json", {
-        bindings: {
+      registry.addBindings("/test/simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       // Add hierarchical manifest
-      registry.addBindings("/test/hierarchical.json", {
-        assembly: "System.Linq",
-        namespaces: [
+      registry.addBindings("/test/hierarchical.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
           {
             name: "System.Linq",
             alias: "systemLinq",
             types: [],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       // Both should work
       expect(registry.getBinding("console")).to.not.equal(undefined);
@@ -160,9 +143,7 @@ describe("Binding System", () => {
     it("merges shared namespaces from multiple manifests", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/efcore.bindings.json", {
-        namespace: "Microsoft.EntityFrameworkCore",
-        types: [
+      registry.addBindings("/test/efcore.bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Microsoft.EntityFrameworkCore" }, targetSurface: { types: [
           {
             targetName: "Microsoft.EntityFrameworkCore.DbContext",
             ownerIdentity: "Microsoft.EntityFrameworkCore",
@@ -179,12 +160,9 @@ describe("Binding System", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
-      registry.addBindings("/test/efcore-sqlite.bindings.json", {
-        namespace: "Microsoft.EntityFrameworkCore",
-        types: [
+      registry.addBindings("/test/efcore-sqlite.bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Microsoft.EntityFrameworkCore" }, targetSurface: { types: [
           {
             targetName:
               "Microsoft.EntityFrameworkCore.SqliteDbContextOptionsBuilderExtensions",
@@ -194,8 +172,7 @@ describe("Binding System", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const namespace = registry.getNamespace("Microsoft.EntityFrameworkCore");
       expect(namespace).to.not.equal(undefined);
@@ -215,9 +192,7 @@ describe("Binding System", () => {
     it("rejects conflicting shared namespace aliases", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/first.bindings.json", {
-        namespace: "Acme.Tools",
-        types: [
+      registry.addBindings("/test/first.bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Acme.Tools" }, targetSurface: { types: [
           {
             targetName: "Acme.Tools.Widget",
             ownerIdentity: "Acme.Tools",
@@ -226,13 +201,10 @@ describe("Binding System", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       expect(() =>
-        registry.addBindings("/test/second.bindings.json", {
-          namespace: "Acme.Tools",
-          types: [
+        registry.addBindings("/test/second.bindings.json", { schema: "tsonic.bindings", provider: { namespace: "Acme.Tools" }, targetSurface: { types: [
             {
               targetName: "Acme.Tools.OtherWidget",
               alias: "Widget",
@@ -242,8 +214,7 @@ describe("Binding System", () => {
               properties: [],
               fields: [],
             },
-          ],
-        })
+          ] } })
       ).to.throw("Conflicting type binding");
     });
 
@@ -258,16 +229,13 @@ describe("Binding System", () => {
     it("should clear hierarchical bindings along with simple bindings", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/mixed.json", {
-        assembly: "Test",
-        namespaces: [
+      registry.addBindings("/test/mixed.json", { schema: "tsonic.bindings", provider: { namespace: "Test", ownerIdentities: ["Test"] }, sourceSurface: { namespaces: [
           {
             name: "Test.NS",
             alias: "ns",
             types: [],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       expect(registry.getAllNamespaces()).to.have.lengthOf(1);
 
@@ -280,9 +248,7 @@ describe("Binding System", () => {
     it("should index member bindings by type.member key", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/members.json", {
-        assembly: "MyLib",
-        namespaces: [
+      registry.addBindings("/test/members.json", { schema: "tsonic.bindings", provider: { namespace: "MyLib", ownerIdentities: ["MyLib"] }, sourceSurface: { namespaces: [
           {
             name: "MyLib",
             alias: "myLib",
@@ -297,7 +263,7 @@ describe("Binding System", () => {
                     name: "Method1",
                     alias: "method1",
                     binding: {
-                      assembly: "MyLib",
+                      ownerIdentity: "MyLib",
                       type: "MyLib.TypeA",
                       member: "Method1",
                     },
@@ -307,7 +273,7 @@ describe("Binding System", () => {
                     name: "Method2",
                     alias: "method2",
                     binding: {
-                      assembly: "MyLib",
+                      ownerIdentity: "MyLib",
                       type: "MyLib.TypeA",
                       member: "Method2",
                     },
@@ -316,8 +282,7 @@ describe("Binding System", () => {
               },
             ],
           },
-        ],
-      });
+        ] }, targetSurface: { types: [] } });
 
       const member1 = registry.getMember("typeA", "method1");
       const member2 = registry.getMember("typeA", "method2");
@@ -329,11 +294,10 @@ describe("Binding System", () => {
     it("should preserve explicit simple-binding type semantics in the registry", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/simple.json", {
-        bindings: {
+      registry.addBindings("/test/simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Date: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Date",
             typeSemantics: {
               contributesTypeIdentity: true,
@@ -341,14 +305,13 @@ describe("Binding System", () => {
           },
           JSON: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.JSON",
             typeSemantics: {
               contributesTypeIdentity: false,
             },
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       expect(
         registry.getBinding("Date")?.typeSemantics?.contributesTypeIdentity
@@ -361,11 +324,10 @@ describe("Binding System", () => {
     it("should use explicit type semantics only in emitter type map", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/simple.json", {
-        bindings: {
+      registry.addBindings("/test/simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Date: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Date",
             typeSemantics: {
               contributesTypeIdentity: true,
@@ -373,7 +335,7 @@ describe("Binding System", () => {
           },
           JSON: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.JSON",
             typeSemantics: {
               contributesTypeIdentity: false,
@@ -381,7 +343,7 @@ describe("Binding System", () => {
           },
           Error: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Error",
             typeSemantics: {
               contributesTypeIdentity: true,
@@ -389,11 +351,10 @@ describe("Binding System", () => {
           },
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const emitterTypes = registry.getEmitterTypeMap();
       expect(emitterTypes.has("Date")).to.equal(true);
@@ -405,19 +366,17 @@ describe("Binding System", () => {
     it("should expose only explicit simple-binding type identities", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/simple.json", {
-        bindings: {
+      registry.addBindings("/test/simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Uint8Array: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Uint8Array",
             staticType: "js.Uint8Array",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const emitterTypes = registry.getEmitterTypeMap();
       expect(emitterTypes.get("Uint8Array")?.name).to.equal("js.Uint8Array");
@@ -427,20 +386,18 @@ describe("Binding System", () => {
     it("should not infer type identity from uppercase aliases when metadata is absent", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/simple.json", {
-        bindings: {
+      registry.addBindings("/test/simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Date: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Date",
           },
           JSON: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.JSON",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const emitterTypes = registry.getEmitterTypeMap();
       expect(emitterTypes.has("Date")).to.equal(false);
@@ -450,9 +407,7 @@ describe("Binding System", () => {
     it("should preserve explicit member emit semantics from tsbindgen bindings", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/linq/bindings.json", {
-        namespace: "System.Linq",
-        types: [
+      registry.addBindings("/test/linq/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq" }, targetSurface: { types: [
           {
             targetName: "System.Linq.Enumerable",
             ownerIdentity: "System.Linq",
@@ -503,8 +458,7 @@ describe("Binding System", () => {
               },
             ],
           },
-        ],
-      });
+        ] } });
 
       const where = registry.getMemberOverloads("Enumerable", "Where")?.[0];
       const toList = registry.getMemberOverloads("Enumerable", "ToList")?.[0];
@@ -544,9 +498,7 @@ describe("Binding System", () => {
           ...(emitSemantics ? { emitSemantics } : {}),
         };
 
-        registry.addBindings(path, {
-          namespace: "System",
-          types: [
+        registry.addBindings(path, { schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
             {
               targetName: "System.ArraySegment`1",
               ownerIdentity: "System.Private.CoreLib",
@@ -555,8 +507,7 @@ describe("Binding System", () => {
               properties: [emptyProperty],
               fields: [],
             },
-          ],
-        });
+          ] } });
       };
 
       for (const order of ["older-first", "newer-first"] as const) {
@@ -592,9 +543,7 @@ describe("Binding System", () => {
     it("should reject duplicate tsbindgen member metadata conflicts", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/first/System/bindings.json", {
-        namespace: "System",
-        types: [
+      registry.addBindings("/first/System/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
           {
             targetName: "System.ArraySegment`1",
             ownerIdentity: "System.Private.CoreLib",
@@ -614,13 +563,10 @@ describe("Binding System", () => {
             ],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       expect(() =>
-        registry.addBindings("/second/System/bindings.json", {
-          namespace: "System",
-          types: [
+        registry.addBindings("/second/System/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "System" }, targetSurface: { types: [
             {
               targetName: "System.ArraySegment`1",
               ownerIdentity: "System.Private.CoreLib",
@@ -640,8 +586,7 @@ describe("Binding System", () => {
               ],
               fields: [],
             },
-          ],
-        })
+          ] } })
       ).to.throw(
         /Conflicting member binding for System\.ArraySegment_1:Empty\.emitSemantics\.callableStaticAccessorKind/
       );
@@ -650,9 +595,7 @@ describe("Binding System", () => {
     it("should merge extension surfaces that share target names but have distinct stable identities", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/first/System.Collections.Generic/bindings.json", {
-        namespace: "System.Collections.Generic",
-        types: [
+      registry.addBindings("/first/System.Collections.Generic/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "System.Collections.Generic" }, targetSurface: { types: [
           {
             stableId:
               "System.Private.CoreLib:System.Collections.Generic.CollectionExtensions",
@@ -672,12 +615,9 @@ describe("Binding System", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
-      registry.addBindings("/second/System.Collections.Generic/bindings.json", {
-        namespace: "System.Collections.Generic",
-        types: [
+      registry.addBindings("/second/System.Collections.Generic/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "System.Collections.Generic" }, targetSurface: { types: [
           {
             stableId:
               "Microsoft.Extensions.DependencyModel:System.Collections.Generic.CollectionExtensions",
@@ -697,8 +637,7 @@ describe("Binding System", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const type = registry.getType("CollectionExtensions");
       expect(type?.stableId).to.equal(undefined);
@@ -715,9 +654,7 @@ describe("Binding System", () => {
     it("should expose tsbindgen namespace types for namespace-scoped import identity", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/System.Collections.Generic/bindings.json", {
-        namespace: "System.Collections.Generic",
-        types: [
+      registry.addBindings("/test/System.Collections.Generic/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "System.Collections.Generic" }, targetSurface: { types: [
           {
             targetName: "System.Collections.Generic.IEnumerable`1",
             ownerIdentity: "System.Runtime",
@@ -726,8 +663,7 @@ describe("Binding System", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const namespace = registry.getNamespace("System.Collections.Generic");
       expect(namespace).to.not.equal(undefined);

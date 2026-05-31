@@ -12,32 +12,30 @@ describe("Binding System", () => {
     it("should add and retrieve bindings", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/manifest.json", {
-        bindings: {
+      registry.addBindings("/test/manifest.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
           fs: {
             kind: "module",
-            assembly: "Tsonic.NodeApi",
+            ownerIdentity: "Tsonic.NodeApi",
             type: "Tsonic.NodeApi.fs",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const consoleBinding = registry.getBinding("console");
       expect(consoleBinding).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.Runtime",
+        ownerIdentity: "Tsonic.Runtime",
         type: "Tsonic.Runtime.console",
       });
 
       const fsBinding = registry.getBinding("fs");
       expect(fsBinding).to.deep.equal({
         kind: "module",
-        assembly: "Tsonic.NodeApi",
+        ownerIdentity: "Tsonic.NodeApi",
         type: "Tsonic.NodeApi.fs",
       });
     });
@@ -51,20 +49,18 @@ describe("Binding System", () => {
     it("should return all bindings", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/manifest.json", {
-        bindings: {
+      registry.addBindings("/test/manifest.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
           Math: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.Math",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const allBindings = registry.getAllBindings();
       expect(allBindings).to.have.lengthOf(2);
@@ -77,18 +73,14 @@ describe("Binding System", () => {
     it("should prefer the requested CLR owner when a TS alias maps to multiple CLR types", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/globals.json", {
-        bindings: {
+      registry.addBindings("/test/globals.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
-      registry.addBindings("/test/js/bindings.json", {
-        namespace: "js",
-        types: [
+        } }, targetSurface: { types: [] } });
+      registry.addBindings("/test/js/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "js" }, targetSurface: { types: [
           {
             targetName: "js.console",
             ownerIdentity: "js",
@@ -105,11 +97,8 @@ describe("Binding System", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
-      registry.addBindings("/test/nodejs/bindings.json", {
-        namespace: "nodejs",
-        types: [
+        ] } });
+      registry.addBindings("/test/nodejs/bindings.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: [
           {
             targetName: "nodejs.console",
             ownerIdentity: "nodejs",
@@ -126,8 +115,7 @@ describe("Binding System", () => {
             properties: [],
             fields: [],
           },
-        ],
-      });
+        ] } });
 
       const overloads = registry.getMemberOverloads(
         "js.console",
@@ -143,15 +131,13 @@ describe("Binding System", () => {
     it("should clear all bindings", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/manifest.json", {
-        bindings: {
+      registry.addBindings("/test/manifest.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       expect(registry.getAllBindings()).to.have.lengthOf(1);
 
@@ -163,25 +149,21 @@ describe("Binding System", () => {
     it("should handle multiple manifest files", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/runtime.json", {
-        bindings: {
+      registry.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.Runtime",
+            ownerIdentity: "Tsonic.Runtime",
             type: "Tsonic.Runtime.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
-      registry.addBindings("/test/node.json", {
-        bindings: {
+      registry.addBindings("/test/node.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           fs: {
             kind: "module",
-            assembly: "Tsonic.NodeApi",
+            ownerIdentity: "Tsonic.NodeApi",
             type: "Tsonic.NodeApi.fs",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       expect(registry.getAllBindings()).to.have.lengthOf(2);
       expect(registry.getBinding("console")).not.to.equal(undefined);
@@ -191,39 +173,35 @@ describe("Binding System", () => {
     it("should retain both global and module bindings for the same alias", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/js.json", {
-        bindings: {
+      registry.addBindings("/test/js.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
-      registry.addBindings("/test/nodejs.json", {
-        bindings: {
+      registry.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "module",
-            assembly: "nodejs",
+            ownerIdentity: "nodejs",
             type: "nodejs.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       expect(registry.getBinding("console")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.console",
       });
       expect(registry.getBindingByKind("console", "global")).to.deep.equal({
         kind: "global",
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.console",
       });
       expect(registry.getBindingByKind("console", "module")).to.deep.equal({
         kind: "module",
-        assembly: "nodejs",
+        ownerIdentity: "nodejs",
         type: "nodejs.console",
       });
     });

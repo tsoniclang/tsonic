@@ -9,6 +9,7 @@ import * as ts from "typescript";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
+import { extractRawExternalBindingsPayload } from "./external-binding-payload.js";
 
 /**
  * Read the `name` field from a package.json file.
@@ -54,15 +55,11 @@ export const createReadPackageRootNamespace = (
     for (const candidate of candidates) {
       if (!fs.existsSync(candidate)) continue;
       try {
-        const parsed = JSON.parse(fs.readFileSync(candidate, "utf-8")) as {
-          readonly namespace?: unknown;
-        };
-        if (
-          typeof parsed.namespace === "string" &&
-          parsed.namespace.length > 0
-        ) {
-          packageRootNamespaceCache.set(packageRoot, parsed.namespace);
-          return parsed.namespace;
+        const parsed = JSON.parse(fs.readFileSync(candidate, "utf-8")) as unknown;
+        const namespace = extractRawExternalBindingsPayload(parsed)?.namespace;
+        if (namespace && namespace.length > 0) {
+          packageRootNamespaceCache.set(packageRoot, namespace);
+          return namespace;
         }
       } catch (error) {
         throw new Error(

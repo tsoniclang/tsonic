@@ -160,7 +160,7 @@ describe("Expression Emission", () => {
       isOptional: false,
       memberBinding: {
         kind: "property" as const,
-        assembly: "System.Runtime",
+        ownerIdentity: "System.Runtime",
         type: "System.String",
         member: "Length",
       },
@@ -229,7 +229,7 @@ describe("Expression Emission", () => {
       isOptional: false,
       memberBinding: {
         kind: "property" as const,
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Array",
         member: "length",
       },
@@ -306,7 +306,7 @@ describe("Expression Emission", () => {
       isOptional: false,
       memberBinding: {
         kind: "property" as const,
-        assembly: "js",
+        ownerIdentity: "js",
         type: "js.Array",
         member: "length",
       },

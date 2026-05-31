@@ -92,15 +92,13 @@ describe("Binding Resolution in IR", () => {
 
       const checker = program.getTypeChecker();
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const testProgram = {
         program,
@@ -232,15 +230,13 @@ describe("Binding Resolution in IR", () => {
 
       const checker = program.getTypeChecker();
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           console: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.console",
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const testProgram = {
         program,
@@ -385,24 +381,23 @@ describe("Binding Resolution in IR", () => {
 
       const checker = program.getTypeChecker();
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Uint8Array: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Uint8Array",
             staticType: "js.Uint8Array",
             typeSemantics: { contributesTypeIdentity: true },
           },
           parseInt: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Globals",
             providerMemberName: "Globals.parseInt",
           },
           String: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.String",
             staticType: "js.String",
             providerMemberName: "Globals.String",
@@ -410,18 +405,17 @@ describe("Binding Resolution in IR", () => {
           },
           Error: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Error",
             typeSemantics: { contributesTypeIdentity: true },
           },
           RangeError: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.RangeError",
             typeSemantics: { contributesTypeIdentity: true },
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const testProgram = {
         program,
@@ -599,24 +593,23 @@ describe("Binding Resolution in IR", () => {
 
       const checker = program.getTypeChecker();
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", {
-        bindings: {
+      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
           Uint8Array: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Uint8Array",
             staticType: "js.Uint8Array",
             typeSemantics: { contributesTypeIdentity: true },
           },
           parseInt: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Globals",
             providerMemberName: "Globals.parseInt",
           },
           String: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.String",
             staticType: "js.String",
             providerMemberName: "Globals.String",
@@ -624,18 +617,17 @@ describe("Binding Resolution in IR", () => {
           },
           Error: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.Error",
             typeSemantics: { contributesTypeIdentity: true },
           },
           RangeError: {
             kind: "global",
-            assembly: "js",
+            ownerIdentity: "js",
             type: "js.RangeError",
             typeSemantics: { contributesTypeIdentity: true },
           },
-        },
-      });
+        } }, targetSurface: { types: [] } });
 
       const testProgram = {
         program,

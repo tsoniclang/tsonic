@@ -9,7 +9,7 @@
 export type { TsBindgenDtsTypeInfo } from "./external-heritage-extractor.js";
 export {
   extractHeritageFromTsBindgenDts,
-  enrichAssemblyEntriesFromTsBindgenDts,
+  enrichExternalEntriesFromTsBindgenDts,
 } from "./external-heritage-extractor.js";
 
 export {

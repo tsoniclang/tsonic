@@ -30,11 +30,7 @@ describe("createProgramContext", () => {
       fs.writeFileSync(
         path.join(pkgRoot, "Markdig.Syntax", "bindings.json"),
         JSON.stringify(
-          {
-            namespace: "Markdig.Syntax",
-            ownerIdentity: "Markdig",
-            types: [],
-          },
+          { schema: "tsonic.bindings", provider: { namespace: "Markdig.Syntax" }, targetSurface: { types: [] } },
           null,
           2
         )
@@ -80,10 +76,7 @@ describe("createProgramContext", () => {
       fs.writeFileSync(
         path.join(tempDir, "Broken", "bindings.json"),
         JSON.stringify(
-          {
-            namespace: "Broken",
-            types: [{ targetName: "Broken.Type" }],
-          },
+          { schema: "tsonic.bindings", provider: { namespace: "Broken" }, targetSurface: { types: [{ targetName: "Broken.Type" }] } },
           null,
           2
         )

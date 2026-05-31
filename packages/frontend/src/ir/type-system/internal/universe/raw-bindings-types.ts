@@ -129,19 +129,11 @@ export type RawBindingsConstructor = {
 };
 
 export type RawTsbindgenBindingsFile = {
-  readonly namespace: string;
-  readonly contributingOwners?: readonly string[];
-  readonly targetRuntimeVersion?: string;
-  readonly types: readonly RawBindingsType[];
-};
-
-export type RawBindingsFileV2 = {
-  readonly namespace: string;
-  readonly contributingOwners?: readonly string[];
-  readonly targetRuntimeVersion?: string;
-  readonly semanticSurface: {
-    readonly types: readonly unknown[];
-    readonly exports?: Readonly<Record<string, unknown>>;
+  readonly schema: "tsonic.bindings";
+  readonly provider: {
+    readonly namespace: string;
+    readonly ownerIdentities?: readonly string[];
+    readonly targetRuntimeVersion?: string;
   };
   readonly targetSurface: {
     readonly types: readonly RawBindingsType[];
@@ -149,7 +141,7 @@ export type RawBindingsFileV2 = {
   };
 };
 
-export type RawBindingsFile = RawTsbindgenBindingsFile | RawBindingsFileV2;
+export type RawBindingsFile = RawTsbindgenBindingsFile;
 
 export type RawBindingsPayload = {
   readonly namespace: string;

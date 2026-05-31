@@ -1,9 +1,9 @@
 /**
  * native target Heritage Enrichment
  *
- * Enrichment of assembly NominalEntry structures with .d.ts info:
- * - Applying member types from tsbindgen .d.ts to assembly entries
- * - Applying method signature optionals from .d.ts to assembly entries
+ * Enrichment of external NominalEntry structures with .d.ts info:
+ * - Applying member types from tsbindgen .d.ts to external entries
+ * - Applying method signature optionals from .d.ts to external entries
  */
 
 import type { IrType } from "../../../types/index.js";
@@ -11,7 +11,7 @@ import type { TypeId, NominalEntry, MemberEntry } from "./types.js";
 import { makeMethodOverloadKey } from "./external-type-parser.js";
 import { extractHeritageFromTsBindgenDts } from "./external-heritage-extraction.js";
 
-export const enrichAssemblyEntriesFromTsBindgenDts = (
+export const enrichExternalEntriesFromTsBindgenDts = (
   entries: Map<string, NominalEntry>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
   dtsPaths: readonly string[]
