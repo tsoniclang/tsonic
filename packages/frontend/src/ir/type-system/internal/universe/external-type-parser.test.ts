@@ -145,4 +145,43 @@ describe("external-type-parser d.ts utility typing", () => {
       { kind: "referenceType", name: "Right", providerQualifiedName: "Right" },
     ]);
   });
+
+  it("parses assembly-qualified single generic arguments as one argument", () => {
+    const result = parseExternalTypeString(
+      "System.Threading.Tasks.Task_1[[System.String,System.Private.CoreLib,Version=10.0.0.0,Culture=neutral,PublicKeyToken=7cec85d7bea7798e]]"
+    );
+
+    expect(result.kind).to.equal("referenceType");
+    if (result.kind !== "referenceType") {
+      throw new Error("Expected referenceType result");
+    }
+    expect(result.name).to.equal("Task_1");
+    expect(result.typeArguments).to.deep.equal([
+      { kind: "primitiveType", name: "string" },
+    ]);
+    expect(result.providerQualifiedName).to.equal(
+      "System.Threading.Tasks.Task_1[[System.String,System.Private.CoreLib,Version=10.0.0.0,Culture=neutral,PublicKeyToken=7cec85d7bea7798e]]"
+    );
+  });
+
+  it("parses assembly-qualified multi generic arguments by bracket boundaries", () => {
+    const result = parseExternalTypeString(
+      "System.Collections.Generic.Dictionary_2[[System.String,System.Private.CoreLib,Version=10.0.0.0,Culture=neutral,PublicKeyToken=7cec85d7bea7798e],[System.Int32,System.Private.CoreLib,Version=10.0.0.0,Culture=neutral,PublicKeyToken=7cec85d7bea7798e]]"
+    );
+
+    expect(result.kind).to.equal("referenceType");
+    if (result.kind !== "referenceType") {
+      throw new Error("Expected referenceType result");
+    }
+    expect(result.name).to.equal("Dictionary_2");
+    expect(result.typeArguments).to.deep.equal([
+      { kind: "primitiveType", name: "string" },
+      {
+        kind: "referenceType",
+        name: "System.Int32",
+        providerQualifiedName:
+          "System.Int32,System.Private.CoreLib,Version=10.0.0.0,Culture=neutral,PublicKeyToken=7cec85d7bea7798e",
+      },
+    ]);
+  });
 });

@@ -44,6 +44,25 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("Task.FromResult");
     });
 
+    it("awaits external generic Task-returning bindings directly", () => {
+      const source = `
+        import { HttpClient } from "@tsonic/dotnet/System.Net.Http.js";
+
+        export async function run(): Promise<string> {
+          const client = new HttpClient();
+          return await client.GetStringAsync("http://example.com");
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include(
+        'return await client.GetStringAsync("http://example.com");'
+      );
+      expect(csharp).not.to.include("Task.FromResult");
+      expect(csharp).not.to.include("Task_1[[");
+    });
+
     it("normalizes mixed Promise-or-value unions before await", () => {
       const source = `
         declare function maybeLoad(flag: boolean): string | Promise<string>;

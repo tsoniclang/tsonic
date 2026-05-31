@@ -1942,8 +1942,14 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "public global::System.Threading.Tasks.Task<string> readFile(string path, string encoding)"
       );
-      expect(csharp).to.include("return readFile(path);");
-      expect(csharp).to.include("return readFile(path, encoding);");
+      expect(csharp).to.include(
+        "return global::Test.test.readFile(path);"
+      );
+      expect(csharp).to.include(
+        "return global::Test.test.readFile(path, encoding);"
+      );
+      expect(csharp).not.to.include("return readFile(path);");
+      expect(csharp).not.to.include("return readFile(path, encoding);");
       expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
       expect(csharp).to.not.include(
         "(global::System.Threading.Tasks.Task<global::Tsonic.Internal.Union<byte[], string>>)test.readFile(path)"
@@ -2014,8 +2020,12 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("return implBytes(path);");
       expect(csharp).to.include("return implText(path, encoding);");
-      expect(csharp).to.include("return readFileSync(path);");
-      expect(csharp).to.include("return readFileSync(path, encoding);");
+      expect(csharp).to.include("return global::Test.test.readFileSync(path);");
+      expect(csharp).to.include(
+        "return global::Test.test.readFileSync(path, encoding);"
+      );
+      expect(csharp).not.to.include("return readFileSync(path);");
+      expect(csharp).not.to.include("return readFileSync(path, encoding);");
       expect(csharp).not.to.include("readFileSync_bytes");
       expect(csharp).not.to.include("readFileSync_text");
     });
@@ -5183,6 +5193,62 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("return global::Test.sign.signBytes();");
       expect(csharp).not.to.include("return sign.signBytes();");
+    });
+
+    it("fully qualifies module static functions when class methods share the same source name", () => {
+      const csharp = compileToCSharp(
+        `
+          import { overloads as O } from "@tsonic/core/lang.js";
+
+          export function readdirSync(path: string): string[];
+          export function readdirSync(path: string, options: { readonly withFileTypes: true }): string[];
+          export function readdirSync(_path: any, _options?: any): any {
+            throw new Error("stub");
+          }
+
+          function readdirSync_names(path: string): string[] {
+            return [path];
+          }
+
+          function readdirSync_dirents(
+            path: string,
+            _options: { readonly withFileTypes: true }
+          ): string[] {
+            return [path];
+          }
+
+          O(readdirSync_names).family(readdirSync);
+          O(readdirSync_dirents).family(readdirSync);
+
+          export class FsModuleNamespace {
+            readdirSync(path: string): string[] {
+              return readdirSync(path);
+            }
+          }
+        `,
+        "/test/fs-module.ts"
+      );
+
+      expect(csharp).to.include(
+        "return global::Test.FsModule.readdirSync(path);"
+      );
+      expect(csharp).to.not.include("return readdirSync(path);");
+    });
+
+    it("preserves nullable boolean optional-chain comparisons without value casts", () => {
+      const csharp = compileToCSharp(`
+        interface PipeOptions {
+          readonly end?: boolean;
+        }
+
+        export function shouldEnd(options?: PipeOptions): boolean {
+          const end = options?.end !== false;
+          return end;
+        }
+      `);
+
+      expect(csharp).to.include("var end = options?.end != false;");
+      expect(csharp).to.not.include("(bool)options?.end");
     });
 
     it("materializes narrower function arrays into union-element arrays at call sites", () => {
