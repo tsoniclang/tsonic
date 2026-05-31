@@ -21,6 +21,16 @@ maybe_add_package() {
   fi
 }
 
+maybe_add_package "tsonic" "$TSONICLANG_ROOT/tsonic/npm/tsonic"
+maybe_add_package "@tsonic/cli" "$TSONICLANG_ROOT/tsonic/packages/cli"
+maybe_add_package "@tsonic/frontend" "$TSONICLANG_ROOT/tsonic/packages/frontend"
+maybe_add_package "@tsonic/csharp-emitter" "$TSONICLANG_ROOT/tsonic/packages/targets/csharp/emitter"
+maybe_add_package "@tsonic/csharp-backend" "$TSONICLANG_ROOT/tsonic/packages/targets/csharp/backend"
+if [[ -f "$TSONICLANG_ROOT/tsbindgen/lib/tsbindgen.dll" ]]; then
+  maybe_add_package "@tsonic/tsbindgen" "$TSONICLANG_ROOT/tsbindgen"
+elif [[ -d "$TSONICLANG_ROOT/tsonic/node_modules/@tsonic/tsbindgen" ]]; then
+  maybe_add_package "@tsonic/tsbindgen" "$TSONICLANG_ROOT/tsonic/node_modules/@tsonic/tsbindgen"
+fi
 maybe_add_package "@tsonic/core" "$TSONICLANG_ROOT/core/versions/10"
 maybe_add_package "@tsonic/dotnet" "$TSONICLANG_ROOT/dotnet/versions/10"
 maybe_add_package "@tsonic/globals" "$TSONICLANG_ROOT/globals/versions/10"
@@ -48,7 +58,18 @@ else
       const fs = require("fs");
       const pkg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
       const sections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
-      const relevant = new Set(["@tsonic/js", "@tsonic/nodejs", "@tsonic/dotnet", "@tsonic/efcore"]);
+      const relevant = new Set([
+        "tsonic",
+        "@tsonic/cli",
+        "@tsonic/frontend",
+        "@tsonic/csharp-emitter",
+        "@tsonic/csharp-backend",
+        "@tsonic/tsbindgen",
+        "@tsonic/js",
+        "@tsonic/nodejs",
+        "@tsonic/dotnet",
+        "@tsonic/efcore"
+      ]);
       for (const section of sections) {
         const record = pkg[section];
         if (!record || typeof record !== "object") continue;
@@ -104,17 +125,59 @@ collect_dependency_names() {
   ' "$package_root/package.json" "$mode"
 }
 
+link_package_bins() {
+  local package_root="$1"
+  local bin_root="$2"
+  node -e '
+    const fs = require("fs");
+    const path = require("path");
+    const packageRoot = process.argv[1];
+    const binRoot = process.argv[2];
+    const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
+    const bin = manifest.bin;
+    if (!bin) process.exit(0);
+    const entries = typeof bin === "string" ? [[manifest.name, bin]] : Object.entries(bin);
+    fs.mkdirSync(binRoot, { recursive: true });
+    for (const [name, relTarget] of entries) {
+      if (typeof relTarget !== "string") continue;
+      const linkPath = path.join(binRoot, name);
+      const targetPath = path.join(packageRoot, relTarget);
+      fs.rmSync(linkPath, { force: true });
+      fs.symlinkSync(path.relative(binRoot, targetPath), linkPath);
+    }
+  ' "$package_root" "$bin_root"
+}
+
 copy_package_into_root() {
   local package_name="$1"
   local install_root="$2"
-  local source_root="${package_map["$package_name"]}"
-  local package_dir_name="${package_name#@tsonic/}"
-  local dest_root="$install_root/node_modules/@tsonic/$package_dir_name"
+  local source_root
+  source_root="$(cd "${package_map["$package_name"]}" && pwd -P)"
+  local dest_root
 
-  mkdir -p "$install_root/node_modules/@tsonic"
+  if [[ "$package_name" == @*/* ]]; then
+    local package_scope="${package_name%%/*}"
+    local package_dir_name="${package_name#*/}"
+    mkdir -p "$install_root/node_modules/$package_scope"
+    dest_root="$install_root/node_modules/$package_scope/$package_dir_name"
+  else
+    mkdir -p "$install_root/node_modules"
+    dest_root="$install_root/node_modules/$package_name"
+  fi
+
+  if [[ -d "$dest_root" ]]; then
+    local dest_real
+    dest_real="$(cd "$dest_root" && pwd -P)"
+    if [[ "$source_root" == "$dest_real" ]]; then
+      link_package_bins "$dest_root" "$install_root/node_modules/.bin"
+      return 0
+    fi
+  fi
+
   rm -rf "$dest_root"
   cp -a "$source_root" "$dest_root"
   rm -rf "$dest_root/node_modules" "$dest_root/package-lock.json"
+  link_package_bins "$dest_root" "$install_root/node_modules/.bin"
 }
 
 expand_package_closure() {

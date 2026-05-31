@@ -418,11 +418,18 @@ export const collectStaticContainerValueSymbols = (
   for (const member of members) {
     if (member.kind === "functionDeclaration") {
       const publicName = member.overloadFamily?.publicName ?? member.name;
+      const csharpName = getCSharpName(publicName, "methods", context);
       valueSymbols.set(member.name, {
         kind: "function",
-        csharpName: getCSharpName(publicName, "methods", context),
+        csharpName,
         type: toFunctionType(member),
       });
+      if (publicName !== member.name && !valueSymbols.has(publicName)) {
+        valueSymbols.set(publicName, {
+          kind: "function",
+          csharpName,
+        });
+      }
       continue;
     }
     if (member.kind === "variableDeclaration") {

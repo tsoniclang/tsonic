@@ -375,7 +375,69 @@ const emitStrictEqualityCall = (
         kind: "prefixUnaryExpression",
         operatorToken: "!",
         operand: equalsAst,
-      };
+    };
+};
+
+const isBooleanIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" && resolved.name === "boolean") ||
+    (resolved.kind === "referenceType" &&
+      astTypeMatchesClrIdentity(
+        identifierType(resolved.providerQualifiedName ?? resolved.name),
+        ["System.Boolean"]
+      ))
+  );
+};
+
+const isNullableBooleanIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+  const split = splitRuntimeNullishUnionMembers(type);
+  const nonNullish =
+    split?.nonNullishMembers.length === 1
+      ? split.nonNullishMembers[0]
+      : undefined;
+  return (
+    split?.hasRuntimeNullish === true && isBooleanIrType(nonNullish, context)
+  );
+};
+
+const isBooleanLiteralComparisonOperand = (expr: IrExpression): boolean =>
+  expr.kind === "literal" && typeof expr.value === "boolean";
+
+const stripNullableBooleanComparisonCast = (
+  ast: CSharpExpressionAst,
+  operand: IrExpression,
+  operandType: IrType | undefined,
+  otherOperand: IrExpression,
+  context: EmitterContext
+): CSharpExpressionAst => {
+  if (
+    !isBooleanLiteralComparisonOperand(otherOperand) ||
+    ast.kind !== "castExpression" ||
+    !astTypeMatchesClrIdentity(ast.type, ["System.Boolean"])
+  ) {
+    return ast;
+  }
+
+  const transparentOperand = getTransparentComparisonTarget(operand);
+  return isNullableBooleanIrType(
+    operandType ?? transparentOperand.inferredType,
+    context
+  )
+    ? ast.expression
+    : ast;
 };
 
 /**
@@ -953,17 +1015,29 @@ export const emitBinary = (
   }
 
   const comparisonLeftAst = isComparisonOp
-    ? stripObjectBoxForNumericComparison(
-        leftAst,
+    ? stripNullableBooleanComparisonCast(
+        stripObjectBoxForNumericComparison(
+          leftAst,
+          leftResolvedType,
+          rightResolvedType
+        ),
+        expr.left,
         leftResolvedType,
-        rightResolvedType
+        expr.right,
+        rightContext
       )
     : leftAst;
   const comparisonRightAst = isComparisonOp
-    ? stripObjectBoxForNumericComparison(
-        rightAst,
+    ? stripNullableBooleanComparisonCast(
+        stripObjectBoxForNumericComparison(
+          rightAst,
+          rightResolvedType,
+          leftResolvedType
+        ),
+        expr.right,
         rightResolvedType,
-        leftResolvedType
+        expr.left,
+        rightContext
       )
     : rightAst;
   const [arithmeticLeftAst, arithmeticLeftContext] = isArithmeticOp
