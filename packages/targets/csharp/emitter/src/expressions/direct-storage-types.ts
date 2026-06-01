@@ -6,6 +6,7 @@ import type {
 } from "../core/format/backend-ast/types.js";
 import type { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { resolveModuleValueSymbolReferenceAst } from "./identifier-references.js";
 import {
   resolveEffectiveExpressionType,
   tryResolveRuntimeUnionMemberType,
@@ -815,6 +816,19 @@ export const resolveDirectStorageExpressionAst = (
     return undefined;
   }
 
+  if (expr.kind === "identifier") {
+    if (context.importBindings?.has(expr.name)) {
+      return undefined;
+    }
+    const moduleValueReference = resolveModuleValueSymbolReferenceAst(
+      expr.name,
+      context
+    );
+    if (moduleValueReference) {
+      return moduleValueReference;
+    }
+  }
+
   const narrowKey =
     expr.kind === "identifier" ? expr.name : getMemberAccessNarrowKey(expr);
   const narrowed = narrowKey
@@ -835,8 +849,11 @@ export const resolveDirectStorageExpressionAst = (
     return undefined;
   }
 
-  return identifierExpression(
-    context.localNameMap?.get(expr.name) ?? escapeCSharpIdentifier(expr.name)
+  return (
+    resolveModuleValueSymbolReferenceAst(expr.name, context) ??
+    identifierExpression(
+      context.localNameMap?.get(expr.name) ?? escapeCSharpIdentifier(expr.name)
+    )
   );
 };
 
@@ -925,6 +942,19 @@ export const resolveRuntimeCarrierExpressionAst = (
     return undefined;
   }
 
+  if (expr.kind === "identifier") {
+    if (context.importBindings?.has(expr.name)) {
+      return undefined;
+    }
+    const moduleValueReference = resolveModuleValueSymbolReferenceAst(
+      expr.name,
+      context
+    );
+    if (moduleValueReference) {
+      return moduleValueReference;
+    }
+  }
+
   const narrowKey =
     expr.kind === "identifier" ? expr.name : getMemberAccessNarrowKey(expr);
   const narrowed = narrowKey
@@ -954,8 +984,11 @@ export const resolveRuntimeCarrierExpressionAst = (
     return undefined;
   }
 
-  return identifierExpression(
-    context.localNameMap?.get(expr.name) ?? escapeCSharpIdentifier(expr.name)
+  return (
+    resolveModuleValueSymbolReferenceAst(expr.name, context) ??
+    identifierExpression(
+      context.localNameMap?.get(expr.name) ?? escapeCSharpIdentifier(expr.name)
+    )
   );
 };
 

@@ -2944,11 +2944,14 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("isErrorHandler(");
       expect(csharp).to.include(
-        "isErrorHandler((object)handler is global::Test.MiddlewareHandler"
+        "isErrorHandler(((global::System.Func<global::Test.MiddlewareHandler>)(() =>"
+      );
+      expect(csharp).to.include(
+        "__tsonic_reify_union.Match<global::Test.MiddlewareHandler>"
       );
       expect(csharp).to.include(", false)");
       expect(csharp).to.include(
-        "!isErrorHandler((object)handler is global::Test.MiddlewareHandler"
+        "!isErrorHandler(((global::System.Func<global::Test.MiddlewareHandler>)(() =>"
       );
       expect(csharp).to.include(", true)");
       expect(csharp).to.include(

@@ -363,6 +363,313 @@ describe("Module Generation", () => {
     expect(result).to.include("internal static readonly string[] items");
   });
 
+  it("qualifies module static fields from namespace-level class lambdas", () => {
+    const stringType = { kind: "primitiveType", name: "string" } as const;
+    const handlerType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: stringType,
+    } as const;
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/runtime/middleware/multipart.ts",
+      namespace: "Express.runtime.middleware",
+      className: "multipart",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "MultipartModeAny" },
+              type: stringType,
+              initializer: {
+                kind: "literal",
+                value: "any",
+                raw: '"any"',
+                inferredType: stringType,
+              },
+            },
+          ],
+          isExported: false,
+        },
+        {
+          kind: "classDeclaration",
+          name: "Multipart",
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "any",
+              parameters: [],
+              returnType: handlerType,
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "returnStatement",
+                    expression: {
+                      kind: "arrowFunction",
+                      parameters: [],
+                      body: {
+                        kind: "identifier",
+                        name: "MultipartModeAny",
+                        inferredType: stringType,
+                      },
+                      returnType: stringType,
+                      inferredType: handlerType,
+                      isAsync: false,
+                    },
+                  },
+                ],
+              },
+              accessibility: "public",
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+            },
+          ],
+          isStruct: false,
+          isExported: true,
+          implements: [],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include(
+      "() => global::Express.runtime.middleware.multipart.MultipartModeAny"
+    );
+    expect(result).to.not.include("() => MultipartModeAny");
+  });
+
+  it("qualifies module static fields used as class-lambda call arguments", () => {
+    const stringType = { kind: "primitiveType", name: "string" } as const;
+    const handlerType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    } as const;
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/runtime/middleware/multipart.ts",
+      namespace: "Express.runtime.middleware",
+      className: "multipart",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "MultipartModeAny" },
+              type: stringType,
+              initializer: {
+                kind: "literal",
+                value: "any",
+                raw: '"any"',
+                inferredType: stringType,
+              },
+            },
+          ],
+          isExported: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "parse",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "mode" },
+              type: stringType,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+        {
+          kind: "classDeclaration",
+          name: "Multipart",
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "any",
+              parameters: [],
+              returnType: handlerType,
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "returnStatement",
+                    expression: {
+                      kind: "arrowFunction",
+                      parameters: [],
+                      body: {
+                        kind: "blockStatement",
+                        statements: [
+                          {
+                            kind: "expressionStatement",
+                            expression: {
+                              kind: "call",
+                              callee: {
+                                kind: "identifier",
+                                name: "parse",
+                                inferredType: {
+                                  kind: "functionType",
+                                  parameters: [
+                                    {
+                                      kind: "parameter",
+                                      pattern: {
+                                        kind: "identifierPattern",
+                                        name: "mode",
+                                      },
+                                      type: stringType,
+                                      isOptional: false,
+                                      isRest: false,
+                                      passing: "value",
+                                    },
+                                  ],
+                                  returnType: { kind: "voidType" },
+                                },
+                              },
+                              arguments: [
+                                {
+                                  kind: "identifier",
+                                  name: "MultipartModeAny",
+                                  inferredType: stringType,
+                                },
+                              ],
+                              isOptional: false,
+                              inferredType: { kind: "voidType" },
+                            },
+                          },
+                        ],
+                      },
+                      returnType: { kind: "voidType" },
+                      inferredType: handlerType,
+                      isAsync: false,
+                    },
+                  },
+                ],
+              },
+              accessibility: "public",
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+            },
+          ],
+          isStruct: false,
+          isExported: true,
+          implements: [],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include(
+      "global::Express.runtime.middleware.multipart.parse(global::Express.runtime.middleware.multipart.MultipartModeAny)"
+    );
+    expect(result).to.not.include("parse(MultipartModeAny)");
+  });
+
+  it("preserves local shadows over module static fields", () => {
+    const stringType = { kind: "primitiveType", name: "string" } as const;
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/runtime/middleware/multipart.ts",
+      namespace: "Express.runtime.middleware",
+      className: "multipart",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "MultipartModeAny" },
+              type: stringType,
+              initializer: {
+                kind: "literal",
+                value: "outer",
+                raw: '"outer"',
+                inferredType: stringType,
+              },
+            },
+          ],
+          isExported: false,
+        },
+        {
+          kind: "classDeclaration",
+          name: "Multipart",
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "echo",
+              parameters: [
+                {
+                  kind: "parameter",
+                  pattern: {
+                    kind: "identifierPattern",
+                    name: "MultipartModeAny",
+                  },
+                  type: stringType,
+                  isOptional: false,
+                  isRest: false,
+                  passing: "value",
+                },
+              ],
+              returnType: stringType,
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "returnStatement",
+                    expression: {
+                      kind: "identifier",
+                      name: "MultipartModeAny",
+                      inferredType: stringType,
+                    },
+                  },
+                ],
+              },
+              accessibility: "public",
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+            },
+          ],
+          isStruct: false,
+          isExported: true,
+          implements: [],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("return MultipartModeAny;");
+    expect(result).to.not.include(
+      "return global::Express.runtime.middleware.multipart.MultipartModeAny;"
+    );
+  });
+
   it("suffixes module containers that collide with runtime union alias carriers", () => {
     const module: IrModule = {
       kind: "module",

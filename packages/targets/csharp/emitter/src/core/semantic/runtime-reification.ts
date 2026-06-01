@@ -34,6 +34,7 @@ import {
   isRuntimeUnionMemberProjectionAst,
   tryBuildRuntimeUnionProjectionToLayoutAst,
 } from "./runtime-union-projection.js";
+import { getOrRegisterRuntimeUnionCarrier } from "./runtime-union-registry.js";
 import {
   resolveDirectRuntimeCarrierType,
   resolveDirectValueSurfaceType,
@@ -348,6 +349,205 @@ const runtimeMemberCanRepresentSemanticArrayMember = (
   );
 };
 
+const tryEmitRuntimeCarrierAliasTypeAst = (
+  type: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): [CSharpTypeAst, EmitterContext] | undefined => {
+  if (
+    type.kind !== "unionType" ||
+    !type.runtimeCarrierName ||
+    !type.runtimeCarrierNamespace
+  ) {
+    return undefined;
+  }
+
+  const carrierFullName = `global::${type.runtimeCarrierNamespace}.${type.runtimeCarrierName}`;
+  const typeArguments = type.runtimeCarrierTypeArguments ?? [];
+  if (typeArguments.length === 0) {
+    return [identifierType(carrierFullName), context];
+  }
+
+  const typeArgumentAsts: CSharpTypeAst[] = [];
+  let currentContext = context;
+  for (const typeArgument of typeArguments) {
+    const [typeArgumentAst, nextContext] = emitTypeAst(
+      typeArgument,
+      currentContext
+    );
+    typeArgumentAsts.push(typeArgumentAst);
+    currentContext = nextContext;
+  }
+
+  return [identifierType(carrierFullName, typeArgumentAsts), currentContext];
+};
+
+const tryBuildAnonymousRuntimeUnionCarrierProjectionPlan = (
+  valueAst: CSharpExpressionAst,
+  targetTypeAst: CSharpTypeAst,
+  targetLayout: RuntimeUnionLayout,
+  context: EmitterContext
+): RuntimeReificationPlan | undefined => {
+  const anonymousCarrier = getOrRegisterRuntimeUnionCarrier(
+    targetLayout.memberTypeAsts,
+    context.options.runtimeUnionRegistry
+  );
+  const anonymousTypeArguments =
+    anonymousCarrier.typeParameters.length > 0
+      ? targetLayout.memberTypeAsts
+      : targetLayout.carrierTypeArgumentAsts;
+  const anonymousTypeAst = identifierType(
+    `global::${anonymousCarrier.fullName}`,
+    anonymousTypeArguments
+  );
+  if (
+    sameTypeAstSurface(
+      stripNullableTypeAst(anonymousTypeAst),
+      stripNullableTypeAst(targetTypeAst)
+    )
+  ) {
+    return undefined;
+  }
+
+  const local = allocateRuntimeReificationLocalName(
+    "__tsonic_reify_union",
+    context
+  );
+  const localAst = identifierExpression(local.name);
+  const lambdaArgs = targetLayout.members.map((_, index) => {
+    const parameterName = `__tsonic_union_member_${index + 1}`;
+    return {
+      kind: "lambdaExpression" as const,
+      isAsync: false,
+      parameters: [{ name: parameterName }],
+      body: buildRuntimeUnionFactoryCallAst(
+        targetTypeAst,
+        index + 1,
+        identifierExpression(parameterName)
+      ),
+    };
+  });
+
+  return {
+    condition: {
+      kind: "isExpression",
+      expression: boxValueAst(valueAst),
+      pattern: {
+        kind: "declarationPattern",
+        type: anonymousTypeAst,
+        designation: local.name,
+      },
+    },
+    value: buildRuntimeUnionMatchAst(localAst, lambdaArgs, [targetTypeAst]),
+    context: local.context,
+  };
+};
+
+const getTypeAstArguments = (
+  typeAst: CSharpTypeAst
+): readonly CSharpTypeAst[] => {
+  const concrete = stripNullableTypeAst(typeAst);
+  return concrete.kind === "identifierType" ||
+    concrete.kind === "qualifiedIdentifierType"
+    ? (concrete.typeArguments ?? [])
+    : [];
+};
+
+const tryGetRuntimeUnionMatchReturnTypeAst = (
+  valueAst: CSharpExpressionAst
+): CSharpTypeAst | undefined => {
+  if (
+    valueAst.kind !== "invocationExpression" ||
+    valueAst.typeArguments?.length !== 1 ||
+    valueAst.expression.kind !== "memberAccessExpression" ||
+    valueAst.expression.memberName !== "Match"
+  ) {
+    return undefined;
+  }
+
+  const [returnTypeAst] = valueAst.typeArguments;
+  return returnTypeAst && getTypeAstArguments(returnTypeAst).length >= 2
+    ? returnTypeAst
+    : undefined;
+};
+
+const tryBuildRuntimeUnionMatchReturnProjectionPlan = (
+  valueAst: CSharpExpressionAst,
+  targetTypeAst: CSharpTypeAst,
+  targetLayout: RuntimeUnionLayout,
+  context: EmitterContext
+): RuntimeReificationPlan | undefined => {
+  const sourceCarrierTypeAst = tryGetRuntimeUnionMatchReturnTypeAst(valueAst);
+  if (!sourceCarrierTypeAst) {
+    return undefined;
+  }
+  if (
+    sameTypeAstSurface(
+      stripNullableTypeAst(sourceCarrierTypeAst),
+      stripNullableTypeAst(targetTypeAst)
+    )
+  ) {
+    return undefined;
+  }
+
+  const sourceMemberTypeAsts = getTypeAstArguments(sourceCarrierTypeAst);
+  const usedTargetIndices = new Set<number>();
+  const targetIndices = sourceMemberTypeAsts.map((sourceMemberTypeAst) => {
+    const matches = targetLayout.memberTypeAsts.flatMap(
+      (targetMemberTypeAst, index) =>
+        !usedTargetIndices.has(index) &&
+        sameTypeAstSurface(
+          stripNullableTypeAst(sourceMemberTypeAst),
+          stripNullableTypeAst(targetMemberTypeAst)
+        )
+          ? [index]
+          : []
+    );
+    if (matches.length !== 1) {
+      return undefined;
+    }
+    const [targetIndex] = matches;
+    usedTargetIndices.add(targetIndex!);
+    return targetIndex;
+  });
+  if (targetIndices.some((index) => index === undefined)) {
+    return undefined;
+  }
+
+  const local = allocateRuntimeReificationLocalName(
+    "__tsonic_reify_union",
+    context
+  );
+  const localAst = identifierExpression(local.name);
+  const lambdaArgs = targetIndices.map((targetIndex, index) => {
+    const parameterName = `__tsonic_union_member_${index + 1}`;
+    return {
+      kind: "lambdaExpression" as const,
+      isAsync: false,
+      parameters: [{ name: parameterName }],
+      body: buildRuntimeUnionFactoryCallAst(
+        targetTypeAst,
+        targetIndex! + 1,
+        identifierExpression(parameterName)
+      ),
+    };
+  });
+
+  return {
+    condition: {
+      kind: "isExpression",
+      expression: boxValueAst(valueAst),
+      pattern: {
+        kind: "declarationPattern",
+        type: sourceCarrierTypeAst,
+        designation: local.name,
+      },
+    },
+    value: buildRuntimeUnionMatchAst(localAst, lambdaArgs, [targetTypeAst]),
+    context: local.context,
+  };
+};
+
 const alignSemanticRuntimeUnionMembers = (
   runtimeMembers: readonly IrType[],
   semanticMembers: readonly IrType[],
@@ -594,6 +794,133 @@ const allocateRuntimeReificationLocalName = (
     suffix += 1;
   }
 };
+
+const patternIntroducesLocalName = (pattern: CSharpPatternAst): boolean => {
+  switch (pattern.kind) {
+    case "declarationPattern":
+    case "varPattern":
+      return true;
+    case "negatedPattern":
+      return patternIntroducesLocalName(pattern.pattern);
+    case "typePattern":
+    case "constantPattern":
+    case "discardPattern":
+      return false;
+  }
+};
+
+const expressionIntroducesPatternLocalName = (
+  ast: CSharpExpressionAst
+): boolean => {
+  switch (ast.kind) {
+    case "isExpression":
+      return patternIntroducesLocalName(ast.pattern);
+    case "parenthesizedExpression":
+    case "suppressNullableWarningExpression":
+    case "awaitExpression":
+      return expressionIntroducesPatternLocalName(ast.expression);
+    case "castExpression":
+    case "asExpression":
+    case "argumentModifierExpression":
+      return expressionIntroducesPatternLocalName(ast.expression);
+    case "conditionalMemberAccessExpression":
+    case "memberAccessExpression":
+      return expressionIntroducesPatternLocalName(ast.expression);
+    case "binaryExpression":
+    case "assignmentExpression":
+      return (
+        expressionIntroducesPatternLocalName(ast.left) ||
+        expressionIntroducesPatternLocalName(ast.right)
+      );
+    case "prefixUnaryExpression":
+    case "postfixUnaryExpression":
+      return expressionIntroducesPatternLocalName(ast.operand);
+    case "conditionalExpression":
+      return (
+        expressionIntroducesPatternLocalName(ast.condition) ||
+        expressionIntroducesPatternLocalName(ast.whenTrue) ||
+        expressionIntroducesPatternLocalName(ast.whenFalse)
+      );
+    case "invocationExpression":
+      return (
+        expressionIntroducesPatternLocalName(ast.expression) ||
+        ast.arguments.some(expressionIntroducesPatternLocalName)
+      );
+    case "elementAccessExpression":
+    case "conditionalElementAccessExpression":
+      return (
+        expressionIntroducesPatternLocalName(ast.expression) ||
+        ast.arguments.some(expressionIntroducesPatternLocalName)
+      );
+    case "implicitElementAccessExpression":
+      return ast.arguments.some(expressionIntroducesPatternLocalName);
+    case "objectCreationExpression":
+      return (
+        ast.arguments.some(expressionIntroducesPatternLocalName) ||
+        (ast.initializer?.some(expressionIntroducesPatternLocalName) ?? false)
+      );
+    case "anonymousObjectCreationExpression":
+      return ast.initializer.some(expressionIntroducesPatternLocalName);
+    case "arrayCreationExpression":
+      return (
+        (ast.sizeExpression
+          ? expressionIntroducesPatternLocalName(ast.sizeExpression)
+          : false) ||
+        (ast.initializer?.some(expressionIntroducesPatternLocalName) ?? false)
+      );
+    case "stackAllocArrayCreationExpression":
+      return expressionIntroducesPatternLocalName(ast.sizeExpression);
+    case "lambdaExpression":
+      return false;
+    case "interpolatedStringExpression":
+      return ast.parts.some((part) =>
+        part.kind === "interpolation"
+          ? expressionIntroducesPatternLocalName(part.expression)
+          : false
+      );
+    case "throwExpression":
+      return expressionIntroducesPatternLocalName(ast.expression);
+    case "declarationExpression":
+      return true;
+    case "tupleExpression":
+      return ast.elements.some(expressionIntroducesPatternLocalName);
+    case "switchExpression":
+      return (
+        expressionIntroducesPatternLocalName(ast.governingExpression) ||
+        ast.arms.some(
+          (arm) =>
+            (arm.whenClause
+              ? expressionIntroducesPatternLocalName(arm.whenClause)
+              : false) || expressionIntroducesPatternLocalName(arm.expression)
+        )
+      );
+    case "identifierExpression":
+    case "qualifiedIdentifierExpression":
+    case "typeReferenceExpression":
+    case "nullLiteralExpression":
+    case "booleanLiteralExpression":
+    case "stringLiteralExpression":
+    case "charLiteralExpression":
+    case "numericLiteralExpression":
+    case "defaultExpression":
+    case "typeofExpression":
+    case "sizeOfExpression":
+      return false;
+  }
+};
+
+const isolatePatternLocalNames = (
+  valueExpression: CSharpExpressionAst,
+  returnTypeAst: CSharpTypeAst
+): CSharpExpressionAst =>
+  expressionIntroducesPatternLocalName(valueExpression)
+    ? buildZeroArgLambdaInvocationAst(returnTypeAst, [
+        {
+          kind: "returnStatement",
+          expression: valueExpression,
+        },
+      ])
+    : valueExpression;
 
 const isStableRuntimeReificationInputAst = (
   ast: CSharpExpressionAst
@@ -3222,18 +3549,29 @@ const tryBuildRuntimeMaterializationAstCore = (
       materializationTargetType.kind === "referenceType"
         ? emitTypeAst(materializationTargetType, targetLayoutContext)
         : undefined;
+    const runtimeCarrierAliasTarget = tryEmitRuntimeCarrierAliasTypeAst(
+      materializationTargetType,
+      namedReferenceTarget?.[1] ?? targetLayoutContext,
+      emitTypeAst
+    );
     if (
       getRuntimeUnionAliasReferenceKey(
         materializationTargetType,
         targetLayoutContext
       ) ||
-      namedReferenceTarget !== undefined
+      namedReferenceTarget !== undefined ||
+      runtimeCarrierAliasTarget !== undefined
     ) {
       const targetUnionTypeAst =
-        namedReferenceTarget?.[0] ?? buildRuntimeUnionTypeAst(targetLayout);
+        namedReferenceTarget?.[0] ??
+        runtimeCarrierAliasTarget?.[0] ??
+        buildRuntimeUnionTypeAst(targetLayout);
       const lambdaArgs: CSharpExpressionAst[] = [];
       let sawReachableMatch = false;
-      let currentContext = namedReferenceTarget?.[1] ?? targetLayoutContext;
+      let currentContext =
+        runtimeCarrierAliasTarget?.[1] ??
+        namedReferenceTarget?.[1] ??
+        targetLayoutContext;
       const sourceMemberIndexBySlot = new Map<number, number>();
       for (let index = 0; index < sourceLayout.members.length; index += 1) {
         sourceMemberIndexBySlot.set(
@@ -4105,6 +4443,27 @@ export const tryBuildRuntimeReificationPlan = (
       },
       context: unionTypeContext,
     });
+    const matchReturnProjection = tryBuildRuntimeUnionMatchReturnProjectionPlan(
+      valueAst,
+      concreteUnionTypeAst,
+      runtimeLayout,
+      unionTypeContext
+    );
+    if (matchReturnProjection) {
+      cases.push(matchReturnProjection);
+      unionTypeContext = matchReturnProjection.context;
+    }
+    const anonymousCarrierProjection =
+      tryBuildAnonymousRuntimeUnionCarrierProjectionPlan(
+        valueAst,
+        concreteUnionTypeAst,
+        runtimeLayout,
+        unionTypeContext
+      );
+    if (anonymousCarrierProjection) {
+      cases.push(anonymousCarrierProjection);
+      unionTypeContext = anonymousCarrierProjection.context;
+    }
 
     let currentContext = unionTypeContext;
     let catchAllCase: RuntimeReificationPlan | undefined;
@@ -4209,10 +4568,14 @@ export const tryBuildRuntimeReificationPlan = (
         valueExpression,
         finalContext
       );
+    const scopedValueExpression = isolatePatternLocalNames(
+      singleEvaluatedValueExpression,
+      concreteUnionTypeAst
+    );
 
     return {
       condition: conditionAst,
-      value: singleEvaluatedValueExpression,
+      value: scopedValueExpression,
       context: singleEvaluatedContext,
     };
   }

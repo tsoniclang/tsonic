@@ -10,3 +10,5 @@ import "./integration-cases/object-literals-and-channels.test.js";
 import "./integration-cases/may14-downstream-contracts.test.js";
 import "./integration-cases/tsts-blockers.test.js";
 import "./integration-cases/satisfies-expression.test.js";
+import "./integration-cases/module-static-values.test.js";
+import "./integration-cases/runtime-union-subset-reification.test.js";

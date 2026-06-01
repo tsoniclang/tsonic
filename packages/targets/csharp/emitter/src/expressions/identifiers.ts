@@ -11,6 +11,7 @@ import {
   normalizeClrQualifiedName,
   stableIdentifierSuffixFromTypeAst,
 } from "../core/format/backend-ast/utils.js";
+import { resolveModuleValueSymbolReferenceAst } from "./identifier-references.js";
 import { emitTypedDefaultAst } from "../core/semantic/defaults.js";
 import type {
   CSharpExpressionAst,
@@ -129,6 +130,39 @@ export const emitIdentifier = (
   // (`super()` constructor calls are handled separately in constructor emission.)
   if (expr.name === "super") {
     return [identifierExpression("base"), context];
+  }
+
+  // Imported identifiers are declarations in another module, not locals. Resolve
+  // them before storage-compatible local reuse so imported constants/functions
+  // stay fully qualified even when their inferred type matches the call context.
+  if (context.importBindings) {
+    const binding = context.importBindings.get(expr.name);
+    if (binding) {
+      if (binding.kind === "value") {
+        return maybeMaterializeValueReference(
+          identifierExpression(`${binding.clrName}.${binding.member}`),
+          context
+        );
+      }
+      if (binding.kind === "type") {
+        return [
+          {
+            kind: "typeReferenceExpression",
+            type: binding.typeAst,
+          },
+          context,
+        ];
+      }
+      return [identifierExpression(binding.clrName), context];
+    }
+  }
+
+  const moduleValueReference = resolveModuleValueSymbolReferenceAst(
+    expr.name,
+    context
+  );
+  if (moduleValueReference) {
+    return maybeMaterializeValueReference(moduleValueReference, context);
   }
 
   // Narrowing remap for union type guards
@@ -294,31 +328,6 @@ export const emitIdentifier = (
     }
   }
 
-  // Imported identifiers are declarations in another module, not locals. Resolve
-  // them before storage-compatible local reuse so imported constants/functions
-  // stay fully qualified even when their inferred type matches the call context.
-  if (context.importBindings) {
-    const binding = context.importBindings.get(expr.name);
-    if (binding) {
-      if (binding.kind === "value") {
-        return maybeMaterializeValueReference(
-          identifierExpression(`${binding.clrName}.${binding.member}`),
-          context
-        );
-      }
-      if (binding.kind === "type") {
-        return [
-          {
-            kind: "typeReferenceExpression",
-            type: binding.typeAst,
-          },
-          context,
-        ];
-      }
-      return [identifierExpression(binding.clrName), context];
-    }
-  }
-
   const contextualReturnStorageFallback =
     expectedType === undefined && context.returnType
       ? tryEmitStorageCompatibleIdentifier(expr, context, context.returnType)
@@ -358,33 +367,6 @@ export const emitIdentifier = (
   if (remappedLocal) {
     return maybeWrapLocalNumericCast(
       identifierExpression(remappedLocal),
-      context
-    );
-  }
-
-  // Static module members (functions/fields) in the current file's container class.
-  // These are emitted with namingPolicy (e.g., `main` → `Main` under `clr`).
-  const valueSymbol = context.valueSymbols?.get(expr.name);
-  if (valueSymbol) {
-    const memberName = escapeCSharpIdentifier(valueSymbol.csharpName);
-    if (
-      context.moduleStaticClassName &&
-      context.className !== context.moduleStaticClassName
-    ) {
-      const moduleNamespace =
-        context.moduleNamespace ?? context.options.rootNamespace;
-      const containerPrefix = moduleNamespace.startsWith("global::")
-        ? moduleNamespace
-        : `global::${moduleNamespace}`;
-      return maybeMaterializeValueReference(
-        identifierExpression(
-          `${containerPrefix}.${context.moduleStaticClassName}.${memberName}`
-        ),
-        context
-      );
-    }
-    return maybeMaterializeValueReference(
-      identifierExpression(memberName),
       context
     );
   }
