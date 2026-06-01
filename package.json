@@ -40,7 +40,7 @@
     "globals": "15.15.0",
     "mocha": "11.7.2",
     "prettier": "3.6.2",
-    "tsonic": "0.0.83",
+    "tsonic": "0.0.84",
     "typescript": "5.9.2",
     "typescript-eslint": "^8.45.0"
   },
@@ -62,7 +62,7 @@
   "author": "Tsonic Project",
   "license": "MIT",
   "dependencies": {
-    "@tsonic/cli": "0.0.83",
+    "@tsonic/cli": "0.0.84",
     "@tsonic/core": "10.0.46",
     "@tsonic/dotnet": "10.0.46",
     "@tsonic/globals": "10.0.46",
