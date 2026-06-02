@@ -172,6 +172,27 @@ describe("validateUnsupportedFeatures", () => {
       );
     });
 
+    it("rejects the built-in globalThis object", () => {
+      const result = runValidation(`
+        export function readBuiltInGlobal(): unknown {
+          return globalThis;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "globalThis")).to.equal(true);
+    });
+
+    it("allows source-owned bindings named globalThis", () => {
+      const result = runValidation(`
+        export function countDeclarations(locals: Map<string, { declarations?: readonly string[] }>): number {
+          const globalThis = locals.get("globalThis");
+          return globalThis?.declarations?.length ?? 0;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "globalThis")).to.equal(false);
+    });
+
     it("rejects JavaScript Array construction on the default surface", () => {
       const result = runValidation(`
         export function make(): number[] {

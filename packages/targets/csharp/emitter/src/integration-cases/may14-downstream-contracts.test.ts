@@ -816,6 +816,19 @@ describe("May 14 downstream contract coverage", () => {
     expect(csharp).to.include(".property_id");
   });
 
+  it("emits closed structural union property-existence checks in boolean expressions", () => {
+    const csharp = compileToCSharp(`
+      type AuthOk = { property_id: string };
+      type AuthError = { error: string };
+
+      export function isError(auth: AuthOk | AuthError): boolean {
+        return "error" in auth;
+      }
+    `);
+
+    expect(csharp).to.match(/return .*auth.*\.Is\d+\(\)/);
+  });
+
   it("preserves string typeof narrowing through member access", () => {
     const csharp = compileToCSharp(
       `

@@ -33,6 +33,12 @@ import {
 } from "./inference-initializers-call.js";
 import { attachConstructedReferenceMetadata } from "./constructor-return-metadata.js";
 
+const isConstAssertionType = (node: ts.TypeNode): boolean =>
+  ts.isTypeReferenceNode(node) &&
+  ts.isIdentifier(node.typeName) &&
+  node.typeName.text === "const" &&
+  (!node.typeArguments || node.typeArguments.length === 0);
+
 export const tryInferTypeFromInitializer = (
   state: TypeSystemState,
   declNode: unknown
@@ -53,6 +59,10 @@ export const tryInferTypeFromInitializer = (
 
   // Explicit type assertions are deterministic sources for variable typing.
   if (ts.isAsExpression(init) || ts.isTypeAssertionExpression(init)) {
+    if (isConstAssertionType(init.type)) {
+      return inferExpressionType(state, init.expression, new Map());
+    }
+
     return convertTypeNode(state, init.type);
   }
 

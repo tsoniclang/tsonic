@@ -451,6 +451,12 @@ const tryResolveExplicitGenericInvocationResultType = (
   switch (directAst.expression.memberName) {
     case "Match":
       return tryConvertSurfaceTypeAstToIrType(resultTypeAst);
+    case "ReadOptionalObject":
+    case "ReadOptionalReference":
+    case "ReadOptionalValue": {
+      const resultType = tryConvertSurfaceTypeAstToIrType(resultTypeAst);
+      return resultType ? withOptionalUndefined(resultType) : undefined;
+    }
     default:
       return undefined;
   }

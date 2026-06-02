@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { CSharpTypeAst } from "../format/backend-ast/types.js";
+import type {
+  CSharpMemberAst,
+  CSharpTypeAst,
+} from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
@@ -9,6 +12,8 @@ export type RuntimeUnionCarrierMetadata = {
   readonly namespaceName?: string;
   readonly typeParameters?: readonly string[];
   readonly definitionMemberTypeAsts?: readonly CSharpTypeAst[];
+  readonly implementedInterfaceTypeAsts?: readonly CSharpTypeAst[];
+  readonly forwardedInterfaceMembers?: readonly CSharpMemberAst[];
   readonly accessModifier?: "public" | "internal";
 };
 
@@ -21,6 +26,8 @@ export type RuntimeUnionCarrierDefinition = {
   readonly typeParameters: readonly string[];
   readonly memberTypeAsts: readonly CSharpTypeAst[];
   readonly memberTypeKeys: readonly string[];
+  readonly implementedInterfaceTypeAsts: readonly CSharpTypeAst[];
+  readonly forwardedInterfaceMembers: readonly CSharpMemberAst[];
   readonly accessModifier: "public" | "internal";
 };
 
@@ -250,6 +257,17 @@ const carrierDefinitionMembersMatch = (
       )
   );
 
+const typeAstListMatches = (
+  left: readonly CSharpTypeAst[],
+  right: readonly CSharpTypeAst[]
+): boolean =>
+  left.length === right.length &&
+  left.every(
+    (typeAst, index) =>
+      stableTypeKeyFromAst(typeAst) ===
+      stableTypeKeyFromAst(right[index] ?? typeAst)
+  );
+
 const isStorageErasedObjectArrayKey = (key: string): boolean =>
   key === "array:1:predefined:object" ||
   key === "array:1:nullable:predefined:object";
@@ -442,6 +460,11 @@ export const getOrRegisterRuntimeUnionCarrier = (
       metadata.accessModifier === "public"
         ? "public"
         : "internal";
+    const nextImplementedInterfaceTypeAsts =
+      metadata.implementedInterfaceTypeAsts ??
+      existing.implementedInterfaceTypeAsts;
+    const nextForwardedInterfaceMembers =
+      metadata.forwardedInterfaceMembers ?? existing.forwardedInterfaceMembers;
     const effectiveNextDefinitionMemberTypeAsts = definitionMembersMatch
       ? (reconciledDefinitionMemberTypeAsts ?? existing.memberTypeAsts)
       : nextDefinitionMemberTypeAsts;
@@ -459,7 +482,12 @@ export const getOrRegisterRuntimeUnionCarrier = (
           stableTypeKeyFromAst(
             effectiveNextDefinitionMemberTypeAsts[index] ?? memberTypeAst
           )
-      )
+      ) &&
+      typeAstListMatches(
+        existing.implementedInterfaceTypeAsts,
+        nextImplementedInterfaceTypeAsts
+      ) &&
+      existing.forwardedInterfaceMembers === nextForwardedInterfaceMembers
     ) {
       return existing;
     }
@@ -474,6 +502,8 @@ export const getOrRegisterRuntimeUnionCarrier = (
       fullName: `${nextNamespaceName}.${nextName}`,
       typeParameters: nextTypeParameters,
       memberTypeAsts: [...effectiveNextDefinitionMemberTypeAsts],
+      implementedInterfaceTypeAsts: [...nextImplementedInterfaceTypeAsts],
+      forwardedInterfaceMembers: [...nextForwardedInterfaceMembers],
       accessModifier: nextAccessModifier,
     };
     registry.definitions.set(key, upgraded);
@@ -513,6 +543,10 @@ export const getOrRegisterRuntimeUnionCarrier = (
     typeParameters,
     memberTypeAsts: [...definitionMemberTypeAsts],
     memberTypeKeys,
+    implementedInterfaceTypeAsts: [
+      ...(metadata?.implementedInterfaceTypeAsts ?? []),
+    ],
+    forwardedInterfaceMembers: [...(metadata?.forwardedInterfaceMembers ?? [])],
     accessModifier: metadata?.accessModifier ?? "public",
   };
   registry?.definitions.set(key, definition);

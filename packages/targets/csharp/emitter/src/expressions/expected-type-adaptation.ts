@@ -73,6 +73,10 @@ import {
   isStorageErasedBroadObjectPassThroughType,
   isBroadObjectSlotType,
 } from "../core/semantic/broad-object-types.js";
+import {
+  containsOutOfScopeTypeParameter,
+  preferInferredTypeOverOutOfScopeGenericType,
+} from "../core/semantic/type-parameter-scope.js";
 import { isSystemArrayStorageType } from "../core/semantic/broad-array-storage.js";
 import {
   adaptMatch,
@@ -116,6 +120,7 @@ import {
   tryBuildRuntimeMaterializationAst,
 } from "../core/semantic/runtime-reification.js";
 import { resolveRuntimeStorageType } from "../core/semantic/storage-types.js";
+import { tryProjectRuntimeUnionToCommonTargetAst } from "../core/semantic/runtime-union-common-target.js";
 import { buildInvokedLambdaExpressionAst } from "./invoked-lambda.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 
@@ -221,72 +226,6 @@ const getNullishUnionTypeParameterName = (
   }
 
   return getUnconstrainedTypeParameterName(split.nonNullishMembers[0], context);
-};
-
-const containsOutOfScopeTypeParameter = (
-  type: IrType | undefined,
-  context: EmitterContext,
-  visited: WeakSet<object> = new WeakSet()
-): boolean => {
-  if (!type) {
-    return false;
-  }
-  if (visited.has(type)) {
-    return false;
-  }
-  visited.add(type);
-
-  switch (type.kind) {
-    case "typeParameterType":
-      return !(context.typeParameters?.has(type.name) ?? false);
-    case "arrayType":
-      return containsOutOfScopeTypeParameter(
-        type.elementType,
-        context,
-        visited
-      );
-    case "dictionaryType":
-      return (
-        containsOutOfScopeTypeParameter(type.keyType, context, visited) ||
-        containsOutOfScopeTypeParameter(type.valueType, context, visited)
-      );
-    case "tupleType":
-      return type.elementTypes.some((elementType) =>
-        containsOutOfScopeTypeParameter(elementType, context, visited)
-      );
-    case "functionType":
-      return (
-        type.parameters.some((parameter) =>
-          containsOutOfScopeTypeParameter(parameter.type, context, visited)
-        ) || containsOutOfScopeTypeParameter(type.returnType, context, visited)
-      );
-    case "referenceType":
-      return (
-        type.typeArguments?.some((typeArgument) =>
-          containsOutOfScopeTypeParameter(typeArgument, context, visited)
-        ) ?? false
-      );
-    case "unionType":
-    case "intersectionType":
-      return type.types.some((member) =>
-        containsOutOfScopeTypeParameter(member, context, visited)
-      );
-    case "objectType":
-      return type.members.some((member) =>
-        member.kind === "propertySignature"
-          ? containsOutOfScopeTypeParameter(member.type, context, visited)
-          : containsOutOfScopeTypeParameter(
-              member.returnType,
-              context,
-              visited
-            ) ||
-            member.parameters.some((parameter) =>
-              containsOutOfScopeTypeParameter(parameter.type, context, visited)
-            )
-      );
-    default:
-      return false;
-  }
 };
 
 const maybeCastObjectCarrierToNullishTypeParameterAst = (
@@ -1087,6 +1026,8 @@ export const resolveCarrierPreservingRawExpectedType = (opts: {
   if (
     selectedExpectedType &&
     !areIrTypesEquivalent(selectedExpectedType, carrierTargetType, context) &&
+    !containsOutOfScopeTypeParameter(carrierTargetType, context) &&
+    !containsOutOfScopeTypeParameter(selectedExpectedType, context) &&
     (() => {
       const [carrierLayout, layoutContext] = buildRuntimeUnionLayout(
         carrierTargetType,
@@ -2562,6 +2503,17 @@ const adaptValueToExpectedTypeAstResult = (opts: {
     return adaptMatch([valueAst, context]);
   }
 
+  const commonTargetProjection = tryProjectRuntimeUnionToCommonTargetAst({
+    valueAst,
+    actualType,
+    expectedType,
+    context,
+    emitTypeAst,
+  });
+  if (commonTargetProjection) {
+    return adaptMatch(commonTargetProjection);
+  }
+
   const awaitableAdjusted = tryAdaptAwaitableValueAst({
     ast: valueAst,
     actualType,
@@ -2951,7 +2903,18 @@ export const adaptEmittedExpressionAst = (opts: {
   readonly context: EmitterContext;
   readonly expectedType: IrType | undefined;
 }): [CSharpExpressionAst, EmitterContext] => {
-  const { expr, valueAst, context, expectedType } = opts;
+  const { expr, valueAst, context } = opts;
+  const directExpectedSurface = opts.expectedType
+    ? resolveDirectValueSurfaceType(valueAst, context)
+    : undefined;
+  const expectedType =
+    directExpectedSurface && !isBroadObjectSlotType(directExpectedSurface, context)
+      ? preferInferredTypeOverOutOfScopeGenericType(
+          opts.expectedType,
+          directExpectedSurface,
+          context
+        )
+      : opts.expectedType;
   const [castedAst, castedContext] = maybeCastNullishTypeParamAst(
     expr,
     valueAst,

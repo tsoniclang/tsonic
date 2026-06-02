@@ -26,7 +26,11 @@ import {
   buildRuntimeUnionTypeAst,
 } from "./runtime-unions.js";
 import { expandRuntimeUnionMembers } from "./runtime-union-expansion.js";
-import { buildRuntimeUnionFactoryCallAst } from "./runtime-union-projection.js";
+import {
+  buildInvalidRuntimeUnionMaterializationExpression,
+  buildRuntimeUnionFactoryCallAst,
+  buildRuntimeUnionMatchAst,
+} from "./runtime-union-projection.js";
 import { runtimeUnionAliasReferencesMatch } from "./runtime-union-alias-identity.js";
 import { getContextualTypeVisitKey } from "./deterministic-type-keys.js";
 import {
@@ -47,6 +51,7 @@ import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { isBroadObjectSlotType } from "./broad-object-types.js";
 import { referenceTypeHasClrIdentity } from "./clr-type-identity.js";
 import { referenceTypeEmitsAsNativeInterface } from "./native-interfaces.js";
+import { tryProjectRuntimeUnionToCommonTargetAst } from "./runtime-union-common-target.js";
 
 const JS_NUMBER_MATERIALIZATION_CLR_NAMES = new Set([
   "System.Double",
@@ -401,6 +406,72 @@ const tryBuildRuntimeUnionSubsetMaterializationAst = (
   );
   if (selectedMemberNs.length === 0) {
     return undefined;
+  }
+
+  const resolvedTargetType = resolveTypeAlias(
+    stripNullish(targetType),
+    sourceLayoutContext
+  );
+  if (targetType.kind === "referenceType" && resolvedTargetType.kind === "unionType") {
+    const [targetTypeAst, targetTypeContext] = emitTypeAst(
+      targetType,
+      sourceLayoutContext
+    );
+    let matchContext = targetTypeContext;
+    let materializableCount = 0;
+    const selectedSourceMemberNs = new Set(selectedMemberNs);
+    const sourceMemberIndexBySlot = new Map<number, number>();
+    for (let index = 0; index < sourceLayout.members.length; index += 1) {
+      sourceMemberIndexBySlot.set(index + 1, index);
+    }
+
+    const lambdaArgs: CSharpExpressionAst[] = [];
+    for (
+      let slotIndex = 0;
+      slotIndex < sourceLayout.runtimeUnionArity;
+      slotIndex += 1
+    ) {
+      const sourceMemberN = slotIndex + 1;
+      const index = sourceMemberIndexBySlot.get(sourceMemberN);
+      const actualMember =
+        index !== undefined ? sourceLayout.members[index] : undefined;
+      const parameterName = `__tsonic_union_member_${sourceMemberN}`;
+      const parameterExpr = identifierExpression(parameterName);
+      const materialized =
+        actualMember && selectedSourceMemberNs.has(sourceMemberN)
+          ? tryBuildRuntimeMaterializationAst(
+              parameterExpr,
+              actualMember,
+              targetType,
+              matchContext,
+              emitTypeAst
+            )
+          : undefined;
+      if (materialized) {
+        materializableCount += 1;
+        matchContext = materialized[1];
+      }
+      lambdaArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: parameterName }],
+        body:
+          materialized?.[0] ??
+          buildInvalidRuntimeUnionMaterializationExpression(
+            actualMember ?? { kind: "unknownType" },
+            targetType
+          ),
+      });
+    }
+
+    if (materializableCount > 0) {
+      return [
+        buildRuntimeUnionMatchAst(sourceAst, lambdaArgs, [
+          stripNullableTypeAst(targetTypeAst),
+        ]),
+        matchContext,
+      ];
+    }
   }
 
   return tryBuildRuntimeMaterializationAst(
@@ -984,6 +1055,17 @@ export const materializeDirectNarrowingAst = (
     : undefined;
   if (runtimeSubsetMaterialized) {
     return runtimeSubsetMaterialized;
+  }
+
+  const commonTargetProjection = tryProjectRuntimeUnionToCommonTargetAst({
+    valueAst: sourceAst,
+    actualType: comparableSourceType,
+    expectedType: comparableEmissionTargetType,
+    context,
+    emitTypeAst,
+  });
+  if (commonTargetProjection) {
+    return commonTargetProjection;
   }
 
   const [targetRuntimeLayout, targetRuntimeLayoutContext] =

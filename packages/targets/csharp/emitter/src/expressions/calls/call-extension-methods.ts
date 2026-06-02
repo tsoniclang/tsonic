@@ -49,7 +49,11 @@ const shouldEmitExtensionTypeArguments = (
     return true;
   }
 
-  return typeArgumentsAreInScope(expr.typeArguments, context);
+  const hasByReferenceArgument =
+    expr.argumentPassing?.some((passing) => passing !== "value") ?? false;
+  return (
+    hasByReferenceArgument && typeArgumentsAreInScope(expr.typeArguments, context)
+  );
 };
 
 const preserveReceiverTypeAssertionAst = (

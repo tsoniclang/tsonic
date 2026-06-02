@@ -306,6 +306,10 @@ export const tryEmitMemberBindingAccess = (
     if (expr.object.kind !== "identifier") return false;
     const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
     if (isLocal) return false;
+    const importBinding = context.importBindings?.get(expr.object.name);
+    if (importBinding?.kind === "value" && importBinding.typeAst === undefined) {
+      return false;
+    }
     if (
       expr.object.providerQualifiedName !== undefined ||
       (expr.object.providerMemberName !== undefined &&

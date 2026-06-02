@@ -158,6 +158,18 @@ export type ProgramContext = {
   readonly expressionTreeLambdaDepth?: number;
 
   /**
+   * Exact object-literal AST nodes whose TypeScript contextual type must be
+   * ignored during conversion.
+   *
+   * Used for compiler-only metadata channels where the TS declaration surface
+   * necessarily uses broad runtime types, but the expression is removed by a
+   * later compiler pass and is never materialized as a runtime object.
+   */
+  readonly suppressObjectLiteralContextualTypeNodes?: ReadonlySet<
+    ts.ObjectLiteralExpression
+  >;
+
+  /**
    * IR conversion diagnostics emitted by converters (non-TypeSystem).
    *
    * Converters should record deterministic, airplane-grade failures here

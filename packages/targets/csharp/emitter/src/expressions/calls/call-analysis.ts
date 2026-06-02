@@ -123,7 +123,11 @@ export const isInstanceMemberAccess = (
   // even if TypeScript assigns them an inferredType.
   if (expr.object.kind === "identifier") {
     const importBinding = context.importBindings?.get(expr.object.name);
-    if (importBinding?.kind === "type") {
+    if (
+      importBinding?.kind === "type" ||
+      importBinding?.kind === "namespace" ||
+      (importBinding?.kind === "value" && importBinding.typeAst !== undefined)
+    ) {
       return false;
     }
   }

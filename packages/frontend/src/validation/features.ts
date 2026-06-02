@@ -61,6 +61,26 @@ const isDynamicImportCall = (node: ts.CallExpression): boolean =>
 const isGlobalThisIdentifier = (node: ts.Node): node is ts.Identifier =>
   ts.isIdentifier(node) && node.text === "globalThis";
 
+const isUnsupportedGlobalThisIdentifier = (
+  node: ts.Node,
+  program: TsonicProgram
+): boolean => {
+  if (!isGlobalThisIdentifier(node)) {
+    return false;
+  }
+
+  const symbol = program.checker.getSymbolAtLocation(node);
+  if (!symbol) {
+    return true;
+  }
+
+  return !(
+    symbol.declarations?.some((declaration) =>
+      isProgramSourceDeclaration(declaration, program)
+    ) ?? false
+  );
+};
+
 const getStaticInOperatorKey = (node: ts.Expression): string | undefined => {
   if (ts.isStringLiteralLike(node)) {
     return node.text;
@@ -588,7 +608,7 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (isGlobalThisIdentifier(node)) {
+    if (isUnsupportedGlobalThisIdentifier(node, program)) {
       addUnsupported(
         node,
         "globalThis is not supported in emitted Tsonic code.",

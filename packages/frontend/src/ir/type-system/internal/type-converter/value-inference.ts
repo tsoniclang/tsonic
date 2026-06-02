@@ -534,5 +534,58 @@ export function inferTypeFromValueExpression(
     }
   }
 
+  if (ts.isPrefixUnaryExpression(current)) {
+    if (current.operator === ts.SyntaxKind.ExclamationToken) {
+      return { kind: "primitiveType", name: "boolean" };
+    }
+
+    return inferTypeFromValueExpression(
+      current.operand,
+      binding,
+      seenDeclIds,
+      convertTypeFn
+    );
+  }
+
+  if (ts.isBinaryExpression(current)) {
+    const operator = current.operatorToken.kind;
+    if (
+      operator === ts.SyntaxKind.EqualsEqualsToken ||
+      operator === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      operator === ts.SyntaxKind.ExclamationEqualsToken ||
+      operator === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+      operator === ts.SyntaxKind.LessThanToken ||
+      operator === ts.SyntaxKind.LessThanEqualsToken ||
+      operator === ts.SyntaxKind.GreaterThanToken ||
+      operator === ts.SyntaxKind.GreaterThanEqualsToken
+    ) {
+      return { kind: "primitiveType", name: "boolean" };
+    }
+
+    if (
+      operator === ts.SyntaxKind.AmpersandToken ||
+      operator === ts.SyntaxKind.BarToken ||
+      operator === ts.SyntaxKind.CaretToken ||
+      operator === ts.SyntaxKind.LessThanLessThanToken ||
+      operator === ts.SyntaxKind.GreaterThanGreaterThanToken ||
+      operator === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken
+    ) {
+      const leftType = inferTypeFromValueExpression(
+        current.left,
+        binding,
+        seenDeclIds,
+        convertTypeFn
+      );
+      const rightType = inferTypeFromValueExpression(
+        current.right,
+        binding,
+        seenDeclIds,
+        convertTypeFn
+      );
+      if (!leftType || !rightType) return undefined;
+      return { kind: "primitiveType", name: "int" };
+    }
+  }
+
   return undefined;
 }

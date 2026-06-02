@@ -32,6 +32,8 @@ import { areIrTypesEquivalent } from "./type-equivalence.js";
 import { isAssignableToType } from "./type-compatibility.js";
 import { getReferenceDeterministicIdentityKey } from "./clr-type-identity.js";
 import { resolveBroadArrayAssertionStorageType } from "./broad-array-storage.js";
+import { preferInferredTypeOverOutOfScopeGenericType } from "./type-parameter-scope.js";
+import { selectFrontendInferredConditionalType } from "./conditional-inferred-type.js";
 
 /**
  * Resolve the target type from an `asinterface` expression, unwrapping
@@ -219,15 +221,35 @@ const emitConditionNarrowingStub = (_expr: IrExpression, ctx: EmitterContext) =>
 const resolveConditionalBranchSemanticType = (
   branch: IrExpression,
   context: EmitterContext
-): IrType | undefined =>
-  resolveSourceBackedInitializerType(branch, context) ??
-  resolveEffectiveExpressionType(branch, context) ??
-  branch.inferredType;
+): IrType | undefined => {
+  const sourceBackedType = resolveSourceBackedInitializerType(branch, context);
+  if (sourceBackedType) {
+    return preferInferredTypeOverOutOfScopeGenericType(
+      sourceBackedType,
+      branch.inferredType,
+      context
+    );
+  }
+
+  return preferInferredTypeOverOutOfScopeGenericType(
+    resolveEffectiveExpressionType(branch, context),
+    resolveDirectStorageIrType(branch, context) ?? branch.inferredType,
+    context
+  );
+};
 
 const resolveConditionalInitializerType = (
   expression: Extract<IrExpression, { kind: "conditional" }>,
   context: EmitterContext
 ): IrType | undefined => {
+  const frontendInferredType = selectFrontendInferredConditionalType(
+    expression,
+    context
+  );
+  if (frontendInferredType) {
+    return frontendInferredType;
+  }
+
   const truthyContext = applyConditionBranchNarrowing(
     expression.condition,
     "truthy",

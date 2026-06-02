@@ -291,6 +291,10 @@ export const referenceTypeIdentity = (
     return `builtin:${type.name}/${type.typeArguments?.length ?? 0}`;
   }
 
+  if (type.structuralOrigin === "namedReference") {
+    return `source:${type.name}/${type.typeArguments?.length ?? 0}`;
+  }
+
   return undefined;
 };
 

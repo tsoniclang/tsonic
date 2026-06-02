@@ -2,7 +2,12 @@
  * Interface declaration emission — returns CSharpTypeDeclarationAst[]
  */
 
-import type { IrStatement, IrType } from "@tsonic/frontend";
+import type {
+  IrClassMember,
+  IrInterfaceMember,
+  IrStatement,
+  IrType,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitAttributes } from "../../core/format/attributes.js";
@@ -21,6 +26,7 @@ import { identifierType } from "../../core/format/backend-ast/builders.js";
 import {
   localInterfaceInfoIsArrayOverlay,
   resolveLocalTypeInfo,
+  substituteTypeArgs,
 } from "../../core/semantic/type-resolution.js";
 import {
   localInterfaceInfoEmitsAsNative,
@@ -91,6 +97,193 @@ const collectInheritedPropertyNames = (
   }
 
   return names;
+};
+
+const inheritedInterfaceMemberKey = (member: IrInterfaceMember): string =>
+  `${member.kind}:${member.name}`;
+
+const specializeInheritedInterfaceMember = (
+  member: IrInterfaceMember,
+  typeParameterNames: readonly string[],
+  typeArguments: readonly IrType[]
+): IrInterfaceMember => {
+  if (typeParameterNames.length === 0 || typeArguments.length === 0) {
+    return member;
+  }
+
+  if (member.kind === "propertySignature") {
+    return {
+      ...member,
+      type: substituteTypeArgs(member.type, typeParameterNames, typeArguments),
+    };
+  }
+
+  return {
+    ...member,
+    parameters: member.parameters.map((parameter) =>
+      parameter.type
+        ? {
+            ...parameter,
+            type: substituteTypeArgs(
+              parameter.type,
+              typeParameterNames,
+              typeArguments
+            ),
+          }
+        : parameter
+    ),
+    returnType: member.returnType
+      ? substituteTypeArgs(member.returnType, typeParameterNames, typeArguments)
+      : undefined,
+  };
+};
+
+const classMemberToInterfaceMember = (
+  member: IrClassMember,
+  typeParameterNames: readonly string[],
+  typeArguments: readonly IrType[]
+): IrInterfaceMember | undefined => {
+  if (member.kind === "constructorDeclaration") {
+    return undefined;
+  }
+
+  if (member.isStatic || member.accessibility !== "public") {
+    return undefined;
+  }
+
+  if (member.kind === "propertyDeclaration") {
+    const type = member.type;
+    if (!type) {
+      return undefined;
+    }
+    return {
+      kind: "propertySignature",
+      name: member.name,
+      type:
+        typeParameterNames.length > 0 && typeArguments.length > 0
+          ? substituteTypeArgs(type, typeParameterNames, typeArguments)
+          : type,
+      isOptional: false,
+      isReadonly: member.isReadonly,
+      attributes: member.attributes,
+    };
+  }
+
+  if (member.kind === "methodDeclaration") {
+    return {
+      kind: "methodSignature",
+      name: member.name,
+      typeParameters: member.typeParameters,
+      parameters:
+        typeParameterNames.length > 0 && typeArguments.length > 0
+          ? member.parameters.map((parameter) =>
+              parameter.type
+                ? {
+                    ...parameter,
+                    type: substituteTypeArgs(
+                      parameter.type,
+                      typeParameterNames,
+                      typeArguments
+                    ),
+                  }
+                : parameter
+            )
+          : member.parameters,
+      returnType:
+        member.returnType &&
+        typeParameterNames.length > 0 &&
+        typeArguments.length > 0
+          ? substituteTypeArgs(
+              member.returnType,
+              typeParameterNames,
+              typeArguments
+            )
+          : member.returnType,
+      attributes: member.attributes,
+      overloadFamily: member.overloadFamily,
+    };
+  }
+
+  return undefined;
+};
+
+const collectNonNativeHeritageMembers = (
+  extendsTypes: readonly IrType[] | undefined,
+  context: EmitterContext,
+  visited: Set<string> = new Set<string>()
+): readonly IrInterfaceMember[] => {
+  const membersByKey = new Map<string, IrInterfaceMember>();
+  const appendMember = (member: IrInterfaceMember): void => {
+    const key = inheritedInterfaceMemberKey(member);
+    if (!membersByKey.has(key)) {
+      membersByKey.set(key, member);
+    }
+  };
+
+  for (const extendedType of extendsTypes ?? []) {
+    if (extendedType.kind !== "referenceType") {
+      continue;
+    }
+
+    if (referenceTypeEmitsAsNativeInterface(extendedType, context)) {
+      continue;
+    }
+
+    const resolved = resolveLocalTypeInfo(extendedType, context);
+    if (!resolved) {
+      continue;
+    }
+
+    const key = `${resolved.namespace}:${resolved.name}`;
+    if (visited.has(key)) {
+      continue;
+    }
+    visited.add(key);
+
+    if (resolved.info.kind === "interface") {
+      for (const inherited of collectNonNativeHeritageMembers(
+        resolved.info.extends,
+        context,
+        visited
+      )) {
+        appendMember(inherited);
+      }
+
+      for (const member of resolved.info.members) {
+        appendMember(
+          specializeInheritedInterfaceMember(
+            member,
+            resolved.info.typeParameters,
+            extendedType.typeArguments ?? []
+          )
+        );
+      }
+      continue;
+    }
+
+    if (resolved.info.kind === "class") {
+      for (const inherited of collectNonNativeHeritageMembers(
+        resolved.info.superClass ? [resolved.info.superClass] : undefined,
+        context,
+        visited
+      )) {
+        appendMember(inherited);
+      }
+
+      for (const member of resolved.info.members) {
+        const interfaceMember = classMemberToInterfaceMember(
+          member,
+          resolved.info.typeParameters,
+          extendedType.typeArguments ?? []
+        );
+        if (interfaceMember) {
+          appendMember(interfaceMember);
+        }
+      }
+    }
+  }
+
+  return [...membersByKey.values()];
 };
 
 /**
@@ -209,7 +402,10 @@ export const emitInterfaceDeclaration = (
         baseType === undefined
       ) {
         baseType = extTypeAst;
-      } else {
+      } else if (
+        !emitsAsNativeInterface ||
+        referenceTypeEmitsAsNativeInterface(ext, currentContext)
+      ) {
         interfaces.push(extTypeAst);
       }
     }
@@ -221,8 +417,39 @@ export const emitInterfaceDeclaration = (
     stmt.extends,
     currentContext
   );
+  const emittedMemberKeys = new Set<string>();
+
+  if (emitsAsNativeInterface) {
+    for (const member of collectNonNativeHeritageMembers(
+      stmt.extends,
+      currentContext
+    )) {
+      const [memberAst, newContext] = emitInterfaceMemberAsProperty(
+        member,
+        currentContext
+      );
+      members.push(
+        memberAst.kind === "propertyDeclaration"
+          ? {
+              ...memberAst,
+              modifiers: [],
+              hasSetter:
+                member.kind === "propertySignature" && !member.isReadonly,
+              hasInit: undefined,
+            }
+          : { ...memberAst, modifiers: [] }
+      );
+      emittedMemberKeys.add(inheritedInterfaceMemberKey(member));
+      currentContext = newContext;
+    }
+  }
 
   for (const member of stmt.members) {
+    const memberKey = inheritedInterfaceMemberKey(member);
+    if (emittedMemberKeys.has(memberKey)) {
+      continue;
+    }
+
     if (
       member.kind === "propertySignature" &&
       inheritedPropertyNames.has(member.name)

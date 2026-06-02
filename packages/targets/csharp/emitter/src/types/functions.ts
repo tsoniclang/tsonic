@@ -6,39 +6,33 @@ import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
-import {
-  identifierType,
-  nullableType,
-} from "../core/format/backend-ast/builders.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 import { unwrapParameterModifierType } from "../core/semantic/parameter-modifier-types.js";
+import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolution.js";
 
-const objectNullableType = (): CSharpTypeAst =>
-  nullableType({ kind: "predefinedType", keyword: "object" });
-
-const isRuntimeNullishType = (type: IrType): boolean =>
-  (type.kind === "primitiveType" &&
-    (type.name === "null" || type.name === "undefined")) ||
-  type.kind === "voidType";
-
-const isUnconstrainedGenericNullishUnion = (type: IrType): boolean => {
-  if (type.kind !== "unionType") {
+const shouldEmitGenericNullishReturnAsObjectCarrier = (
+  type: Extract<IrType, { kind: "functionType" }>,
+  returnType: IrType,
+  context: EmitterContext
+): boolean => {
+  if (type.parameters.length === 0) {
     return false;
   }
 
-  const nonNullishMembers = type.types.filter(
-    (member): member is IrType =>
-      member !== undefined && !isRuntimeNullishType(member)
-  );
-  const nullishMembers = type.types.filter(
-    (member): member is IrType =>
-      member !== undefined && isRuntimeNullishType(member)
-  );
+  const split = splitRuntimeNullishUnionMembers(returnType);
+  if (!split?.hasRuntimeNullish || split.nonNullishMembers.length !== 1) {
+    return false;
+  }
+
+  const [nonNullishType] = split.nonNullishMembers;
+  if (!nonNullishType || nonNullishType.kind !== "typeParameterType") {
+    return false;
+  }
 
   return (
-    nonNullishMembers.length === 1 &&
-    nullishMembers.length > 0 &&
-    nonNullishMembers[0]?.kind === "typeParameterType"
-  );
+    context.typeParamConstraints?.get(nonNullishType.name) ??
+    "unconstrained"
+  ) === "unconstrained";
 };
 
 /**
@@ -69,11 +63,23 @@ export const emitFunctionType = (
   }
 
   const returnTypeNode = type.returnType ?? { kind: "voidType" as const };
-  const [returnTypeAst, newContext] = isUnconstrainedGenericNullishUnion(
-    returnTypeNode
-  )
-    ? [objectNullableType(), currentContext]
-    : emitTypeAst(returnTypeNode, currentContext);
+  const [returnTypeAst, newContext] =
+    shouldEmitGenericNullishReturnAsObjectCarrier(
+      type,
+      returnTypeNode,
+      currentContext
+    )
+      ? [
+          {
+            kind: "nullableType" as const,
+            underlyingType: {
+              kind: "predefinedType" as const,
+              keyword: "object" as const,
+            },
+          },
+          currentContext,
+        ]
+      : emitTypeAst(returnTypeNode, currentContext);
 
   // Check if return type is void (predefinedType with keyword "void")
   const isVoidReturn =

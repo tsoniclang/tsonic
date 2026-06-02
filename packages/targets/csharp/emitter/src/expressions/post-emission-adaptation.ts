@@ -15,6 +15,7 @@ import {
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   isDefinitelyValueType,
+  resolveLocalTypeInfo,
 } from "../core/semantic/type-resolution.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { isAssignable } from "../core/semantic/type-compatibility.js";
@@ -504,7 +505,8 @@ export const isNumericSourceIrType = (
       numericTypeFactFromName(resolved.name)?.kind === "numeric") ||
     (resolved.kind === "literalType" && typeof resolved.value === "number") ||
     (resolved.kind === "referenceType" &&
-      referenceNumericFact(resolved)?.kind === "numeric")
+      (referenceNumericFact(resolved)?.kind === "numeric" ||
+        resolveLocalTypeInfo(resolved, context)?.info.kind === "enum"))
   );
 };
 
@@ -526,7 +528,8 @@ const isIntegralNumericSourceIrType = (
       typeof resolved.value === "number" &&
       Number.isInteger(resolved.value)) ||
     (resolved.kind === "referenceType" &&
-      referenceNumericFact(resolved)?.integral === true)
+      (referenceNumericFact(resolved)?.integral === true ||
+        resolveLocalTypeInfo(resolved, context)?.info.kind === "enum"))
   );
 };
 

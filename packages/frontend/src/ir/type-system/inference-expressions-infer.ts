@@ -35,6 +35,12 @@ import { typeOfDecl } from "./inference-declarations.js";
 import { typeOfMember, getIndexerInfo } from "./inference-member-resolution.js";
 import { tryInferReturnTypeFromCallExpression } from "./inference-initializers.js";
 
+const isConstAssertionType = (node: ts.TypeNode): boolean =>
+  ts.isTypeReferenceNode(node) &&
+  ts.isIdentifier(node.typeName) &&
+  node.typeName.text === "const" &&
+  (!node.typeArguments || node.typeArguments.length === 0);
+
 const inferEnclosingThisType = (node: ts.Node): IrType | undefined => {
   let current: ts.Node | undefined = node;
 
@@ -294,6 +300,10 @@ export const inferExpressionType = (
   const unwrapped = unwrapParens(expr);
 
   if (ts.isAsExpression(unwrapped) || ts.isTypeAssertionExpression(unwrapped)) {
+    if (isConstAssertionType(unwrapped.type)) {
+      return inferExpressionType(state, unwrapped.expression, env);
+    }
+
     return convertTypeNode(state, unwrapped.type);
   }
 
@@ -522,6 +532,28 @@ export const inferExpressionType = (
       return deriveTypeFromNumericKind(
         getBinaryResultKind(leftKind, rightKind)
       );
+    }
+
+    if (
+      op === ts.SyntaxKind.AmpersandToken ||
+      op === ts.SyntaxKind.BarToken ||
+      op === ts.SyntaxKind.CaretToken ||
+      op === ts.SyntaxKind.LessThanLessThanToken ||
+      op === ts.SyntaxKind.GreaterThanGreaterThanToken ||
+      op === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken
+    ) {
+      const leftType = inferExpressionType(state, unwrapped.left, env);
+      const rightType = inferExpressionType(state, unwrapped.right, env);
+      if (
+        !leftType ||
+        !rightType ||
+        !getNumericKindFromIrType(leftType) ||
+        !getNumericKindFromIrType(rightType)
+      ) {
+        return undefined;
+      }
+
+      return { kind: "primitiveType", name: "int" };
     }
   }
 

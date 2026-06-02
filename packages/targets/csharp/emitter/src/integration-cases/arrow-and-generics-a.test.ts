@@ -893,7 +893,27 @@ describe("End-to-End Integration", () => {
 
       // Should generate constraint adapter
       expect(csharp).to.match(/public\s+interface\s+__Constraint_T/);
-      expect(csharp).to.match(/double\s+id\s*\{\s*get;\s*\}/);
+      expect(csharp).to.match(/double\s+id\s*\{\s*get;\s*set;\s*\}/);
+    });
+
+    it("keeps readonly structural generic constraint members getter-only", () => {
+      const source = `
+        export function readId<T extends { readonly id: number }>(value: T): number {
+          return value.id;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.match(/public\s+interface\s+__Constraint_T/);
+      expect(csharp).to.match(
+        /public\s+interface\s+__Constraint_T[\s\S]*?double\s+id\s*\{\s*get;\s*\}[\s\S]*?public\s+sealed\s+class\s+__Wrapper_T/
+      );
+      expect(csharp).to.not.match(
+        /public\s+interface\s+__Constraint_T[\s\S]*?double\s+id\s*\{\s*get;\s*set;\s*\}[\s\S]*?public\s+sealed\s+class\s+__Wrapper_T/
+      );
     });
   });
 });

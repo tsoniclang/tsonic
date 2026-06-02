@@ -424,6 +424,22 @@ const getReferenceLeafNameForContract = (
   return ref.name.split(".").pop() ?? ref.name;
 };
 
+const sourceTypeIdQualifiedNameForContract = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): string | undefined => {
+  if (ref.typeId?.origin !== "source") {
+    return undefined;
+  }
+
+  const separatorIndex = ref.typeId.stableId.indexOf(":");
+  if (separatorIndex < 0) {
+    return undefined;
+  }
+
+  const qualifiedName = ref.typeId.stableId.slice(separatorIndex + 1);
+  return qualifiedName.includes(".") ? qualifiedName : undefined;
+};
+
 const collectTypeParameterConstraints = (
   typeParameters: readonly IrTypeParameter[] | undefined,
   onReference: (ref: Extract<IrType, { kind: "referenceType" }>) => void
@@ -439,6 +455,24 @@ const collectMemberTypeParameterConstraints = (
 ): void => {
   if (member.kind !== "methodDeclaration") return;
   collectTypeParameterConstraints(member.typeParameters, onReference);
+};
+
+const collectInterfaceMemberTypeReferences = (
+  info: LocalTypeInfo,
+  onReference: (ref: Extract<IrType, { kind: "referenceType" }>) => void
+): void => {
+  if (info.kind !== "interface") return;
+  for (const member of info.members) {
+    if (member.kind === "propertySignature") {
+      walkTypeRefs(member.type, onReference);
+      continue;
+    }
+    for (const parameter of member.parameters) {
+      walkTypeRefs(parameter.type, onReference);
+    }
+    walkTypeRefs(member.returnType, onReference);
+    collectTypeParameterConstraints(member.typeParameters, onReference);
+  }
 };
 
 const collectStatementTypeParameterConstraints = (
@@ -539,83 +573,86 @@ export const collectStructuralInterfaceContracts = (
     ref: Extract<IrType, { kind: "referenceType" }>,
     ownerModule: (typeof moduleInfos)[number]
   ):
-      | {
-          readonly namespace: string;
-          readonly name: string;
-          readonly info: LocalTypeInfo;
-          readonly moduleInfo: (typeof moduleInfos)[number];
-        }
-      | undefined => {
-      const directCandidates =
-        ref.typeId?.origin === "source"
-          ? [
-              ref.typeId.providerName,
-              ref.name.includes(".") ? ref.name : undefined,
-              ref.providerQualifiedName,
-              ref.typeId.sourceName,
-            ]
-          : [
-              ref.providerQualifiedName,
-              ref.name.includes(".") ? ref.name : undefined,
-              ref.typeId?.providerName,
-              ref.typeId?.sourceName,
-            ];
-      for (const candidate of directCandidates) {
-        if (!candidate) continue;
-        const direct = typeByFullyQualifiedName.get(candidate);
-        if (direct) return direct;
-        const canonicalDirect = typeByCaseInsensitiveFullyQualifiedName.get(
-          candidate.toLocaleLowerCase("en-US")
+    | {
+        readonly namespace: string;
+        readonly name: string;
+        readonly info: LocalTypeInfo;
+        readonly moduleInfo: (typeof moduleInfos)[number];
+      }
+    | undefined => {
+    if (!ref.name.includes(".")) {
+      const local = ownerModule.localTypes.get(ref.name);
+      if (local) {
+        return {
+          namespace: ownerModule.module.namespace,
+          name: ref.name,
+          info: local,
+          moduleInfo: ownerModule,
+        };
+      }
+    }
+
+    const importedName = getReferenceLeafNameForContract(ref);
+    for (const imp of ownerModule.module.imports) {
+      const spec = imp.specifiers.find(
+        (candidate) =>
+          candidate.kind === "named" &&
+          candidate.isType === true &&
+          candidate.localName === importedName
+      );
+      if (!spec || spec.kind !== "named") continue;
+
+      const importedNamespace = imp.resolvedNamespace;
+      if (importedNamespace) {
+        const imported = typeByFullyQualifiedName.get(
+          `${importedNamespace}.${spec.name}`
         );
-        if (canonicalDirect && canonicalDirect !== "ambiguous") {
-          return canonicalDirect;
-        }
+        if (imported) return imported;
       }
 
-      if (!ref.name.includes(".")) {
-        const local = ownerModule.localTypes.get(ref.name);
-        if (local) {
-          return {
-            namespace: ownerModule.module.namespace,
-            name: ref.name,
-            info: local,
-            moduleInfo: ownerModule,
-          };
-        }
+      const importedModule = resolveModuleByPath(imp.resolvedPath);
+      const importedInfo = importedModule?.localTypes.get(spec.name);
+      if (importedModule && importedInfo) {
+        return {
+          namespace: importedModule.module.namespace,
+          name: spec.name,
+          info: importedInfo,
+          moduleInfo: importedModule,
+        };
       }
+    }
 
-      const importedName = getReferenceLeafNameForContract(ref);
-      for (const imp of ownerModule.module.imports) {
-        const spec = imp.specifiers.find(
-          (candidate) =>
-            candidate.kind === "named" &&
-            candidate.isType === true &&
-            candidate.localName === importedName
-        );
-        if (!spec || spec.kind !== "named") continue;
-
-        const importedNamespace = imp.resolvedNamespace;
-        if (importedNamespace) {
-          const imported = typeByFullyQualifiedName.get(
-            `${importedNamespace}.${spec.name}`
-          );
-          if (imported) return imported;
-        }
-
-        const importedModule = resolveModuleByPath(imp.resolvedPath);
-        const importedInfo = importedModule?.localTypes.get(spec.name);
-        if (importedModule && importedInfo) {
-          return {
-            namespace: importedModule.module.namespace,
-            name: spec.name,
-            info: importedInfo,
-            moduleInfo: importedModule,
-          };
-        }
+    const directCandidates =
+      ref.typeId?.origin === "source"
+        ? [
+            sourceTypeIdQualifiedNameForContract(ref),
+            ref.typeId.sourceName.includes(".")
+              ? ref.typeId.sourceName
+              : undefined,
+            ref.name.includes(".") ? ref.name : undefined,
+            ref.typeId.providerName,
+            ref.providerQualifiedName,
+          ]
+        : [
+            ref.providerQualifiedName,
+            ref.name.includes(".") ? ref.name : undefined,
+            ref.typeId?.providerName,
+            ref.typeId?.sourceName,
+          ];
+    for (const candidate of directCandidates) {
+      if (!candidate) continue;
+      const direct = typeByFullyQualifiedName.get(candidate);
+      if (direct) return direct;
+      const canonicalDirect = typeByCaseInsensitiveFullyQualifiedName.get(
+        candidate.toLocaleLowerCase("en-US")
+      );
+      if (canonicalDirect && canonicalDirect !== "ambiguous") {
+        return canonicalDirect;
       }
+    }
 
-      return undefined;
-    };
+    return undefined;
+  };
 
   for (const moduleInfo of moduleInfos) {
     const { module, localTypes } = moduleInfo;
@@ -658,6 +695,16 @@ export const collectStructuralInterfaceContracts = (
           markNativeInterfaceAndBases(extendedResolved, visited);
         }
       }
+
+      collectInterfaceMemberTypeReferences(resolved.info, (ref) => {
+        const memberTypeResolved = resolveReferenceFromModule(
+          ref,
+          resolved.moduleInfo ?? moduleInfo
+        );
+        if (memberTypeResolved?.info.kind === "interface") {
+          markNativeInterfaceAndBases(memberTypeResolved, visited);
+        }
+      });
     };
 
     for (const statement of module.body) {

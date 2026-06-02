@@ -11,6 +11,7 @@ import {
   expandRuntimeUnionMembers,
 } from "./runtime-union-expansion.js";
 import { rebuildUnionTypePreservingCarrierFamily } from "./runtime-union-family-preservation.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 
 export const resolveRuntimeMaterializationTargetType = (
   target: IrType,
@@ -23,10 +24,7 @@ export const resolveRuntimeMaterializationTargetType = (
       if (typeInfo.type.kind === "objectType") {
         return target;
       }
-      if (
-        typeInfo.type.kind === "unionType" &&
-        typeInfo.type.runtimeCarrierFamilyKey
-      ) {
+      if (typeInfo.type.kind === "unionType" && willCarryAsRuntimeUnion(target, context)) {
         return target;
       }
 

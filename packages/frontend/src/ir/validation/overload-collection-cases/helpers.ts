@@ -114,6 +114,15 @@ export const makeCall = (
   ...(typeArguments ? { typeArguments } : {}),
 });
 
+export const makeExplicitTypeArgumentCall = (
+  callee: IrExpression,
+  args: readonly IrExpression[],
+  typeArguments: readonly IrType[]
+): IrCallExpression => ({
+  ...makeCall(callee, args, typeArguments),
+  explicitTypeArguments: typeArguments,
+});
+
 export const makeLiteral = (value: string | number | boolean) => ({
   kind: "literal" as const,
   value,
@@ -236,7 +245,7 @@ export const makeMethodMarkerCall = (
     makeMemberAccess(
       makeCall(
         makeMemberAccess(
-          makeCall(
+          makeExplicitTypeArgumentCall(
             makeIdentifier(apiObjectName),
             [],
             [makeReferenceType(typeName)]
@@ -263,7 +272,7 @@ export const makeMethodMarkerCallWithSelector = (
     makeMemberAccess(
       makeCall(
         makeMemberAccess(
-          makeCall(
+          makeExplicitTypeArgumentCall(
             makeIdentifier(apiObjectName),
             [],
             [makeReferenceType(typeName)]

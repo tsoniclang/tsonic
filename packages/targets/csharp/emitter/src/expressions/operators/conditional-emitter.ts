@@ -8,7 +8,11 @@ import {
   IrType,
   normalizedUnionType,
 } from "@tsonic/frontend";
-import { EmitterContext, NarrowedBinding } from "../../types.js";
+import {
+  contextSurfaceIncludesJs,
+  EmitterContext,
+  NarrowedBinding,
+} from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { resolveArrayLiteralContextType } from "../../core/semantic/array-expected-types.js";
 import { isAssignableToType } from "../../core/semantic/index.js";
@@ -31,6 +35,7 @@ import {
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 import { referenceTypeHasClrIdentity } from "../../core/semantic/clr-type-identity.js";
 import {
+  resolveArrayLikeReceiverType,
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
@@ -38,6 +43,10 @@ import {
   resolveErasedNullableGenericStorageType,
   resolveRuntimeStorageType,
 } from "../../core/semantic/storage-types.js";
+import { preferInferredTypeOverOutOfScopeGenericType } from "../../core/semantic/type-parameter-scope.js";
+import { selectFrontendInferredConditionalType } from "../../core/semantic/conditional-inferred-type.js";
+import { resolveDirectStorageIrType } from "../../core/semantic/direct-storage-ir-types.js";
+import { resolveDirectValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
 import { materializeDirectNarrowingAst } from "../../core/semantic/materialized-narrowing.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { stableTypeKeyFromAst } from "../../core/format/backend-ast/utils.js";
@@ -115,6 +124,12 @@ export const emitConditional = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  expectedType = preferInferredTypeOverOutOfScopeGenericType(
+    expectedType,
+    expr.inferredType,
+    context
+  );
+
   const materializeRawIdentifierBranch = (
     branchExpr: IrExpression,
     branchAst: CSharpExpressionAst,
@@ -296,6 +311,27 @@ export const emitConditional = (
     branchExpr: IrExpression,
     branchContext: EmitterContext
   ): IrType | undefined => {
+    const concreteComputedAccessStorageType = (() => {
+      if (branchExpr.kind !== "memberAccess" || !branchExpr.isComputed) {
+        return undefined;
+      }
+
+      const receiverType =
+        resolveEffectiveBranchType(branchExpr.object, branchContext) ??
+        branchExpr.object.inferredType;
+      const receiver = resolveArrayLikeReceiverType(receiverType, branchContext);
+      if (!receiver) {
+        return undefined;
+      }
+
+      return contextSurfaceIncludesJs(branchContext) &&
+        branchExpr.accessProtocol?.getterMember === "at"
+        ? normalizedUnionType([
+            receiver.elementType,
+            { kind: "primitiveType", name: "undefined" },
+          ])
+        : receiver.elementType;
+    })();
     const candidate =
       resolveEffectiveBranchType(branchExpr, branchContext) ??
       resolveSourceBackedBranchType(branchExpr) ??
@@ -304,7 +340,13 @@ export const emitConditional = (
     // emission uses this type as storage context; stripping nullish here turns
     // `options !== undefined ? options.level : undefined` into a non-null
     // `double` branch and can force invalid nullable `.Value` chains.
-    return candidate;
+    return preferInferredTypeOverOutOfScopeGenericType(
+      candidate,
+      concreteComputedAccessStorageType ??
+        resolveDirectStorageIrType(branchExpr, branchContext) ??
+        branchExpr.inferredType,
+      branchContext
+    );
   };
   const castBranchToContextualJsNumber = (
     branchExpr: IrExpression,
@@ -409,6 +451,16 @@ export const emitConditional = (
     whenTrueContext: EmitterContext,
     whenFalseContext: EmitterContext
   ): IrType | undefined => {
+    if (!expectedType) {
+      const frontendInferredType = selectFrontendInferredConditionalType(
+        expr,
+        context
+      );
+      if (frontendInferredType) {
+        return frontendInferredType;
+      }
+    }
+
     const trueType = resolveBranchType(expr.whenTrue, whenTrueContext);
     const falseType = resolveBranchType(expr.whenFalse, whenFalseContext);
     const conditionalType = expr.inferredType;
@@ -569,10 +621,14 @@ export const emitConditional = (
     }
 
     const preciseBranchType =
-      emptyArrayBranchType ??
-      emptyObjectBranchType ??
-      commonBranchType ??
-      conditionalType;
+      preferInferredTypeOverOutOfScopeGenericType(
+        emptyArrayBranchType ??
+          emptyObjectBranchType ??
+          commonBranchType ??
+          conditionalType,
+        conditionalType,
+        context
+      );
     if (
       expectedType &&
       preciseBranchType &&
@@ -862,7 +918,7 @@ export const emitConditional = (
     condContext,
     (e, ctx) => emitExpressionAst(e, ctx)
   );
-  const branchExpectedType = deriveBranchExpectedType(
+  const initialBranchExpectedType = deriveBranchExpectedType(
     truthyBranchContext,
     falsyBranchContext
   );
@@ -879,7 +935,12 @@ export const emitConditional = (
     truthyBranchContext,
     branchIdentifierHasNarrowing(expr.whenTrue, truthyBranchContext)
       ? undefined
-      : branchExpectedType
+      : initialBranchExpectedType
+  );
+  const branchExpectedType = preferInferredTypeOverOutOfScopeGenericType(
+    initialBranchExpectedType,
+    resolveDirectValueSurfaceType(rawTrueAst, rawTrueContext),
+    rawTrueContext
   );
   const [trueAst, trueContext] = materializeRawIdentifierBranch(
     expr.whenTrue,

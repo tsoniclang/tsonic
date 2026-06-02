@@ -450,7 +450,15 @@ export const emitArrayMutationInteropCall = (
     argumentSurfaceExpr,
     currentContext
   );
-  const argAsts = emittedArgAsts.map((argAst, index) => {
+  const usesFlattenedRestArrayArgument =
+    (binding.member === "push" ||
+      binding.member === "unshift" ||
+      binding.member === "splice") &&
+    expr.arguments.some((sourceArg) => sourceArg.kind === "spread") &&
+    emittedArgAsts.length !== expr.arguments.length;
+  const argAsts = usesFlattenedRestArrayArgument
+    ? emittedArgAsts
+    : emittedArgAsts.map((argAst, index) => {
     const sourceArg = expr.arguments[index];
     const actualType =
       resolveDirectValueSurfaceType(argAst, argContext) ??

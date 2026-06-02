@@ -24,6 +24,7 @@ import {
 } from "./type-resolution.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import { referenceTypeHasClrIdentity } from "./clr-type-identity.js";
+import { tryProjectRuntimeUnionToCommonTargetAst } from "./runtime-union-common-target.js";
 
 const requiresRuntimeUnionArrayElementMaterialization = (
   storageType: IrType,
@@ -366,6 +367,17 @@ export const adaptStorageErasedValueAst = (opts: {
   );
   if (numericMaterialized) {
     return numericMaterialized;
+  }
+
+  const commonTargetProjection = tryProjectRuntimeUnionToCommonTargetAst({
+    valueAst,
+    actualType: semanticType ?? storageType,
+    expectedType,
+    context: needsPlanContext,
+    emitTypeAst,
+  });
+  if (commonTargetProjection) {
+    return commonTargetProjection;
   }
 
   const plan = tryBuildRuntimeReificationPlan(

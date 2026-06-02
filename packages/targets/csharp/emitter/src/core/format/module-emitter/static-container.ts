@@ -444,11 +444,18 @@ export const collectStaticContainerValueSymbols = (
               ? decl.type
               : undefined;
         for (const name of collectPatternIdentifiers(decl.name)) {
+          const isCompileTimeConstant =
+            member.declarationKind === "const" &&
+            decl.initializer?.kind === "literal" &&
+            (typeof decl.initializer.value === "string" ||
+              typeof decl.initializer.value === "number" ||
+              typeof decl.initializer.value === "boolean");
           valueSymbols.set(name, {
             kind: "variable",
             csharpName: getCSharpName(name, "fields", context),
             type: functionType,
             valueType: decl.type ?? decl.initializer?.inferredType,
+            ...(isCompileTimeConstant ? { isCompileTimeConstant } : {}),
           });
         }
       }

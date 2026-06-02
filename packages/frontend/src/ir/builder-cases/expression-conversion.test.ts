@@ -80,6 +80,50 @@ describe("IR Builder", function () {
       expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
     });
 
+    it("does not treat attribute named-argument bags as runtime object literals", () => {
+      const files = {
+        "node_modules/@tsonic/core/lang.js.d.ts": `
+          export interface AttributeTargetBuilder {
+            add<C>(ctor: C, ...args: object[]): void;
+          }
+          export interface TypeAttributeBuilder<T> extends AttributeTargetBuilder {}
+          export interface AttributesApi {
+            <T>(): TypeAttributeBuilder<T>;
+            attr<C>(ctor: C, ...args: object[]): object;
+          }
+          export declare const attributes: AttributesApi;
+        `,
+        "src/test.ts": `
+          import { attributes as A } from "@tsonic/core/lang.js";
+
+          declare class CollectionDefinitionAttribute {
+            constructor(name: string);
+          }
+
+          export class PerfHooksCollectionDefinition {}
+
+          A<PerfHooksCollectionDefinition>().add(
+            CollectionDefinitionAttribute,
+            "perf_hooks",
+            { DisableParallelization: true },
+          );
+        `,
+      };
+
+      const { sourceFile, testProgram, ctx, options, cleanup } =
+        createFilesystemTestProgram(files, "src/test.ts");
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+        expect(result.ok).to.equal(true);
+        expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(
+          false
+        );
+      } finally {
+        cleanup();
+      }
+    });
+
     it("preserves named awaited async return aliases with structural metadata", () => {
       const source = `
         type HandlerControl = {

@@ -67,6 +67,7 @@ import { referenceTypeIdentity } from "../../../types/type-ops.js";
 import { selectUnionArm } from "../../union-arm-selection.js";
 import { externalSurfaceTypesMatch } from "../../../../program/external-surface-type-identity.js";
 import { narrowTypeByAssignableTarget } from "../../reference-type-guards.js";
+import { isAttributeMetadataNamedArgumentPosition } from "../attribute-metadata-context.js";
 
 const stripParentheses = (expr: ts.Expression): ts.Expression => {
   let current = expr;
@@ -74,6 +75,24 @@ const stripParentheses = (expr: ts.Expression): ts.Expression => {
     current = current.expression;
   }
   return current;
+};
+
+const withSuppressedObjectLiteralContextualType = (
+  ctx: ProgramContext,
+  expression: ts.Expression
+): ProgramContext => {
+  const unwrapped = stripParentheses(expression);
+  if (!ts.isObjectLiteralExpression(unwrapped)) {
+    return ctx;
+  }
+
+  return {
+    ...ctx,
+    suppressObjectLiteralContextualTypeNodes: new Set([
+      ...(ctx.suppressObjectLiteralContextualTypeNodes ?? []),
+      unwrapped,
+    ]),
+  };
 };
 
 const targetBindingTypesMatch = (left: string, right: string): boolean =>
@@ -3341,7 +3360,17 @@ export const convertCallExpression = (
     const arg = node.arguments[index];
     if (!arg) continue;
 
-    const initialExpectedType = initialParameterTypesForContext?.[index];
+    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    const isAttributeNamedArgumentObject =
+      !ts.isSpreadElement(arg) &&
+      isAttributeMetadataNamedArgumentPosition(
+        node,
+        index,
+        unwrapped.expression
+      );
+    const initialExpectedType = isAttributeNamedArgumentObject
+      ? undefined
+      : initialParameterTypesForContext?.[index];
     const expectedType =
       ts.isSpreadElement(arg) || shouldUseInitialArgumentContext(arg)
         ? initialExpectedType
@@ -3358,7 +3387,6 @@ export const convertCallExpression = (
       continue;
     }
 
-    const unwrapped = unwrapCallSiteArgumentModifier(arg);
     if (unwrapped.modifier) {
       callSiteArgModifiers[index] = unwrapped.modifier;
     }
@@ -3388,14 +3416,22 @@ export const convertCallExpression = (
       expectedType
     );
     const shouldRecontextualizeAggregateLater =
-      deferAggregateContext ||
-      (expectedType === undefined &&
-        (ts.isObjectLiteralExpression(stripParentheses(unwrapped.expression)) ||
-          ts.isArrayLiteralExpression(stripParentheses(unwrapped.expression))));
+      !isAttributeNamedArgumentObject &&
+      (deferAggregateContext ||
+        (expectedType === undefined &&
+          (ts.isObjectLiteralExpression(
+            stripParentheses(unwrapped.expression)
+          ) ||
+            ts.isArrayLiteralExpression(
+              stripParentheses(unwrapped.expression)
+            ))));
 
+    const argumentContext = isAttributeNamedArgumentObject
+      ? withSuppressedObjectLiteralContextualType(ctx, unwrapped.expression)
+      : ctx;
     const converted = convertExpression(
       unwrapped.expression,
-      ctx,
+      argumentContext,
       deferAggregateContext ? undefined : expectedType
     );
     argsWorking[index] = converted;
@@ -3798,6 +3834,16 @@ export const convertCallExpression = (
       }
 
       const unwrapped = unwrapCallSiteArgumentModifier(sourceArgument);
+      if (
+        isAttributeMetadataNamedArgumentPosition(
+          node,
+          index,
+          unwrapped.expression
+        )
+      ) {
+        return argument;
+      }
+
       const aggregateExpression = stripParentheses(unwrapped.expression);
       const supportsFinalContextualConversion =
         ts.isObjectLiteralExpression(aggregateExpression) ||
@@ -4094,7 +4140,7 @@ export const convertCallExpression = (
         argument !== undefined && !containsTypeParameter(argument)
     )
       ? inferredTypeArguments
-      : undefined;
+      : finalResolved?.typeArguments;
   })();
   const argumentPassingFromBinding = extractArgumentPassingFromBinding(
     finalCallee,
@@ -4166,7 +4212,8 @@ export const convertCallExpression = (
     sourceSpan: getSourceSpan(node),
     signatureId: sigId,
     candidateSignatureIds: candidateSigIds,
-    typeArguments: typeArguments ?? inferredTypeArgumentsForIr,
+    typeArguments:
+      typeArguments ?? finalResolved?.typeArguments ?? inferredTypeArgumentsForIr,
     explicitTypeArguments: typeArguments,
     requiresSpecialization,
     resolutionExpectedReturnType: expectedType,

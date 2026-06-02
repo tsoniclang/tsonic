@@ -268,7 +268,8 @@ const parseRootCall = (
     return { kind: "notMatch" };
   }
 
-  if (call.typeArguments && call.typeArguments.length > 0) {
+  const explicitTypeArguments = call.explicitTypeArguments;
+  if (explicitTypeArguments && explicitTypeArguments.length > 0) {
     if (call.arguments.length !== 0) {
       return {
         kind: "error",
@@ -280,7 +281,7 @@ const parseRootCall = (
         ),
       };
     }
-    if (call.typeArguments.length !== 1) {
+    if (explicitTypeArguments.length !== 1) {
       return {
         kind: "error",
         diagnostic: createDiagnostic(
@@ -291,7 +292,7 @@ const parseRootCall = (
         ),
       };
     }
-    const targetType = call.typeArguments[0];
+    const targetType = explicitTypeArguments[0];
     if (!targetType || targetType.kind !== "referenceType") {
       return {
         kind: "error",

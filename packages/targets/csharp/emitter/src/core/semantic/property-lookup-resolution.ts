@@ -25,6 +25,7 @@ import {
   canUseLocalTypeLookupCandidate,
   getLocalTypeLookupCandidates,
 } from "./local-type-lookup.js";
+import { getIdentifierTypeName } from "../format/backend-ast/utils.js";
 
 export const getPropertyType = (
   contextualType: IrType | undefined,
@@ -71,6 +72,11 @@ export const resolveLocalTypeInfoWithoutBindings = (
       readonly name: string;
     }
   | undefined => {
+  const imported = resolveImportedLocalTypeInfo(ref, context);
+  if (imported) {
+    return imported;
+  }
+
   const currentModuleBareLocal = resolveCurrentModuleBareLocalTypeInfo(
     ref,
     context
@@ -80,12 +86,8 @@ export const resolveLocalTypeInfoWithoutBindings = (
   }
 
   const scoped = resolveScopedLocalTypeInfo(ref, context);
-  if (scoped) {
+  if (scoped || hasAuthoritativeScopedIdentity(ref)) {
     return scoped;
-  }
-
-  if (hasAuthoritativeScopedIdentity(ref)) {
-    return undefined;
   }
 
   const lookupCandidates = getLocalTypeLookupCandidates(ref.name);
@@ -179,14 +181,33 @@ const normalizeScopedTypeIdentity = (
   return value.startsWith("global::") ? value.slice("global::".length) : value;
 };
 
+const sourceTypeIdScopedIdentity = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): string | undefined => {
+  if (ref.typeId?.origin !== "source") {
+    return undefined;
+  }
+
+  const separatorIndex = ref.typeId.stableId.indexOf(":");
+  const stableQualifiedName =
+    separatorIndex >= 0
+      ? ref.typeId.stableId.slice(separatorIndex + 1)
+      : undefined;
+  return normalizeScopedTypeIdentity(stableQualifiedName);
+};
+
 const getScopedReferenceIdentityCandidates = (
   ref: Extract<IrType, { kind: "referenceType" }>
 ): readonly string[] => {
   const values =
     ref.typeId?.origin === "source"
       ? [
-          ref.typeId.providerName,
+          sourceTypeIdScopedIdentity(ref),
+          ref.typeId.sourceName.includes(".")
+            ? ref.typeId.sourceName
+            : undefined,
           ref.name.includes(".") ? ref.name : undefined,
+          ref.typeId.providerName,
           ref.providerQualifiedName,
         ]
       : [
@@ -323,7 +344,8 @@ const collectShapeMatchedLocalTypeCandidates = (
     return [];
   }
 
-  const currentNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+  const currentNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
   const matches: {
     readonly info: LocalTypeInfo;
     readonly namespace: string;
@@ -451,6 +473,82 @@ const getReferenceBindingLookupCandidates = (
   }
 
   return [...candidates];
+};
+
+const resolveQualifiedLocalTypeInfo = (
+  qualifiedName: string,
+  context: EmitterContext
+):
+  | {
+      readonly info: LocalTypeInfo;
+      readonly namespace: string;
+      readonly name: string;
+    }
+  | undefined => {
+  const normalized = qualifiedName.startsWith("global::")
+    ? qualifiedName.slice("global::".length)
+    : qualifiedName;
+  if (!normalized.includes(".")) {
+    return undefined;
+  }
+
+  const namespace = normalized.slice(0, normalized.lastIndexOf("."));
+  const name = normalized.slice(normalized.lastIndexOf(".") + 1);
+  if (!namespace || !name) {
+    return undefined;
+  }
+
+  const currentNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
+  if (
+    namespace.toLocaleLowerCase("en-US") ===
+    currentNamespace.toLocaleLowerCase("en-US")
+  ) {
+    const localHit = context.localTypes?.get(name);
+    if (localHit) {
+      return { info: localHit, namespace: currentNamespace, name };
+    }
+  }
+
+  for (const moduleInfo of context.options.moduleMap?.values() ?? []) {
+    if (
+      moduleInfo.namespace.toLocaleLowerCase("en-US") !==
+      namespace.toLocaleLowerCase("en-US")
+    ) {
+      continue;
+    }
+    const info = moduleInfo.localTypes?.get(name);
+    if (info) {
+      return { info, namespace: moduleInfo.namespace, name };
+    }
+  }
+
+  return undefined;
+};
+
+const resolveImportedLocalTypeInfo = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+):
+  | {
+      readonly info: LocalTypeInfo;
+      readonly namespace: string;
+      readonly name: string;
+    }
+  | undefined => {
+  if (ref.name.includes(".")) {
+    return undefined;
+  }
+
+  const binding = context.importBindings?.get(ref.name);
+  if (binding?.kind !== "type") {
+    return undefined;
+  }
+
+  const importedTypeName = getIdentifierTypeName(binding.typeAst);
+  return importedTypeName
+    ? resolveQualifiedLocalTypeInfo(importedTypeName, context)
+    : undefined;
 };
 
 const getBindingScopedReference = (

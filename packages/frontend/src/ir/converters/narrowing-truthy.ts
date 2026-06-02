@@ -575,6 +575,10 @@ export const collectTypeNarrowingsInTruthyExpr = (
           collectTypeNarrowingsInTruthyExpr(unwrapped.right, phaseCtx),
       ]);
     }
+
+    if (unwrapped.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+      return collectLogicalOrTruthyNarrowings(ctx, unwrapped.left, unwrapped.right);
+    }
   }
 
   return [];
@@ -725,6 +729,72 @@ const collectSequentialNarrowings = (
     }
     combined.push(...next);
     currentCtx = withAppliedNarrowings(currentCtx, next);
+  }
+
+  return combined;
+};
+
+const narrowingIdentityKey = (narrowing: TypeNarrowing): string | undefined => {
+  if (!narrowing.bindingKey || !narrowing.targetNode) {
+    return undefined;
+  }
+
+  return narrowing.kind === "decl"
+    ? `decl:${narrowing.declId}:${narrowing.bindingKey}`
+    : `access:${narrowing.key}:${narrowing.bindingKey}`;
+};
+
+const unionTypePreservingFlowAlternatives = (
+  left: IrType,
+  right: IrType
+): IrType =>
+  left === right
+    ? left
+    : {
+        kind: "unionType",
+        types: [left, right],
+      };
+
+const collectLogicalOrTruthyNarrowings = (
+  ctx: ProgramContext,
+  left: ts.Expression,
+  right: ts.Expression
+): readonly TypeNarrowing[] => {
+  const leftTruthy = collectTypeNarrowingsInTruthyExpr(left, ctx);
+  if (leftTruthy.length === 0) {
+    return [];
+  }
+
+  const leftFalsy = collectTypeNarrowingsInFalsyExpr(left, ctx);
+  const rightCtx = withAppliedNarrowings(ctx, leftFalsy);
+  const rightTruthy = collectTypeNarrowingsInTruthyExpr(right, rightCtx);
+  if (rightTruthy.length === 0) {
+    return [];
+  }
+
+  const rightByKey = new Map<string, TypeNarrowing>();
+  for (const narrowing of rightTruthy) {
+    const key = narrowingIdentityKey(narrowing);
+    if (key) {
+      rightByKey.set(key, narrowing);
+    }
+  }
+
+  const combined: TypeNarrowing[] = [];
+  for (const leftNarrowing of leftTruthy) {
+    const key = narrowingIdentityKey(leftNarrowing);
+    const rightNarrowing = key ? rightByKey.get(key) : undefined;
+    if (!rightNarrowing) {
+      continue;
+    }
+
+    combined.push({
+      ...leftNarrowing,
+      targetType: unionTypePreservingFlowAlternatives(
+        leftNarrowing.targetType,
+        rightNarrowing.targetType
+      ),
+    });
   }
 
   return combined;

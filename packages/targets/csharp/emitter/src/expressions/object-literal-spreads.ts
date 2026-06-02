@@ -174,7 +174,14 @@ const emitSpreadPropertyCopyStatements = (
     identifier: sourceTemp.emittedName,
   };
 
-  const propertyNames = getObjectTypePropertyNames(spreadType, currentContext);
+  const sourcePropertyNames = new Set(
+    getObjectTypePropertyNames(spreadType, currentContext)
+  );
+  const propertyNames = targetType
+    ? getObjectTypePropertyNames(targetType, currentContext).filter((name) =>
+        sourcePropertyNames.has(name)
+      )
+    : [...sourcePropertyNames];
 
   for (const propName of propertyNames) {
     const targetMember = emitObjectMemberName(

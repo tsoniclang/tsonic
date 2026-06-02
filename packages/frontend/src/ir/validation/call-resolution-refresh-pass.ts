@@ -821,6 +821,10 @@ const refreshExpression = (
           coherentSourceBackedReturnType ?? resolved?.returnType,
           resolved?.hasDeclaredReturnType
         ),
+        typeArguments:
+          expr.explicitTypeArguments ??
+          resolved?.typeArguments ??
+          expr.typeArguments,
         parameterTypes: visibleParameterTypes,
         surfaceParameterTypes: visibleSurfaceParameterTypes,
         restParameter: visibleRestParameter,
@@ -923,6 +927,10 @@ const refreshExpression = (
           coherentSourceBackedReturnType ??
           resolved.returnType ??
           expr.inferredType,
+        typeArguments:
+          expr.explicitTypeArguments ??
+          resolved.typeArguments ??
+          expr.typeArguments,
         parameterTypes:
           finalizedInvocationMetadata.parameterTypes ?? expr.parameterTypes,
         surfaceParameterTypes:
