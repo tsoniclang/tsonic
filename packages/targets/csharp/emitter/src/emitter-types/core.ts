@@ -360,6 +360,7 @@ export type ValueSymbolInfo = {
   readonly csharpName: string;
   readonly type?: Extract<IrType, { kind: "functionType" }>;
   readonly valueType?: IrType;
+  readonly isCompileTimeConstant?: boolean;
 };
 
 /**

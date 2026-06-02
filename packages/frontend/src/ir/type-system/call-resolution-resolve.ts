@@ -240,6 +240,7 @@ export const resolveCall = (
   let workingThisParam = rawSig.thisParameterType;
   let workingReturn = rawSig.returnType;
   let workingPredicate = rawSig.typePredicate;
+  let resolvedTypeArguments: readonly IrType[] | undefined;
 
   if (
     rawSig.constructsDeclaringType &&
@@ -295,6 +296,15 @@ export const resolveCall = (
       return poisonedCall(argumentCount, state.diagnostics.slice());
     }
     const callSubst = substitution.substitution;
+    const callTypeArguments = methodTypeParams.map((typeParameter) =>
+      callSubst.get(typeParameter.name)
+    );
+    if (
+      callTypeArguments.length > 0 &&
+      callTypeArguments.every((typeArgument) => typeArgument !== undefined)
+    ) {
+      resolvedTypeArguments = callTypeArguments as readonly IrType[];
+    }
 
     // Apply call substitution
     if (callSubst.size > 0) {
@@ -421,6 +431,7 @@ export const resolveCall = (
     ),
     parameterModes: rawSig.parameterModes,
     returnType: workingReturn,
+    typeArguments: resolvedTypeArguments,
     hasDeclaredReturnType: rawSig.hasDeclaredReturnType,
     typePredicate: workingPredicate,
     selectionMeta: {

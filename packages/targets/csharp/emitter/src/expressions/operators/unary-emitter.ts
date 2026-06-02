@@ -23,6 +23,7 @@ import { emitWritableTargetAst } from "./write-targets.js";
 import {
   castBitwiseOperandToInt,
   emitJsNumberBitwiseNot,
+  isEnumLikeType,
 } from "./bitwise-helpers.js";
 import type {
   CSharpExpressionAst,
@@ -282,6 +283,17 @@ export const emitUnary = (
 
     if (jsNumberBitwiseAst) {
       return [jsNumberBitwiseAst, newContext];
+    }
+
+    if (isEnumLikeType(expr.expression.inferredType, newContext)) {
+      return [
+        {
+          kind: "prefixUnaryExpression",
+          operatorToken: "~",
+          operand: operandAst,
+        },
+        newContext,
+      ];
     }
 
     return [

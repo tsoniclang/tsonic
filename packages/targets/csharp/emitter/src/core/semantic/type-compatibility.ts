@@ -234,7 +234,7 @@ const substituteHeritageType = (
     : heritageType;
 };
 
-const isReferenceAssignableThroughHeritage = (
+export const isReferenceAssignableThroughHeritage = (
   fromType: Extract<IrType, { kind: "referenceType" }>,
   toType: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext,

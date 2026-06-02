@@ -288,7 +288,7 @@ describe("Generic Functions (spec/15 §3-5)", () => {
 
     // Should generate adapter interface
     expect(result).to.include("public interface __Constraint_T");
-    expect(result).to.include("double id { get; }");
+    expect(result).to.include("double id { get; set; }");
 
     // Should generate adapter wrapper class
     expect(result).to.include(

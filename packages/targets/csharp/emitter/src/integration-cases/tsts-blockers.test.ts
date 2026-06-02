@@ -80,6 +80,28 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include("public class TextRange");
   });
 
+  it("emits property-only interfaces used by native interface members as native contracts", () => {
+    const csharp = compileToCSharp(`
+      interface DiagnosticMessage {
+        readonly code: number;
+        readonly message: string;
+      }
+
+      interface ResolverHooks {
+        error(message: DiagnosticMessage): void;
+      }
+
+      export function report(hooks: ResolverHooks, message: DiagnosticMessage): void {
+        hooks.error(message);
+      }
+    `);
+
+    expect(csharp).to.include("public interface DiagnosticMessage");
+    expect(csharp).to.include("public interface ResolverHooks");
+    expect(csharp).to.include("void error(DiagnosticMessage message);");
+    expect(csharp).to.not.include("public class DiagnosticMessage");
+  });
+
   it("uses source type identity over stale provider names when marking native interface bases", () => {
     const csharp = compileProjectToCSharp(
       {
@@ -127,6 +149,132 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include("public interface Node : TextRange");
     expect(csharp).to.include("namespace Test.core");
     expect(csharp).to.include("public class TextRange");
+  });
+
+  it("expands non-native class heritage into native interface members", () => {
+    const csharp = compileToCSharp(`
+      import type { int } from "@tsonic/core/types.js";
+
+      export class TextRange {
+        readonly pos: int;
+        readonly end: int;
+
+        constructor(pos: int, end: int) {
+          this.pos = pos;
+          this.end = end;
+        }
+      }
+
+      export interface TextChange extends TextRange {
+        newText: string;
+        describe(): string;
+      }
+    `);
+
+    expect(csharp).to.include("public interface TextChange");
+    expect(csharp).to.not.include("public interface TextChange : TextRange");
+    expect(csharp).to.include("int pos { get; }");
+    expect(csharp).to.include("int end { get; }");
+    expect(csharp).to.include("string newText { get; set; }");
+    expect(csharp).to.include("string describe();");
+  });
+
+  it("uses imported source identity when expanding native interface class heritage", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/core/text.ts": `
+          import type { int } from "@tsonic/core/types.js";
+
+          export class TextRange {
+            readonly pos: int;
+            readonly end: int;
+
+            constructor(pos: int, end: int) {
+              this.pos = pos;
+              this.end = end;
+            }
+          }
+        `,
+        "src/ast/generated/types.ts": `
+          export interface TextRange {
+            readonly pos: number;
+            readonly end: number;
+          }
+
+          export interface Node extends TextRange {
+            kind(): number;
+          }
+        `,
+        "src/core/textChange.ts": `
+          import type { TextRange } from "./text.js";
+
+          export interface TextChange extends TextRange {
+            newText: string;
+          }
+        `,
+        "src/index.ts": `
+          import type { Node } from "./ast/generated/types.js";
+          import type { TextChange } from "./core/textChange.js";
+
+          export function edit(change: TextChange): string {
+            return change.newText;
+          }
+
+          export function read(node: Node): number {
+            return node.kind();
+          }
+        `,
+      },
+      "src/index.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.include("namespace Test.core");
+    expect(csharp).to.include("public interface TextChange");
+    expect(csharp).to.not.include(
+      "public interface TextChange : global::Test.core.TextRange"
+    );
+    expect(csharp).to.not.include("public interface TextChange : TextRange");
+    expect(csharp).to.include("int pos { get; }");
+    expect(csharp).to.include("int end { get; }");
+    expect(csharp).to.include("string newText { get; set; }");
+    expect(csharp).to.include("namespace Test.ast.generated");
+    expect(csharp).to.include("public interface Node : TextRange");
+  });
+
+  it("lowers non-constant switch case expressions without re-evaluating the switch expression", () => {
+    const csharp = compileToCSharp(`
+      export type Mode = number;
+      export const Mode = {
+        Read: 1 << 0,
+        Write: 1 << 1,
+      } as const;
+
+      function nextMode(): Mode {
+        return Mode.Read;
+      }
+
+      export function describe(): string {
+        switch (nextMode()) {
+          case Mode.Read:
+            return "read";
+          case Mode.Write:
+            return "write";
+          default:
+            return "none";
+        }
+      }
+    `);
+
+    expect(csharp).to.include("var __switch_");
+    expect(csharp).to.include("= nextMode();");
+    expect(csharp).to.include("if (__switch_");
+    expect(csharp).to.include("== Mode.Read");
+    expect(csharp).to.include("else if (__switch_");
+    expect(csharp).to.include("== Mode.Write");
+    expect(csharp).to.not.include("switch (nextMode())");
+    expect(csharp.match(/= nextMode\(\);/g)?.length).to.equal(1);
   });
 
   it("emits imported implemented property-only interfaces as native contracts", () => {
@@ -778,6 +926,239 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include("(int)value >>> (int)0");
   });
 
+  it("coerces numeric enum operands at number comparison boundaries", () => {
+    const csharp = compileToCSharp(`
+      enum Kind {
+        First = 1,
+        Last = 3,
+      }
+
+      export function isToken(token: number): boolean {
+        return token >= Kind.First && Kind.Last >= token;
+      }
+    `);
+
+    expect(csharp).to.include("token >= (double)Kind.First");
+    expect(csharp).to.include("(double)Kind.Last >= token");
+    expect(csharp).to.not.include("token >= Kind.First");
+    expect(csharp).to.not.include("&& Kind.Last >= token");
+  });
+
+  it("coerces numeric enum operands in lowered switch comparisons", () => {
+    const csharp = compileToCSharp(`
+      enum Kind {
+        PublicKeyword = 1,
+        PrivateKeyword = 2,
+      }
+
+      export function getSelectedModifierFlags(node: { kind?: number }): number {
+        let result = 0;
+        switch (node.kind) {
+          case Kind.PublicKeyword:
+            result |= 1;
+            break;
+          case Kind.PrivateKeyword:
+            result |= 2;
+            break;
+        }
+        return result;
+      }
+    `);
+
+    expect(csharp).to.include("var __switch_");
+    expect(csharp).to.include("== (double)Kind.PublicKeyword");
+    expect(csharp).to.include("== (double)Kind.PrivateKeyword");
+    expect(csharp).to.not.include("== Kind.PublicKeyword");
+    expect(csharp).to.not.include("== Kind.PrivateKeyword");
+  });
+
+  it("coerces numeric enum operands for JavaScript-number bitwise helpers", () => {
+    const csharp = compileToCSharp(`
+      enum SymbolFlags {
+        None = 0,
+        Value = 1,
+      }
+
+      export function hasValue(flags: number): boolean {
+        return (flags & SymbolFlags.Value) !== 0;
+      }
+    `);
+
+    expect(csharp).to.include(
+      "global::Tsonic.Runtime.Operators.BitwiseAnd(flags, (double)SymbolFlags.Value)"
+    );
+    expect(csharp).to.not.include(
+      "global::Tsonic.Runtime.Operators.BitwiseAnd(flags, SymbolFlags.Value)"
+    );
+  });
+
+  it("keeps same-enum flag bitwise operations as enum-valued expressions", () => {
+    const csharp = compileToCSharp(`
+      enum ContainerFlags {
+        None = 0,
+        IsContainer = 1,
+        HasLocals = 2,
+      }
+
+      export function flags(): ContainerFlags {
+        return ContainerFlags.IsContainer | ContainerFlags.HasLocals;
+      }
+    `);
+
+    expect(csharp).to.include(
+      "return ContainerFlags.IsContainer | ContainerFlags.HasLocals;"
+    );
+    expect(csharp).to.not.include(
+      "return (int)ContainerFlags.IsContainer | (int)ContainerFlags.HasLocals;"
+    );
+  });
+
+  it("keeps enum complement masks native inside enum flag expressions", () => {
+    const csharp = compileToCSharp(`
+      enum ModifierFlags {
+        None = 0,
+        Public = 1,
+        Private = 2,
+        AccessibilityModifier = 3,
+      }
+
+      export function strip(flags: ModifierFlags): ModifierFlags {
+        return flags & ~ModifierFlags.AccessibilityModifier;
+      }
+    `);
+
+    expect(csharp).to.include(
+      "return flags & ~ModifierFlags.AccessibilityModifier;"
+    );
+    expect(csharp).to.not.include(
+      "return (int)flags & (int)~(int)ModifierFlags.AccessibilityModifier;"
+    );
+  });
+
+  it("coerces numeric enum values at number call boundaries", () => {
+    const csharp = compileToCSharp(`
+      enum SymbolFlags {
+        None = 0,
+        Value = 1,
+      }
+
+      function acceptsNumber(value: number): boolean {
+        return value !== 0;
+      }
+
+      export function run(): boolean {
+        return acceptsNumber(SymbolFlags.Value);
+      }
+    `);
+
+    expect(csharp).to.include("acceptsNumber((double)SymbolFlags.Value)");
+    expect(csharp).to.not.include("acceptsNumber(SymbolFlags.Value)");
+  });
+
+  it("coerces numeric enum values at integral return boundaries", () => {
+    const csharp = compileToCSharp(`
+      import type { int } from "@tsonic/core/types.js";
+
+      enum SyntaxKind {
+        Identifier = 80,
+      }
+
+      export function readKind(): int {
+        return SyntaxKind.Identifier;
+      }
+    `);
+
+    expect(csharp).to.include("return (int)SyntaxKind.Identifier;");
+    expect(csharp).to.not.include("return SyntaxKind.Identifier;");
+  });
+
+  it("projects explicit runtime-union member assertions through exact AsN accessors", () => {
+    const csharp = compileToCSharp(`
+      export interface TypeBase {
+        readonly flags: number;
+      }
+
+      export interface ObjectType extends TypeBase {
+        readonly objectFlags: number;
+      }
+
+      export interface TypeReference extends ObjectType {
+        readonly target: ObjectType;
+      }
+
+      export interface InterfaceType extends ObjectType {
+        readonly typeParameters: readonly TypeBase[];
+      }
+
+      export type TypeData =
+        | TypeBase
+        | ObjectType
+        | TypeReference
+        | InterfaceType;
+
+      export interface Type {
+        readonly data?: TypeData;
+      }
+
+      export function asTypeReference(type: Type): TypeReference | undefined {
+        return type.data !== undefined ? type.data as TypeReference : undefined;
+      }
+    `);
+
+    expect(csharp).to.match(/type\.data\.As[0-9]+\(\)/);
+    expect(csharp).to.match(/\(TypeReference\)\(type\.data\.As[0-9]+\(\)\)/);
+    expect(csharp).to.not.include("Match<TypeReference");
+  });
+
+  it("does not apply runtime-union AsN accessors after a call was already projected", () => {
+    const csharp = compileToCSharp(`
+      class Bytes {
+        value: number = 0;
+      }
+
+      function encodeOutput(value: Bytes, encoding?: string): Bytes | string {
+        if (encoding === undefined) {
+          return value;
+        }
+
+        return "encoded";
+      }
+
+      export function read(value: Bytes, encoding: string): string {
+        return encodeOutput(value, encoding) as string;
+      }
+    `);
+
+    expect(csharp).to.include("Match<string>");
+    expect(csharp).to.not.match(/Match<string>[\s\S]*\)\.As[0-9]+\(\)/);
+  });
+
+  it("does not apply runtime-union AsN accessors after branch narrowing already projected the value", () => {
+    const csharp = compileToCSharp(`
+      class Readable {
+        state: number = 0;
+      }
+
+      class InterfaceOptions {
+        input: Readable | undefined = undefined;
+      }
+
+      export function createInterface(
+        optionsOrInput: InterfaceOptions | Readable
+      ): InterfaceOptions {
+        if (optionsOrInput instanceof InterfaceOptions) {
+          return optionsOrInput;
+        }
+
+        const options = new InterfaceOptions();
+        options.input = optionsOrInput as Readable;
+        return options;
+      }
+    `);
+
+    expect(csharp).to.not.match(/\.As[0-9]+\(\)\)\.As[0-9]+\(\)/);
+  });
+
   it("emits signed numeric literal unions without leaking anyType into runtime union carriers", () => {
     const csharp = compileToCSharp(`
       export type Comparison = -1 | 0 | 1;
@@ -978,6 +1359,40 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include("sourceFile.statements.at(0)");
   });
 
+  it("does not leak inherited ReadonlyArray type parameters into local array reads", () => {
+    const csharp = compileToCSharp(
+      `
+        interface Node {
+          readonly kind: number;
+        }
+
+        interface NodeArray<T extends Node> extends ReadonlyArray<T> {
+          readonly pos?: number;
+        }
+
+        interface JsxChild extends Node {
+          readonly text: string;
+        }
+
+        export function last(children: NodeArray<JsxChild>): JsxChild | undefined {
+          const lastChild = children.length > 0 ? children[children.length - 1] : undefined;
+          return lastChild;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "global::Tsonic.Internal.ArrayInterop.ReadOptionalReference<JsxChild>(children, children.Length - 1)"
+    );
+    expect(csharp).to.not.include(
+      "(T)global::Tsonic.Internal.ArrayInterop.ReadOptionalReference<JsxChild>"
+    );
+    expect(csharp).to.not.include(": default(T)");
+    expect(csharp).to.not.include("(JsxChild)(T)lastChild");
+  });
+
   it("lowers JS number bitwise compound assignments through runtime operators", () => {
     const csharp = compileToCSharp(
       `
@@ -1027,6 +1442,36 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.not.include(
       "(global::js.ReadonlyMap<string, global::js.ReadonlySet<string>>)this.values"
     );
+  });
+
+  it("keeps imported readonly collection constants as instance receivers for member calls", () => {
+    const csharp = compileProjectToCSharp(
+      {
+        "src/metadata.ts": `
+          export const ChildPropertiesByKind: ReadonlyMap<number, readonly string[]> =
+            new Map([[1, ["name"]]]);
+          export const KnownNames: ReadonlySet<string> = new Set(["name"]);
+        `,
+        "src/index.ts": `
+          import { ChildPropertiesByKind, KnownNames } from "./metadata.js";
+
+          export function hasKnownChild(kind: number): boolean {
+            const properties = ChildPropertiesByKind.get(kind) ?? [];
+            return KnownNames.has(properties[0] ?? "");
+          }
+        `,
+      },
+      "src/index.ts",
+      { surface: "@tsonic/js" },
+      { sourceRootRelativePath: "src", rootNamespace: "Test" }
+    );
+
+    expect(csharp).to.include(
+      "global::Test.metadata.ChildPropertiesByKind).get(kind)"
+    );
+    expect(csharp).to.include("global::Test.metadata.KnownNames).has(");
+    expect(csharp).to.not.include("global::js.ReadonlyMap.get");
+    expect(csharp).to.not.include("global::js.ReadonlySet.has");
   });
 
   it("does not re-emit inherited discriminant properties narrowed by sub-interfaces", () => {
@@ -1112,6 +1557,77 @@ describe("Integration: TSTS blocker regressions", () => {
     );
     expect(csharp).to.include('append(ref parts, "a")');
     expect(csharp).to.include('append(ref parts, "b")');
+  });
+
+  it("lowers native-array length assignment through deterministic resize interop", () => {
+    const csharp = compileToCSharp(
+      `
+        export function clear(items: string[]): void {
+          items.length = 0;
+        }
+
+        import type { int } from "@tsonic/core/types.js";
+
+        export function resize(items: string[], length: int): void {
+          items.length = length;
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "items = global::Tsonic.Internal.ArrayInterop.SetLength(items, 0);"
+    );
+    expect(csharp).to.include(
+      "items = global::Tsonic.Internal.ArrayInterop.SetLength(items, length);"
+    );
+    expect(csharp).to.not.include("items.length =");
+  });
+
+  it("passes flattened spread arrays through native-array mutation calls", () => {
+    const csharp = compileToCSharp(
+      `
+        export function appendAll(target: string[], source: readonly string[]): void {
+          target.push(...source);
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "global::Tsonic.Internal.ArrayInterop.Push(ref target, source)"
+    );
+    expect(csharp).to.not.match(/\\(string\\)\\s*source/);
+  });
+
+  it("projects object spreads to contextual structural target members only", () => {
+    const csharp = compileToCSharp(`
+      interface WideState {
+        readonly id: number;
+        readonly extra: number;
+        readonly getExtra: () => number;
+      }
+
+      interface ResolverState {
+        readonly id: number;
+        readonly getValue: () => number;
+      }
+
+      export function createResolverState(state: WideState): ResolverState {
+        const resolverState: ResolverState = {
+          ...state,
+          getValue: () => state.id,
+        };
+        return resolverState;
+      }
+    `);
+
+    expect(csharp).to.include("__tmp.id = __spread.id;");
+    expect(csharp).to.not.include("__tmp.extra = __spread.extra;");
+    expect(csharp).to.not.include("__tmp.getExtra = __spread.getExtra;");
+    expect(csharp).to.include("__tmp.getValue =");
   });
 
   it("preserves runtime absence for generic array reads returned as optional values", () => {
@@ -1216,6 +1732,55 @@ describe("Integration: TSTS blocker regressions", () => {
     );
     expect(csharp).to.include(".toArray()");
     expect(csharp).to.not.include(".SelectMany(");
+  });
+
+  it("closes Array.prototype.flatMap callback result generics before JS wrapper emission", () => {
+    const csharp = compileToCSharp(
+      `
+        interface Node {
+          readonly text: string;
+        }
+
+        export function expand(values: readonly Node[]): readonly Node[] {
+          return values.flatMap((value) => [value]);
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include(
+      "global::Tsonic.Internal.ArrayInterop.WrapArray(values).flatMap"
+    );
+    expect(csharp).to.include("new Node[] { value }");
+    expect(csharp).to.not.include("new TResult[] { value }");
+  });
+
+  it("closes Array.prototype.flatMap generics from conditional array return types", () => {
+    const csharp = compileToCSharp(
+      `
+        interface Modifier {
+          readonly kind: number;
+        }
+
+        function printModifier(modifier: Modifier): string | undefined {
+          return modifier.kind === 1 ? "static" : undefined;
+        }
+
+        export function print(modifiers: readonly Modifier[]): readonly string[] {
+          return modifiers.flatMap((modifier) => {
+            const text = printModifier(modifier);
+            return text === undefined ? [] : [text];
+          });
+        }
+      `,
+      "/test/test.ts",
+      { surface: "@tsonic/js" }
+    );
+
+    expect(csharp).to.include("new string[] { text }");
+    expect(csharp).to.include("global::System.Array.Empty<string>()");
+    expect(csharp).to.not.include("new TResult[]");
   });
 
   it("does not re-adapt contextualized generic array call returns after callback widening", () => {
@@ -2326,6 +2891,51 @@ describe("Integration: TSTS blocker regressions", () => {
     );
   });
 
+  it("projects union aliases to shared base interfaces for predicate guards", () => {
+    const csharp = compileToCSharp(`
+      enum Kind {
+        Identifier = 1,
+        PrivateIdentifier = 2,
+        ComputedPropertyName = 3,
+      }
+
+      interface Node {
+        readonly kind: Kind;
+      }
+
+      interface Identifier extends Node {
+        readonly kind: Kind.Identifier;
+        readonly text: string;
+      }
+
+      interface PrivateIdentifier extends Node {
+        readonly kind: Kind.PrivateIdentifier;
+        readonly text: string;
+      }
+
+      interface ComputedPropertyName extends Node {
+        readonly kind: Kind.ComputedPropertyName;
+        readonly expression: Node;
+      }
+
+      type PropertyName = Identifier | PrivateIdentifier | ComputedPropertyName;
+
+      declare function isIdentifier(node: Node): node is Identifier;
+      declare function isPrivateIdentifier(node: Node): node is PrivateIdentifier;
+
+      export function readName(name: PropertyName): string {
+        if (isIdentifier(name) || isPrivateIdentifier(name)) {
+          return name.text;
+        }
+        return "";
+      }
+    `);
+
+    expect(csharp).to.include(".Match<Node>(");
+    expect(csharp).to.not.include("(global::Test.Node)name");
+    expect(csharp).to.not.include("return name.text;");
+  });
+
   it("infers generic callback result type from the surrounding call result context", () => {
     const csharp = compileToCSharp(`
       interface Expression {
@@ -2356,5 +2966,34 @@ describe("Integration: TSTS blocker regressions", () => {
     expect(csharp).to.include("parseArgumentExpression(bool condition)");
     expect(csharp).to.not.include("<unknown>");
     expect(csharp).to.not.include("<object>");
+  });
+
+  it("preserves generic nullish callback returns in delegate parameter types", () => {
+    const csharp = compileToCSharp(`
+      interface Node {
+        readonly kind: number;
+      }
+
+      interface Identifier extends Node {
+        readonly text: string;
+      }
+
+      declare function parseIdentifier(): Identifier;
+
+      function collect<T extends Node>(parseElement: () => T | undefined): T[] {
+        const element = parseElement();
+        if (element === undefined) {
+          return [];
+        }
+        return [element];
+      }
+
+      export function run(): Identifier[] {
+        return collect(() => parseIdentifier());
+      }
+    `);
+
+    expect(csharp).to.include("global::System.Func<T?> parseElement");
+    expect(csharp).to.not.include("global::System.Func<object?> parseElement");
   });
 });

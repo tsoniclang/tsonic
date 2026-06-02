@@ -421,6 +421,83 @@ describe("IR Builder", function () {
       }
     });
 
+    it("unions same-binding predicate facts across truthy logical OR branches", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "enum Kind {",
+            "  Identifier = 1,",
+            "  PrivateIdentifier = 2,",
+            "  ComputedPropertyName = 3,",
+            "}",
+            "interface Node {",
+            "  kind: Kind;",
+            "}",
+            "interface Identifier extends Node {",
+            "  kind: Kind.Identifier;",
+            "  text: string;",
+            "}",
+            "interface PrivateIdentifier extends Node {",
+            "  kind: Kind.PrivateIdentifier;",
+            "  text: string;",
+            "}",
+            "interface ComputedPropertyName extends Node {",
+            "  kind: Kind.ComputedPropertyName;",
+            "  expression: Node;",
+            "}",
+            "type PropertyName = Identifier | PrivateIdentifier | ComputedPropertyName;",
+            "declare function isIdentifier(node: Node): node is Identifier;",
+            "declare function isPrivateIdentifier(node: Node): node is PrivateIdentifier;",
+            "export function read(name: PropertyName): string {",
+            "  if (isIdentifier(name) || isPrivateIdentifier(name)) {",
+            "    return name.text;",
+            "  }",
+            '  return "";',
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const readFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "read"
+        );
+        expect(readFn).to.not.equal(undefined);
+        if (!readFn) return;
+
+        const branch = readFn.body.statements.find(
+          (stmt): stmt is IrIfStatement => stmt.kind === "ifStatement"
+        );
+        expect(branch).to.not.equal(undefined);
+        if (!branch) return;
+
+        const narrowing = branch.thenPlan.narrowedBindings.find(
+          (entry) => entry.bindingKey === "name"
+        );
+        expect(narrowing?.targetType.kind).to.equal("unionType");
+        if (narrowing?.targetType.kind !== "unionType") return;
+
+        const memberNames = narrowing.targetType.types
+          .map((type) => (type.kind === "referenceType" ? type.name : type.kind))
+          .sort();
+        expect(memberNames).to.deep.equal(["Identifier", "PrivateIdentifier"]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("prefers the assignable common nominal supertype for conditional expressions", () => {
       const fixture = createFilesystemTestProgram(
         {

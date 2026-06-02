@@ -5,11 +5,15 @@
 import type { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
-import { stringLiteral } from "../../../core/format/backend-ast/builders.js";
+import {
+  identifierType,
+  stringLiteral,
+} from "../../../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
 import {
   matchesTypeofTag,
   resolveTypeAlias,
+  stripNullish,
 } from "../../../core/semantic/type-resolution.js";
 import { emitStatementAst } from "../../../statement-emitter.js";
 import { tryResolveDiscriminantEqualityGuard } from "./guard-detectors-discriminant.js";
@@ -26,6 +30,15 @@ import {
 } from "../../../core/semantic/narrowing-builders.js";
 import { unwrapTransparentExpression } from "../../../core/semantic/transparent-expressions.js";
 import { tryExtractTypeofUnaryTarget } from "../../../core/semantic/typeof-comparison.js";
+import {
+  getTransparentComparisonTarget,
+  isNumericOperandType,
+  resolveComparisonOperandType,
+} from "../../../expressions/operators/binary-helpers.js";
+import {
+  castEnumOperandToDouble,
+  isEnumLikeType,
+} from "../../../expressions/operators/bitwise-helpers.js";
 import type {
   CSharpStatementAst,
   CSharpSwitchLabelAst,
@@ -129,6 +142,32 @@ const isExhaustiveLiteralSwitch = (
 
   return true;
 };
+
+const isCSharpSwitchLabelExpression = (
+  expression: IrExpression,
+  context: EmitterContext
+): boolean => {
+  if (expression.kind === "literal") {
+    return true;
+  }
+  if (expression.kind !== "identifier") {
+    return false;
+  }
+  return (
+    context.localNameMap?.has(expression.name) !== true &&
+    context.valueSymbols?.get(expression.name)?.isCompileTimeConstant === true
+  );
+};
+
+const switchRequiresIfElseLowering = (
+  stmt: Extract<IrStatement, { kind: "switchStatement" }>,
+  context: EmitterContext
+): boolean =>
+  stmt.cases.some(
+    (switchCase) =>
+      switchCase.test !== undefined &&
+      !isCSharpSwitchLabelExpression(switchCase.test, context)
+  );
 
 type SwitchCaseNarrowing = {
   readonly receiverExpr: Extract<
@@ -332,6 +371,212 @@ const withSwitchSectionNarrowing = (
   return receiverContext;
 };
 
+const switchTempIdentifier = (tempName: string): CSharpExpressionAst => ({
+  kind: "identifierExpression",
+  identifier: tempName,
+});
+
+const switchCaseEqualityCondition = (
+  tempName: string,
+  switchType: IrType | undefined,
+  testAst: CSharpExpressionAst,
+  testType: IrType | undefined,
+  context: EmitterContext
+): CSharpExpressionAst => ({
+  kind: "binaryExpression",
+  operatorToken: "==",
+  left: normalizeSwitchComparisonOperand(
+    switchTempIdentifier(tempName),
+    switchType,
+    testType,
+    context
+  ),
+  right: normalizeSwitchComparisonOperand(testAst, testType, switchType, context),
+});
+
+const isEnumNumericSwitchOperand = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const stripped = stripNullish(type);
+  return isEnumLikeType(stripped, context) || isNumericOperandType(stripped);
+};
+
+const normalizeSwitchComparisonOperand = (
+  ast: CSharpExpressionAst,
+  type: IrType | undefined,
+  otherType: IrType | undefined,
+  context: EmitterContext
+): CSharpExpressionAst =>
+  isEnumNumericSwitchOperand(type, context) &&
+  isEnumNumericSwitchOperand(otherType, context)
+    ? castEnumOperandToDouble(ast, type, context)
+    : ast;
+
+const combineSwitchCaseConditions = (
+  conditions: readonly CSharpExpressionAst[]
+): CSharpExpressionAst | undefined => {
+  const [first, ...rest] = conditions;
+  if (!first) {
+    return undefined;
+  }
+
+  return rest.reduce<CSharpExpressionAst>(
+    (left, right) => ({
+      kind: "binaryExpression",
+      operatorToken: "||",
+      left,
+      right,
+    }),
+    first
+  );
+};
+
+type LoweredSwitchBranch = {
+  readonly condition: CSharpExpressionAst;
+  readonly statements: readonly CSharpStatementAst[];
+};
+
+const emitLoweredSwitchStatementAst = (
+  stmt: Extract<IrStatement, { kind: "switchStatement" }>,
+  context: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  const switchComparisonType =
+    resolveComparisonOperandType(stmt.expression, context) ??
+    getTransparentComparisonTarget(stmt.expression).inferredType;
+  const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
+  const tempId = (exprContext.tempVarId ?? 0) + 1;
+  const tempName = `__switch_${tempId}`;
+
+  let currentContext: EmitterContext = {
+    ...exprContext,
+    tempVarId: tempId,
+  };
+  const branches: LoweredSwitchBranch[] = [];
+  let defaultStatements: readonly CSharpStatementAst[] | undefined;
+  let pendingConditions: CSharpExpressionAst[] = [];
+  let pendingNarrowings: SwitchCaseNarrowing[] = [];
+  let pendingDefault = false;
+
+  const emitPendingBranch = (
+    statements: readonly IrStatement[]
+  ): void => {
+    const bodyStatements: CSharpStatementAst[] = [];
+    const preSectionContext = currentContext;
+    let sectionContext = withSwitchSectionNarrowing(
+      currentContext,
+      pendingNarrowings
+    );
+
+    for (const s of statements) {
+      if (s.kind === "breakStatement") {
+        break;
+      }
+      const [emittedStatements, newContext] = emitStatementAst(
+        s,
+        sectionContext
+      );
+      bodyStatements.push(...emittedStatements);
+      sectionContext = newContext;
+    }
+
+    currentContext = {
+      ...sectionContext,
+      narrowedBindings: preSectionContext.narrowedBindings,
+    };
+
+    if (pendingDefault) {
+      defaultStatements = bodyStatements;
+    } else {
+      const condition = combineSwitchCaseConditions(pendingConditions);
+      if (condition) {
+        branches.push({ condition, statements: bodyStatements });
+      }
+    }
+
+    pendingConditions = [];
+    pendingNarrowings = [];
+    pendingDefault = false;
+  };
+
+  for (const switchCase of stmt.cases) {
+    if (switchCase.test) {
+      const testComparisonType =
+        resolveComparisonOperandType(switchCase.test, currentContext) ??
+        getTransparentComparisonTarget(switchCase.test).inferredType;
+      const [testAst, testContext] = emitExpressionAst(
+        switchCase.test,
+        currentContext
+      );
+      currentContext = testContext;
+      pendingConditions = [
+        ...pendingConditions,
+        switchCaseEqualityCondition(
+          tempName,
+          switchComparisonType,
+          testAst,
+          testComparisonType,
+          currentContext
+        ),
+      ];
+    } else {
+      pendingDefault = true;
+    }
+
+    const caseNarrowing =
+      getSwitchCaseNarrowing(stmt.expression, switchCase, currentContext) ??
+      getTypeofSwitchCaseNarrowing(stmt.expression, switchCase, currentContext);
+    if (caseNarrowing) {
+      pendingNarrowings = [...pendingNarrowings, caseNarrowing];
+    }
+
+    if (switchCase.statements.length === 0) {
+      continue;
+    }
+
+    emitPendingBranch(switchCase.statements);
+  }
+
+  if (pendingConditions.length > 0 || pendingDefault) {
+    emitPendingBranch([]);
+  }
+
+  const tempDeclaration: CSharpStatementAst = {
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: identifierType("var"),
+    declarators: [{ name: tempName, initializer: exprAst }],
+  };
+
+  let chain: CSharpStatementAst | undefined = defaultStatements
+    ? { kind: "blockStatement", statements: defaultStatements }
+    : undefined;
+  for (let index = branches.length - 1; index >= 0; index -= 1) {
+    const branch = branches[index];
+    if (!branch) {
+      continue;
+    }
+    chain = {
+      kind: "ifStatement",
+      condition: branch.condition,
+      thenStatement: {
+        kind: "blockStatement",
+        statements: branch.statements,
+      },
+      ...(chain ? { elseStatement: chain } : {}),
+    };
+  }
+
+  return [
+    chain ? [tempDeclaration, chain] : [tempDeclaration],
+    currentContext,
+  ];
+};
+
 /**
  * Emit a switch statement as AST
  */
@@ -339,6 +584,10 @@ export const emitSwitchStatementAst = (
   stmt: Extract<IrStatement, { kind: "switchStatement" }>,
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
+  if (switchRequiresIfElseLowering(stmt, context)) {
+    return emitLoweredSwitchStatementAst(stmt, context);
+  }
+
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
 
   let currentContext = exprContext;

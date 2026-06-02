@@ -36,11 +36,13 @@ import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
   matchesTypeofTag,
+  getPropertyType,
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import { tryExtractTypeofComparison } from "../../core/semantic/typeof-comparison.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 
 const NUMERIC_TYPEOF_PATTERN_NAMES = [
   "byte",
@@ -175,6 +177,79 @@ const buildRuntimeUnionMemberCheck = (opts: {
       : guardedCheck,
     context,
   ];
+};
+
+const expressionRuntimeUnionBindingKey = (
+  expr: IrExpression
+): string | undefined => {
+  const transparentExpr = unwrapTransparentNarrowingTarget(expr) ?? expr;
+  if (transparentExpr.kind === "identifier") {
+    return transparentExpr.name;
+  }
+  if (transparentExpr.kind === "memberAccess") {
+    return getMemberAccessNarrowKey(transparentExpr);
+  }
+  return undefined;
+};
+
+const resolvePropertyExistenceMemberNs = (
+  receiver: IrExpression,
+  propertyName: string,
+  context: EmitterContext
+): readonly number[] | undefined => {
+  const effectiveType =
+    resolveEffectiveExpressionType(receiver, context) ?? receiver.inferredType;
+  const carrierType =
+    resolveRuntimeCarrierIrType(receiver, context) ?? effectiveType;
+  const bindingKey = expressionRuntimeUnionBindingKey(receiver);
+  const frame = resolveAlignedRuntimeUnionMembers(
+    bindingKey,
+    effectiveType,
+    carrierType,
+    context
+  );
+  if (!frame) {
+    return undefined;
+  }
+
+  return frame.members.flatMap((member, index) =>
+    getPropertyType(member, propertyName, context)
+      ? [frame.candidateMemberNs[index] ?? index + 1]
+      : []
+  );
+};
+
+export const emitRuntimeUnionPropertyExistence = (
+  expr: Extract<IrExpression, { kind: "binary" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const plan = expr.inOperatorPlan;
+  if (expr.operator !== "in" || plan?.kind !== "unionProperty") {
+    return undefined;
+  }
+
+  const [rightAst, nextContext] = emitExpressionAst(
+    expr.right,
+    context,
+    undefined
+  );
+  const carrierAst =
+    resolveRuntimeCarrierExpressionAst(expr.right, nextContext) ?? rightAst;
+  const memberNs = resolvePropertyExistenceMemberNs(
+    expr.right,
+    plan.key,
+    nextContext
+  );
+  if (!memberNs) {
+    return undefined;
+  }
+
+  return buildRuntimeUnionMemberCheck({
+    receiver: carrierAst,
+    memberNs,
+    negate: false,
+    context: nextContext,
+  });
 };
 
 const tryExtractRuntimeUnionMemberProjection = (

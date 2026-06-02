@@ -102,7 +102,10 @@ export const emitJsNumberBitwiseOperation = (
 
   return isJsNumberBitwiseType(leftType, context) ||
     isJsNumberBitwiseType(rightType, context)
-    ? runtimeOperatorCall(methodName, [leftAst, rightAst])
+    ? runtimeOperatorCall(methodName, [
+        castEnumOperandToDouble(leftAst, leftType, context),
+        castEnumOperandToDouble(rightAst, rightType, context),
+      ])
     : undefined;
 };
 
@@ -124,6 +127,19 @@ export const castBitwiseOperandToInt = (
     ? {
         kind: "castExpression",
         type: { kind: "predefinedType", keyword: "int" },
+        expression: ast,
+      }
+    : ast;
+
+export const castEnumOperandToDouble = (
+  ast: CSharpExpressionAst,
+  type: IrType | undefined,
+  context: EmitterContext
+): CSharpExpressionAst =>
+  isEnumLikeType(type, context)
+    ? {
+        kind: "castExpression",
+        type: { kind: "predefinedType", keyword: "double" },
         expression: ast,
       }
     : ast;

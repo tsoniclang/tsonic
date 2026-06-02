@@ -31,7 +31,6 @@ export const generateStructuralAdapter = (
   const interfaceName = `__Constraint_${typeParam.name}`;
   const wrapperName = `__Wrapper_${typeParam.name}`;
 
-  // Build interface members (readonly properties)
   const interfaceMembers: CSharpMemberAst[] = [];
   // Build wrapper members (read-write properties)
   const wrapperMembers: CSharpMemberAst[] = [];
@@ -51,7 +50,6 @@ export const generateStructuralAdapter = (
 
     const propName = emitCSharpName(member.name, "properties", context);
 
-    // Interface: get-only
     interfaceMembers.push({
       kind: "propertyDeclaration",
       attributes: [],
@@ -59,7 +57,7 @@ export const generateStructuralAdapter = (
       type: typeAst,
       name: propName,
       hasGetter: true,
-      hasSetter: false,
+      hasSetter: !member.isReadonly,
       isAutoProperty: true,
     });
 

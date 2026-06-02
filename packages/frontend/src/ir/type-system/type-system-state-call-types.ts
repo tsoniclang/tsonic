@@ -51,6 +51,7 @@ export type ResolvedCall = {
   };
   readonly parameterModes: readonly ParameterMode[];
   readonly returnType: IrType;
+  readonly typeArguments?: readonly IrType[];
   readonly hasDeclaredReturnType: boolean;
   readonly typePredicate?: TypePredicateResult;
   readonly selectionMeta?: {

@@ -7,13 +7,19 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
-import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
-import { isSemanticUnion } from "../core/semantic/union-semantics.js";
+import {
+  buildRuntimeUnionLayout,
+} from "../core/semantic/runtime-unions.js";
+import {
+  isSemanticUnion,
+  willCarryAsRuntimeUnion,
+} from "../core/semantic/union-semantics.js";
 import {
   buildInvalidRuntimeUnionCastExpression,
   tryBuildRuntimeUnionProjectionToLayoutAst,
 } from "../core/semantic/runtime-union-projection.js";
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
+import { stripNullish } from "../core/semantic/type-resolution.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import {
   isStorageErasedBroadObjectPassThroughType,
@@ -26,6 +32,11 @@ import {
   stableTypeKeyFromAst,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
+import { runtimeUnionLayoutsHaveSameSlotIdentity } from "../core/semantic/runtime-union-layout-identity.js";
+import {
+  resolveDirectRuntimeCarrierType,
+  resolveDirectValueSurfaceType,
+} from "../core/semantic/direct-value-surfaces.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   valueAst: CSharpExpressionAst
@@ -42,6 +53,7 @@ const isRuntimeUnionMemberProjectionAst = (
     /^As\d+$/.test(target.expression.memberName)
   );
 };
+
 import { maybeAdaptRuntimeUnionExpressionAst } from "./runtime-union-adaptation-upcast.js";
 import { tryResolveRuntimeUnionCastSourceIndices } from "../core/semantic/runtime-reification-helpers.js";
 import { runtimeUnionAliasReferencesMatch } from "../core/semantic/runtime-union-alias-identity.js";
@@ -167,6 +179,10 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   const projectionExpectedType =
     normalizeBroadObjectSinkType(expectedType, context) ?? expectedType;
+  const strippedProjectionExpectedType = stripNullish(projectionExpectedType);
+  const projectionExpectedIsNullableReference =
+    projectionExpectedType !== strippedProjectionExpectedType &&
+    strippedProjectionExpectedType.kind === "referenceType";
   const normalizedExpected = resolveComparableType(
     projectionExpectedType,
     context
@@ -177,9 +193,11 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     projectionExpectedType.runtimeCarrierFamilyKey.length > 0;
   if (
     (projectionExpectedType.kind === "unionType" &&
-      !expectedOwnsRuntimeCarrier) ||
+      !expectedOwnsRuntimeCarrier &&
+      !projectionExpectedIsNullableReference) ||
     (normalizedExpected.kind === "unionType" &&
       projectionExpectedType.kind !== "referenceType" &&
+      !projectionExpectedIsNullableReference &&
       !expectedOwnsRuntimeCarrier)
   ) {
     return undefined;
@@ -265,10 +283,95 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
         ? new Set(matchingMemberNs)
         : undefined;
     })();
+  const directProjectionPreservesSlotIdentity = (() => {
+    const directCarrierType = resolveDirectRuntimeCarrierType(ast, context);
+    const directSurfaceType = directCarrierType
+      ? directCarrierType
+      : resolveDirectValueSurfaceType(ast, context);
+    if (
+      !directSurfaceType ||
+      !willCarryAsRuntimeUnion(directSurfaceType, context)
+    ) {
+      return false;
+    }
+
+    const [directSurfaceLayout] = buildRuntimeUnionLayout(
+      stripNullish(directSurfaceType),
+      context,
+      emitTypeAst
+    );
+    if (
+      !directSurfaceLayout ||
+      !runtimeUnionLayoutsHaveSameSlotIdentity(directSurfaceLayout, actualLayout)
+    ) {
+      return false;
+    }
+
+    if (ast.kind !== "identifierExpression") {
+      return true;
+    }
+
+    const narrowed = context.narrowedBindings?.get(ast.identifier);
+    if (narrowed?.kind !== "expr") {
+      return true;
+    }
+
+    const carrierTypes = [
+      narrowed.sourceType,
+      narrowed.storageType,
+      narrowed.carrierType,
+    ].filter((type): type is IrType => type !== undefined);
+    for (const carrierType of carrierTypes) {
+      const [carrierLayout] = buildRuntimeUnionLayout(
+        carrierType,
+        context,
+        emitTypeAst
+      );
+      if (
+        carrierLayout &&
+        !runtimeUnionLayoutsHaveSameSlotIdentity(carrierLayout, actualLayout)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  })();
   const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
     projectionExpectedType,
     expectedLayoutContext
   );
+  const exactReferenceProjectionTarget = strippedProjectionExpectedType;
+  const exactReferenceProjectionMemberNs =
+    exactReferenceProjectionTarget.kind === "referenceType"
+      ? new Set(
+          effectiveMembers.flatMap((member, index) => {
+            if (!member) return [];
+            const actualLayoutIndex = restrictedIndices?.[index] ?? index;
+            const actualMemberTypeAst =
+              actualLayoutIndex !== undefined
+                ? actualLayout.memberTypeAsts[actualLayoutIndex]
+                : undefined;
+            if (!actualMemberTypeAst) return [];
+            return runtimeUnionAliasReferencesMatch(
+              member,
+              exactReferenceProjectionTarget,
+              expectedTypeContext
+            ) ||
+              areIrTypesEquivalent(
+                member,
+                exactReferenceProjectionTarget,
+                expectedTypeContext
+              ) ||
+              sameTypeAstSurface(
+                stripNullableTypeAst(actualMemberTypeAst),
+                stripNullableTypeAst(expectedTypeAst)
+              )
+              ? [candidateMemberNs?.[index] ?? index + 1]
+              : [];
+          })
+        )
+      : undefined;
 
   const actualTypeContext = expectedTypeContext;
 
@@ -343,6 +446,11 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     ) {
       body = parameterExpr;
       sawMatch = true;
+    } else if (
+      exactReferenceProjectionMemberNs &&
+      exactReferenceProjectionMemberNs.size > 0
+    ) {
+      body = invalidBody;
     } else if (isBroadObjectSlotType(projectionExpectedType, currentContext)) {
       const [boxedNumericAst, boxedNumericContext] =
         maybeBoxJsNumberAsObjectAst(
@@ -411,11 +519,13 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     (effectiveSelectedSourceMemberNs?.size === 1 ||
       (!effectiveSelectedSourceMemberNs &&
         (projectionExpectedType.kind === "referenceType" ||
+          projectionExpectedIsNullableReference ||
           (projectionExpectedType.kind === "arrayType" &&
             normalizedExpected.kind === "arrayType" &&
             matchedProjectionCount === 1)))) &&
     directProjectionCount === 1 &&
     directProjectionMemberN !== undefined &&
+    directProjectionPreservesSlotIdentity &&
     (!effectiveSelectedSourceMemberNs ||
       effectiveSelectedSourceMemberNs.has(directProjectionMemberN))
   ) {

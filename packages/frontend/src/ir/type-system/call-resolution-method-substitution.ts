@@ -381,6 +381,9 @@ export const resolveMethodTypeSubstitution = (
     if (!callSubst.has(typeParameter.name) && typeParameter.defaultType) {
       callSubst.set(typeParameter.name, typeParameter.defaultType);
     }
+    if (!callSubst.has(typeParameter.name) && typeParameter.constraint) {
+      callSubst.set(typeParameter.name, typeParameter.constraint);
+    }
   }
 
   return { kind: "ok", substitution: callSubst };

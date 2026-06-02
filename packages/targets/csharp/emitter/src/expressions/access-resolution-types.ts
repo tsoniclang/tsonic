@@ -290,17 +290,20 @@ export const isStaticTypeReference = (
 ): boolean => {
   if (expr.object.kind === "identifier") {
     const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
+    const importBinding = context.importBindings?.get(expr.object.name);
+    if (importBinding?.kind === "type" || importBinding?.kind === "namespace") {
+      return true;
+    }
+    if (importBinding?.kind === "value") {
+      return importBinding.typeAst !== undefined;
+    }
+
     if (
       !isLocal &&
       (expr.object.providerQualifiedName !== undefined ||
         (expr.object.providerMemberName !== undefined &&
           expr.object.providerOwnerIdentity !== undefined))
     ) {
-      return true;
-    }
-
-    const importBinding = context.importBindings?.get(expr.object.name);
-    if (importBinding?.kind === "type" || importBinding?.kind === "namespace") {
       return true;
     }
 

@@ -1081,5 +1081,114 @@ describe("IR Builder", function () {
         cleanup();
       }
     });
+
+    it("uses the declared constraint for uninferred return-only generic type parameters", () => {
+      const source = `
+        enum Kind {
+          Identifier,
+        }
+
+        interface Node {
+          readonly kind: Kind;
+        }
+
+        function syntheticNode<T extends Node, TFields extends object>(
+          kind: Kind,
+          location: Node,
+          fields?: TFields
+        ): T {
+          void location;
+          void fields;
+          return { kind } as T;
+        }
+
+        export function run(location: Node): Node {
+          return syntheticNode(Kind.Identifier, location, { text: "x" });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const retStmt = run.body.statements.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+          stmt.kind === "returnStatement"
+      );
+      expect(retStmt?.expression?.kind).to.equal("call");
+      if (!retStmt?.expression || retStmt.expression.kind !== "call") return;
+
+      expect(retStmt.expression.inferredType).to.deep.include({
+        kind: "referenceType",
+        name: "Node",
+      });
+      expect(retStmt.expression.typeArguments?.[0]).to.deep.include({
+        kind: "referenceType",
+        name: "Node",
+      });
+      expect(retStmt.expression.typeArguments?.[1]?.kind).to.equal(
+        "objectType"
+      );
+    });
+
+    it("infers generic callback return type arguments from lambda body evidence", () => {
+      const source = `
+        interface Node {
+          readonly text: string;
+        }
+
+        class Box<T> {
+          flatMap<TResult>(callback: (value: T) => readonly TResult[]): TResult[] {
+            void callback;
+            return [] as TResult[];
+          }
+        }
+
+        export function run(values: Box<Node>): Node[] {
+          return values.flatMap((value) => [value]);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const retStmt = run.body.statements.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+          stmt.kind === "returnStatement"
+      );
+      expect(retStmt?.expression?.kind).to.equal("call");
+      if (!retStmt?.expression || retStmt.expression.kind !== "call") return;
+
+      expect(retStmt.expression.typeArguments?.[0]).to.deep.include({
+        kind: "referenceType",
+        name: "Node",
+      });
+      expect(retStmt.expression.inferredType).to.deep.include({
+        kind: "arrayType",
+      });
+    });
   });
 });

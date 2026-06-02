@@ -59,6 +59,7 @@ import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
 } from "../../core/semantic/runtime-unions.js";
+import { tryResolveRuntimeUnionCommonTarget } from "../../core/semantic/runtime-union-common-target.js";
 import { tryBuildRuntimeMaterializationAst } from "../../core/semantic/runtime-reification.js";
 import { runtimeUnionAliasReferencesMatch } from "../../core/semantic/runtime-union-alias-identity.js";
 import { getPassingModifierFromCast, isLValue } from "./call-analysis.js";
@@ -1403,13 +1404,18 @@ const shouldPreserveSurfaceRuntimeExpectedType = (opts: {
     return false;
   }
 
-  return (
-    willCarryAsRuntimeUnion(surfaceExpectedType, context) &&
-    !preservesSurfaceRuntimeMaterialization(
-      surfaceExpectedType,
-      selectedExpectedType,
-      context
-    )
+  if (!willCarryAsRuntimeUnion(surfaceExpectedType, context)) {
+    return false;
+  }
+
+  if (surfaceExpectedType.kind === "referenceType") {
+    return true;
+  }
+
+  return !preservesSurfaceRuntimeMaterialization(
+    surfaceExpectedType,
+    selectedExpectedType,
+    context
   );
 };
 
@@ -2836,6 +2842,21 @@ const shouldDeferCollectionCarrierRawEmission = (opts: {
   );
 };
 
+const shouldDeferRuntimeUnionCommonTargetRawEmission = (opts: {
+  readonly sourceType: IrType | undefined;
+  readonly rawExpectedType: IrType | undefined;
+  readonly context: EmitterContext;
+}): boolean => {
+  const { sourceType, rawExpectedType, context } = opts;
+  const plan = tryResolveRuntimeUnionCommonTarget({
+    actualType: sourceType,
+    expectedType: rawExpectedType,
+    context,
+    emitTypeAst,
+  });
+  return plan !== undefined;
+};
+
 const resolveGenericBroadObjectFallbackExpectedType = (
   expr: Extract<IrExpression, { kind: "call" }>,
   args: readonly IrExpression[],
@@ -3309,6 +3330,12 @@ const emitFunctionValueCallArguments = (
           arg,
           sourceType:
             preEmitStorageAwareArgumentType ?? preEmitActualArgumentType,
+          rawExpectedType: contextualRawEmitExpectedTypeCandidate,
+          context: currentContext,
+        }) ||
+        shouldDeferRuntimeUnionCommonTargetRawEmission({
+          sourceType:
+            preEmitActualArgumentType ?? preEmitStorageAwareArgumentType,
           rawExpectedType: contextualRawEmitExpectedTypeCandidate,
           context: currentContext,
         })
@@ -4335,6 +4362,12 @@ const emitCallArguments = (
         arg,
         sourceType:
           preEmitStorageAwareArgumentType ?? preEmitActualArgumentType,
+        rawExpectedType: contextualRawEmitExpectedTypeCandidate,
+        context: currentContext,
+      }) ||
+      shouldDeferRuntimeUnionCommonTargetRawEmission({
+        sourceType:
+          preEmitActualArgumentType ?? preEmitStorageAwareArgumentType,
         rawExpectedType: contextualRawEmitExpectedTypeCandidate,
         context: currentContext,
       })

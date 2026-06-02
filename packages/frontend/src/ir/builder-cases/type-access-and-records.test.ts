@@ -10,6 +10,7 @@ import {
   IrFunctionDeclaration,
   IrVariableDeclaration,
 } from "../types.js";
+import { runAnonymousTypeLoweringPass } from "../validation/index.js";
 import { validateIrSoundness } from "../validation/soundness-gate.js";
 import {
   createFilesystemTestProgram,
@@ -45,7 +46,41 @@ describe("IR Builder", function () {
       ).to.equal(false);
       if (!result.ok) return;
 
-      const soundness = validateIrSoundness([result.value]);
+      const lowered = runAnonymousTypeLoweringPass([result.value]);
+      const soundness = validateIrSoundness(lowered.modules);
+      expect(soundness.ok).to.equal(true);
+    });
+
+    it("recovers const-object numeric member types through const assertions", () => {
+      const source = `
+        export type Flags = number;
+
+        export const Flags = {
+          None: 0 as Flags,
+          Read: (1 << 0) as Flags,
+          Write: (1 << 1) as Flags,
+          ReadWrite: ((1 << 0) | (1 << 1)) as Flags,
+        } as const;
+
+        export function hasRead(value: Flags): boolean {
+          return (value & Flags.Read) !== Flags.None;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(
+        ctx.typeSystem.getDiagnostics().some((d) => d.code === "TSN5203")
+      ).to.equal(false);
+      if (!result.ok) return;
+
+      const lowered = runAnonymousTypeLoweringPass([result.value]);
+      const soundness = validateIrSoundness(lowered.modules);
       expect(soundness.ok).to.equal(true);
     });
 
@@ -655,7 +690,9 @@ describe("IR Builder", function () {
 
       const declaration = fn.body.statements.find(
         (stmt): stmt is IrVariableDeclaration =>
-          stmt.kind === "variableDeclaration"
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations[0]?.name.kind === "identifierPattern" &&
+          stmt.declarations[0].name.name === "longestPrefix"
       );
       expect(declaration?.declarations[0]?.type).to.deep.equal({
         kind: "primitiveType",
@@ -704,6 +741,74 @@ describe("IR Builder", function () {
       expect(returnStmt.expression.inferredType).to.deep.equal({
         kind: "unknownType",
       });
+    });
+
+    it("substitutes inherited ReadonlyArray indexer type arguments for element access", () => {
+      const source = `
+        interface ReadonlyArray<T> {
+          readonly length: number;
+          readonly [index: number]: T;
+        }
+
+        interface Node {
+          readonly kind: number;
+        }
+
+        interface ReadonlyTextRange {
+          readonly pos: number;
+          readonly end: number;
+        }
+
+        interface NodeArray<T extends Node> extends ReadonlyArray<T>, ReadonlyTextRange {}
+
+        interface JsxChild extends Node {
+          readonly text: string;
+        }
+
+        export function last(children: NodeArray<JsxChild>): JsxChild | undefined {
+          const lastChild = children.length > 0 ? children[children.length - 1] : undefined;
+          return lastChild;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "last"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const declaration = fn.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration"
+      );
+      const initializer = declaration?.declarations[0]?.initializer;
+      expect(initializer?.inferredType?.kind).to.equal("unionType");
+      if (initializer?.inferredType?.kind !== "unionType") return;
+
+      expect(
+        initializer.inferredType.types.some(
+          (type) => type.kind === "typeParameterType"
+        )
+      ).to.equal(false);
+      expect(
+        initializer.inferredType.types.some(
+          (type) => type.kind === "referenceType" && type.name === "JsxChild"
+        )
+      ).to.equal(true);
+      expect(
+        initializer.inferredType.types.some(
+          (type) => type.kind === "primitiveType" && type.name === "undefined"
+        )
+      ).to.equal(true);
     });
   });
 });

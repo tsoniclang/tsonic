@@ -13,7 +13,13 @@ import { emitWritableTargetAst } from "./write-targets.js";
 import { getTypedArrayStorageElementType } from "../calls/new-emitter-collections.js";
 import { maybeCastNumericToExpectedIntegralAst } from "../post-emission-adaptation.js";
 import { resolveWritableTargetStorageType } from "../../core/semantic/assignment-flow.js";
+import {
+  resolveArrayLikeReceiverType,
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import { buildInvokedLambdaExpressionAst } from "../invoked-lambda.js";
 import {
   emitArrayOverlayPropertyWrite,
@@ -34,6 +40,34 @@ const COMPOUND_BITWISE_OPERATORS: Readonly<Record<string, string>> = {
   ">>>=": ">>>",
 };
 
+const INT_TYPE: IrType = { kind: "primitiveType", name: "int" };
+
+const isNativeArrayLengthWriteTarget = (
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  context: EmitterContext
+): boolean => {
+  if (
+    expr.isComputed ||
+    typeof expr.property !== "string" ||
+    expr.property !== "length"
+  ) {
+    return false;
+  }
+
+  const receiverType =
+    (expr.object.kind === "identifier" || expr.object.kind === "memberAccess"
+      ? resolveWritableTargetStorageType(expr.object, context)
+      : undefined) ?? expr.object.inferredType;
+  if (!receiverType) {
+    return false;
+  }
+
+  return (
+    resolveArrayLikeReceiverType(receiverType, context) !== undefined &&
+    resolveTypeAlias(stripNullish(receiverType), context).kind === "arrayType"
+  );
+};
+
 /**
  * Emit an assignment expression as CSharpExpressionAst
  *
@@ -44,6 +78,57 @@ export const emitAssignment = (
   expr: Extract<IrExpression, { kind: "assignment" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
+  if (
+    expr.operator === "=" &&
+    "kind" in expr.left &&
+    expr.left.kind === "memberAccess" &&
+    isNativeArrayLengthWriteTarget(expr.left, context)
+  ) {
+    const [arrayTargetAst, arrayTargetContext] = emitWritableTargetAst(
+      expr.left.object,
+      context
+    );
+    const [lengthAst, lengthContext] = emitExpressionAst(
+      expr.right,
+      arrayTargetContext,
+      INT_TYPE
+    );
+    const numericLengthActualType =
+      (expr.right.inferredType?.kind === "literalType" &&
+        typeof expr.right.inferredType.value === "number") ||
+      (expr.right.kind === "literal" && typeof expr.right.value === "number")
+        ? ({ kind: "primitiveType", name: "number" } as const)
+        : expr.right.inferredType;
+    const [adaptedLengthAst, adaptedLengthContext] = numericLengthActualType
+      ? maybeCastNumericToExpectedIntegralAst(
+          lengthAst,
+          numericLengthActualType,
+          lengthContext,
+          INT_TYPE
+        )
+      : [lengthAst, lengthContext];
+
+    return [
+      {
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: arrayTargetAst,
+        right: {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: identifierExpression(
+              "global::Tsonic.Internal.ArrayInterop"
+            ),
+            memberName: "SetLength",
+          },
+          arguments: [arrayTargetAst, adaptedLengthAst],
+        },
+      },
+      adaptedLengthContext,
+    ];
+  }
+
   if (
     expr.operator === "=" &&
     "kind" in expr.left &&

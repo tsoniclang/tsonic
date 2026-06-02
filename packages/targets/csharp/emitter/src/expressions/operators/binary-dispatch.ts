@@ -48,13 +48,19 @@ import {
   chooseComparisonExpectedType,
   buildNullishComparisonContext,
 } from "./binary-helpers.js";
-import { emitInstanceof, emitTypeofComparison } from "./binary-special-ops.js";
+import {
+  emitInstanceof,
+  emitRuntimeUnionPropertyExistence,
+  emitTypeofComparison,
+} from "./binary-special-ops.js";
 import { emitRuntimeUnionLiteralComparison } from "./binary-runtime-union-comparison.js";
 import { isBroadObjectSlotType } from "../../core/semantic/broad-object-types.js";
 import {
   BITWISE_OPERATORS,
   castBitwiseOperandToInt,
+  castEnumOperandToDouble,
   emitJsNumberBitwiseOperation,
+  isEnumLikeType,
 } from "./bitwise-helpers.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
@@ -71,13 +77,12 @@ const emitInOperator = (
     );
   }
 
-  const [rightAst, nextContext] = emitExpressionAst(
-    expr.right,
-    context,
-    undefined
-  );
-
   if (plan.kind === "dictionaryKey") {
+    const [rightAst, nextContext] = emitExpressionAst(
+      expr.right,
+      context,
+      undefined
+    );
     return [
       {
         kind: "invocationExpression",
@@ -93,8 +98,12 @@ const emitInOperator = (
   }
 
   if (plan.kind === "unionProperty") {
+    const emitted = emitRuntimeUnionPropertyExistence(expr, context);
+    if (emitted) {
+      return emitted;
+    }
     throw new Error(
-      "ICE: union property-existence in-operator reached generic expression emission; conditional emission must consume the authoritative branch plan"
+      "ICE: union property-existence in-operator reached generic expression emission without a resolvable runtime-union carrier"
     );
   }
 
@@ -415,6 +424,71 @@ const isNullableBooleanIrType = (
 
 const isBooleanLiteralComparisonOperand = (expr: IrExpression): boolean =>
   expr.kind === "literal" && typeof expr.value === "boolean";
+
+const isEnumNumericComparisonOperand = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+  const stripped = stripNullish(type);
+  return isEnumLikeType(stripped, context) || isNumericOperandType(stripped);
+};
+
+const shouldEmitNativeEnumBitwise = (
+  leftType: IrType | undefined,
+  rightType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!leftType || !rightType) {
+    return false;
+  }
+  return (
+    isEnumLikeType(leftType, context) &&
+    isEnumLikeType(rightType, context) &&
+    areIrTypesEquivalent(
+      stripNullish(leftType),
+      stripNullish(rightType),
+      context
+    )
+  );
+};
+
+const resolveNativeEnumBitwiseType = (
+  expr: IrExpression,
+  resolvedType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (resolvedType && isEnumLikeType(resolvedType, context)) {
+    return stripNullish(resolvedType);
+  }
+  if (expr.kind === "unary" && expr.operator === "~") {
+    return resolveNativeEnumBitwiseType(
+      expr.expression,
+      expr.expression.inferredType,
+      context
+    );
+  }
+  if (expr.kind === "binary" && BITWISE_OPERATORS.has(expr.operator)) {
+    const leftEnum = resolveNativeEnumBitwiseType(
+      expr.left,
+      expr.left.inferredType,
+      context
+    );
+    const rightEnum = resolveNativeEnumBitwiseType(
+      expr.right,
+      expr.right.inferredType,
+      context
+    );
+    return leftEnum &&
+      rightEnum &&
+      areIrTypesEquivalent(leftEnum, rightEnum, context)
+      ? leftEnum
+      : undefined;
+  }
+  return undefined;
+};
 
 const stripNullableBooleanComparisonCast = (
   ast: CSharpExpressionAst,
@@ -892,6 +966,36 @@ export const emitBinary = (
       return [jsNumberBitwiseAst, rightContext];
     }
 
+    const leftNativeEnumType = resolveNativeEnumBitwiseType(
+      expr.left,
+      leftResolvedType,
+      rightContext
+    );
+    const rightNativeEnumType = resolveNativeEnumBitwiseType(
+      expr.right,
+      rightResolvedType,
+      rightContext
+    );
+    if (
+      leftNativeEnumType &&
+      rightNativeEnumType &&
+      shouldEmitNativeEnumBitwise(
+        leftNativeEnumType,
+        rightNativeEnumType,
+        rightContext
+      )
+    ) {
+      return [
+        {
+          kind: "binaryExpression",
+          operatorToken: op,
+          left: leftAst,
+          right: rightAst,
+        },
+        rightContext,
+      ];
+    }
+
     return [
       {
         kind: "binaryExpression",
@@ -1015,28 +1119,42 @@ export const emitBinary = (
   }
 
   const comparisonLeftAst = isComparisonOp
-    ? stripNullableBooleanComparisonCast(
-        stripObjectBoxForNumericComparison(
-          leftAst,
+    ? castEnumOperandToDouble(
+        stripNullableBooleanComparisonCast(
+          stripObjectBoxForNumericComparison(
+            leftAst,
+            leftResolvedType,
+            rightResolvedType
+          ),
+          expr.left,
           leftResolvedType,
-          rightResolvedType
+          expr.right,
+          rightContext
         ),
-        expr.left,
-        leftResolvedType,
-        expr.right,
+        isEnumNumericComparisonOperand(leftResolvedType, rightContext) &&
+          isEnumNumericComparisonOperand(rightResolvedType, rightContext)
+          ? leftResolvedType
+          : undefined,
         rightContext
       )
     : leftAst;
   const comparisonRightAst = isComparisonOp
-    ? stripNullableBooleanComparisonCast(
-        stripObjectBoxForNumericComparison(
-          rightAst,
+    ? castEnumOperandToDouble(
+        stripNullableBooleanComparisonCast(
+          stripObjectBoxForNumericComparison(
+            rightAst,
+            rightResolvedType,
+            leftResolvedType
+          ),
+          expr.right,
           rightResolvedType,
-          leftResolvedType
+          expr.left,
+          rightContext
         ),
-        expr.right,
-        rightResolvedType,
-        expr.left,
+        isEnumNumericComparisonOperand(leftResolvedType, rightContext) &&
+          isEnumNumericComparisonOperand(rightResolvedType, rightContext)
+          ? rightResolvedType
+          : undefined,
         rightContext
       )
     : rightAst;

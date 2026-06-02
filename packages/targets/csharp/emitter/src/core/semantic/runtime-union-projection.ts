@@ -186,9 +186,6 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = opts.context;
-  let directProjectionMemberN: number | undefined;
-  let directProjectionCount = 0;
-  let reachableResultCount = 0;
 
   const sourceMemberIndexBySlot = new Map<number, number>();
   for (let index = 0; index < opts.sourceLayout.members.length; index += 1) {
@@ -214,16 +211,6 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
     const parameterExpr = identifierExpression(parameterName);
 
     const pushLambda = (body: CSharpExpressionAst): void => {
-      if (body.kind !== "throwExpression") {
-        reachableResultCount += 1;
-      }
-      if (
-        body.kind === "identifierExpression" &&
-        body.identifier === parameterName
-      ) {
-        directProjectionMemberN = sourceMemberN;
-        directProjectionCount += 1;
-      }
       lambdaArgs.push({
         kind: "lambdaExpression",
         isAsync: false,
@@ -349,28 +336,8 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
     currentContext = mappedValue[1];
   }
 
-  return directProjectionCount === 1 &&
-    reachableResultCount === 1 &&
-    directProjectionMemberN !== undefined
-    ? [
-        {
-          kind: "parenthesizedExpression",
-          expression: {
-            kind: "invocationExpression",
-            expression: {
-              kind: "memberAccessExpression",
-              expression: opts.valueAst,
-              memberName: `As${directProjectionMemberN}`,
-            },
-            arguments: [],
-          },
-        },
-        currentContext,
-      ]
-    : [
-        buildRuntimeUnionMatchAst(opts.valueAst, lambdaArgs, [
-          targetUnionTypeAst,
-        ]),
-        currentContext,
-      ];
+  return [
+    buildRuntimeUnionMatchAst(opts.valueAst, lambdaArgs, [targetUnionTypeAst]),
+    currentContext,
+  ];
 };

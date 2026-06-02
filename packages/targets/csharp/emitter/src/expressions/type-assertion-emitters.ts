@@ -30,21 +30,23 @@ import {
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
-import {
-  isSemanticUnion,
-  willCarryAsRuntimeUnion,
-} from "../core/semantic/union-semantics.js";
+import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import {
   buildRuntimeUnionLayout,
   buildRuntimeUnionTypeAst,
   emitRuntimeCarrierTypeAst,
 } from "../core/semantic/runtime-unions.js";
+import { runtimeUnionLayoutsHaveSameSlotIdentity } from "../core/semantic/runtime-union-layout-identity.js";
 import { getOrRegisterRuntimeUnionCarrier } from "../core/semantic/runtime-union-registry.js";
 import {
   buildRuntimeUnionFactoryCallAst,
   buildRuntimeUnionMatchAst,
 } from "../core/semantic/runtime-union-projection.js";
-import { resolveIdentifierValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
+import {
+  resolveDirectRuntimeCarrierType,
+  resolveDirectValueSurfaceType,
+  resolveIdentifierValueSurfaceType,
+} from "../core/semantic/direct-value-surfaces.js";
 import { resolveDirectStorageIrType } from "../core/semantic/direct-storage-ir-types.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
@@ -1502,12 +1504,16 @@ export const emitTypeAssertion = (
           ? sourceStorageTypeAtEntry
           : transparentSourceExpression.inferredType))
       : transparentSourceExpression.inferredType;
-  const isSourceUnion = sourceExpressionType
-    ? isSemanticUnion(sourceExpressionType, ctx1)
-    : false;
+  const sourceRuntimeUnionSourceType = sourceExpressionType
+    ? stripNullish(sourceExpressionType)
+    : undefined;
   const [sourceRuntimeUnionLayout, sourceLayoutContext] =
-    isSourceUnion && sourceExpressionType
-      ? buildRuntimeUnionLayout(sourceExpressionType, ctx1, emitTypeAst)
+    sourceRuntimeUnionSourceType
+      ? buildRuntimeUnionLayout(
+          sourceRuntimeUnionSourceType,
+          ctx1,
+          emitTypeAst
+        )
       : [undefined, ctx1];
   const activeNarrowedBinding = getNarrowedBindingForExpression(
     transparentSourceExpression,
@@ -1579,6 +1585,183 @@ export const emitTypeAssertion = (
     sourceNarrowedBinding.storageExprAst
       ? sourceNarrowedBinding.storageExprAst
       : innerAst;
+  const [assertionSourceRuntimeUnionLayout, assertionSourceLayoutContext] =
+    sourceRuntimeUnionLayout
+      ? [sourceRuntimeUnionLayout, sourceLayoutContext]
+      : sourceCarrierTypeAtEntry
+        ? buildRuntimeUnionLayout(
+            stripNullish(sourceCarrierTypeAtEntry),
+            sourceLayoutContext,
+            emitTypeAst
+          )
+        : [undefined, sourceLayoutContext];
+  const exactRuntimeUnionAssertionMember = (() => {
+    if (
+      !assertionSourceRuntimeUnionLayout ||
+      runtimeTargetUnionLayout
+    ) {
+      return undefined;
+    }
+
+    const selectedMembers = expr.selectedRuntimeUnionMembers
+      ? new Set(expr.selectedRuntimeUnionMembers)
+      : undefined;
+    const concreteTargetTypeAst = stripNullableTypeAst(runtimeTargetTypeAst);
+    const concreteRuntimeTarget = stripNullish(runtimeTarget);
+    const matchingMemberNs =
+      assertionSourceRuntimeUnionLayout.memberTypeAsts.flatMap(
+        (memberTypeAst, index) => {
+          const memberN = index + 1;
+          if (selectedMembers && !selectedMembers.has(memberN)) {
+            return [];
+          }
+
+          const memberType = assertionSourceRuntimeUnionLayout.members[index];
+          return (memberType &&
+            areIrTypesEquivalent(
+              stripNullish(memberType),
+              concreteRuntimeTarget,
+              assertionSourceLayoutContext
+            )) ||
+            sameConcreteTypeAstSurface(
+              stripNullableTypeAst(memberTypeAst),
+              concreteTargetTypeAst
+            )
+            ? [memberN]
+            : [];
+        }
+      );
+
+    return matchingMemberNs.length === 1 ? matchingMemberNs[0] : undefined;
+  })();
+  const exactRuntimeUnionAssertionSourceTypeAst =
+    assertionSourceRuntimeUnionLayout
+      ? buildRuntimeUnionTypeAst(assertionSourceRuntimeUnionLayout)
+      : undefined;
+  const directRuntimeUnionCarrierSourceType = (() => {
+    const directCarrierType = resolveDirectRuntimeCarrierType(
+      castSourceAst,
+      assertionSourceLayoutContext
+    );
+    if (directCarrierType) {
+      return stripNullish(directCarrierType);
+    }
+
+    const directSurfaceType = resolveDirectValueSurfaceType(
+      castSourceAst,
+      assertionSourceLayoutContext
+    );
+    return directSurfaceType &&
+      willCarryAsRuntimeUnion(directSurfaceType, assertionSourceLayoutContext)
+      ? stripNullish(directSurfaceType)
+      : undefined;
+  })();
+  const [directRuntimeUnionCarrierSourceLayout] =
+    directRuntimeUnionCarrierSourceType !== undefined
+      ? buildRuntimeUnionLayout(
+          directRuntimeUnionCarrierSourceType,
+          assertionSourceLayoutContext,
+          emitTypeAst
+        )
+      : [undefined, assertionSourceLayoutContext];
+  const sourceAstPreservesRuntimeUnionSlotIdentity = (() => {
+    if (!assertionSourceRuntimeUnionLayout) {
+      return false;
+    }
+    if (
+      directRuntimeUnionCarrierSourceLayout &&
+      !runtimeUnionLayoutsHaveSameSlotIdentity(
+        directRuntimeUnionCarrierSourceLayout,
+        assertionSourceRuntimeUnionLayout
+      )
+    ) {
+      return false;
+    }
+    if (sourceNarrowedBinding?.kind !== "expr") {
+      return true;
+    }
+
+    const carrierTypes = sourceNarrowedBinding.storageType
+      ? [sourceNarrowedBinding.storageType]
+      : [sourceNarrowedBinding.sourceType, sourceNarrowedBinding.carrierType].filter(
+          (type): type is IrType => type !== undefined
+        );
+    for (const carrierType of carrierTypes) {
+      const [carrierLayout] = buildRuntimeUnionLayout(
+        carrierType,
+        assertionSourceLayoutContext,
+        emitTypeAst
+      );
+      if (
+        carrierLayout &&
+        !runtimeUnionLayoutsHaveSameSlotIdentity(
+          carrierLayout,
+          assertionSourceRuntimeUnionLayout
+        )
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  })();
+  const sourceAstCarriesRuntimeUnionCarrier =
+    directRuntimeUnionCarrierSourceType !== undefined &&
+    directRuntimeUnionCarrierSourceLayout !== undefined &&
+    sourceAstPreservesRuntimeUnionSlotIdentity &&
+    willCarryAsRuntimeUnion(
+      directRuntimeUnionCarrierSourceType,
+      assertionSourceLayoutContext
+    );
+  const runtimeUnionAssertionTargetIsCallable =
+    stripNullish(runtimeTarget).kind === "functionType";
+  if (
+    exactRuntimeUnionAssertionMember !== undefined &&
+    exactRuntimeUnionAssertionSourceTypeAst &&
+    !runtimeUnionAssertionTargetIsCallable &&
+    (isExactExpressionToType(
+      castSourceAst,
+      exactRuntimeUnionAssertionSourceTypeAst
+    ) ||
+      sourceAstCarriesRuntimeUnionCarrier)
+  ) {
+    const memberProjectionAst: CSharpExpressionAst = {
+      kind: "parenthesizedExpression",
+      expression: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: castSourceAst,
+          memberName: `As${exactRuntimeUnionAssertionMember}`,
+        },
+        arguments: [],
+      },
+    };
+    if (
+      referenceTypeEmitsAsNativeInterface(
+        resolvedAssertionTarget,
+        assertionSourceLayoutContext
+      ) ||
+      referenceTypeEmitsAsNativeInterface(
+        runtimeTarget,
+        assertionSourceLayoutContext
+      )
+    ) {
+      return [
+        {
+          kind: "castExpression",
+          type: runtimeTargetTypeAst,
+          expression: memberProjectionAst,
+        },
+        runtimeTargetTypeContext,
+      ];
+    }
+
+    return [
+      memberProjectionAst,
+      assertionSourceLayoutContext,
+    ];
+  }
   const isExactRuntimeUnionProjectionToTarget = (
     ast: CSharpExpressionAst,
     targetTypeAst: CSharpTypeAst

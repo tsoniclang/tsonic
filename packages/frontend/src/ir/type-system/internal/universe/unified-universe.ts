@@ -182,6 +182,9 @@ const convertHeritageInfo = (
   resolveSourceOwnerIdentity: (fullyQualifiedName: string) => string | undefined
 ): HeritageEdge => {
   const targetName = heritageInfo.typeName;
+  const targetSimpleName = targetName.includes(".")
+    ? (targetName.split(".").pop() ?? targetName)
+    : targetName;
 
   if (
     heritageInfo.baseType.kind === "referenceType" &&
@@ -206,6 +209,11 @@ const convertHeritageInfo = (
     heritageInfo.baseType.typeArguments
   ) {
     typeArguments.push(...heritageInfo.baseType.typeArguments);
+  } else if (
+    heritageInfo.baseType.kind === "arrayType" &&
+    (targetSimpleName === "Array" || targetSimpleName === "ReadonlyArray")
+  ) {
+    typeArguments.push(heritageInfo.baseType.elementType);
   }
 
   return {

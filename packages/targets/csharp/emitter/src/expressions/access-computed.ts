@@ -57,6 +57,7 @@ import {
 import { contextSurfaceIncludesJs } from "../types.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { isSystemArrayStorageType } from "../core/semantic/broad-array-storage.js";
+import { preferInferredTypeOverOutOfScopeGenericType } from "../core/semantic/type-parameter-scope.js";
 
 const isRuntimeUnionMemberProjectionAst = (
   exprAst: CSharpExpressionAst
@@ -505,11 +506,22 @@ export const emitComputedAccess = (
           storageType,
           finalContext
         );
+      const effectiveDesiredType =
+        preferInferredTypeOverOutOfScopeGenericType(
+          desiredType,
+          safeReadStorageType,
+          safeReadContext
+        );
+      const semanticReadType = preferInferredTypeOverOutOfScopeGenericType(
+        expr.inferredType,
+        effectiveDesiredType,
+        safeReadContext
+      );
       const adapted = adaptStorageErasedValueAst({
         valueAst: safeReadAst,
-        semanticType: expr.inferredType,
+        semanticType: semanticReadType,
         storageType: safeReadStorageType,
-        expectedType: desiredType,
+        expectedType: effectiveDesiredType,
         context: safeReadContext,
         emitTypeAst,
       });
@@ -537,11 +549,22 @@ export const emitComputedAccess = (
             protocolElementType,
             { kind: "primitiveType", name: "undefined" },
           ]);
+      const effectiveDesiredType =
+        preferInferredTypeOverOutOfScopeGenericType(
+          desiredType,
+          storageType,
+          nextContext
+        );
+      const semanticReadType = preferInferredTypeOverOutOfScopeGenericType(
+        expr.inferredType,
+        effectiveDesiredType,
+        nextContext
+      );
       const adapted = adaptStorageErasedValueAst({
         valueAst,
-        semanticType: expr.inferredType,
+        semanticType: semanticReadType,
         storageType,
-        expectedType: desiredType,
+        expectedType: effectiveDesiredType,
         context: nextContext,
         emitTypeAst,
       });
@@ -611,11 +634,22 @@ export const emitComputedAccess = (
       objectType,
       context
     );
+    const effectiveDesiredType =
+      preferInferredTypeOverOutOfScopeGenericType(
+        desiredType,
+        storageElementType,
+        nextContext
+      );
+    const semanticReadType = preferInferredTypeOverOutOfScopeGenericType(
+      expr.inferredType,
+      effectiveDesiredType,
+      nextContext
+    );
     const adapted = adaptStorageErasedValueAst({
       valueAst,
-      semanticType: expr.inferredType,
+      semanticType: semanticReadType,
       storageType: storageElementType,
-      expectedType: desiredType,
+      expectedType: effectiveDesiredType,
       context: nextContext,
       emitTypeAst,
     });
@@ -727,11 +761,22 @@ export const emitComputedAccess = (
       return [safeReadAst, safeReadContext];
     }
 
+    const effectiveDesiredType =
+      preferInferredTypeOverOutOfScopeGenericType(
+        desiredType,
+        safeReadStorageType,
+        safeReadContext
+      );
+    const semanticReadType = preferInferredTypeOverOutOfScopeGenericType(
+      expr.inferredType,
+      effectiveDesiredType,
+      safeReadContext
+    );
     const adapted = adaptStorageErasedValueAst({
       valueAst: safeReadAst,
-      semanticType: expr.inferredType,
+      semanticType: semanticReadType,
       storageType: safeReadStorageType,
-      expectedType: desiredType,
+      expectedType: effectiveDesiredType,
       context: safeReadContext,
       emitTypeAst,
     });
@@ -753,11 +798,22 @@ export const emitComputedAccess = (
       storageObjectTypeForArrayRead,
       context
     );
+    const effectiveDesiredType =
+      preferInferredTypeOverOutOfScopeGenericType(
+        desiredType,
+        storageElementType,
+        finalContext
+      );
+    const semanticReadType = preferInferredTypeOverOutOfScopeGenericType(
+      expr.inferredType,
+      effectiveDesiredType,
+      finalContext
+    );
     const adapted = adaptStorageErasedValueAst({
       valueAst: accessAst,
-      semanticType: expr.inferredType,
+      semanticType: semanticReadType,
       storageType: storageElementType,
-      expectedType: desiredType,
+      expectedType: effectiveDesiredType,
       context: finalContext,
       emitTypeAst,
     });

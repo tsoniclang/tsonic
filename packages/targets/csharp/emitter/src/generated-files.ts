@@ -16,7 +16,10 @@ import type {
   RuntimeUnionCarrierDefinition,
   RuntimeUnionRegistry,
 } from "./core/semantic/runtime-union-registry.js";
-import { printCompilationUnit } from "./core/format/backend-ast/printer.js";
+import {
+  printCompilationUnit,
+  printMember,
+} from "./core/format/backend-ast/printer.js";
 import { printType } from "./core/format/backend-ast/printer-precedence.js";
 import {
   identifierType as buildIdentifierType,
@@ -154,6 +157,17 @@ namespace Tsonic.Internal
             var result = array.push(items);
             values = array.toArray();
             return result;
+        }
+
+        internal static T[] SetLength<T>(T[] values, int length)
+        {
+            if (length < 0)
+            {
+                throw new global::System.ArgumentOutOfRangeException(nameof(length), "Invalid array length.");
+            }
+            var resized = values;
+            global::System.Array.Resize(ref resized, length);
+            return resized;
         }
 
         internal static object? ReadOptionalObject<T>(global::System.Collections.Generic.IReadOnlyList<T>? values, int index)
@@ -471,6 +485,12 @@ const generateRuntimeUnionCarrier = (
     genericParameters.length > 0 ? `<${genericParameters}>` : "";
   const carrierType = `${name}${genericSuffix}`;
   const memberTypes = memberTypeAsts.map(printType);
+  const implementedInterfaces =
+    definition.implementedInterfaceTypeAsts.map(printType);
+  const baseClause =
+    implementedInterfaces.length > 0
+      ? ` : ${implementedInterfaces.join(", ")}`
+      : "";
   const stripTopLevelNullableSuffix = (typeText: string): string =>
     typeText.endsWith("?") ? typeText.slice(0, -1) : typeText;
   const fromFactories = memberTypes
@@ -539,7 +559,13 @@ const generateRuntimeUnionCarrier = (
         `                case ${index}: onT${index + 1}((${typeParameter})_value!); break;`
     )
     .join("\n");
-  return `    ${accessModifier} sealed class ${carrierType}
+  const forwardedInterfaceMembers =
+    definition.forwardedInterfaceMembers.length > 0
+      ? `\n\n${definition.forwardedInterfaceMembers
+          .map((member) => printMember(member, "        "))
+          .join("\n\n")}`
+      : "";
+  return `    ${accessModifier} sealed class ${carrierType}${baseClause}
     {
         private readonly object? _value;
         private readonly int _index;
@@ -593,6 +619,7 @@ ${matchVoidCases}
         {
             return global::System.HashCode.Combine(_value, _index);
         }
+${forwardedInterfaceMembers}
     }`;
 };
 

@@ -32,6 +32,7 @@ import {
   rebindObjectLiteralThisInClassMember,
   rebindObjectLiteralThisInExpression,
 } from "./object-literal-helpers.js";
+import { isAttributeMetadataNamedArgumentObjectLiteral } from "./attribute-metadata-context.js";
 
 const isDirectBroadObjectLiteralContext = (
   type: IrType | undefined
@@ -172,8 +173,14 @@ export const convertObjectLiteral = (
   // Contextual type priority:
   // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
+  const shouldSuppressContextualType =
+    ctx.suppressObjectLiteralContextualTypeNodes?.has(node) ||
+    isAttributeMetadataNamedArgumentObjectLiteral(node);
   const contextualCandidateFromParent =
-    expectedType ?? getContextualType(node, ctx);
+    expectedType ??
+    (shouldSuppressContextualType
+      ? undefined
+      : getContextualType(node, ctx));
   const hasBroadObjectLiteralContext =
     contextualTypeContainsBroadObjectLiteralContext(
       contextualCandidateFromParent,
