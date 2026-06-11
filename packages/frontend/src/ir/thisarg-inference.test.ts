@@ -14,6 +14,7 @@ import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/index.js";
 
 describe("thisarg<T> typing", () => {
   const createTestProgram = (source: string, fileName = "sample.ts") => {
@@ -66,6 +67,7 @@ describe("thisarg<T> typing", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
+      sourceSemantics: createTypeScriptSemanticView(checker),
       metadata: new ExternalMetadataRegistry(),
       bindings: new BindingRegistry(),
       externalResolver: createExternalBindingsResolver("/test"),

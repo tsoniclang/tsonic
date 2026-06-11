@@ -8,6 +8,7 @@ import { BindingRegistry } from "../../program/bindings.js";
 import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
 import type { IrIdentifierExpression } from "../types.js";
+import { createTypeScriptSemanticView } from "../../source-frontend/index.js";
 
 describe("Binding Resolution in IR", () => {
   describe("Imported globals shadowing", () => {
@@ -92,13 +93,20 @@ describe("Binding Resolution in IR", () => {
 
       const checker = program.getTypeChecker();
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
-          console: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.console",
+      bindings.addBindings("/test/runtime.json", {
+        schema: "tsonic.bindings",
+        provider: { namespace: "sourceSurface" },
+        sourceSurface: {
+          bindings: {
+            console: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.console",
+            },
           },
-        } }, targetSurface: { types: [] } });
+        },
+        targetSurface: { types: [] },
+      });
 
       const testProgram = {
         program,
@@ -111,6 +119,7 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile, consoleFile],
         declarationSourceFiles: [],
+        sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(rootDir),
@@ -230,13 +239,20 @@ describe("Binding Resolution in IR", () => {
 
       const checker = program.getTypeChecker();
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
-          console: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.console",
+      bindings.addBindings("/test/runtime.json", {
+        schema: "tsonic.bindings",
+        provider: { namespace: "sourceSurface" },
+        sourceSurface: {
+          bindings: {
+            console: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.console",
+            },
           },
-        } }, targetSurface: { types: [] } });
+        },
+        targetSurface: { types: [] },
+      });
 
       const testProgram = {
         program,
@@ -249,6 +265,7 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile, consoleFile],
         declarationSourceFiles: [],
+        sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(rootDir),
@@ -381,41 +398,48 @@ describe("Binding Resolution in IR", () => {
 
       const checker = program.getTypeChecker();
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
-          Uint8Array: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.Uint8Array",
-            staticType: "js.Uint8Array",
-            typeSemantics: { contributesTypeIdentity: true },
+      bindings.addBindings("/test/runtime.json", {
+        schema: "tsonic.bindings",
+        provider: { namespace: "sourceSurface" },
+        sourceSurface: {
+          bindings: {
+            Uint8Array: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.Uint8Array",
+              staticType: "js.Uint8Array",
+              typeSemantics: { contributesTypeIdentity: true },
+            },
+            parseInt: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.Globals",
+              providerMemberName: "Globals.parseInt",
+            },
+            String: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.String",
+              staticType: "js.String",
+              providerMemberName: "Globals.String",
+              typeSemantics: { contributesTypeIdentity: true },
+            },
+            Error: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.Error",
+              typeSemantics: { contributesTypeIdentity: true },
+            },
+            RangeError: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.RangeError",
+              typeSemantics: { contributesTypeIdentity: true },
+            },
           },
-          parseInt: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.Globals",
-            providerMemberName: "Globals.parseInt",
-          },
-          String: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.String",
-            staticType: "js.String",
-            providerMemberName: "Globals.String",
-            typeSemantics: { contributesTypeIdentity: true },
-          },
-          Error: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.Error",
-            typeSemantics: { contributesTypeIdentity: true },
-          },
-          RangeError: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.RangeError",
-            typeSemantics: { contributesTypeIdentity: true },
-          },
-        } }, targetSurface: { types: [] } });
+        },
+        targetSurface: { types: [] },
+      });
 
       const testProgram = {
         program,
@@ -428,6 +452,7 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile],
         declarationSourceFiles: [libFile],
+        sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(rootDir),
@@ -593,41 +618,48 @@ describe("Binding Resolution in IR", () => {
 
       const checker = program.getTypeChecker();
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/runtime.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
-          Uint8Array: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.Uint8Array",
-            staticType: "js.Uint8Array",
-            typeSemantics: { contributesTypeIdentity: true },
+      bindings.addBindings("/test/runtime.json", {
+        schema: "tsonic.bindings",
+        provider: { namespace: "sourceSurface" },
+        sourceSurface: {
+          bindings: {
+            Uint8Array: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.Uint8Array",
+              staticType: "js.Uint8Array",
+              typeSemantics: { contributesTypeIdentity: true },
+            },
+            parseInt: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.Globals",
+              providerMemberName: "Globals.parseInt",
+            },
+            String: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.String",
+              staticType: "js.String",
+              providerMemberName: "Globals.String",
+              typeSemantics: { contributesTypeIdentity: true },
+            },
+            Error: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.Error",
+              typeSemantics: { contributesTypeIdentity: true },
+            },
+            RangeError: {
+              kind: "global",
+              ownerIdentity: "js",
+              type: "js.RangeError",
+              typeSemantics: { contributesTypeIdentity: true },
+            },
           },
-          parseInt: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.Globals",
-            providerMemberName: "Globals.parseInt",
-          },
-          String: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.String",
-            staticType: "js.String",
-            providerMemberName: "Globals.String",
-            typeSemantics: { contributesTypeIdentity: true },
-          },
-          Error: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.Error",
-            typeSemantics: { contributesTypeIdentity: true },
-          },
-          RangeError: {
-            kind: "global",
-            ownerIdentity: "js",
-            type: "js.RangeError",
-            typeSemantics: { contributesTypeIdentity: true },
-          },
-        } }, targetSurface: { types: [] } });
+        },
+        targetSurface: { types: [] },
+      });
 
       const testProgram = {
         program,
@@ -640,6 +672,7 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile],
         declarationSourceFiles: [libFile],
+        sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(rootDir),

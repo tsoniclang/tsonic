@@ -14,6 +14,7 @@ import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
 import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
+import { createTypeScriptSemanticView } from "../../source-frontend/index.js";
 
 export { createProgram, createProgramContext };
 
@@ -75,6 +76,7 @@ export const createTestProgram = (
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
+    sourceSemantics: createTypeScriptSemanticView(checker),
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
@@ -143,6 +145,7 @@ export const createFilesystemTestProgram = (
       .filter(
         (candidate): candidate is ts.SourceFile => candidate !== undefined
       ),
+    sourceSemantics: createTypeScriptSemanticView(checker),
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver(tempDir),

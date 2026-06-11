@@ -11,6 +11,7 @@ import { createExternalBindingsResolver } from "../resolver/external-bindings-re
 import { createBinding } from "../ir/binding/index.js";
 import { createProgramContext } from "../ir/program-context.js";
 import { extractImports } from "../ir/builder/imports.js";
+import { createTypeScriptSemanticView } from "../source-frontend/index.js";
 
 describe("external bindings discovery (entrypoint re-exports)", () => {
   it("loads bindings.json for re-exported external namespaces and resolves flattened value exports", () => {
@@ -57,7 +58,15 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
     fs.mkdirSync(path.join(bindingsRoot, "Root"), { recursive: true });
     fs.writeFileSync(
       path.join(bindingsRoot, "Root", "bindings.json"),
-      JSON.stringify({ schema: "tsonic.bindings", provider: { namespace: "Root" }, targetSurface: { types: [] } }, null, 2)
+      JSON.stringify(
+        {
+          schema: "tsonic.bindings",
+          provider: { namespace: "Root" },
+          targetSurface: { types: [] },
+        },
+        null,
+        2
+      )
     );
     fs.writeFileSync(
       path.join(bindingsRoot, "Root.d.ts"),
@@ -75,14 +84,21 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
     fs.writeFileSync(
       path.join(bindingsRoot, "Other", "bindings.json"),
       JSON.stringify(
-        { schema: "tsonic.bindings", provider: { namespace: "Other" }, targetSurface: { types: [], exports: {
-            foo: {
-              kind: "method",
-              targetName: "foo",
-              ownerQualifiedName: "Other.Container",
-              ownerIdentity: "TestAssembly",
+        {
+          schema: "tsonic.bindings",
+          provider: { namespace: "Other" },
+          targetSurface: {
+            types: [],
+            exports: {
+              foo: {
+                kind: "method",
+                targetName: "foo",
+                ownerQualifiedName: "Other.Container",
+                ownerIdentity: "TestAssembly",
+              },
             },
-          } } },
+          },
+        },
         null,
         2
       )
@@ -142,6 +158,7 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
+      sourceSemantics: createTypeScriptSemanticView(checker),
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver(projectRoot),
@@ -221,14 +238,21 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
       fs.writeFileSync(
         path.join(efBindingsRoot, "Foo", "bindings.json"),
         JSON.stringify(
-          { schema: "tsonic.bindings", provider: { namespace: "Foo" }, targetSurface: { types: [], exports: {
-              mark: {
-                kind: "method",
-                targetName: "mark",
-                ownerQualifiedName: "Foo.Container",
-                ownerIdentity: "TestAssembly",
+          {
+            schema: "tsonic.bindings",
+            provider: { namespace: "Foo" },
+            targetSurface: {
+              types: [],
+              exports: {
+                mark: {
+                  kind: "method",
+                  targetName: "mark",
+                  ownerQualifiedName: "Foo.Container",
+                  ownerIdentity: "TestAssembly",
+                },
               },
-            } } },
+            },
+          },
           null,
           2
         )
@@ -283,7 +307,15 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
       fs.mkdirSync(path.join(bindingsRoot, "Root"), { recursive: true });
       fs.writeFileSync(
         path.join(bindingsRoot, "Root", "bindings.json"),
-        JSON.stringify({ schema: "tsonic.bindings", provider: { namespace: "Root" }, targetSurface: { types: [] } }, null, 2)
+        JSON.stringify(
+          {
+            schema: "tsonic.bindings",
+            provider: { namespace: "Root" },
+            targetSurface: { types: [] },
+          },
+          null,
+          2
+        )
       );
 
       const srcDir = path.join(projectRoot, "src");
@@ -326,6 +358,7 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
         },
         sourceFiles: [sourceFile],
         declarationSourceFiles,
+        sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(projectRoot),

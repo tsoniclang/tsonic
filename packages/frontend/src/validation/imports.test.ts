@@ -13,6 +13,7 @@ import { createExternalBindingsResolver } from "../resolver/external-bindings-re
 import { createBinding } from "../ir/binding/index.js";
 import type { SurfaceMode } from "../program/types.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
+import { createTypeScriptSemanticView } from "../source-frontend/index.js";
 
 type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
 
@@ -77,6 +78,7 @@ const createTestProgram = (
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
+    sourceSemantics: createTypeScriptSemanticView(checker),
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver(sourceRoot),
@@ -112,13 +114,19 @@ const attachNodejsSurfaceBindings = (
   moduleNames: readonly string[]
 ): void => {
   const uniqueModules = Array.from(new Set(moduleNames));
-  testProgram.bindings.addBindings("/test/node-types.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: uniqueModules.map((moduleName) => ({
-      targetName: `nodejs.${moduleName}`,
-      ownerIdentity: "nodejs",
-      methods: [],
-      properties: [],
-      fields: [],
-    })) } });
+  testProgram.bindings.addBindings("/test/node-types.json", {
+    schema: "tsonic.bindings",
+    provider: { namespace: "nodejs" },
+    targetSurface: {
+      types: uniqueModules.map((moduleName) => ({
+        targetName: `nodejs.${moduleName}`,
+        ownerIdentity: "nodejs",
+        methods: [],
+        properties: [],
+        fields: [],
+      })),
+    },
+  });
   const bindings = Object.fromEntries(
     uniqueModules.flatMap((moduleName) => [
       [

@@ -1,0 +1,58 @@
+[
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationRestParameters.ts",
+    "configuration": null,
+    "artifact": "declarationRestParameters.d.ts",
+    "sections": ["v1.d.ts", "v2.d.ts", "Diagnostics reported"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationFunctionDeclarations.ts",
+    "configuration": null,
+    "artifact": "declarationFunctionDeclarations.d.ts",
+    "sections": ["fnDecl.d.ts", "Diagnostics reported"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationComputedPropertyNames.ts",
+    "configuration": null,
+    "artifact": "declarationComputedPropertyNames.d.ts",
+    "sections": ["declarationComputedPropertyNames.d.ts", "Diagnostics reported"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationCrossFileInferences.ts",
+    "configuration": null,
+    "artifact": "declarationCrossFileInferences.d.ts",
+    "sections": ["Diagnostics reported"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationBasicSyntax.ts",
+    "configuration": "declarationmap=true",
+    "artifact": "declarationBasicSyntax(declarationMap=true).d.ts",
+    "sections": ["class.d.ts.map", "namespace.d.ts.map"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/jsWithSourceMapBasic.ts",
+    "configuration": "sourcemap=true",
+    "artifact": "jsWithSourceMapBasic(sourceMap=true).js",
+    "sections": ["variables.js.map", "namespace.js.map"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/jsWithInlineSourceMapBasic.ts",
+    "configuration": "inlinesourcemap=true",
+    "artifact": "jsWithInlineSourceMapBasic(inlineSourceMap=true).js",
+    "sections": ["variables.js", "namespace.js"]
+  }
+]

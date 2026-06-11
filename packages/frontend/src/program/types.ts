@@ -15,6 +15,10 @@ import type {
   TargetSurfaceArtifacts,
   TargetSurfaceProvider,
 } from "../symbols/index.js";
+import type {
+  SourceFrontendEngine,
+  TypeScriptSemanticView,
+} from "../source-frontend/index.js";
 
 export type SurfaceMode = string;
 
@@ -32,11 +36,13 @@ export type CompilerOptions<Target extends BackendTargetId = BackendTargetId> =
     readonly backendCapabilities?: BackendCapabilityManifest;
     readonly backendTargetId?: Target;
     readonly programInputScope?: ProgramInputScope;
+    readonly sourceFrontend?: SourceFrontendEngine;
   };
 
 export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
+  readonly sourceSemantics: TypeScriptSemanticView;
   readonly options: CompilerOptions<Target>;
   readonly surfaceCapabilities?: SurfaceCapabilities;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;

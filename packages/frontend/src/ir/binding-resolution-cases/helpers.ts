@@ -10,6 +10,7 @@ import { BindingRegistry } from "../../program/bindings.js";
 import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
 import type { DeclId } from "../type-system/types.js";
+import { createTypeScriptSemanticView } from "../../source-frontend/index.js";
 
 export { buildIrModule } from "../builder.js";
 export { createProgramContext } from "../program-context.js";
@@ -69,6 +70,7 @@ export const createTestProgram = (
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
+    sourceSemantics: createTypeScriptSemanticView(checker),
     metadata: new ExternalMetadataRegistry(),
     bindings: bindings || new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),

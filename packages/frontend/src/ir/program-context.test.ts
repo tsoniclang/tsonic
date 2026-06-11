@@ -9,6 +9,7 @@ import { BindingRegistry } from "../program/bindings.js";
 import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/index.js";
 
 describe("createProgramContext", () => {
   it("treats participating non-@tsonic packages with bindings.json as CLR metadata packages", () => {
@@ -30,7 +31,11 @@ describe("createProgramContext", () => {
       fs.writeFileSync(
         path.join(pkgRoot, "Markdig.Syntax", "bindings.json"),
         JSON.stringify(
-          { schema: "tsonic.bindings", provider: { namespace: "Markdig.Syntax" }, targetSurface: { types: [] } },
+          {
+            schema: "tsonic.bindings",
+            provider: { namespace: "Markdig.Syntax" },
+            targetSurface: { types: [] },
+          },
           null,
           2
         )
@@ -76,7 +81,11 @@ describe("createProgramContext", () => {
       fs.writeFileSync(
         path.join(tempDir, "Broken", "bindings.json"),
         JSON.stringify(
-          { schema: "tsonic.bindings", provider: { namespace: "Broken" }, targetSurface: { types: [{ targetName: "Broken.Type" }] } },
+          {
+            schema: "tsonic.bindings",
+            provider: { namespace: "Broken" },
+            targetSurface: { types: [{ targetName: "Broken.Type" }] },
+          },
           null,
           2
         )
@@ -127,6 +136,7 @@ describe("createProgramContext", () => {
         },
         sourceFiles: [sourceFile],
         declarationSourceFiles: [declarationSourceFile],
+        sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings: new BindingRegistry(),
         externalResolver: createExternalBindingsResolver(projectRoot),

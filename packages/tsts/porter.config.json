@@ -1,0 +1,375 @@
+{
+  "schemaVersion": 1,
+  "sourceRoot": "packages/tsts/_vendor/typescript-go",
+  "tsRoot": "packages/tsts/src",
+  "goModulePath": "github.com/microsoft/typescript-go",
+  "snapshotOut": ".temp/porter/tsgo-snapshot.json",
+  "statusOut": ".temp/porter/status.json",
+  "reportOut": ".temp/porter/status.md",
+  "largeFileLineThreshold": 5000,
+  "largeFileSplitPlanPath": "packages/tsts/porter.large-splits.json",
+  "largeFileSplitStatusOut": ".temp/porter/large-file-splits.json",
+  "astSchemaDir": "packages/tsts/schema/tsgo",
+  "astGeneratedDir": "internal/ast/generated",
+  "astSchemaInputs": [
+    "packages/tsts/schema/tsgo/ast.json",
+    "packages/tsts/schema/tsgo/ast.schema.json",
+    "packages/tsts/schema/tsgo/nodeflags.go",
+    "packages/tsts/schema/tsgo/symbolflags.go"
+  ],
+  "astGeneratedStatusOut": ".temp/porter/ast-generated.json",
+  "diagnosticsGeneratedDir": "internal/diagnostics/generated",
+  "diagnosticsCatalogInput": "packages/tsts/_vendor/typescript-go/internal/diagnostics/diagnostics_generated.go",
+  "diagnosticsGeneratedStatusOut": ".temp/porter/diagnostics-generated.json",
+  "generatedPolicy": {
+    "firstLinePrefix": "// Code generated"
+  },
+  "unitPolicies": [
+    {
+      "id": "github.com/microsoft/typescript-go::cmd/tsgo/api.go::func::runAPI",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "The JSON-RPC/session API entrypoint depends on internal/api, which is outside the standalone compiler runtime port."
+    },
+    {
+      "id": "github.com/microsoft/typescript-go::internal/execute/tsc.go::func::fmtMain",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "fmtMain is the commented formatter command path and depends on internal/format / language-service formatter settings, which are outside the standalone compiler runtime port."
+    }
+  ],
+  "authoredFacadeModules": [
+    "go/fmt.ts",
+    "go/errors.ts",
+    "go/strconv.ts",
+    "go/strings.ts",
+    "go/unicode.ts",
+    "go/unicode/utf8.ts",
+    "go/unicode/utf16.ts",
+    "go/slices.ts",
+    "go/maps.ts",
+    "go/sort.ts",
+    "go/cmp.ts",
+    "go/sync.ts",
+    "go/sync/atomic.ts",
+    "go/reflect.ts",
+    "go/math.ts",
+    "go/bytes.ts",
+    "go/bufio.ts",
+    "go/encoding/binary.ts",
+    "go/encoding/hex.ts",
+    "go/hash/fnv.ts",
+    "go/io.ts",
+    "go/log.ts",
+    "go/path.ts",
+    "go/path/filepath.ts",
+    "go/time.ts",
+    "go/io/fs.ts",
+    "go/os.ts",
+    "go/runtime.ts",
+    "go/runtime/pprof.ts",
+    "go/regexp.ts",
+    "go/encoding/base64.ts",
+    "go/encoding/json.ts",
+    "go/flag.ts",
+    "go/github.com/go-json-experiment/json.ts",
+    "go/github.com/go-json-experiment/json/jsontext.ts",
+    "go/golang.org/x/term.ts",
+    "go/golang.org/x/text/language.ts",
+    "go/github.com/zeebo/xxh3.ts",
+    "go/net/url.ts",
+    "go/context.ts",
+    "go/unsafe.ts",
+    "go/encoding/xml.ts",
+    "go/runtime/metrics.ts",
+    "go/net.ts",
+    "go/runtime/debug.ts",
+    "go/os/exec.ts",
+    "go/testing.ts",
+    "go/os/signal.ts",
+    "go/go/token.ts",
+    "go/go/ast.ts",
+    "go/go/format.ts",
+    "go/go/types.ts",
+    "go/compress/gzip.ts",
+    "go/math/bits.ts",
+    "go/testing/fstest.ts",
+    "go/math/big.ts",
+    "go/testing/synctest.ts",
+    "go/github.com/peter-evans/patience.ts",
+    "go/github.com/golangci/plugin-module-register/register.ts",
+    "go/github.com/google/go-cmp/cmp.ts",
+    "go/github.com/google/go-cmp/cmp/cmpopts.ts",
+    "go/gotest.tools/v3/assert.ts",
+    "go/gotest.tools/v3/assert/cmp.ts",
+    "go/gotest.tools/v3/golden.ts",
+    "go/golang.org/x/mod/module.ts",
+    "go/golang.org/x/tools/go/packages.ts",
+    "go/golang.org/x/sync/errgroup.ts",
+    "go/github.com/mackerelio/go-osstat/memory.ts",
+    "go/golang.org/x/tools/go/analysis/checker.ts",
+    "go/golang.org/x/text/collate.ts"
+  ],
+  "tsFilePolicies": [
+    {
+      "match": "packages/tsts/src/internal/ls/**",
+      "category": "forbidden-source",
+      "reason": "Language-service implementation files must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/internal/lsp/**",
+      "category": "forbidden-source",
+      "reason": "Language-service protocol/server files must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/**/fourslash/**",
+      "category": "forbidden-source",
+      "reason": "Fourslash/editor harness files must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/**/*fourslash*",
+      "category": "forbidden-source",
+      "reason": "Fourslash/editor harness files must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/_tools/**",
+      "category": "forbidden-source",
+      "reason": "Upstream repository maintenance tools must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/internal/api/**",
+      "category": "forbidden-source",
+      "reason": "JSON-RPC/session API surfaces must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/internal/project/**",
+      "category": "forbidden-source",
+      "reason": "Project-service files must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/internal/format/**",
+      "category": "forbidden-source",
+      "reason": "Formatting/editor-service files must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/internal/testutil/**",
+      "category": "forbidden-source",
+      "reason": "Upstream test helpers must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/internal/testrunner/**",
+      "category": "forbidden-source",
+      "reason": "Upstream test runner files must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/internal/execute/tsctests/**",
+      "category": "forbidden-source",
+      "reason": "Upstream tsc test harness files must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/internal/tsoptions/tsoptionstest/**",
+      "category": "forbidden-source",
+      "reason": "Upstream tsoptions test helpers must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/**/*_test.ts",
+      "category": "forbidden-source",
+      "reason": "Go test files must be ported through the test-parity harness, not production source scaffolding."
+    },
+    {
+      "match": "packages/tsts/src/**/*.test.ts",
+      "category": "test-parity",
+      "reason": "Node test mirrors for upstream TS-Go tests; these are validation artifacts, not production @tsgo-unit source."
+    },
+    {
+      "match": "packages/tsts/src/cmd/tsgo/lsp.ts",
+      "category": "forbidden-source",
+      "reason": "The LSP command entrypoint must not exist in the active standalone compiler source tree."
+    },
+    {
+      "match": "packages/tsts/src/cli/**",
+      "category": "public-entrypoint",
+      "reason": "Node executable adapter for the standalone compiler; it delegates to the TS-Go cmd/tsgo main port and has no upstream Go unit."
+    },
+    {
+      "match": "packages/tsts/src/index.ts",
+      "category": "public-entrypoint",
+      "reason": "Package public API barrel for embedding the standalone compiler; it re-exports ported compiler surfaces and has no upstream Go unit."
+    },
+    {
+      "match": "packages/tsts/src/services/**",
+      "category": "public-api",
+      "reason": "TypeScript-compatible public service APIs for embedding TSTS; additive host surface with no upstream Go unit."
+    },
+    {
+      "match": "packages/tsts/src/internal/ast/generated/**",
+      "category": "ast-generated",
+      "reason": "Generated AST infrastructure emitted by porter:ast from packages/tsts/schema/tsgo/*; carries @tsgo-generated metadata, not @tsgo-unit."
+    },
+    {
+      "match": "packages/tsts/src/internal/diagnostics/generated/**",
+      "category": "diagnostics-generated",
+      "reason": "Generated diagnostic message catalog emitted by porter:diagnostics from the pinned diagnostics_generated.go; carries @tsgo-generated metadata, not @tsgo-unit."
+    },
+    {
+      "match": "packages/tsts/src/internal/bundled/*_generated.ts",
+      "category": "bundled-generated",
+      "reason": "Generated bundled library indexes emitted by bundled:generate from TS-Go internal/bundled/libs; carries @tsgo-generated metadata, not @tsgo-unit."
+    },
+    {
+      "match": "packages/tsts/src/internal/bundled/libs/**",
+      "category": "bundled-generated",
+      "reason": "Generated bundled TypeScript lib declarations copied from TS-Go internal/bundled/libs; carries @tsgo-generated metadata, not @tsgo-unit."
+    },
+    {
+      "match": "packages/tsts/src/internal/ast/*_generated.ts",
+      "category": "ast-compat-reexport",
+      "reason": "Thin re-export barrels (ast_generated.ts/kind_generated.ts) aliasing the canonical generated/* modules to the scaffolder's Go-file-derived import paths; pure re-exports, no @tsgo-unit."
+    },
+    {
+      "match": "packages/tsts/src/go/*.ts",
+      "category": "go-compat-layer",
+      "reason": "The Go compatibility layer is authored TypeScript infrastructure, not a TS-Go source unit."
+    },
+    {
+      "match": "packages/tsts/src/go/**",
+      "category": "go-compat-layer",
+      "reason": "The Go compatibility layer is authored TypeScript infrastructure, not a TS-Go source unit."
+    },
+    {
+      "match": "packages/tsts/src/**/*.ts",
+      "category": "requires-tsgo-unit",
+      "reason": "Every source file must carry at least one @tsgo-unit unless an explicit policy allows it."
+    }
+  ],
+  "overrides": [
+    {
+      "match": "internal/jsnum/**",
+      "category": "manual-required",
+      "reason": "Fixed-width integer and floating-point behavior must be implemented as an explicit Go-semantics layer."
+    },
+    {
+      "match": "internal/vfs/osvfs/**",
+      "category": "host-native",
+      "reason": "Operating-system bindings must be implemented through the TypeScript host layer."
+    },
+    {
+      "match": "internal/vfs/vfswatch/**",
+      "category": "host-native",
+      "reason": "File-watch bindings must be implemented through the TypeScript host layer."
+    }
+  ],
+  "policies": [
+    {
+      "match": "**/*_test.go",
+      "category": "test",
+      "active": false,
+      "reason": "Go test units are ported through the test-parity harness, not production compiler scaffolds."
+    },
+    {
+      "match": "**/*_generated.go",
+      "category": "generated",
+      "reason": "Generated Go files must be regenerated from their upstream source schema or generator."
+    },
+    {
+      "match": "_tools/**",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "Upstream repository maintenance tools are not part of the standalone compiler runtime port."
+    },
+    {
+      "match": "internal/execute/tsctests/**",
+      "category": "test",
+      "active": false,
+      "reason": "TS-Go command-line test harness files are ported through test-parity infrastructure, not production compiler scaffolds."
+    },
+    {
+      "match": "internal/tsoptions/tsoptionstest/**",
+      "category": "test",
+      "active": false,
+      "reason": "TS-Go tsoptions test helpers are ported through test-parity infrastructure, not production compiler scaffolds."
+    },
+    {
+      "match": "cmd/tsgo/lsp.go",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "The LSP command entrypoint is outside the standalone compiler porter scope."
+    },
+    {
+      "match": "internal/api/**",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "JSON-RPC/session API surfaces are language-service/embedder infrastructure, not the standalone compiler runtime port."
+    },
+    {
+      "match": "internal/project/**",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "Project-service state management belongs to the language-service layer, not the standalone compiler runtime port."
+    },
+    {
+      "match": "internal/format/**",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "Formatting is an editor/language-service feature and is outside the standalone compiler runtime port."
+    },
+    {
+      "match": "internal/testutil/**",
+      "category": "test",
+      "active": false,
+      "reason": "Upstream test helpers are ported through test-parity infrastructure, not production compiler scaffolds."
+    },
+    {
+      "match": "internal/testrunner/**",
+      "category": "test",
+      "active": false,
+      "reason": "Upstream test-runner files are ported through test-parity infrastructure, not production compiler scaffolds."
+    },
+    {
+      "match": "internal/jsnum/**",
+      "category": "manual-required",
+      "reason": "Fixed-width integer and floating-point behavior must be hand-ported with explicit JavaScript/Tsonic numeric semantics."
+    },
+    {
+      "match": "internal/vfs/osvfs/**",
+      "category": "host-native",
+      "reason": "OS filesystem bindings must map to the TypeScript/Node host layer, not a literal syscall port."
+    },
+    {
+      "match": "internal/vfs/vfswatch/**",
+      "category": "host-native",
+      "reason": "File watching must map to the TypeScript/Node host layer."
+    },
+    {
+      "match": "internal/lsp/**",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "Language-service protocol/server surface is not in the standalone compiler porter scope."
+    },
+    {
+      "match": "internal/ls/**",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "Language-service implementation is not in the standalone compiler porter scope."
+    },
+    {
+      "match": "**/fourslash/**",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "Fourslash is a language-service/editor test harness and is not in the standalone compiler porter scope."
+    },
+    {
+      "match": "**/*fourslash*",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "Fourslash is a language-service/editor test harness and is not in the standalone compiler porter scope."
+    }
+  ],
+  "primaryUnitKinds": [
+    "constGroup",
+    "func",
+    "method",
+    "type",
+    "varGroup"
+  ]
+}
