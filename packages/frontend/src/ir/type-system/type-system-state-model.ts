@@ -1,5 +1,6 @@
 import type * as ts from "typescript";
 import type { Diagnostic } from "../../types/diagnostic.js";
+import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
 import type { IrType } from "../types/index.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
@@ -35,6 +36,7 @@ export type TypeSystemState = {
     node: unknown
   ) => SignatureId | undefined;
   readonly checker: ts.TypeChecker;
+  readonly sourceSemantics: TypeScriptSemanticView;
   readonly tsCompilerOptions: ts.CompilerOptions;
   readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
 

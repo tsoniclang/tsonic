@@ -962,7 +962,7 @@ const resolveSourceBackedIdentifierGlobalTarget = (
   return resolveSourceBackedExportedFunctionTarget(
     sourceFile,
     exportedSymbol,
-    ctx.checker.getResolvedSignature(node)?.getDeclaration()
+    ctx.sourceSemantics.getResolvedSignature(node)?.getDeclaration()
   );
 };
 

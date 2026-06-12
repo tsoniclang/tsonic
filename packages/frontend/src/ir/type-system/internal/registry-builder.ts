@@ -7,6 +7,7 @@
 
 import * as ts from "typescript";
 import * as path from "node:path";
+import type { TypeScriptSemanticView } from "../../../source-frontend/index.js";
 import type {
   TypeRegistry,
   TypeRegistryEntry,
@@ -52,6 +53,7 @@ import {
 export const buildTypeRegistry = (
   sourceFiles: readonly ts.SourceFile[],
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   sourceRoot: string,
   rootNamespace: string,
   options: BuildTypeRegistryOptions = {}
@@ -166,6 +168,7 @@ export const buildTypeRegistry = (
         heritage: extractHeritage(
           node.heritageClauses,
           checker,
+          sourceSemantics,
           sourceRoot,
           rootNamespace,
           convert,
@@ -229,6 +232,7 @@ export const buildTypeRegistry = (
               ...extractHeritage(
                 node.heritageClauses,
                 checker,
+                sourceSemantics,
                 sourceRoot,
                 rootNamespace,
                 convert,
@@ -249,6 +253,7 @@ export const buildTypeRegistry = (
             heritage: extractHeritage(
               node.heritageClauses,
               checker,
+              sourceSemantics,
               sourceRoot,
               rootNamespace,
               convert,

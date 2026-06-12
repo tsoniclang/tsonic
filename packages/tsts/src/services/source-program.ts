@@ -26,7 +26,11 @@ import type {
   ExtensionHost,
 } from "../extensions/extension-host.js";
 import { createExtensionHost } from "../extensions/extension-host.js";
-import { createExtensionCheckerHandle } from "../extensions/checker-facade.js";
+import type { ExtensionTypeChecker } from "../extensions/checker-facade.js";
+import {
+  createExtensionCheckerHandle,
+  createExtensionTypeChecker,
+} from "../extensions/checker-facade.js";
 import type {
   TranspileCompilerOptions,
   TranspileCompilerOptionValue,
@@ -45,6 +49,10 @@ export type CompilerSourceProgram = {
   readonly extensionHost: ExtensionHost;
   readonly diagnostics: readonly Diagnostic[];
   readonly extensionDiagnostics: readonly ExtensionDiagnostic[];
+  withSemanticView<T>(
+    sourceFile: GoPtr<SourceFile>,
+    run: (semantics: ExtensionTypeChecker) => T,
+  ): T;
 };
 
 const isDefined = <T>(value: GoPtr<T>): value is T => value !== undefined;
@@ -165,6 +173,21 @@ export const createCompilerSourceProgram = (
   } satisfies ProgramOptions);
   const sourceFiles = Program_GetSourceFiles(program).filter(isDefined);
   const extensionHost = createExtensionHost(options.extensions ?? []);
+  const withSemanticView = <T>(
+    sourceFile: GoPtr<SourceFile>,
+    run: (semantics: ExtensionTypeChecker) => T,
+  ): T => {
+    const [checker, release] = Program_GetTypeCheckerForFile(
+      program,
+      Background(),
+      sourceFile,
+    );
+    try {
+      return run(createExtensionTypeChecker(checker));
+    } finally {
+      release();
+    }
+  };
 
   extensionHost.configure();
   for (const sourceFile of sourceFiles) {
@@ -208,5 +231,6 @@ export const createCompilerSourceProgram = (
       options.runSemanticChecks === true
     ),
     extensionDiagnostics: extensionHost.diagnostics.all(),
+    withSemanticView,
   };
 };

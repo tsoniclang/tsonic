@@ -22,6 +22,7 @@ import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
 import type { IterableShape } from "./iterable-type-shapes.js";
 import type { SurfaceCapabilities } from "../../surface/profiles.js";
+import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
 
 import type {
   HandleRegistry,
@@ -470,6 +471,7 @@ export type TypeSystemConfig = {
     node: unknown
   ) => SignatureId | undefined;
   readonly checker: ts.TypeChecker;
+  readonly sourceSemantics: TypeScriptSemanticView;
   readonly tsCompilerOptions: ts.CompilerOptions;
   readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
 };

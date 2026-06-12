@@ -21,6 +21,9 @@ import {
 import {
   Checker_GetTypeOfSymbol,
 } from "../internal/checker/exports.js";
+import {
+  Checker_TypeToString,
+} from "../internal/checker/printer.js";
 import type { ContextFlags, Signature, Type } from "../internal/checker/types.js";
 import { ContextFlagsNone } from "../internal/checker/types.js";
 import type { Expression } from "../internal/ast/generated/unions.js";
@@ -32,6 +35,7 @@ export type ExtensionTypeChecker = {
   getDeclaredTypeOfSymbol(symbol: GoPtr<Symbol>): GoPtr<Type>;
   getContextualType(node: GoPtr<Node>, contextFlags?: ContextFlags): GoPtr<Type>;
   getResolvedSignature(node: GoPtr<Node>): GoPtr<Signature>;
+  typeToString(type: GoPtr<Type>): string;
 };
 
 export type ExtensionCheckerHandle = {
@@ -62,6 +66,8 @@ export const createExtensionTypeChecker = (
       undefined,
       CheckModeNormal,
     ),
+  typeToString: (type: GoPtr<Type>): string =>
+    Checker_TypeToString(checker, type),
 });
 
 export const createExtensionCheckerHandle = (

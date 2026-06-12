@@ -520,7 +520,7 @@ export const getContextualType = (
       }
     }
 
-    // DETERMINISTIC: No fallback to checker.getContextualType
+    // DETERMINISTIC: No fallback to source checker contextual queries.
     // Return undefined if we can't find an explicit type annotation
     return undefined;
   } catch {

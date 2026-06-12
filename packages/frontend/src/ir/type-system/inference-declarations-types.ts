@@ -274,7 +274,7 @@ const buildNamespaceImportType = (
     return unknownType;
   }
 
-  const moduleSymbol = state.checker.getSymbolAtLocation(
+  const moduleSymbol = state.sourceSemantics.getSymbol(
     importDeclaration.moduleSpecifier
   );
   if (!moduleSymbol) {
@@ -338,7 +338,7 @@ const buildSourceFileModuleNamespaceType = (
   state: TypeSystemState,
   sourceFile: ts.SourceFile
 ): IrType => {
-  const directSymbol = state.checker.getSymbolAtLocation(sourceFile);
+  const directSymbol = state.sourceSemantics.getSymbol(sourceFile);
   const sourceFileWithSymbol = sourceFile as ts.SourceFile & {
     readonly symbol?: ts.Symbol;
   };

@@ -925,9 +925,12 @@ export const validateStaticSafety = (
         node
       );
       if (
-        symbol &&
-        supportedGenericFunctionValueSymbols.has(symbol) &&
-        !isAllowedGenericFunctionValueIdentifierUse(node, program.checker)
+          symbol &&
+          supportedGenericFunctionValueSymbols.has(symbol) &&
+        !isAllowedGenericFunctionValueIdentifierUse(
+          node,
+          program.sourceSemantics
+        )
       ) {
         const name = node.text;
         currentCollector = addDiagnostic(

@@ -3,6 +3,7 @@ import type {
   CompilerExtension,
   ExtensionDiagnostic,
   ExtensionHost,
+  ExtensionTypeChecker,
   TstsDiagnostic,
   TstsSourceFile,
 } from "@tsonic/tsts";
@@ -16,6 +17,10 @@ export type TstsSourceProgram = {
   readonly extensionHost: ExtensionHost;
   readonly diagnostics: readonly ExtensionDiagnostic[];
   readonly compilerDiagnostics: readonly TstsDiagnostic[];
+  withSourceSemantics<T>(
+    sourceFile: TstsSourceFile,
+    run: (semantics: ExtensionTypeChecker) => T
+  ): T;
 };
 
 export type CreateTstsSourceProgramOptions = {
@@ -46,6 +51,7 @@ export const createTstsSourceProgram = (
     extensionHost: compilerProgram.extensionHost,
     diagnostics: compilerProgram.extensionDiagnostics,
     compilerDiagnostics: compilerProgram.diagnostics,
+    withSourceSemantics: compilerProgram.withSemanticView,
   };
 };
 
@@ -58,5 +64,8 @@ export const createEmptyTstsSourceProgramForTests = (): TstsSourceProgram => {
     extensionHost,
     diagnostics: extensionHost.diagnostics.all(),
     compilerDiagnostics: [],
+    withSourceSemantics: () => {
+      throw new Error("Empty TSTS source program has no source semantics.");
+    },
   };
 };

@@ -20,6 +20,7 @@ import * as ts from "typescript";
 import type { IrType } from "../../../types/index.js";
 import type { TypeRegistry } from "../type-registry.js";
 import type { Binding } from "../../../binding/index.js";
+import type { TypeScriptSemanticView } from "../../../../source-frontend/index.js";
 import { buildTypeRegistry } from "../type-registry.js";
 import { convertType } from "../type-converter.js";
 
@@ -33,6 +34,7 @@ import { convertType } from "../type-converter.js";
 export type SourceCatalogConfig = {
   readonly sourceFiles: readonly ts.SourceFile[];
   readonly checker: ts.TypeChecker;
+  readonly sourceSemantics: TypeScriptSemanticView;
   readonly sourceRoot: string;
   readonly rootNamespace: string;
   readonly binding: Binding;
@@ -89,6 +91,7 @@ export const buildSourceCatalog = (
   buildTypeRegistry(
     config.sourceFiles,
     config.checker,
+    config.sourceSemantics,
     config.sourceRoot,
     config.rootNamespace
     // No convertType — uses default (() => unknownType).
@@ -113,6 +116,7 @@ export const buildSourceCatalog = (
   const typeRegistry = buildTypeRegistry(
     config.sourceFiles,
     config.checker,
+    config.sourceSemantics,
     config.sourceRoot,
     config.rootNamespace,
     {

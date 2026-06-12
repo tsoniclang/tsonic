@@ -39,8 +39,10 @@ const isBoundaryFile = (filePath: string): boolean => {
 };
 
 const bannedSemanticQueries = [
-  "getTypeAtLocation(",
-  "getSymbolAtLocation(",
+  "checker.getTypeAtLocation(",
+  "checker.getContextualType(",
+  "checker.getSymbolAtLocation(",
+  "checker.getResolvedSignature(",
 ] as const;
 
 describe("source semantic boundary", () => {

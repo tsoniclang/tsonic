@@ -22,6 +22,7 @@ export type SourceSemanticView<
 > = {
   readonly engine: SourceSemanticEngine;
   getExpressionType(expression: TExpression): TType;
+  getContextualType(expression: TExpression): TType | undefined;
   getSymbol(node: TNode): TSymbol | undefined;
   getDeclaredType(symbol: TSymbol): TType;
   getResolvedSignature(

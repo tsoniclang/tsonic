@@ -251,7 +251,7 @@ export const objectLiteralHasContextualType = (
 
 export const isAllowedGenericFunctionValueIdentifierUse = (
   node: ts.Identifier,
-  checker: ts.TypeChecker
+  sourceSemantics: TypeScriptSemanticView
 ): boolean => {
   const parent = node.parent;
 
@@ -275,7 +275,7 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
   if (ts.isExportSpecifier(parent)) return true;
   if (ts.isExportAssignment(parent) && parent.expression === node) return true;
 
-  const contextualType = checker.getContextualType(node);
+  const contextualType = sourceSemantics.getContextualType(node);
   if (contextualType) {
     const isNullishOnly = (type: ts.Type): boolean => {
       const flags = type.getFlags();
@@ -300,10 +300,7 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
         return type.types.every((member) => isMonomorphicCallableType(member));
       }
 
-      const signatures = checker.getSignaturesOfType(
-        type,
-        ts.SignatureKind.Call
-      );
+      const signatures = type.getCallSignatures();
       if (signatures.length === 0) return false;
       return signatures.every(
         (sig) => !sig.typeParameters || sig.typeParameters.length === 0

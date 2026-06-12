@@ -39,7 +39,7 @@ export type Binding = {
 
   /**
    * Resolve an identifier to its declaration.
-   * Uses checker.getSymbolAtLocation + symbol.getDeclarations().
+   * Uses sourceSemantics.getSymbol + symbol.getDeclarations().
    */
   resolveIdentifier(node: ts.Identifier): DeclId | undefined;
 
@@ -67,7 +67,7 @@ export type Binding = {
 
   /**
    * Pick the correct overload for a call expression.
-   * Uses checker.getResolvedSignature to pick the overload.
+   * Uses sourceSemantics.getResolvedSignature to pick the overload.
    */
   resolveCallSignature(node: ts.CallExpression): SignatureId | undefined;
 

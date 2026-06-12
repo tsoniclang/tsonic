@@ -31,7 +31,7 @@ export const resolveCallSignature = (
   ctx: BindingContext,
   node: ts.CallExpression
 ): SignatureId | undefined => {
-  const signature = ctx.checker.getResolvedSignature(node);
+  const signature = ctx.sourceSemantics.getResolvedSignature(node);
   if (!signature) return undefined;
 
   // TypeScript can produce a resolved signature without a declaration for
@@ -548,7 +548,7 @@ export const resolveCallSignature = (
     }
 
     if (ts.isCallExpression(expr)) {
-      const signature = ctx.checker.getResolvedSignature(expr);
+      const signature = ctx.sourceSemantics.getResolvedSignature(expr);
       const returnTypeNode = getReturnTypeNode(
         signature?.getDeclaration() as ts.SignatureDeclaration | undefined
       );
@@ -648,7 +648,7 @@ export const resolveCallSignature = (
     }
 
     if (ts.isCallExpression(expr)) {
-      const signature = ctx.checker.getResolvedSignature(expr);
+      const signature = ctx.sourceSemantics.getResolvedSignature(expr);
       return (
         getTypeNodeIterableMode(
           getReturnTypeNode(
@@ -737,7 +737,7 @@ export const resolveCallSignature = (
     }
 
     if (ts.isCallExpression(expr)) {
-      const signature = ctx.checker.getResolvedSignature(expr);
+      const signature = ctx.sourceSemantics.getResolvedSignature(expr);
       const returnTypeNode = getReturnTypeNode(
         signature?.getDeclaration() as ts.SignatureDeclaration | undefined
       );
@@ -821,7 +821,7 @@ export const resolveCallSignature = (
     }
 
     if (ts.isCallExpression(expr)) {
-      const signature = ctx.checker.getResolvedSignature(expr);
+      const signature = ctx.sourceSemantics.getResolvedSignature(expr);
       const returnTypeNode = getReturnTypeNode(
         signature?.getDeclaration() as ts.SignatureDeclaration | undefined
       );

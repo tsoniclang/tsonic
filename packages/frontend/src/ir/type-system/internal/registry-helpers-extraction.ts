@@ -7,6 +7,7 @@
  */
 
 import * as ts from "typescript";
+import type { TypeScriptSemanticView } from "../../../source-frontend/index.js";
 import type { IrType } from "../../types/index.js";
 import { normalizeToTargetName } from "./universe/alias-table.js";
 import { isOverloadStubImplementation } from "../../syntax/overload-stubs.js";
@@ -134,6 +135,7 @@ export const getTypeNodeName = (typeNode: ts.TypeNode): string | undefined => {
 export const resolveHeritageTypeName = (
   typeNode: ts.ExpressionWithTypeArguments,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   sourceRoot: string,
   rootNamespace: string
 ): string | undefined => {
@@ -157,9 +159,9 @@ export const resolveHeritageTypeName = (
   const expr = typeNode.expression;
 
   const symbol = (() => {
-    if (ts.isIdentifier(expr)) return checker.getSymbolAtLocation(expr);
+    if (ts.isIdentifier(expr)) return sourceSemantics.getSymbol(expr);
     if (ts.isPropertyAccessExpression(expr)) {
-      return checker.getSymbolAtLocation(expr.name);
+      return sourceSemantics.getSymbol(expr.name);
     }
     return undefined;
   })();
@@ -496,6 +498,7 @@ export { convertMethodToSignature, convertMethodSignatureToIr };
 export const extractHeritage = (
   clauses: ts.NodeArray<ts.HeritageClause> | undefined,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   sourceRoot: string,
   rootNamespace: string,
   convertType: ConvertTypeFn,
@@ -511,6 +514,7 @@ export const extractHeritage = (
       const resolvedName = resolveHeritageTypeName(
         type,
         checker,
+        sourceSemantics,
         sourceRoot,
         rootNamespace
       );

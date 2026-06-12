@@ -24,6 +24,8 @@ export const createTypeScriptSemanticView = (
   engine: "typescript",
   getExpressionType: (expression: ts.Expression): ts.Type =>
     checker.getTypeAtLocation(expression),
+  getContextualType: (expression: ts.Expression): ts.Type | undefined =>
+    checker.getContextualType(expression) ?? undefined,
   getSymbol: (node: ts.Node): ts.Symbol | undefined =>
     checker.getSymbolAtLocation(node),
   getDeclaredType: (symbol: ts.Symbol): ts.Type =>

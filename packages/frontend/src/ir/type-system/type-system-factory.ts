@@ -97,6 +97,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveCallSignature,
     resolveConstructorSignature,
     checker,
+    sourceSemantics,
     tsCompilerOptions,
     sourceFilesByPath,
   } = config;
@@ -161,6 +162,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveCallSignature,
     resolveConstructorSignature,
     checker,
+    sourceSemantics,
     tsCompilerOptions,
     sourceFilesByPath,
     declTypeCache,

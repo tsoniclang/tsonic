@@ -175,7 +175,7 @@ export const resolveConstructorSignature = (
   ctx: BindingContext,
   node: ts.NewExpression
 ): SignatureId | undefined => {
-  const signature = ctx.checker.getResolvedSignature(node);
+  const signature = ctx.sourceSemantics.getResolvedSignature(node);
   if (!signature) return undefined;
 
   const sigId = getOrCreateSignatureId(ctx, signature);
