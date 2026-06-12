@@ -22,6 +22,10 @@ import {
 import { ExternalBindingsResolver } from "./external-bindings-resolver.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
+import {
+  CORE_LANG_MODULE_SPECIFIERS,
+  CORE_TYPES_MODULE_SPECIFIERS,
+} from "../source-frontend/core-module-identity.js";
 
 /**
  * Options for import resolution
@@ -134,8 +138,8 @@ export const resolveImport = (
 
   // @tsonic/core packages are type-only (phantom types, attributes) - no runtime code
   if (
-    importSpecifier === "@tsonic/core/types.js" ||
-    importSpecifier === "@tsonic/core/lang.js"
+    CORE_TYPES_MODULE_SPECIFIERS.has(importSpecifier) ||
+    CORE_LANG_MODULE_SPECIFIERS.has(importSpecifier)
   ) {
     return ok({
       resolvedPath: "", // No file path for type-only packages
