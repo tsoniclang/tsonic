@@ -83,8 +83,9 @@ describe("Program Creation – module bindings", function () {
       expect(importSymbol).to.not.equal(undefined);
       if (!importSymbol) return;
 
-      const aliasedSymbol =
-        result.value.sourceSemantics.getAliasedSymbol(importSymbol);
+      const aliasedSymbol = result.value.sourceSemantics.resolveAlias(
+        importSymbol
+      );
       const declarationFiles = (aliasedSymbol.getDeclarations() ?? []).map(
         (declaration) => path.resolve(declaration.getSourceFile().fileName)
       );

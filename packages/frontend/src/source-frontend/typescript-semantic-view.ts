@@ -33,8 +33,10 @@ export const createTypeScriptSemanticView = (
     checker.getContextualType(expression) ?? undefined,
   getSymbol: (node: ts.Node): ts.Symbol | undefined =>
     checker.getSymbolAtLocation(node),
-  getAliasedSymbol: (symbol: ts.Symbol): ts.Symbol =>
-    checker.getAliasedSymbol(symbol),
+  resolveAlias: (symbol: ts.Symbol): ts.Symbol =>
+    symbol.flags & ts.SymbolFlags.Alias
+      ? checker.getAliasedSymbol(symbol)
+      : symbol,
   getSymbolDeclarations: (symbol: ts.Symbol): readonly ts.Declaration[] =>
     symbol.getDeclarations() ?? [],
   getSymbolValueDeclaration: (

@@ -49,10 +49,7 @@ const resolveSymbol = (
 ): ts.Symbol | undefined => {
   const symbol = sourceSemantics.getSymbol(node);
   if (!symbol) return undefined;
-  if (symbol.flags & ts.SymbolFlags.Alias) {
-    return sourceSemantics.getAliasedSymbol(symbol);
-  }
-  return symbol;
+  return sourceSemantics.resolveAlias(symbol);
 };
 
 const getVariableDeclarationList = (

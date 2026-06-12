@@ -165,10 +165,9 @@ export const resolveHeritageTypeName = (
     return undefined;
   })();
 
-  const resolvedSymbol =
-    symbol && symbol.flags & ts.SymbolFlags.Alias
-      ? sourceSemantics.getAliasedSymbol(symbol)
-      : symbol;
+  const resolvedSymbol = symbol
+    ? sourceSemantics.resolveAlias(symbol)
+    : undefined;
 
   const decl = resolvedSymbol
     ? sourceSemantics.getSymbolDeclarations(resolvedSymbol)[0]

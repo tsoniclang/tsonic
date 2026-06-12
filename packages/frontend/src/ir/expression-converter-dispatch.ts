@@ -286,11 +286,7 @@ const resolveReferencedIdentifierSymbol = (
     return undefined;
   }
 
-  if (symbol.flags & ts.SymbolFlags.Alias) {
-    return ctx.sourceSemantics.getAliasedSymbol(symbol);
-  }
-
-  return symbol;
+  return ctx.sourceSemantics.resolveAlias(symbol);
 };
 
 const findNearestBindingsJson = (filePath: string): string | undefined => {

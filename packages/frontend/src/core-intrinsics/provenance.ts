@@ -109,9 +109,7 @@ export const resolveAliasedSymbol = (
   symbol: ts.Symbol | undefined
 ): ts.Symbol | undefined => {
   if (!symbol) return undefined;
-  return symbol.flags & ts.SymbolFlags.Alias
-    ? sourceSemantics.getAliasedSymbol(symbol)
-    : symbol;
+  return sourceSemantics.resolveAlias(symbol);
 };
 
 export const isSymbolFromCore = (

@@ -256,10 +256,7 @@ export const resolveCallSignature = (
       return undefined;
     }
 
-    const resolvedSymbol =
-      symbol.flags & ts.SymbolFlags.Alias
-        ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-        : symbol;
+    const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
     if (seenSymbols.has(resolvedSymbol)) {
       return undefined;
     }
@@ -319,10 +316,7 @@ export const resolveCallSignature = (
       return undefined;
     }
 
-    const resolvedSymbol =
-      symbol.flags & ts.SymbolFlags.Alias
-        ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-        : symbol;
+    const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
     if (seenSymbols.has(resolvedSymbol)) {
       return undefined;
     }
@@ -363,10 +357,7 @@ export const resolveCallSignature = (
       return undefined;
     }
 
-    const symbol =
-      rawSymbol.flags & ts.SymbolFlags.Alias
-        ? ctx.sourceSemantics.getAliasedSymbol(rawSymbol)
-        : rawSymbol;
+    const symbol = ctx.sourceSemantics.resolveAlias(rawSymbol);
     if (seenSymbols.has(symbol)) {
       return undefined;
     }
@@ -506,10 +497,7 @@ export const resolveCallSignature = (
     if (ts.isIdentifier(expr)) {
       const symbol = ctx.sourceSemantics.getSymbol(expr);
       if (!symbol) return undefined;
-      const resolvedSymbol =
-        symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-          : symbol;
+      const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
       const declarationClass = getDeclarationStringClass(
         ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)
       );
@@ -531,10 +519,7 @@ export const resolveCallSignature = (
         : (expr.argumentExpression ?? expr.expression);
       const symbol = ctx.sourceSemantics.getSymbol(lookupNode);
       if (!symbol) return undefined;
-      const resolvedSymbol =
-        symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-          : symbol;
+      const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
       const declarationClass = getDeclarationStringClass(
         ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)
       );
@@ -605,10 +590,7 @@ export const resolveCallSignature = (
         return undefined;
       }
 
-      const resolvedSymbol =
-        symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-          : symbol;
+      const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
       for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         const mode = getDeclarationIterableMode(declaration, new Set());
         if (mode) {
@@ -632,10 +614,7 @@ export const resolveCallSignature = (
         return undefined;
       }
 
-      const resolvedSymbol =
-        symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-          : symbol;
+      const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
       for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         const mode = getDeclarationIterableMode(declaration, new Set());
         if (mode) {
@@ -696,10 +675,7 @@ export const resolveCallSignature = (
     if (ts.isIdentifier(expr)) {
       const sym = ctx.sourceSemantics.getSymbol(expr);
       if (!sym) return undefined;
-      const resolvedSym =
-        sym.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(sym)
-          : sym;
+      const resolvedSym = ctx.sourceSemantics.resolveAlias(sym);
       const aliases = new Set<string>();
       for (const decl of ctx.sourceSemantics.getSymbolDeclarations(resolvedSym)) {
         const typeNode = getTypeNodeFromDeclaration(decl);
@@ -721,10 +697,7 @@ export const resolveCallSignature = (
         : (expr.argumentExpression ?? expr.expression);
       const symbol = ctx.sourceSemantics.getSymbol(lookupNode);
       if (!symbol) return undefined;
-      const resolvedSymbol =
-        symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-          : symbol;
+      const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
       const aliases = new Set<string>();
       for (const decl of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         const typeNode = getTypeNodeFromDeclaration(decl);
@@ -781,10 +754,7 @@ export const resolveCallSignature = (
     if (ts.isIdentifier(expr)) {
       const symbol = ctx.sourceSemantics.getSymbol(expr);
       if (!symbol) return false;
-      const resolvedSymbol =
-        symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-          : symbol;
+      const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
       const kinds = new Set<"number">();
       for (const decl of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         if (isNumberTypeNode(getTypeNodeFromDeclaration(decl))) {
@@ -805,10 +775,7 @@ export const resolveCallSignature = (
         : (expr.argumentExpression ?? expr.expression);
       const symbol = ctx.sourceSemantics.getSymbol(lookupNode);
       if (!symbol) return false;
-      const resolvedSymbol =
-        symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-          : symbol;
+      const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
       const kinds = new Set<"number">();
       for (const decl of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         if (isNumberTypeNode(getTypeNodeFromDeclaration(decl))) {
@@ -964,10 +931,7 @@ export const resolveCallSignature = (
       : ctx.sourceSemantics.getSymbol(node.typeName.right);
     if (!rawSymbol) return undefined;
 
-    const symbol =
-      rawSymbol.flags & ts.SymbolFlags.Alias
-        ? ctx.sourceSemantics.getAliasedSymbol(rawSymbol)
-        : rawSymbol;
+    const symbol = ctx.sourceSemantics.resolveAlias(rawSymbol);
 
     if (seenSymbols.has(symbol)) return undefined;
     seenSymbols.add(symbol);

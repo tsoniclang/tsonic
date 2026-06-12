@@ -177,10 +177,7 @@ const buildModuleNamespaceTypeFromSymbol = (
   input: ts.Symbol,
   seen: Set<ts.Symbol>
 ): IrType => {
-  const moduleSymbol =
-    input.flags & ts.SymbolFlags.Alias
-      ? state.sourceSemantics.getAliasedSymbol(input)
-      : input;
+  const moduleSymbol = state.sourceSemantics.resolveAlias(input);
 
   if (seen.has(moduleSymbol)) {
     emitDiagnostic(
@@ -200,10 +197,7 @@ const buildModuleNamespaceTypeFromSymbol = (
   const members: IrInterfaceMember[] = [];
 
   for (const exportSymbol of exportSymbols) {
-    const actualSymbol =
-      exportSymbol.flags & ts.SymbolFlags.Alias
-        ? state.sourceSemantics.getAliasedSymbol(exportSymbol)
-        : exportSymbol;
+    const actualSymbol = state.sourceSemantics.resolveAlias(exportSymbol);
 
     if ((actualSymbol.flags & ts.SymbolFlags.Value) === 0) {
       continue;

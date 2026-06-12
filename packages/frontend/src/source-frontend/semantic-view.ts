@@ -22,7 +22,7 @@ export type SourceSemanticView<
   getExpressionType(expression: TExpression): TType;
   getContextualType(expression: TExpression): TType | undefined;
   getSymbol(node: TNode): TSymbol | undefined;
-  getAliasedSymbol(symbol: TSymbol): TSymbol;
+  resolveAlias(symbol: TSymbol): TSymbol;
   getSymbolDeclarations(symbol: TSymbol): readonly TDeclaration[];
   getSymbolValueDeclaration(symbol: TSymbol): TDeclaration | undefined;
   getExportSpecifierLocalTargetSymbol(node: TNode): TSymbol | undefined;

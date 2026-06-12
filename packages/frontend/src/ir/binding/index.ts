@@ -7,7 +7,7 @@
  * ALLOWED APIs (symbol resolution only):
  * - sourceSemantics.getSymbol(node) — Find symbol at source node
  * - sourceSemantics.getResolvedSignature(call) — Pick overload through source semantic boundary
- * - sourceSemantics.getAliasedSymbol(symbol) — Resolve import alias
+ * - sourceSemantics.resolveAlias(symbol) — Resolve import alias when present
  * - sourceSemantics.getExportSpecifierLocalTargetSymbol(exportSpecifier) — Resolve export target
  * - sourceSemantics.getSymbolDeclarations(symbol) — Get AST declaration nodes
  *

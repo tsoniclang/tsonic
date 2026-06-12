@@ -621,10 +621,7 @@ export const resolveTransparentAliases = (
   while (!seen.has(current)) {
     seen.add(current);
 
-    const aliased =
-      current.flags & ts.SymbolFlags.Alias
-        ? ctx.sourceSemantics.getAliasedSymbol(current)
-        : current;
+    const aliased = ctx.sourceSemantics.resolveAlias(current);
     if (aliased !== current) {
       current = aliased;
       continue;
@@ -773,10 +770,7 @@ export const resolveTypeReference = (
     while (!seen.has(current)) {
       seen.add(current);
 
-      const aliased =
-        current.flags & ts.SymbolFlags.Alias
-          ? ctx.sourceSemantics.getAliasedSymbol(current)
-          : current;
+      const aliased = ctx.sourceSemantics.resolveAlias(current);
       if (aliased !== current) {
         const aliasedDecls =
           ctx.sourceSemantics.getSymbolDeclarations(aliased);
@@ -915,10 +909,7 @@ export const resolvePropertyAccess = (
   const rawPropSymbol = ctx.sourceSemantics.getSymbol(node.name);
   if (!rawPropSymbol) return undefined;
 
-  const propSymbol =
-    rawPropSymbol.flags & ts.SymbolFlags.Alias
-      ? ctx.sourceSemantics.getAliasedSymbol(rawPropSymbol)
-      : rawPropSymbol;
+  const propSymbol = ctx.sourceSemantics.resolveAlias(rawPropSymbol);
 
   // Get owner type's declaration
   const rawOwnerSymbol = ctx.sourceSemantics.getSymbol(node.expression);
@@ -928,9 +919,7 @@ export const resolvePropertyAccess = (
   // In that case we still want a stable MemberId for the member symbol itself,
   // so we key the member entry off the member symbol's own DeclId.
   const ownerSymbol = rawOwnerSymbol
-    ? rawOwnerSymbol.flags & ts.SymbolFlags.Alias
-      ? ctx.sourceSemantics.getAliasedSymbol(rawOwnerSymbol)
-      : rawOwnerSymbol
+    ? ctx.sourceSemantics.resolveAlias(rawOwnerSymbol)
     : undefined;
 
   const ownerDeclId = getOrCreateDeclId(

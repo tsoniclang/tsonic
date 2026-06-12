@@ -100,10 +100,7 @@ export const resolveCallTargetDeclarations = (
   })();
   if (!symbol) return undefined;
 
-  const resolvedSymbol =
-    symbol.flags & ts.SymbolFlags.Alias
-      ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-      : symbol;
+  const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
 
   return ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol);
 };
@@ -259,10 +256,9 @@ export const resolveConstructorSignature = (
       return undefined;
     })();
 
-    const resolvedSymbol =
-      symbol && symbol.flags & ts.SymbolFlags.Alias
-        ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-        : symbol;
+    const resolvedSymbol = symbol
+      ? ctx.sourceSemantics.resolveAlias(symbol)
+      : undefined;
 
     const decl = resolvedSymbol
       ? ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)[0]
@@ -326,10 +322,7 @@ export const resolveConstructorSignatureCandidates = (
   })();
   if (!symbol) return undefined;
 
-  const resolvedSymbol =
-    symbol.flags & ts.SymbolFlags.Alias
-      ? ctx.sourceSemantics.getAliasedSymbol(symbol)
-      : symbol;
+  const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
 
   const decls = ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol);
   if (!decls || decls.length === 0) return undefined;

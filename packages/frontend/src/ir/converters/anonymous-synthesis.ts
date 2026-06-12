@@ -323,12 +323,10 @@ export const checkSynthesisEligibility = (
     const direct = visitDeclarations(symbol);
     if (direct !== undefined) return direct;
 
-    if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
-      const aliased = ctx.sourceSemantics.getAliasedSymbol(symbol);
-      if (!seenSymbols.has(aliased)) {
-        seenSymbols.add(aliased);
-        return visitDeclarations(aliased);
-      }
+    const aliased = ctx.sourceSemantics.resolveAlias(symbol);
+    if (aliased !== symbol && !seenSymbols.has(aliased)) {
+      seenSymbols.add(aliased);
+      return visitDeclarations(aliased);
     }
 
     return undefined;
