@@ -41,6 +41,8 @@ export type {
   FrontendSourceCallLikeExpression,
   FrontendSourceSemanticView,
 } from "./frontend-source-semantic-view.js";
+export { createTstsSemanticView } from "./tsts-semantic-view.js";
+export type { TstsFrontendSourceSemanticView } from "./tsts-semantic-view.js";
 export type {
   ExtensionReceiverSemanticsFact,
   FieldSemanticsFact,

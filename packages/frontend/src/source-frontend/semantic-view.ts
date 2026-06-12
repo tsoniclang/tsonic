@@ -7,7 +7,7 @@ export type SourceSemanticFactStore<TNode extends object> = ExtensionFacts & {
   readonly __sourceNode?: (node: TNode) => TNode;
 };
 
-export type SourceSemanticEngine = "typescript";
+export type SourceSemanticEngine = "typescript" | "tsts";
 
 export type SourceSemanticView<
   TNode extends object,
