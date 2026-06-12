@@ -10,7 +10,7 @@ import {
   getSupportedGenericFunctionDeclarationSymbol,
   isGenericFunctionDeclarationNode,
 } from "./generic-function-values.js";
-import { createTypeScriptSemanticView } from "./source-frontend/index.js";
+import { createTypeScriptSemanticView } from "./source-frontend/typescript-semantic-view.js";
 
 const createTestProgram = (source: string, fileName = "/test/test.ts") => {
   const sourceFile = ts.createSourceFile(

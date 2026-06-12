@@ -17,10 +17,10 @@ import { createExternalBindingsResolver } from "../resolver/external-bindings-re
 import { createBinding } from "./binding/index.js";
 import {
   createSourceSemanticFactStore,
-  createTypeScriptSemanticView,
   projectTstsFactsToTypeScriptSource,
 } from "../source-frontend/index.js";
 import type { TstsSourceProgram } from "../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
 import { createExtensionHost, parseTstsSourceFile } from "@tsonic/tsts";
 import {
   createTsonicNumericPrimitiveExtension,
@@ -93,7 +93,11 @@ describe("thisarg<T> typing", () => {
         throw new Error("In-memory thisarg test program has no TSTS checker.");
       },
     };
-    projectTstsFactsToTypeScriptSource(sourceProgram, [sourceFile], sourceFacts);
+    projectTstsFactsToTypeScriptSource(
+      sourceProgram,
+      [sourceFile],
+      sourceFacts
+    );
 
     const testProgram = {
       program,

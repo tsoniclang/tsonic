@@ -13,10 +13,8 @@ import { createExternalBindingsResolver } from "../resolver/external-bindings-re
 import { createBinding } from "../ir/binding/index.js";
 import type { SurfaceMode } from "../program/types.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
-import {
-  createEmptyTstsSourceProgramForTests,
-  createTypeScriptSemanticView,
-} from "../source-frontend/index.js";
+import { createEmptyTstsSourceProgramForTests } from "../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
 
 type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
 

@@ -17,10 +17,10 @@ import { createBinding } from "../binding/index.js";
 import {
   createSourceSemanticFactStore,
   createTstsSourceProgram,
-  createTypeScriptSemanticView,
   projectTstsFactsToTypeScriptSource,
 } from "../../source-frontend/index.js";
 import type { TstsSourceProgram } from "../../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../../source-frontend/typescript-semantic-view.js";
 import { createExtensionHost, parseTstsSourceFile } from "@tsonic/tsts";
 import {
   createTsonicNumericPrimitiveExtension,
@@ -162,15 +162,11 @@ export const createFilesystemTestProgram = (
   const sourceFiles = rootNames
     .filter((filePath) => !filePath.endsWith(".d.ts"))
     .map((filePath) => tsProgram.getSourceFile(filePath))
-    .filter(
-      (candidate): candidate is ts.SourceFile => candidate !== undefined
-    );
+    .filter((candidate): candidate is ts.SourceFile => candidate !== undefined);
   const declarationSourceFiles = rootNames
     .filter((filePath) => filePath.endsWith(".d.ts"))
     .map((filePath) => tsProgram.getSourceFile(filePath))
-    .filter(
-      (candidate): candidate is ts.SourceFile => candidate !== undefined
-    );
+    .filter((candidate): candidate is ts.SourceFile => candidate !== undefined);
   const sourceProgram = createTstsSourceProgram(
     sourceFiles.map((candidate) => candidate.fileName),
     { projectRoot: tempDir }

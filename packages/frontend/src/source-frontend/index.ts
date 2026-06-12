@@ -84,4 +84,3 @@ export type {
   TstsFactProjectionMissReason,
   TstsFactProjectionResult,
 } from "./tsts-fact-projection.js";
-export { createTypeScriptSemanticView } from "./typescript-semantic-view.js";

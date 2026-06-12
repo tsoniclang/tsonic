@@ -14,8 +14,8 @@ import {
   createBinding,
   createProgramContext,
   createEmptyTstsSourceProgramForTests,
-  createTypeScriptSemanticView,
 } from "@tsonic/frontend";
+import { createTypeScriptSemanticView } from "@tsonic/frontend/testing/typescript-semantic-view.js";
 import { emitModule } from "./emitter.js";
 
 describe("Hierarchical Bindings - Full Pipeline", () => {
@@ -95,9 +95,8 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     const checker = program.getTypeChecker();
     const sourceSemantics = createTypeScriptSemanticView(checker);
     const testProgram = {
-      program,
-      checker,
-      binding: createBinding(checker, sourceSemantics),
+      tsCompilerOptions: program.getCompilerOptions(),
+      binding: createBinding(sourceSemantics),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -249,9 +248,8 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     const checker2 = program.getTypeChecker();
     const sourceSemantics = createTypeScriptSemanticView(checker2);
     const testProgram = {
-      program,
-      checker: checker2,
-      binding: createBinding(checker2, sourceSemantics),
+      tsCompilerOptions: program.getCompilerOptions(),
+      binding: createBinding(sourceSemantics),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",

@@ -153,4 +153,15 @@ describe("source semantic boundary", () => {
     expect(text).not.to.include("new WeakMap");
     expect(text).not.to.include("Map<string, unknown>");
   });
+
+  it("does not export the TypeScript semantic bridge from the source frontend barrel", () => {
+    const sourceFrontendIndexPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/index.ts"
+    );
+    const text = fs.readFileSync(sourceFrontendIndexPath, "utf8");
+
+    expect(text).not.to.include("createTypeScriptSemanticView");
+    expect(text).not.to.include("typescript-semantic-view.js");
+  });
 });

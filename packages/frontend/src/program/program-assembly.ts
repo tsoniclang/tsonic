@@ -45,13 +45,13 @@ import { defineBackendTargetId } from "../ir/types.js";
 import {
   createSourceSemanticFactStore,
   createTstsSourceFrontend,
-  createTypeScriptSemanticView,
   projectTstsFactsToTypeScriptSource,
 } from "../source-frontend/index.js";
 import type {
   TstsFactProjectionMiss,
   TstsSourceProgram,
 } from "../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);

@@ -11,10 +11,8 @@ import { createExternalBindingsResolver } from "../resolver/external-bindings-re
 import { createBinding } from "../ir/binding/index.js";
 import { createProgramContext } from "../ir/program-context.js";
 import { extractImports } from "../ir/builder/imports.js";
-import {
-  createEmptyTstsSourceProgramForTests,
-  createTypeScriptSemanticView,
-} from "../source-frontend/index.js";
+import { createEmptyTstsSourceProgramForTests } from "../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
 
 describe("external bindings discovery (entrypoint re-exports)", () => {
   it("loads bindings.json for re-exported external namespaces and resolves flattened value exports", () => {

@@ -9,10 +9,8 @@ import { BindingRegistry } from "../program/bindings.js";
 import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
-import {
-  createEmptyTstsSourceProgramForTests,
-  createTypeScriptSemanticView,
-} from "../source-frontend/index.js";
+import { createEmptyTstsSourceProgramForTests } from "../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
 
 describe("createProgramContext", () => {
   it("treats participating non-@tsonic packages with bindings.json as CLR metadata packages", () => {

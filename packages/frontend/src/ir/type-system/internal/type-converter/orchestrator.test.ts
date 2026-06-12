@@ -4,7 +4,7 @@ import * as ts from "typescript";
 import { createBinding } from "../../../binding/index.js";
 import { convertType } from "./orchestrator.js";
 import type { IrType } from "../../../types.js";
-import { createTypeScriptSemanticView } from "../../../../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../../../../source-frontend/typescript-semantic-view.js";
 
 const createTestProgram = (
   source: string,

@@ -20,10 +20,8 @@ import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
 import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
-import {
-  createEmptyTstsSourceProgramForTests,
-  createTypeScriptSemanticView,
-} from "../../source-frontend/index.js";
+import { createEmptyTstsSourceProgramForTests } from "../../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../../source-frontend/typescript-semantic-view.js";
 
 describe("CLR member binding disambiguation (success)", () => {
   it("should disambiguate collisions when a simple global binding selects the CLR owner (Console.log)", () => {

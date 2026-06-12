@@ -13,6 +13,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./testing/typescript-semantic-view.js": {
+      "types": "./dist/testing/typescript-semantic-view.d.ts",
+      "default": "./dist/testing/typescript-semantic-view.js"
+    },
     "./types/explicit-views.js": {
       "types": "./dist/types/explicit-views.d.ts",
       "default": "./dist/types/explicit-views.js"

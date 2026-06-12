@@ -12,10 +12,10 @@ import { createBinding } from "../binding/index.js";
 import type { DeclId } from "../type-system/types.js";
 import {
   createSourceSemanticFactStore,
-  createTypeScriptSemanticView,
   projectTstsFactsToTypeScriptSource,
 } from "../../source-frontend/index.js";
 import type { TstsSourceProgram } from "../../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../../source-frontend/typescript-semantic-view.js";
 import { createExtensionHost, parseTstsSourceFile } from "@tsonic/tsts";
 import {
   createTsonicNumericPrimitiveExtension,
