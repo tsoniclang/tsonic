@@ -782,7 +782,6 @@ export const createProgram = (
   const binding = createBinding(sourceSemantics);
 
   return ok({
-    program,
     tsCompilerOptions: program.getCompilerOptions(),
     sourceProgram,
     sourceSemantics,

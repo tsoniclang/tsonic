@@ -11,6 +11,17 @@ import * as ts from "typescript";
 import { createProgram } from "../creation.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
+const findSourceFile = (
+  sourceFiles: readonly ts.SourceFile[],
+  filePath: string
+): ts.SourceFile | undefined =>
+  sourceFiles.find(
+    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(filePath)
+  );
+
+const sourceFilePaths = (sourceFiles: readonly ts.SourceFile[]): string[] =>
+  sourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName));
+
 describe("Program Creation – authoritative type roots", function () {
   this.timeout(90_000);
   const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
@@ -38,13 +49,11 @@ describe("Program Creation – authoritative type roots", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const sourceFile = result.value.program.getSourceFile(entryPath);
+      const sourceFile = findSourceFile(result.value.sourceFiles, entryPath);
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
-      const checker = result.value.program.getTypeChecker();
       const returnTypes = new Map<string, string>();
-      const declarationFlags = new Map<string, boolean>();
 
       const visit = (node: ts.Node): void => {
         if (
@@ -53,12 +62,12 @@ describe("Program Creation – authoritative type roots", function () {
         ) {
           const callee = node.expression.getText(sourceFile);
           if (callee === "path.join" || callee === "process.cwd") {
-            const signature = checker.getResolvedSignature(node);
             returnTypes.set(
               callee,
-              checker.typeToString(checker.getTypeAtLocation(node))
+              result.value.sourceSemantics.typeToString(
+                result.value.sourceSemantics.getExpressionType(node)
+              )
             );
-            declarationFlags.set(callee, signature?.declaration !== undefined);
           }
         }
         ts.forEachChild(node, visit);
@@ -68,8 +77,20 @@ describe("Program Creation – authoritative type roots", function () {
 
       expect(returnTypes.get("path.join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
-      expect(declarationFlags.get("path.join")).to.equal(true);
-      expect(declarationFlags.get("process.cwd")).to.equal(true);
+
+      const programFiles = sourceFilePaths(result.value.sourceFiles);
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/path-module.ts")
+      );
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/process-module.ts")
+      );
+      expect(programFiles).to.not.include(
+        fixture.path("app/node_modules/@tsonic/nodejs/src/path.ts")
+      );
+      expect(programFiles).to.not.include(
+        fixture.path("app/node_modules/@tsonic/nodejs/src/process.ts")
+      );
     } finally {
       fixture.cleanup();
     }
@@ -96,13 +117,11 @@ describe("Program Creation – authoritative type roots", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const sourceFile = result.value.program.getSourceFile(entryPath);
+      const sourceFile = findSourceFile(result.value.sourceFiles, entryPath);
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
-      const checker = result.value.program.getTypeChecker();
       const returnTypes = new Map<string, string>();
-      const declarationFlags = new Map<string, boolean>();
 
       const visit = (node: ts.Node): void => {
         if (
@@ -112,12 +131,12 @@ describe("Program Creation – authoritative type roots", function () {
         ) {
           const callee = node.expression.getText(sourceFile);
           if (callee === "join" || callee === "process.cwd") {
-            const signature = checker.getResolvedSignature(node);
             returnTypes.set(
               callee,
-              checker.typeToString(checker.getTypeAtLocation(node))
+              result.value.sourceSemantics.typeToString(
+                result.value.sourceSemantics.getExpressionType(node)
+              )
             );
-            declarationFlags.set(callee, signature?.declaration !== undefined);
           }
         }
         ts.forEachChild(node, visit);
@@ -127,8 +146,20 @@ describe("Program Creation – authoritative type roots", function () {
 
       expect(returnTypes.get("join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
-      expect(declarationFlags.get("join")).to.equal(true);
-      expect(declarationFlags.get("process.cwd")).to.equal(true);
+
+      const programFiles = sourceFilePaths(result.value.sourceFiles);
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/index.ts")
+      );
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/path-module.ts")
+      );
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/process-module.ts")
+      );
+      expect(programFiles).to.not.include(
+        fixture.path("app/node_modules/@tsonic/nodejs/src/index.ts")
+      );
     } finally {
       fixture.cleanup();
     }

@@ -89,6 +89,7 @@ describe("source semantic boundary", () => {
 
     expect(text).not.to.include("readonly checker:");
     expect(text).not.to.include("checker: ts.TypeChecker");
+    expect(text).not.to.include("readonly program: ts.Program");
   });
 
   it("does not reach through TsonicProgram to raw TypeScript program APIs", () => {

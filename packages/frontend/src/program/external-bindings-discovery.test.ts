@@ -151,8 +151,6 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
     const bindings = new BindingRegistry();
 
     const tsonicProgram = {
-      program,
-      checker,
       tsCompilerOptions: program.getCompilerOptions(),
       options: {
         projectRoot,
@@ -353,8 +351,6 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
         .filter((sf) => sf.isDeclarationFile);
 
       const tsonicProgram = {
-        program,
-        checker,
         tsCompilerOptions: program.getCompilerOptions(),
         options: {
           projectRoot,

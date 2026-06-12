@@ -39,7 +39,6 @@ export type CompilerOptions<Target extends BackendTargetId = BackendTargetId> =
   };
 
 export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
-  readonly program: ts.Program;
   readonly tsCompilerOptions: ts.CompilerOptions;
   readonly sourceProgram: TstsSourceProgram;
   readonly sourceSemantics: FrontendSourceSemanticView;

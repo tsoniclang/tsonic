@@ -70,7 +70,6 @@ const createTestProgram = (
   const checker = program.getTypeChecker();
 
   return {
-    program,
     tsCompilerOptions: program.getCompilerOptions(),
     options: {
       projectRoot: sourceRoot,

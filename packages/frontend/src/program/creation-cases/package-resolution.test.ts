@@ -10,6 +10,14 @@ import * as path from "node:path";
 import { createProgram } from "../creation.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
+const hasSourceFile = (
+  sourceFiles: readonly { readonly fileName: string }[],
+  filePath: string
+): boolean =>
+  sourceFiles.some(
+    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(filePath)
+  );
+
 describe("Program Creation – package resolution", function () {
   this.timeout(90_000);
 
@@ -37,13 +45,10 @@ describe("Program Creation – package resolution", function () {
       if (!result.ok) return;
 
       expect(
-        result.value.program
-          .getSourceFiles()
-          .some(
-            (sourceFile) =>
-              path.resolve(sourceFile.fileName) ===
-              path.resolve(path.join(nodejsRoot, "src", "path-module.ts"))
-          )
+        hasSourceFile(
+          result.value.sourceFiles,
+          path.join(nodejsRoot, "src", "path-module.ts")
+        )
       ).to.equal(true);
     } finally {
       fixture.cleanup();
@@ -75,7 +80,7 @@ describe("Program Creation – package resolution", function () {
       if (!result.ok) return;
 
       expect(
-        result.value.program.getSourceFiles().filter((sourceFile) => {
+        result.value.sourceFiles.filter((sourceFile) => {
           try {
             return (
               fs.realpathSync(sourceFile.fileName) ===
@@ -137,9 +142,9 @@ describe("Program Creation – package resolution", function () {
       if (!result.ok) return;
 
       const expectedDts = path.resolve(path.join(fakePkgRoot, "System.d.ts"));
-      expect(result.value.program.getSourceFile(expectedDts)).to.not.equal(
-        undefined
-      );
+      expect(
+        hasSourceFile(result.value.declarationSourceFiles, expectedDts)
+      ).to.equal(true);
     } finally {
       fixture.cleanup();
     }

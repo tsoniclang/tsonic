@@ -6,6 +6,22 @@ import ts from "typescript";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 import { createProgram } from "../creation.js";
 
+const hasSourceFile = (
+  sourceFiles: readonly { readonly fileName: string }[],
+  filePath: string
+): boolean =>
+  sourceFiles.some(
+    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(filePath)
+  );
+
+const findSourceFile = (
+  sourceFiles: readonly ts.SourceFile[],
+  filePath: string
+): ts.SourceFile | undefined =>
+  sourceFiles.find(
+    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(filePath)
+  );
+
 describe("Program Creation – module bindings", function () {
   this.timeout(90_000);
 
@@ -34,10 +50,10 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
-        undefined
+      expect(hasSourceFile(result.value.sourceFiles, packageEntry)).to.equal(
+        true
       );
-      const sourceFile = result.value.program.getSourceFile(entryPath);
+      const sourceFile = findSourceFile(result.value.sourceFiles, entryPath);
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
@@ -61,24 +77,18 @@ describe("Program Creation – module bindings", function () {
       expect(importSpecifier).to.not.equal(undefined);
       if (!importSpecifier) return;
 
-      const checker = result.value.program.getTypeChecker();
-      const importSymbol = checker.getSymbolAtLocation(importSpecifier.name);
+      const importSymbol = result.value.sourceSemantics.getSymbol(
+        importSpecifier.name
+      );
       expect(importSymbol).to.not.equal(undefined);
       if (!importSymbol) return;
 
       const aliasedSymbol =
-        importSymbol.flags & ts.SymbolFlags.Alias
-          ? checker.getAliasedSymbol(importSymbol)
-          : importSymbol;
+        result.value.sourceSemantics.getAliasedSymbol(importSymbol);
       const declarationFiles = (aliasedSymbol.getDeclarations() ?? []).map(
         (declaration) => path.resolve(declaration.getSourceFile().fileName)
       );
       expect(declarationFiles).to.include(path.resolve(packageEntry));
-
-      const moduleResolutionErrors = result.value.program
-        .getSemanticDiagnostics()
-        .filter((diagnostic) => diagnostic.code === 2307);
-      expect(moduleResolutionErrors).to.deep.equal([]);
     } finally {
       fixture.cleanup();
     }
@@ -109,18 +119,14 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
-        undefined
+      expect(hasSourceFile(result.value.sourceFiles, packageEntry)).to.equal(
+        true
       );
       expect(
         result.value.sourceFiles.some(
           (sourceFile) => path.resolve(sourceFile.fileName) === packageEntry
         )
       ).to.equal(true);
-      const moduleResolutionErrors = result.value.program
-        .getSemanticDiagnostics()
-        .filter((diagnostic) => diagnostic.code === 2307);
-      expect(moduleResolutionErrors).to.deep.equal([]);
     } finally {
       fixture.cleanup();
     }
@@ -150,8 +156,8 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
-        undefined
+      expect(hasSourceFile(result.value.sourceFiles, packageEntry)).to.equal(
+        true
       );
       expect(
         result.value.sourceFiles.some(
@@ -189,9 +195,9 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.program.getSourceFile(jsInternalIndex)).to.not.equal(
-        undefined
-      );
+      expect(
+        hasSourceFile(result.value.declarationSourceFiles, jsInternalIndex)
+      ).to.equal(true);
     } finally {
       fixture.cleanup();
     }
@@ -253,8 +259,8 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
-        undefined
+      expect(hasSourceFile(result.value.sourceFiles, packageEntry)).to.equal(
+        true
       );
     } finally {
       fixture.cleanup();
@@ -322,8 +328,8 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.program.getSourceFile(importedPath)).to.not.equal(
-        undefined
+      expect(hasSourceFile(result.value.sourceFiles, importedPath)).to.equal(
+        true
       );
       expect(
         result.value.sourceFiles.some(

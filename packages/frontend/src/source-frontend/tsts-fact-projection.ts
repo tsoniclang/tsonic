@@ -55,6 +55,11 @@ type ProjectionShape =
   | "propertyDeclarationLike"
   | "typeReference";
 
+type TypeScriptSourceFileIndex = {
+  readonly nodesBySpanKey: ReadonlyMap<string, ts.Node>;
+  readonly nodesByOccurrenceKey: ReadonlyMap<string, ts.Node>;
+};
+
 const canonicalizeFilePath = (filePath: string): string => {
   const resolved = path.resolve(filePath);
   try {
@@ -70,6 +75,12 @@ const key = (
   shape: ProjectionShape,
   name: string | undefined
 ): string => `${pos}:${end}:${shape}:${name ?? ""}`;
+
+const occurrenceKey = (
+  shape: ProjectionShape,
+  name: string | undefined,
+  occurrence: number
+): string => `${shape}:${name ?? ""}:${occurrence}`;
 
 const tsExpressionName = (
   expression: ts.Expression,
@@ -154,20 +165,30 @@ const tstsNodeName = (node: TstsNode): string | undefined => {
 
 const indexTypeScriptSourceFile = (
   sourceFile: ts.SourceFile
-): ReadonlyMap<string, ts.Node> => {
-  const nodesByKey = new Map<string, ts.Node>();
+): TypeScriptSourceFileIndex => {
+  const nodesBySpanKey = new Map<string, ts.Node>();
+  const nodesByOccurrenceKey = new Map<string, ts.Node>();
+  const occurrences = new Map<string, number>();
   const visit = (node: ts.Node): void => {
     const shape = tsProjectionShape(node);
     if (shape) {
-      nodesByKey.set(
+      const name = tsNodeName(node, sourceFile);
+      nodesBySpanKey.set(
         key(node.pos, node.end, shape, tsNodeName(node, sourceFile)),
         node
       );
+      const occurrenceBase = `${shape}:${name ?? ""}`;
+      const occurrence = occurrences.get(occurrenceBase) ?? 0;
+      nodesByOccurrenceKey.set(occurrenceKey(shape, name, occurrence), node);
+      occurrences.set(occurrenceBase, occurrence + 1);
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return nodesByKey;
+  return {
+    nodesBySpanKey,
+    nodesByOccurrenceKey,
+  };
 };
 
 const projectFactsFromNode = (
@@ -214,7 +235,7 @@ export const projectTstsFactsToTypeScriptSource = (
 ): TstsFactProjectionResult => {
   let projectedFacts = 0;
   const missedFacts: TstsFactProjectionMiss[] = [];
-  const tsNodesByFile = new Map<string, ReadonlyMap<string, ts.Node>>();
+  const tsNodesByFile = new Map<string, TypeScriptSourceFileIndex>();
   for (const sourceFile of sourceFiles) {
     tsNodesByFile.set(
       canonicalizeFilePath(sourceFile.fileName),
@@ -245,13 +266,22 @@ export const projectTstsFactsToTypeScriptSource = (
       continue;
     }
 
+    const occurrences = new Map<string, number>();
     visitTstsSubtree(sourceFile, (node): void => {
       if (!node) return;
+      const span = getTstsNodeSpan(node);
+      const shape = tstsProjectionShape(node);
+      const name = shape ? tstsNodeName(node) : undefined;
+      let occurrence = 0;
+      if (shape) {
+        const occurrenceBase = `${shape}:${name ?? ""}`;
+        occurrence = occurrences.get(occurrenceBase) ?? 0;
+        occurrences.set(occurrenceBase, occurrence + 1);
+      }
+
       const factIds = collectProjectedFactIds(node, sourceProgram);
       if (factIds.length === 0) return;
 
-      const span = getTstsNodeSpan(node);
-      const shape = tstsProjectionShape(node);
       if (!span || !shape) {
         missedFacts.push({
           fileName,
@@ -265,8 +295,13 @@ export const projectTstsFactsToTypeScriptSource = (
         return;
       }
 
-      const name = tstsNodeName(node);
-      const tsNode = tsNodesByKey.get(key(span.pos, span.end, shape, name));
+      const spanKey = key(span.pos, span.end, shape, name);
+      let tsNode = tsNodesByKey.nodesBySpanKey.get(spanKey);
+      if (!tsNode) {
+        tsNode = tsNodesByKey.nodesByOccurrenceKey.get(
+          occurrenceKey(shape, name, occurrence)
+        );
+      }
       if (!tsNode) {
         missedFacts.push({
           fileName,

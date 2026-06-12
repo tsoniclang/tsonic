@@ -91,7 +91,6 @@ export const createTestProgram = (
   }
 
   return {
-    program,
     tsCompilerOptions: program.getCompilerOptions(),
     options: {
       projectRoot: "/test",
@@ -170,7 +169,6 @@ export const runValidationInTempProject = (
     return validateUnsupportedFeatures(
       sourceFile,
       {
-        program,
         tsCompilerOptions: program.getCompilerOptions(),
         options: {
           projectRoot: tempDir,

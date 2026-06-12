@@ -96,7 +96,6 @@ export const createTestProgram = (
   projectTstsFactsToTypeScriptSource(sourceProgram, [sourceFile], sourceFacts);
 
   return {
-    program,
     tsCompilerOptions: program.getCompilerOptions(),
     options: {
       projectRoot: "/test",
