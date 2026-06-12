@@ -59,7 +59,7 @@ const createTestProgram = (
   const checker = program.getTypeChecker();
   return {
     sourceFile,
-    binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+    binding: createBinding(createTypeScriptSemanticView(checker)),
   };
 };
 

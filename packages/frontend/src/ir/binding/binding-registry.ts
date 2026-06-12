@@ -52,7 +52,6 @@ import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
  * and threaded through all sub-module functions.
  */
 export type BindingContext = {
-  readonly checker: ts.TypeChecker;
   readonly sourceSemantics: TypeScriptSemanticView;
   readonly declMap: Map<number, DeclEntry>;
   readonly signatureMap: Map<number, SignatureEntry>;
@@ -69,10 +68,8 @@ export type BindingContext = {
  * Create a fresh BindingContext for a TypeScript program.
  */
 export const createBindingContext = (
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView
 ): BindingContext => ({
-  checker,
   sourceSemantics,
   declMap: new Map<number, DeclEntry>(),
   signatureMap: new Map<number, SignatureEntry>(),

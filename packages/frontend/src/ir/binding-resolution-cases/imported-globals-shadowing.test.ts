@@ -127,7 +127,7 @@ describe("Binding Resolution in IR", () => {
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(rootDir),
-        binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+        binding: createBinding(createTypeScriptSemanticView(checker)),
       };
 
       const options = { sourceRoot: rootDir, rootNamespace: "TestApp" };
@@ -274,7 +274,7 @@ describe("Binding Resolution in IR", () => {
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(rootDir),
-        binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+        binding: createBinding(createTypeScriptSemanticView(checker)),
       };
 
       const options = { sourceRoot: rootDir, rootNamespace: "TestApp" };
@@ -462,7 +462,7 @@ describe("Binding Resolution in IR", () => {
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(rootDir),
-        binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+        binding: createBinding(createTypeScriptSemanticView(checker)),
       };
 
       const options = { sourceRoot: rootDir, rootNamespace: "TestApp" };
@@ -683,7 +683,7 @@ describe("Binding Resolution in IR", () => {
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(rootDir),
-        binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+        binding: createBinding(createTypeScriptSemanticView(checker)),
       };
 
       const options = { sourceRoot: rootDir, rootNamespace: "TestApp" };

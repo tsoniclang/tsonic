@@ -194,7 +194,7 @@ describe("CLR member binding disambiguation (success)", () => {
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver(tmpRoot),
-      binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+      binding: createBinding(createTypeScriptSemanticView(checker)),
     };
 
     const ctx = createProgramContext(testProgram, {
@@ -417,7 +417,7 @@ describe("CLR member binding disambiguation (success)", () => {
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver(tmpRoot),
-      binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+      binding: createBinding(createTypeScriptSemanticView(checker)),
     };
 
     const ctx = createProgramContext(testProgram, {

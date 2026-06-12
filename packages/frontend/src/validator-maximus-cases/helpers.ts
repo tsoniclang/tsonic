@@ -103,7 +103,7 @@ export const createTestProgram = (
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+    binding: createBinding(createTypeScriptSemanticView(checker)),
   };
 };
 
@@ -181,7 +181,7 @@ export const collectCodesInTempProject = (
       metadata: new ExternalMetadataRegistry(),
       bindings: new BindingRegistry(),
       externalResolver: createExternalBindingsResolver(tempDir),
-      binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+      binding: createBinding(createTypeScriptSemanticView(checker)),
     }).diagnostics.map((diagnostic) => diagnostic.code);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

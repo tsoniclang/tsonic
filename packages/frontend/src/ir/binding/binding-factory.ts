@@ -54,10 +54,9 @@ import {
  * Cast to Binding when passing to regular converters.
  */
 export const createBinding = (
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView
 ): BindingInternal => {
-  const ctx = createBindingContext(checker, sourceSemantics);
+  const ctx = createBindingContext(sourceSemantics);
 
   // ─────────────────────────────────────────────────────────────────────────
   // SIMPLE RESOLUTION METHODS (remaining methods not in sub-modules)

@@ -470,7 +470,6 @@ export type TypeSystemConfig = {
   readonly resolveConstructorSignature: (
     node: unknown
   ) => SignatureId | undefined;
-  readonly checker: ts.TypeChecker;
   readonly sourceSemantics: TypeScriptSemanticView;
   readonly tsCompilerOptions: ts.CompilerOptions;
   readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;

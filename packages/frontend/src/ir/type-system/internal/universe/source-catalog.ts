@@ -33,7 +33,6 @@ import { convertType } from "../type-converter.js";
  */
 export type SourceCatalogConfig = {
   readonly sourceFiles: readonly ts.SourceFile[];
-  readonly checker: ts.TypeChecker;
   readonly sourceSemantics: TypeScriptSemanticView;
   readonly sourceRoot: string;
   readonly rootNamespace: string;

@@ -78,7 +78,7 @@ export const createTestProgram = (
     metadata: new ExternalMetadataRegistry(),
     bindings: bindings || new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+    binding: createBinding(createTypeScriptSemanticView(checker)),
   };
 
   // Create ProgramContext for the test

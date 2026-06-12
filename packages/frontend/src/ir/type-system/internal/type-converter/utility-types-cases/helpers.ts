@@ -90,7 +90,7 @@ const createTestProgram = (
     `Source file ${fileName} not found`
   );
   const checker = program.getTypeChecker();
-  const binding = createBinding(checker, createTypeScriptSemanticView(checker));
+  const binding = createBinding(createTypeScriptSemanticView(checker));
 
   return { program, checker, sourceFile, binding };
 };

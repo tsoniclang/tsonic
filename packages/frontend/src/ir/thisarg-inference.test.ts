@@ -75,7 +75,7 @@ describe("thisarg<T> typing", () => {
       metadata: new ExternalMetadataRegistry(),
       bindings: new BindingRegistry(),
       externalResolver: createExternalBindingsResolver("/test"),
-      binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+      binding: createBinding(createTypeScriptSemanticView(checker)),
     };
 
     const options = { sourceRoot: "/test", rootNamespace: "TestApp" };

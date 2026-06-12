@@ -111,7 +111,7 @@ describe("Hierarchical Bindings End-to-End", () => {
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver("/test"),
-      binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+      binding: createBinding(createTypeScriptSemanticView(checker)),
     };
 
     // Build IR - Phase 5: Create ProgramContext and pass to buildIrModule

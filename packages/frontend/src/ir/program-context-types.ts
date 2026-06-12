@@ -69,13 +69,6 @@ export type ProgramContext = {
   readonly surfaceCapabilities: SurfaceCapabilities;
 
   /**
-   * TypeScript checker for symbol-only queries in converter-time analyses.
-   *
-   * This must never be used for computed type inference APIs (getTypeAtLocation, etc.).
-   */
-  readonly checker: ts.TypeChecker;
-
-  /**
    * Source semantic facade for computed source facts and flow-sensitive type
    * queries. Product frontend code must use this for expression types instead
    * of calling TypeScript checker computed-type APIs directly.

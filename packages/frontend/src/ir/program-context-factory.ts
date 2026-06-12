@@ -156,7 +156,6 @@ export const createProgramContext = (
   );
   const { typeRegistry } = buildSourceCatalog({
     sourceFiles: catalogSourceFiles,
-    checker: program.checker,
     sourceSemantics: program.sourceSemantics,
     sourceRoot: options.sourceRoot,
     rootNamespace: options.rootNamespace,
@@ -266,7 +265,6 @@ export const createProgramContext = (
       ts.isNewExpression(node as ts.Node)
         ? program.binding.resolveConstructorSignature(node as ts.NewExpression)
         : undefined,
-    checker: program.checker,
     sourceSemantics: program.sourceSemantics,
     tsCompilerOptions: program.program.getCompilerOptions(),
     sourceFilesByPath,
@@ -280,7 +278,6 @@ export const createProgramContext = (
     rootNamespace: options.rootNamespace,
     surface: program.options.surface ?? "core",
     surfaceCapabilities,
-    checker: program.checker,
     sourceSemantics: program.sourceSemantics,
     genericFunctionValueSymbols,
     tsCompilerOptions: program.program.getCompilerOptions(),

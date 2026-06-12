@@ -144,7 +144,7 @@ describe("createProgramContext", () => {
         metadata: new ExternalMetadataRegistry(),
         bindings: new BindingRegistry(),
         externalResolver: createExternalBindingsResolver(projectRoot),
-        binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+        binding: createBinding(createTypeScriptSemanticView(checker)),
       };
 
       const ctx = createProgramContext(tsonicProgram, {

@@ -735,7 +735,7 @@ export const createProgram = (
   // This replaces direct checker API calls throughout the pipeline
   const checker = program.getTypeChecker();
   const sourceSemantics = createTypeScriptSemanticView(checker);
-  const binding = createBinding(checker, sourceSemantics);
+  const binding = createBinding(sourceSemantics);
 
   return ok({
     program,
