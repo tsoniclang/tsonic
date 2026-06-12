@@ -34,6 +34,26 @@ import type {
   SourceSemanticFactStore,
 } from "./semantic-view.js";
 
+export type TstsFactProjectionMissReason =
+  | "source-file-not-found"
+  | "unsupported-node-shape"
+  | "source-node-not-found";
+
+export type TstsFactProjectionMiss = {
+  readonly fileName: string;
+  readonly reason: TstsFactProjectionMissReason;
+  readonly factIds: readonly string[];
+  readonly pos?: number;
+  readonly end?: number;
+  readonly shape?: ProjectionShape;
+  readonly name?: string;
+};
+
+export type TstsFactProjectionResult = {
+  readonly projectedFacts: number;
+  readonly missedFacts: readonly TstsFactProjectionMiss[];
+};
+
 type ProjectionShape =
   | "callExpression"
   | "classDeclaration"
@@ -166,11 +186,13 @@ const projectFactsFromNode = (
   tsNode: ts.Node,
   sourceProgram: TstsSourceProgram,
   factStore: SourceSemanticFactStore<ts.Node>
-): void => {
+): number => {
+  let projectedFacts = 0;
   const projectFact = <T>(factKey: SourceSemanticFactKey<T>): void => {
     const fact = sourceProgram.extensionHost.facts.get(factKey, tstsNode);
     if (fact !== undefined) {
       factStore.set(tsNode, factKey, fact);
+      projectedFacts += 1;
     }
   };
 
@@ -182,13 +204,41 @@ const projectFactsFromNode = (
   projectFact(heritageWrapperSemanticsFactKey);
   projectFact(markerApiSemanticsFactKey);
   projectFact(intrinsicSemanticsFactKey);
+
+  return projectedFacts;
+};
+
+const collectProjectedFactIds = (
+  tstsNode: TstsNode,
+  sourceProgram: TstsSourceProgram
+): readonly string[] => {
+  const factIds: string[] = [];
+  const collectFact = <T>(factKey: SourceSemanticFactKey<T>): void => {
+    const fact = sourceProgram.extensionHost.facts.get(factKey, tstsNode);
+    if (fact !== undefined) {
+      factIds.push(factKey.id);
+    }
+  };
+
+  collectFact(numericPrimitiveFactKey);
+  collectFact(sourceTypeSemanticsFactKey);
+  collectFact(fieldSemanticsFactKey);
+  collectFact(parameterPassingFactKey);
+  collectFact(extensionReceiverSemanticsFactKey);
+  collectFact(heritageWrapperSemanticsFactKey);
+  collectFact(markerApiSemanticsFactKey);
+  collectFact(intrinsicSemanticsFactKey);
+
+  return factIds;
 };
 
 export const projectTstsFactsToTypeScriptSource = (
   sourceProgram: TstsSourceProgram,
   sourceFiles: readonly ts.SourceFile[],
   factStore: SourceSemanticFactStore<ts.Node>
-): void => {
+): TstsFactProjectionResult => {
+  let projectedFacts = 0;
+  const missedFacts: TstsFactProjectionMiss[] = [];
   const tsNodesByFile = new Map<string, ReadonlyMap<string, ts.Node>>();
   for (const sourceFile of sourceFiles) {
     tsNodesByFile.set(
@@ -201,18 +251,73 @@ export const projectTstsFactsToTypeScriptSource = (
     const fileName = getTstsSourceFileName(sourceFile);
     if (!fileName) continue;
     const tsNodesByKey = tsNodesByFile.get(canonicalizeFilePath(fileName));
-    if (!tsNodesByKey) continue;
+    if (!tsNodesByKey) {
+      visitTstsSubtree(sourceFile, (node): void => {
+        if (!node) return;
+        const factIds = collectProjectedFactIds(node, sourceProgram);
+        if (factIds.length === 0) return;
+        const span = getTstsNodeSpan(node);
+        missedFacts.push({
+          fileName,
+          reason: "source-file-not-found",
+          factIds,
+          pos: span?.pos,
+          end: span?.end,
+          shape: tstsProjectionShape(node),
+          name: tstsNodeName(node),
+        });
+      });
+      continue;
+    }
 
     visitTstsSubtree(sourceFile, (node): void => {
       if (!node) return;
+      const factIds = collectProjectedFactIds(node, sourceProgram);
+      if (factIds.length === 0) return;
+
       const span = getTstsNodeSpan(node);
       const shape = tstsProjectionShape(node);
-      if (!span || !shape) return;
+      if (!span || !shape) {
+        missedFacts.push({
+          fileName,
+          reason: "unsupported-node-shape",
+          factIds,
+          pos: span?.pos,
+          end: span?.end,
+          shape,
+          name: tstsNodeName(node),
+        });
+        return;
+      }
+
+      const name = tstsNodeName(node);
       const tsNode = tsNodesByKey.get(
-        key(span.pos, span.end, shape, tstsNodeName(node))
+        key(span.pos, span.end, shape, name)
       );
-      if (!tsNode) return;
-      projectFactsFromNode(node, tsNode, sourceProgram, factStore);
+      if (!tsNode) {
+        missedFacts.push({
+          fileName,
+          reason: "source-node-not-found",
+          factIds,
+          pos: span.pos,
+          end: span.end,
+          shape,
+          name,
+        });
+        return;
+      }
+
+      projectedFacts += projectFactsFromNode(
+        node,
+        tsNode,
+        sourceProgram,
+        factStore
+      );
     });
   }
+
+  return {
+    projectedFacts,
+    missedFacts,
+  };
 };

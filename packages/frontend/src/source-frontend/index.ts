@@ -68,4 +68,9 @@ export type {
   TstsSourceProgram,
 } from "./tsts-source-program.js";
 export { projectTstsFactsToTypeScriptSource } from "./tsts-fact-projection.js";
+export type {
+  TstsFactProjectionMiss,
+  TstsFactProjectionMissReason,
+  TstsFactProjectionResult,
+} from "./tsts-fact-projection.js";
 export { createTypeScriptSemanticView } from "./typescript-semantic-view.js";

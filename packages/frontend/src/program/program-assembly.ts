@@ -48,7 +48,10 @@ import {
   createTypeScriptSemanticView,
   projectTstsFactsToTypeScriptSource,
 } from "../source-frontend/index.js";
-import type { TstsSourceProgram } from "../source-frontend/index.js";
+import type {
+  TstsFactProjectionMiss,
+  TstsSourceProgram,
+} from "../source-frontend/index.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -153,6 +156,25 @@ const collectTstsSourceDiagnostics = (
   }
 
   return collector;
+};
+
+const formatTstsFactProjectionMisses = (
+  misses: readonly TstsFactProjectionMiss[]
+): string => {
+  const displayed = misses.slice(0, 10).map((miss) => {
+    const span =
+      miss.pos !== undefined && miss.end !== undefined
+        ? `${miss.pos}:${miss.end}`
+        : "unknown-span";
+    const shape = miss.shape ?? "unknown-shape";
+    const name = miss.name ?? "unnamed";
+    return `${miss.fileName} ${span} ${shape} ${name} [${miss.factIds.join(", ")}] ${miss.reason}`;
+  });
+  const remaining = misses.length - displayed.length;
+  return [
+    ...displayed,
+    ...(remaining > 0 ? [`... ${remaining} more projection misses`] : []),
+  ].join("\n");
 };
 
 const findAuthoritativePackageRootForImport = (
@@ -737,7 +759,25 @@ export const createProgram = (
   // This replaces direct checker API calls throughout the pipeline
   const checker = program.getTypeChecker();
   const sourceFacts = createSourceSemanticFactStore<ts.Node>();
-  projectTstsFactsToTypeScriptSource(sourceProgram, sourceFiles, sourceFacts);
+  const factProjection = projectTstsFactsToTypeScriptSource(
+    sourceProgram,
+    sourceFiles,
+    sourceFacts
+  );
+  if (factProjection.missedFacts.length > 0) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1008",
+          "error",
+          `TSTS source fact projection failed:\n${formatTstsFactProjectionMisses(
+            factProjection.missedFacts
+          )}`
+        )
+      )
+    );
+  }
   const sourceSemantics = createTypeScriptSemanticView(checker, sourceFacts);
   const binding = createBinding(sourceSemantics);
 
