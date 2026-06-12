@@ -28,6 +28,7 @@ export {
   CORE_TYPES_MODULE_SPECIFIERS,
   GLOBALS_PACKAGE_NAME,
   coreDeclarationFileBaseName,
+  canonicalCoreModuleSpecifier,
 } from "./core-module-identity.js";
 export type { CoreModule } from "./core-module-identity.js";
 export type {

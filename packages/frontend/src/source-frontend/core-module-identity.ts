@@ -16,3 +16,6 @@ export const CORE_LANG_MODULE_SPECIFIERS: ReadonlySet<string> = new Set([
 
 export const coreDeclarationFileBaseName = (module: CoreModule): string =>
   module === "types" ? "types.d.ts" : "lang.d.ts";
+
+export const canonicalCoreModuleSpecifier = (module: CoreModule): string =>
+  module === "types" ? "@tsonic/core/types.js" : "@tsonic/core/lang.js";

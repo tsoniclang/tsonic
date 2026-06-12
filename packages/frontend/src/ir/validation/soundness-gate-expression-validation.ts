@@ -13,6 +13,7 @@ import {
 } from "./soundness-gate-type-validation.js";
 import { validateStatement } from "./soundness-gate-statement-validation.js";
 import type { IrType } from "../types.js";
+import { canonicalCoreModuleSpecifier } from "../../source-frontend/core-module-identity.js";
 
 const typeContainsPoison = (type: IrType | undefined): boolean => {
   if (!type) return false;
@@ -294,7 +295,9 @@ export const validateExpression = (
               "error",
               `'${name}(...)' is a compiler intrinsic and cannot be emitted as a normal call.`,
               expr.sourceSpan ?? moduleLocation(ctx),
-              `Ensure '${name}' is imported from "@tsonic/core/lang.js" and called with the correct signature.\nIf this call is correct and this error persists, please report it with a minimal repro.`
+              `Ensure '${name}' is imported from "${canonicalCoreModuleSpecifier(
+                "lang"
+              )}" and called with the correct signature.\nIf this call is correct and this error persists, please report it with a minimal repro.`
             )
           );
         }

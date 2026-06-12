@@ -26,6 +26,7 @@ import {
 import {
   CORE_PACKAGE_NAME,
   type CoreModule,
+  canonicalCoreModuleSpecifier,
 } from "../source-frontend/core-module-identity.js";
 
 const getRightmostTypeNameIdentifier = (
@@ -81,7 +82,9 @@ export const validateCoreIntrinsics = (
           nameNode,
           nameNode.text,
           "types",
-          `Remove this declaration and import '${nameNode.text}' from "@tsonic/core/types.js".`
+          `Remove this declaration and import '${nameNode.text}' from "${canonicalCoreModuleSpecifier(
+            "types"
+          )}".`
         );
       }
       if (nameNode && CORE_LANG_TYPE_NAMES.has(nameNode.text)) {
@@ -90,7 +93,9 @@ export const validateCoreIntrinsics = (
           nameNode,
           nameNode.text,
           "lang",
-          `Remove this declaration and import '${nameNode.text}' from "@tsonic/core/lang.js".`
+          `Remove this declaration and import '${nameNode.text}' from "${canonicalCoreModuleSpecifier(
+            "lang"
+          )}".`
         );
       }
     }
@@ -104,7 +109,9 @@ export const validateCoreIntrinsics = (
           node.name,
           name,
           "lang",
-          `Remove this declaration and import '${name}' from "@tsonic/core/lang.js".`
+          `Remove this declaration and import '${name}' from "${canonicalCoreModuleSpecifier(
+            "lang"
+          )}".`
         );
       }
     }
@@ -121,7 +128,9 @@ export const validateCoreIntrinsics = (
             nameNode,
             name,
             "types",
-            `Import '${name}' from "@tsonic/core/types.js" (do not redefine or spoof it).`
+            `Import '${name}' from "${canonicalCoreModuleSpecifier(
+              "types"
+            )}" (do not redefine or spoof it).`
           );
         }
       }
@@ -133,7 +142,9 @@ export const validateCoreIntrinsics = (
             nameNode,
             name,
             "lang",
-            `Import '${name}' from "@tsonic/core/lang.js" (do not redefine or spoof it).`
+            `Import '${name}' from "${canonicalCoreModuleSpecifier(
+              "lang"
+            )}" (do not redefine or spoof it).`
           );
         }
       }
@@ -150,7 +161,9 @@ export const validateCoreIntrinsics = (
             node.expression,
             name,
             "lang",
-            `Import '${name}' from "@tsonic/core/lang.js" (do not redefine or spoof it).`
+            `Import '${name}' from "${canonicalCoreModuleSpecifier(
+              "lang"
+            )}" (do not redefine or spoof it).`
           );
         }
       }
