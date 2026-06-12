@@ -43,8 +43,10 @@ import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
 import { createBindingTargetSurfaceProvider } from "./binding-target-surface-provider.js";
 import { defineBackendTargetId } from "../ir/types.js";
 import {
+  createSourceSemanticFactStore,
   createTstsSourceFrontend,
   createTypeScriptSemanticView,
+  projectTstsFactsToTypeScriptSource,
 } from "../source-frontend/index.js";
 import type { TstsSourceProgram } from "../source-frontend/index.js";
 
@@ -734,7 +736,9 @@ export const createProgram = (
   // Create binding layer for symbol resolution
   // This replaces direct checker API calls throughout the pipeline
   const checker = program.getTypeChecker();
-  const sourceSemantics = createTypeScriptSemanticView(checker);
+  const sourceFacts = createSourceSemanticFactStore<ts.Node>();
+  projectTstsFactsToTypeScriptSource(sourceProgram, sourceFiles, sourceFacts);
+  const sourceSemantics = createTypeScriptSemanticView(checker, sourceFacts);
   const binding = createBinding(sourceSemantics);
 
   return ok({

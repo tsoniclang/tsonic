@@ -39,6 +39,14 @@ export type {
   ParameterPassingMode,
   SourceTypeSemanticsFact,
 } from "./source-facts.js";
+export {
+  callSitePassingModifierFromFact,
+  parameterPassingModeFromFact,
+} from "./source-fact-queries.js";
+export type {
+  IrCallSitePassingModifier,
+  IrParameterPassingMode,
+} from "./source-fact-queries.js";
 export { createTstsSourceFrontend } from "./tsts-source-frontend.js";
 export {
   createEmptyTstsSourceProgramForTests,
@@ -48,4 +56,5 @@ export type {
   CreateTstsSourceProgramOptions,
   TstsSourceProgram,
 } from "./tsts-source-program.js";
+export { projectTstsFactsToTypeScriptSource } from "./tsts-fact-projection.js";
 export { createTypeScriptSemanticView } from "./typescript-semantic-view.js";

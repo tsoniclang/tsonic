@@ -37,6 +37,30 @@ import {
   handleTypeAliasDeclaration,
   entityNameToText,
 } from "./references-alias.js";
+import {
+  fieldSemanticsFactKey,
+  numericPrimitiveFactKey,
+  parameterPassingFactKey,
+} from "../../../../source-frontend/index.js";
+
+const parameterPassingReferenceName = (
+  mode:
+    | "by-value"
+    | "byref-readonly"
+    | "byref-readwrite"
+    | "byref-writeonly-must-init"
+): "ref" | "out" | "inref" | undefined => {
+  switch (mode) {
+    case "by-value":
+      return undefined;
+    case "byref-readonly":
+      return "inref";
+    case "byref-readwrite":
+      return "ref";
+    case "byref-writeonly-must-init":
+      return "out";
+  }
+};
 
 const tryReadNumericLiteral = (node: ts.Expression): number | undefined => {
   if (ts.isNumericLiteral(node)) {
@@ -104,9 +128,16 @@ export const convertTypeReference = (
     return getPrimitiveType(typeName);
   }
 
-  // Check for core source primitive aliases (e.g., int from @tsonic/core)
-  if (isCorePrimitiveTypeName(typeName)) {
-    return getCorePrimitiveType(typeName);
+  // Check for source primitive aliases proven by TSTS extensions.
+  const numericPrimitiveFact = binding.getSourceFact(
+    node,
+    numericPrimitiveFactKey
+  );
+  if (
+    numericPrimitiveFact &&
+    isCorePrimitiveTypeName(numericPrimitiveFact.sourceName)
+  ) {
+    return getCorePrimitiveType(numericPrimitiveFact.sourceName);
   }
 
   if (typeName === "JsPrimitive" || typeName === "JsValue") {
@@ -173,8 +204,10 @@ export const convertTypeReference = (
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
-  // `field<T>` is a TS-only marker
-  if (typeName === "field" && node.typeArguments?.length === 1) {
+  if (
+    binding.getSourceFact(node, fieldSemanticsFactKey) &&
+    node.typeArguments?.length === 1
+  ) {
     const inner = node.typeArguments[0];
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
@@ -185,9 +218,15 @@ export const convertTypeReference = (
     return newShape ? convertType(newShape, binding) : { kind: "unknownType" };
   }
 
-  // Handle parameter passing modifiers: out<T>, ref<T>, inref<T>
+  const parameterPassingFact = binding.getSourceFact(
+    node,
+    parameterPassingFactKey
+  );
+  const parameterPassingName = parameterPassingReferenceName(
+    parameterPassingFact?.mode ?? "by-value"
+  );
   if (
-    (typeName === "out" || typeName === "ref" || typeName === "inref") &&
+    parameterPassingName &&
     node.typeArguments &&
     node.typeArguments.length === 1
   ) {
@@ -197,7 +236,7 @@ export const convertTypeReference = (
     }
     return {
       kind: "referenceType",
-      name: typeName,
+      name: parameterPassingName,
       typeArguments: [convertType(innerTypeArg, binding)],
       structuralOrigin: "namedReference",
     };

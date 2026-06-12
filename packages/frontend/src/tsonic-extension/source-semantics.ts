@@ -102,20 +102,33 @@ const isFieldWrapper = (
   );
 };
 
-const hasStructHeritage = (
+const isStructHeritageType = (
+  heritageType: TstsNode,
+  coreTypesBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): boolean => {
+  const heritageName = getTstsExpressionWithTypeArgumentsName(heritageType);
+  return (
+    heritageName !== undefined &&
+    coreTypesBindingByLocalName.get(heritageName)?.importedName === "struct"
+  );
+};
+
+const structHeritageTypes = (
   node: TstsNode,
   coreTypesBindingByLocalName: ReadonlyMap<
     string,
     { readonly importedName: string }
   >
-): boolean =>
-  getTstsHeritageTypeNodes(node).some((heritageType) => {
-    const heritageName = getTstsExpressionWithTypeArgumentsName(heritageType);
-    return (
-      heritageName !== undefined &&
-      coreTypesBindingByLocalName.get(heritageName)?.importedName === "struct"
-    );
-  });
+): readonly TstsNode[] =>
+  getTstsHeritageTypeNodes(node).filter(
+    (heritageType): heritageType is TstsNode =>
+      heritageType
+        ? isStructHeritageType(heritageType, coreTypesBindingByLocalName)
+        : false
+  );
 
 export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
   id: "tsonic.source-semantics",
@@ -134,24 +147,42 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
       if (!node) return;
 
       if (isTstsClassDeclaration(node)) {
+        const structMarkers = structHeritageTypes(
+          node,
+          coreTypesBindingByLocalName
+        );
         context.facts.set(
           sourceTypeSemanticsFactKey,
           node,
-          sourceTypeFact("class")
+          sourceTypeFact(structMarkers.length > 0 ? "struct" : "class")
         );
+        for (const marker of structMarkers) {
+          context.facts.set(
+            sourceTypeSemanticsFactKey,
+            marker,
+            sourceTypeFact("struct")
+          );
+        }
         return;
       }
 
       if (isTstsInterfaceDeclaration(node)) {
+        const structMarkers = structHeritageTypes(
+          node,
+          coreTypesBindingByLocalName
+        );
         context.facts.set(
           sourceTypeSemanticsFactKey,
           node,
-          sourceTypeFact(
-            hasStructHeritage(node, coreTypesBindingByLocalName)
-              ? "struct"
-              : "interface"
-          )
+          sourceTypeFact(structMarkers.length > 0 ? "struct" : "interface")
         );
+        for (const marker of structMarkers) {
+          context.facts.set(
+            sourceTypeSemanticsFactKey,
+            marker,
+            sourceTypeFact("struct")
+          );
+        }
         return;
       }
 

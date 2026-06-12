@@ -3359,7 +3359,7 @@ export const convertCallExpression = (
     const arg = node.arguments[index];
     if (!arg) continue;
 
-    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    const unwrapped = unwrapCallSiteArgumentModifier(arg, ctx);
     const isAttributeNamedArgumentObject =
       !ts.isSpreadElement(arg) &&
       isAttributeMetadataNamedArgumentPosition(
@@ -3513,7 +3513,7 @@ export const convertCallExpression = (
     const arg = node.arguments[index];
     if (!arg) continue;
     if (ts.isSpreadElement(arg)) continue;
-    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    const unwrapped = unwrapCallSiteArgumentModifier(arg, ctx);
     if (unwrapped.modifier) {
       callSiteArgModifiers[index] = unwrapped.modifier;
     }
@@ -3832,7 +3832,7 @@ export const convertCallExpression = (
         return argument;
       }
 
-      const unwrapped = unwrapCallSiteArgumentModifier(sourceArgument);
+      const unwrapped = unwrapCallSiteArgumentModifier(sourceArgument, ctx);
       if (
         isAttributeMetadataNamedArgumentPosition(
           node,

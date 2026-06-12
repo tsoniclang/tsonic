@@ -127,7 +127,7 @@ export const resolveCallSignatureCandidates = (
           continue;
         }
 
-        const params = extractParameterNodes(decl);
+        const params = extractParameterNodes(decl, ctx.sourceSemantics);
         const required = params.filter(
           (p) => !p.isOptional && !p.isRest
         ).length;
@@ -342,7 +342,7 @@ export const resolveConstructorSignatureCandidates = (
       continue;
     }
 
-    const params = extractParameterNodes(decl);
+    const params = extractParameterNodes(decl, ctx.sourceSemantics);
     const required = params.filter((p) => !p.isOptional && !p.isRest).length;
     const hasRest = params.some((p) => p.isRest);
     if (argCount < required) continue;

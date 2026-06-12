@@ -20,6 +20,10 @@ import {
   resolveMutableNumericLiteralDeclarationType,
   withVariableDeclaratorTypeEnv,
 } from "../type-env.js";
+import {
+  parameterPassingFactKey,
+  parameterPassingModeFromFact,
+} from "../../../source-frontend/index.js";
 
 /**
  * Optional class fields (`foo?: T`) are semantically `T | undefined` in TS.
@@ -109,7 +113,7 @@ export const convertParameters = (
 
     // Detect wrapper types:
     // - thisarg<T> marks an extension-method receiver parameter (emits target `this`)
-    // - ref<T>/out<T>/in<T>/inref<T> marks passing mode (unwraps to T)
+    // - TSTS parameter-passing facts mark passing mode (unwraps to T)
     //
     // Wrappers may be nested; unwrap repeatedly.
     while (
@@ -127,16 +131,11 @@ export const convertParameters = (
         continue;
       }
 
-      if (
-        typeName === "ref" ||
-        typeName === "out" ||
-        typeName === "in" ||
-        typeName === "inref"
-      ) {
-        passing =
-          typeName === "in" || typeName === "inref"
-            ? "in"
-            : (typeName as "ref" | "out");
+      const factMode = parameterPassingModeFromFact(
+        ctx.sourceSemantics.getFact(actualType, parameterPassingFactKey)
+      );
+      if (factMode && factMode !== "value") {
+        passing = factMode;
         actualType = actualType.typeArguments[0];
         continue;
       }

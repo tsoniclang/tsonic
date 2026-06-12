@@ -20,10 +20,8 @@ import { convertExpression } from "../../../expression-converter.js";
 import { IrType, primitiveTypeFactFromName } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
-import {
-  isIdentifierFromCore,
-  isIdentifierFromGlobals,
-} from "../../../../core-intrinsics/provenance.js";
+import { isIdentifierFromGlobals } from "../../../../core-intrinsics/provenance.js";
+import { intrinsicSemanticsFactKey } from "../../../../source-frontend/index.js";
 
 /**
  * Try to convert a call expression as an intrinsic.
@@ -42,10 +40,12 @@ export const tryConvertIntrinsicCall = (
   | IrNameOfExpression
   | IrSizeOfExpression
   | undefined => {
+  const intrinsicKind = ctx.sourceSemantics.getFact(
+    node,
+    intrinsicSemanticsFactKey
+  )?.kind;
   const isCoreLangIntrinsicCall = (name: string): boolean =>
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === name &&
-    isIdentifierFromCore(ctx.sourceSemantics, node.expression, "lang");
+    intrinsicKind === name;
   const isGlobalIntrinsicCall = (name: string): boolean =>
     ts.isIdentifier(node.expression) &&
     node.expression.text === name &&
@@ -108,8 +108,7 @@ export const tryConvertIntrinsicCall = (
   // istype<T>(x) - compiler-only type guard for overload specialization.
   // Erased at compile time; converted to IR call for narrowing/specialization.
   if (
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "istype" &&
+    isCoreLangIntrinsicCall("istype") &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 1

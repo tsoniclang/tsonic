@@ -16,6 +16,11 @@ import type {
   CapturedClassMethodSignature,
 } from "../type-system/internal/handle-types.js";
 import type { ParameterMode } from "../type-system/types.js";
+import {
+  parameterPassingFactKey,
+  parameterPassingModeFromFact,
+} from "../../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
@@ -95,14 +100,18 @@ export const isThisParameter = (p: ts.ParameterDeclaration): boolean => {
 };
 
 export const extractThisParameterTypeNode = (
-  decl: ts.SignatureDeclaration | undefined
+  decl: ts.SignatureDeclaration | undefined,
+  sourceSemantics?: FrontendSourceSemanticView
 ): ts.TypeNode | undefined => {
   if (!decl) return undefined;
 
   const thisParam = decl.parameters.find(isThisParameter);
   if (!thisParam) return undefined;
 
-  const normalized = normalizeParameterTypeNode(thisParam.type);
+  const normalized = normalizeParameterTypeNode(
+    thisParam.type,
+    sourceSemantics
+  );
   return normalized.typeNode;
 };
 
@@ -117,7 +126,8 @@ export const extractThisParameterTypeNode = (
  * This is PURE SYNTAX inspection, no TS type inference.
  */
 export const extractParameterNodes = (
-  decl: ts.SignatureDeclaration | undefined
+  decl: ts.SignatureDeclaration | undefined,
+  sourceSemantics?: FrontendSourceSemanticView
 ): readonly ParameterNode[] => {
   if (!decl) return [];
   // TypeScript `this:` parameters are not call arguments. Exclude them from arity,
@@ -125,7 +135,7 @@ export const extractParameterNodes = (
   const params = decl.parameters.filter((p) => !isThisParameter(p));
 
   return params.map((p) => {
-    const normalized = normalizeParameterTypeNode(p.type);
+    const normalized = normalizeParameterTypeNode(p.type, sourceSemantics);
     return {
       name: ts.isIdentifier(p.name) ? p.name.text : "param",
       typeNode: normalized.typeNode,
@@ -137,18 +147,16 @@ export const extractParameterNodes = (
 };
 
 /**
- * Normalize a parameter type node by detecting ref<T>/out<T>/in<T> wrappers.
- *
- * This is PURE SYNTAX analysis - we look at the TypeNode AST structure:
- * - If it's a TypeReferenceNode with identifier name "ref"/"out"/"in"
- * - And exactly one type argument
- * - Then unwrap to get the inner type
+ * Normalize parameter marker wrappers discovered by source-extension facts.
+ * The TypeScript AST is used only to unwrap the single type argument after
+ * TSTS has proven that the wrapper is a real source parameter-passing marker.
  *
  * @param typeNode The parameter's type node
  * @returns { mode, typeNode } where typeNode is unwrapped if wrapper detected
  */
 export const normalizeParameterTypeNode = (
-  typeNode: ts.TypeNode | undefined
+  typeNode: ts.TypeNode | undefined,
+  sourceSemantics?: FrontendSourceSemanticView
 ): { mode: ParameterMode; typeNode: ts.TypeNode | undefined } => {
   if (!typeNode) {
     return { mode: "value", typeNode: undefined };
@@ -156,7 +164,7 @@ export const normalizeParameterTypeNode = (
 
   // Mirror IR conversion rules: wrappers may be nested and may appear in any order.
   // - thisarg<T> marks an extension-method receiver parameter (erases for typing)
-  // - ref<T>/out<T>/in<T>/inref<T> set passing mode and erase to T for typing
+  // - source parameter-passing facts set passing mode and erase to T for typing
   let mode: ParameterMode = "value";
   let current: ts.TypeNode | undefined = typeNode;
 
@@ -178,14 +186,11 @@ export const normalizeParameterTypeNode = (
       continue;
     }
 
-    if (wrapperName === "ref" || wrapperName === "out") {
-      mode = wrapperName;
-      current = inner;
-      continue;
-    }
-
-    if (wrapperName === "in" || wrapperName === "inref") {
-      mode = "in";
+    const factMode = parameterPassingModeFromFact(
+      sourceSemantics?.getFact(current, parameterPassingFactKey)
+    );
+    if (factMode && factMode !== "value") {
+      mode = factMode;
       current = inner;
       continue;
     }

@@ -18,6 +18,10 @@ import {
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 import type { Binding } from "../../../binding/index.js";
+import {
+  parameterPassingFactKey,
+  parameterPassingModeFromFact,
+} from "../../../../source-frontend/index.js";
 
 /**
  * Convert TypeScript object literal type to IR type.
@@ -146,26 +150,21 @@ const convertTypeParameters = (
     let passing: "value" | "ref" | "out" | "in" = "value";
     let actualType: ts.TypeNode | undefined = param.type;
 
-    // Detect ref<T>, out<T>, in<T>, inref<T> wrapper types
+    // Detect source-proven parameter-passing wrapper types.
     if (
       param.type &&
-      ts.isTypeReferenceNode(param.type) &&
-      ts.isIdentifier(param.type.typeName)
+      ts.isTypeReferenceNode(param.type)
     ) {
-      const typeName = param.type.typeName.text;
+      const factMode = parameterPassingModeFromFact(
+        binding.getSourceFact(param.type, parameterPassingFactKey)
+      );
       if (
-        (typeName === "ref" ||
-          typeName === "out" ||
-          typeName === "in" ||
-          typeName === "inref") &&
+        factMode &&
+        factMode !== "value" &&
         param.type.typeArguments &&
         param.type.typeArguments.length > 0
       ) {
-        // Set passing mode (both "in" and "inref" map to target "in")
-        passing =
-          typeName === "in" || typeName === "inref"
-            ? "in"
-            : (typeName as "ref" | "out");
+        passing = factMode;
         // Extract wrapped type
         actualType = param.type.typeArguments[0];
       }

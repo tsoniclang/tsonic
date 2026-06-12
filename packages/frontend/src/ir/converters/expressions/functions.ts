@@ -18,6 +18,10 @@ import { withParameterTypeEnv } from "../type-env.js";
 import type { ProgramContext } from "../../program-context.js";
 import { getReturnExpressionExpectedType } from "../return-expression-types.js";
 import { inferDeterministicBlockReturnType } from "../statements/declarations/return-type-inference.js";
+import {
+  parameterPassingFactKey,
+  parameterPassingModeFromFact,
+} from "../../../source-frontend/index.js";
 
 const isNullishPrimitive = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
@@ -175,7 +179,7 @@ const convertLambdaParameters = (
 
     // Detect wrapper types (explicit annotation only):
     // - thisarg<T> marks an extension-method receiver parameter (emits target `this`)
-    // - ref<T>/out<T>/in<T> wrapper types mark passing mode (unwrap to T)
+    // - TSTS parameter-passing facts mark passing mode (unwrap to T)
     while (
       actualType &&
       ts.isTypeReferenceNode(actualType) &&
@@ -191,8 +195,11 @@ const convertLambdaParameters = (
         continue;
       }
 
-      if (typeName === "ref" || typeName === "out" || typeName === "in") {
-        passing = typeName === "in" ? "in" : typeName;
+      const factMode = parameterPassingModeFromFact(
+        ctx.sourceSemantics.getFact(actualType, parameterPassingFactKey)
+      );
+      if (factMode && factMode !== "value") {
+        passing = factMode;
         actualType = actualType.typeArguments[0];
         continue;
       }

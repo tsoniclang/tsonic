@@ -15,9 +15,17 @@ import { BindingRegistry } from "../../program/bindings.js";
 import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
 import {
-  createEmptyTstsSourceProgramForTests,
+  createSourceSemanticFactStore,
+  createTstsSourceProgram,
   createTypeScriptSemanticView,
+  projectTstsFactsToTypeScriptSource,
 } from "../../source-frontend/index.js";
+import type { TstsSourceProgram } from "../../source-frontend/index.js";
+import { createExtensionHost, parseTstsSourceFile } from "@tsonic/tsts";
+import {
+  createTsonicNumericPrimitiveExtension,
+  createTsonicSourceSemanticsExtension,
+} from "../../tsonic-extension/index.js";
 
 export { createProgram, createProgramContext };
 
@@ -67,6 +75,29 @@ export const createTestProgram = (
   );
 
   const checker = program.getTypeChecker();
+  const sourceFacts = createSourceSemanticFactStore<ts.Node>();
+  const sourceSemantics = createTypeScriptSemanticView(checker, sourceFacts);
+  const extensionHost = createExtensionHost([
+    createTsonicNumericPrimitiveExtension(),
+    createTsonicSourceSemanticsExtension(),
+  ]);
+  const tstsSourceFile = parseTstsSourceFile(source, { fileName });
+  if (!tstsSourceFile) {
+    throw new Error(`TSTS parser did not create ${fileName}`);
+  }
+  extensionHost.configure();
+  extensionHost.afterParseSourceFile(tstsSourceFile);
+  const sourceProgram: TstsSourceProgram = {
+    engine: "tsts",
+    sourceFiles: [tstsSourceFile],
+    extensionHost,
+    diagnostics: extensionHost.diagnostics.all(),
+    compilerDiagnostics: [],
+    withSourceSemantics: () => {
+      throw new Error("In-memory builder test program has no TSTS checker.");
+    },
+  };
+  projectTstsFactsToTypeScriptSource(sourceProgram, [sourceFile], sourceFacts);
 
   const testProgram = {
     program,
@@ -80,12 +111,12 @@ export const createTestProgram = (
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
-    sourceProgram: createEmptyTstsSourceProgramForTests(),
-    sourceSemantics: createTypeScriptSemanticView(checker),
+    sourceProgram,
+    sourceSemantics,
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(createTypeScriptSemanticView(checker)),
+    binding: createBinding(sourceSemantics),
   };
 
   // Create ProgramContext for the test
@@ -128,6 +159,25 @@ export const createFilesystemTestProgram = (
   if (!sourceFile) {
     throw new Error(`Failed to create source file for ${entryRelativePath}`);
   }
+  const sourceFiles = rootNames
+    .filter((filePath) => !filePath.endsWith(".d.ts"))
+    .map((filePath) => tsProgram.getSourceFile(filePath))
+    .filter(
+      (candidate): candidate is ts.SourceFile => candidate !== undefined
+    );
+  const declarationSourceFiles = rootNames
+    .filter((filePath) => filePath.endsWith(".d.ts"))
+    .map((filePath) => tsProgram.getSourceFile(filePath))
+    .filter(
+      (candidate): candidate is ts.SourceFile => candidate !== undefined
+    );
+  const sourceProgram = createTstsSourceProgram(
+    sourceFiles.map((candidate) => candidate.fileName),
+    { projectRoot: tempDir }
+  );
+  const sourceFacts = createSourceSemanticFactStore<ts.Node>();
+  projectTstsFactsToTypeScriptSource(sourceProgram, sourceFiles, sourceFacts);
+  const sourceSemantics = createTypeScriptSemanticView(checker, sourceFacts);
 
   const testProgram = {
     program: tsProgram,
@@ -139,24 +189,14 @@ export const createFilesystemTestProgram = (
       rootNamespace: "TestApp",
       strict: true,
     },
-    sourceFiles: rootNames
-      .filter((filePath) => !filePath.endsWith(".d.ts"))
-      .map((filePath) => tsProgram.getSourceFile(filePath))
-      .filter(
-        (candidate): candidate is ts.SourceFile => candidate !== undefined
-      ),
-    declarationSourceFiles: rootNames
-      .filter((filePath) => filePath.endsWith(".d.ts"))
-      .map((filePath) => tsProgram.getSourceFile(filePath))
-      .filter(
-        (candidate): candidate is ts.SourceFile => candidate !== undefined
-      ),
-    sourceProgram: createEmptyTstsSourceProgramForTests(),
-    sourceSemantics: createTypeScriptSemanticView(checker),
+    sourceFiles,
+    declarationSourceFiles,
+    sourceProgram,
+    sourceSemantics,
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver(tempDir),
-    binding: createBinding(createTypeScriptSemanticView(checker)),
+    binding: createBinding(sourceSemantics),
   };
 
   const options = {

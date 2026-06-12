@@ -308,7 +308,7 @@ export const getOrCreateSignatureId = (
   // Extract type predicate from return type using syntax inspection only.
   const returnTypeNode = getReturnTypeNode(decl);
   const typePredicate = extractTypePredicate(returnTypeNode, decl);
-  const parameters = extractParameterNodes(decl);
+  const parameters = extractParameterNodes(decl, ctx.sourceSemantics);
 
   const entry: SignatureEntry = {
     signature,
@@ -324,7 +324,7 @@ export const getOrCreateSignatureId = (
           ),
         }
       : {}),
-    thisTypeNode: extractThisParameterTypeNode(decl),
+    thisTypeNode: extractThisParameterTypeNode(decl, ctx.sourceSemantics),
     returnTypeNode,
     typeParameters: extractTypeParameterNodes(decl),
     declaringTypeTsName:

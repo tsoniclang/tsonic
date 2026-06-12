@@ -25,7 +25,10 @@ import type {
   TypeSyntaxInfo,
 } from "../type-system/internal/handle-types.js";
 import type { BindingInternal, TypePredicateInfo } from "./binding-types.js";
-import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
+import type {
+  FrontendSourceSemanticView,
+  SourceSemanticFactKey,
+} from "../../source-frontend/index.js";
 import {
   createBindingContext,
   getOrCreateDeclId,
@@ -308,6 +311,8 @@ export const createBinding = (
       resolveConstructorSignatureImpl(ctx, node),
     resolveConstructorSignatureCandidates: (node) =>
       resolveConstructorSignatureCandidatesImpl(ctx, node),
+    getSourceFact: <T>(node: ts.Node, key: SourceSemanticFactKey<T>) =>
+      sourceSemantics.getFact(node, key),
     resolveImport,
     resolveShorthandAssignment,
     getDeclaringTypeNameOfMember,

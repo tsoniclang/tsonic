@@ -13,6 +13,10 @@ import type { IrType } from "../../../types.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { CallSiteArgModifier } from "./call-site-analysis-unification.js";
+import {
+  callSitePassingModifierFromFact,
+  parameterPassingFactKey,
+} from "../../../../source-frontend/index.js";
 
 type PassingMode = "value" | "ref" | "out" | "in";
 
@@ -28,7 +32,8 @@ type PassingMode = "value" | "ref" | "out" | "in";
  * normal calls.
  */
 export const unwrapCallSiteArgumentModifier = (
-  expr: ts.Expression
+  expr: ts.Expression,
+  ctx: ProgramContext
 ): {
   readonly expression: ts.Expression;
   readonly modifier?: CallSiteArgModifier;
@@ -40,10 +45,11 @@ export const unwrapCallSiteArgumentModifier = (
   }
 
   if (!ts.isCallExpression(current)) return { expression: expr };
-  if (!ts.isIdentifier(current.expression)) return { expression: expr };
 
-  const name = current.expression.text;
-  if (name !== "out" && name !== "ref" && name !== "inref") {
+  const modifier = callSitePassingModifierFromFact(
+    ctx.sourceSemantics.getFact(current, parameterPassingFactKey)
+  );
+  if (!modifier) {
     return { expression: expr };
   }
 
@@ -58,8 +64,6 @@ export const unwrapCallSiteArgumentModifier = (
   const inner = current.arguments[0];
   if (!inner) return { expression: expr };
 
-  const modifier: CallSiteArgModifier =
-    name === "inref" ? "in" : (name as "out" | "ref");
   return { expression: inner, modifier };
 };
 

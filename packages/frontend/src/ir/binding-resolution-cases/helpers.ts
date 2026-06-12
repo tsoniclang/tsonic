@@ -11,9 +11,16 @@ import { createExternalBindingsResolver } from "../../resolver/external-bindings
 import { createBinding } from "../binding/index.js";
 import type { DeclId } from "../type-system/types.js";
 import {
-  createEmptyTstsSourceProgramForTests,
+  createSourceSemanticFactStore,
   createTypeScriptSemanticView,
+  projectTstsFactsToTypeScriptSource,
 } from "../../source-frontend/index.js";
+import type { TstsSourceProgram } from "../../source-frontend/index.js";
+import { createExtensionHost, parseTstsSourceFile } from "@tsonic/tsts";
+import {
+  createTsonicNumericPrimitiveExtension,
+  createTsonicSourceSemanticsExtension,
+} from "../../tsonic-extension/index.js";
 
 export { buildIrModule } from "../builder.js";
 export { createProgramContext } from "../program-context.js";
@@ -61,6 +68,31 @@ export const createTestProgram = (
   );
 
   const checker = program.getTypeChecker();
+  const sourceFacts = createSourceSemanticFactStore<ts.Node>();
+  const sourceSemantics = createTypeScriptSemanticView(checker, sourceFacts);
+  const extensionHost = createExtensionHost([
+    createTsonicNumericPrimitiveExtension(),
+    createTsonicSourceSemanticsExtension(),
+  ]);
+  const tstsSourceFile = parseTstsSourceFile(source, { fileName });
+  if (!tstsSourceFile) {
+    throw new Error(`TSTS parser did not create ${fileName}`);
+  }
+  extensionHost.configure();
+  extensionHost.afterParseSourceFile(tstsSourceFile);
+  const sourceProgram: TstsSourceProgram = {
+    engine: "tsts",
+    sourceFiles: [tstsSourceFile],
+    extensionHost,
+    diagnostics: extensionHost.diagnostics.all(),
+    compilerDiagnostics: [],
+    withSourceSemantics: () => {
+      throw new Error(
+        "In-memory binding-resolution test program has no TSTS checker."
+      );
+    },
+  };
+  projectTstsFactsToTypeScriptSource(sourceProgram, [sourceFile], sourceFacts);
 
   const testProgram = {
     program,
@@ -74,12 +106,12 @@ export const createTestProgram = (
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
-    sourceProgram: createEmptyTstsSourceProgramForTests(),
-    sourceSemantics: createTypeScriptSemanticView(checker),
+    sourceProgram,
+    sourceSemantics,
     metadata: new ExternalMetadataRegistry(),
     bindings: bindings || new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(createTypeScriptSemanticView(checker)),
+    binding: createBinding(sourceSemantics),
   };
 
   // Create ProgramContext for the test

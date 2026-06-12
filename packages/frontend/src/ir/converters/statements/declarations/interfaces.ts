@@ -18,6 +18,7 @@ import {
 } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
+import { sourceTypeSemanticsFactKey } from "../../../../source-frontend/index.js";
 
 /**
  * Convert interface member
@@ -59,18 +60,12 @@ export const convertInterfaceMember = (
   return null;
 };
 
-/**
- * Check if a type reference is the struct marker.
- * DETERMINISTIC: Uses only the AST expression text, not TypeScript type resolution.
- */
-const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
-  // Check the expression directly - it should be an identifier named "struct" or "Struct"
-  if (ts.isIdentifier(typeRef.expression)) {
-    const name = typeRef.expression.text;
-    return name === "struct" || name === "Struct";
-  }
-  return false;
-};
+const isStructMarker = (
+  typeRef: ts.ExpressionWithTypeArguments,
+  ctx: ProgramContext
+): boolean =>
+  ctx.sourceSemantics.getFact(typeRef, sourceTypeSemanticsFactKey)?.kind ===
+  "struct";
 
 /**
  * Unwrap `Interface<T>` in heritage clauses.
@@ -212,44 +207,13 @@ const extractCallableInterfaceOnlyType = (
 };
 
 /**
- * Check if an interface declaration IS the struct marker itself (should be filtered out)
- */
-const isMarkerInterface = (node: ts.InterfaceDeclaration): boolean => {
-  const name = node.name.text;
-  if (name !== "struct" && name !== "Struct") {
-    return false;
-  }
-
-  // Check if it has only the __brand property
-  const members = node.members;
-  if (members.length !== 1) {
-    return false;
-  }
-
-  const member = members[0];
-  if (!member || !ts.isPropertySignature(member)) {
-    return false;
-  }
-
-  const memberName =
-    member.name && ts.isIdentifier(member.name) ? member.name.text : "";
-  return memberName === "__brand";
-};
-
-/**
  * Convert interface declaration
- * Returns null for marker interfaces that should be filtered out.
  * Returns a type alias for index-signature-only interfaces (lowered to Dictionary).
  */
 export const convertInterfaceDeclaration = (
   node: ts.InterfaceDeclaration,
   ctx: ProgramContext
 ): IrInterfaceDeclaration | IrTypeAliasDeclaration | null => {
-  // Filter out marker interfaces completely
-  if (isMarkerInterface(node)) {
-    return null;
-  }
-
   // Check for index-signature-only interface → lower to type alias for dictionary
   const dictInfo = extractIndexSignatureOnlyInterface(node, ctx);
   if (dictInfo) {
@@ -278,15 +242,17 @@ export const convertInterfaceDeclaration = (
       isStruct: false,
     };
   }
-  // Detect struct marker in extends clause
-  let isStruct = false;
+  // Detect source-proven struct marker in extends clause.
+  let isStruct =
+    ctx.sourceSemantics.getFact(node, sourceTypeSemanticsFactKey)?.kind ===
+    "struct";
   const extendsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   );
   const extendsTypes =
     extendsClause?.types
       .filter((t) => {
-        if (isStructMarker(t)) {
+        if (isStructMarker(t, ctx)) {
           isStruct = true;
           return false; // Remove marker from extends
         }

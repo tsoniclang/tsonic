@@ -13,9 +13,7 @@ describe("IR Builder", function () {
   describe("Struct Detection", () => {
     it("should detect struct marker in interface", () => {
       const source = `
-        interface struct {
-          readonly __brand: "struct";
-        }
+        import type { struct } from "@tsonic/core/types.js";
 
         export interface Point extends struct {
           x: number;
@@ -51,9 +49,7 @@ describe("IR Builder", function () {
 
     it("should detect struct marker in class", () => {
       const source = `
-        interface struct {
-          readonly __brand: "struct";
-        }
+        import type { struct } from "@tsonic/core/types.js";
 
         export class Vector3D implements struct {
           x: number;
@@ -135,9 +131,7 @@ describe("IR Builder", function () {
 
     it("should allow struct marker in implements clause", () => {
       const source = `
-        interface struct {
-          readonly __brand: "struct";
-        }
+        import type { struct } from "@tsonic/core/types.js";
 
         export class Point implements struct {
           x: number;

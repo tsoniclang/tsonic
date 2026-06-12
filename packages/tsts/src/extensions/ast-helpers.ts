@@ -1,4 +1,5 @@
 import type { GoPtr } from "../go/compat.js";
+import type { SourceFile } from "../internal/ast/ast.js";
 import type { Node } from "../internal/ast/spine.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import {
@@ -39,6 +40,20 @@ export type TstsCallExpressionDetails = {
   readonly arguments: readonly GoPtr<Node>[];
   readonly typeArguments: readonly GoPtr<Node>[];
 };
+
+export type TstsNodeSpan = {
+  readonly pos: number;
+  readonly end: number;
+};
+
+export const getTstsSourceFileName = (
+  sourceFile: GoPtr<SourceFile>
+): string | undefined => sourceFile?.FileName();
+
+export const getTstsNodeSpan = (
+  node: GoPtr<Node>
+): TstsNodeSpan | undefined =>
+  node?.Loc ? { pos: node.Loc.pos, end: node.Loc.end } : undefined;
 
 export const forEachTstsChild = (
   node: GoPtr<Node>,

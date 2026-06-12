@@ -7,7 +7,9 @@ export {
   getTstsExpressionWithTypeArgumentsName,
   getTstsHeritageTypeNodes,
   getTstsIdentifierText,
+  getTstsNodeSpan,
   getTstsNodeNameText,
+  getTstsSourceFileName,
   getTstsTypeArguments,
   getTstsTypeReferenceDetails,
   getTstsTypeReferenceName,
@@ -20,6 +22,7 @@ export {
 } from "./ast-helpers.js";
 export type {
   TstsCallExpressionDetails,
+  TstsNodeSpan,
   TstsTypeReferenceDetails,
 } from "./ast-helpers.js";
 export { parseTstsSourceFile } from "./parse-source.js";

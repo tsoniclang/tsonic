@@ -61,6 +61,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         x: number;
       }
 
+      export class ValueObject implements valueType {}
       export class User {}
       export interface Shape {}
 
@@ -70,6 +71,7 @@ describe("Tsonic TSTS source semantics extension", () => {
 
     expect(Object.fromEntries(facts)).to.deep.equal({
       Point: "struct",
+      ValueObject: "struct",
       User: "class",
       Shape: "interface",
       FakeStruct: "interface",

@@ -21,6 +21,7 @@ import type {
   ClassMemberNames,
   HandleRegistry,
 } from "../type-system/internal/handle-types.js";
+import type { SourceSemanticFactKey } from "../../source-frontend/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BINDING INTERFACE
@@ -95,6 +96,12 @@ export type Binding = {
   resolveConstructorSignatureCandidates(
     node: ts.NewExpression
   ): readonly SignatureId[] | undefined;
+
+  /**
+   * Read source-extension facts projected onto TypeScript AST nodes.
+   * This keeps binding/type conversion behind the source semantic boundary.
+   */
+  getSourceFact<T>(node: ts.Node, key: SourceSemanticFactKey<T>): T | undefined;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // IMPORT RESOLUTION

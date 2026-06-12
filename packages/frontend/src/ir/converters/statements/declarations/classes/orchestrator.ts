@@ -16,6 +16,7 @@ import { convertConstructor } from "./constructors.js";
 import { getClassMemberName } from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 import { resolveHeritageReferenceType } from "../../../heritage-reference-type.js";
+import { sourceTypeSemanticsFactKey } from "../../../../../source-frontend/index.js";
 
 /**
  * Convert a single class member
@@ -74,18 +75,12 @@ const deduplicateMembers = (
   });
 };
 
-/**
- * Check if a type reference is the struct marker.
- * DETERMINISTIC: Uses only the AST expression text, not TypeScript type resolution.
- */
-const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
-  // Check the expression directly - it should be an identifier named "struct" or "Struct"
-  if (ts.isIdentifier(typeRef.expression)) {
-    const name = typeRef.expression.text;
-    return name === "struct" || name === "Struct";
-  }
-  return false;
-};
+const isStructMarker = (
+  typeRef: ts.ExpressionWithTypeArguments,
+  ctx: ProgramContext
+): boolean =>
+  ctx.sourceSemantics.getFact(typeRef, sourceTypeSemanticsFactKey)?.kind ===
+  "struct";
 
 /**
  * Unwrap `Interface<T>` in heritage clauses.
@@ -125,15 +120,17 @@ export const convertClassDeclaration = (
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   )?.types[0];
 
-  // Detect struct marker in implements clause
-  let isStruct = false;
+  // Detect source-proven struct marker in implements clause.
+  let isStruct =
+    ctx.sourceSemantics.getFact(node, sourceTypeSemanticsFactKey)?.kind ===
+    "struct";
   const implementsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ImplementsKeyword
   );
   const implementsTypes =
     implementsClause?.types
       .filter((t) => {
-        if (isStructMarker(t)) {
+        if (isStructMarker(t, ctx)) {
           isStruct = true;
           return false; // Remove marker from implements
         }

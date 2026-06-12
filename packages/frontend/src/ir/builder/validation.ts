@@ -9,28 +9,21 @@ import { Diagnostic } from "../../types/diagnostic.js";
 import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/types.js";
 import type { TypeAuthority } from "../type-system/type-system.js";
-import type { Binding } from "../binding/index.js";
+import { sourceTypeSemanticsFactKey } from "../../source-frontend/index.js";
 
 /**
  * Check if a type reference is the struct marker
  * (used to mark types as native value types)
- * Uses TypeSystem for symbol resolution.
+ * Uses source-extension facts projected from TSTS.
  */
 const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
-  binding: Binding,
-  typeSystem: TypeAuthority
+  ctx: ProgramContext
 ): boolean => {
-  if (!ts.isIdentifier(typeRef.expression)) {
-    return false;
-  }
-  const declId = binding.resolveIdentifier(typeRef.expression);
-  if (!declId) {
-    return false;
-  }
-
-  const fqName = typeSystem.getFQNameOfDecl(declId);
-  return fqName === "struct" || fqName === "Struct";
+  return (
+    ctx.sourceSemantics.getFact(typeRef, sourceTypeSemanticsFactKey)?.kind ===
+    "struct"
+  );
 };
 
 /**
@@ -75,8 +68,8 @@ const validateClassDeclaration = (
   if (!implementsClause) return [];
 
   for (const typeRef of implementsClause.types) {
-    // Skip the struct marker - it's a special pattern for value types
-    if (isStructMarker(typeRef, ctx.binding, ctx.typeSystem)) {
+    // Skip the proven source-level struct marker; it is not an emitted interface.
+    if (isStructMarker(typeRef, ctx)) {
       continue;
     }
 

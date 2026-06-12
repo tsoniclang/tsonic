@@ -126,7 +126,7 @@ export const convertNewExpression = (
       continue;
     }
 
-    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    const unwrapped = unwrapCallSiteArgumentModifier(arg, ctx);
     if (unwrapped.modifier) {
       callSiteArgModifiers[index] = unwrapped.modifier;
     }
@@ -165,7 +165,7 @@ export const convertNewExpression = (
     const arg = args[index];
     if (!arg) continue;
     if (ts.isSpreadElement(arg)) continue;
-    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    const unwrapped = unwrapCallSiteArgumentModifier(arg, ctx);
     if (unwrapped.modifier) {
       callSiteArgModifiers[index] = unwrapped.modifier;
     }
@@ -204,7 +204,7 @@ export const convertNewExpression = (
         sourceSpan: getSourceSpan(arg),
       };
     }
-    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    const unwrapped = unwrapCallSiteArgumentModifier(arg, ctx);
     if (unwrapped.modifier) {
       callSiteArgModifiers[index] = unwrapped.modifier;
     }

@@ -15,6 +15,8 @@ describe("Binding Resolution in IR", () => {
   describe("Extension Method Binding Resolution — tsbindgen & Modifiers", () => {
     it("should resolve instance-style tsbindgen extension methods via __Ext_* container", () => {
       const source = `
+        import { out } from "@tsonic/core/lang.js";
+
         interface IEnumerable_1<T> {}
 
         interface __Ext_System_Linq_IEnumerable_1<T> {
@@ -364,6 +366,8 @@ describe("Binding Resolution in IR", () => {
 
     it("should emit TSN7444 when call-site out conflicts with a resolved signature", () => {
       const source = `
+        import { out } from "@tsonic/core/lang.js";
+
         export function f(x: number): void {}
 
         export function test() {
