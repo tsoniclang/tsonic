@@ -15,6 +15,7 @@ export {
   getTstsTypeReferenceName,
   isTstsCallExpression,
   isTstsClassDeclaration,
+  isTstsIdentifier,
   isTstsInterfaceDeclaration,
   isTstsParameterDeclaration,
   isTstsPropertyDeclarationLike,

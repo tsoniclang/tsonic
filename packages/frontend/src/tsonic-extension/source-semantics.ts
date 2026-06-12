@@ -4,6 +4,7 @@ import {
   getTstsDeclaredTypeNode,
   getTstsExpressionWithTypeArgumentsName,
   getTstsHeritageTypeNodes,
+  getTstsIdentifierText,
   getTstsTypeArguments,
   getTstsTypeReferenceDetails,
   isTstsClassDeclaration,
@@ -15,6 +16,7 @@ import {
 import type {
   FieldSemanticsFact,
   IntrinsicSemanticsFact,
+  MarkerApiSemanticsFact,
   ParameterPassingFact,
   ParameterPassingMode,
   SourceTypeSemanticsFact,
@@ -27,6 +29,7 @@ import {
 import {
   fieldSemanticsFactKey,
   intrinsicSemanticsFactKey,
+  markerApiSemanticsFactKey,
   parameterPassingFactKey,
   sourceTypeSemanticsFactKey,
   extensionReceiverSemanticsFactKey,
@@ -71,6 +74,15 @@ const intrinsicKindsBySourceName: ReadonlyMap<
   ["sizeof", "sizeof"],
   ["stackalloc", "stackalloc"],
   ["trycast", "trycast"],
+]);
+
+const markerApiKindsBySourceName: ReadonlyMap<
+  string,
+  MarkerApiSemanticsFact["kind"]
+> = new Map([
+  ["attributes", "attributes"],
+  ["AttributeTargets", "attribute-targets"],
+  ["overloads", "overloads"],
 ]);
 
 const typeWrapperPassingFact = (
@@ -180,6 +192,19 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
 
     visitTstsSubtree(context.sourceFile, (node): void => {
       if (!node) return;
+
+      const identifierText = getTstsIdentifierText(node);
+      const importedIdentifierName = identifierText
+        ? coreLangBindingByLocalName.get(identifierText)?.importedName
+        : undefined;
+      const markerApiKind = importedIdentifierName
+        ? markerApiKindsBySourceName.get(importedIdentifierName)
+        : undefined;
+      if (markerApiKind) {
+        context.facts.set(markerApiSemanticsFactKey, node, {
+          kind: markerApiKind,
+        });
+      }
 
       if (isTstsClassDeclaration(node)) {
         const structMarkers = structHeritageTypes(

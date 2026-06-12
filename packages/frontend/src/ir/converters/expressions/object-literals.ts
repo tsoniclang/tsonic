@@ -175,7 +175,7 @@ export const convertObjectLiteral = (
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
   const shouldSuppressContextualType =
     ctx.suppressObjectLiteralContextualTypeNodes?.has(node) ||
-    isAttributeMetadataNamedArgumentObjectLiteral(node);
+    isAttributeMetadataNamedArgumentObjectLiteral(node, ctx.sourceSemantics);
   const contextualCandidateFromParent =
     expectedType ??
     (shouldSuppressContextualType

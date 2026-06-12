@@ -1,6 +1,6 @@
 import * as ts from "typescript";
-
-const ATTRIBUTES_IMPORT_SPECIFIER = "@tsonic/core/lang.js";
+import type { FrontendSourceSemanticView } from "../../../source-frontend/index.js";
+import { markerApiSemanticsFactKey } from "../../../source-frontend/index.js";
 
 const stripParentheses = (expr: ts.Expression): ts.Expression => {
   let current = expr;
@@ -10,46 +10,29 @@ const stripParentheses = (expr: ts.Expression): ts.Expression => {
   return current;
 };
 
-const getAttributesApiLocalNames = (
-  sourceFile: ts.SourceFile
-): ReadonlySet<string> => {
-  const names = new Set<string>();
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement)) continue;
-    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    if (statement.moduleSpecifier.text !== ATTRIBUTES_IMPORT_SPECIFIER) {
-      continue;
-    }
-
-    const bindings = statement.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
-
-    for (const element of bindings.elements) {
-      const importedName = element.propertyName?.text ?? element.name.text;
-      if (importedName === "attributes") {
-        names.add(element.name.text);
-      }
-    }
-  }
-  return names;
-};
+const isAttributesApiIdentifier = (
+  expression: ts.Identifier,
+  sourceSemantics: FrontendSourceSemanticView
+): boolean =>
+  sourceSemantics.getFact(expression, markerApiSemanticsFactKey)?.kind ===
+  "attributes";
 
 const isAttributesApiRootExpression = (
   expression: ts.Expression,
-  localNames: ReadonlySet<string>
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
   const current = stripParentheses(expression);
 
   if (ts.isIdentifier(current)) {
-    return localNames.has(current.text);
+    return isAttributesApiIdentifier(current, sourceSemantics);
   }
 
   if (ts.isCallExpression(current)) {
-    return isAttributesApiRootExpression(current.expression, localNames);
+    return isAttributesApiRootExpression(current.expression, sourceSemantics);
   }
 
   if (ts.isPropertyAccessExpression(current)) {
-    return isAttributesApiRootExpression(current.expression, localNames);
+    return isAttributesApiRootExpression(current.expression, sourceSemantics);
   }
 
   return false;
@@ -58,7 +41,8 @@ const isAttributesApiRootExpression = (
 export const isAttributeMetadataNamedArgumentPosition = (
   call: ts.CallExpression,
   argumentIndex: number,
-  expression: ts.Expression
+  expression: ts.Expression,
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
   const unwrapped = stripParentheses(expression);
   if (!ts.isObjectLiteralExpression(unwrapped)) {
@@ -78,21 +62,12 @@ export const isAttributeMetadataNamedArgumentPosition = (
     return false;
   }
 
-  const attributesApiLocalNames = getAttributesApiLocalNames(
-    call.getSourceFile()
-  );
-  if (attributesApiLocalNames.size === 0) {
-    return false;
-  }
-
-  return isAttributesApiRootExpression(
-    callee.expression,
-    attributesApiLocalNames
-  );
+  return isAttributesApiRootExpression(callee.expression, sourceSemantics);
 };
 
 export const isAttributeMetadataNamedArgumentObjectLiteral = (
-  node: ts.ObjectLiteralExpression
+  node: ts.ObjectLiteralExpression,
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
   let expression: ts.Expression = node;
   let parent = node.parent;
@@ -115,6 +90,7 @@ export const isAttributeMetadataNamedArgumentObjectLiteral = (
   return isAttributeMetadataNamedArgumentPosition(
     parent,
     argumentIndex,
-    expression
+    expression,
+    sourceSemantics
   );
 };

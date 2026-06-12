@@ -5,12 +5,14 @@ import type { TstsNode } from "@tsonic/tsts";
 import {
   getTstsCallExpressionDetails,
   getTstsExpressionWithTypeArgumentsName,
+  getTstsIdentifierText,
   getTstsNodeNameText,
   getTstsNodeSpan,
   getTstsSourceFileName,
   getTstsTypeReferenceDetails,
   isTstsCallExpression,
   isTstsClassDeclaration,
+  isTstsIdentifier,
   isTstsInterfaceDeclaration,
   isTstsParameterDeclaration,
   isTstsPropertyDeclarationLike,
@@ -22,6 +24,7 @@ import {
   extensionReceiverSemanticsFactKey,
   heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
+  markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
   sourceTypeSemanticsFactKey,
@@ -35,6 +38,7 @@ type ProjectionShape =
   | "callExpression"
   | "classDeclaration"
   | "expressionWithTypeArguments"
+  | "identifier"
   | "interfaceDeclaration"
   | "parameter"
   | "propertyDeclarationLike"
@@ -88,6 +92,9 @@ const tsNodeName = (
   if (ts.isExpressionWithTypeArguments(node)) {
     return tsExpressionName(node.expression, sourceFile);
   }
+  if (ts.isIdentifier(node)) {
+    return node.text;
+  }
   return undefined;
 };
 
@@ -97,6 +104,7 @@ const tsProjectionShape = (node: ts.Node): ProjectionShape | undefined => {
   if (ts.isExpressionWithTypeArguments(node)) {
     return "expressionWithTypeArguments";
   }
+  if (ts.isIdentifier(node)) return "identifier";
   if (ts.isInterfaceDeclaration(node)) return "interfaceDeclaration";
   if (ts.isParameter(node)) return "parameter";
   if (ts.isPropertyDeclaration(node) || ts.isPropertySignature(node)) {
@@ -114,6 +122,7 @@ const tstsProjectionShape = (
   if (getTstsExpressionWithTypeArgumentsName(node)) {
     return "expressionWithTypeArguments";
   }
+  if (isTstsIdentifier(node)) return "identifier";
   if (isTstsInterfaceDeclaration(node)) return "interfaceDeclaration";
   if (isTstsParameterDeclaration(node)) return "parameter";
   if (isTstsPropertyDeclarationLike(node)) return "propertyDeclarationLike";
@@ -129,6 +138,8 @@ const tstsNodeName = (node: TstsNode): string | undefined => {
   const expressionWithTypeArgumentsName =
     getTstsExpressionWithTypeArgumentsName(node);
   if (expressionWithTypeArgumentsName) return expressionWithTypeArgumentsName;
+  const identifierText = getTstsIdentifierText(node);
+  if (identifierText) return identifierText;
   return getTstsNodeNameText(node);
 };
 
@@ -169,6 +180,7 @@ const projectFactsFromNode = (
   projectFact(parameterPassingFactKey);
   projectFact(extensionReceiverSemanticsFactKey);
   projectFact(heritageWrapperSemanticsFactKey);
+  projectFact(markerApiSemanticsFactKey);
   projectFact(intrinsicSemanticsFactKey);
 };
 

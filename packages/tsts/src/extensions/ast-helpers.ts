@@ -82,6 +82,9 @@ export const getTstsIdentifierText = (
   return AsIdentifier(node)?.Text;
 };
 
+export const isTstsIdentifier = (node: GoPtr<Node>): boolean =>
+  node?.Kind === KindIdentifier;
+
 export const getTstsNodeNameText = (node: GoPtr<Node>): string | undefined =>
   node ? getTstsIdentifierText(Node_Name(node)) : undefined;
 

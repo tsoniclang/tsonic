@@ -63,6 +63,10 @@ export type HeritageWrapperSemanticsFact = {
   readonly kind: "interface-erasure";
 };
 
+export type MarkerApiSemanticsFact = {
+  readonly kind: "attributes" | "attribute-targets" | "overloads";
+};
+
 export type IntrinsicSemanticsFact = {
   readonly kind:
     | "asinterface"
@@ -114,6 +118,12 @@ export const heritageWrapperSemanticsFactKey =
   defineSourceSemanticFactKey<HeritageWrapperSemanticsFact>(
     "tsonic:source:heritage-wrapper",
     "Source-level heritage wrapper semantics such as Interface<T> erasure."
+  );
+
+export const markerApiSemanticsFactKey =
+  defineSourceSemanticFactKey<MarkerApiSemanticsFact>(
+    "tsonic:source:marker-api",
+    "Source-level compiler marker API provenance such as attributes or overloads."
   );
 
 export const intrinsicSemanticsFactKey =

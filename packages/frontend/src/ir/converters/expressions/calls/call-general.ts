@@ -3365,7 +3365,8 @@ export const convertCallExpression = (
       isAttributeMetadataNamedArgumentPosition(
         node,
         index,
-        unwrapped.expression
+        unwrapped.expression,
+        ctx.sourceSemantics
       );
     const initialExpectedType = isAttributeNamedArgumentObject
       ? undefined
@@ -3837,7 +3838,8 @@ export const convertCallExpression = (
         isAttributeMetadataNamedArgumentPosition(
           node,
           index,
-          unwrapped.expression
+          unwrapped.expression,
+          ctx.sourceSemantics
         )
       ) {
         return argument;

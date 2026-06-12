@@ -3,6 +3,7 @@ import { expect } from "chai";
 import {
   createExtensionHost,
   getTstsCallExpressionDetails,
+  getTstsIdentifierText,
   getTstsNodeNameText,
   getTstsTypeReferenceDetails,
   isTstsCallExpression,
@@ -19,6 +20,7 @@ import {
   extensionReceiverSemanticsFactKey,
   heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
+  markerApiSemanticsFactKey,
   parameterPassingFactKey,
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
@@ -266,6 +268,47 @@ describe("Tsonic TSTS source semantics extension", () => {
     ]);
   });
 
+  it("attaches marker API facts from imported core values", () => {
+    const fixture = collectSemanticNodes(`
+      import {
+        AttributeTargets,
+        attributes as A,
+        overloads as O,
+      } from "@tsonic/core/lang.js";
+
+      class User {}
+      declare function f(): void;
+
+      const descriptor = A.attr(User, { Name: "demo" });
+      A<User>().target(AttributeTargets.method).add(descriptor);
+      O(f).family(f);
+    `);
+
+    const markerFacts = fixture.nodes
+      .map((node) => {
+        if (!node) return undefined;
+        const name = getTstsIdentifierText(node);
+        const marker = fixture.host.facts.get(markerApiSemanticsFactKey, node)
+          ?.kind;
+        return name && marker ? { name, marker } : undefined;
+      })
+      .filter(
+        (
+          entry
+        ): entry is {
+          readonly name: string;
+          readonly marker: "attributes" | "attribute-targets" | "overloads";
+        } =>
+          entry !== undefined
+      );
+
+    expect(markerFacts).to.deep.include.members([
+      { name: "A", marker: "attributes" },
+      { name: "AttributeTargets", marker: "attribute-targets" },
+      { name: "O", marker: "overloads" },
+    ]);
+  });
+
   it("does not attach source marker facts to same-name local declarations", () => {
     const fixture = collectSemanticNodes(`
       type field<T> = T;
@@ -279,6 +322,12 @@ describe("Tsonic TSTS source semantics extension", () => {
       function istype<T>(_value: unknown): boolean {
         return false;
       }
+      function attributes<T>(): { add(): void } {
+        return { add() {} };
+      }
+      function overloads<T>(_value: T): { family(_target: T): void } {
+        return { family() {} };
+      }
 
       export interface FakeStruct extends struct {}
       export interface Contract {}
@@ -289,6 +338,8 @@ describe("Tsonic TSTS source semantics extension", () => {
       export function update(target: thisarg<User>, value: out<number>): void {
         defaultof<number>();
         istype<number>(value);
+        attributes<User>().add();
+        overloads(update).family(update);
       }
     `);
 
@@ -317,12 +368,18 @@ describe("Tsonic TSTS source semantics extension", () => {
         node !== undefined &&
         fixture.host.facts.has(heritageWrapperSemanticsFactKey, node)
     );
+    const markerApiFacts = fixture.nodes.filter(
+      (node) =>
+        node !== undefined &&
+        fixture.host.facts.has(markerApiSemanticsFactKey, node)
+    );
 
     expect(fieldFacts).to.deep.equal([]);
     expect(passingFacts).to.deep.equal([]);
     expect(intrinsicFacts).to.deep.equal([]);
     expect(receiverFacts).to.deep.equal([]);
     expect(heritageFacts).to.deep.equal([]);
+    expect(markerApiFacts).to.deep.equal([]);
     expect(
       collectDeclarationFactsByName(`
       interface struct {}
