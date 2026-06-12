@@ -101,7 +101,7 @@ const isStructMarker = (
 const unwrapInterfaceHeritageType = (
   typeRef: ts.ExpressionWithTypeArguments,
   ctx: ProgramContext
-): ts.TypeNode => {
+): ts.ExpressionWithTypeArguments | ts.TypeNode => {
   if (
     isHeritageInterfaceErasure(
       ctx.sourceSemantics.getFact(typeRef, heritageWrapperSemanticsFactKey)
@@ -112,8 +112,7 @@ const unwrapInterfaceHeritageType = (
     if (only) return only;
   }
 
-  // ExpressionWithTypeArguments is a TypeNode in TS's AST for heritage clauses.
-  return typeRef as unknown as ts.TypeNode;
+  return typeRef;
 };
 
 /**

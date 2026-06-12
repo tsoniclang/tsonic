@@ -9,7 +9,7 @@
  * - Converting RawBindingsType → NominalEntry
  */
 
-import type { IrType } from "../../../types/index.js";
+import type { IrParameter, IrType } from "../../../types/index.js";
 import { tsbindgenTargetTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import type {
   NominalEntry,
@@ -34,6 +34,24 @@ import { compareHeritageEdges, heritageEdgeKey } from "./heritage-edge-key.js";
 // ═══════════════════════════════════════════════════════════════════════════
 // NORMALIZED SIGNATURE PARSING
 // ═══════════════════════════════════════════════════════════════════════════
+
+type NormalizedMethodSignatureSource = {
+  readonly stableId?: string;
+  readonly semanticSignature?: {
+    readonly typeParameters?: readonly string[];
+    readonly parameters: readonly IrParameter[];
+    readonly returnType?: IrType;
+  };
+  readonly parameterCount?: number;
+  readonly isStatic?: boolean;
+  readonly isExtensionMethod?: boolean;
+  readonly sourceInterface?: string;
+  readonly parameterModifiers?: readonly {
+    readonly index: number;
+    readonly modifier: ParameterMode;
+  }[];
+  readonly arity?: number;
+};
 
 /**
  * Parse type from normalized signature for properties.
@@ -98,11 +116,11 @@ export const parseFieldType = (normalizedSig: string): IrType => {
  */
 export const parseMethodSignature = (
   normalizedSig: string,
-  method: RawBindingsMethod
+  method: NormalizedMethodSignatureSource
 ): MethodSignatureEntry => {
   if (method.semanticSignature) {
     return {
-      stableId: method.stableId,
+      stableId: method.stableId ?? normalizedSig,
       parameters: method.semanticSignature.parameters.map(
         (parameter, index) => ({
           name:
@@ -121,9 +139,10 @@ export const parseMethodSignature = (
       typeParameters:
         method.semanticSignature.typeParameters?.map((name) => ({ name })) ??
         [],
-      parameterCount: method.parameterCount,
-      isStatic: method.isStatic,
-      isExtensionMethod: method.isExtensionMethod,
+      parameterCount:
+        method.parameterCount ?? method.semanticSignature.parameters.length,
+      isStatic: method.isStatic ?? false,
+      isExtensionMethod: method.isExtensionMethod ?? false,
       sourceInterface: method.sourceInterface,
       normalizedSignature: normalizedSig,
     };
@@ -240,22 +259,23 @@ export const parseMethodSignature = (
     )
   );
   collectReferencedTypeParameterNames(returnType, referencedTypeParameterNames);
+  const arity = method.arity ?? 0;
   const typeParameters =
-    method.arity > 0
-      ? Array.from({ length: method.arity }, (_, i) => ({
+    arity > 0
+      ? Array.from({ length: arity }, (_, i) => ({
           name:
             referencedTypeParameterNames[i] ?? (i === 0 ? "T" : `T${i + 1}`),
         }))
       : [];
 
   return {
-    stableId: method.stableId,
+    stableId: method.stableId ?? normalizedSig,
     parameters,
     returnType,
     typeParameters,
-    parameterCount: method.parameterCount,
-    isStatic: method.isStatic,
-    isExtensionMethod: method.isExtensionMethod,
+    parameterCount: method.parameterCount ?? parameters.length,
+    isStatic: method.isStatic ?? false,
+    isExtensionMethod: method.isExtensionMethod ?? false,
     sourceInterface: method.sourceInterface,
     normalizedSignature: normalizedSig,
   };

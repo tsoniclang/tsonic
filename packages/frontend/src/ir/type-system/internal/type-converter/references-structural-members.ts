@@ -20,6 +20,7 @@ import {
 } from "./references-normalize.js";
 import { shouldExtractFromDeclaration } from "./references-structural-bindings.js";
 import { expandDirectAliasSyntax } from "./direct-alias-expansion.js";
+import { makeDeclId } from "../../types.js";
 
 /**
  * Extract structural members from type declarations (AST-based).
@@ -67,7 +68,7 @@ export const extractStructuralMembersFromDeclarations = (
 
   // Get declaration info from HandleRegistry
   const registry = (binding as BindingInternal)._getHandleRegistry();
-  const declInfo = registry.getDecl({ id: declId, __brand: "DeclId" } as never);
+  const declInfo = registry.getDecl(makeDeclId(declId));
   if (!declInfo?.declNode) {
     structuralMembersCache.set(declId, null);
     return undefined;

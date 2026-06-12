@@ -317,6 +317,11 @@ export const flattenStatement = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+const isIrYieldExpression = (
+  value: Record<string, unknown>
+): value is IrYieldExpression =>
+  value.kind === "yield" && typeof value.delegate === "boolean";
+
 const collectResidualYieldExpressions = (
   value: unknown,
   collected: IrYieldExpression[],
@@ -340,8 +345,8 @@ const collectResidualYieldExpressions = (
     return;
   }
 
-  if (value.kind === "yield") {
-    collected.push(value as unknown as IrYieldExpression);
+  if (isIrYieldExpression(value)) {
+    collected.push(value);
     return;
   }
 

@@ -231,7 +231,9 @@ export type Binding = {
    * The captured syntax can be converted to IrType via TypeSystem.typeFromSyntax().
    * This is NOT an escape hatch — it's the correct boundary for inline syntax.
    */
-  captureTypeSyntax(node: ts.TypeNode): TypeSyntaxId;
+  captureTypeSyntax(
+    node: ts.TypeNode | ts.ExpressionWithTypeArguments
+  ): TypeSyntaxId;
 
   /**
    * Capture multiple type arguments.

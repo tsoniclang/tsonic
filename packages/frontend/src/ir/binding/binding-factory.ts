@@ -276,7 +276,9 @@ export const createBinding = (
    * TypeSystem.typeFromSyntax() for conversion. Used for inline type syntax
    * that cannot be captured at catalog-build time.
    */
-  const captureTypeSyntax = (node: ts.TypeNode): TypeSyntaxId => {
+  const captureTypeSyntax = (
+    node: ts.TypeNode | ts.ExpressionWithTypeArguments
+  ): TypeSyntaxId => {
     const id = makeTypeSyntaxId(ctx.nextTypeSyntaxId.value++);
     const referenceDeclId = ts.isTypeReferenceNode(node)
       ? resolveTypeReferenceImpl(ctx, node)

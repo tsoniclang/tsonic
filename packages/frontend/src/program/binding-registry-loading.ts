@@ -972,7 +972,7 @@ export const addBindingsToState = (
             ? (() => {
                 const parsed = parseMethodSignature(
                   method.normalizedSignature,
-                  method as never
+                  method
                 );
                 return {
                   ...(parsed.typeParameters.length > 0
