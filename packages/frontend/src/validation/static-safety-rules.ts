@@ -304,13 +304,15 @@ const isDynamicJsonCarrierType = (
   sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
   const displayName = sourceSemantics.typeToString(type);
+  const aliasName = sourceSemantics.getTypeAliasSymbolName(type);
+  const symbolName = sourceSemantics.getTypeSymbolName(type);
   return (
     displayName === "JsValue" ||
     displayName === "JsPrimitive" ||
-    type.aliasSymbol?.getName() === "JsValue" ||
-    type.aliasSymbol?.getName() === "JsPrimitive" ||
-    type.symbol?.getName() === "JsValue" ||
-    type.symbol?.getName() === "JsPrimitive"
+    aliasName === "JsValue" ||
+    aliasName === "JsPrimitive" ||
+    symbolName === "JsValue" ||
+    symbolName === "JsPrimitive"
   );
 };
 

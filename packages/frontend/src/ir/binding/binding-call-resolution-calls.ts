@@ -343,16 +343,17 @@ export const resolveCallSignature = (
       return undefined;
     }
 
-    if (type.isUnion()) {
+    const unionMembers = ctx.sourceSemantics.getUnionMembers(type);
+    if (unionMembers) {
       const modes = new Set(
-        type.types
+        unionMembers
           .map((member) => getCheckerTypeIterableMode(member, seenSymbols))
           .filter((mode): mode is "sync" | "async" => mode !== undefined)
       );
       return modes.size === 1 ? [...modes][0] : undefined;
     }
 
-    const rawSymbol = type.aliasSymbol ?? type.getSymbol();
+    const rawSymbol = ctx.sourceSemantics.getTypeAliasOrSymbol(type);
     if (!rawSymbol) {
       return undefined;
     }
@@ -416,13 +417,14 @@ export const resolveCallSignature = (
     }
     seen.add(type);
 
-    if ((type.flags & ts.TypeFlags.StringLike) !== 0) {
+    if (ctx.sourceSemantics.isStringLikeType(type)) {
       return "string";
     }
 
-    if (type.isUnion()) {
-      return type.types.length > 0 &&
-        type.types.every(
+    const unionMembers = ctx.sourceSemantics.getUnionMembers(type);
+    if (unionMembers) {
+      return unionMembers.length > 0 &&
+        unionMembers.every(
           (member) => getCheckerStringEvidence(member, seen) === "string"
         )
         ? "string"

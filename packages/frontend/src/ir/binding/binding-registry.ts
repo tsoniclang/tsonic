@@ -388,10 +388,7 @@ const buildResolvedParameterNodes = (
       resolvedParameter,
       typeNodeLocation
     );
-    if (
-      (resolvedType.flags & ts.TypeFlags.Any) !== 0 ||
-      (resolvedType.flags & ts.TypeFlags.Unknown) !== 0
-    ) {
+    if (ctx.sourceSemantics.isAnyOrUnknownType(resolvedType)) {
       return parameter;
     }
     if (typeContainsTypeParameter(ctx, resolvedType)) {
@@ -446,41 +443,34 @@ const typeContainsTypeParameter = (
   }
   seen.add(type);
 
-  if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) {
+  if (ctx.sourceSemantics.isTypeParameter(type)) {
     return true;
   }
 
-  if (type.isUnionOrIntersection()) {
-    return type.types.some((member) =>
+  const members = ctx.sourceSemantics.getUnionOrIntersectionMembers(type);
+  if (members) {
+    return members.some((member) =>
       typeContainsTypeParameter(ctx, member, seen)
     );
   }
 
+  const aliasTypeArguments = ctx.sourceSemantics.getAliasTypeArguments(type);
   if (
-    "aliasTypeArguments" in type &&
-    Array.isArray(type.aliasTypeArguments) &&
-    type.aliasTypeArguments.some((argument) =>
+    aliasTypeArguments.some((argument) =>
       typeContainsTypeParameter(ctx, argument, seen)
     )
   ) {
     return true;
   }
 
-  if ((type.flags & ts.TypeFlags.Object) !== 0) {
-    const objectType = type as ts.ObjectType;
-    if ((objectType.objectFlags & ts.ObjectFlags.Reference) !== 0) {
-      const referenceType = objectType as ts.TypeReference;
-      const typeArguments = ctx.sourceSemantics.getTypeArguments(
-        referenceType
-      );
-      if (
-        typeArguments.some((argument) =>
-          typeContainsTypeParameter(ctx, argument, seen)
-        )
-      ) {
-        return true;
-      }
-    }
+  const referenceTypeArguments =
+    ctx.sourceSemantics.getReferenceTypeArguments(type);
+  if (
+    referenceTypeArguments.some((argument) =>
+      typeContainsTypeParameter(ctx, argument, seen)
+    )
+  ) {
+    return true;
   }
 
   for (const property of ctx.sourceSemantics.getProperties(type)) {

@@ -5,6 +5,8 @@
 import { describe, it, before, after } from "mocha";
 import { strict as assert } from "assert";
 import { checkUnsupportedSupportType } from "./support-types.js";
+import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
 import {
   createTestHarness,
   getSupportTypes,
@@ -13,11 +15,13 @@ import {
 
 describe("Support Types", () => {
   let harness: TestHarness;
+  let sourceSemantics: FrontendSourceSemanticView;
   let types: ReturnType<typeof getSupportTypes>;
 
   before(() => {
     // Create test harness with real TypeScript program
     harness = createTestHarness();
+    sourceSemantics = createTypeScriptSemanticView(harness.checker);
     types = getSupportTypes(harness);
   });
 
@@ -30,7 +34,7 @@ describe("Support Types", () => {
     it("should detect TSUnsafePointer as unsupported", () => {
       const error = checkUnsupportedSupportType(
         types.unsafePointer,
-        harness.checker
+        sourceSemantics
       );
 
       assert.ok(error);
@@ -38,7 +42,7 @@ describe("Support Types", () => {
     });
 
     it("should detect TSFixed as unsupported", () => {
-      const error = checkUnsupportedSupportType(types.fixed, harness.checker);
+      const error = checkUnsupportedSupportType(types.fixed, sourceSemantics);
 
       assert.ok(error);
       if (error) assert.match(error, /fixed-size buffer/i);
@@ -47,7 +51,7 @@ describe("Support Types", () => {
     it("should detect TSStackAlloc as unsupported", () => {
       const error = checkUnsupportedSupportType(
         types.stackAlloc,
-        harness.checker
+        sourceSemantics
       );
 
       assert.ok(error);
@@ -55,7 +59,7 @@ describe("Support Types", () => {
     });
 
     it("should allow TSByRef (supported)", () => {
-      const error = checkUnsupportedSupportType(types.byRef, harness.checker);
+      const error = checkUnsupportedSupportType(types.byRef, sourceSemantics);
 
       assert.equal(error, undefined);
     });
@@ -63,7 +67,7 @@ describe("Support Types", () => {
     it("should allow TSNullable (supported)", () => {
       const error = checkUnsupportedSupportType(
         types.nullable,
-        harness.checker
+        sourceSemantics
       );
 
       assert.equal(error, undefined);
@@ -72,7 +76,7 @@ describe("Support Types", () => {
     it("should allow TSDelegate (supported)", () => {
       const error = checkUnsupportedSupportType(
         types.delegate,
-        harness.checker
+        sourceSemantics
       );
 
       assert.equal(error, undefined);

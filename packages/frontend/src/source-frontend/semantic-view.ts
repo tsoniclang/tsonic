@@ -25,6 +25,9 @@ export type SourceSemanticView<
   resolveAlias(symbol: TSymbol): TSymbol;
   getSymbolDeclarations(symbol: TSymbol): readonly TDeclaration[];
   getSymbolValueDeclaration(symbol: TSymbol): TDeclaration | undefined;
+  getTypeAliasOrSymbol(type: TType): TSymbol | undefined;
+  getTypeSymbolName(type: TType): string | undefined;
+  getTypeAliasSymbolName(type: TType): string | undefined;
   getExportSpecifierLocalTargetSymbol(node: TNode): TSymbol | undefined;
   getExportsOfModule(symbol: TSymbol): readonly TSymbol[];
   getShorthandAssignmentValueSymbol(node: TNode): TSymbol | undefined;
@@ -32,6 +35,8 @@ export type SourceSemanticView<
   getTypeFromTypeNode(node: TNode): TType | undefined;
   getTypeOfSymbolAtLocation(symbol: TSymbol, location: TNode): TType;
   getTypeArguments(type: TType): readonly TType[];
+  getAliasTypeArguments(type: TType): readonly TType[];
+  getReferenceTypeArguments(type: TType): readonly TType[];
   getApparentType(type: TType): TType;
   getUnionMembers(type: TType): readonly TType[] | undefined;
   getIntersectionMembers(type: TType): readonly TType[] | undefined;
@@ -41,6 +46,8 @@ export type SourceSemanticView<
   isNullishVoidOrNeverType(type: TType): boolean;
   isAnyUnknownVoidNeverOrTypeParameter(type: TType): boolean;
   isAnyUnknownOrTypeParameter(type: TType): boolean;
+  isAnyOrUnknownType(type: TType): boolean;
+  isTypeParameter(type: TType): boolean;
   isSourceScalarLikeType(type: TType): boolean;
   isStringLikeType(type: TType): boolean;
   getStringIndexType(type: TType): TType | undefined;

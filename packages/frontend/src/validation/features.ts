@@ -294,7 +294,7 @@ const isJsBuiltinReceiverType = (
     return true;
   }
 
-  const symbolName = apparent.getSymbol()?.getName();
+  const symbolName = sourceSemantics.getTypeSymbolName(apparent);
   return symbolName ? JS_TYPED_ARRAY_SYMBOL_NAME_SET.has(symbolName) : false;
 };
 

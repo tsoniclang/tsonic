@@ -9,6 +9,7 @@
  */
 
 import * as ts from "typescript";
+import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
 
 /**
  * Support type kind enumeration.
@@ -35,20 +36,16 @@ export type SupportTypeInfo = {
  * Check if a type is a support type (TSByRef, TSUnsafePointer, etc.).
  *
  * @param type - TypeScript type to check
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns Support type info if recognized, undefined otherwise
  */
 export const getSupportTypeInfo = (
   type: ts.Type,
-  _checker: ts.TypeChecker
+  sourceSemantics: FrontendSourceSemanticView
 ): SupportTypeInfo | undefined => {
-  // Try to get type name from either symbol or aliasSymbol
-  const symbol = type.aliasSymbol || type.symbol;
-  if (!symbol) {
-    return undefined;
-  }
-
-  const typeName = symbol.getName();
+  const typeName =
+    sourceSemantics.getTypeAliasSymbolName(type) ??
+    sourceSemantics.getTypeSymbolName(type);
 
   // Check if it's a recognized support type
   const kind = getSupportTypeKind(typeName);
@@ -56,17 +53,11 @@ export const getSupportTypeInfo = (
     return undefined;
   }
 
-  // Extract type arguments - try alias type arguments first, then regular
-  let typeArguments: readonly ts.Type[] = [];
-
-  // Type aliases have aliasTypeArguments
-  if (type.aliasTypeArguments && type.aliasTypeArguments.length > 0) {
-    typeArguments = type.aliasTypeArguments;
-  }
-  // Generic type references have typeArguments through TypeReference interface
-  else if (isGenericTypeReference(type)) {
-    typeArguments = getTypeArguments(type);
-  }
+  const aliasTypeArguments = sourceSemantics.getAliasTypeArguments(type);
+  const referenceTypeArguments =
+    sourceSemantics.getReferenceTypeArguments(type);
+  const typeArguments =
+    aliasTypeArguments.length > 0 ? aliasTypeArguments : referenceTypeArguments;
 
   if (typeArguments.length === 0) {
     return undefined;
@@ -90,7 +81,9 @@ export const getSupportTypeInfo = (
  * @param typeName - Type symbol name
  * @returns Support type kind if recognized, undefined otherwise
  */
-const getSupportTypeKind = (typeName: string): SupportTypeKind | undefined => {
+const getSupportTypeKind = (
+  typeName: string | undefined
+): SupportTypeKind | undefined => {
   switch (typeName) {
     case "TSByRef":
       return "TSByRef";
@@ -113,11 +106,14 @@ const getSupportTypeKind = (typeName: string): SupportTypeKind | undefined => {
  * Check if a type is TSByRef<T>.
  *
  * @param type - TypeScript type to check
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns True if type is TSByRef<T>
  */
-export const isTSByRef = (type: ts.Type, checker: ts.TypeChecker): boolean => {
-  const info = getSupportTypeInfo(type, checker);
+export const isTSByRef = (
+  type: ts.Type,
+  sourceSemantics: FrontendSourceSemanticView
+): boolean => {
+  const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSByRef";
 };
 
@@ -125,14 +121,14 @@ export const isTSByRef = (type: ts.Type, checker: ts.TypeChecker): boolean => {
  * Check if a type is TSUnsafePointer<T>.
  *
  * @param type - TypeScript type to check
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns True if type is TSUnsafePointer<T>
  */
 export const isTSUnsafePointer = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
-  const info = getSupportTypeInfo(type, checker);
+  const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSUnsafePointer";
 };
 
@@ -140,14 +136,14 @@ export const isTSUnsafePointer = (
  * Check if a type is TSDelegate<TArgs, TReturn>.
  *
  * @param type - TypeScript type to check
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns True if type is TSDelegate<TArgs, TReturn>
  */
 export const isTSDelegate = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
-  const info = getSupportTypeInfo(type, checker);
+  const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSDelegate";
 };
 
@@ -155,14 +151,14 @@ export const isTSDelegate = (
  * Check if a type is TSNullable<T>.
  *
  * @param type - TypeScript type to check
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns True if type is TSNullable<T>
  */
 export const isTSNullable = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
-  const info = getSupportTypeInfo(type, checker);
+  const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSNullable";
 };
 
@@ -170,11 +166,14 @@ export const isTSNullable = (
  * Check if a type is TSFixed<T, N>.
  *
  * @param type - TypeScript type to check
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns True if type is TSFixed<T, N>
  */
-export const isTSFixed = (type: ts.Type, checker: ts.TypeChecker): boolean => {
-  const info = getSupportTypeInfo(type, checker);
+export const isTSFixed = (
+  type: ts.Type,
+  sourceSemantics: FrontendSourceSemanticView
+): boolean => {
+  const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSFixed";
 };
 
@@ -182,14 +181,14 @@ export const isTSFixed = (type: ts.Type, checker: ts.TypeChecker): boolean => {
  * Check if a type is TSStackAlloc<T>.
  *
  * @param type - TypeScript type to check
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns True if type is TSStackAlloc<T>
  */
 export const isTSStackAlloc = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
-  const info = getSupportTypeInfo(type, checker);
+  const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSStackAlloc";
 };
 
@@ -197,14 +196,14 @@ export const isTSStackAlloc = (
  * Extract the wrapped type from TSByRef<T>.
  *
  * @param type - TypeScript type (must be TSByRef<T>)
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns Wrapped type T, or undefined if not TSByRef
  */
 export const getTSByRefWrappedType = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: FrontendSourceSemanticView
 ): ts.Type | undefined => {
-  const info = getSupportTypeInfo(type, checker);
+  const info = getSupportTypeInfo(type, sourceSemantics);
   if (info?.kind === "TSByRef") {
     return info.wrappedType;
   }
@@ -215,14 +214,14 @@ export const getTSByRefWrappedType = (
  * Extract the wrapped type from TSUnsafePointer<T>.
  *
  * @param type - TypeScript type (must be TSUnsafePointer<T>)
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns Wrapped type T, or undefined if not TSUnsafePointer
  */
 export const getTSUnsafePointerWrappedType = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: FrontendSourceSemanticView
 ): ts.Type | undefined => {
-  const info = getSupportTypeInfo(type, checker);
+  const info = getSupportTypeInfo(type, sourceSemantics);
   if (info?.kind === "TSUnsafePointer") {
     return info.wrappedType;
   }
@@ -230,44 +229,17 @@ export const getTSUnsafePointerWrappedType = (
 };
 
 /**
- * Check if type is a generic type reference with type arguments.
- *
- * @param type - TypeScript type
- * @returns True if type is a generic type reference
- */
-const isGenericTypeReference = (type: ts.Type): boolean => {
-  return (
-    (type.flags & ts.TypeFlags.Object) !== 0 &&
-    ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0
-  );
-};
-
-/**
- * Get type arguments from a generic type reference.
- *
- * @param type - TypeScript type (must be generic reference)
- * @returns Array of type arguments
- */
-const getTypeArguments = (type: ts.Type): readonly ts.Type[] => {
-  const typeRef = type as ts.TypeReference;
-  if (!typeRef.typeArguments) {
-    return [];
-  }
-  return typeRef.typeArguments;
-};
-
-/**
  * Check if any support type is unsupported (unsafe pointers, fixed buffers, stackalloc).
  *
  * @param type - TypeScript type to check
- * @param checker - TypeScript type checker
+ * @param sourceSemantics - Source semantic view
  * @returns Error message if unsupported, undefined if supported
  */
 export const checkUnsupportedSupportType = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: FrontendSourceSemanticView
 ): string | undefined => {
-  const info = getSupportTypeInfo(type, checker);
+  const info = getSupportTypeInfo(type, sourceSemantics);
   if (!info) {
     return undefined;
   }

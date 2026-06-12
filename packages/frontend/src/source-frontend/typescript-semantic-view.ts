@@ -53,6 +53,12 @@ const isAnyUnknownOrTypeParameter = (type: ts.Type): boolean =>
     ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter
   );
 
+const isAnyOrUnknownType = (type: ts.Type): boolean =>
+  hasTypeFlags(type, ts.TypeFlags.Any | ts.TypeFlags.Unknown);
+
+const isTypeParameter = (type: ts.Type): boolean =>
+  hasTypeFlags(type, ts.TypeFlags.TypeParameter);
+
 const isSourceScalarLikeType = (type: ts.Type): boolean =>
   hasTypeFlags(
     type,
@@ -69,6 +75,10 @@ const isStringLikeType = (type: ts.Type): boolean =>
     type,
     ts.TypeFlags.String | ts.TypeFlags.StringLiteral | ts.TypeFlags.StringLike
   );
+
+const isReferenceObjectType = (type: ts.Type): type is ts.TypeReference =>
+  hasTypeFlags(type, ts.TypeFlags.Object) &&
+  (((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0);
 
 export const createTypeScriptSemanticView = (
   checker: ts.TypeChecker,
@@ -91,6 +101,12 @@ export const createTypeScriptSemanticView = (
     symbol: ts.Symbol
   ): ts.Declaration | undefined =>
     symbol.valueDeclaration ?? symbol.getDeclarations()?.[0],
+  getTypeAliasOrSymbol: (type: ts.Type): ts.Symbol | undefined =>
+    type.aliasSymbol ?? type.getSymbol(),
+  getTypeSymbolName: (type: ts.Type): string | undefined =>
+    type.getSymbol()?.getName(),
+  getTypeAliasSymbolName: (type: ts.Type): string | undefined =>
+    type.aliasSymbol?.getName(),
   getExportSpecifierLocalTargetSymbol: (
     node: ts.Node
   ): ts.Symbol | undefined =>
@@ -111,6 +127,14 @@ export const createTypeScriptSemanticView = (
     checker.getTypeOfSymbolAtLocation(symbol, location),
   getTypeArguments: (type: ts.Type): readonly ts.Type[] =>
     checker.getTypeArguments(type as ts.TypeReference),
+  getAliasTypeArguments: (type: ts.Type): readonly ts.Type[] => {
+    const maybeAlias = type as ts.Type & {
+      readonly aliasTypeArguments?: readonly ts.Type[];
+    };
+    return maybeAlias.aliasTypeArguments ?? [];
+  },
+  getReferenceTypeArguments: (type: ts.Type): readonly ts.Type[] =>
+    isReferenceObjectType(type) ? checker.getTypeArguments(type) : [],
   getApparentType: (type: ts.Type): ts.Type => checker.getApparentType(type),
   getUnionMembers: (type: ts.Type): readonly ts.Type[] | undefined =>
     type.isUnion() ? type.types : undefined,
@@ -130,6 +154,8 @@ export const createTypeScriptSemanticView = (
   isNullishVoidOrNeverType,
   isAnyUnknownVoidNeverOrTypeParameter,
   isAnyUnknownOrTypeParameter,
+  isAnyOrUnknownType,
+  isTypeParameter,
   isSourceScalarLikeType,
   isStringLikeType,
   getStringIndexType: (type: ts.Type): ts.Type | undefined =>

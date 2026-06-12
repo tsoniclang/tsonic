@@ -94,6 +94,11 @@ describe("source semantic boundary", () => {
       "symbol?.declarations",
       "SymbolFlags.Alias",
       "sourceSemantics.getAliasedSymbol",
+      ".aliasSymbol",
+      ".aliasTypeArguments",
+      ".getSymbol()",
+      ".objectFlags",
+      "ts.ObjectFlags",
     ] as const;
 
     const offenders = collectTypeScriptFiles(frontendSrcRoot)
