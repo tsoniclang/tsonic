@@ -13,6 +13,7 @@ import {
   createExternalBindingsResolver,
   createBinding,
   createProgramContext,
+  createEmptyTstsSourceProgramForTests,
   createTypeScriptSemanticView,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
@@ -104,6 +105,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
+      sourceProgram: createEmptyTstsSourceProgramForTests(),
       sourceSemantics: createTypeScriptSemanticView(checker),
       metadata: new ExternalMetadataRegistry(),
       bindings,
@@ -256,6 +258,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
+      sourceProgram: createEmptyTstsSourceProgramForTests(),
       sourceSemantics: createTypeScriptSemanticView(checker2),
       metadata: new ExternalMetadataRegistry(),
       bindings,

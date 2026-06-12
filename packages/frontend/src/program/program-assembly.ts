@@ -41,7 +41,11 @@ import { readSourcePackageMetadata } from "./source-package-metadata.js";
 import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
 import { createBindingTargetSurfaceProvider } from "./binding-target-surface-provider.js";
 import { defineBackendTargetId } from "../ir/types.js";
-import { createTypeScriptSemanticView } from "../source-frontend/index.js";
+import {
+  createTstsSourceProgram,
+  createTypeScriptSemanticView,
+} from "../source-frontend/index.js";
+import type { TstsSourceProgram } from "../source-frontend/index.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -113,6 +117,30 @@ const createSourceFilePathSet = (
   return canonicalPaths;
 };
 
+const collectTstsSourceDiagnostics = (
+  sourceProgram: TstsSourceProgram
+): DiagnosticsCollector => {
+  let collector = createDiagnosticsCollector();
+
+  for (const diagnostic of sourceProgram.diagnostics) {
+    const severity =
+      diagnostic.category === "suggestion" ? "info" : diagnostic.category;
+    const sourceFileName = diagnostic.sourceFile?.FileName();
+    const sourceLocation =
+      sourceFileName === undefined ? "" : `${sourceFileName}: `;
+    collector = addDiagnostic(
+      collector,
+      createDiagnostic(
+        "TSN1008",
+        severity,
+        `${sourceLocation}Source extension '${diagnostic.extensionId}' reported ${diagnostic.code}: ${diagnostic.message}`
+      )
+    );
+  }
+
+  return collector;
+};
+
 const findAuthoritativePackageRootForImport = (
   importSpecifier: string,
   authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
@@ -156,22 +184,6 @@ export const createProgram = (
   filePaths: readonly string[],
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
-  const sourceFrontend = options.sourceFrontend ?? "typescript";
-  if (sourceFrontend !== "typescript") {
-    return error(
-      addDiagnostic(
-        createDiagnosticsCollector(),
-        createDiagnostic(
-          "TSN1007",
-          "error",
-          `Source frontend '${sourceFrontend}' is not available for IR construction yet.`,
-          undefined,
-          "The vendored TSTS package is wired as an optional source compiler seam. Tsonic IR construction remains TypeScript-backed until the TSTS program/checker surface is complete."
-        )
-      )
-    );
-  }
-
   const surface = options.surface ?? "core";
   const activeTargetId =
     options.backendTargetId === undefined
@@ -281,6 +293,7 @@ export const createProgram = (
       ...absolutePaths,
     ]);
   }
+
   const moduleResolutionCache = ts.createModuleResolutionCache(
     options.projectRoot,
     (fileName) =>
@@ -631,6 +644,29 @@ export const createProgram = (
     return true;
   });
 
+  let sourceProgram: TstsSourceProgram;
+  try {
+    sourceProgram = createTstsSourceProgram(
+      sourceFiles.map((sourceFile) => sourceFile.fileName)
+    );
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1008",
+          "error",
+          `TSTS source program construction failed: ${message}`
+        )
+      )
+    );
+  }
+  const sourceDiagnostics = collectTstsSourceDiagnostics(sourceProgram);
+  if (sourceDiagnostics.hasErrors) {
+    return error(sourceDiagnostics);
+  }
+
   // Declaration files for TypeRegistry:
   // include all declarations in the program. ProgramContext later filters out
   // external metadata packages that are represented in the external catalog.
@@ -688,6 +724,7 @@ export const createProgram = (
   return ok({
     program,
     checker,
+    sourceProgram,
     sourceSemantics,
     options,
     surfaceCapabilities,

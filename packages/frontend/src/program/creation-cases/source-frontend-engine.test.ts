@@ -5,6 +5,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createProgram } from "../creation.js";
 import { installMinimalCoreGlobalsSurface } from "./test-package-helpers.js";
+import {
+  getTstsTypeReferenceName,
+  visitTstsSubtree,
+} from "@tsonic/tsts";
+import { tsonicNumericPrimitiveFactKey } from "../../tsonic-extension/index.js";
 
 const createTempProgram = (): {
   readonly projectRoot: string;
@@ -19,7 +24,14 @@ const createTempProgram = (): {
   const sourceRoot = path.join(projectRoot, "src");
   const entryPath = path.join(sourceRoot, "index.ts");
   fs.mkdirSync(sourceRoot, { recursive: true });
-  fs.writeFileSync(entryPath, "export const value = 1;\n");
+  fs.writeFileSync(
+    entryPath,
+    [
+      'import type { int } from "@tsonic/core/types.js";',
+      "export const value: int = 1;",
+      "",
+    ].join("\n")
+  );
   const globalsRoot = installMinimalCoreGlobalsSurface(projectRoot);
   return {
     projectRoot,
@@ -31,7 +43,7 @@ const createTempProgram = (): {
 };
 
 describe("Program Creation – source frontend engine", () => {
-  it("uses the TypeScript-backed program path by default", () => {
+  it("builds a TSTS source program by default", () => {
     const fixture = createTempProgram();
     try {
       const result = createProgram([fixture.entryPath], {
@@ -43,29 +55,44 @@ describe("Program Creation – source frontend engine", () => {
       });
 
       expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value.sourceProgram.engine).to.equal("tsts");
+      expect(result.value.sourceProgram.sourceFiles).to.have.length.greaterThan(
+        0
+      );
     } finally {
       fixture.cleanup();
     }
   });
 
-  it("rejects the TSTS-backed IR path until the TSTS program surface is complete", () => {
+  it("attaches Tsonic source facts through the TSTS extension host", () => {
     const fixture = createTempProgram();
     try {
       const result = createProgram([fixture.entryPath], {
         projectRoot: fixture.projectRoot,
         sourceRoot: fixture.sourceRoot,
         rootNamespace: "Test",
-        sourceFrontend: "tsts",
+        surface: "@tsonic/globals",
+        typeRoots: [fixture.globalsRoot],
       });
 
-      expect(result.ok).to.equal(false);
-      if (result.ok) return;
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
 
-      expect(result.error.diagnostics).to.have.length(1);
-      expect(result.error.diagnostics[0]?.code).to.equal("TSN1007");
-      expect(result.error.diagnostics[0]?.message).to.contain(
-        "not available for IR construction yet"
-      );
+      const facts = result.value.sourceProgram.extensionHost.facts;
+      const primitiveKinds: string[] = [];
+      for (const sourceFile of result.value.sourceProgram.sourceFiles) {
+        visitTstsSubtree(sourceFile, (node) => {
+          if (!node || getTstsTypeReferenceName(node) !== "int") return;
+          const fact = facts.get(tsonicNumericPrimitiveFactKey, node);
+          if (fact) {
+            primitiveKinds.push(fact.kind);
+          }
+        });
+      }
+
+      expect(primitiveKinds).to.deep.equal(["int32"]);
     } finally {
       fixture.cleanup();
     }

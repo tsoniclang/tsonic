@@ -16,7 +16,7 @@ import type {
   TargetSurfaceProvider,
 } from "../symbols/index.js";
 import type {
-  SourceFrontendEngine,
+  TstsSourceProgram,
   TypeScriptSemanticView,
 } from "../source-frontend/index.js";
 
@@ -36,12 +36,12 @@ export type CompilerOptions<Target extends BackendTargetId = BackendTargetId> =
     readonly backendCapabilities?: BackendCapabilityManifest;
     readonly backendTargetId?: Target;
     readonly programInputScope?: ProgramInputScope;
-    readonly sourceFrontend?: SourceFrontendEngine;
   };
 
 export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
+  readonly sourceProgram: TstsSourceProgram;
   readonly sourceSemantics: TypeScriptSemanticView;
   readonly options: CompilerOptions<Target>;
   readonly surfaceCapabilities?: SurfaceCapabilities;

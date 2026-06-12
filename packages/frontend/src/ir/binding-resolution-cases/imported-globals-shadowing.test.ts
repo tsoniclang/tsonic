@@ -8,7 +8,10 @@ import { BindingRegistry } from "../../program/bindings.js";
 import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
 import type { IrIdentifierExpression } from "../types.js";
-import { createTypeScriptSemanticView } from "../../source-frontend/index.js";
+import {
+  createEmptyTstsSourceProgramForTests,
+  createTypeScriptSemanticView,
+} from "../../source-frontend/index.js";
 
 describe("Binding Resolution in IR", () => {
   describe("Imported globals shadowing", () => {
@@ -119,6 +122,7 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile, consoleFile],
         declarationSourceFiles: [],
+        sourceProgram: createEmptyTstsSourceProgramForTests(),
         sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,
@@ -265,6 +269,7 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile, consoleFile],
         declarationSourceFiles: [],
+        sourceProgram: createEmptyTstsSourceProgramForTests(),
         sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,
@@ -452,6 +457,7 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile],
         declarationSourceFiles: [libFile],
+        sourceProgram: createEmptyTstsSourceProgramForTests(),
         sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,
@@ -672,6 +678,7 @@ describe("Binding Resolution in IR", () => {
         },
         sourceFiles: [mainFile],
         declarationSourceFiles: [libFile],
+        sourceProgram: createEmptyTstsSourceProgramForTests(),
         sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings,

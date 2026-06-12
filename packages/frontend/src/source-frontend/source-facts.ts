@@ -21,7 +21,8 @@ export type NumericPrimitiveRuntimeBase =
   | "boolean"
   | "string"
   | "number"
-  | "bigint";
+  | "bigint"
+  | "decimal";
 
 export type NumericPrimitiveFact = {
   readonly sourceName: string;

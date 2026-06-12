@@ -13,7 +13,10 @@ import { createExternalBindingsResolver } from "../resolver/external-bindings-re
 import { createBinding } from "../ir/binding/index.js";
 import type { SurfaceMode } from "../program/types.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
-import { createTypeScriptSemanticView } from "../source-frontend/index.js";
+import {
+  createEmptyTstsSourceProgramForTests,
+  createTypeScriptSemanticView,
+} from "../source-frontend/index.js";
 
 type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
 
@@ -78,6 +81,7 @@ const createTestProgram = (
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
+    sourceProgram: createEmptyTstsSourceProgramForTests(),
     sourceSemantics: createTypeScriptSemanticView(checker),
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),

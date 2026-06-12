@@ -9,3 +9,10 @@ export type { ParsedBuildCommandLine } from "./internal/tsoptions/parsedbuildcom
 export type { ParsedCommandLine } from "./internal/tsoptions/parsedcommandline.js";
 export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
 export type { TranspileCompilerOptions, TranspileCompilerOptionValue, TranspileOptions, TranspileOutput } from "./services/transpile.js";
+export * from "./extensions/index.js";
+export type { GoPtr, GoSlice } from "./go/compat.js";
+export type { Node as TstsNode, NodeList as TstsNodeList } from "./internal/ast/spine.js";
+export type { SourceFile as TstsSourceFile } from "./internal/ast/ast.js";
+export type { Symbol as TstsSymbol } from "./internal/ast/symbol.js";
+export type { Checker as TstsChecker } from "./internal/checker/checker/state.js";
+export type { Signature as TstsSignature, Type as TstsType } from "./internal/checker/types.js";
