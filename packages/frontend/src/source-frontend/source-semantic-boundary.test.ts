@@ -109,27 +109,47 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
-  it("keeps Tsonic source extensions on the public TSTS extension API", () => {
-    const extensionRoot = path.join(frontendSrcRoot, "tsonic-extension");
-    const offenders = collectTypeScriptFiles(extensionRoot).flatMap(
-      (filePath) => {
-        const text = fs.readFileSync(filePath, "utf8");
-        const lines = text.split(/\r?\n/);
-        return lines.flatMap((line, index) => {
-          const importsPrivateTsts =
-            line.includes("@tsonic/tsts/") ||
-            line.includes("packages/tsts/src/internal/") ||
-            line.includes("../internal/ast/") ||
-            line.includes("../internal/checker/");
-          return importsPrivateTsts
-            ? [
-                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1}`,
-              ]
-            : [];
-        });
-      }
+  it("keeps source-front TSTS integration on the public TSTS API", () => {
+    const tstsIntegrationRoots = [
+      path.join(frontendSrcRoot, "source-frontend"),
+      path.join(frontendSrcRoot, "tsonic-extension"),
+    ];
+    const offenders = tstsIntegrationRoots.flatMap((root) =>
+      collectTypeScriptFiles(root)
+        .filter((filePath) => !isBoundaryFile(filePath))
+        .flatMap((filePath) => {
+          const text = fs.readFileSync(filePath, "utf8");
+          const lines = text.split(/\r?\n/);
+          return lines.flatMap((line, index) => {
+            const importsPrivateTsts =
+              line.includes("@tsonic/tsts/") ||
+              line.includes("packages/tsts/src/internal/") ||
+              line.includes("../internal/ast/") ||
+              line.includes("../internal/checker/");
+            return importsPrivateTsts
+              ? [
+                  `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1}`,
+                ]
+              : [];
+          });
+        })
     );
 
     expect(offenders).to.deep.equal([]);
+  });
+
+  it("uses TSTS fact primitives for source-extension facts", () => {
+    const semanticViewPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/semantic-view.ts"
+    );
+    const text = fs.readFileSync(semanticViewPath, "utf8");
+
+    expect(text).to.include('from "@tsonic/tsts"');
+    expect(text).to.include("ExtensionFacts");
+    expect(text).to.include("ExtensionFactKeyLike");
+    expect(text).not.to.include("defineSourceSemanticFactKey");
+    expect(text).not.to.include("new WeakMap");
+    expect(text).not.to.include("Map<string, unknown>");
   });
 });
