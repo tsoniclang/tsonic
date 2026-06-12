@@ -16,12 +16,8 @@ import type {
   CapturedClassMethodSignature,
 } from "../type-system/internal/handle-types.js";
 import type { ParameterMode } from "../type-system/types.js";
-import {
-  extensionReceiverSemanticsFactKey,
-  parameterPassingFactKey,
-  parameterPassingModeFromFact,
-} from "../../source-frontend/index.js";
 import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
+import { unwrapSourceParameterType } from "../source-wrapper-semantics.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
@@ -163,45 +159,15 @@ export const normalizeParameterTypeNode = (
     return { mode: "value", typeNode: undefined };
   }
 
-  // Mirror IR conversion rules: wrappers may be nested and may appear in any order.
-  // - TSTS extension-receiver facts mark receiver parameters (erases for typing)
-  // - source parameter-passing facts set passing mode and erase to T for typing
-  let mode: ParameterMode = "value";
-  let current: ts.TypeNode | undefined = typeNode;
-
-  while (current) {
-    if (ts.isParenthesizedTypeNode(current)) {
-      current = current.type;
-      continue;
-    }
-
-    if (!ts.isTypeReferenceNode(current)) break;
-    if (!ts.isIdentifier(current.typeName)) break;
-    if (!current.typeArguments || current.typeArguments.length !== 1) break;
-    const inner: ts.TypeNode | undefined = current.typeArguments[0];
-    if (!inner) break;
-
-    if (
-      sourceSemantics?.getFact(current, extensionReceiverSemanticsFactKey)
-    ) {
-      current = inner;
-      continue;
-    }
-
-    const factMode = parameterPassingModeFromFact(
-      sourceSemantics?.getFact(current, parameterPassingFactKey)
-    );
-    if (factMode && factMode !== "value") {
-      mode = factMode;
-      current = inner;
-      continue;
-    }
-
-    break;
-  }
+  const unwrapped = unwrapSourceParameterType(typeNode, (node, key) =>
+    sourceSemantics?.getFact(node, key)
+  );
 
   // No wrapper detected - regular parameter
-  return { mode, typeNode: current ?? typeNode };
+  return {
+    mode: unwrapped.passing,
+    typeNode: unwrapped.typeNode ?? typeNode,
+  };
 };
 
 export const convertTypeParameterDeclarations = (

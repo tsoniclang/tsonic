@@ -18,12 +18,7 @@ import { withParameterTypeEnv } from "../type-env.js";
 import type { ProgramContext } from "../../program-context.js";
 import { getReturnExpressionExpectedType } from "../return-expression-types.js";
 import { inferDeterministicBlockReturnType } from "../statements/declarations/return-type-inference.js";
-import {
-  extensionReceiverSemanticsFactKey,
-  isExtensionReceiverFact,
-  parameterPassingFactKey,
-  parameterPassingModeFromFact,
-} from "../../../source-frontend/index.js";
+import { unwrapSourceParameterType } from "../../source-wrapper-semantics.js";
 
 const isNullishPrimitive = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
@@ -175,53 +170,18 @@ const convertLambdaParameters = (
   );
 
   return node.parameters.map((param, index) => {
-    let passing: "value" | "ref" | "out" | "in" = "value";
-    let actualType: ts.TypeNode | undefined = param.type;
-    let isExtensionReceiver = false;
-
-    // Detect wrapper types (explicit annotation only):
-    // - TSTS extension-receiver facts mark receiver parameters (emits target `this`)
-    // - TSTS parameter-passing facts mark passing mode (unwrap to T)
-    while (
-      actualType &&
-      ts.isTypeReferenceNode(actualType) &&
-      ts.isIdentifier(actualType.typeName) &&
-      actualType.typeArguments &&
-      actualType.typeArguments.length > 0
-    ) {
-      if (
-        isExtensionReceiverFact(
-          ctx.sourceSemantics.getFact(
-            actualType,
-            extensionReceiverSemanticsFactKey
-          )
-        )
-      ) {
-        isExtensionReceiver = true;
-        actualType = actualType.typeArguments[0];
-        continue;
-      }
-
-      const factMode = parameterPassingModeFromFact(
-        ctx.sourceSemantics.getFact(actualType, parameterPassingFactKey)
-      );
-      if (factMode && factMode !== "value") {
-        passing = factMode;
-        actualType = actualType.typeArguments[0];
-        continue;
-      }
-
-      break;
-    }
+    const unwrapped = unwrapSourceParameterType(param.type, (node, key) =>
+      ctx.sourceSemantics.getFact(node, key)
+    );
 
     // Determine the IrType for this parameter
     // DETERMINISTIC Priority: 1. Explicit annotation, 2. expectedType from call site
     let irType: IrType | undefined;
-    if (actualType) {
+    if (unwrapped.typeNode) {
       // Convert explicit parameter syntax through the TypeSystem.
       const typeSystem = ctx.typeSystem;
       irType = typeSystem.typeFromSyntax(
-        ctx.binding.captureTypeSyntax(actualType)
+        ctx.binding.captureTypeSyntax(unwrapped.typeNode)
       );
     } else if (expectedParamTypes && expectedParamTypes[index]) {
       // Use expectedType from call site (deterministic)
@@ -240,8 +200,8 @@ const convertLambdaParameters = (
         : undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
-      passing,
-      isExtensionReceiver: isExtensionReceiver || undefined,
+      passing: unwrapped.passing,
+      isExtensionReceiver: unwrapped.isExtensionReceiver || undefined,
     };
   });
 };

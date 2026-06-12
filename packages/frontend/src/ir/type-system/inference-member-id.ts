@@ -34,7 +34,7 @@ import {
   resolveTypeIdByName,
 } from "./type-system-state.js";
 import { parseExternalTypeString } from "./internal/universe/external-type-string-parsing.js";
-import type { SourcePrimitiveName } from "./internal/universe/catalog-types.js";
+import { sourcePrimitiveNameToIrType } from "./internal/type-converter/primitives.js";
 import {
   attachTypeIds,
   convertTypeNode,
@@ -132,19 +132,6 @@ export const parseIndexerKeyTypeName = (
     ? (first.split(",")[0] ?? first)
     : first;
   return withoutProviderSuffix.trim();
-};
-
-const sourcePrimitiveNameToIrType = (name: SourcePrimitiveName): IrType => {
-  switch (name) {
-    case "string":
-    case "number":
-    case "boolean":
-    case "char":
-    case "int":
-      return { kind: "primitiveType", name };
-    default:
-      return { kind: "referenceType", name };
-  }
 };
 
 const resolveIndexerKeyIrType = (

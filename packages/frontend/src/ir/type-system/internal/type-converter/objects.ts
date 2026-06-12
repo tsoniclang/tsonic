@@ -18,10 +18,7 @@ import {
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 import type { Binding } from "../../../binding/index.js";
-import {
-  parameterPassingFactKey,
-  parameterPassingModeFromFact,
-} from "../../../../source-frontend/index.js";
+import { unwrapSourceParameterType } from "../../../source-wrapper-semantics.js";
 
 /**
  * Convert TypeScript object literal type to IR type.
@@ -147,31 +144,15 @@ const convertTypeParameters = (
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): readonly IrParameter[] => {
   return parameters.map((param) => {
-    let passing: "value" | "ref" | "out" | "in" = "value";
-    let actualType: ts.TypeNode | undefined = param.type;
-
-    // Detect source-proven parameter-passing wrapper types.
-    if (
-      param.type &&
-      ts.isTypeReferenceNode(param.type)
-    ) {
-      const factMode = parameterPassingModeFromFact(
-        binding.getSourceFact(param.type, parameterPassingFactKey)
-      );
-      if (
-        factMode &&
-        factMode !== "value" &&
-        param.type.typeArguments &&
-        param.type.typeArguments.length > 0
-      ) {
-        passing = factMode;
-        // Extract wrapped type
-        actualType = param.type.typeArguments[0];
-      }
-    }
+    const unwrapped = unwrapSourceParameterType(
+      param.type,
+      binding.getSourceFact
+    );
 
     // Convert type if present
-    const paramType = actualType ? convertType(actualType, binding) : undefined;
+    const paramType = unwrapped.typeNode
+      ? convertType(unwrapped.typeNode, binding)
+      : undefined;
 
     return {
       kind: "parameter" as const,
@@ -181,7 +162,7 @@ const convertTypeParameters = (
       initializer: undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
-      passing,
+      passing: unwrapped.passing,
     };
   });
 };

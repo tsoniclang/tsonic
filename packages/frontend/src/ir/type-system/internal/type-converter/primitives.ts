@@ -10,6 +10,7 @@
 import * as ts from "typescript";
 import { IrType, IrPrimitiveType } from "../../../types.js";
 import { explicitUnknownType } from "../../types.js";
+import type { SourcePrimitiveName } from "../universe/catalog-types.js";
 
 /**
  * Source primitive aliases from @tsonic/core.
@@ -113,4 +114,18 @@ export const getCorePrimitiveType = (
     kind: "primitiveType",
     name: typeName,
   };
+};
+
+export const sourcePrimitiveNameToIrType = (
+  name: SourcePrimitiveName
+): IrType => {
+  if (isPrimitiveTypeName(name)) {
+    return getPrimitiveType(name);
+  }
+
+  if (isCorePrimitiveTypeName(name)) {
+    return getCorePrimitiveType(name);
+  }
+
+  return { kind: "referenceType", name };
 };

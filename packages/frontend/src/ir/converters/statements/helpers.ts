@@ -20,12 +20,7 @@ import {
   resolveMutableNumericLiteralDeclarationType,
   withVariableDeclaratorTypeEnv,
 } from "../type-env.js";
-import {
-  extensionReceiverSemanticsFactKey,
-  isExtensionReceiverFact,
-  parameterPassingFactKey,
-  parameterPassingModeFromFact,
-} from "../../../source-frontend/index.js";
+import { unwrapSourceParameterType } from "../../source-wrapper-semantics.js";
 
 /**
  * Optional class fields (`foo?: T`) are semantically `T | undefined` in TS.
@@ -109,51 +104,16 @@ export const convertParameters = (
   ctx: ProgramContext
 ): readonly IrParameter[] => {
   return parameters.map((param) => {
-    let passing: "value" | "ref" | "out" | "in" = "value";
-    let actualType: ts.TypeNode | undefined = param.type;
-    let isExtensionReceiver = false;
-
-    // Detect wrapper types:
-    // - TSTS extension-receiver facts mark receiver parameters (emits target `this`)
-    // - TSTS parameter-passing facts mark passing mode (unwraps to T)
-    //
-    // Wrappers may be nested; unwrap repeatedly.
-    while (
-      actualType &&
-      ts.isTypeReferenceNode(actualType) &&
-      ts.isIdentifier(actualType.typeName) &&
-      actualType.typeArguments &&
-      actualType.typeArguments.length > 0
-    ) {
-      if (
-        isExtensionReceiverFact(
-          ctx.sourceSemantics.getFact(
-            actualType,
-            extensionReceiverSemanticsFactKey
-          )
-        )
-      ) {
-        isExtensionReceiver = true;
-        actualType = actualType.typeArguments[0];
-        continue;
-      }
-
-      const factMode = parameterPassingModeFromFact(
-        ctx.sourceSemantics.getFact(actualType, parameterPassingFactKey)
-      );
-      if (factMode && factMode !== "value") {
-        passing = factMode;
-        actualType = actualType.typeArguments[0];
-        continue;
-      }
-
-      break;
-    }
+    const unwrapped = unwrapSourceParameterType(param.type, (node, key) =>
+      ctx.sourceSemantics.getFact(node, key)
+    );
 
     // Get parameter type for contextual typing of default value.
     const typeSystem = ctx.typeSystem;
-    const paramType = actualType
-      ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(actualType))
+    const paramType = unwrapped.typeNode
+      ? typeSystem.typeFromSyntax(
+          ctx.binding.captureTypeSyntax(unwrapped.typeNode)
+        )
       : undefined;
 
     return {
@@ -166,8 +126,8 @@ export const convertParameters = (
         : undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
-      passing,
-      isExtensionReceiver: isExtensionReceiver || undefined,
+      passing: unwrapped.passing,
+      isExtensionReceiver: unwrapped.isExtensionReceiver || undefined,
     };
   });
 };

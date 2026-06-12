@@ -37,33 +37,8 @@ import {
   handleTypeAliasDeclaration,
   entityNameToText,
 } from "./references-alias.js";
-import {
-  extensionReceiverSemanticsFactKey,
-  fieldSemanticsFactKey,
-  isExtensionReceiverFact,
-  isFieldStorageFact,
-  numericPrimitiveFactKey,
-  parameterPassingFactKey,
-} from "../../../../source-frontend/index.js";
-
-const parameterPassingReferenceName = (
-  mode:
-    | "by-value"
-    | "byref-readonly"
-    | "byref-readwrite"
-    | "byref-writeonly-must-init"
-): "ref" | "out" | "inref" | undefined => {
-  switch (mode) {
-    case "by-value":
-      return undefined;
-    case "byref-readonly":
-      return "inref";
-    case "byref-readwrite":
-      return "ref";
-    case "byref-writeonly-must-init":
-      return "out";
-  }
-};
+import { numericPrimitiveFactKey } from "../../../../source-frontend/index.js";
+import { classifySourceWrapperTypeReference } from "../../../source-wrapper-semantics.js";
 
 const tryReadNumericLiteral = (node: ts.Expression): number | undefined => {
   if (ts.isNumericLiteral(node)) {
@@ -129,6 +104,10 @@ export const convertTypeReference = (
   // Check for primitive type names
   if (isPrimitiveTypeName(typeName)) {
     return getPrimitiveType(typeName);
+  }
+
+  if (isCorePrimitiveTypeName(typeName)) {
+    return getCorePrimitiveType(typeName);
   }
 
   // Check for source primitive aliases proven by TSTS extensions.
@@ -201,22 +180,16 @@ export const convertTypeReference = (
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
-  if (
-    isExtensionReceiverFact(
-      binding.getSourceFact(node, extensionReceiverSemanticsFactKey)
-    ) &&
-    node.typeArguments?.length === 1
-  ) {
-    const inner = node.typeArguments[0];
-    return inner ? convertType(inner, binding) : { kind: "unknownType" };
+  const sourceWrapper = classifySourceWrapperTypeReference(
+    node,
+    binding.getSourceFact
+  );
+  if (sourceWrapper?.kind === "extension-receiver") {
+    return convertType(sourceWrapper.innerType, binding);
   }
 
-  if (
-    isFieldStorageFact(binding.getSourceFact(node, fieldSemanticsFactKey)) &&
-    node.typeArguments?.length === 1
-  ) {
-    const inner = node.typeArguments[0];
-    return inner ? convertType(inner, binding) : { kind: "unknownType" };
+  if (sourceWrapper?.kind === "field-storage") {
+    return convertType(sourceWrapper.innerType, binding);
   }
 
   // `Rewrap<TReceiver, TNewShape>` erases to the new shape
@@ -225,26 +198,11 @@ export const convertTypeReference = (
     return newShape ? convertType(newShape, binding) : { kind: "unknownType" };
   }
 
-  const parameterPassingFact = binding.getSourceFact(
-    node,
-    parameterPassingFactKey
-  );
-  const parameterPassingName = parameterPassingReferenceName(
-    parameterPassingFact?.mode ?? "by-value"
-  );
-  if (
-    parameterPassingName &&
-    node.typeArguments &&
-    node.typeArguments.length === 1
-  ) {
-    const innerTypeArg = node.typeArguments[0];
-    if (!innerTypeArg) {
-      return { kind: "anyType" };
-    }
+  if (sourceWrapper?.kind === "parameter-passing") {
     return {
       kind: "referenceType",
-      name: parameterPassingName,
-      typeArguments: [convertType(innerTypeArg, binding)],
+      name: sourceWrapper.referenceName,
+      typeArguments: [convertType(sourceWrapper.innerType, binding)],
       structuralOrigin: "namedReference",
     };
   }
