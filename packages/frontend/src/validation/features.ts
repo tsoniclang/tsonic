@@ -19,6 +19,7 @@ import {
 import { getJsDiagnosticSurfaceMetadata } from "../surface/diagnostic-metadata.js";
 import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-literal-method-runtime.js";
 import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
+import { getProgramSourceFiles } from "../program/queries.js";
 
 const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
@@ -166,11 +167,7 @@ const isClosedInOperatorExpression = (
   const rightType = program.sourceSemantics.getExpressionType(node.right);
   return (
     typeHasStringIndex(rightType, program.sourceSemantics) ||
-    isClosedStructuralPropertyUnion(
-      rightType,
-      key,
-      program.sourceSemantics
-    )
+    isClosedStructuralPropertyUnion(rightType, key, program.sourceSemantics)
   );
 };
 
@@ -238,7 +235,7 @@ const isProgramSourceDeclaration = (
   program: TsonicProgram
 ): boolean => {
   const sourceNames = new Set(
-    program.sourceFiles.map((currentSourceFile) =>
+    getProgramSourceFiles(program).map((currentSourceFile) =>
       normalizeFileName(currentSourceFile.fileName)
     )
   );
@@ -599,10 +596,7 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (
-      ts.isForInStatement(node) &&
-      !isClosedForInStatement(node, program)
-    ) {
+    if (ts.isForInStatement(node) && !isClosedForInStatement(node, program)) {
       addUnsupported(
         node,
         "'for...in' is only supported for statically proven string-key carriers.",

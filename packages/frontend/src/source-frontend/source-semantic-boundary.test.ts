@@ -164,4 +164,38 @@ describe("source semantic boundary", () => {
     expect(text).not.to.include("createTypeScriptSemanticView");
     expect(text).not.to.include("typescript-semantic-view.js");
   });
+
+  it("keeps product reads of raw program source-file fields behind program queries", () => {
+    const allowedFiles = new Set(["program/queries.ts"]);
+    const bannedReads = [
+      "program.sourceFiles",
+      "program.declarationSourceFiles",
+      "program.tsCompilerOptions",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .filter(
+        (filePath) =>
+          !allowedFiles.has(
+            normalizePath(path.relative(frontendSrcRoot, filePath))
+          )
+      )
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const read = bannedReads.find((candidate) =>
+            line.includes(candidate)
+          );
+          return read
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${read}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
 });

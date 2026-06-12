@@ -4,6 +4,7 @@
 
 import * as path from "node:path";
 import { TsonicProgram } from "../program.js";
+import { getProgramSourceFiles } from "../program/queries.js";
 import { createModuleGraph, Import } from "../types/module.js";
 import {
   addDiagnostic,
@@ -32,7 +33,7 @@ export const buildDependencyGraph = (
   let diagnostics = createDiagnosticsCollector();
 
   // Process all source files
-  program.sourceFiles.forEach((sourceFile) => {
+  getProgramSourceFiles(program).forEach((sourceFile) => {
     const moduleInfo = extractModuleInfo(sourceFile, program);
     modules.set(sourceFile.fileName, moduleInfo);
 

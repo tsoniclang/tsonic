@@ -13,6 +13,7 @@ import {
   createDiagnostic,
   isFatal,
 } from "../../types/diagnostic.js";
+import { getProgramSourceFiles } from "../../program/queries.js";
 import {
   createProgramContext,
   type ProgramContext,
@@ -122,7 +123,7 @@ export const buildIr = (
   const modules: IrModule[] = [];
   const diagnostics: Diagnostic[] = [];
 
-  for (const sourceFile of program.sourceFiles) {
+  for (const sourceFile of getProgramSourceFiles(program)) {
     const result = buildIrModule(sourceFile, program, options, ctx);
     if (result.ok) {
       modules.push(result.value);

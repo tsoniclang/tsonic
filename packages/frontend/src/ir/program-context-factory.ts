@@ -35,6 +35,12 @@ import {
   collectWrittenSymbols,
 } from "../generic-function-values.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import {
+  getProgramAllSourceFiles,
+  getProgramCompilerOptions,
+  getProgramDeclarationSourceFiles,
+  getProgramSourceFiles,
+} from "../program/queries.js";
 
 const withSimpleTypeAliases = (
   externalCatalog: ExternalTypeCatalog,
@@ -88,7 +94,7 @@ export const createProgramContext = (
   const genericFunctionValueSymbols = (() => {
     const symbols = new Set<ts.Symbol>();
 
-    for (const sourceFile of program.sourceFiles) {
+    for (const sourceFile of getProgramSourceFiles(program)) {
       const writtenSymbols = collectWrittenSymbols(
         sourceFile,
         program.sourceSemantics
@@ -122,7 +128,10 @@ export const createProgramContext = (
   const packageHasMetadataCache = new Map<string, boolean>();
   const projectRootResolved = path.resolve(program.options.projectRoot);
 
-  const declarationSourceFiles = program.declarationSourceFiles.filter((sf) => {
+  const programSourceFiles = getProgramSourceFiles(program);
+  const programDeclarationSourceFiles =
+    getProgramDeclarationSourceFiles(program);
+  const declarationSourceFiles = programDeclarationSourceFiles.filter((sf) => {
     const pkgRoot = findPackageRootForFile(
       sf.fileName,
       projectRootResolved,
@@ -140,14 +149,8 @@ export const createProgramContext = (
     );
   });
 
-  const catalogSourceFiles = [
-    ...program.sourceFiles,
-    ...declarationSourceFiles,
-  ];
-  const lookupSourceFiles = [
-    ...program.sourceFiles,
-    ...program.declarationSourceFiles,
-  ];
+  const catalogSourceFiles = [...programSourceFiles, ...declarationSourceFiles];
+  const lookupSourceFiles = getProgramAllSourceFiles(program);
   const sourceFilesByPath = new Map<string, ts.SourceFile>(
     lookupSourceFiles.map((sourceFile) => [
       sourceFile.fileName.replace(/\\/g, "/"),
@@ -174,7 +177,7 @@ export const createProgramContext = (
   // rule that keeps ambient surface packages and normal declaration packages in
   // sync: if a package's .d.ts files are in the program, its bindings metadata
   // must be in the universe.
-  for (const sourceFile of program.declarationSourceFiles) {
+  for (const sourceFile of programDeclarationSourceFiles) {
     const pkgRoot = findPackageRootForFile(
       sourceFile.fileName,
       projectRootResolved,
@@ -266,7 +269,7 @@ export const createProgramContext = (
         ? program.binding.resolveConstructorSignature(node as ts.NewExpression)
         : undefined,
     sourceSemantics: program.sourceSemantics,
-    tsCompilerOptions: program.tsCompilerOptions,
+    tsCompilerOptions: getProgramCompilerOptions(program),
     sourceFilesByPath,
   });
   return {
@@ -280,7 +283,7 @@ export const createProgramContext = (
     surfaceCapabilities,
     sourceSemantics: program.sourceSemantics,
     genericFunctionValueSymbols,
-    tsCompilerOptions: program.tsCompilerOptions,
+    tsCompilerOptions: getProgramCompilerOptions(program),
     sourceFilesByPath,
     binding: program.binding,
     typeSystem,

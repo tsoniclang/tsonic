@@ -15,6 +15,7 @@ import * as path from "node:path";
 import * as ts from "typescript";
 import { loadBindingsFromPath } from "./bindings.js";
 import type { TsonicProgram } from "./types.js";
+import { getProgramAllSourceFiles } from "./queries.js";
 
 const extractNamespaceKey = (subpath: string): string | null => {
   const slashIdx = subpath.indexOf("/");
@@ -124,10 +125,7 @@ export const discoverAndLoadExternalBindings = (
     pending.push(bindingsPath);
   };
 
-  const filesToScan = [
-    ...program.sourceFiles,
-    ...program.declarationSourceFiles,
-  ];
+  const filesToScan = getProgramAllSourceFiles(program);
 
   if (verbose) {
     console.log(

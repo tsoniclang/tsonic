@@ -4,6 +4,7 @@
 
 import * as ts from "typescript";
 import { TsonicProgram } from "../program.js";
+import { getProgramSourceFiles } from "../program/queries.js";
 import {
   DiagnosticsCollector,
   createDiagnosticsCollector,
@@ -24,7 +25,7 @@ export const validateProgram = (
 ): DiagnosticsCollector => {
   const collector = createDiagnosticsCollector();
 
-  return program.sourceFiles.reduce(
+  return getProgramSourceFiles(program).reduce(
     (acc, sourceFile) => validateSourceFile(sourceFile, program, acc),
     collector
   );
