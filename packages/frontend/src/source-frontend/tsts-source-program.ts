@@ -3,11 +3,16 @@ import type {
   CompilerExtension,
   ExtensionDiagnostic,
   ExtensionHost,
+  ExtensionModuleGraph,
   ExtensionTypeChecker,
   TstsDiagnostic,
   TstsSourceFile,
 } from "@tsonic/tsts";
-import { createCompilerSourceProgram, createExtensionHost } from "@tsonic/tsts";
+import {
+  createCompilerSourceProgram,
+  createExtensionHost,
+  createExtensionModuleGraph,
+} from "@tsonic/tsts";
 import {
   createTsonicNumericPrimitiveExtension,
   createTsonicSourceSemanticsExtension,
@@ -17,6 +22,7 @@ export type TstsSourceProgram = {
   readonly engine: "tsts";
   readonly compilerProgram?: CompilerSourceProgram;
   readonly sourceFiles: readonly TstsSourceFile[];
+  readonly moduleGraph: ExtensionModuleGraph;
   readonly extensionHost: ExtensionHost;
   readonly diagnostics: readonly ExtensionDiagnostic[];
   readonly compilerDiagnostics: readonly TstsDiagnostic[];
@@ -52,6 +58,7 @@ export const createTstsSourceProgram = (
     engine: "tsts",
     compilerProgram,
     sourceFiles: compilerProgram.sourceFiles,
+    moduleGraph: compilerProgram.moduleGraph,
     extensionHost: compilerProgram.extensionHost,
     diagnostics: compilerProgram.extensionDiagnostics,
     compilerDiagnostics: compilerProgram.diagnostics,
@@ -65,6 +72,7 @@ export const createEmptyTstsSourceProgramForTests = (): TstsSourceProgram => {
   return {
     engine: "tsts",
     sourceFiles: [],
+    moduleGraph: createExtensionModuleGraph(undefined, []),
     extensionHost,
     diagnostics: extensionHost.diagnostics.all(),
     compilerDiagnostics: [],

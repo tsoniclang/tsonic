@@ -31,6 +31,8 @@ import {
   createExtensionCheckerHandle,
   createExtensionTypeChecker,
 } from "../extensions/checker-facade.js";
+import type { ExtensionModuleGraph } from "../extensions/module-graph.js";
+import { createExtensionModuleGraph } from "../extensions/module-graph.js";
 import type {
   TranspileCompilerOptions,
   TranspileCompilerOptionValue,
@@ -46,6 +48,7 @@ export type CreateCompilerSourceProgramOptions = {
 export type CompilerSourceProgram = {
   readonly program: GoPtr<Program>;
   readonly sourceFiles: readonly SourceFile[];
+  readonly moduleGraph: ExtensionModuleGraph;
   readonly extensionHost: ExtensionHost;
   readonly diagnostics: readonly Diagnostic[];
   readonly extensionDiagnostics: readonly ExtensionDiagnostic[];
@@ -224,6 +227,7 @@ export const createCompilerSourceProgram = (
   return {
     program,
     sourceFiles,
+    moduleGraph: createExtensionModuleGraph(program, sourceFiles),
     extensionHost,
     diagnostics: collectCompilerDiagnostics(
       program,

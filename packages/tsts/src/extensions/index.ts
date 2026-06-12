@@ -1,4 +1,11 @@
 export {
+  type ModifierList,
+  type Node,
+  type NodeList,
+  type SourceFile,
+} from "./syntax.js";
+export * as TstsSyntax from "./syntax.js";
+export {
   asTstsTypeReferenceNode,
   forEachTstsChild,
   getTstsCallExpressionDetails,
@@ -51,6 +58,15 @@ export type {
   ExtensionImportIndex,
   ExtensionImportModule,
 } from "./import-index.js";
+export { createExtensionModuleGraph } from "./module-graph.js";
+export type {
+  ExtensionExportBinding,
+  ExtensionExportBindingKind,
+  ExtensionModuleGraph,
+  ExtensionModuleImport,
+  ExtensionResolvedModule,
+  ExtensionSourceModule,
+} from "./module-graph.js";
 export { createExtensionHost } from "./extension-host.js";
 export type {
   CompilerExtension,
