@@ -34,6 +34,7 @@ import {
   narrowTypeByPropertyExistence,
   narrowTypeByPropertyTruthiness,
 } from "./narrowing-property-helpers.js";
+import { intrinsicSemanticsFactKey } from "../../source-frontend/index.js";
 
 const KNOWN_VALUE_LIKE_REFERENCE_NAMES = new Set([
   "sbyte",
@@ -428,8 +429,8 @@ const tryResolveTruthyNarrowing = (
   // istype<T>(x)
   if (
     ts.isCallExpression(unwrapped) &&
-    ts.isIdentifier(unwrapped.expression) &&
-    unwrapped.expression.text === "istype" &&
+    ctx.sourceSemantics.getFact(unwrapped, intrinsicSemanticsFactKey)?.kind ===
+      "istype" &&
     unwrapped.typeArguments &&
     unwrapped.typeArguments.length === 1 &&
     unwrapped.arguments.length === 1

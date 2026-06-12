@@ -276,6 +276,9 @@ describe("Tsonic TSTS source semantics extension", () => {
       function defaultof<T>(): T {
         throw new Error("not core");
       }
+      function istype<T>(_value: unknown): boolean {
+        return false;
+      }
 
       export interface FakeStruct extends struct {}
       export interface Contract {}
@@ -285,6 +288,7 @@ describe("Tsonic TSTS source semantics extension", () => {
       }
       export function update(target: thisarg<User>, value: out<number>): void {
         defaultof<number>();
+        istype<number>(value);
       }
     `);
 
