@@ -28,7 +28,10 @@ import {
 import type { ProgramContext } from "../../../../program-context.js";
 import { createDiagnostic } from "../../../../../types/diagnostic.js";
 import { getSourceLocation } from "../../../../../program/diagnostics.js";
-import { fieldSemanticsFactKey } from "../../../../../source-frontend/index.js";
+import {
+  fieldSemanticsFactKey,
+  isFieldStorageFact,
+} from "../../../../../source-frontend/index.js";
 
 /**
  * Derive type from a converted IR expression (deterministic).
@@ -126,11 +129,11 @@ export const convertProperty = (
     const inner: ts.TypeNode | undefined = actualTypeNode.typeArguments[0];
     if (!inner) break;
 
-    const fieldFact = ctx.sourceSemantics.getFact(
-      actualTypeNode,
-      fieldSemanticsFactKey
-    );
-    if (fieldFact) {
+    if (
+      isFieldStorageFact(
+        ctx.sourceSemantics.getFact(actualTypeNode, fieldSemanticsFactKey)
+      )
+    ) {
       emitAsField = true;
       actualTypeNode = inner;
       continue;

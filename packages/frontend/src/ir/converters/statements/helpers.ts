@@ -22,6 +22,7 @@ import {
 } from "../type-env.js";
 import {
   extensionReceiverSemanticsFactKey,
+  isExtensionReceiverFact,
   parameterPassingFactKey,
   parameterPassingModeFromFact,
 } from "../../../source-frontend/index.js";
@@ -125,9 +126,11 @@ export const convertParameters = (
       actualType.typeArguments.length > 0
     ) {
       if (
-        ctx.sourceSemantics.getFact(
-          actualType,
-          extensionReceiverSemanticsFactKey
+        isExtensionReceiverFact(
+          ctx.sourceSemantics.getFact(
+            actualType,
+            extensionReceiverSemanticsFactKey
+          )
         )
       ) {
         isExtensionReceiver = true;

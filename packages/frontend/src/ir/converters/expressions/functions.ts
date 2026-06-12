@@ -20,6 +20,7 @@ import { getReturnExpressionExpectedType } from "../return-expression-types.js";
 import { inferDeterministicBlockReturnType } from "../statements/declarations/return-type-inference.js";
 import {
   extensionReceiverSemanticsFactKey,
+  isExtensionReceiverFact,
   parameterPassingFactKey,
   parameterPassingModeFromFact,
 } from "../../../source-frontend/index.js";
@@ -189,9 +190,11 @@ const convertLambdaParameters = (
       actualType.typeArguments.length > 0
     ) {
       if (
-        ctx.sourceSemantics.getFact(
-          actualType,
-          extensionReceiverSemanticsFactKey
+        isExtensionReceiverFact(
+          ctx.sourceSemantics.getFact(
+            actualType,
+            extensionReceiverSemanticsFactKey
+          )
         )
       ) {
         isExtensionReceiver = true;

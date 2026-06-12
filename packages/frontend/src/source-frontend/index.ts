@@ -11,7 +11,6 @@ export {
   defineSourceSemanticFactKey,
 } from "./semantic-view.js";
 export {
-  attributeSemanticsFactKey,
   extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
   heritageWrapperSemanticsFactKey,
@@ -32,7 +31,6 @@ export type {
   FrontendSourceSemanticView,
 } from "./frontend-source-semantic-view.js";
 export type {
-  AttributeSemanticsFact,
   ExtensionReceiverSemanticsFact,
   FieldSemanticsFact,
   HeritageWrapperSemanticsFact,
@@ -47,6 +45,13 @@ export type {
 } from "./source-facts.js";
 export {
   callSitePassingModifierFromFact,
+  isExtensionReceiverFact,
+  isFieldStorageFact,
+  isHeritageInterfaceErasure,
+  isIntrinsicKind,
+  isMarkerApiKind,
+  isSourceTypeKind,
+  markerApiKindFromFact,
   parameterPassingModeFromFact,
 } from "./source-fact-queries.js";
 export type {

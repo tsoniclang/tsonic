@@ -1,4 +1,12 @@
-import type { ParameterPassingFact } from "./source-facts.js";
+import type {
+  ExtensionReceiverSemanticsFact,
+  FieldSemanticsFact,
+  HeritageWrapperSemanticsFact,
+  IntrinsicSemanticsFact,
+  MarkerApiSemanticsFact,
+  ParameterPassingFact,
+  SourceTypeSemanticsFact,
+} from "./source-facts.js";
 
 export type IrParameterPassingMode = "value" | "ref" | "out" | "in";
 
@@ -26,3 +34,34 @@ export const callSitePassingModifierFromFact = (
   const mode = parameterPassingModeFromFact(fact);
   return mode === "ref" || mode === "out" || mode === "in" ? mode : undefined;
 };
+
+export const isSourceTypeKind = (
+  fact: SourceTypeSemanticsFact | undefined,
+  kind: SourceTypeSemanticsFact["kind"]
+): boolean => fact?.kind === kind;
+
+export const isFieldStorageFact = (
+  fact: FieldSemanticsFact | undefined
+): boolean => fact?.storage === "field";
+
+export const isExtensionReceiverFact = (
+  fact: ExtensionReceiverSemanticsFact | undefined
+): boolean => fact?.kind === "extension-receiver";
+
+export const isHeritageInterfaceErasure = (
+  fact: HeritageWrapperSemanticsFact | undefined
+): boolean => fact?.kind === "interface-erasure";
+
+export const markerApiKindFromFact = (
+  fact: MarkerApiSemanticsFact | undefined
+): MarkerApiSemanticsFact["kind"] | undefined => fact?.kind;
+
+export const isMarkerApiKind = (
+  fact: MarkerApiSemanticsFact | undefined,
+  kind: MarkerApiSemanticsFact["kind"]
+): boolean => fact?.kind === kind;
+
+export const isIntrinsicKind = (
+  fact: IntrinsicSemanticsFact | undefined,
+  kind: IntrinsicSemanticsFact["kind"]
+): boolean => fact?.kind === kind;

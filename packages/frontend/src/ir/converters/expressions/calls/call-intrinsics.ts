@@ -21,7 +21,11 @@ import { IrType, primitiveTypeFactFromName } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { isIdentifierFromGlobals } from "../../../../core-intrinsics/provenance.js";
-import { intrinsicSemanticsFactKey } from "../../../../source-frontend/index.js";
+import {
+  intrinsicSemanticsFactKey,
+  isIntrinsicKind,
+  type IntrinsicSemanticsFact,
+} from "../../../../source-frontend/index.js";
 
 /**
  * Try to convert a call expression as an intrinsic.
@@ -43,9 +47,10 @@ export const tryConvertIntrinsicCall = (
   const intrinsicKind = ctx.sourceSemantics.getFact(
     node,
     intrinsicSemanticsFactKey
-  )?.kind;
-  const isCoreLangIntrinsicCall = (name: string): boolean =>
-    intrinsicKind === name;
+  );
+  const isCoreLangIntrinsicCall = (
+    name: IntrinsicSemanticsFact["kind"]
+  ): boolean => isIntrinsicKind(intrinsicKind, name);
   const isGlobalIntrinsicCall = (name: string): boolean =>
     ts.isIdentifier(node.expression) &&
     node.expression.text === name &&

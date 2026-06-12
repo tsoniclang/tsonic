@@ -1,6 +1,9 @@
 import * as ts from "typescript";
 import type { FrontendSourceSemanticView } from "../../../source-frontend/index.js";
-import { markerApiSemanticsFactKey } from "../../../source-frontend/index.js";
+import {
+  isMarkerApiKind,
+  markerApiSemanticsFactKey,
+} from "../../../source-frontend/index.js";
 
 const stripParentheses = (expr: ts.Expression): ts.Expression => {
   let current = expr;
@@ -14,8 +17,10 @@ const isAttributesApiIdentifier = (
   expression: ts.Identifier,
   sourceSemantics: FrontendSourceSemanticView
 ): boolean =>
-  sourceSemantics.getFact(expression, markerApiSemanticsFactKey)?.kind ===
-  "attributes";
+  isMarkerApiKind(
+    sourceSemantics.getFact(expression, markerApiSemanticsFactKey),
+    "attributes"
+  );
 
 const isAttributesApiRootExpression = (
   expression: ts.Expression,

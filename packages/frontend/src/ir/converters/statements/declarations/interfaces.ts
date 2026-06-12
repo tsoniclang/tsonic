@@ -20,6 +20,8 @@ import type { ProgramContext } from "../../../program-context.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 import {
   heritageWrapperSemanticsFactKey,
+  isHeritageInterfaceErasure,
+  isSourceTypeKind,
   sourceTypeSemanticsFactKey,
 } from "../../../../source-frontend/index.js";
 
@@ -67,8 +69,10 @@ const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
   ctx: ProgramContext
 ): boolean =>
-  ctx.sourceSemantics.getFact(typeRef, sourceTypeSemanticsFactKey)?.kind ===
-  "struct";
+  isSourceTypeKind(
+    ctx.sourceSemantics.getFact(typeRef, sourceTypeSemanticsFactKey),
+    "struct"
+  );
 
 /**
  * Unwrap `Interface<T>` in heritage clauses.
@@ -83,8 +87,9 @@ const unwrapInterfaceHeritageType = (
   ctx: ProgramContext
 ): ts.TypeNode => {
   if (
-    ctx.sourceSemantics.getFact(typeRef, heritageWrapperSemanticsFactKey)
-      ?.kind === "interface-erasure" &&
+    isHeritageInterfaceErasure(
+      ctx.sourceSemantics.getFact(typeRef, heritageWrapperSemanticsFactKey)
+    ) &&
     typeRef.typeArguments?.length === 1
   ) {
     const only = typeRef.typeArguments[0];
@@ -248,8 +253,10 @@ export const convertInterfaceDeclaration = (
   }
   // Detect source-proven struct marker in extends clause.
   let isStruct =
-    ctx.sourceSemantics.getFact(node, sourceTypeSemanticsFactKey)?.kind ===
-    "struct";
+    isSourceTypeKind(
+      ctx.sourceSemantics.getFact(node, sourceTypeSemanticsFactKey),
+      "struct"
+    );
   const extendsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   );

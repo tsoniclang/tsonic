@@ -40,6 +40,8 @@ import {
 import {
   extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
+  isExtensionReceiverFact,
+  isFieldStorageFact,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
 } from "../../../../source-frontend/index.js";
@@ -200,7 +202,9 @@ export const convertTypeReference = (
   }
 
   if (
-    binding.getSourceFact(node, extensionReceiverSemanticsFactKey) &&
+    isExtensionReceiverFact(
+      binding.getSourceFact(node, extensionReceiverSemanticsFactKey)
+    ) &&
     node.typeArguments?.length === 1
   ) {
     const inner = node.typeArguments[0];
@@ -208,7 +212,7 @@ export const convertTypeReference = (
   }
 
   if (
-    binding.getSourceFact(node, fieldSemanticsFactKey) &&
+    isFieldStorageFact(binding.getSourceFact(node, fieldSemanticsFactKey)) &&
     node.typeArguments?.length === 1
   ) {
     const inner = node.typeArguments[0];

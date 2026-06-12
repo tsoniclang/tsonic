@@ -50,11 +50,6 @@ export type ParameterPassingFact = {
   readonly mode: ParameterPassingMode;
 };
 
-export type AttributeSemanticsFact = {
-  readonly attributeTypeName: string;
-  readonly args: readonly unknown[];
-};
-
 export type ExtensionReceiverSemanticsFact = {
   readonly kind: "extension-receiver";
 };
@@ -100,12 +95,6 @@ export const parameterPassingFactKey =
   defineSourceSemanticFactKey<ParameterPassingFact>(
     "tsonic:source:parameter-passing",
     "Source-level parameter passing semantics such as out/ref/inref."
-  );
-
-export const attributeSemanticsFactKey =
-  defineSourceSemanticFactKey<AttributeSemanticsFact>(
-    "tsonic:source:attribute-semantics",
-    "Source-level attribute marker semantics before target-specific rendering."
   );
 
 export const extensionReceiverSemanticsFactKey =

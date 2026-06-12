@@ -9,7 +9,10 @@ import { Diagnostic } from "../../types/diagnostic.js";
 import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/types.js";
 import type { TypeAuthority } from "../type-system/type-system.js";
-import { sourceTypeSemanticsFactKey } from "../../source-frontend/index.js";
+import {
+  isSourceTypeKind,
+  sourceTypeSemanticsFactKey,
+} from "../../source-frontend/index.js";
 
 /**
  * Check if a type reference is the struct marker
@@ -19,12 +22,11 @@ import { sourceTypeSemanticsFactKey } from "../../source-frontend/index.js";
 const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
   ctx: ProgramContext
-): boolean => {
-  return (
-    ctx.sourceSemantics.getFact(typeRef, sourceTypeSemanticsFactKey)?.kind ===
+): boolean =>
+  isSourceTypeKind(
+    ctx.sourceSemantics.getFact(typeRef, sourceTypeSemanticsFactKey),
     "struct"
   );
-};
 
 /**
  * Check if a declaration represents a TypeScript interface
