@@ -66,6 +66,7 @@ import {
 import type { TypeSymbolId } from "../symbols/index.js";
 import { typesEqual } from "./types/ir-substitution.js";
 import { extractRawExternalBindingsPayload } from "../program/external-binding-payload.js";
+import { markerApiSemanticsFactKey } from "../source-frontend/index.js";
 
 type LiteralObjectProperty = Extract<
   Extract<IrExpression, { kind: "object" }>["properties"][number],
@@ -699,6 +700,10 @@ export const convertExpression = (
     }
 
     const declId = ctx.binding.resolveIdentifier(node);
+    const sourceMarkerApi = ctx.sourceSemantics.getFact(
+      node,
+      markerApiSemanticsFactKey
+    )?.kind;
     const referencedSymbol = resolveReferencedIdentifierSymbol(ctx, node);
     const contextualGenericFunctionType = (() => {
       if (
@@ -809,6 +814,7 @@ export const convertExpression = (
             )
           : undefined,
         originalName,
+        sourceMarkerApi,
         declId,
       };
       if (
@@ -849,6 +855,7 @@ export const convertExpression = (
             )
           : undefined),
       originalName,
+      sourceMarkerApi,
       declId,
     };
     if (

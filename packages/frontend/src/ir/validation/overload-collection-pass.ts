@@ -33,7 +33,6 @@ export type OverloadCollectionResult = {
   readonly diagnostics: readonly Diagnostic[];
 };
 
-const OVERLOADS_IMPORT_SPECIFIER = "@tsonic/core/lang.js";
 const VOID_TYPE: IrType = { kind: "voidType" };
 
 type ParseResult<T> =
@@ -110,24 +109,10 @@ const createLocation = (
 ): SourceLocation =>
   sourceSpan ?? { file: filePath, line: 1, column: 1, length: 1 };
 
-const getOverloadsApiLocalNames = (module: IrModule): ReadonlySet<string> => {
-  const names = new Set<string>();
-  for (const imp of module.imports) {
-    if (imp.source !== OVERLOADS_IMPORT_SPECIFIER) continue;
-    for (const spec of imp.specifiers) {
-      if (spec.kind !== "named") continue;
-      if (spec.name !== "overloads") continue;
-      names.add(spec.localName);
-    }
-  }
-  return names;
-};
-
 const isOverloadsApiIdentifier = (
-  expr: IrExpression,
-  apiNames: ReadonlySet<string>
+  expr: IrExpression
 ): expr is Extract<IrExpression, { kind: "identifier" }> =>
-  expr.kind === "identifier" && apiNames.has(expr.name);
+  expr.kind === "identifier" && expr.sourceMarkerApi === "overloads";
 
 const unwrapTransparentSelectorExpression = (
   expr: IrExpression
@@ -256,15 +241,14 @@ const parseFunctionFamilyTarget = (
 
 const parseRootCall = (
   expr: IrExpression,
-  module: IrModule,
-  apiNames: ReadonlySet<string>
+  module: IrModule
 ): ParseResult<
   | { readonly kind: "type"; readonly name: string }
   | { readonly kind: "function"; readonly name: string }
 > => {
   if (expr.kind !== "call") return { kind: "notMatch" };
   const call = expr as IrCallExpression;
-  if (!isOverloadsApiIdentifier(call.callee, apiNames)) {
+  if (!isOverloadsApiIdentifier(call.callee)) {
     return { kind: "notMatch" };
   }
 
@@ -360,42 +344,41 @@ const parseRootCall = (
 };
 
 const looksLikeOverloadsApiUsage = (
-  expr: IrExpression,
-  apiNames: ReadonlySet<string>
+  expr: IrExpression
 ): boolean => {
   switch (expr.kind) {
     case "call":
       return (
-        isOverloadsApiIdentifier(expr.callee, apiNames) ||
-        looksLikeOverloadsApiUsage(expr.callee, apiNames) ||
+        isOverloadsApiIdentifier(expr.callee) ||
+        looksLikeOverloadsApiUsage(expr.callee) ||
         expr.arguments.some(
           (arg) =>
-            arg.kind !== "spread" && looksLikeOverloadsApiUsage(arg, apiNames)
+            arg.kind !== "spread" && looksLikeOverloadsApiUsage(arg)
         )
       );
     case "memberAccess":
-      return looksLikeOverloadsApiUsage(expr.object, apiNames);
+      return looksLikeOverloadsApiUsage(expr.object);
     case "arrowFunction":
       return expr.body.kind === "blockStatement"
         ? expr.body.statements.some(
             (statement) =>
               statement.kind === "expressionStatement" &&
-              looksLikeOverloadsApiUsage(statement.expression, apiNames)
+              looksLikeOverloadsApiUsage(statement.expression)
           )
-        : looksLikeOverloadsApiUsage(expr.body, apiNames);
+        : looksLikeOverloadsApiUsage(expr.body);
     case "array":
       return expr.elements.some(
         (element) =>
           element !== undefined &&
           element.kind !== "spread" &&
-          looksLikeOverloadsApiUsage(element, apiNames)
+          looksLikeOverloadsApiUsage(element)
       );
     case "object":
       return expr.properties.some((property) => {
         if (property.kind === "spread") {
-          return looksLikeOverloadsApiUsage(property.expression, apiNames);
+          return looksLikeOverloadsApiUsage(property.expression);
         }
-        return looksLikeOverloadsApiUsage(property.value, apiNames);
+        return looksLikeOverloadsApiUsage(property.value);
       });
     default:
       return false;
@@ -404,8 +387,7 @@ const looksLikeOverloadsApiUsage = (
 
 const tryDetectOverloadMarker = (
   call: IrCallExpression,
-  module: IrModule,
-  apiNames: ReadonlySet<string>
+  module: IrModule
 ): ParseResult<OverloadMarker> => {
   if (call.callee.kind !== "memberAccess") return { kind: "notMatch" };
   const familyMember = call.callee;
@@ -491,7 +473,7 @@ const tryDetectOverloadMarker = (
     );
     if (familyTarget.kind !== "ok") return familyTarget;
 
-    const root = parseRootCall(methodCall.callee.object, module, apiNames);
+    const root = parseRootCall(methodCall.callee.object, module);
     if (root.kind !== "ok") return root;
     if (root.value.kind !== "type") {
       return {
@@ -517,7 +499,7 @@ const tryDetectOverloadMarker = (
     };
   }
 
-  const root = parseRootCall(targetRoot, module, apiNames);
+  const root = parseRootCall(targetRoot, module);
   if (root.kind !== "ok") return root;
   if (root.value.kind !== "function") {
     return {
@@ -1145,42 +1127,39 @@ const collectModuleOverloads = (
 ): CollectedOverloads | undefined => {
   const projectOwnerIdentity =
     module.namespace.split(".")[0] ?? module.namespace;
-  const apiNames = getOverloadsApiLocalNames(module);
 
   const removedStatementIndices = new Set<number>();
   const markers: OverloadMarker[] = [];
 
-  if (apiNames.size > 0) {
-    module.body.forEach((statement, index) => {
-      if (statement.kind !== "expressionStatement") return;
-      const expr = statement.expression;
-      if (expr.kind !== "call") return;
+  module.body.forEach((statement, index) => {
+    if (statement.kind !== "expressionStatement") return;
+    const expr = statement.expression;
+    if (expr.kind !== "call") return;
 
-      const marker = tryDetectOverloadMarker(expr, module, apiNames);
-      if (marker.kind === "ok") {
-        markers.push(marker.value);
-        removedStatementIndices.add(index);
-        return;
-      }
-      if (marker.kind === "error") {
-        diagnostics.push(marker.diagnostic);
-        removedStatementIndices.add(index);
-        return;
-      }
+    const marker = tryDetectOverloadMarker(expr, module);
+    if (marker.kind === "ok") {
+      markers.push(marker.value);
+      removedStatementIndices.add(index);
+      return;
+    }
+    if (marker.kind === "error") {
+      diagnostics.push(marker.diagnostic);
+      removedStatementIndices.add(index);
+      return;
+    }
 
-      if (looksLikeOverloadsApiUsage(expr, apiNames)) {
-        diagnostics.push(
-          createDiagnostic(
-            "TSN4005",
-            "error",
-            `Invalid overload marker call. Expected O<T>().method(x => x.realBody).family(x => x.PublicName) or O(realFunction).family(PublicName).`,
-            createLocation(module.filePath, expr.sourceSpan)
-          )
-        );
-        removedStatementIndices.add(index);
-      }
-    });
-  }
+    if (looksLikeOverloadsApiUsage(expr)) {
+      diagnostics.push(
+        createDiagnostic(
+          "TSN4005",
+          "error",
+          `Invalid overload marker call. Expected O<T>().method(x => x.realBody).family(x => x.PublicName) or O(realFunction).family(PublicName).`,
+          createLocation(module.filePath, expr.sourceSpan)
+        )
+      );
+      removedStatementIndices.add(index);
+    }
+  });
 
   const functionEntriesByName = collectFunctionEntriesByName(module);
   const classEntriesByName = collectClassEntriesByName(module);

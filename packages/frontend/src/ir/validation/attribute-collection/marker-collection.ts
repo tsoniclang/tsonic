@@ -17,8 +17,6 @@ import {
   type ParsedAttributeDescriptor,
   type AttributeMarker,
   createLocation,
-  getAttributesApiLocalNames,
-  getAttributeTargetsApiLocalNames,
   parseAttrDescriptorCall,
 } from "./arg-extractor.js";
 import {
@@ -61,12 +59,6 @@ export const collectModuleAttributes = (
   module: IrModule,
   diagnostics: Diagnostic[]
 ): CollectedAttributes | undefined => {
-  const apiNames = getAttributesApiLocalNames(module);
-  const attributeTargetsApiNames = getAttributeTargetsApiLocalNames(module);
-  if (apiNames.size === 0) {
-    return undefined;
-  }
-
   // Collect detected attribute descriptors declared as variables:
   //   const d = A.attr(AttrCtor, ...args)
   const descriptors = new Map<string, ParsedAttributeDescriptor>();
@@ -85,7 +77,7 @@ export const collectModuleAttributes = (
     if (d0.name.kind !== "identifierPattern") return;
     if (!d0.initializer) return;
 
-    const parsed = parseAttrDescriptorCall(d0.initializer, module, apiNames);
+    const parsed = parseAttrDescriptorCall(d0.initializer, module);
     if (parsed.kind === "notMatch") return;
     if (parsed.kind === "error") {
       diagnostics.push(parsed.diagnostic);
@@ -111,8 +103,6 @@ export const collectModuleAttributes = (
     const marker = tryDetectAttributeMarker(
       expr as IrCallExpression,
       module,
-      apiNames,
-      attributeTargetsApiNames,
       descriptors
     );
     if (marker.kind === "ok") {
@@ -128,7 +118,7 @@ export const collectModuleAttributes = (
 
     // If it looks like an attribute API call but doesn't match a supported marker,
     // fail deterministically instead of leaving runtime-dead code in the output.
-    if (looksLikeAttributesApiUsage(expr, apiNames)) {
+    if (looksLikeAttributesApiUsage(expr)) {
       diagnostics.push(
         createDiagnostic(
           "TSN4005",

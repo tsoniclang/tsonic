@@ -23,6 +23,7 @@ import {
   ATTRIBUTE_TARGETS_EXPORT_NAME,
   type ParseResult,
   createLocation,
+  isAttributeTargetsApiIdentifier,
   isAttributesApiIdentifier,
 } from "./arg-extractor.js";
 
@@ -32,8 +33,7 @@ import {
 
 export const parseAttributeTarget = (
   expr: IrExpression,
-  module: IrModule,
-  attributeTargetsApiNames: ReadonlySet<string>
+  module: IrModule
 ): ParseResult<IrAttributeTarget> => {
   const fail = (message: string): ParseResult<IrAttributeTarget> => ({
     kind: "error",
@@ -61,8 +61,7 @@ export const parseAttributeTarget = (
     expr.kind === "memberAccess" &&
     !expr.isComputed &&
     typeof expr.property === "string" &&
-    expr.object.kind === "identifier" &&
-    attributeTargetsApiNames.has(expr.object.name)
+    isAttributeTargetsApiIdentifier(expr.object)
   ) {
     const value = expr.property;
     if (ATTRIBUTE_TARGETS_SET.has(value as IrAttributeTarget)) {
@@ -108,25 +107,24 @@ export const unwrapTransparentSelectorExpression = (
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const looksLikeAttributesApiUsage = (
-  expr: IrExpression,
-  apiNames: ReadonlySet<string>
+  expr: IrExpression
 ): boolean => {
   switch (expr.kind) {
     case "call":
       return (
-        isAttributesApiIdentifier(expr.callee, apiNames) ||
-        looksLikeAttributesApiUsage(expr.callee, apiNames) ||
+        isAttributesApiIdentifier(expr.callee) ||
+        looksLikeAttributesApiUsage(expr.callee) ||
         expr.arguments.some(
           (arg: IrExpression | IrSpreadExpression) =>
-            arg.kind !== "spread" && looksLikeAttributesApiUsage(arg, apiNames)
+            arg.kind !== "spread" && looksLikeAttributesApiUsage(arg)
         )
       );
     case "memberAccess":
       return (
-        looksLikeAttributesApiUsage(expr.object, apiNames) ||
+        looksLikeAttributesApiUsage(expr.object) ||
         (typeof expr.property === "string" &&
           expr.property === "attr" &&
-          isAttributesApiIdentifier(expr.object, apiNames))
+          isAttributesApiIdentifier(expr.object))
       );
     case "arrowFunction":
       return (
@@ -134,30 +132,30 @@ export const looksLikeAttributesApiUsage = (
           ? expr.body.statements.some(
               (s: IrStatement) =>
                 s.kind === "expressionStatement" &&
-                looksLikeAttributesApiUsage(s.expression, apiNames)
+                looksLikeAttributesApiUsage(s.expression)
             )
-          : looksLikeAttributesApiUsage(expr.body, apiNames)) || false
+          : looksLikeAttributesApiUsage(expr.body)) || false
       );
     case "functionExpression":
       return expr.body.statements.some(
         (s: IrStatement) =>
           s.kind === "expressionStatement" &&
-          looksLikeAttributesApiUsage(s.expression, apiNames)
+          looksLikeAttributesApiUsage(s.expression)
       );
     case "array":
       return expr.elements.some(
         (el: IrExpression | IrSpreadExpression | undefined) =>
           el !== undefined &&
           el.kind !== "spread" &&
-          looksLikeAttributesApiUsage(el, apiNames)
+          looksLikeAttributesApiUsage(el)
       );
     case "object":
       return expr.properties.some((p: IrObjectProperty) => {
         if (p.kind === "spread")
-          return looksLikeAttributesApiUsage(p.expression, apiNames);
+          return looksLikeAttributesApiUsage(p.expression);
         if (typeof p.key !== "string")
-          return looksLikeAttributesApiUsage(p.key, apiNames);
-        return looksLikeAttributesApiUsage(p.value, apiNames);
+          return looksLikeAttributesApiUsage(p.key);
+        return looksLikeAttributesApiUsage(p.value);
       });
     default:
       return false;
@@ -170,8 +168,7 @@ export const looksLikeAttributesApiUsage = (
 
 export const parseOnCall = (
   expr: IrExpression,
-  module: IrModule,
-  apiNames: ReadonlySet<string>
+  module: IrModule
 ): ParseResult<
   | {
       readonly kind: "type";
@@ -186,7 +183,7 @@ export const parseOnCall = (
 > => {
   if (expr.kind !== "call") return { kind: "notMatch" };
   const call = expr as IrCallExpression;
-  if (!isAttributesApiIdentifier(call.callee, apiNames)) {
+  if (!isAttributesApiIdentifier(call.callee)) {
     return { kind: "notMatch" };
   }
 
@@ -287,9 +284,8 @@ export const parseOnCall = (
 
 export const parseRootCall = (
   expr: IrExpression,
-  module: IrModule,
-  apiNames: ReadonlySet<string>
-): ReturnType<typeof parseOnCall> => parseOnCall(expr, module, apiNames);
+  module: IrModule
+): ReturnType<typeof parseOnCall> => parseOnCall(expr, module);
 
 export const parseSelector = (
   selector: IrExpression,

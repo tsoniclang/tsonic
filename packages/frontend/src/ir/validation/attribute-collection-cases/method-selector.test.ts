@@ -11,6 +11,7 @@ import {
   makeBadSelectorCallBody,
   makeCall,
   makeIdentifier,
+  makeAttributeTargetsApiIdentifier,
   makeLiteral,
   makeMemberAccess,
   makeMethodMarkerCall,
@@ -251,7 +252,7 @@ describe("Attribute Collection Pass", () => {
             "User",
             "PureAttribute",
             makeSelector("save"),
-            makeMemberAccess(makeIdentifier("AT"), "return")
+            makeMemberAccess(makeAttributeTargetsApiIdentifier("AT"), "return")
           ),
         ],
         "A",

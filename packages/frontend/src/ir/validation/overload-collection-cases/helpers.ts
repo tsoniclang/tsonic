@@ -65,10 +65,17 @@ export const createModule = (
   exports: [],
 });
 
-export const makeIdentifier = (name: string) => ({
+export const makeIdentifier = (
+  name: string,
+  sourceMarkerApi?: "attributes" | "attribute-targets" | "overloads"
+) => ({
   kind: "identifier" as const,
   name,
+  ...(sourceMarkerApi ? { sourceMarkerApi } : {}),
 });
+
+export const makeOverloadsApiIdentifier = (name = "O") =>
+  makeIdentifier(name, "overloads");
 
 export const makeReferenceType = (name: string) => ({
   kind: "referenceType" as const,
@@ -226,7 +233,9 @@ export const makeFunctionMarkerCall = (
   kind: "expressionStatement" as const,
   expression: makeCall(
     makeMemberAccess(
-      makeCall(makeIdentifier(apiObjectName), [makeIdentifier(functionName)]),
+      makeCall(makeOverloadsApiIdentifier(apiObjectName), [
+        makeIdentifier(functionName),
+      ]),
       "family"
     ),
     [makeIdentifier(familyName)]
@@ -246,7 +255,7 @@ export const makeMethodMarkerCall = (
       makeCall(
         makeMemberAccess(
           makeExplicitTypeArgumentCall(
-            makeIdentifier(apiObjectName),
+            makeOverloadsApiIdentifier(apiObjectName),
             [],
             [makeReferenceType(typeName)]
           ),
@@ -273,7 +282,7 @@ export const makeMethodMarkerCallWithSelector = (
       makeCall(
         makeMemberAccess(
           makeExplicitTypeArgumentCall(
-            makeIdentifier(apiObjectName),
+            makeOverloadsApiIdentifier(apiObjectName),
             [],
             [makeReferenceType(typeName)]
           ),

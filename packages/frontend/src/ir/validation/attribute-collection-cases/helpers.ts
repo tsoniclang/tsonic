@@ -72,12 +72,20 @@ export const createModule = (
  */
 export const makeIdentifier = (
   name: string,
-  providerQualifiedName?: string
+  providerQualifiedName?: string,
+  sourceMarkerApi?: "attributes" | "attribute-targets" | "overloads"
 ) => ({
   kind: "identifier" as const,
   name,
   providerQualifiedName,
+  ...(sourceMarkerApi ? { sourceMarkerApi } : {}),
 });
+
+export const makeAttributesApiIdentifier = (name = "A") =>
+  makeIdentifier(name, undefined, "attributes");
+
+export const makeAttributeTargetsApiIdentifier = (name: string) =>
+  makeIdentifier(name, undefined, "attribute-targets");
 
 export const makeTypedIdentifier = (
   name: string,
@@ -198,10 +206,14 @@ export const makeBadSelectorCallBody = (memberName: string) => ({
 });
 
 export const makeTypeRootCall = (targetName: string, apiObjectName = "A") =>
-  makeCall(makeIdentifier(apiObjectName), [], [makeRefType(targetName)]);
+  makeCall(makeAttributesApiIdentifier(apiObjectName), [], [
+    makeRefType(targetName),
+  ]);
 
 export const makeFunctionRootCall = (targetName: string, apiObjectName = "A") =>
-  makeCall(makeIdentifier(apiObjectName), [makeIdentifier(targetName)]);
+  makeCall(makeAttributesApiIdentifier(apiObjectName), [
+    makeIdentifier(targetName),
+  ]);
 
 /**
  * Helper to create an attribute marker call IR for A<T>().add(Attr, ...args)
@@ -365,10 +377,13 @@ export const makeAttrDescriptorDecl = (varName: string, attrName: string) => ({
     {
       kind: "variableDeclarator" as const,
       name: { kind: "identifierPattern" as const, name: varName },
-      initializer: makeCall(makeMemberAccess(makeIdentifier("A"), "attr"), [
-        makeIdentifier(attrName, `Test.${attrName}`),
-        makeLiteral("msg"),
-      ]),
+      initializer: makeCall(
+        makeMemberAccess(makeAttributesApiIdentifier(), "attr"),
+        [
+          makeIdentifier(attrName, `Test.${attrName}`),
+          makeLiteral("msg"),
+        ]
+      ),
     },
   ],
 });
@@ -389,7 +404,7 @@ export const makeInlineDescriptorMarkerCall = (
 ) => ({
   kind: "expressionStatement" as const,
   expression: makeCall(makeMemberAccess(makeTypeRootCall(targetName), "add"), [
-    makeCall(makeMemberAccess(makeIdentifier("A"), "attr"), [
+    makeCall(makeMemberAccess(makeAttributesApiIdentifier(), "attr"), [
       makeIdentifier(attrName, `Test.${attrName}`),
       makeLiteral("msg"),
     ]),

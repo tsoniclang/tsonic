@@ -30,7 +30,6 @@ import {
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const ATTRIBUTES_IMPORT_SPECIFIER = "@tsonic/core/lang.js";
 export const ATTRIBUTE_TARGETS_EXPORT_NAME = "AttributeTargets";
 
 export const ATTRIBUTE_TARGETS: readonly IrAttributeTarget[] = [
@@ -101,40 +100,14 @@ export const createLocation = (
   sourceSpan ?? { file: filePath, line: 1, column: 1, length: 1 };
 
 export const isAttributesApiIdentifier = (
-  expr: IrExpression,
-  apiNames: ReadonlySet<string>
+  expr: IrExpression
 ): expr is IrIdentifierExpression =>
-  expr.kind === "identifier" && apiNames.has(expr.name);
+  expr.kind === "identifier" && expr.sourceMarkerApi === "attributes";
 
-export const getAttributesApiLocalNames = (
-  module: IrModule
-): ReadonlySet<string> => {
-  const names = new Set<string>();
-  for (const imp of module.imports) {
-    if (imp.source !== ATTRIBUTES_IMPORT_SPECIFIER) continue;
-    for (const spec of imp.specifiers) {
-      if (spec.kind !== "named") continue;
-      if (spec.name !== "attributes") continue;
-      names.add(spec.localName);
-    }
-  }
-  return names;
-};
-
-export const getAttributeTargetsApiLocalNames = (
-  module: IrModule
-): ReadonlySet<string> => {
-  const names = new Set<string>();
-  for (const imp of module.imports) {
-    if (imp.source !== ATTRIBUTES_IMPORT_SPECIFIER) continue;
-    for (const spec of imp.specifiers) {
-      if (spec.kind !== "named") continue;
-      if (spec.name !== ATTRIBUTE_TARGETS_EXPORT_NAME) continue;
-      names.add(spec.localName);
-    }
-  }
-  return names;
-};
+export const isAttributeTargetsApiIdentifier = (
+  expr: IrExpression
+): expr is IrIdentifierExpression =>
+  expr.kind === "identifier" && expr.sourceMarkerApi === "attribute-targets";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ARGUMENT EXTRACTION
@@ -335,8 +308,7 @@ export const makeAttributeType = (
 
 export const parseAttrDescriptorCall = (
   expr: IrExpression,
-  module: IrModule,
-  apiNames: ReadonlySet<string>
+  module: IrModule
 ): ParseResult<ParsedAttributeDescriptor> => {
   if (expr.kind !== "call") return { kind: "notMatch" };
 
@@ -347,8 +319,7 @@ export const parseAttrDescriptorCall = (
   if (member.isComputed || typeof member.property !== "string")
     return { kind: "notMatch" };
   if (member.property !== "attr") return { kind: "notMatch" };
-  if (!isAttributesApiIdentifier(member.object, apiNames))
-    return { kind: "notMatch" };
+  if (!isAttributesApiIdentifier(member.object)) return { kind: "notMatch" };
 
   if (call.arguments.length < 1) {
     return {

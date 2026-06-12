@@ -114,6 +114,8 @@ export type IrIdentifierExpression = {
   // For aliased imports: the original export name before renaming
   // e.g., for `import { String as RuntimeString }`, originalName is "String"
   readonly originalName?: string;
+  /** Source-extension marker API provenance projected from TSTS. */
+  readonly sourceMarkerApi?: "attributes" | "attribute-targets" | "overloads";
 };
 
 export type IrArrayExpression = {

@@ -50,8 +50,6 @@ import {
 export const tryDetectAttributeMarker = (
   call: IrCallExpression,
   module: IrModule,
-  apiNames: ReadonlySet<string>,
-  attributeTargetsApiNames: ReadonlySet<string>,
   descriptors: ReadonlyMap<string, ParsedAttributeDescriptor>
 ): ParseResult<AttributeMarker> => {
   if (call.callee.kind !== "memberAccess") return { kind: "notMatch" };
@@ -96,11 +94,7 @@ export const tryDetectAttributeMarker = (
           };
         }
 
-        const parsedTarget = parseAttributeTarget(
-          arg0,
-          module,
-          attributeTargetsApiNames
-        );
+        const parsedTarget = parseAttributeTarget(arg0, module);
         if (parsedTarget.kind !== "ok") return parsedTarget;
 
         attributeTarget = parsedTarget.value;
@@ -173,7 +167,7 @@ export const tryDetectAttributeMarker = (
 
   if (!rootCallExpr) return { kind: "notMatch" };
 
-  const root = parseRootCall(rootCallExpr, module, apiNames);
+  const root = parseRootCall(rootCallExpr, module);
   if (root.kind !== "ok") return root;
 
   if (
@@ -236,7 +230,7 @@ export const tryDetectAttributeMarker = (
 
   // .add(A.attr(...)) inline descriptor
   if (addArgs.length === 1) {
-    const descCall = parseAttrDescriptorCall(first, module, apiNames);
+    const descCall = parseAttrDescriptorCall(first, module);
     if (descCall.kind === "ok") {
       return {
         kind: "ok",
