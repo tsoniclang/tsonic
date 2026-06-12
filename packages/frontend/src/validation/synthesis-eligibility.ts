@@ -83,7 +83,7 @@ export const checkBasicSynthesisEligibility = (
       return undefined;
     }
 
-    const symbol = program.checker.getSymbolAtLocation(expr);
+    const symbol = program.sourceSemantics.getSymbol(expr);
     if (!symbol || seenSymbols.has(symbol)) {
       return undefined;
     }

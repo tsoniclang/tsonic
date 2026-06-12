@@ -114,7 +114,7 @@ export const validateCoreIntrinsics = (
       const nameNode = getRightmostTypeNameIdentifier(node.typeName);
       const name = nameNode?.text;
       if (nameNode && name && CORE_TYPES_TYPE_NAMES.has(name)) {
-        const symbol = checker.getSymbolAtLocation(nameNode);
+        const symbol = program.sourceSemantics.getSymbol(nameNode);
         if (!isSymbolFromCore(checker, symbol, "types")) {
           current = report(
             current,
@@ -126,7 +126,7 @@ export const validateCoreIntrinsics = (
         }
       }
       if (nameNode && name && CORE_LANG_TYPE_NAMES.has(name)) {
-        const symbol = checker.getSymbolAtLocation(nameNode);
+        const symbol = program.sourceSemantics.getSymbol(nameNode);
         if (!isSymbolFromCore(checker, symbol, "lang")) {
           current = report(
             current,
@@ -143,7 +143,7 @@ export const validateCoreIntrinsics = (
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       const name = node.expression.text;
       if (CORE_LANG_VALUE_NAMES.has(name)) {
-        const symbol = checker.getSymbolAtLocation(node.expression);
+        const symbol = program.sourceSemantics.getSymbol(node.expression);
         if (!isSymbolFromCore(checker, symbol, "lang")) {
           current = report(
             current,

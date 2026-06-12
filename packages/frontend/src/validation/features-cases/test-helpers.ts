@@ -107,7 +107,7 @@ export const createTestProgram = (
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(checker),
+    binding: createBinding(checker, createTypeScriptSemanticView(checker)),
     sourceFile: entrySourceFile,
   };
 };
@@ -188,14 +188,14 @@ export const runValidationInTempProject = (
           .filter((filePath) => filePath.endsWith(".d.ts"))
           .map((filePath) => program.getSourceFile(filePath))
           .filter(
-          (candidate): candidate is ts.SourceFile => candidate !== undefined
-        ),
+            (candidate): candidate is ts.SourceFile => candidate !== undefined
+          ),
         sourceProgram: createEmptyTstsSourceProgramForTests(),
         sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings: new BindingRegistry(),
         externalResolver: createExternalBindingsResolver(tempDir),
-        binding: createBinding(checker),
+        binding: createBinding(checker, createTypeScriptSemanticView(checker)),
       },
       createDiagnosticsCollector()
     );

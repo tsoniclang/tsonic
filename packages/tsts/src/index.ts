@@ -1,18 +1,56 @@
 export { CommandLine } from "./internal/execute/tsc.js";
-export type { CommandLineResult, CommandLineTesting, ExitStatus, System } from "./internal/execute/tsc/compile.js";
-export { NewCachedFSCompilerHost, NewCompilerHost } from "./internal/compiler/host.js";
+export type {
+  CommandLineResult,
+  CommandLineTesting,
+  ExitStatus,
+  System,
+} from "./internal/execute/tsc/compile.js";
+export {
+  NewCachedFSCompilerHost,
+  NewCompilerHost,
+} from "./internal/compiler/host.js";
 export type { CompilerHost } from "./internal/compiler/host.js";
 export { NewProgram } from "./internal/compiler/program.js";
-export type { Program, ProgramLike, ProgramOptions } from "./internal/compiler/program.js";
-export { ParseBuildCommandLine, ParseCommandLine } from "./internal/tsoptions/commandlineparser.js";
+export type {
+  Program,
+  ProgramLike,
+  ProgramOptions,
+} from "./internal/compiler/program.js";
+export {
+  ParseBuildCommandLine,
+  ParseCommandLine,
+} from "./internal/tsoptions/commandlineparser.js";
 export type { ParsedBuildCommandLine } from "./internal/tsoptions/parsedbuildcommandline.js";
 export type { ParsedCommandLine } from "./internal/tsoptions/parsedcommandline.js";
-export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
-export type { TranspileCompilerOptions, TranspileCompilerOptionValue, TranspileOptions, TranspileOutput } from "./services/transpile.js";
+export {
+  barebonesLibContent,
+  formatDiagnostics,
+  transpile,
+  transpileDeclaration,
+  transpileModule,
+} from "./services/transpile.js";
+export type {
+  TranspileCompilerOptions,
+  TranspileCompilerOptionValue,
+  TranspileOptions,
+  TranspileOutput,
+} from "./services/transpile.js";
+export { createCompilerSourceProgram } from "./services/source-program.js";
+export type {
+  CompilerSourceProgram,
+  CreateCompilerSourceProgramOptions,
+} from "./services/source-program.js";
 export * from "./extensions/index.js";
 export type { GoPtr, GoSlice } from "./go/compat.js";
-export type { Node as TstsNode, NodeList as TstsNodeList } from "./internal/ast/spine.js";
+export type { Diagnostic as TstsDiagnostic } from "./internal/ast/diagnostic.js";
+export type {
+  Node as TstsNode,
+  NodeList as TstsNodeList,
+} from "./internal/ast/spine.js";
 export type { SourceFile as TstsSourceFile } from "./internal/ast/ast.js";
 export type { Symbol as TstsSymbol } from "./internal/ast/symbol.js";
 export type { Checker as TstsChecker } from "./internal/checker/checker/state.js";
-export type { Signature as TstsSignature, Type as TstsType } from "./internal/checker/types.js";
+export type {
+  Signature as TstsSignature,
+  Type as TstsType,
+} from "./internal/checker/types.js";

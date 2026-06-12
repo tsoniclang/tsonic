@@ -69,7 +69,7 @@ const isUnsupportedGlobalThisIdentifier = (
     return false;
   }
 
-  const symbol = program.checker.getSymbolAtLocation(node);
+  const symbol = program.sourceSemantics.getSymbol(node);
   if (!symbol) {
     return true;
   }
@@ -152,14 +152,15 @@ const isClosedStructuralPropertyUnion = (
 
 const isClosedInOperatorExpression = (
   node: ts.BinaryExpression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  program: TsonicProgram
 ): boolean => {
   const key = getStaticInOperatorKey(node.left);
   if (!key) {
     return false;
   }
 
-  const rightType = checker.getTypeAtLocation(node.right);
+  const rightType = program.sourceSemantics.getExpressionType(node.right);
   return (
     typeHasStringIndex(rightType, checker) ||
     isClosedStructuralPropertyUnion(rightType, key, checker)
@@ -168,9 +169,13 @@ const isClosedInOperatorExpression = (
 
 const isClosedForInStatement = (
   node: ts.ForInStatement,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  program: TsonicProgram
 ): boolean =>
-  typeHasStringIndex(checker.getTypeAtLocation(node.expression), checker);
+  typeHasStringIndex(
+    program.sourceSemantics.getExpressionType(node.expression),
+    checker
+  );
 
 const normalizeFileName = (fileName: string): string =>
   fileName.replace(/\\/g, "/");
@@ -238,7 +243,7 @@ const isSourceOwnedMemberAccess = (
   nameNode: ts.Node,
   program: TsonicProgram
 ): boolean => {
-  const symbol = program.checker.getSymbolAtLocation(nameNode);
+  const symbol = program.sourceSemantics.getSymbol(nameNode);
   return (
     symbol?.declarations?.some((declaration) =>
       isProgramSourceDeclaration(declaration, program)
@@ -250,7 +255,7 @@ const isAmbientIdentifier = (
   identifier: ts.Identifier,
   program: TsonicProgram
 ): boolean => {
-  const symbol = program.checker.getSymbolAtLocation(identifier);
+  const symbol = program.sourceSemantics.getSymbol(identifier);
   if (!symbol || !symbol.declarations || symbol.declarations.length === 0) {
     return true;
   }
@@ -321,7 +326,12 @@ const getNonJsMemberAccess = (
   if (!receiver || !nameNode || !memberName) return undefined;
   if (!JS_BUILTIN_MEMBER_NAME_SET.has(memberName)) return undefined;
   if (isSourceOwnedMemberAccess(nameNode, program)) return undefined;
-  if (!isJsBuiltinReceiverType(checker.getTypeAtLocation(receiver), checker)) {
+  if (
+    !isJsBuiltinReceiverType(
+      program.sourceSemantics.getExpressionType(receiver),
+      checker
+    )
+  ) {
     return undefined;
   }
 
@@ -330,7 +340,7 @@ const getNonJsMemberAccess = (
 
 const getNonJsElementAccess = (
   node: ts.Node,
-  checker: ts.TypeChecker
+  program: TsonicProgram
 ): { readonly name: string; readonly receiverText: string } | undefined => {
   if (!(ts.isElementAccessExpression(node) || ts.isElementAccessChain(node))) {
     return undefined;
@@ -344,7 +354,11 @@ const getNonJsElementAccess = (
     return undefined;
   }
 
-  if (!isStringLikeType(checker.getTypeAtLocation(node.expression))) {
+  if (
+    !isStringLikeType(
+      program.sourceSemantics.getExpressionType(node.expression)
+    )
+  ) {
     return undefined;
   }
 
@@ -445,14 +459,20 @@ const getNonJsGlobalConstructorCall = (
 
 const isUnsupportedFunctionLengthAccess = (
   node: ts.Node,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  program: TsonicProgram
 ): boolean => {
   const receiver = getLengthAccessReceiver(node);
   if (!receiver) {
     return false;
   }
 
-  if (!isFunctionLikeType(checker.getTypeAtLocation(receiver), checker)) {
+  if (
+    !isFunctionLikeType(
+      program.sourceSemantics.getExpressionType(receiver),
+      checker
+    )
+  ) {
     return false;
   }
 
@@ -571,7 +591,10 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (ts.isForInStatement(node) && !isClosedForInStatement(node, checker)) {
+    if (
+      ts.isForInStatement(node) &&
+      !isClosedForInStatement(node, checker, program)
+    ) {
       addUnsupported(
         node,
         "'for...in' is only supported for statically proven string-key carriers.",
@@ -583,7 +606,7 @@ export const validateUnsupportedFeatures = (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.InKeyword
     ) {
-      if (!isClosedInOperatorExpression(node, checker)) {
+      if (!isClosedInOperatorExpression(node, checker, program)) {
         addUnsupported(
           node,
           "The JavaScript 'in' operator is only supported for statically proven string-key carriers.",
@@ -662,7 +685,7 @@ export const validateUnsupportedFeatures = (
         );
       }
 
-      const elementAccess = getNonJsElementAccess(node, checker);
+      const elementAccess = getNonJsElementAccess(node, program);
       if (elementAccess) {
         addUnsupported(
           node,
@@ -708,7 +731,7 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (isUnsupportedFunctionLengthAccess(node, checker)) {
+    if (isUnsupportedFunctionLengthAccess(node, checker, program)) {
       const diagnostic = createBackendCapabilityDiagnostic(
         program,
         "dynamic-function-arity-introspection",

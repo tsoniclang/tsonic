@@ -89,10 +89,15 @@ export const createProgramContext = (
     const symbols = new Set<ts.Symbol>();
 
     for (const sourceFile of program.sourceFiles) {
-      const writtenSymbols = collectWrittenSymbols(sourceFile, program.checker);
+      const writtenSymbols = collectWrittenSymbols(
+        sourceFile,
+        program.checker,
+        program.sourceSemantics
+      );
       for (const symbol of collectSupportedGenericFunctionValueSymbols(
         sourceFile,
         program.checker,
+        program.sourceSemantics,
         writtenSymbols
       )) {
         symbols.add(symbol);
@@ -276,6 +281,7 @@ export const createProgramContext = (
     surface: program.options.surface ?? "core",
     surfaceCapabilities,
     checker: program.checker,
+    sourceSemantics: program.sourceSemantics,
     genericFunctionValueSymbols,
     tsCompilerOptions: program.program.getCompilerOptions(),
     sourceFilesByPath,

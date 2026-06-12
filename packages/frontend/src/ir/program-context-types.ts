@@ -22,6 +22,7 @@ import type {
   TargetSurfaceArtifacts,
   TargetSurfaceProvider,
 } from "../symbols/index.js";
+import type { TypeScriptSemanticView } from "../source-frontend/index.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
@@ -73,6 +74,13 @@ export type ProgramContext = {
    * This must never be used for computed type inference APIs (getTypeAtLocation, etc.).
    */
   readonly checker: ts.TypeChecker;
+
+  /**
+   * Source semantic facade for computed source facts and flow-sensitive type
+   * queries. Product frontend code must use this for expression types instead
+   * of calling TypeScript checker computed-type APIs directly.
+   */
+  readonly sourceSemantics: TypeScriptSemanticView;
 
   /**
    * Supported generic function value symbols for deterministic monomorphic callable contexts.
@@ -165,9 +173,7 @@ export type ProgramContext = {
    * necessarily uses broad runtime types, but the expression is removed by a
    * later compiler pass and is never materialized as a runtime object.
    */
-  readonly suppressObjectLiteralContextualTypeNodes?: ReadonlySet<
-    ts.ObjectLiteralExpression
-  >;
+  readonly suppressObjectLiteralContextualTypeNodes?: ReadonlySet<ts.ObjectLiteralExpression>;
 
   /**
    * IR conversion diagnostics emitted by converters (non-TypeSystem).

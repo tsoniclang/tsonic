@@ -27,6 +27,7 @@ export type SourceSemanticView<
   getResolvedSignature(
     callExpression: TCallLikeExpression
   ): TSignature | undefined;
+  typeToString(type: TType): string;
   getFact<T>(node: TNode, key: SourceSemanticFactKey<T>): T | undefined;
 };
 

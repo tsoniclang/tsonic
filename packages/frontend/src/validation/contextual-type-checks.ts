@@ -7,6 +7,7 @@
  */
 
 import * as ts from "typescript";
+import type { TypeScriptSemanticView } from "../source-frontend/index.js";
 
 /**
  * DETERMINISTIC IR TYPING (INV-0 compliant):
@@ -317,11 +318,12 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
 
 export const getReferencedIdentifierSymbol = (
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   node: ts.Identifier
 ): ts.Symbol | undefined => {
   const parent = node.parent;
   if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
     return checker.getShorthandAssignmentValueSymbol(parent) ?? undefined;
   }
-  return checker.getSymbolAtLocation(node);
+  return sourceSemantics.getSymbol(node);
 };

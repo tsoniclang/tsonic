@@ -374,7 +374,7 @@ export const tryResolveDeterministicObjectKeyNameFromSyntax = (
     return undefined;
   }
 
-  const symbol = ctx.checker.getSymbolAtLocation(current);
+  const symbol = ctx.sourceSemantics.getSymbol(current);
   if (!symbol || seenSymbols.has(symbol)) {
     return undefined;
   }

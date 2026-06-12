@@ -10,6 +10,7 @@ import {
   getSupportedGenericFunctionDeclarationSymbol,
   isGenericFunctionDeclarationNode,
 } from "./generic-function-values.js";
+import { createTypeScriptSemanticView } from "./source-frontend/index.js";
 
 const createTestProgram = (source: string, fileName = "/test/test.ts") => {
   const sourceFile = ts.createSourceFile(
@@ -157,11 +158,17 @@ const getSupportSymbolForVariable = (
   variableName: string
 ): ts.Symbol | undefined => {
   const { sourceFile, checker } = createTestProgram(source);
+  const sourceSemantics = createTypeScriptSemanticView(checker);
   const initializer = findGenericInitializer(sourceFile, variableName);
-  const writtenSymbols = collectWrittenSymbols(sourceFile, checker);
+  const writtenSymbols = collectWrittenSymbols(
+    sourceFile,
+    checker,
+    sourceSemantics
+  );
   return getSupportedGenericFunctionValueSymbol(
     initializer,
     checker,
+    sourceSemantics,
     writtenSymbols
   );
 };
@@ -183,10 +190,16 @@ const getCollectedSupportedSymbolForVariableInSourceFile = (
   checker: ts.TypeChecker,
   variableName: string
 ): ts.Symbol | undefined => {
-  const writtenSymbols = collectWrittenSymbols(sourceFile, checker);
+  const sourceSemantics = createTypeScriptSemanticView(checker);
+  const writtenSymbols = collectWrittenSymbols(
+    sourceFile,
+    checker,
+    sourceSemantics
+  );
   const supportedSymbols = collectSupportedGenericFunctionValueSymbols(
     sourceFile,
     checker,
+    sourceSemantics,
     writtenSymbols
   );
 
@@ -214,7 +227,8 @@ describe("generic-function-values helper", () => {
     const declaration = findGenericFunctionDeclaration(sourceFile, "id");
     const symbol = getSupportedGenericFunctionDeclarationSymbol(
       declaration,
-      checker
+      checker,
+      createTypeScriptSemanticView(checker)
     );
     expect(symbol).not.to.equal(undefined);
   });

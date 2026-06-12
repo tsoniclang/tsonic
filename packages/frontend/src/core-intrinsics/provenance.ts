@@ -1,4 +1,5 @@
 import * as ts from "typescript";
+import type { TypeScriptSemanticView } from "../source-frontend/index.js";
 import * as path from "node:path";
 
 export type CoreModule = "types" | "lang";
@@ -174,25 +175,28 @@ export const isSymbolFromGlobals = (
 
 export const isIdentifierFromCore = (
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   node: ts.Identifier,
   module: CoreModule
 ): boolean =>
-  isSymbolFromCore(checker, checker.getSymbolAtLocation(node), module);
+  isSymbolFromCore(checker, sourceSemantics.getSymbol(node), module);
 
 export const isIdentifierFromPackage = (
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   node: ts.Identifier,
   packageName: string,
   expectedBase?: string
 ): boolean =>
   isSymbolFromPackage(
     checker,
-    checker.getSymbolAtLocation(node),
+    sourceSemantics.getSymbol(node),
     packageName,
     expectedBase
   );
 
 export const isIdentifierFromGlobals = (
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   node: ts.Identifier
-): boolean => isSymbolFromGlobals(checker, checker.getSymbolAtLocation(node));
+): boolean => isSymbolFromGlobals(checker, sourceSemantics.getSymbol(node));

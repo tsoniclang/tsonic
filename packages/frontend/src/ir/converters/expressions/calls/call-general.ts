@@ -850,7 +850,7 @@ const resolveSourceBackedPackageExportSourceTarget = (
 };
 
 const resolveReferencedIdentifierSymbol = (
-  checker: ts.TypeChecker,
+  ctx: ProgramContext,
   expr: ts.Expression
 ): ts.Symbol | undefined => {
   const current = stripParentheses(expr);
@@ -858,13 +858,13 @@ const resolveReferencedIdentifierSymbol = (
     return undefined;
   }
 
-  const symbol = checker.getSymbolAtLocation(current);
+  const symbol = ctx.sourceSemantics.getSymbol(current);
   if (!symbol) {
     return undefined;
   }
 
   if (symbol.flags & ts.SymbolFlags.Alias) {
-    return checker.getAliasedSymbol(symbol);
+    return ctx.checker.getAliasedSymbol(symbol);
   }
 
   return symbol;
@@ -1020,7 +1020,7 @@ const resolveClassDeclarationFromExpression = (
   expression: ts.Expression,
   ctx: ProgramContext
 ): ts.ClassDeclaration | undefined => {
-  const symbol = resolveReferencedIdentifierSymbol(ctx.checker, expression);
+  const symbol = resolveReferencedIdentifierSymbol(ctx, expression);
   if (!symbol) {
     return undefined;
   }
@@ -1053,8 +1053,8 @@ const getPropertyAccessReceiverStaticIntent = (
   }
 
   return (
-    ctx.checker
-      .getTypeAtLocation(node.expression.expression)
+    ctx.sourceSemantics
+      .getExpressionType(node.expression.expression)
       .getConstructSignatures().length > 0
   );
 };
@@ -3295,7 +3295,7 @@ export const convertCallExpression = (
     isLambdaArg(expr) && !isExplicitlyTypedLambdaArg(expr);
 
   const isGenericFunctionValueArg = (expr: ts.Expression): boolean => {
-    const symbol = resolveReferencedIdentifierSymbol(ctx.checker, expr);
+    const symbol = resolveReferencedIdentifierSymbol(ctx, expr);
     return !!symbol && ctx.genericFunctionValueSymbols.has(symbol);
   };
 
@@ -4213,7 +4213,9 @@ export const convertCallExpression = (
     signatureId: sigId,
     candidateSignatureIds: candidateSigIds,
     typeArguments:
-      typeArguments ?? finalResolved?.typeArguments ?? inferredTypeArgumentsForIr,
+      typeArguments ??
+      finalResolved?.typeArguments ??
+      inferredTypeArgumentsForIr,
     explicitTypeArguments: typeArguments,
     requiresSpecialization,
     resolutionExpectedReturnType: expectedType,

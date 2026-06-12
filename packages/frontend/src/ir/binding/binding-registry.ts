@@ -38,6 +38,7 @@ import {
   isReadonlyMember,
 } from "./binding-helpers.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
+import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BINDING CONTEXT
@@ -52,6 +53,7 @@ import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js
  */
 export type BindingContext = {
   readonly checker: ts.TypeChecker;
+  readonly sourceSemantics: TypeScriptSemanticView;
   readonly declMap: Map<number, DeclEntry>;
   readonly signatureMap: Map<number, SignatureEntry>;
   readonly memberMap: Map<string, MemberEntry>;
@@ -67,9 +69,11 @@ export type BindingContext = {
  * Create a fresh BindingContext for a TypeScript program.
  */
 export const createBindingContext = (
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView
 ): BindingContext => ({
   checker,
+  sourceSemantics,
   declMap: new Map<number, DeclEntry>(),
   signatureMap: new Map<number, SignatureEntry>(),
   memberMap: new Map<string, MemberEntry>(),
@@ -235,7 +239,7 @@ export const resolveCanonicalDeclaringTypeName = (
       const resolvedName =
         resolveDeclarationSymbolFQName(
           ctx,
-          ctx.checker.getSymbolAtLocation(parent.name)
+          ctx.sourceSemantics.getSymbol(parent.name)
         ) ?? parent.name.text;
       return normalizeCapturedDeclaringTypeName(resolvedName);
     }
@@ -249,7 +253,7 @@ export const resolveCanonicalDeclaringTypeName = (
         const resolvedName =
           resolveDeclarationSymbolFQName(
             ctx,
-            ctx.checker.getSymbolAtLocation(container.name)
+            ctx.sourceSemantics.getSymbol(container.name)
           ) ?? container.name.text;
         return normalizeCapturedDeclaringTypeName(resolvedName);
       }
@@ -655,7 +659,7 @@ const resolveTransparentTypeQueryTarget = (
 
     const targetSymbol = (() => {
       if (ts.isTypeQueryNode(typeNode)) {
-        return ctx.checker.getSymbolAtLocation(typeNode.exprName);
+        return ctx.sourceSemantics.getSymbol(typeNode.exprName);
       }
 
       if (
@@ -663,7 +667,7 @@ const resolveTransparentTypeQueryTarget = (
         typeNode.isTypeOf &&
         typeNode.qualifier
       ) {
-        return ctx.checker.getSymbolAtLocation(typeNode.qualifier);
+        return ctx.sourceSemantics.getSymbol(typeNode.qualifier);
       }
 
       return undefined;
@@ -685,7 +689,7 @@ export const resolveIdentifier = (
   ctx: BindingContext,
   node: ts.Identifier
 ): DeclId | undefined => {
-  const symbol = ctx.checker.getSymbolAtLocation(node);
+  const symbol = ctx.sourceSemantics.getSymbol(node);
   if (!symbol) return undefined;
 
   return getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, symbol));
@@ -747,7 +751,7 @@ export const resolveTypeReference = (
         return declarationSymbol;
       }
 
-      const checkerSymbol = ctx.checker.getSymbolAtLocation(typeParameter.name);
+      const checkerSymbol = ctx.sourceSemantics.getSymbol(typeParameter.name);
       if (checkerSymbol) {
         return checkerSymbol;
       }
@@ -813,8 +817,8 @@ export const resolveTypeReference = (
   ): ts.Symbol | undefined => {
     const symbol = ts.isIdentifier(typeName)
       ? (resolveLexicalTypeParameterSymbol(typeName) ??
-        ctx.checker.getSymbolAtLocation(typeName))
-      : ctx.checker.getSymbolAtLocation(typeName.right);
+        ctx.sourceSemantics.getSymbol(typeName))
+      : ctx.sourceSemantics.getSymbol(typeName.right);
     if (!symbol) return undefined;
 
     return resolveTransparentTypeAliases(symbol);
@@ -899,7 +903,7 @@ export const resolvePropertyAccess = (
   ctx: BindingContext,
   node: ts.PropertyAccessExpression
 ): MemberId | undefined => {
-  const rawPropSymbol = ctx.checker.getSymbolAtLocation(node.name);
+  const rawPropSymbol = ctx.sourceSemantics.getSymbol(node.name);
   if (!rawPropSymbol) return undefined;
 
   const propSymbol =
@@ -908,9 +912,9 @@ export const resolvePropertyAccess = (
       : rawPropSymbol;
 
   // Get owner type's declaration
-  const rawOwnerSymbol = ctx.checker.getSymbolAtLocation(node.expression);
+  const rawOwnerSymbol = ctx.sourceSemantics.getSymbol(node.expression);
 
-  // Note: `getSymbolAtLocation(node.expression)` can be undefined for receivers
+  // Note: source symbol lookup can be undefined for receivers
   // that are not identifiers/member-accesses (e.g., `xs.where(...).select`).
   // In that case we still want a stable MemberId for the member symbol itself,
   // so we key the member entry off the member symbol's own DeclId.

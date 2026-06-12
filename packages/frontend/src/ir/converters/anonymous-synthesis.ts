@@ -296,7 +296,7 @@ export const checkSynthesisEligibility = (
       return undefined;
     }
 
-    const symbol = ctx.checker.getSymbolAtLocation(expr);
+    const symbol = ctx.sourceSemantics.getSymbol(expr);
     if (!symbol || seenSymbols.has(symbol)) {
       return undefined;
     }

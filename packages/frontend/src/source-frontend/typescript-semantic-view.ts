@@ -31,6 +31,7 @@ export const createTypeScriptSemanticView = (
   getResolvedSignature: (
     callExpression: TypeScriptCallLikeExpression
   ): ts.Signature | undefined => checker.getResolvedSignature(callExpression),
+  typeToString: (type: ts.Type): string => checker.typeToString(type),
   getFact: <T>(node: ts.Node, key: SourceSemanticFactKey<T>): T | undefined =>
     facts.get(node, key),
 });

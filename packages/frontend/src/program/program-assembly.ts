@@ -6,6 +6,7 @@
 import * as ts from "typescript";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { formatDiagnostics as formatTstsDiagnostics } from "@tsonic/tsts";
 import { Result, ok, error } from "../types/result.js";
 import { DiagnosticsCollector } from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
@@ -121,6 +122,17 @@ const collectTstsSourceDiagnostics = (
   sourceProgram: TstsSourceProgram
 ): DiagnosticsCollector => {
   let collector = createDiagnosticsCollector();
+
+  if (sourceProgram.compilerDiagnostics.length > 0) {
+    collector = addDiagnostic(
+      collector,
+      createDiagnostic(
+        "TSN1008",
+        "error",
+        `TSTS source program diagnostics:\n${formatTstsDiagnostics(sourceProgram.compilerDiagnostics)}`
+      )
+    );
+  }
 
   for (const diagnostic of sourceProgram.diagnostics) {
     const severity =
@@ -719,7 +731,7 @@ export const createProgram = (
   // This replaces direct checker API calls throughout the pipeline
   const checker = program.getTypeChecker();
   const sourceSemantics = createTypeScriptSemanticView(checker);
-  const binding = createBinding(checker);
+  const binding = createBinding(checker, sourceSemantics);
 
   return ok({
     program,

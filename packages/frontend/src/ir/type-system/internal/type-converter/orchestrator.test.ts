@@ -4,6 +4,7 @@ import * as ts from "typescript";
 import { createBinding } from "../../../binding/index.js";
 import { convertType } from "./orchestrator.js";
 import type { IrType } from "../../../types.js";
+import { createTypeScriptSemanticView } from "../../../../source-frontend/index.js";
 
 const createTestProgram = (
   source: string,
@@ -55,7 +56,11 @@ const createTestProgram = (
     throw new Error("missing source file");
   }
 
-  return { sourceFile, binding: createBinding(program.getTypeChecker()) };
+  const checker = program.getTypeChecker();
+  return {
+    sourceFile,
+    binding: createBinding(checker, createTypeScriptSemanticView(checker)),
+  };
 };
 
 const convertAlias = (source: string, aliasName: string): IrType => {

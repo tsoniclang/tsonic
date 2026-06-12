@@ -53,7 +53,8 @@ const isClassValueReceiver = (
   ctx: BindingContext,
   expr: ts.Expression
 ): boolean =>
-  ctx.checker.getTypeAtLocation(expr).getConstructSignatures().length > 0;
+  ctx.sourceSemantics.getExpressionType(expr).getConstructSignatures().length >
+  0;
 
 const filterPropertyAccessDeclarationsByReceiver = (
   ctx: BindingContext,
@@ -90,9 +91,9 @@ export const resolveCallTargetDeclarations = (
 ): readonly ts.Declaration[] | undefined => {
   const expr = node.expression;
   const symbol = (() => {
-    if (ts.isIdentifier(expr)) return ctx.checker.getSymbolAtLocation(expr);
+    if (ts.isIdentifier(expr)) return ctx.sourceSemantics.getSymbol(expr);
     if (ts.isPropertyAccessExpression(expr)) {
-      return ctx.checker.getSymbolAtLocation(expr.name);
+      return ctx.sourceSemantics.getSymbol(expr.name);
     }
     return undefined;
   })();
@@ -162,7 +163,7 @@ export const resolveCallSignatureCandidates = (
     if (directCandidates) return directCandidates;
   }
 
-  const expressionType = ctx.checker.getTypeAtLocation(expr);
+  const expressionType = ctx.sourceSemantics.getExpressionType(expr);
   return collectSignatureCandidates(expressionType.getCallSignatures());
 };
 
@@ -190,7 +191,7 @@ export const resolveConstructorSignature = (
         return undefined;
       }
 
-      const parentSymbol = ctx.checker.getSymbolAtLocation(parent.name);
+      const parentSymbol = ctx.sourceSemantics.getSymbol(parent.name);
       const declId = parentSymbol
         ? getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, parentSymbol))
         : undefined;
@@ -248,9 +249,9 @@ export const resolveConstructorSignature = (
     const expr = node.expression;
 
     const symbol = (() => {
-      if (ts.isIdentifier(expr)) return ctx.checker.getSymbolAtLocation(expr);
+      if (ts.isIdentifier(expr)) return ctx.sourceSemantics.getSymbol(expr);
       if (ts.isPropertyAccessExpression(expr)) {
-        return ctx.checker.getSymbolAtLocation(expr.name);
+        return ctx.sourceSemantics.getSymbol(expr.name);
       }
       return undefined;
     })();
@@ -265,7 +266,7 @@ export const resolveConstructorSignature = (
     const declaringTypeTsName =
       (() => {
         if (decl && ts.isClassDeclaration(decl) && decl.name) {
-          const parentSymbol = ctx.checker.getSymbolAtLocation(decl.name);
+          const parentSymbol = ctx.sourceSemantics.getSymbol(decl.name);
           if (parentSymbol) {
             const declId = getOrCreateDeclId(
               ctx,
@@ -312,9 +313,9 @@ export const resolveConstructorSignatureCandidates = (
 ): readonly SignatureId[] | undefined => {
   const expr = node.expression;
   const symbol = (() => {
-    if (ts.isIdentifier(expr)) return ctx.checker.getSymbolAtLocation(expr);
+    if (ts.isIdentifier(expr)) return ctx.sourceSemantics.getSymbol(expr);
     if (ts.isPropertyAccessExpression(expr)) {
-      return ctx.checker.getSymbolAtLocation(expr.name);
+      return ctx.sourceSemantics.getSymbol(expr.name);
     }
     return undefined;
   })();

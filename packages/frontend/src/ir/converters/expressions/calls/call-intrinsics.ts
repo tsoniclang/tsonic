@@ -45,11 +45,16 @@ export const tryConvertIntrinsicCall = (
   const isCoreLangIntrinsicCall = (name: string): boolean =>
     ts.isIdentifier(node.expression) &&
     node.expression.text === name &&
-    isIdentifierFromCore(ctx.checker, node.expression, "lang");
+    isIdentifierFromCore(
+      ctx.checker,
+      ctx.sourceSemantics,
+      node.expression,
+      "lang"
+    );
   const isGlobalIntrinsicCall = (name: string): boolean =>
     ts.isIdentifier(node.expression) &&
     node.expression.text === name &&
-    isIdentifierFromGlobals(ctx.checker, node.expression);
+    isIdentifierFromGlobals(ctx.checker, ctx.sourceSemantics, node.expression);
 
   const extractNameofTarget = (expr: ts.Expression): string | undefined => {
     if (ts.isIdentifier(expr)) return expr.text;

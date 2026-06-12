@@ -134,12 +134,13 @@ export const convertVariableStatement = (
     }
   })();
   const writtenSymbols = sourceFile
-    ? collectWrittenSymbols(sourceFile, ctx.checker)
+    ? collectWrittenSymbols(sourceFile, ctx.checker, ctx.sourceSemantics)
     : new Set<ts.Symbol>();
   const supportedGenericFunctionValueSymbols = sourceFile
     ? collectSupportedGenericFunctionValueSymbols(
         sourceFile,
         ctx.checker,
+        ctx.sourceSemantics,
         writtenSymbols
       )
     : new Set<ts.Symbol>();
@@ -151,6 +152,7 @@ export const convertVariableStatement = (
       isSupportedGenericFunctionValueDeclaration(
         decl,
         ctx.checker,
+        ctx.sourceSemantics,
         writtenSymbols
       )
     ) {
@@ -169,6 +171,7 @@ export const convertVariableStatement = (
       isSupportedGenericFunctionAliasDeclaration(
         decl,
         ctx.checker,
+        ctx.sourceSemantics,
         writtenSymbols,
         supportedGenericFunctionValueSymbols
       )

@@ -84,7 +84,7 @@ export const createTestProgram = (
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(checker),
+    binding: createBinding(checker, createTypeScriptSemanticView(checker)),
   };
 
   // Create ProgramContext for the test
@@ -154,7 +154,7 @@ export const createFilesystemTestProgram = (
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver(tempDir),
-    binding: createBinding(checker),
+    binding: createBinding(checker, createTypeScriptSemanticView(checker)),
   };
 
   const options = {

@@ -405,14 +405,14 @@ const unwrapExpression = (expr: ts.Expression): ts.Expression => {
 
 const isJsonParseInitializedSymbol = (
   expr: ts.Expression,
-  checker: ts.TypeChecker
+  program: TsonicProgram
 ): boolean => {
   const unwrapped = unwrapExpression(expr);
   if (!ts.isIdentifier(unwrapped)) {
     return false;
   }
 
-  const symbol = checker.getSymbolAtLocation(unwrapped);
+  const symbol = program.sourceSemantics.getSymbol(unwrapped);
   const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
   if (!declaration || !ts.isVariableDeclaration(declaration)) {
     return false;
@@ -426,28 +426,28 @@ const isJsonParseInitializedSymbol = (
 
 const isDeclaredDynamicJsonCarrierSymbol = (
   expr: ts.Expression,
-  checker: ts.TypeChecker
+  program: TsonicProgram
 ): boolean => {
   const unwrapped = unwrapExpression(expr);
   if (!ts.isIdentifier(unwrapped)) {
     return false;
   }
 
-  const symbol = checker.getSymbolAtLocation(unwrapped);
+  const symbol = program.sourceSemantics.getSymbol(unwrapped);
   const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
   if (!symbol || !declaration) {
     return false;
   }
 
   return isDynamicJsonCarrierType(
-    checker.getTypeOfSymbolAtLocation(symbol, declaration),
-    checker
+    program.checker.getTypeOfSymbolAtLocation(symbol, declaration),
+    program.checker
   );
 };
 
 const getObjectEntriesSource = (
   expr: ts.Expression,
-  checker: ts.TypeChecker
+  program: TsonicProgram
 ): ts.Expression | undefined => {
   const unwrapped = unwrapExpression(expr);
 
@@ -467,14 +467,14 @@ const getObjectEntriesSource = (
 
   const collection = unwrapExpression(unwrapped.expression);
   if (ts.isCallExpression(collection)) {
-    return getObjectEntriesSource(collection, checker);
+    return getObjectEntriesSource(collection, program);
   }
 
   if (!ts.isIdentifier(collection)) {
     return undefined;
   }
 
-  const symbol = checker.getSymbolAtLocation(collection);
+  const symbol = program.sourceSemantics.getSymbol(collection);
   const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
   if (!declaration || !ts.isVariableDeclaration(declaration)) {
     return undefined;
@@ -483,19 +483,19 @@ const getObjectEntriesSource = (
   const initializer = declaration.initializer
     ? unwrapExpression(declaration.initializer)
     : undefined;
-  return initializer ? getObjectEntriesSource(initializer, checker) : undefined;
+  return initializer ? getObjectEntriesSource(initializer, program) : undefined;
 };
 
 const isObjectEntriesValueFromDynamicJsonCarrier = (
   expr: ts.Expression,
-  checker: ts.TypeChecker
+  program: TsonicProgram
 ): boolean => {
   const unwrapped = unwrapExpression(expr);
   if (!ts.isIdentifier(unwrapped)) {
     return false;
   }
 
-  const symbol = checker.getSymbolAtLocation(unwrapped);
+  const symbol = program.sourceSemantics.getSymbol(unwrapped);
   const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
   if (
     !declaration ||
@@ -520,13 +520,13 @@ const isObjectEntriesValueFromDynamicJsonCarrier = (
 
   const entriesSource = getObjectEntriesSource(
     variableDeclaration.initializer,
-    checker
+    program
   );
   return entriesSource
-    ? isDeclaredDynamicJsonCarrierSymbol(entriesSource, checker) ||
+    ? isDeclaredDynamicJsonCarrierSymbol(entriesSource, program) ||
         typeHasDynamicJsonCarrierStringIndex(
-          checker.getTypeAtLocation(entriesSource),
-          checker
+          program.sourceSemantics.getExpressionType(entriesSource),
+          program.checker
         )
     : false;
 };
@@ -539,11 +539,16 @@ export const validateStaticSafety = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const writtenSymbols = collectWrittenSymbols(sourceFile, program.checker);
+  const writtenSymbols = collectWrittenSymbols(
+    sourceFile,
+    program.checker,
+    program.sourceSemantics
+  );
   const supportedGenericFunctionValueSymbols =
     collectSupportedGenericFunctionValueSymbols(
       sourceFile,
       program.checker,
+      program.sourceSemantics,
       writtenSymbols
     );
 
@@ -581,7 +586,7 @@ export const validateStaticSafety = (
         !sourceExpression ||
         ts.isSpreadElement(sourceExpression) ||
         isBroadJsonSourceType(
-          program.checker.getTypeAtLocation(sourceExpression),
+          program.sourceSemantics.getExpressionType(sourceExpression),
           program.checker
         )
       ) {
@@ -607,18 +612,15 @@ export const validateStaticSafety = (
       if (
         !sourceExpression ||
         ts.isSpreadElement(sourceExpression) ||
-        (!isJsonParseInitializedSymbol(sourceExpression, program.checker) &&
-          !isDeclaredDynamicJsonCarrierSymbol(
-            sourceExpression,
-            program.checker
-          ) &&
+        (!isJsonParseInitializedSymbol(sourceExpression, program) &&
+          !isDeclaredDynamicJsonCarrierSymbol(sourceExpression, program) &&
           !isObjectEntriesValueFromDynamicJsonCarrier(
             sourceExpression,
-            program.checker
+            program
           ) &&
           !isDirectBooleanReturnExpression(node) &&
           isBroadArrayIsArraySourceType(
-            program.checker.getTypeAtLocation(sourceExpression),
+            program.sourceSemantics.getExpressionType(sourceExpression),
             program.checker
           ))
       ) {
@@ -872,6 +874,7 @@ export const validateStaticSafety = (
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
         program.checker,
+        program.sourceSemantics,
         writtenSymbols
       );
       const isSupported =
@@ -895,7 +898,8 @@ export const validateStaticSafety = (
     if (isGenericFunctionDeclarationNode(node)) {
       const symbol = getSupportedGenericFunctionDeclarationSymbol(
         node,
-        program.checker
+        program.checker,
+        program.sourceSemantics
       );
       const isSupported =
         symbol !== undefined &&
@@ -915,7 +919,11 @@ export const validateStaticSafety = (
     }
 
     if (ts.isIdentifier(node)) {
-      const symbol = getReferencedIdentifierSymbol(program.checker, node);
+      const symbol = getReferencedIdentifierSymbol(
+        program.checker,
+        program.sourceSemantics,
+        node
+      );
       if (
         symbol &&
         supportedGenericFunctionValueSymbols.has(symbol) &&

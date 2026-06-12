@@ -83,7 +83,7 @@ const resolveReferencedClassDeclaration = (
   expression: ts.Expression,
   ctx: ProgramContext
 ): ts.ClassDeclaration | undefined => {
-  const symbol = ctx.checker.getSymbolAtLocation(expression);
+  const symbol = ctx.sourceSemantics.getSymbol(expression);
   if (!symbol) {
     return undefined;
   }

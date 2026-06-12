@@ -86,7 +86,7 @@ const createTestProgram = (
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver(sourceRoot),
-    binding: createBinding(checker),
+    binding: createBinding(checker, createTypeScriptSemanticView(checker)),
     sourceFile,
   };
 };

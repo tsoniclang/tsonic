@@ -5,7 +5,7 @@
  * handles (DeclId, SignatureId, MemberId) instead of ts.Symbol/ts.Signature.
  *
  * ALLOWED APIs (symbol resolution only):
- * - checker.getSymbolAtLocation(node) — Find symbol at AST node
+ * - sourceSemantics.getSymbol(node) — Find symbol at source node
  * - checker.getAliasedSymbol(symbol) — Resolve import alias
  * - checker.getExportSymbolOfSymbol(symbol) — Resolve export
  * - symbol.getDeclarations() — Get AST declaration nodes

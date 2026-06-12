@@ -10,6 +10,7 @@ import {
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
+import type { TypeScriptSemanticView } from "../../../../source-frontend/index.js";
 import {
   convertParameters,
   convertTypeParameters,
@@ -38,6 +39,7 @@ const resolveGenericFunctionValueReturnType = (
 export const isSupportedGenericFunctionValueDeclaration = (
   decl: ts.VariableDeclaration,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>
 ): decl is ts.VariableDeclaration & {
   readonly name: ts.Identifier;
@@ -50,6 +52,7 @@ export const isSupportedGenericFunctionValueDeclaration = (
   const symbol = getSupportedGenericFunctionValueSymbol(
     decl.initializer,
     checker,
+    sourceSemantics,
     writtenSymbols
   );
   return symbol !== undefined;
@@ -57,9 +60,10 @@ export const isSupportedGenericFunctionValueDeclaration = (
 
 const resolveSymbol = (
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   node: ts.Node
 ): ts.Symbol | undefined => {
-  const symbol = checker.getSymbolAtLocation(node);
+  const symbol = sourceSemantics.getSymbol(node);
   if (!symbol) return undefined;
   if (symbol.flags & ts.SymbolFlags.Alias) {
     return checker.getAliasedSymbol(symbol);
@@ -83,6 +87,7 @@ type GenericFunctionAliasTarget =
 const resolveGenericFunctionAliasTargetFromSymbol = (
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   seen: Set<ts.Symbol>
 ): GenericFunctionAliasTarget | undefined => {
   if (seen.has(symbol)) return undefined;
@@ -118,11 +123,16 @@ const resolveGenericFunctionAliasTargetFromSymbol = (
       }
 
       if (initializer && ts.isIdentifier(initializer)) {
-        const targetSymbol = resolveSymbol(checker, initializer);
+        const targetSymbol = resolveSymbol(
+          checker,
+          sourceSemantics,
+          initializer
+        );
         if (!targetSymbol) continue;
         const resolved = resolveGenericFunctionAliasTargetFromSymbol(
           targetSymbol,
           checker,
+          sourceSemantics,
           seen
         );
         if (resolved) return resolved;
@@ -136,6 +146,7 @@ const resolveGenericFunctionAliasTargetFromSymbol = (
 export const isSupportedGenericFunctionAliasDeclaration = (
   decl: ts.VariableDeclaration,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>,
   supportedSymbols: ReadonlySet<ts.Symbol>
 ): decl is ts.VariableDeclaration & {
@@ -153,11 +164,15 @@ export const isSupportedGenericFunctionAliasDeclaration = (
   const isLet = (declarationList.flags & ts.NodeFlags.Let) !== 0;
   if (!isConst && !isLet) return false;
 
-  const aliasSymbol = resolveSymbol(checker, decl.name);
+  const aliasSymbol = resolveSymbol(checker, sourceSemantics, decl.name);
   if (!aliasSymbol) return false;
   if (!isConst && writtenSymbols.has(aliasSymbol)) return false;
 
-  const targetSymbol = resolveSymbol(checker, decl.initializer);
+  const targetSymbol = resolveSymbol(
+    checker,
+    sourceSemantics,
+    decl.initializer
+  );
   if (!targetSymbol) return false;
   return isDeterministicGenericFunctionAliasTargetSymbol(
     targetSymbol,
@@ -258,12 +273,17 @@ export const convertGenericFunctionValueAliasDeclaration = (
   },
   ctx: ProgramContext
 ): IrFunctionDeclaration | null => {
-  const targetSymbol = resolveSymbol(ctx.checker, decl.initializer);
+  const targetSymbol = resolveSymbol(
+    ctx.checker,
+    ctx.sourceSemantics,
+    decl.initializer
+  );
   if (!targetSymbol) return null;
 
   const target = resolveGenericFunctionAliasTargetFromSymbol(
     targetSymbol,
     ctx.checker,
+    ctx.sourceSemantics,
     new Set<ts.Symbol>()
   );
   if (!target) return null;

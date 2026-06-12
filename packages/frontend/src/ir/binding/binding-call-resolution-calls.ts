@@ -251,7 +251,7 @@ export const resolveCallSignature = (
       return namedMode;
     }
 
-    const symbol = ctx.checker.getSymbolAtLocation(expression);
+    const symbol = ctx.sourceSemantics.getSymbol(expression);
     if (!symbol) {
       return undefined;
     }
@@ -314,7 +314,7 @@ export const resolveCallSignature = (
       return namedMode;
     }
 
-    const symbol = ctx.checker.getSymbolAtLocation(node.typeName);
+    const symbol = ctx.sourceSemantics.getSymbol(node.typeName);
     if (!symbol) {
       return undefined;
     }
@@ -493,7 +493,7 @@ export const resolveCallSignature = (
     }
 
     const checkerStringEvidence = getCheckerStringEvidence(
-      ctx.checker.getTypeAtLocation(expr)
+      ctx.sourceSemantics.getExpressionType(expr)
     );
 
     if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
@@ -504,7 +504,7 @@ export const resolveCallSignature = (
     }
 
     if (ts.isIdentifier(expr)) {
-      const symbol = ctx.checker.getSymbolAtLocation(expr);
+      const symbol = ctx.sourceSemantics.getSymbol(expr);
       if (!symbol) return undefined;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
@@ -529,7 +529,7 @@ export const resolveCallSignature = (
       const lookupNode = ts.isPropertyAccessExpression(expr)
         ? expr.name
         : (expr.argumentExpression ?? expr.expression);
-      const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
+      const symbol = ctx.sourceSemantics.getSymbol(lookupNode);
       if (!symbol) return undefined;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
@@ -600,7 +600,7 @@ export const resolveCallSignature = (
     }
 
     if (ts.isIdentifier(expr)) {
-      const symbol = ctx.checker.getSymbolAtLocation(expr);
+      const symbol = ctx.sourceSemantics.getSymbol(expr);
       if (!symbol) {
         return undefined;
       }
@@ -615,7 +615,9 @@ export const resolveCallSignature = (
           return mode;
         }
       }
-      return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
+      return getCheckerTypeIterableMode(
+        ctx.sourceSemantics.getExpressionType(expr)
+      );
     }
 
     if (
@@ -625,7 +627,7 @@ export const resolveCallSignature = (
       const lookupNode = ts.isPropertyAccessExpression(expr)
         ? expr.name
         : (expr.argumentExpression ?? expr.expression);
-      const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
+      const symbol = ctx.sourceSemantics.getSymbol(lookupNode);
       if (!symbol) {
         return undefined;
       }
@@ -640,7 +642,9 @@ export const resolveCallSignature = (
           return mode;
         }
       }
-      return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
+      return getCheckerTypeIterableMode(
+        ctx.sourceSemantics.getExpressionType(expr)
+      );
     }
 
     if (ts.isCallExpression(expr)) {
@@ -650,12 +654,15 @@ export const resolveCallSignature = (
           getReturnTypeNode(
             signature?.getDeclaration() as ts.SignatureDeclaration | undefined
           )
-        ) ?? getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr))
+        ) ??
+        getCheckerTypeIterableMode(ctx.sourceSemantics.getExpressionType(expr))
       );
     }
 
     if (ts.isNewExpression(expr)) {
-      return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
+      return getCheckerTypeIterableMode(
+        ctx.sourceSemantics.getExpressionType(expr)
+      );
     }
 
     if (ts.isAwaitExpression(expr)) {
@@ -667,10 +674,14 @@ export const resolveCallSignature = (
       const whenFalse = getExplicitIterableEvidence(expr.whenFalse, seen);
       return whenTrue && whenTrue === whenFalse
         ? whenTrue
-        : getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
+        : getCheckerTypeIterableMode(
+            ctx.sourceSemantics.getExpressionType(expr)
+          );
     }
 
-    return getCheckerTypeIterableMode(ctx.checker.getTypeAtLocation(expr));
+    return getCheckerTypeIterableMode(
+      ctx.sourceSemantics.getExpressionType(expr)
+    );
   };
 
   const getExplicitArgumentTargetPrimitiveAlias = (
@@ -683,7 +694,7 @@ export const resolveCallSignature = (
     }
 
     if (ts.isIdentifier(expr)) {
-      const sym = ctx.checker.getSymbolAtLocation(expr);
+      const sym = ctx.sourceSemantics.getSymbol(expr);
       if (!sym) return undefined;
       const resolvedSym =
         sym.flags & ts.SymbolFlags.Alias
@@ -708,7 +719,7 @@ export const resolveCallSignature = (
       const lookupNode = ts.isPropertyAccessExpression(expr)
         ? expr.name
         : (expr.argumentExpression ?? expr.expression);
-      const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
+      const symbol = ctx.sourceSemantics.getSymbol(lookupNode);
       if (!symbol) return undefined;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
@@ -768,7 +779,7 @@ export const resolveCallSignature = (
     }
 
     if (ts.isIdentifier(expr)) {
-      const symbol = ctx.checker.getSymbolAtLocation(expr);
+      const symbol = ctx.sourceSemantics.getSymbol(expr);
       if (!symbol) return false;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
@@ -792,7 +803,7 @@ export const resolveCallSignature = (
       const lookupNode = ts.isPropertyAccessExpression(expr)
         ? expr.name
         : (expr.argumentExpression ?? expr.expression);
-      const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
+      const symbol = ctx.sourceSemantics.getSymbol(lookupNode);
       if (!symbol) return false;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
@@ -820,7 +831,9 @@ export const resolveCallSignature = (
     }
 
     return (
-      ctx.checker.typeToString(ctx.checker.getTypeAtLocation(expr)) === "number"
+      ctx.sourceSemantics.typeToString(
+        ctx.sourceSemantics.getExpressionType(expr)
+      ) === "number"
     );
   };
 
@@ -947,8 +960,8 @@ export const resolveCallSignature = (
     }
 
     const rawSymbol = ts.isIdentifier(node.typeName)
-      ? ctx.checker.getSymbolAtLocation(node.typeName)
-      : ctx.checker.getSymbolAtLocation(node.typeName.right);
+      ? ctx.sourceSemantics.getSymbol(node.typeName)
+      : ctx.sourceSemantics.getSymbol(node.typeName.right);
     if (!rawSymbol) return undefined;
 
     const symbol =

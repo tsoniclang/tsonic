@@ -17,6 +17,7 @@ import {
 } from "../utility-types.js";
 import { IrType } from "../../../../types.js";
 import { createBinding, Binding } from "../../../../binding/index.js";
+import { createTypeScriptSemanticView } from "../../../../../source-frontend/index.js";
 
 /**
  * Assert value is not null/undefined and return it typed as non-null.
@@ -89,7 +90,7 @@ const createTestProgram = (
     `Source file ${fileName} not found`
   );
   const checker = program.getTypeChecker();
-  const binding = createBinding(checker);
+  const binding = createBinding(checker, createTypeScriptSemanticView(checker));
 
   return { program, checker, sourceFile, binding };
 };

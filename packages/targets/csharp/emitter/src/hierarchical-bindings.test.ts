@@ -93,10 +93,11 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     );
 
     const checker = program.getTypeChecker();
+    const sourceSemantics = createTypeScriptSemanticView(checker);
     const testProgram = {
       program,
       checker,
-      binding: createBinding(checker),
+      binding: createBinding(checker, sourceSemantics),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -106,7 +107,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
       sourceProgram: createEmptyTstsSourceProgramForTests(),
-      sourceSemantics: createTypeScriptSemanticView(checker),
+      sourceSemantics,
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver("/test"),
@@ -246,10 +247,11 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     );
 
     const checker2 = program.getTypeChecker();
+    const sourceSemantics = createTypeScriptSemanticView(checker2);
     const testProgram = {
       program,
       checker: checker2,
-      binding: createBinding(checker2),
+      binding: createBinding(checker2, sourceSemantics),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -259,7 +261,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
       sourceProgram: createEmptyTstsSourceProgramForTests(),
-      sourceSemantics: createTypeScriptSemanticView(checker2),
+      sourceSemantics,
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver("/test"),

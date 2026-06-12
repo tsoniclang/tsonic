@@ -25,6 +25,7 @@ import type {
   TypeSyntaxInfo,
 } from "../type-system/internal/handle-types.js";
 import type { BindingInternal, TypePredicateInfo } from "./binding-types.js";
+import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
 import {
   createBindingContext,
   getOrCreateDeclId,
@@ -52,15 +53,18 @@ import {
  * Returns BindingInternal which includes _getHandleRegistry() for TypeSystem.
  * Cast to Binding when passing to regular converters.
  */
-export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
-  const ctx = createBindingContext(checker);
+export const createBinding = (
+  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView
+): BindingInternal => {
+  const ctx = createBindingContext(checker, sourceSemantics);
 
   // ─────────────────────────────────────────────────────────────────────────
   // SIMPLE RESOLUTION METHODS (remaining methods not in sub-modules)
   // ─────────────────────────────────────────────────────────────────────────
 
   const resolveImport = (node: ts.ImportSpecifier): DeclId | undefined => {
-    const symbol = checker.getSymbolAtLocation(node.name);
+    const symbol = sourceSemantics.getSymbol(node.name);
     if (!symbol) return undefined;
 
     return getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, symbol));

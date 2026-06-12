@@ -1,4 +1,5 @@
 import * as ts from "typescript";
+import type { TypeScriptSemanticView } from "./source-frontend/index.js";
 
 export type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
 
@@ -39,9 +40,10 @@ export const isDeterministicGenericFunctionAliasTargetSymbol = (
 
 const resolveSymbol = (
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   node: ts.Node
 ): ts.Symbol | undefined => {
-  const symbol = checker.getSymbolAtLocation(node);
+  const symbol = sourceSemantics.getSymbol(node);
   if (!symbol) return undefined;
   if (symbol.flags & ts.SymbolFlags.Alias) {
     return checker.getAliasedSymbol(symbol);
@@ -73,10 +75,11 @@ const getConstLetKind = (
 
 const getVariableDeclarationSymbol = (
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   declaration: ts.VariableDeclaration
 ): ts.Symbol | undefined => {
   if (!ts.isIdentifier(declaration.name)) return undefined;
-  return resolveSymbol(checker, declaration.name);
+  return resolveSymbol(checker, sourceSemantics, declaration.name);
 };
 
 const isAssignmentOperator = (kind: ts.SyntaxKind): boolean => {
@@ -105,17 +108,23 @@ const isAssignmentOperator = (kind: ts.SyntaxKind): boolean => {
 
 const markAssignmentTargetSymbols = (
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   node: ts.Node,
   writes: Set<ts.Symbol>
 ): void => {
   if (ts.isIdentifier(node)) {
-    const symbol = resolveSymbol(checker, node);
+    const symbol = resolveSymbol(checker, sourceSemantics, node);
     if (symbol) writes.add(symbol);
     return;
   }
 
   if (ts.isParenthesizedExpression(node)) {
-    markAssignmentTargetSymbols(checker, node.expression, writes);
+    markAssignmentTargetSymbols(
+      checker,
+      sourceSemantics,
+      node.expression,
+      writes
+    );
     return;
   }
 
@@ -123,10 +132,15 @@ const markAssignmentTargetSymbols = (
     for (const element of node.elements) {
       if (ts.isOmittedExpression(element)) continue;
       if (ts.isSpreadElement(element)) {
-        markAssignmentTargetSymbols(checker, element.expression, writes);
+        markAssignmentTargetSymbols(
+          checker,
+          sourceSemantics,
+          element.expression,
+          writes
+        );
         continue;
       }
-      markAssignmentTargetSymbols(checker, element, writes);
+      markAssignmentTargetSymbols(checker, sourceSemantics, element, writes);
     }
     return;
   }
@@ -134,15 +148,30 @@ const markAssignmentTargetSymbols = (
   if (ts.isObjectLiteralExpression(node)) {
     for (const property of node.properties) {
       if (ts.isShorthandPropertyAssignment(property)) {
-        markAssignmentTargetSymbols(checker, property.name, writes);
+        markAssignmentTargetSymbols(
+          checker,
+          sourceSemantics,
+          property.name,
+          writes
+        );
         continue;
       }
       if (ts.isSpreadAssignment(property)) {
-        markAssignmentTargetSymbols(checker, property.expression, writes);
+        markAssignmentTargetSymbols(
+          checker,
+          sourceSemantics,
+          property.expression,
+          writes
+        );
         continue;
       }
       if (ts.isPropertyAssignment(property)) {
-        markAssignmentTargetSymbols(checker, property.initializer, writes);
+        markAssignmentTargetSymbols(
+          checker,
+          sourceSemantics,
+          property.initializer,
+          writes
+        );
       }
     }
     return;
@@ -152,13 +181,14 @@ const markAssignmentTargetSymbols = (
     ts.isBinaryExpression(node) &&
     node.operatorToken.kind === ts.SyntaxKind.EqualsToken
   ) {
-    markAssignmentTargetSymbols(checker, node.left, writes);
+    markAssignmentTargetSymbols(checker, sourceSemantics, node.left, writes);
   }
 };
 
 export const collectWrittenSymbols = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView
 ): ReadonlySet<ts.Symbol> => {
   const writes = new Set<ts.Symbol>();
 
@@ -167,7 +197,7 @@ export const collectWrittenSymbols = (
       ts.isBinaryExpression(node) &&
       isAssignmentOperator(node.operatorToken.kind)
     ) {
-      markAssignmentTargetSymbols(checker, node.left, writes);
+      markAssignmentTargetSymbols(checker, sourceSemantics, node.left, writes);
     }
 
     if (
@@ -175,12 +205,22 @@ export const collectWrittenSymbols = (
       (node.operator === ts.SyntaxKind.PlusPlusToken ||
         node.operator === ts.SyntaxKind.MinusMinusToken)
     ) {
-      markAssignmentTargetSymbols(checker, node.operand, writes);
+      markAssignmentTargetSymbols(
+        checker,
+        sourceSemantics,
+        node.operand,
+        writes
+      );
     }
 
     if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
       if (!ts.isVariableDeclarationList(node.initializer)) {
-        markAssignmentTargetSymbols(checker, node.initializer, writes);
+        markAssignmentTargetSymbols(
+          checker,
+          sourceSemantics,
+          node.initializer,
+          writes
+        );
       }
     }
 
@@ -194,6 +234,7 @@ export const collectWrittenSymbols = (
 export const getSupportedGenericFunctionValueSymbol = (
   node: GenericFunctionValueNode,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>
 ): ts.Symbol | undefined => {
   const decl = node.parent;
@@ -209,7 +250,7 @@ export const getSupportedGenericFunctionValueSymbol = (
   const stmt = list.parent;
   if (!ts.isVariableStatement(stmt)) return undefined;
 
-  const symbol = getVariableDeclarationSymbol(checker, decl);
+  const symbol = getVariableDeclarationSymbol(checker, sourceSemantics, decl);
   if (!symbol) return undefined;
   if (kind.isConst) return symbol;
   if (!writtenSymbols.has(symbol)) return symbol;
@@ -218,15 +259,17 @@ export const getSupportedGenericFunctionValueSymbol = (
 
 export const getSupportedGenericFunctionDeclarationSymbol = (
   node: ts.FunctionDeclaration,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView
 ): ts.Symbol | undefined => {
   if (!isGenericFunctionDeclarationNode(node) || !node.name) return undefined;
-  return resolveSymbol(checker, node.name);
+  return resolveSymbol(checker, sourceSemantics, node.name);
 };
 
 const resolveAliasTargetSymbol = (
   declaration: ts.VariableDeclaration,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   supportedSymbols: ReadonlySet<ts.Symbol>
 ): ts.Symbol | undefined => {
   if (!ts.isIdentifier(declaration.name)) return undefined;
@@ -236,7 +279,11 @@ const resolveAliasTargetSymbol = (
     return undefined;
   }
 
-  const targetSymbol = resolveSymbol(checker, declaration.initializer);
+  const targetSymbol = resolveSymbol(
+    checker,
+    sourceSemantics,
+    declaration.initializer
+  );
   if (!targetSymbol) return undefined;
   if (
     !isDeterministicGenericFunctionAliasTargetSymbol(
@@ -252,6 +299,7 @@ const resolveAliasTargetSymbol = (
 export const getSupportedGenericFunctionAliasSymbol = (
   declaration: ts.VariableDeclaration,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>,
   supportedSymbols: ReadonlySet<ts.Symbol>
 ): ts.Symbol | undefined => {
@@ -260,11 +308,16 @@ export const getSupportedGenericFunctionAliasSymbol = (
   const targetSymbol = resolveAliasTargetSymbol(
     declaration,
     checker,
+    sourceSemantics,
     supportedSymbols
   );
   if (!targetSymbol) return undefined;
 
-  const symbol = getVariableDeclarationSymbol(checker, declaration);
+  const symbol = getVariableDeclarationSymbol(
+    checker,
+    sourceSemantics,
+    declaration
+  );
   if (!symbol) return undefined;
   if (kind.isConst) return symbol;
   if (!writtenSymbols.has(symbol)) return symbol;
@@ -274,6 +327,7 @@ export const getSupportedGenericFunctionAliasSymbol = (
 export const collectSupportedGenericFunctionValueSymbols = (
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>
 ): ReadonlySet<ts.Symbol> => {
   const symbols = new Set<ts.Symbol>();
@@ -284,6 +338,7 @@ export const collectSupportedGenericFunctionValueSymbols = (
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
         checker,
+        sourceSemantics,
         writtenSymbols
       );
       if (symbol) symbols.add(symbol);
@@ -292,13 +347,14 @@ export const collectSupportedGenericFunctionValueSymbols = (
     if (isGenericFunctionDeclarationNode(node)) {
       const symbol = getSupportedGenericFunctionDeclarationSymbol(
         node,
-        checker
+        checker,
+        sourceSemantics
       );
       if (symbol) symbols.add(symbol);
     }
 
     if (ts.isImportSpecifier(node)) {
-      const symbol = resolveSymbol(checker, node.name);
+      const symbol = resolveSymbol(checker, sourceSemantics, node.name);
       if (symbol && isGenericFunctionDeclarationSymbol(symbol)) {
         symbols.add(symbol);
       }
@@ -320,6 +376,7 @@ export const collectSupportedGenericFunctionValueSymbols = (
       const aliasSymbol = getSupportedGenericFunctionAliasSymbol(
         declaration,
         checker,
+        sourceSemantics,
         writtenSymbols,
         symbols
       );

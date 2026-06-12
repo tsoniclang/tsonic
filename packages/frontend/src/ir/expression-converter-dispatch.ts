@@ -274,16 +274,16 @@ const isMemberAccessReceiverExpression = (node: ts.Expression): boolean => {
 };
 
 const resolveReferencedIdentifierSymbol = (
-  checker: ts.TypeChecker,
+  ctx: ProgramContext,
   node: ts.Identifier
 ): ts.Symbol | undefined => {
-  const symbol = checker.getSymbolAtLocation(node);
+  const symbol = ctx.sourceSemantics.getSymbol(node);
   if (!symbol) {
     return undefined;
   }
 
   if (symbol.flags & ts.SymbolFlags.Alias) {
-    return checker.getAliasedSymbol(symbol);
+    return ctx.checker.getAliasedSymbol(symbol);
   }
 
   return symbol;
@@ -605,8 +605,7 @@ const resolveImportedIdentifierExternalBinding = (
     return undefined;
   }
   const ownerIdentity =
-    resolvedTypeBinding.members[0]?.binding.ownerIdentity ??
-    "external-surface";
+    resolvedTypeBinding.members[0]?.binding.ownerIdentity ?? "external-surface";
   return {
     providerQualifiedName,
     providerOwnerIdentity: ownerIdentity,
@@ -700,10 +699,7 @@ export const convertExpression = (
     }
 
     const declId = ctx.binding.resolveIdentifier(node);
-    const referencedSymbol = resolveReferencedIdentifierSymbol(
-      ctx.checker,
-      node
-    );
+    const referencedSymbol = resolveReferencedIdentifierSymbol(ctx, node);
     const contextualGenericFunctionType = (() => {
       if (
         !expectedType ||
@@ -755,7 +751,7 @@ export const convertExpression = (
     }
 
     const symbolDeclarations =
-      ctx.checker.getSymbolAtLocation(node)?.getDeclarations() ?? [];
+      ctx.sourceSemantics.getSymbol(node)?.getDeclarations() ?? [];
     const hasImportLikeDeclaration = symbolDeclarations.some(
       isImportLikeDeclaration
     );

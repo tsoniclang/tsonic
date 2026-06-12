@@ -21,7 +21,7 @@ const getExportStarNames = (
     return [];
   }
 
-  const moduleSymbol = ctx.checker.getSymbolAtLocation(node.moduleSpecifier);
+  const moduleSymbol = ctx.sourceSemantics.getSymbol(node.moduleSpecifier);
   if (!moduleSymbol) {
     return [];
   }
