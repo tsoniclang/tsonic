@@ -288,7 +288,7 @@ export const getOrCreateSignatureId = (
   ctx.signatureToId.set(signature, id);
 
   // Extract signature info from declaration
-  const decl = signature.getDeclaration();
+  const decl = ctx.sourceSemantics.getSignatureDeclaration(signature);
 
   // Extract declaring identity so resolveCall can apply inheritance substitution.
   const declaringIdentity = extractDeclaringIdentity(decl);
@@ -360,7 +360,9 @@ const buildResolvedParameterNodes = (
   resolutionSite: ts.CallExpression | ts.NewExpression,
   rawParameters: readonly ParameterNode[]
 ): readonly ParameterNode[] | undefined => {
-  const resolvedParameters = signature.getParameters();
+  const resolvedParameters = ctx.sourceSemantics.getSignatureParameters(
+    signature
+  );
   if (resolvedParameters.length !== rawParameters.length) {
     return undefined;
   }
@@ -490,8 +492,10 @@ const typeContainsTypeParameter = (
     ...ctx.sourceSemantics.getConstructSignatures(type),
   ];
   for (const signature of signatures) {
-    const declaration = signature.getDeclaration();
-    for (const parameter of signature.getParameters()) {
+    const declaration = ctx.sourceSemantics.getSignatureDeclaration(signature);
+    for (const parameter of ctx.sourceSemantics.getSignatureParameters(
+      signature
+    )) {
       const parameterDeclaration =
         ctx.sourceSemantics.getSymbolValueDeclaration(parameter) ??
         ctx.sourceSemantics.getSymbolDeclarations(parameter)[0] ??

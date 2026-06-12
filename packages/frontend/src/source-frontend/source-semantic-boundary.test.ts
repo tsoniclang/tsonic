@@ -99,6 +99,8 @@ describe("source semantic boundary", () => {
       ".getSymbol()",
       ".objectFlags",
       "ts.ObjectFlags",
+      ".getDeclaration(",
+      ".getParameters(",
     ] as const;
 
     const offenders = collectTypeScriptFiles(frontendSrcRoot)

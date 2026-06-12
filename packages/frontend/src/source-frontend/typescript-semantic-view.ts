@@ -174,6 +174,13 @@ export const createTypeScriptSemanticView = (
   getResolvedSignature: (
     callExpression: FrontendSourceCallLikeExpression
   ): ts.Signature | undefined => checker.getResolvedSignature(callExpression),
+  getSignatureDeclaration: (
+    signature: ts.Signature
+  ): ts.SignatureDeclaration | undefined => signature.getDeclaration(),
+  getSignatureParameters: (signature: ts.Signature): readonly ts.Symbol[] =>
+    signature.getParameters(),
+  signatureHasTypeParameters: (signature: ts.Signature): boolean =>
+    (signature.typeParameters?.length ?? 0) > 0,
   getSignatureFromDeclaration: (node: ts.Node): ts.Signature | undefined =>
     isSignatureDeclarationNode(node)
       ? checker.getSignatureFromDeclaration(node)

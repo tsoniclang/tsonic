@@ -958,7 +958,12 @@ const resolveSourceBackedIdentifierGlobalTarget = (
   return resolveSourceBackedExportedFunctionTarget(
     sourceFile,
     exportedSymbol,
-    ctx.sourceSemantics.getResolvedSignature(node)?.getDeclaration()
+    (() => {
+      const signature = ctx.sourceSemantics.getResolvedSignature(node);
+      return signature
+        ? ctx.sourceSemantics.getSignatureDeclaration(signature)
+        : undefined;
+    })()
   );
 };
 
@@ -2762,8 +2767,10 @@ export const getSourceBackedCallParameterTypes = (
     return undefined;
   }
 
-  const resolvedSignatureDeclaration =
-    ctx.sourceSemantics.getResolvedSignature(node)?.getDeclaration();
+  const resolvedSignature = ctx.sourceSemantics.getResolvedSignature(node);
+  const resolvedSignatureDeclaration = resolvedSignature
+    ? ctx.sourceSemantics.getSignatureDeclaration(resolvedSignature)
+    : undefined;
   const topLevelClasses = collectTopLevelClassDeclarations(sourceFile);
   const exportedCallableTarget = resolveSourceBackedExportedFunctionTarget(
     sourceFile,

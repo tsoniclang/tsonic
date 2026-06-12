@@ -17,6 +17,7 @@ export type SourceSemanticView<
   TSymbol,
   TSignature,
   TDeclaration extends TNode = TNode,
+  TSignatureDeclaration extends TDeclaration = TDeclaration,
 > = {
   readonly engine: SourceSemanticEngine;
   getExpressionType(expression: TExpression): TType;
@@ -61,6 +62,11 @@ export type SourceSemanticView<
   getResolvedSignature(
     callExpression: TCallLikeExpression
   ): TSignature | undefined;
+  getSignatureDeclaration(
+    signature: TSignature
+  ): TSignatureDeclaration | undefined;
+  getSignatureParameters(signature: TSignature): readonly TSymbol[];
+  signatureHasTypeParameters(signature: TSignature): boolean;
   getSignatureFromDeclaration(node: TNode): TSignature | undefined;
   getReturnTypeOfSignature(signature: TSignature): TType;
   getTypePredicateOfSignature(signature: TSignature): unknown;

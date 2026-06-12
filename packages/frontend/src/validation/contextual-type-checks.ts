@@ -299,7 +299,7 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
       const signatures = sourceSemantics.getCallSignatures(type);
       if (signatures.length === 0) return false;
       return signatures.every(
-        (sig) => !sig.typeParameters || sig.typeParameters.length === 0
+        (signature) => !sourceSemantics.signatureHasTypeParameters(signature)
       );
     };
 

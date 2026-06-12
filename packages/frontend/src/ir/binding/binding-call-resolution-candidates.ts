@@ -116,7 +116,7 @@ export const resolveCallSignatureCandidates = (
     const candidates: SignatureId[] = [];
 
     for (const sig of signatures) {
-      const decl = sig.getDeclaration();
+      const decl = ctx.sourceSemantics.getSignatureDeclaration(sig);
       if (decl && ts.isFunctionLike(decl)) {
         if (
           ts.isConstructSignatureDeclaration(decl) ||
@@ -180,7 +180,7 @@ export const resolveConstructorSignature = (
 
   const sigId = getOrCreateSignatureId(ctx, signature);
   const declaredConstructorMetadata = (() => {
-    const decl = signature.getDeclaration();
+    const decl = ctx.sourceSemantics.getSignatureDeclaration(signature);
     if (!decl) {
       return undefined;
     }

@@ -33,12 +33,14 @@ export const resolveCallSignature = (
 ): SignatureId | undefined => {
   const signature = ctx.sourceSemantics.getResolvedSignature(node);
   if (!signature) return undefined;
+  const signatureDeclaration =
+    ctx.sourceSemantics.getSignatureDeclaration(signature);
 
   // TypeScript can produce a resolved signature without a declaration for
   // implicit default constructors (e.g., `super()` when the base class has
   // no explicit constructor). We still want a SignatureId so TypeSystem can
   // treat this call deterministically as `void`.
-  if (signature.declaration === undefined) {
+  if (signatureDeclaration === undefined) {
     // Special case: `super()` implicit base constructor
     if (node.expression.kind === ts.SyntaxKind.SuperKeyword) {
       return getOrCreateSignatureId(ctx, signature);
@@ -52,7 +54,7 @@ export const resolveCallSignature = (
     !!candidates &&
     candidates.length > 0 &&
     !!targetDecls?.some(isOverloadSurfaceDeclaration);
-  const resolvedDecl = signature.getDeclaration();
+  const resolvedDecl = signatureDeclaration;
   const resolvedIsImplementationDecl =
     !!resolvedDecl &&
     ts.isFunctionLike(resolvedDecl) &&
@@ -537,7 +539,9 @@ export const resolveCallSignature = (
     if (ts.isCallExpression(expr)) {
       const signature = ctx.sourceSemantics.getResolvedSignature(expr);
       const returnTypeNode = getReturnTypeNode(
-        signature?.getDeclaration() as ts.SignatureDeclaration | undefined
+        (signature
+          ? ctx.sourceSemantics.getSignatureDeclaration(signature)
+          : undefined) as ts.SignatureDeclaration | undefined
       );
       if (isStringTypeNode(returnTypeNode)) {
         return "string";
@@ -633,7 +637,9 @@ export const resolveCallSignature = (
       return (
         getTypeNodeIterableMode(
           getReturnTypeNode(
-            signature?.getDeclaration() as ts.SignatureDeclaration | undefined
+            (signature
+              ? ctx.sourceSemantics.getSignatureDeclaration(signature)
+              : undefined) as ts.SignatureDeclaration | undefined
           )
         ) ??
         getCheckerTypeIterableMode(ctx.sourceSemantics.getExpressionType(expr))
@@ -714,7 +720,9 @@ export const resolveCallSignature = (
     if (ts.isCallExpression(expr)) {
       const signature = ctx.sourceSemantics.getResolvedSignature(expr);
       const returnTypeNode = getReturnTypeNode(
-        signature?.getDeclaration() as ts.SignatureDeclaration | undefined
+        (signature
+          ? ctx.sourceSemantics.getSignatureDeclaration(signature)
+          : undefined) as ts.SignatureDeclaration | undefined
       );
       return getExplicitTargetPrimitiveAlias(returnTypeNode);
     }
@@ -792,7 +800,9 @@ export const resolveCallSignature = (
     if (ts.isCallExpression(expr)) {
       const signature = ctx.sourceSemantics.getResolvedSignature(expr);
       const returnTypeNode = getReturnTypeNode(
-        signature?.getDeclaration() as ts.SignatureDeclaration | undefined
+        (signature
+          ? ctx.sourceSemantics.getSignatureDeclaration(signature)
+          : undefined) as ts.SignatureDeclaration | undefined
       );
       if (isNumberTypeNode(returnTypeNode)) {
         return true;
