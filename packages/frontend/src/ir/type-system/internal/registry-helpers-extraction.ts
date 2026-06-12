@@ -7,7 +7,7 @@
  */
 
 import * as ts from "typescript";
-import type { TypeScriptSemanticView } from "../../../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../../../source-frontend/index.js";
 import type { IrType } from "../../types/index.js";
 import { normalizeToTargetName } from "./universe/alias-table.js";
 import { isOverloadStubImplementation } from "../../syntax/overload-stubs.js";
@@ -134,7 +134,7 @@ export const getTypeNodeName = (typeNode: ts.TypeNode): string | undefined => {
  */
 export const resolveHeritageTypeName = (
   typeNode: ts.ExpressionWithTypeArguments,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   sourceRoot: string,
   rootNamespace: string
 ): string | undefined => {
@@ -496,7 +496,7 @@ export { convertMethodToSignature, convertMethodSignatureToIr };
  */
 export const extractHeritage = (
   clauses: ts.NodeArray<ts.HeritageClause> | undefined,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   sourceRoot: string,
   rootNamespace: string,
   convertType: ConvertTypeFn,

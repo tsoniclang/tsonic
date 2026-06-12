@@ -1,5 +1,5 @@
 import * as ts from "typescript";
-import type { TypeScriptSemanticView } from "./source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "./source-frontend/index.js";
 
 export type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
 
@@ -39,7 +39,7 @@ export const isDeterministicGenericFunctionAliasTargetSymbol = (
   supportedSymbols.has(symbol) || isGenericFunctionDeclarationSymbol(symbol);
 
 const resolveSymbol = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   node: ts.Node
 ): ts.Symbol | undefined => {
   const symbol = sourceSemantics.getSymbol(node);
@@ -73,7 +73,7 @@ const getConstLetKind = (
 };
 
 const getVariableDeclarationSymbol = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   declaration: ts.VariableDeclaration
 ): ts.Symbol | undefined => {
   if (!ts.isIdentifier(declaration.name)) return undefined;
@@ -105,7 +105,7 @@ const isAssignmentOperator = (kind: ts.SyntaxKind): boolean => {
 };
 
 const markAssignmentTargetSymbols = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   node: ts.Node,
   writes: Set<ts.Symbol>
 ): void => {
@@ -159,7 +159,7 @@ const markAssignmentTargetSymbols = (
 
 export const collectWrittenSymbols = (
   sourceFile: ts.SourceFile,
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): ReadonlySet<ts.Symbol> => {
   const writes = new Set<ts.Symbol>();
 
@@ -194,7 +194,7 @@ export const collectWrittenSymbols = (
 
 export const getSupportedGenericFunctionValueSymbol = (
   node: GenericFunctionValueNode,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>
 ): ts.Symbol | undefined => {
   const decl = node.parent;
@@ -219,7 +219,7 @@ export const getSupportedGenericFunctionValueSymbol = (
 
 export const getSupportedGenericFunctionDeclarationSymbol = (
   node: ts.FunctionDeclaration,
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): ts.Symbol | undefined => {
   if (!isGenericFunctionDeclarationNode(node) || !node.name) return undefined;
   return resolveSymbol(sourceSemantics, node.name);
@@ -227,7 +227,7 @@ export const getSupportedGenericFunctionDeclarationSymbol = (
 
 const resolveAliasTargetSymbol = (
   declaration: ts.VariableDeclaration,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   supportedSymbols: ReadonlySet<ts.Symbol>
 ): ts.Symbol | undefined => {
   if (!ts.isIdentifier(declaration.name)) return undefined;
@@ -252,7 +252,7 @@ const resolveAliasTargetSymbol = (
 
 export const getSupportedGenericFunctionAliasSymbol = (
   declaration: ts.VariableDeclaration,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>,
   supportedSymbols: ReadonlySet<ts.Symbol>
 ): ts.Symbol | undefined => {
@@ -274,7 +274,7 @@ export const getSupportedGenericFunctionAliasSymbol = (
 
 export const collectSupportedGenericFunctionValueSymbols = (
   sourceFile: ts.SourceFile,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>
 ): ReadonlySet<ts.Symbol> => {
   const symbols = new Set<ts.Symbol>();

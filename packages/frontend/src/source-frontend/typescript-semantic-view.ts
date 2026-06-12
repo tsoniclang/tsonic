@@ -2,20 +2,12 @@ import * as ts from "typescript";
 import type {
   SourceSemanticFactKey,
   SourceSemanticFactStore,
-  SourceSemanticView,
 } from "./semantic-view.js";
 import { createSourceSemanticFactStore } from "./semantic-view.js";
-
-export type TypeScriptCallLikeExpression = ts.CallExpression | ts.NewExpression;
-
-export type TypeScriptSemanticView = SourceSemanticView<
-  ts.Node,
-  ts.Expression,
-  TypeScriptCallLikeExpression,
-  ts.Type,
-  ts.Symbol,
-  ts.Signature
->;
+import type {
+  FrontendSourceCallLikeExpression,
+  FrontendSourceSemanticView,
+} from "./frontend-source-semantic-view.js";
 
 const isSignatureDeclarationNode = (
   node: ts.Node
@@ -33,7 +25,7 @@ const isSignatureDeclarationNode = (
 export const createTypeScriptSemanticView = (
   checker: ts.TypeChecker,
   facts: SourceSemanticFactStore<ts.Node> = createSourceSemanticFactStore()
-): TypeScriptSemanticView => ({
+): FrontendSourceSemanticView => ({
   engine: "typescript",
   getExpressionType: (expression: ts.Expression): ts.Type =>
     checker.getTypeAtLocation(expression),
@@ -77,7 +69,7 @@ export const createTypeScriptSemanticView = (
   isArrayType: (type: ts.Type): boolean => checker.isArrayType(type),
   isTupleType: (type: ts.Type): boolean => checker.isTupleType(type),
   getResolvedSignature: (
-    callExpression: TypeScriptCallLikeExpression
+    callExpression: FrontendSourceCallLikeExpression
   ): ts.Signature | undefined => checker.getResolvedSignature(callExpression),
   getSignatureFromDeclaration: (node: ts.Node): ts.Signature | undefined =>
     isSignatureDeclarationNode(node)

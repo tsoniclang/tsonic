@@ -39,7 +39,7 @@ import {
   isGenericFunctionDeclarationNode,
   isGenericFunctionValueNode,
 } from "../generic-function-values.js";
-import type { TypeScriptSemanticView } from "../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
 import {
   checkBasicSynthesisEligibility,
   lambdaHasExpectedTypeContext,
@@ -240,7 +240,7 @@ const getJsonParseTargetTypeNode = (
 
 const isBroadJsonSourceType = (
   type: ts.Type,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) {
@@ -316,7 +316,7 @@ const isBroadJsonSourceType = (
 
 const isDynamicJsonCarrierType = (
   type: ts.Type,
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
   const displayName = sourceSemantics.typeToString(type);
   return (
@@ -331,7 +331,7 @@ const isDynamicJsonCarrierType = (
 
 const typeHasDynamicJsonCarrierStringIndex = (
   type: ts.Type,
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
   const stringIndexType = sourceSemantics.getStringIndexType(type);
   return (
@@ -342,7 +342,7 @@ const typeHasDynamicJsonCarrierStringIndex = (
 
 const isBroadArrayIsArraySourceType = (
   type: ts.Type,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) {

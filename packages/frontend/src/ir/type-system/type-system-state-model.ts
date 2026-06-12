@@ -1,6 +1,6 @@
 import type * as ts from "typescript";
 import type { Diagnostic } from "../../types/diagnostic.js";
-import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
 import type { IrType } from "../types/index.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
@@ -35,7 +35,7 @@ export type TypeSystemState = {
   readonly resolveConstructorSignature: (
     node: unknown
   ) => SignatureId | undefined;
-  readonly sourceSemantics: TypeScriptSemanticView;
+  readonly sourceSemantics: FrontendSourceSemanticView;
   readonly tsCompilerOptions: ts.CompilerOptions;
   readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
 

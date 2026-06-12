@@ -25,6 +25,10 @@ export type {
   SourceSemanticView,
 } from "./semantic-view.js";
 export type {
+  FrontendSourceCallLikeExpression,
+  FrontendSourceSemanticView,
+} from "./frontend-source-semantic-view.js";
+export type {
   AttributeSemanticsFact,
   FieldSemanticsFact,
   IntrinsicSemanticsFact,
@@ -45,7 +49,3 @@ export type {
   TstsSourceProgram,
 } from "./tsts-source-program.js";
 export { createTypeScriptSemanticView } from "./typescript-semantic-view.js";
-export type {
-  TypeScriptCallLikeExpression,
-  TypeScriptSemanticView,
-} from "./typescript-semantic-view.js";

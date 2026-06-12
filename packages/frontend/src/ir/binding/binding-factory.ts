@@ -25,7 +25,7 @@ import type {
   TypeSyntaxInfo,
 } from "../type-system/internal/handle-types.js";
 import type { BindingInternal, TypePredicateInfo } from "./binding-types.js";
-import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
 import {
   createBindingContext,
   getOrCreateDeclId,
@@ -54,7 +54,7 @@ import {
  * Cast to Binding when passing to regular converters.
  */
 export const createBinding = (
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): BindingInternal => {
   const ctx = createBindingContext(sourceSemantics);
 

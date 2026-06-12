@@ -7,7 +7,7 @@
 
 import * as ts from "typescript";
 import * as path from "node:path";
-import type { TypeScriptSemanticView } from "../../../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../../../source-frontend/index.js";
 import type {
   TypeRegistry,
   TypeRegistryEntry,
@@ -52,7 +52,7 @@ import {
  */
 export const buildTypeRegistry = (
   sourceFiles: readonly ts.SourceFile[],
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   sourceRoot: string,
   rootNamespace: string,
   options: BuildTypeRegistryOptions = {}

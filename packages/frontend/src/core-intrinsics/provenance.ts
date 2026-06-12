@@ -1,5 +1,5 @@
 import * as ts from "typescript";
-import type { TypeScriptSemanticView } from "../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
 import * as path from "node:path";
 
 export type CoreModule = "types" | "lang";
@@ -118,7 +118,7 @@ export const isGlobalsDeclarationFile = (fileName: string): boolean => {
 };
 
 export const resolveAliasedSymbol = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   symbol: ts.Symbol | undefined
 ): ts.Symbol | undefined => {
   if (!symbol) return undefined;
@@ -128,7 +128,7 @@ export const resolveAliasedSymbol = (
 };
 
 export const isSymbolFromCore = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   symbol: ts.Symbol | undefined,
   module: CoreModule
 ): boolean => {
@@ -142,7 +142,7 @@ export const isSymbolFromCore = (
 };
 
 export const isSymbolFromPackage = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   symbol: ts.Symbol | undefined,
   packageName: string,
   expectedBase?: string
@@ -161,7 +161,7 @@ export const isSymbolFromPackage = (
 };
 
 export const isSymbolFromGlobals = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   symbol: ts.Symbol | undefined
 ): boolean => {
   const resolved = resolveAliasedSymbol(sourceSemantics, symbol);
@@ -174,14 +174,14 @@ export const isSymbolFromGlobals = (
 };
 
 export const isIdentifierFromCore = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   node: ts.Identifier,
   module: CoreModule
 ): boolean =>
   isSymbolFromCore(sourceSemantics, sourceSemantics.getSymbol(node), module);
 
 export const isIdentifierFromPackage = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   node: ts.Identifier,
   packageName: string,
   expectedBase?: string
@@ -194,7 +194,7 @@ export const isIdentifierFromPackage = (
   );
 
 export const isIdentifierFromGlobals = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   node: ts.Identifier
 ): boolean =>
   isSymbolFromGlobals(sourceSemantics, sourceSemantics.getSymbol(node));

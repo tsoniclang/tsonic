@@ -38,7 +38,7 @@ import {
   isReadonlyMember,
 } from "./binding-helpers.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
-import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BINDING CONTEXT
@@ -52,7 +52,7 @@ import type { TypeScriptSemanticView } from "../../source-frontend/index.js";
  * and threaded through all sub-module functions.
  */
 export type BindingContext = {
-  readonly sourceSemantics: TypeScriptSemanticView;
+  readonly sourceSemantics: FrontendSourceSemanticView;
   readonly declMap: Map<number, DeclEntry>;
   readonly signatureMap: Map<number, SignatureEntry>;
   readonly memberMap: Map<string, MemberEntry>;
@@ -68,7 +68,7 @@ export type BindingContext = {
  * Create a fresh BindingContext for a TypeScript program.
  */
 export const createBindingContext = (
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): BindingContext => ({
   sourceSemantics,
   declMap: new Map<number, DeclEntry>(),

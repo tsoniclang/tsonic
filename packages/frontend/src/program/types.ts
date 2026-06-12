@@ -17,7 +17,7 @@ import type {
 } from "../symbols/index.js";
 import type {
   TstsSourceProgram,
-  TypeScriptSemanticView,
+  FrontendSourceSemanticView,
 } from "../source-frontend/index.js";
 
 export type SurfaceMode = string;
@@ -42,7 +42,7 @@ export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
   readonly sourceProgram: TstsSourceProgram;
-  readonly sourceSemantics: TypeScriptSemanticView;
+  readonly sourceSemantics: FrontendSourceSemanticView;
   readonly options: CompilerOptions<Target>;
   readonly surfaceCapabilities?: SurfaceCapabilities;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;

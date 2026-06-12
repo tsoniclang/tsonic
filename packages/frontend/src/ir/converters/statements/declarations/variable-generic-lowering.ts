@@ -32,7 +32,7 @@ import {
   hasExportModifier,
 } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
-import type { TypeScriptSemanticView } from "../../../../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../../../../source-frontend/index.js";
 import {
   type GenericFunctionValueNode,
   getSupportedGenericFunctionValueSymbol,
@@ -55,7 +55,7 @@ export const resolveGenericFunctionValueReturnType = (
 
 export const isSupportedGenericFunctionValueDeclaration = (
   decl: ts.VariableDeclaration,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>
 ): decl is ts.VariableDeclaration & {
   readonly name: ts.Identifier;
@@ -74,7 +74,7 @@ export const isSupportedGenericFunctionValueDeclaration = (
 };
 
 export const resolveSymbol = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   node: ts.Node
 ): ts.Symbol | undefined => {
   const symbol = sourceSemantics.getSymbol(node);
@@ -100,7 +100,7 @@ export type GenericFunctionAliasTarget =
 
 export const resolveGenericFunctionAliasTargetFromSymbol = (
   symbol: ts.Symbol,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   seen: Set<ts.Symbol>
 ): GenericFunctionAliasTarget | undefined => {
   if (seen.has(symbol)) return undefined;
@@ -153,7 +153,7 @@ export const resolveGenericFunctionAliasTargetFromSymbol = (
 
 export const isSupportedGenericFunctionAliasDeclaration = (
   decl: ts.VariableDeclaration,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   writtenSymbols: ReadonlySet<ts.Symbol>,
   supportedSymbols: ReadonlySet<ts.Symbol>
 ): decl is ts.VariableDeclaration & {

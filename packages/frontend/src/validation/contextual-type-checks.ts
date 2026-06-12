@@ -7,7 +7,7 @@
  */
 
 import * as ts from "typescript";
-import type { TypeScriptSemanticView } from "../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
 
 /**
  * DETERMINISTIC IR TYPING (INV-0 compliant):
@@ -251,7 +251,7 @@ export const objectLiteralHasContextualType = (
 
 export const isAllowedGenericFunctionValueIdentifierUse = (
   node: ts.Identifier,
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
   const parent = node.parent;
 
@@ -314,7 +314,7 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
 };
 
 export const getReferencedIdentifierSymbol = (
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   node: ts.Identifier
 ): ts.Symbol | undefined => {
   const parent = node.parent;

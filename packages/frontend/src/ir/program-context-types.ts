@@ -22,7 +22,7 @@ import type {
   TargetSurfaceArtifacts,
   TargetSurfaceProvider,
 } from "../symbols/index.js";
-import type { TypeScriptSemanticView } from "../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
@@ -73,7 +73,7 @@ export type ProgramContext = {
    * queries. Product frontend code must use this for expression types instead
    * of calling TypeScript checker computed-type APIs directly.
    */
-  readonly sourceSemantics: TypeScriptSemanticView;
+  readonly sourceSemantics: FrontendSourceSemanticView;
 
   /**
    * Supported generic function value symbols for deterministic monomorphic callable contexts.

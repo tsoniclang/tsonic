@@ -18,7 +18,7 @@ import {
 } from "../surface/profiles.js";
 import { getJsDiagnosticSurfaceMetadata } from "../surface/diagnostic-metadata.js";
 import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-literal-method-runtime.js";
-import type { TypeScriptSemanticView } from "../source-frontend/index.js";
+import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
 
 const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
@@ -92,7 +92,7 @@ const getStaticInOperatorKey = (node: ts.Expression): string | undefined => {
 
 const typeHasStringIndex = (
   type: ts.Type,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) {
@@ -123,7 +123,7 @@ const typeHasStringIndex = (
 const typeHasDeclaredProperty = (
   type: ts.Type,
   key: string,
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean =>
   sourceSemantics.getPropertyOfType(type, key) !== undefined ||
   sourceSemantics.getPropertyOfType(
@@ -134,7 +134,7 @@ const typeHasDeclaredProperty = (
 const isClosedStructuralPropertyUnion = (
   type: ts.Type,
   key: string,
-  sourceSemantics: TypeScriptSemanticView
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
   if (!type.isUnion()) {
     return false;
@@ -212,7 +212,7 @@ const getLengthAccessReceiver = (node: ts.Node): ts.Expression | undefined => {
 
 const isFunctionLikeType = (
   type: ts.Type,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) {
@@ -282,7 +282,7 @@ const isStringLikeType = (type: ts.Type): boolean =>
 
 const isJsBuiltinReceiverType = (
   type: ts.Type,
-  sourceSemantics: TypeScriptSemanticView,
+  sourceSemantics: FrontendSourceSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) return false;
