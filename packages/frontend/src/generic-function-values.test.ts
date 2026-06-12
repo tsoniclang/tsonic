@@ -160,14 +160,9 @@ const getSupportSymbolForVariable = (
   const { sourceFile, checker } = createTestProgram(source);
   const sourceSemantics = createTypeScriptSemanticView(checker);
   const initializer = findGenericInitializer(sourceFile, variableName);
-  const writtenSymbols = collectWrittenSymbols(
-    sourceFile,
-    checker,
-    sourceSemantics
-  );
+  const writtenSymbols = collectWrittenSymbols(sourceFile, sourceSemantics);
   return getSupportedGenericFunctionValueSymbol(
     initializer,
-    checker,
     sourceSemantics,
     writtenSymbols
   );
@@ -191,14 +186,9 @@ const getCollectedSupportedSymbolForVariableInSourceFile = (
   variableName: string
 ): ts.Symbol | undefined => {
   const sourceSemantics = createTypeScriptSemanticView(checker);
-  const writtenSymbols = collectWrittenSymbols(
-    sourceFile,
-    checker,
-    sourceSemantics
-  );
+  const writtenSymbols = collectWrittenSymbols(sourceFile, sourceSemantics);
   const supportedSymbols = collectSupportedGenericFunctionValueSymbols(
     sourceFile,
-    checker,
     sourceSemantics,
     writtenSymbols
   );
@@ -227,7 +217,6 @@ describe("generic-function-values helper", () => {
     const declaration = findGenericFunctionDeclaration(sourceFile, "id");
     const symbol = getSupportedGenericFunctionDeclarationSymbol(
       declaration,
-      checker,
       createTypeScriptSemanticView(checker)
     );
     expect(symbol).not.to.equal(undefined);

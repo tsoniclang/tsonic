@@ -18,6 +18,7 @@ import {
 } from "../surface/profiles.js";
 import { getJsDiagnosticSurfaceMetadata } from "../surface/diagnostic-metadata.js";
 import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-literal-method-runtime.js";
+import type { TypeScriptSemanticView } from "../source-frontend/index.js";
 
 const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
@@ -91,7 +92,7 @@ const getStaticInOperatorKey = (node: ts.Expression): string | undefined => {
 
 const typeHasStringIndex = (
   type: ts.Type,
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) {
@@ -108,29 +109,32 @@ const typeHasStringIndex = (
           (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0
       )
       .every((member) =>
-        typeHasStringIndex(member, checker, new Set(nextSeen))
+        typeHasStringIndex(member, sourceSemantics, new Set(nextSeen))
       );
   }
 
-  const apparent = checker.getApparentType(type);
+  const apparent = sourceSemantics.getApparentType(type);
   return (
-    checker.getIndexInfoOfType(type, ts.IndexKind.String) !== undefined ||
-    checker.getIndexInfoOfType(apparent, ts.IndexKind.String) !== undefined
+    sourceSemantics.getStringIndexType(type) !== undefined ||
+    sourceSemantics.getStringIndexType(apparent) !== undefined
   );
 };
 
 const typeHasDeclaredProperty = (
   type: ts.Type,
   key: string,
-  checker: ts.TypeChecker
+  sourceSemantics: TypeScriptSemanticView
 ): boolean =>
-  checker.getPropertyOfType(type, key) !== undefined ||
-  checker.getPropertyOfType(checker.getApparentType(type), key) !== undefined;
+  sourceSemantics.getPropertyOfType(type, key) !== undefined ||
+  sourceSemantics.getPropertyOfType(
+    sourceSemantics.getApparentType(type),
+    key
+  ) !== undefined;
 
 const isClosedStructuralPropertyUnion = (
   type: ts.Type,
   key: string,
-  checker: ts.TypeChecker
+  sourceSemantics: TypeScriptSemanticView
 ): boolean => {
   if (!type.isUnion()) {
     return false;
@@ -145,14 +149,13 @@ const isClosedStructuralPropertyUnion = (
   }
 
   const hasKey = members.map((member) =>
-    typeHasDeclaredProperty(member, key, checker)
+    typeHasDeclaredProperty(member, key, sourceSemantics)
   );
   return hasKey.some(Boolean) && hasKey.some((present) => !present);
 };
 
 const isClosedInOperatorExpression = (
   node: ts.BinaryExpression,
-  checker: ts.TypeChecker,
   program: TsonicProgram
 ): boolean => {
   const key = getStaticInOperatorKey(node.left);
@@ -162,19 +165,22 @@ const isClosedInOperatorExpression = (
 
   const rightType = program.sourceSemantics.getExpressionType(node.right);
   return (
-    typeHasStringIndex(rightType, checker) ||
-    isClosedStructuralPropertyUnion(rightType, key, checker)
+    typeHasStringIndex(rightType, program.sourceSemantics) ||
+    isClosedStructuralPropertyUnion(
+      rightType,
+      key,
+      program.sourceSemantics
+    )
   );
 };
 
 const isClosedForInStatement = (
   node: ts.ForInStatement,
-  checker: ts.TypeChecker,
   program: TsonicProgram
 ): boolean =>
   typeHasStringIndex(
     program.sourceSemantics.getExpressionType(node.expression),
-    checker
+    program.sourceSemantics
   );
 
 const normalizeFileName = (fileName: string): string =>
@@ -206,7 +212,7 @@ const getLengthAccessReceiver = (node: ts.Node): ts.Expression | undefined => {
 
 const isFunctionLikeType = (
   type: ts.Type,
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) {
@@ -216,12 +222,14 @@ const isFunctionLikeType = (
   const nextSeen = new Set(seen);
   nextSeen.add(type);
 
-  if (checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0) {
+  if (sourceSemantics.getCallSignatures(type).length > 0) {
     return true;
   }
 
   return type.isUnionOrIntersection()
-    ? type.types.some((member) => isFunctionLikeType(member, checker, nextSeen))
+    ? type.types.some((member) =>
+        isFunctionLikeType(member, sourceSemantics, nextSeen)
+      )
     : false;
 };
 
@@ -274,21 +282,24 @@ const isStringLikeType = (type: ts.Type): boolean =>
 
 const isJsBuiltinReceiverType = (
   type: ts.Type,
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) return false;
   const nextSeen = new Set(seen);
   nextSeen.add(type);
-  const apparent = checker.getApparentType(type);
+  const apparent = sourceSemantics.getApparentType(type);
 
   if (apparent.isUnionOrIntersection()) {
     return apparent.types.every((member) =>
-      isJsBuiltinReceiverType(member, checker, nextSeen)
+      isJsBuiltinReceiverType(member, sourceSemantics, nextSeen)
     );
   }
 
-  if (checker.isArrayType(apparent) || checker.isTupleType(apparent)) {
+  if (
+    sourceSemantics.isArrayType(apparent) ||
+    sourceSemantics.isTupleType(apparent)
+  ) {
     return true;
   }
 
@@ -302,7 +313,6 @@ const isJsBuiltinReceiverType = (
 
 const getNonJsMemberAccess = (
   node: ts.Node,
-  checker: ts.TypeChecker,
   program: TsonicProgram
 ): { readonly name: string; readonly receiverText: string } | undefined => {
   let receiver: ts.Expression | undefined;
@@ -329,7 +339,7 @@ const getNonJsMemberAccess = (
   if (
     !isJsBuiltinReceiverType(
       program.sourceSemantics.getExpressionType(receiver),
-      checker
+      program.sourceSemantics
     )
   ) {
     return undefined;
@@ -459,7 +469,6 @@ const getNonJsGlobalConstructorCall = (
 
 const isUnsupportedFunctionLengthAccess = (
   node: ts.Node,
-  checker: ts.TypeChecker,
   program: TsonicProgram
 ): boolean => {
   const receiver = getLengthAccessReceiver(node);
@@ -470,7 +479,7 @@ const isUnsupportedFunctionLengthAccess = (
   if (
     !isFunctionLikeType(
       program.sourceSemantics.getExpressionType(receiver),
-      checker
+      program.sourceSemantics
     )
   ) {
     return false;
@@ -556,7 +565,6 @@ export const validateUnsupportedFeatures = (
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
   let currentCollector = collector;
-  const checker = program.checker;
   const surfaceCapabilities =
     program.surfaceCapabilities ??
     resolveSurfaceCapabilities(program.options.surface, {
@@ -593,7 +601,7 @@ export const validateUnsupportedFeatures = (
 
     if (
       ts.isForInStatement(node) &&
-      !isClosedForInStatement(node, checker, program)
+      !isClosedForInStatement(node, program)
     ) {
       addUnsupported(
         node,
@@ -606,7 +614,7 @@ export const validateUnsupportedFeatures = (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.InKeyword
     ) {
-      if (!isClosedInOperatorExpression(node, checker, program)) {
+      if (!isClosedInOperatorExpression(node, program)) {
         addUnsupported(
           node,
           "The JavaScript 'in' operator is only supported for statically proven string-key carriers.",
@@ -676,7 +684,7 @@ export const validateUnsupportedFeatures = (
     }
 
     if (!hasJsSurface) {
-      const memberAccess = getNonJsMemberAccess(node, checker, program);
+      const memberAccess = getNonJsMemberAccess(node, program);
       if (memberAccess) {
         addUnsupported(
           node,
@@ -731,7 +739,7 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (isUnsupportedFunctionLengthAccess(node, checker, program)) {
+    if (isUnsupportedFunctionLengthAccess(node, program)) {
       const diagnostic = createBackendCapabilityDiagnostic(
         program,
         "dynamic-function-arity-introspection",

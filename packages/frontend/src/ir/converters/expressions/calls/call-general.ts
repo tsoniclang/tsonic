@@ -864,7 +864,7 @@ const resolveReferencedIdentifierSymbol = (
   }
 
   if (symbol.flags & ts.SymbolFlags.Alias) {
-    return ctx.checker.getAliasedSymbol(symbol);
+    return ctx.sourceSemantics.getAliasedSymbol(symbol);
   }
 
   return symbol;
@@ -2764,9 +2764,8 @@ export const getSourceBackedCallParameterTypes = (
     return undefined;
   }
 
-  const resolvedSignatureDeclaration = ctx.checker
-    .getResolvedSignature(node)
-    ?.getDeclaration();
+  const resolvedSignatureDeclaration =
+    ctx.sourceSemantics.getResolvedSignature(node)?.getDeclaration();
   const topLevelClasses = collectTopLevelClassDeclarations(sourceFile);
   const exportedCallableTarget = resolveSourceBackedExportedFunctionTarget(
     sourceFile,

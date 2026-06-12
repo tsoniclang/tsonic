@@ -379,13 +379,15 @@ const buildResolvedParameterNodes = (
 
     const rawDeclaredType =
       parameter.typeNode && ts.isTypeNode(parameter.typeNode as ts.Node)
-        ? ctx.checker.getTypeFromTypeNode(parameter.typeNode as ts.TypeNode)
+        ? ctx.sourceSemantics.getTypeFromTypeNode(
+            parameter.typeNode as ts.TypeNode
+          )
         : undefined;
     if (rawDeclaredType && typeContainsTypeParameter(ctx, rawDeclaredType)) {
       return parameter;
     }
 
-    const resolvedType = ctx.checker.getTypeOfSymbolAtLocation(
+    const resolvedType = ctx.sourceSemantics.getTypeOfSymbolAtLocation(
       resolvedParameter,
       typeNodeLocation
     );
@@ -399,11 +401,12 @@ const buildResolvedParameterNodes = (
       return parameter;
     }
     const resolvedTypeNode: ts.TypeNode | undefined =
-      ctx.checker.typeToTypeNode(
+      (ctx.sourceSemantics.typeToTypeNode(
         resolvedType,
         typeNodeLocation,
         RESOLVED_SIGNATURE_TYPE_FLAGS
-      ) ?? (parameter.typeNode as ts.TypeNode | undefined);
+      ) as ts.TypeNode | undefined) ??
+      (parameter.typeNode as ts.TypeNode | undefined);
     if (
       serializeTypeNodeForComparison(resolvedTypeNode) !==
       serializeTypeNodeForComparison(
@@ -470,7 +473,9 @@ const typeContainsTypeParameter = (
     const objectType = type as ts.ObjectType;
     if ((objectType.objectFlags & ts.ObjectFlags.Reference) !== 0) {
       const referenceType = objectType as ts.TypeReference;
-      const typeArguments = ctx.checker.getTypeArguments(referenceType);
+      const typeArguments = ctx.sourceSemantics.getTypeArguments(
+        referenceType
+      );
       if (
         typeArguments.some((argument) =>
           typeContainsTypeParameter(ctx, argument, seen)
@@ -485,7 +490,7 @@ const typeContainsTypeParameter = (
     const declaration =
       property.valueDeclaration ?? property.getDeclarations()?.[0];
     const propertyType = declaration
-      ? ctx.checker.getTypeOfSymbolAtLocation(property, declaration)
+      ? ctx.sourceSemantics.getTypeOfSymbolAtLocation(property, declaration)
       : undefined;
     if (propertyType && typeContainsTypeParameter(ctx, propertyType, seen)) {
       return true;
@@ -506,7 +511,7 @@ const typeContainsTypeParameter = (
       if (!parameterDeclaration) {
         continue;
       }
-      const parameterType = ctx.checker.getTypeOfSymbolAtLocation(
+      const parameterType = ctx.sourceSemantics.getTypeOfSymbolAtLocation(
         parameter,
         parameterDeclaration
       );
@@ -515,7 +520,7 @@ const typeContainsTypeParameter = (
       }
     }
 
-    const returnType = ctx.checker.getReturnTypeOfSignature(signature);
+    const returnType = ctx.sourceSemantics.getReturnTypeOfSignature(signature);
     if (typeContainsTypeParameter(ctx, returnType, seen)) {
       return true;
     }
@@ -617,7 +622,7 @@ export const resolveTransparentAliases = (
 
     const aliased =
       current.flags & ts.SymbolFlags.Alias
-        ? ctx.checker.getAliasedSymbol(current)
+        ? ctx.sourceSemantics.getAliasedSymbol(current)
         : current;
     if (aliased !== current) {
       current = aliased;
@@ -634,7 +639,7 @@ export const resolveTransparentAliases = (
     }
 
     const targetSymbol =
-      ctx.checker.getExportSpecifierLocalTargetSymbol(exportSpecifier);
+      ctx.sourceSemantics.getExportSpecifierLocalTargetSymbol(exportSpecifier);
     if (!targetSymbol || targetSymbol === current) {
       break;
     }
@@ -769,7 +774,7 @@ export const resolveTypeReference = (
 
       const aliased =
         current.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(current)
+          ? ctx.sourceSemantics.getAliasedSymbol(current)
           : current;
       if (aliased !== current) {
         const aliasedDecls = aliased.getDeclarations() ?? [];
@@ -788,7 +793,9 @@ export const resolveTypeReference = (
           : undefined;
       if (exportSpecifier && !exportSpecifier.isTypeOnly) {
         const targetSymbol =
-          ctx.checker.getExportSpecifierLocalTargetSymbol(exportSpecifier);
+          ctx.sourceSemantics.getExportSpecifierLocalTargetSymbol(
+            exportSpecifier
+          );
         if (targetSymbol && targetSymbol !== current) {
           current = targetSymbol;
           continue;
@@ -908,7 +915,7 @@ export const resolvePropertyAccess = (
 
   const propSymbol =
     rawPropSymbol.flags & ts.SymbolFlags.Alias
-      ? ctx.checker.getAliasedSymbol(rawPropSymbol)
+      ? ctx.sourceSemantics.getAliasedSymbol(rawPropSymbol)
       : rawPropSymbol;
 
   // Get owner type's declaration
@@ -920,7 +927,7 @@ export const resolvePropertyAccess = (
   // so we key the member entry off the member symbol's own DeclId.
   const ownerSymbol = rawOwnerSymbol
     ? rawOwnerSymbol.flags & ts.SymbolFlags.Alias
-      ? ctx.checker.getAliasedSymbol(rawOwnerSymbol)
+      ? ctx.sourceSemantics.getAliasedSymbol(rawOwnerSymbol)
       : rawOwnerSymbol
     : undefined;
 

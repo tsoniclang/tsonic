@@ -118,21 +118,21 @@ export const isGlobalsDeclarationFile = (fileName: string): boolean => {
 };
 
 export const resolveAliasedSymbol = (
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   symbol: ts.Symbol | undefined
 ): ts.Symbol | undefined => {
   if (!symbol) return undefined;
   return symbol.flags & ts.SymbolFlags.Alias
-    ? checker.getAliasedSymbol(symbol)
+    ? sourceSemantics.getAliasedSymbol(symbol)
     : symbol;
 };
 
 export const isSymbolFromCore = (
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   symbol: ts.Symbol | undefined,
   module: CoreModule
 ): boolean => {
-  const resolved = resolveAliasedSymbol(checker, symbol);
+  const resolved = resolveAliasedSymbol(sourceSemantics, symbol);
   if (!resolved) return false;
 
   const decls = resolved.getDeclarations?.() ?? [];
@@ -142,12 +142,12 @@ export const isSymbolFromCore = (
 };
 
 export const isSymbolFromPackage = (
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   symbol: ts.Symbol | undefined,
   packageName: string,
   expectedBase?: string
 ): boolean => {
-  const resolved = resolveAliasedSymbol(checker, symbol);
+  const resolved = resolveAliasedSymbol(sourceSemantics, symbol);
   if (!resolved) return false;
 
   const decls = resolved.getDeclarations?.() ?? [];
@@ -161,10 +161,10 @@ export const isSymbolFromPackage = (
 };
 
 export const isSymbolFromGlobals = (
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   symbol: ts.Symbol | undefined
 ): boolean => {
-  const resolved = resolveAliasedSymbol(checker, symbol);
+  const resolved = resolveAliasedSymbol(sourceSemantics, symbol);
   if (!resolved) return false;
 
   const decls = resolved.getDeclarations?.() ?? [];
@@ -174,29 +174,27 @@ export const isSymbolFromGlobals = (
 };
 
 export const isIdentifierFromCore = (
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView,
   node: ts.Identifier,
   module: CoreModule
 ): boolean =>
-  isSymbolFromCore(checker, sourceSemantics.getSymbol(node), module);
+  isSymbolFromCore(sourceSemantics, sourceSemantics.getSymbol(node), module);
 
 export const isIdentifierFromPackage = (
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView,
   node: ts.Identifier,
   packageName: string,
   expectedBase?: string
 ): boolean =>
   isSymbolFromPackage(
-    checker,
+    sourceSemantics,
     sourceSemantics.getSymbol(node),
     packageName,
     expectedBase
   );
 
 export const isIdentifierFromGlobals = (
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView,
   node: ts.Identifier
-): boolean => isSymbolFromGlobals(checker, sourceSemantics.getSymbol(node));
+): boolean =>
+  isSymbolFromGlobals(sourceSemantics, sourceSemantics.getSymbol(node));

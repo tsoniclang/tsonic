@@ -13,7 +13,6 @@ export const resolveHeritageReferenceType = (
   );
   const resolvedName = resolveHeritageTypeName(
     typeNode,
-    ctx.checker,
     ctx.sourceSemantics,
     ctx.sourceRoot,
     ctx.rootNamespace

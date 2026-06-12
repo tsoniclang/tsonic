@@ -96,7 +96,7 @@ export const checkBasicSynthesisEligibility = (
         ts.isNamespaceImport(decl) ||
         ts.isImportClause(decl)
       ) {
-        const aliasSymbol = program.checker.getAliasedSymbol(symbol);
+        const aliasSymbol = program.sourceSemantics.getAliasedSymbol(symbol);
         if (!aliasSymbol || seenSymbols.has(aliasSymbol)) continue;
         seenSymbols.add(aliasSymbol);
         for (const aliasedDecl of aliasSymbol.getDeclarations() ?? []) {

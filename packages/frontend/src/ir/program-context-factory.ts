@@ -91,12 +91,10 @@ export const createProgramContext = (
     for (const sourceFile of program.sourceFiles) {
       const writtenSymbols = collectWrittenSymbols(
         sourceFile,
-        program.checker,
         program.sourceSemantics
       );
       for (const symbol of collectSupportedGenericFunctionValueSymbols(
         sourceFile,
-        program.checker,
         program.sourceSemantics,
         writtenSymbols
       )) {

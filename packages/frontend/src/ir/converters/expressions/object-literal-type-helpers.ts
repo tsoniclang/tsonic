@@ -403,7 +403,7 @@ export const tryResolveDeterministicObjectKeyNameFromSyntax = (
   if (direct !== undefined) return direct;
 
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
-    const aliased = ctx.checker.getAliasedSymbol(symbol);
+    const aliased = ctx.sourceSemantics.getAliasedSymbol(symbol);
     if (!seenSymbols.has(aliased)) {
       seenSymbols.add(aliased);
       return visitDeclarations(aliased);

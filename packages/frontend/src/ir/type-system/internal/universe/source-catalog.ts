@@ -90,7 +90,6 @@ export const buildSourceCatalog = (
   // Name-only registration should not require creating a full registry.
   buildTypeRegistry(
     config.sourceFiles,
-    config.checker,
     config.sourceSemantics,
     config.sourceRoot,
     config.rootNamespace
@@ -115,7 +114,6 @@ export const buildSourceCatalog = (
 
   const typeRegistry = buildTypeRegistry(
     config.sourceFiles,
-    config.checker,
     config.sourceSemantics,
     config.sourceRoot,
     config.rootNamespace,

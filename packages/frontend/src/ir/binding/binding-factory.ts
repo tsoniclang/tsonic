@@ -73,7 +73,7 @@ export const createBinding = (
   const resolveShorthandAssignment = (
     node: ts.ShorthandPropertyAssignment
   ): DeclId | undefined => {
-    const symbol = checker.getShorthandAssignmentValueSymbol(node);
+    const symbol = sourceSemantics.getShorthandAssignmentValueSymbol(node);
     if (!symbol) return undefined;
     return getOrCreateDeclId(ctx, symbol);
   };
@@ -132,7 +132,7 @@ export const createBinding = (
   const getFullyQualifiedName = (declId: DeclId): string | undefined => {
     const entry = ctx.declMap.get(declId.id);
     if (!entry) return undefined;
-    return checker.getFullyQualifiedName(entry.symbol);
+    return sourceSemantics.getFullyQualifiedName(entry.symbol);
   };
 
   const getKindOfDecl = (declId: DeclId) => ctx.declMap.get(declId.id)?.kind;
@@ -172,7 +172,9 @@ export const createBinding = (
     const entry = ctx.signatureMap.get(sigId.id);
     if (!entry) return undefined;
 
-    const predicate = checker.getTypePredicateOfSignature(entry.signature);
+    const predicate = sourceSemantics.getTypePredicateOfSignature(
+      entry.signature
+    ) as ts.TypePredicate | undefined;
     if (!predicate || predicate.kind !== ts.TypePredicateKind.Identifier) {
       return undefined;
     }

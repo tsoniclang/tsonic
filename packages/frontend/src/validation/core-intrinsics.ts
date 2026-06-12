@@ -40,8 +40,6 @@ export const validateCoreIntrinsics = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const checker = program.checker;
-
   const report = (
     acc: DiagnosticsCollector,
     node: ts.Node,
@@ -115,7 +113,7 @@ export const validateCoreIntrinsics = (
       const name = nameNode?.text;
       if (nameNode && name && CORE_TYPES_TYPE_NAMES.has(name)) {
         const symbol = program.sourceSemantics.getSymbol(nameNode);
-        if (!isSymbolFromCore(checker, symbol, "types")) {
+        if (!isSymbolFromCore(program.sourceSemantics, symbol, "types")) {
           current = report(
             current,
             nameNode,
@@ -127,7 +125,7 @@ export const validateCoreIntrinsics = (
       }
       if (nameNode && name && CORE_LANG_TYPE_NAMES.has(name)) {
         const symbol = program.sourceSemantics.getSymbol(nameNode);
-        if (!isSymbolFromCore(checker, symbol, "lang")) {
+        if (!isSymbolFromCore(program.sourceSemantics, symbol, "lang")) {
           current = report(
             current,
             nameNode,
@@ -144,7 +142,7 @@ export const validateCoreIntrinsics = (
       const name = node.expression.text;
       if (CORE_LANG_VALUE_NAMES.has(name)) {
         const symbol = program.sourceSemantics.getSymbol(node.expression);
-        if (!isSymbolFromCore(checker, symbol, "lang")) {
+        if (!isSymbolFromCore(program.sourceSemantics, symbol, "lang")) {
           current = report(
             current,
             node.expression,

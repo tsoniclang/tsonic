@@ -385,7 +385,7 @@ export const resolveAmbientGlobalSourceOwnerByName = (
   ctx: ProgramContext,
   meaning: ts.SymbolFlags = ts.SymbolFlags.Value
 ): string | undefined => {
-  const symbols = ctx.checker.getSymbolsInScope(location, meaning);
+  const symbols = ctx.sourceSemantics.getSymbolsInScope(location, meaning);
   const symbol = symbols.find((candidate) => candidate.name === name);
   if (!symbol) {
     return undefined;

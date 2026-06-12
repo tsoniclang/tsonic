@@ -231,7 +231,7 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
 
   const ambientSymbol =
     callee.kind === "identifier"
-      ? ctx.checker
+      ? ctx.sourceSemantics
           .getSymbolsInScope(sourceNode, ts.SymbolFlags.Value)
           .find((symbol) => symbol.name === callee.name)
       : undefined;

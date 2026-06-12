@@ -102,7 +102,7 @@ export type Binding = {
 
   /**
    * Resolve an import specifier to its actual declaration.
-   * Uses checker.getAliasedSymbol to follow the import chain.
+   * Uses sourceSemantics.getAliasedSymbol to follow the import chain.
    */
   resolveImport(node: ts.ImportSpecifier): DeclId | undefined;
 

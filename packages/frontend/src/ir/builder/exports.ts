@@ -26,7 +26,7 @@ const getExportStarNames = (
     return [];
   }
 
-  return ctx.checker
+  return ctx.sourceSemantics
     .getExportsOfModule(moduleSymbol)
     .map((symbol) => symbol.getName())
     .filter((name) => name !== DEFAULT_EXPORT_NAME);

@@ -314,13 +314,12 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
 };
 
 export const getReferencedIdentifierSymbol = (
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView,
   node: ts.Identifier
 ): ts.Symbol | undefined => {
   const parent = node.parent;
   if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
-    return checker.getShorthandAssignmentValueSymbol(parent) ?? undefined;
+    return sourceSemantics.getShorthandAssignmentValueSymbol(parent);
   }
   return sourceSemantics.getSymbol(node);
 };

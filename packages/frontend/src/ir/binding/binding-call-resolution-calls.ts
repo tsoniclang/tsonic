@@ -258,7 +258,7 @@ export const resolveCallSignature = (
 
     const resolvedSymbol =
       symbol.flags & ts.SymbolFlags.Alias
-        ? ctx.checker.getAliasedSymbol(symbol)
+        ? ctx.sourceSemantics.getAliasedSymbol(symbol)
         : symbol;
     if (seenSymbols.has(resolvedSymbol)) {
       return undefined;
@@ -321,7 +321,7 @@ export const resolveCallSignature = (
 
     const resolvedSymbol =
       symbol.flags & ts.SymbolFlags.Alias
-        ? ctx.checker.getAliasedSymbol(symbol)
+        ? ctx.sourceSemantics.getAliasedSymbol(symbol)
         : symbol;
     if (seenSymbols.has(resolvedSymbol)) {
       return undefined;
@@ -365,7 +365,7 @@ export const resolveCallSignature = (
 
     const symbol =
       rawSymbol.flags & ts.SymbolFlags.Alias
-        ? ctx.checker.getAliasedSymbol(rawSymbol)
+        ? ctx.sourceSemantics.getAliasedSymbol(rawSymbol)
         : rawSymbol;
     if (seenSymbols.has(symbol)) {
       return undefined;
@@ -508,7 +508,7 @@ export const resolveCallSignature = (
       if (!symbol) return undefined;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(symbol)
+          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const declarationClass = getDeclarationStringClass(
         resolvedSymbol.getDeclarations()
@@ -533,7 +533,7 @@ export const resolveCallSignature = (
       if (!symbol) return undefined;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(symbol)
+          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const declarationClass = getDeclarationStringClass(
         resolvedSymbol.getDeclarations()
@@ -607,7 +607,7 @@ export const resolveCallSignature = (
 
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(symbol)
+          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
         const mode = getDeclarationIterableMode(declaration, new Set());
@@ -634,7 +634,7 @@ export const resolveCallSignature = (
 
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(symbol)
+          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
         const mode = getDeclarationIterableMode(declaration, new Set());
@@ -698,7 +698,7 @@ export const resolveCallSignature = (
       if (!sym) return undefined;
       const resolvedSym =
         sym.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(sym)
+          ? ctx.sourceSemantics.getAliasedSymbol(sym)
           : sym;
       const aliases = new Set<string>();
       for (const decl of resolvedSym.getDeclarations() ?? []) {
@@ -723,7 +723,7 @@ export const resolveCallSignature = (
       if (!symbol) return undefined;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(symbol)
+          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const aliases = new Set<string>();
       for (const decl of resolvedSymbol.getDeclarations() ?? []) {
@@ -783,7 +783,7 @@ export const resolveCallSignature = (
       if (!symbol) return false;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(symbol)
+          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const kinds = new Set<"number">();
       for (const decl of resolvedSymbol.getDeclarations() ?? []) {
@@ -807,7 +807,7 @@ export const resolveCallSignature = (
       if (!symbol) return false;
       const resolvedSymbol =
         symbol.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(symbol)
+          ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const kinds = new Set<"number">();
       for (const decl of resolvedSymbol.getDeclarations() ?? []) {
@@ -966,7 +966,7 @@ export const resolveCallSignature = (
 
     const symbol =
       rawSymbol.flags & ts.SymbolFlags.Alias
-        ? ctx.checker.getAliasedSymbol(rawSymbol)
+        ? ctx.sourceSemantics.getAliasedSymbol(rawSymbol)
         : rawSymbol;
 
     if (seenSymbols.has(symbol)) return undefined;

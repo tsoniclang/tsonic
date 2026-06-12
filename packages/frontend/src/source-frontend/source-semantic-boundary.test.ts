@@ -33,7 +33,6 @@ const isBoundaryFile = (filePath: string): boolean => {
     normalized === "source-frontend/typescript-semantic-view.ts" ||
     normalized.endsWith(".test.ts") ||
     normalized.includes("-cases/") ||
-    normalized.startsWith("ir/type-system/") ||
     normalized === "types/test-harness.ts"
   );
 };
@@ -43,6 +42,23 @@ const bannedSemanticQueries = [
   "checker.getContextualType(",
   "checker.getSymbolAtLocation(",
   "checker.getResolvedSignature(",
+  "checker.getAliasedSymbol(",
+  "checker.getExportsOfModule(",
+  "checker.getShorthandAssignmentValueSymbol(",
+  "checker.getTypeOfSymbolAtLocation(",
+  "checker.getTypeArguments(",
+  "checker.getReturnTypeOfSignature(",
+  "checker.getSignatureFromDeclaration(",
+  "checker.getFullyQualifiedName(",
+  "checker.getSymbolsInScope(",
+  "checker.getTypeFromTypeNode(",
+  "checker.getApparentType(",
+  "checker.getPropertyOfType(",
+  "checker.getSignaturesOfType(",
+  "checker.isArrayType(",
+  "checker.isTupleType(",
+  "checker.typeToString(",
+  "checker.typeToTypeNode(",
 ] as const;
 
 describe("source semantic boundary", () => {

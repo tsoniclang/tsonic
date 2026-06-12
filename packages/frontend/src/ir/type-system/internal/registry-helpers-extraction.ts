@@ -134,7 +134,6 @@ export const getTypeNodeName = (typeNode: ts.TypeNode): string | undefined => {
  */
 export const resolveHeritageTypeName = (
   typeNode: ts.ExpressionWithTypeArguments,
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView,
   sourceRoot: string,
   rootNamespace: string
@@ -168,7 +167,7 @@ export const resolveHeritageTypeName = (
 
   const resolvedSymbol =
     symbol && symbol.flags & ts.SymbolFlags.Alias
-      ? checker.getAliasedSymbol(symbol)
+      ? sourceSemantics.getAliasedSymbol(symbol)
       : symbol;
 
   const decl = resolvedSymbol?.getDeclarations()?.[0];
@@ -497,7 +496,6 @@ export { convertMethodToSignature, convertMethodSignatureToIr };
  */
 export const extractHeritage = (
   clauses: ts.NodeArray<ts.HeritageClause> | undefined,
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView,
   sourceRoot: string,
   rootNamespace: string,
@@ -513,7 +511,6 @@ export const extractHeritage = (
     for (const type of clause.types) {
       const resolvedName = resolveHeritageTypeName(
         type,
-        checker,
         sourceSemantics,
         sourceRoot,
         rootNamespace

@@ -179,7 +179,7 @@ const buildModuleNamespaceTypeFromSymbol = (
 ): IrType => {
   const moduleSymbol =
     input.flags & ts.SymbolFlags.Alias
-      ? state.checker.getAliasedSymbol(input)
+      ? state.sourceSemantics.getAliasedSymbol(input)
       : input;
 
   if (seen.has(moduleSymbol)) {
@@ -194,7 +194,7 @@ const buildModuleNamespaceTypeFromSymbol = (
   seen.add(moduleSymbol);
 
   const exportSymbols = [
-    ...state.checker.getExportsOfModule(moduleSymbol),
+    ...state.sourceSemantics.getExportsOfModule(moduleSymbol),
   ].sort((left, right) => left.getName().localeCompare(right.getName()));
 
   const members: IrInterfaceMember[] = [];
@@ -202,7 +202,7 @@ const buildModuleNamespaceTypeFromSymbol = (
   for (const exportSymbol of exportSymbols) {
     const actualSymbol =
       exportSymbol.flags & ts.SymbolFlags.Alias
-        ? state.checker.getAliasedSymbol(exportSymbol)
+        ? state.sourceSemantics.getAliasedSymbol(exportSymbol)
         : exportSymbol;
 
     if ((actualSymbol.flags & ts.SymbolFlags.Value) === 0) {

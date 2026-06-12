@@ -283,7 +283,7 @@ const resolveReferencedIdentifierSymbol = (
   }
 
   if (symbol.flags & ts.SymbolFlags.Alias) {
-    return ctx.checker.getAliasedSymbol(symbol);
+    return ctx.sourceSemantics.getAliasedSymbol(symbol);
   }
 
   return symbol;

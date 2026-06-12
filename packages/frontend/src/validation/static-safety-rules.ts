@@ -39,6 +39,7 @@ import {
   isGenericFunctionDeclarationNode,
   isGenericFunctionValueNode,
 } from "../generic-function-values.js";
+import type { TypeScriptSemanticView } from "../source-frontend/index.js";
 import {
   checkBasicSynthesisEligibility,
   lambdaHasExpectedTypeContext,
@@ -239,7 +240,7 @@ const getJsonParseTargetTypeNode = (
 
 const isBroadJsonSourceType = (
   type: ts.Type,
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) {
@@ -278,22 +279,25 @@ const isBroadJsonSourceType = (
     return true;
   }
 
-  if (checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0) {
+  if (sourceSemantics.getCallSignatures(type).length > 0) {
     return true;
   }
 
-  if (checker.isArrayType(type) || checker.isTupleType(type)) {
-    const typeArguments = checker.getTypeArguments(type as ts.TypeReference);
+  if (sourceSemantics.isArrayType(type) || sourceSemantics.isTupleType(type)) {
+    const typeArguments = sourceSemantics.getTypeArguments(type);
     return typeArguments.some((typeArgument) =>
-      isBroadJsonSourceType(typeArgument, checker, nextSeen)
+      isBroadJsonSourceType(typeArgument, sourceSemantics, nextSeen)
     );
   }
 
-  if (checker.typeToString(type) === "object") {
+  if (sourceSemantics.typeToString(type) === "object") {
     return true;
   }
 
-  if (type.getStringIndexType() || type.getNumberIndexType()) {
+  if (
+    sourceSemantics.getStringIndexType(type) ||
+    sourceSemantics.getNumberIndexType(type)
+  ) {
     return true;
   }
 
@@ -302,19 +306,19 @@ const isBroadJsonSourceType = (
     if (!declaration) {
       return true;
     }
-    const propertyType = checker.getTypeOfSymbolAtLocation(
+    const propertyType = sourceSemantics.getTypeOfSymbolAtLocation(
       property,
       declaration
     );
-    return isBroadJsonSourceType(propertyType, checker, nextSeen);
+    return isBroadJsonSourceType(propertyType, sourceSemantics, nextSeen);
   });
 };
 
 const isDynamicJsonCarrierType = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: TypeScriptSemanticView
 ): boolean => {
-  const displayName = checker.typeToString(type);
+  const displayName = sourceSemantics.typeToString(type);
   return (
     displayName === "JsValue" ||
     displayName === "JsPrimitive" ||
@@ -327,17 +331,18 @@ const isDynamicJsonCarrierType = (
 
 const typeHasDynamicJsonCarrierStringIndex = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  sourceSemantics: TypeScriptSemanticView
 ): boolean => {
-  const stringIndexType = type.getStringIndexType();
+  const stringIndexType = sourceSemantics.getStringIndexType(type);
   return (
-    !!stringIndexType && isDynamicJsonCarrierType(stringIndexType, checker)
+    !!stringIndexType &&
+    isDynamicJsonCarrierType(stringIndexType, sourceSemantics)
   );
 };
 
 const isBroadArrayIsArraySourceType = (
   type: ts.Type,
-  checker: ts.TypeChecker,
+  sourceSemantics: TypeScriptSemanticView,
   seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
 ): boolean => {
   if (seen.has(type)) {
@@ -347,11 +352,11 @@ const isBroadArrayIsArraySourceType = (
   const nextSeen = new Set(seen);
   nextSeen.add(type);
 
-  if (isDynamicJsonCarrierType(type, checker)) {
+  if (isDynamicJsonCarrierType(type, sourceSemantics)) {
     return false;
   }
 
-  const displayName = checker.typeToString(type);
+  const displayName = sourceSemantics.typeToString(type);
   if (
     (type.flags &
       (ts.TypeFlags.Any |
@@ -368,7 +373,7 @@ const isBroadArrayIsArraySourceType = (
 
   if (type.isUnionOrIntersection()) {
     return type.types.some((member) =>
-      isBroadArrayIsArraySourceType(member, checker, nextSeen)
+      isBroadArrayIsArraySourceType(member, sourceSemantics, nextSeen)
     );
   }
 
@@ -440,8 +445,8 @@ const isDeclaredDynamicJsonCarrierSymbol = (
   }
 
   return isDynamicJsonCarrierType(
-    program.checker.getTypeOfSymbolAtLocation(symbol, declaration),
-    program.checker
+    program.sourceSemantics.getTypeOfSymbolAtLocation(symbol, declaration),
+    program.sourceSemantics
   );
 };
 
@@ -526,7 +531,7 @@ const isObjectEntriesValueFromDynamicJsonCarrier = (
     ? isDeclaredDynamicJsonCarrierSymbol(entriesSource, program) ||
         typeHasDynamicJsonCarrierStringIndex(
           program.sourceSemantics.getExpressionType(entriesSource),
-          program.checker
+          program.sourceSemantics
         )
     : false;
 };
@@ -541,13 +546,11 @@ export const validateStaticSafety = (
 ): DiagnosticsCollector => {
   const writtenSymbols = collectWrittenSymbols(
     sourceFile,
-    program.checker,
     program.sourceSemantics
   );
   const supportedGenericFunctionValueSymbols =
     collectSupportedGenericFunctionValueSymbols(
       sourceFile,
-      program.checker,
       program.sourceSemantics,
       writtenSymbols
     );
@@ -587,7 +590,7 @@ export const validateStaticSafety = (
         ts.isSpreadElement(sourceExpression) ||
         isBroadJsonSourceType(
           program.sourceSemantics.getExpressionType(sourceExpression),
-          program.checker
+          program.sourceSemantics
         )
       ) {
         const diagnostic = createBackendCapabilityDiagnostic(
@@ -621,7 +624,7 @@ export const validateStaticSafety = (
           !isDirectBooleanReturnExpression(node) &&
           isBroadArrayIsArraySourceType(
             program.sourceSemantics.getExpressionType(sourceExpression),
-            program.checker
+            program.sourceSemantics
           ))
       ) {
         const diagnostic = createBackendCapabilityDiagnostic(
@@ -873,7 +876,6 @@ export const validateStaticSafety = (
     if (isGenericFunctionValueNode(node)) {
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
-        program.checker,
         program.sourceSemantics,
         writtenSymbols
       );
@@ -898,7 +900,6 @@ export const validateStaticSafety = (
     if (isGenericFunctionDeclarationNode(node)) {
       const symbol = getSupportedGenericFunctionDeclarationSymbol(
         node,
-        program.checker,
         program.sourceSemantics
       );
       const isSupported =
@@ -920,7 +921,6 @@ export const validateStaticSafety = (
 
     if (ts.isIdentifier(node)) {
       const symbol = getReferencedIdentifierSymbol(
-        program.checker,
         program.sourceSemantics,
         node
       );

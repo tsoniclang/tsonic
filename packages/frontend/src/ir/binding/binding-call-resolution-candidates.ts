@@ -101,7 +101,7 @@ export const resolveCallTargetDeclarations = (
 
   const resolvedSymbol =
     symbol.flags & ts.SymbolFlags.Alias
-      ? ctx.checker.getAliasedSymbol(symbol)
+      ? ctx.sourceSemantics.getAliasedSymbol(symbol)
       : symbol;
 
   return resolvedSymbol.getDeclarations();
@@ -156,7 +156,7 @@ export const resolveCallSignatureCandidates = (
 
     const directSignatures = directDecls.flatMap((decl) => {
       if (!ts.isFunctionLike(decl)) return [];
-      const sig = ctx.checker.getSignatureFromDeclaration(decl);
+      const sig = ctx.sourceSemantics.getSignatureFromDeclaration(decl);
       return sig ? [sig] : [];
     });
     const directCandidates = collectSignatureCandidates(directSignatures);
@@ -258,7 +258,7 @@ export const resolveConstructorSignature = (
 
     const resolvedSymbol =
       symbol && symbol.flags & ts.SymbolFlags.Alias
-        ? ctx.checker.getAliasedSymbol(symbol)
+        ? ctx.sourceSemantics.getAliasedSymbol(symbol)
         : symbol;
 
     const decl = resolvedSymbol?.getDeclarations()?.[0];
@@ -323,7 +323,7 @@ export const resolveConstructorSignatureCandidates = (
 
   const resolvedSymbol =
     symbol.flags & ts.SymbolFlags.Alias
-      ? ctx.checker.getAliasedSymbol(symbol)
+      ? ctx.sourceSemantics.getAliasedSymbol(symbol)
       : symbol;
 
   const decls = resolvedSymbol.getDeclarations();
@@ -348,7 +348,7 @@ export const resolveConstructorSignatureCandidates = (
     if (argCount < required) continue;
     if (!hasRest && argCount > params.length) continue;
 
-    const sig = ctx.checker.getSignatureFromDeclaration(decl);
+    const sig = ctx.sourceSemantics.getSignatureFromDeclaration(decl);
     if (!sig) continue;
     candidates.push(getOrCreateSignatureId(ctx, sig));
   }

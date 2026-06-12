@@ -45,14 +45,13 @@ import {
  * Build a TypeRegistry from source files.
  *
  * @param sourceFiles Source files to scan for declarations
- * @param checker TypeChecker for symbol resolution only (NOT for type inference)
+ * @param sourceSemantics Source semantic facade for symbol resolution
  * @param sourceRoot Absolute path to source root directory
  * @param rootNamespace Root namespace for the project
  * @param convertType Optional type converter for pure IR storage
  */
 export const buildTypeRegistry = (
   sourceFiles: readonly ts.SourceFile[],
-  checker: ts.TypeChecker,
   sourceSemantics: TypeScriptSemanticView,
   sourceRoot: string,
   rootNamespace: string,
@@ -167,7 +166,6 @@ export const buildTypeRegistry = (
         members: extractMembers(node.members, convert),
         heritage: extractHeritage(
           node.heritageClauses,
-          checker,
           sourceSemantics,
           sourceRoot,
           rootNamespace,
@@ -231,7 +229,6 @@ export const buildTypeRegistry = (
               ...existing.heritage,
               ...extractHeritage(
                 node.heritageClauses,
-                checker,
                 sourceSemantics,
                 sourceRoot,
                 rootNamespace,
@@ -252,7 +249,6 @@ export const buildTypeRegistry = (
             members: extractMembers(node.members, convert),
             heritage: extractHeritage(
               node.heritageClauses,
-              checker,
               sourceSemantics,
               sourceRoot,
               rootNamespace,
