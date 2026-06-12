@@ -20,6 +20,7 @@ import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/index.js";
 
 describe("this: parameter inference + Rewrap erasure", () => {
   const createTestProgram = (source: string, fileName = "sample.ts") => {
@@ -72,6 +73,7 @@ describe("this: parameter inference + Rewrap erasure", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
+      sourceSemantics: createTypeScriptSemanticView(checker),
       metadata: new ExternalMetadataRegistry(),
       bindings: new BindingRegistry(),
       externalResolver: createExternalBindingsResolver("/test"),

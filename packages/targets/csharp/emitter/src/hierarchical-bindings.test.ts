@@ -13,6 +13,7 @@ import {
   createExternalBindingsResolver,
   createBinding,
   createProgramContext,
+  createTypeScriptSemanticView,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -27,31 +28,38 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
 
     // Create hierarchical binding manifest
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/system-linq.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
-        {
-          name: "System.Linq",
-          alias: "systemLinq",
-          types: [
-            {
-              name: "Enumerable",
-              alias: "enumerable",
-              kind: "class",
-              members: [
-                {
-                  kind: "method",
-                  name: "SelectMany",
-                  alias: "selectMany",
-                  binding: {
-                    ownerIdentity: "System.Linq",
-                    type: "System.Linq.Enumerable",
-                    member: "SelectMany",
+    bindings.addBindings("/test/system-linq.json", {
+      schema: "tsonic.bindings",
+      provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] },
+      sourceSurface: {
+        namespaces: [
+          {
+            name: "System.Linq",
+            alias: "systemLinq",
+            types: [
+              {
+                name: "Enumerable",
+                alias: "enumerable",
+                kind: "class",
+                members: [
+                  {
+                    kind: "method",
+                    name: "SelectMany",
+                    alias: "selectMany",
+                    binding: {
+                      ownerIdentity: "System.Linq",
+                      type: "System.Linq.Enumerable",
+                      member: "SelectMany",
+                    },
                   },
-                },
-              ],
-            },
-          ],
-        },
-      ] }, targetSurface: { types: [] } });
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      targetSurface: { types: [] },
+    });
 
     // Create TypeScript program
     const fileName = "/test/sample.ts";
@@ -96,6 +104,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
+      sourceSemantics: createTypeScriptSemanticView(checker),
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver("/test"),
@@ -156,48 +165,55 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     `;
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/mylib.json", { schema: "tsonic.bindings", provider: { namespace: "MyLib", ownerIdentities: ["MyLib"] }, sourceSurface: { namespaces: [
-        {
-          name: "MyLib",
-          alias: "myLib",
-          types: [
-            {
-              name: "TypeA",
-              alias: "typeA",
-              kind: "class",
-              members: [
-                {
-                  kind: "method",
-                  name: "MethodA",
-                  alias: "methodA",
-                  binding: {
-                    ownerIdentity: "MyLib",
-                    type: "MyLib.TypeA",
-                    member: "MethodA",
+    bindings.addBindings("/test/mylib.json", {
+      schema: "tsonic.bindings",
+      provider: { namespace: "MyLib", ownerIdentities: ["MyLib"] },
+      sourceSurface: {
+        namespaces: [
+          {
+            name: "MyLib",
+            alias: "myLib",
+            types: [
+              {
+                name: "TypeA",
+                alias: "typeA",
+                kind: "class",
+                members: [
+                  {
+                    kind: "method",
+                    name: "MethodA",
+                    alias: "methodA",
+                    binding: {
+                      ownerIdentity: "MyLib",
+                      type: "MyLib.TypeA",
+                      member: "MethodA",
+                    },
                   },
-                },
-              ],
-            },
-            {
-              name: "TypeB",
-              alias: "typeB",
-              kind: "class",
-              members: [
-                {
-                  kind: "method",
-                  name: "MethodB",
-                  alias: "methodB",
-                  binding: {
-                    ownerIdentity: "MyLib",
-                    type: "MyLib.TypeB",
-                    member: "MethodB",
+                ],
+              },
+              {
+                name: "TypeB",
+                alias: "typeB",
+                kind: "class",
+                members: [
+                  {
+                    kind: "method",
+                    name: "MethodB",
+                    alias: "methodB",
+                    binding: {
+                      ownerIdentity: "MyLib",
+                      type: "MyLib.TypeB",
+                      member: "MethodB",
+                    },
                   },
-                },
-              ],
-            },
-          ],
-        },
-      ] }, targetSurface: { types: [] } });
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      targetSurface: { types: [] },
+    });
 
     const fileName = "/test/multi.ts";
     const sourceFile = ts.createSourceFile(
@@ -240,6 +256,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
+      sourceSemantics: createTypeScriptSemanticView(checker2),
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver("/test"),

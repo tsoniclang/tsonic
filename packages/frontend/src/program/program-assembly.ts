@@ -41,6 +41,7 @@ import { readSourcePackageMetadata } from "./source-package-metadata.js";
 import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
 import { createBindingTargetSurfaceProvider } from "./binding-target-surface-provider.js";
 import { defineBackendTargetId } from "../ir/types.js";
+import { createTypeScriptSemanticView } from "../source-frontend/index.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -155,6 +156,22 @@ export const createProgram = (
   filePaths: readonly string[],
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
+  const sourceFrontend = options.sourceFrontend ?? "typescript";
+  if (sourceFrontend !== "typescript") {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1007",
+          "error",
+          `Source frontend '${sourceFrontend}' is not available for IR construction yet.`,
+          undefined,
+          "The vendored TSTS package is wired as an optional source compiler seam. Tsonic IR construction remains TypeScript-backed until the TSTS program/checker surface is complete."
+        )
+      )
+    );
+  }
+
   const surface = options.surface ?? "core";
   const activeTargetId =
     options.backendTargetId === undefined
@@ -665,11 +682,13 @@ export const createProgram = (
   // Create binding layer for symbol resolution
   // This replaces direct checker API calls throughout the pipeline
   const checker = program.getTypeChecker();
+  const sourceSemantics = createTypeScriptSemanticView(checker);
   const binding = createBinding(checker);
 
   return ok({
     program,
     checker,
+    sourceSemantics,
     options,
     surfaceCapabilities,
     authoritativeTsonicPackageRoots,

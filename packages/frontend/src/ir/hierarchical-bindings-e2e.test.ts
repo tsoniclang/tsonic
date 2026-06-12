@@ -12,6 +12,7 @@ import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
+import { createTypeScriptSemanticView } from "../source-frontend/index.js";
 
 describe("Hierarchical Bindings End-to-End", () => {
   it("should resolve hierarchical bindings in IR for member access chain", () => {
@@ -27,31 +28,38 @@ describe("Hierarchical Bindings End-to-End", () => {
 
     // Create hierarchical binding manifest
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/system-linq.json", { schema: "tsonic.bindings", provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] }, sourceSurface: { namespaces: [
-        {
-          name: "System.Linq",
-          alias: "systemLinq",
-          types: [
-            {
-              name: "Enumerable",
-              alias: "enumerable",
-              kind: "class",
-              members: [
-                {
-                  kind: "method",
-                  name: "SelectMany",
-                  alias: "selectMany",
-                  binding: {
-                    ownerIdentity: "System.Linq",
-                    type: "System.Linq.Enumerable",
-                    member: "SelectMany",
+    bindings.addBindings("/test/system-linq.json", {
+      schema: "tsonic.bindings",
+      provider: { namespace: "System.Linq", ownerIdentities: ["System.Linq"] },
+      sourceSurface: {
+        namespaces: [
+          {
+            name: "System.Linq",
+            alias: "systemLinq",
+            types: [
+              {
+                name: "Enumerable",
+                alias: "enumerable",
+                kind: "class",
+                members: [
+                  {
+                    kind: "method",
+                    name: "SelectMany",
+                    alias: "selectMany",
+                    binding: {
+                      ownerIdentity: "System.Linq",
+                      type: "System.Linq.Enumerable",
+                      member: "SelectMany",
+                    },
                   },
-                },
-              ],
-            },
-          ],
-        },
-      ] }, targetSurface: { types: [] } });
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      targetSurface: { types: [] },
+    });
 
     // Create TypeScript program
     const fileName = "/test/sample.ts";
@@ -95,6 +103,7 @@ describe("Hierarchical Bindings End-to-End", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
+      sourceSemantics: createTypeScriptSemanticView(checker),
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver("/test"),

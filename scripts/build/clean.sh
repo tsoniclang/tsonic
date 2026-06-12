@@ -12,6 +12,7 @@ echo "=== Cleaning Tsonic build artifacts ==="
 # Define packages
 PACKAGES=(
   "runtime"
+  "tsts"
   "frontend"
   "emitter"
   "backend"

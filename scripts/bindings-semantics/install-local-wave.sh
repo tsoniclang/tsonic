@@ -23,6 +23,7 @@ maybe_add_package() {
 
 maybe_add_package "tsonic" "$TSONICLANG_ROOT/tsonic/npm/tsonic"
 maybe_add_package "@tsonic/cli" "$TSONICLANG_ROOT/tsonic/packages/cli"
+maybe_add_package "@tsonic/tsts" "$TSONICLANG_ROOT/tsonic/packages/tsts"
 maybe_add_package "@tsonic/frontend" "$TSONICLANG_ROOT/tsonic/packages/frontend"
 maybe_add_package "@tsonic/csharp-emitter" "$TSONICLANG_ROOT/tsonic/packages/targets/csharp/emitter"
 maybe_add_package "@tsonic/csharp-backend" "$TSONICLANG_ROOT/tsonic/packages/targets/csharp/backend"
@@ -61,6 +62,7 @@ else
       const relevant = new Set([
         "tsonic",
         "@tsonic/cli",
+        "@tsonic/tsts",
         "@tsonic/frontend",
         "@tsonic/csharp-emitter",
         "@tsonic/csharp-backend",

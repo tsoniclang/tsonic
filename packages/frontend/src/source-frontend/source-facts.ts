@@ -1,0 +1,95 @@
+import { defineSourceSemanticFactKey } from "./semantic-view.js";
+
+export type NumericPrimitiveKind =
+  | "bool"
+  | "char"
+  | "int8"
+  | "uint8"
+  | "int16"
+  | "uint16"
+  | "int32"
+  | "uint32"
+  | "int64"
+  | "uint64"
+  | "native-int"
+  | "native-uint"
+  | "float32"
+  | "float64"
+  | "decimal";
+
+export type NumericPrimitiveRuntimeBase =
+  | "boolean"
+  | "string"
+  | "number"
+  | "bigint";
+
+export type NumericPrimitiveFact = {
+  readonly sourceName: string;
+  readonly kind: NumericPrimitiveKind;
+  readonly runtimeBase: NumericPrimitiveRuntimeBase;
+  readonly signed?: boolean;
+  readonly width?: number;
+};
+
+export type SourceTypeSemanticsFact = {
+  readonly kind: "struct" | "class" | "interface";
+};
+
+export type FieldSemanticsFact = {
+  readonly storage: "field";
+};
+
+export type ParameterPassingMode =
+  | "by-value"
+  | "byref-readonly"
+  | "byref-readwrite"
+  | "byref-writeonly-must-init";
+
+export type ParameterPassingFact = {
+  readonly mode: ParameterPassingMode;
+};
+
+export type AttributeSemanticsFact = {
+  readonly attributeTypeName: string;
+  readonly args: readonly unknown[];
+};
+
+export type IntrinsicSemanticsFact = {
+  readonly kind: "defaultof" | "istype" | "cast" | "assert";
+};
+
+export const numericPrimitiveFactKey =
+  defineSourceSemanticFactKey<NumericPrimitiveFact>(
+    "tsonic:source:numeric-primitive",
+    "Source-level primitive type identity such as int, long, decimal, char, or bool."
+  );
+
+export const sourceTypeSemanticsFactKey =
+  defineSourceSemanticFactKey<SourceTypeSemanticsFact>(
+    "tsonic:source:type-semantics",
+    "Source-level type semantics such as struct."
+  );
+
+export const fieldSemanticsFactKey =
+  defineSourceSemanticFactKey<FieldSemanticsFact>(
+    "tsonic:source:field-semantics",
+    "Source-level field marker semantics."
+  );
+
+export const parameterPassingFactKey =
+  defineSourceSemanticFactKey<ParameterPassingFact>(
+    "tsonic:source:parameter-passing",
+    "Source-level parameter passing semantics such as out/ref/inref."
+  );
+
+export const attributeSemanticsFactKey =
+  defineSourceSemanticFactKey<AttributeSemanticsFact>(
+    "tsonic:source:attribute-semantics",
+    "Source-level attribute marker semantics before target-specific rendering."
+  );
+
+export const intrinsicSemanticsFactKey =
+  defineSourceSemanticFactKey<IntrinsicSemanticsFact>(
+    "tsonic:source:intrinsic-semantics",
+    "Source-level intrinsic semantics."
+  );

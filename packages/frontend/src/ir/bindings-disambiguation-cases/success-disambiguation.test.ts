@@ -20,6 +20,7 @@ import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
 import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
+import { createTypeScriptSemanticView } from "../../source-frontend/index.js";
 
 describe("CLR member binding disambiguation (success)", () => {
   it("should disambiguate collisions when a simple global binding selects the CLR owner (Console.log)", () => {
@@ -110,50 +111,69 @@ describe("CLR member binding disambiguation (success)", () => {
     const checker = program.getTypeChecker();
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/js-simple.json", { schema: "tsonic.bindings", provider: { namespace: "sourceSurface" }, sourceSurface: { bindings: {
-        console: {
-          kind: "global",
-          ownerIdentity: "Acme.Js",
-          type: "Acme.Js.console",
+    bindings.addBindings("/test/js-simple.json", {
+      schema: "tsonic.bindings",
+      provider: { namespace: "sourceSurface" },
+      sourceSurface: {
+        bindings: {
+          console: {
+            kind: "global",
+            ownerIdentity: "Acme.Js",
+            type: "Acme.Js.console",
+          },
         },
-      } }, targetSurface: { types: [] } });
-    bindings.addBindings("/test/js.json", { schema: "tsonic.bindings", provider: { namespace: "Acme.Js" }, targetSurface: { types: [
-        {
-          targetName: "Acme.Js.console",
-          ownerIdentity: "Acme.Js",
-          methods: [
-            {
-              targetName: "log",
-              normalizedSignature:
-                "log|(System.String):System.Void|static=false",
-              parameterCount: 1,
-              ownerQualifiedName: "Acme.Js.console",
-              ownerIdentity: "Acme.Js",
-            },
-          ],
-          properties: [],
-          fields: [],
-        },
-      ] } });
+      },
+      targetSurface: { types: [] },
+    });
+    bindings.addBindings("/test/js.json", {
+      schema: "tsonic.bindings",
+      provider: { namespace: "Acme.Js" },
+      targetSurface: {
+        types: [
+          {
+            targetName: "Acme.Js.console",
+            ownerIdentity: "Acme.Js",
+            methods: [
+              {
+                targetName: "log",
+                normalizedSignature:
+                  "log|(System.String):System.Void|static=false",
+                parameterCount: 1,
+                ownerQualifiedName: "Acme.Js.console",
+                ownerIdentity: "Acme.Js",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      },
+    });
 
-    bindings.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: [
-        {
-          targetName: "nodejs.console",
-          ownerIdentity: "nodejs",
-          methods: [
-            {
-              targetName: "log",
-              normalizedSignature:
-                "log|(System.String):System.Void|static=false",
-              parameterCount: 1,
-              ownerQualifiedName: "nodejs.console",
-              ownerIdentity: "nodejs",
-            },
-          ],
-          properties: [],
-          fields: [],
-        },
-      ] } });
+    bindings.addBindings("/test/nodejs.json", {
+      schema: "tsonic.bindings",
+      provider: { namespace: "nodejs" },
+      targetSurface: {
+        types: [
+          {
+            targetName: "nodejs.console",
+            ownerIdentity: "nodejs",
+            methods: [
+              {
+                targetName: "log",
+                normalizedSignature:
+                  "log|(System.String):System.Void|static=false",
+                parameterCount: 1,
+                ownerQualifiedName: "nodejs.console",
+                ownerIdentity: "nodejs",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      },
+    });
 
     const testProgram = {
       program,
@@ -166,6 +186,7 @@ describe("CLR member binding disambiguation (success)", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [dtsFile],
+      sourceSemantics: createTypeScriptSemanticView(checker),
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver(tmpRoot),
@@ -226,14 +247,20 @@ describe("CLR member binding disambiguation (success)", () => {
     fs.writeFileSync(
       bindingsJsonPath,
       JSON.stringify(
-        { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
-            {
-              targetName: "nodejs.Http.Server",
-              methods: [],
-              properties: [],
-              fields: [],
-            },
-          ] } },
+        {
+          schema: "tsonic.bindings",
+          provider: { namespace: "nodejs.Http" },
+          targetSurface: {
+            types: [
+              {
+                targetName: "nodejs.Http.Server",
+                methods: [],
+                properties: [],
+                fields: [],
+              },
+            ],
+          },
+        },
         null,
         2
       ),
@@ -317,46 +344,58 @@ describe("CLR member binding disambiguation (success)", () => {
     const checker = program.getTypeChecker();
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/nodejs-http.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs.Http" }, targetSurface: { types: [
-        {
-          targetName: "nodejs.Http.Server",
-          ownerIdentity: "nodejs",
-          methods: [
-            {
-              targetName: "listen",
-              normalizedSignature:
-                "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
-              parameterCount: 2,
-              ownerQualifiedName: "nodejs.Http.Server",
-              ownerIdentity: "nodejs",
-            },
-          ],
-          properties: [],
-          fields: [],
-        },
-      ] } });
+    bindings.addBindings("/test/nodejs-http.json", {
+      schema: "tsonic.bindings",
+      provider: { namespace: "nodejs.Http" },
+      targetSurface: {
+        types: [
+          {
+            targetName: "nodejs.Http.Server",
+            ownerIdentity: "nodejs",
+            methods: [
+              {
+                targetName: "listen",
+                normalizedSignature:
+                  "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
+                parameterCount: 2,
+                ownerQualifiedName: "nodejs.Http.Server",
+                ownerIdentity: "nodejs",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      },
+    });
 
     // Collision: another namespace also exports a `Server.listen`, but the CLR member
     // targets differ. Tsonic must select the correct one using the declaration source
     // file's nearest bindings.json.
-    bindings.addBindings("/test/nodejs.json", { schema: "tsonic.bindings", provider: { namespace: "nodejs" }, targetSurface: { types: [
-        {
-          targetName: "nodejs.Server",
-          ownerIdentity: "nodejs",
-          methods: [
-            {
-              targetName: "listen",
-              normalizedSignature:
-                "listen|(System.Int32,System.Action):nodejs.Server|static=false",
-              parameterCount: 2,
-              ownerQualifiedName: "nodejs.Server",
-              ownerIdentity: "nodejs",
-            },
-          ],
-          properties: [],
-          fields: [],
-        },
-      ] } });
+    bindings.addBindings("/test/nodejs.json", {
+      schema: "tsonic.bindings",
+      provider: { namespace: "nodejs" },
+      targetSurface: {
+        types: [
+          {
+            targetName: "nodejs.Server",
+            ownerIdentity: "nodejs",
+            methods: [
+              {
+                targetName: "listen",
+                normalizedSignature:
+                  "listen|(System.Int32,System.Action):nodejs.Server|static=false",
+                parameterCount: 2,
+                ownerQualifiedName: "nodejs.Server",
+                ownerIdentity: "nodejs",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      },
+    });
 
     const testProgram = {
       program,
@@ -369,6 +408,7 @@ describe("CLR member binding disambiguation (success)", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [dtsFile],
+      sourceSemantics: createTypeScriptSemanticView(checker),
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver(tmpRoot),

@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./packages/tsts" },
     { "path": "./packages/frontend" },
     { "path": "./packages/targets/csharp/emitter" },
     { "path": "./packages/targets/csharp/backend" },

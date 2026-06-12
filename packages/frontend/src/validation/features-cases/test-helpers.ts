@@ -10,6 +10,7 @@ import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
 import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
 import { createBinding } from "../../ir/binding/index.js";
+import { createTypeScriptSemanticView } from "../../source-frontend/index.js";
 
 export type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
 
@@ -98,6 +99,7 @@ export const createTestProgram = (
     },
     sourceFiles: Array.from(sourceFiles.values()),
     declarationSourceFiles: [],
+    sourceSemantics: createTypeScriptSemanticView(checker),
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
@@ -184,6 +186,7 @@ export const runValidationInTempProject = (
           .filter(
             (candidate): candidate is ts.SourceFile => candidate !== undefined
           ),
+        sourceSemantics: createTypeScriptSemanticView(checker),
         metadata: new ExternalMetadataRegistry(),
         bindings: new BindingRegistry(),
         externalResolver: createExternalBindingsResolver(tempDir),
