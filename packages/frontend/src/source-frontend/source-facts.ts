@@ -1,4 +1,5 @@
 import { defineSourceSemanticFactKey } from "./semantic-view.js";
+import type { SourceSemanticFactKey } from "./semantic-view.js";
 
 export type NumericPrimitiveKind =
   | "bool"
@@ -120,3 +121,16 @@ export const intrinsicSemanticsFactKey =
     "tsonic:source:intrinsic-semantics",
     "Source-level intrinsic semantics."
   );
+
+export const visitSourceSemanticFactKeys = (
+  visit: <T>(factKey: SourceSemanticFactKey<T>) => void
+): void => {
+  visit(numericPrimitiveFactKey);
+  visit(sourceTypeSemanticsFactKey);
+  visit(fieldSemanticsFactKey);
+  visit(parameterPassingFactKey);
+  visit(extensionReceiverSemanticsFactKey);
+  visit(heritageWrapperSemanticsFactKey);
+  visit(markerApiSemanticsFactKey);
+  visit(intrinsicSemanticsFactKey);
+};

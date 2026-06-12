@@ -19,6 +19,7 @@ export {
   numericPrimitiveFactKey,
   parameterPassingFactKey,
   sourceTypeSemanticsFactKey,
+  visitSourceSemanticFactKeys,
 } from "./source-facts.js";
 export {
   getSourcePrimitiveFact,

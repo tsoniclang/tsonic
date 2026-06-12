@@ -19,16 +19,7 @@ import {
   visitTstsSubtree,
 } from "@tsonic/tsts";
 import type { TstsSourceProgram } from "./tsts-source-program.js";
-import {
-  fieldSemanticsFactKey,
-  extensionReceiverSemanticsFactKey,
-  heritageWrapperSemanticsFactKey,
-  intrinsicSemanticsFactKey,
-  markerApiSemanticsFactKey,
-  numericPrimitiveFactKey,
-  parameterPassingFactKey,
-  sourceTypeSemanticsFactKey,
-} from "./source-facts.js";
+import { visitSourceSemanticFactKeys } from "./source-facts.js";
 import type {
   SourceSemanticFactKey,
   SourceSemanticFactStore,
@@ -196,14 +187,7 @@ const projectFactsFromNode = (
     }
   };
 
-  projectFact(numericPrimitiveFactKey);
-  projectFact(sourceTypeSemanticsFactKey);
-  projectFact(fieldSemanticsFactKey);
-  projectFact(parameterPassingFactKey);
-  projectFact(extensionReceiverSemanticsFactKey);
-  projectFact(heritageWrapperSemanticsFactKey);
-  projectFact(markerApiSemanticsFactKey);
-  projectFact(intrinsicSemanticsFactKey);
+  visitSourceSemanticFactKeys(projectFact);
 
   return projectedFacts;
 };
@@ -220,14 +204,7 @@ const collectProjectedFactIds = (
     }
   };
 
-  collectFact(numericPrimitiveFactKey);
-  collectFact(sourceTypeSemanticsFactKey);
-  collectFact(fieldSemanticsFactKey);
-  collectFact(parameterPassingFactKey);
-  collectFact(extensionReceiverSemanticsFactKey);
-  collectFact(heritageWrapperSemanticsFactKey);
-  collectFact(markerApiSemanticsFactKey);
-  collectFact(intrinsicSemanticsFactKey);
+  visitSourceSemanticFactKeys(collectFact);
 
   return factIds;
 };
