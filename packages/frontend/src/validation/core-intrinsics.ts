@@ -20,11 +20,13 @@ import { getNodeLocation } from "./helpers.js";
 import {
   CORE_LANG_TYPE_NAMES,
   CORE_LANG_VALUE_NAMES,
-  CORE_PACKAGE_NAME,
   CORE_TYPES_TYPE_NAMES,
-  type CoreModule,
   isSymbolFromCore,
 } from "../core-intrinsics/provenance.js";
+import {
+  CORE_PACKAGE_NAME,
+  type CoreModule,
+} from "../source-frontend/core-module-identity.js";
 
 const getRightmostTypeNameIdentifier = (
   typeName: ts.EntityName

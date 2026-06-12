@@ -22,6 +22,14 @@ export {
   getSourcePrimitiveFact,
   getSourcePrimitiveNames,
 } from "./source-primitive-taxonomy.js";
+export {
+  CORE_LANG_MODULE_SPECIFIERS,
+  CORE_PACKAGE_NAME,
+  CORE_TYPES_MODULE_SPECIFIERS,
+  GLOBALS_PACKAGE_NAME,
+  coreDeclarationFileBaseName,
+} from "./core-module-identity.js";
+export type { CoreModule } from "./core-module-identity.js";
 export type {
   SourceSemanticEngine,
   SourceSemanticFactKey,

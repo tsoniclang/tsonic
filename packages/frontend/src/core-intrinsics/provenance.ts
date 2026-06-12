@@ -1,12 +1,13 @@
 import * as ts from "typescript";
 import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
 import * as path from "node:path";
+import {
+  CORE_PACKAGE_NAME,
+  GLOBALS_PACKAGE_NAME,
+  type CoreModule,
+  coreDeclarationFileBaseName,
+} from "../source-frontend/core-module-identity.js";
 import { getSourcePrimitiveNames } from "../source-frontend/source-primitive-taxonomy.js";
-
-export type CoreModule = "types" | "lang";
-
-export const CORE_PACKAGE_NAME = "@tsonic/core";
-export const GLOBALS_PACKAGE_NAME = "@tsonic/globals";
 
 export const CORE_TYPES_TYPE_NAMES = new Set([
   ...getSourcePrimitiveNames(),
@@ -88,11 +89,10 @@ export const isCoreDeclarationFile = (
   fileName: string,
   module: CoreModule
 ): boolean => {
-  const expectedBase = module === "types" ? "types.d.ts" : "lang.d.ts";
   return isDeclarationFileFromPackage(
     fileName,
     CORE_PACKAGE_NAME,
-    expectedBase
+    coreDeclarationFileBaseName(module)
   );
 };
 
