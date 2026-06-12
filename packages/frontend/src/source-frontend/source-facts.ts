@@ -56,7 +56,14 @@ export type AttributeSemanticsFact = {
 };
 
 export type IntrinsicSemanticsFact = {
-  readonly kind: "defaultof" | "istype" | "cast" | "assert";
+  readonly kind:
+    | "asinterface"
+    | "defaultof"
+    | "istype"
+    | "nameof"
+    | "sizeof"
+    | "stackalloc"
+    | "trycast";
 };
 
 export const numericPrimitiveFactKey =

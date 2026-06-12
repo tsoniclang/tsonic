@@ -1,18 +1,11 @@
-import type {
-  CompilerExtension,
-  ExtensionImportBinding,
-} from "@tsonic/tsts";
-import {
-  getTstsTypeReferenceName,
-  visitTstsSubtree,
-} from "@tsonic/tsts";
+import type { CompilerExtension } from "@tsonic/tsts";
+import { getTstsTypeReferenceName, visitTstsSubtree } from "@tsonic/tsts";
 import type { NumericPrimitiveFact } from "../source-frontend/source-facts.js";
+import {
+  collectImportedNamesByLocalName,
+  coreTypesModules,
+} from "./core-imports.js";
 import { tsonicNumericPrimitiveFactKey } from "./fact-keys.js";
-
-const coreTypesModules = new Set([
-  "@tsonic/core/types.js",
-  "@tsonic/core/types",
-]);
 
 const numericPrimitiveBySourceName = new Map<string, NumericPrimitiveFact>([
   [
@@ -162,9 +155,6 @@ const numericPrimitiveBySourceName = new Map<string, NumericPrimitiveFact>([
   ],
 ]);
 
-const isCoreTypesBinding = (binding: ExtensionImportBinding): boolean =>
-  numericPrimitiveBySourceName.has(binding.importedName);
-
 export const getNumericPrimitiveSourceNames = (): readonly string[] => [
   ...numericPrimitiveBySourceName.keys(),
 ];
@@ -173,14 +163,13 @@ export const createTsonicNumericPrimitiveExtension = (): CompilerExtension => ({
   id: "tsonic.numeric-primitives",
   afterParseSourceFile: (context): void => {
     const primitiveByLocalName = new Map<string, NumericPrimitiveFact>();
-    for (const module of context.imports.modules) {
-      if (!coreTypesModules.has(module.specifier)) continue;
-      for (const binding of module.bindings) {
-        if (!isCoreTypesBinding(binding)) continue;
-        const primitive = numericPrimitiveBySourceName.get(binding.importedName);
-        if (!primitive) continue;
-        primitiveByLocalName.set(binding.localName, primitive);
-      }
+    for (const binding of collectImportedNamesByLocalName(
+      context.imports,
+      coreTypesModules
+    ).values()) {
+      const primitive = numericPrimitiveBySourceName.get(binding.importedName);
+      if (!primitive) continue;
+      primitiveByLocalName.set(binding.localName, primitive);
     }
 
     if (primitiveByLocalName.size === 0) return;

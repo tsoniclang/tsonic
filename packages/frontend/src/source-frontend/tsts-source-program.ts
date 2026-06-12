@@ -8,7 +8,10 @@ import type {
   TstsSourceFile,
 } from "@tsonic/tsts";
 import { createCompilerSourceProgram, createExtensionHost } from "@tsonic/tsts";
-import { createTsonicNumericPrimitiveExtension } from "../tsonic-extension/index.js";
+import {
+  createTsonicNumericPrimitiveExtension,
+  createTsonicSourceSemanticsExtension,
+} from "../tsonic-extension/index.js";
 
 export type TstsSourceProgram = {
   readonly engine: "tsts";
@@ -31,6 +34,7 @@ export type CreateTstsSourceProgramOptions = {
 
 const defaultExtensions = (): readonly CompilerExtension[] => [
   createTsonicNumericPrimitiveExtension(),
+  createTsonicSourceSemanticsExtension(),
 ];
 
 export const createTstsSourceProgram = (

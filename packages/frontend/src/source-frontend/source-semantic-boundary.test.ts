@@ -108,4 +108,28 @@ describe("source semantic boundary", () => {
 
     expect(offenders).to.deep.equal([]);
   });
+
+  it("keeps Tsonic source extensions on the public TSTS extension API", () => {
+    const extensionRoot = path.join(frontendSrcRoot, "tsonic-extension");
+    const offenders = collectTypeScriptFiles(extensionRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const importsPrivateTsts =
+            line.includes("@tsonic/tsts/") ||
+            line.includes("packages/tsts/src/internal/") ||
+            line.includes("../internal/ast/") ||
+            line.includes("../internal/checker/");
+          return importsPrivateTsts
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
 });

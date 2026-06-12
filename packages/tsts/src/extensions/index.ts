@@ -1,20 +1,30 @@
 export {
   asTstsTypeReferenceNode,
   forEachTstsChild,
+  getTstsCallExpressionDetails,
+  getTstsDeclaredTypeNode,
+  getTstsExpressionName,
+  getTstsExpressionWithTypeArgumentsName,
+  getTstsHeritageTypeNodes,
   getTstsIdentifierText,
+  getTstsNodeNameText,
+  getTstsTypeArguments,
+  getTstsTypeReferenceDetails,
   getTstsTypeReferenceName,
+  isTstsCallExpression,
+  isTstsClassDeclaration,
+  isTstsInterfaceDeclaration,
+  isTstsParameterDeclaration,
+  isTstsPropertyDeclarationLike,
   visitTstsSubtree,
 } from "./ast-helpers.js";
-export {
-  parseTstsSourceFile,
-} from "./parse-source.js";
 export type {
-  ParseTstsSourceOptions,
-} from "./parse-source.js";
-export {
-  defineExtensionFactKey,
-  ExtensionFacts,
-} from "./facts.js";
+  TstsCallExpressionDetails,
+  TstsTypeReferenceDetails,
+} from "./ast-helpers.js";
+export { parseTstsSourceFile } from "./parse-source.js";
+export type { ParseTstsSourceOptions } from "./parse-source.js";
+export { defineExtensionFactKey, ExtensionFacts } from "./facts.js";
 export type {
   ExtensionFactKey,
   ExtensionFactRecord,
@@ -29,18 +39,14 @@ export type {
   ExtensionCheckerHandle,
   ExtensionTypeChecker,
 } from "./checker-facade.js";
-export {
-  createExtensionImportIndex,
-} from "./import-index.js";
+export { createExtensionImportIndex } from "./import-index.js";
 export type {
   ExtensionImportBinding,
   ExtensionImportBindingKind,
   ExtensionImportIndex,
   ExtensionImportModule,
 } from "./import-index.js";
-export {
-  createExtensionHost,
-} from "./extension-host.js";
+export { createExtensionHost } from "./extension-host.js";
 export type {
   CompilerExtension,
   ExtensionCheckedSourceFileContext,
