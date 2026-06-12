@@ -1,6 +1,7 @@
 import * as ts from "typescript";
 import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
 import * as path from "node:path";
+import { getSourcePrimitiveNames } from "../source-frontend/source-primitive-taxonomy.js";
 
 export type CoreModule = "types" | "lang";
 
@@ -8,24 +9,10 @@ export const CORE_PACKAGE_NAME = "@tsonic/core";
 export const GLOBALS_PACKAGE_NAME = "@tsonic/globals";
 
 export const CORE_TYPES_TYPE_NAMES = new Set([
-  "sbyte",
-  "short",
-  "int",
-  "long",
-  "nint",
-  "int128",
-  "byte",
-  "ushort",
-  "uint",
-  "ulong",
-  "nuint",
-  "uint128",
+  ...getSourcePrimitiveNames(),
   "half",
-  "float",
-  "double",
-  "decimal",
-  "bool",
-  "char",
+  "int128",
+  "uint128",
   "ptr",
   "out",
   "ref",

@@ -20,6 +20,10 @@ export {
   parameterPassingFactKey,
   sourceTypeSemanticsFactKey,
 } from "./source-facts.js";
+export {
+  getSourcePrimitiveFact,
+  getSourcePrimitiveNames,
+} from "./source-primitive-taxonomy.js";
 export type {
   SourceSemanticEngine,
   SourceSemanticFactKey,

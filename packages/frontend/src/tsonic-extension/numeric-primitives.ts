@@ -3,161 +3,15 @@ import { getTstsTypeReferenceName, visitTstsSubtree } from "@tsonic/tsts";
 import type { NumericPrimitiveFact } from "../source-frontend/source-facts.js";
 import { numericPrimitiveFactKey } from "../source-frontend/source-facts.js";
 import {
+  getSourcePrimitiveFact,
+  getSourcePrimitiveNames,
+} from "../source-frontend/source-primitive-taxonomy.js";
+import {
   collectImportedNamesByLocalName,
   coreTypesModules,
 } from "./core-imports.js";
 
-const numericPrimitiveBySourceName = new Map<string, NumericPrimitiveFact>([
-  [
-    "bool",
-    {
-      sourceName: "bool",
-      kind: "bool",
-      runtimeBase: "boolean",
-    },
-  ],
-  [
-    "char",
-    {
-      sourceName: "char",
-      kind: "char",
-      runtimeBase: "string",
-      width: 16,
-    },
-  ],
-  [
-    "sbyte",
-    {
-      sourceName: "sbyte",
-      kind: "int8",
-      runtimeBase: "number",
-      signed: true,
-      width: 8,
-    },
-  ],
-  [
-    "byte",
-    {
-      sourceName: "byte",
-      kind: "uint8",
-      runtimeBase: "number",
-      signed: false,
-      width: 8,
-    },
-  ],
-  [
-    "short",
-    {
-      sourceName: "short",
-      kind: "int16",
-      runtimeBase: "number",
-      signed: true,
-      width: 16,
-    },
-  ],
-  [
-    "ushort",
-    {
-      sourceName: "ushort",
-      kind: "uint16",
-      runtimeBase: "number",
-      signed: false,
-      width: 16,
-    },
-  ],
-  [
-    "int",
-    {
-      sourceName: "int",
-      kind: "int32",
-      runtimeBase: "number",
-      signed: true,
-      width: 32,
-    },
-  ],
-  [
-    "uint",
-    {
-      sourceName: "uint",
-      kind: "uint32",
-      runtimeBase: "number",
-      signed: false,
-      width: 32,
-    },
-  ],
-  [
-    "long",
-    {
-      sourceName: "long",
-      kind: "int64",
-      runtimeBase: "bigint",
-      signed: true,
-      width: 64,
-    },
-  ],
-  [
-    "ulong",
-    {
-      sourceName: "ulong",
-      kind: "uint64",
-      runtimeBase: "bigint",
-      signed: false,
-      width: 64,
-    },
-  ],
-  [
-    "nint",
-    {
-      sourceName: "nint",
-      kind: "native-int",
-      runtimeBase: "number",
-      signed: true,
-    },
-  ],
-  [
-    "nuint",
-    {
-      sourceName: "nuint",
-      kind: "native-uint",
-      runtimeBase: "number",
-      signed: false,
-    },
-  ],
-  [
-    "float",
-    {
-      sourceName: "float",
-      kind: "float32",
-      runtimeBase: "number",
-      signed: true,
-      width: 32,
-    },
-  ],
-  [
-    "double",
-    {
-      sourceName: "double",
-      kind: "float64",
-      runtimeBase: "number",
-      signed: true,
-      width: 64,
-    },
-  ],
-  [
-    "decimal",
-    {
-      sourceName: "decimal",
-      kind: "decimal",
-      runtimeBase: "decimal",
-      signed: true,
-      width: 128,
-    },
-  ],
-]);
-
-export const getNumericPrimitiveSourceNames = (): readonly string[] => [
-  ...numericPrimitiveBySourceName.keys(),
-];
+export const getNumericPrimitiveSourceNames = getSourcePrimitiveNames;
 
 export const createTsonicNumericPrimitiveExtension = (): CompilerExtension => ({
   id: "tsonic.numeric-primitives",
@@ -167,7 +21,7 @@ export const createTsonicNumericPrimitiveExtension = (): CompilerExtension => ({
       context.imports,
       coreTypesModules
     ).values()) {
-      const primitive = numericPrimitiveBySourceName.get(binding.importedName);
+      const primitive = getSourcePrimitiveFact(binding.importedName);
       if (!primitive) continue;
       primitiveByLocalName.set(binding.localName, primitive);
     }
