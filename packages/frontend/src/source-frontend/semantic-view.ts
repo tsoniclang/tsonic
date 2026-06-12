@@ -33,6 +33,16 @@ export type SourceSemanticView<
   getTypeOfSymbolAtLocation(symbol: TSymbol, location: TNode): TType;
   getTypeArguments(type: TType): readonly TType[];
   getApparentType(type: TType): TType;
+  getUnionMembers(type: TType): readonly TType[] | undefined;
+  getIntersectionMembers(type: TType): readonly TType[] | undefined;
+  getUnionOrIntersectionMembers(type: TType): readonly TType[] | undefined;
+  getNonNullishUnionMembers(type: TType): readonly TType[] | undefined;
+  isNullishType(type: TType): boolean;
+  isNullishVoidOrNeverType(type: TType): boolean;
+  isAnyUnknownVoidNeverOrTypeParameter(type: TType): boolean;
+  isAnyUnknownOrTypeParameter(type: TType): boolean;
+  isSourceScalarLikeType(type: TType): boolean;
+  isStringLikeType(type: TType): boolean;
   getStringIndexType(type: TType): TType | undefined;
   getNumberIndexType(type: TType): TType | undefined;
   getPropertyOfType(type: TType, key: string): TSymbol | undefined;

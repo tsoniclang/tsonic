@@ -101,15 +101,11 @@ const typeHasStringIndex = (
   const nextSeen = new Set(seen);
   nextSeen.add(type);
 
-  if (type.isUnion()) {
-    return type.types
-      .filter(
-        (member) =>
-          (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0
-      )
-      .every((member) =>
-        typeHasStringIndex(member, sourceSemantics, new Set(nextSeen))
-      );
+  const unionMembers = sourceSemantics.getNonNullishUnionMembers(type);
+  if (unionMembers) {
+    return unionMembers.every((member) =>
+      typeHasStringIndex(member, sourceSemantics, new Set(nextSeen))
+    );
   }
 
   const apparent = sourceSemantics.getApparentType(type);
@@ -135,14 +131,11 @@ const isClosedStructuralPropertyUnion = (
   key: string,
   sourceSemantics: FrontendSourceSemanticView
 ): boolean => {
-  if (!type.isUnion()) {
+  const members = sourceSemantics.getNonNullishUnionMembers(type);
+  if (!members) {
     return false;
   }
 
-  const members = type.types.filter(
-    (member) =>
-      (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0
-  );
   if (members.length < 2) {
     return false;
   }
@@ -221,11 +214,13 @@ const isFunctionLikeType = (
     return true;
   }
 
-  return type.isUnionOrIntersection()
-    ? type.types.some((member) =>
+  return (
+    sourceSemantics
+      .getUnionOrIntersectionMembers(type)
+      ?.some((member) =>
         isFunctionLikeType(member, sourceSemantics, nextSeen)
-      )
-    : false;
+      ) ?? false
+  );
 };
 
 const isProgramSourceDeclaration = (
@@ -271,13 +266,6 @@ const isAmbientIdentifier = (
     .some((declaration) => isProgramSourceDeclaration(declaration, program));
 };
 
-const isStringLikeType = (type: ts.Type): boolean =>
-  (type.flags &
-    (ts.TypeFlags.String |
-      ts.TypeFlags.StringLiteral |
-      ts.TypeFlags.StringLike)) !==
-  0;
-
 const isJsBuiltinReceiverType = (
   type: ts.Type,
   sourceSemantics: FrontendSourceSemanticView,
@@ -288,8 +276,9 @@ const isJsBuiltinReceiverType = (
   nextSeen.add(type);
   const apparent = sourceSemantics.getApparentType(type);
 
-  if (apparent.isUnionOrIntersection()) {
-    return apparent.types.every((member) =>
+  const members = sourceSemantics.getUnionOrIntersectionMembers(apparent);
+  if (members) {
+    return members.every((member) =>
       isJsBuiltinReceiverType(member, sourceSemantics, nextSeen)
     );
   }
@@ -301,7 +290,7 @@ const isJsBuiltinReceiverType = (
     return true;
   }
 
-  if (isStringLikeType(apparent)) {
+  if (sourceSemantics.isStringLikeType(apparent)) {
     return true;
   }
 
@@ -363,7 +352,7 @@ const getNonJsElementAccess = (
   }
 
   if (
-    !isStringLikeType(
+    !program.sourceSemantics.isStringLikeType(
       program.sourceSemantics.getExpressionType(node.expression)
     )
   ) {

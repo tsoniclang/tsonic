@@ -278,26 +278,22 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
   const contextualType = sourceSemantics.getContextualType(node);
   if (contextualType) {
     const isNullishOnly = (type: ts.Type): boolean => {
-      const flags = type.getFlags();
-      return (
-        (flags &
-          (ts.TypeFlags.Null |
-            ts.TypeFlags.Undefined |
-            ts.TypeFlags.Void |
-            ts.TypeFlags.Never)) !==
-        0
-      );
+      return sourceSemantics.isNullishVoidOrNeverType(type);
     };
 
     const isMonomorphicCallableType = (type: ts.Type): boolean => {
-      if (type.isUnion()) {
-        return type.types.every(
+      const unionMembers = sourceSemantics.getUnionMembers(type);
+      if (unionMembers) {
+        return unionMembers.every(
           (member) => isNullishOnly(member) || isMonomorphicCallableType(member)
         );
       }
 
-      if (type.isIntersection()) {
-        return type.types.every((member) => isMonomorphicCallableType(member));
+      const intersectionMembers = sourceSemantics.getIntersectionMembers(type);
+      if (intersectionMembers) {
+        return intersectionMembers.every((member) =>
+          isMonomorphicCallableType(member)
+        );
       }
 
       const signatures = sourceSemantics.getCallSignatures(type);

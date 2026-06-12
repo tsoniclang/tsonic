@@ -250,32 +250,15 @@ const isBroadJsonSourceType = (
   const nextSeen = new Set(seen);
   nextSeen.add(type);
 
-  if (
-    (type.flags &
-      (ts.TypeFlags.Any |
-        ts.TypeFlags.Unknown |
-        ts.TypeFlags.Void |
-        ts.TypeFlags.Never |
-        ts.TypeFlags.TypeParameter)) !==
-    0
-  ) {
+  if (sourceSemantics.isAnyUnknownVoidNeverOrTypeParameter(type)) {
     return true;
   }
 
-  if (
-    (type.flags &
-      (ts.TypeFlags.StringLike |
-        ts.TypeFlags.NumberLike |
-        ts.TypeFlags.BooleanLike |
-        ts.TypeFlags.BigIntLike |
-        ts.TypeFlags.Null |
-        ts.TypeFlags.Undefined)) !==
-    0
-  ) {
+  if (sourceSemantics.isSourceScalarLikeType(type)) {
     return false;
   }
 
-  if (type.isUnionOrIntersection()) {
+  if (sourceSemantics.getUnionOrIntersectionMembers(type)) {
     return true;
   }
 
@@ -359,13 +342,7 @@ const isBroadArrayIsArraySourceType = (
   }
 
   const displayName = sourceSemantics.typeToString(type);
-  if (
-    (type.flags &
-      (ts.TypeFlags.Any |
-        ts.TypeFlags.Unknown |
-        ts.TypeFlags.TypeParameter)) !==
-    0
-  ) {
+  if (sourceSemantics.isAnyUnknownOrTypeParameter(type)) {
     return true;
   }
 
@@ -373,8 +350,9 @@ const isBroadArrayIsArraySourceType = (
     return true;
   }
 
-  if (type.isUnionOrIntersection()) {
-    return type.types.some((member) =>
+  const members = sourceSemantics.getUnionOrIntersectionMembers(type);
+  if (members) {
+    return members.some((member) =>
       isBroadArrayIsArraySourceType(member, sourceSemantics, nextSeen)
     );
   }

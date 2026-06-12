@@ -122,6 +122,36 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("keeps validation type classification behind the semantic bridge", () => {
+    const validationRoot = path.join(frontendSrcRoot, "validation");
+    const bannedReads = [
+      "ts.TypeFlags",
+      ".getFlags(",
+      ".isUnion(",
+      ".isIntersection(",
+      ".isUnionOrIntersection(",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(validationRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const read = bannedReads.find((candidate) =>
+            line.includes(candidate)
+          );
+          return read
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${read}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("does not expose the raw source checker on TsonicProgram", () => {
     const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
     const text = fs.readFileSync(programTypesPath, "utf8");

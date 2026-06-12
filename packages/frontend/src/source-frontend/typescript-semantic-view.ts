@@ -22,6 +22,54 @@ const isSignatureDeclarationNode = (
   ts.isMethodSignature(node) ||
   ts.isArrowFunction(node);
 
+const hasTypeFlags = (type: ts.Type, flags: ts.TypeFlags): boolean =>
+  (type.flags & flags) !== 0;
+
+const isNullishType = (type: ts.Type): boolean =>
+  hasTypeFlags(type, ts.TypeFlags.Null | ts.TypeFlags.Undefined);
+
+const isNullishVoidOrNeverType = (type: ts.Type): boolean =>
+  hasTypeFlags(
+    type,
+    ts.TypeFlags.Null |
+      ts.TypeFlags.Undefined |
+      ts.TypeFlags.Void |
+      ts.TypeFlags.Never
+  );
+
+const isAnyUnknownVoidNeverOrTypeParameter = (type: ts.Type): boolean =>
+  hasTypeFlags(
+    type,
+    ts.TypeFlags.Any |
+      ts.TypeFlags.Unknown |
+      ts.TypeFlags.Void |
+      ts.TypeFlags.Never |
+      ts.TypeFlags.TypeParameter
+  );
+
+const isAnyUnknownOrTypeParameter = (type: ts.Type): boolean =>
+  hasTypeFlags(
+    type,
+    ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter
+  );
+
+const isSourceScalarLikeType = (type: ts.Type): boolean =>
+  hasTypeFlags(
+    type,
+    ts.TypeFlags.StringLike |
+      ts.TypeFlags.NumberLike |
+      ts.TypeFlags.BooleanLike |
+      ts.TypeFlags.BigIntLike |
+      ts.TypeFlags.Null |
+      ts.TypeFlags.Undefined
+  );
+
+const isStringLikeType = (type: ts.Type): boolean =>
+  hasTypeFlags(
+    type,
+    ts.TypeFlags.String | ts.TypeFlags.StringLiteral | ts.TypeFlags.StringLike
+  );
+
 export const createTypeScriptSemanticView = (
   checker: ts.TypeChecker,
   facts: SourceSemanticFactStore<ts.Node> = createSourceSemanticFactStore()
@@ -64,6 +112,26 @@ export const createTypeScriptSemanticView = (
   getTypeArguments: (type: ts.Type): readonly ts.Type[] =>
     checker.getTypeArguments(type as ts.TypeReference),
   getApparentType: (type: ts.Type): ts.Type => checker.getApparentType(type),
+  getUnionMembers: (type: ts.Type): readonly ts.Type[] | undefined =>
+    type.isUnion() ? type.types : undefined,
+  getIntersectionMembers: (type: ts.Type): readonly ts.Type[] | undefined =>
+    type.isIntersection() ? type.types : undefined,
+  getUnionOrIntersectionMembers: (
+    type: ts.Type
+  ): readonly ts.Type[] | undefined =>
+    type.isUnionOrIntersection() ? type.types : undefined,
+  getNonNullishUnionMembers: (
+    type: ts.Type
+  ): readonly ts.Type[] | undefined =>
+    type.isUnion()
+      ? type.types.filter((member) => !isNullishType(member))
+      : undefined,
+  isNullishType,
+  isNullishVoidOrNeverType,
+  isAnyUnknownVoidNeverOrTypeParameter,
+  isAnyUnknownOrTypeParameter,
+  isSourceScalarLikeType,
+  isStringLikeType,
   getStringIndexType: (type: ts.Type): ts.Type | undefined =>
     type.getStringIndexType(),
   getNumberIndexType: (type: ts.Type): ts.Type | undefined =>
