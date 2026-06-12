@@ -40,6 +40,7 @@ import {
   type WorkspaceGraphEdge,
   type WorkspaceGraphSnapshot,
 } from "./workspace-fingerprint.js";
+import { getProgramTargetSurfaceArtifacts } from "./queries.js";
 import type { TargetRenderTable } from "../symbols/index.js";
 
 export type ModuleDependencyGraphResult<
@@ -784,8 +785,7 @@ export const buildModuleDependencyGraph = <
     bindings: tsonicProgram.bindings.getEmitterTypeMap(),
     bindingRegistry: tsonicProgram.bindings,
     targetRenderTable:
-      tsonicProgram.targetSurfaceProvider?.getArtifacts().renderTable ??
-      tsonicProgram.targetSurfaceArtifacts?.renderTable,
+      getProgramTargetSurfaceArtifacts(tsonicProgram)?.renderTable,
     workspaceGraph: buildWorkspaceGraphSnapshot({
       projectRoot: options.projectRoot,
       sourceRoot: sourceRootAbs,

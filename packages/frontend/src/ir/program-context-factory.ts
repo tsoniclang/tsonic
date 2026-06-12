@@ -40,6 +40,8 @@ import {
   getProgramCompilerOptions,
   getProgramDeclarationSourceFiles,
   getProgramSourceFiles,
+  getProgramTargetSurfaceArtifacts,
+  getProgramTargetSurfaceProvider,
 } from "../program/queries.js";
 
 const withSimpleTypeAliases = (
@@ -290,10 +292,8 @@ export const createProgramContext = (
     metadata: program.metadata,
     bindings: program.bindings,
     externalResolver: program.externalResolver,
-    targetSurfaceArtifacts:
-      program.targetSurfaceProvider?.getArtifacts() ??
-      program.targetSurfaceArtifacts,
-    targetSurfaceProvider: program.targetSurfaceProvider,
+    targetSurfaceArtifacts: getProgramTargetSurfaceArtifacts(program),
+    targetSurfaceProvider: getProgramTargetSurfaceProvider(program),
     diagnostics: [],
   };
 };

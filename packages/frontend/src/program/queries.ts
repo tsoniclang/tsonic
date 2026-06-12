@@ -4,7 +4,11 @@
 
 import * as ts from "typescript";
 import * as path from "node:path";
-import { TsonicProgram } from "./types.js";
+import type { TsonicProgram } from "./types.js";
+import type {
+  TargetSurfaceArtifacts,
+  TargetSurfaceProvider,
+} from "../symbols/index.js";
 
 const normalizePath = (filePath: string): string =>
   path.resolve(filePath).replace(/\\/g, "/");
@@ -20,6 +24,16 @@ export const getProgramSourceFiles = (
 export const getProgramDeclarationSourceFiles = (
   program: TsonicProgram
 ): readonly ts.SourceFile[] => program.declarationSourceFiles;
+
+export const getProgramTargetSurfaceProvider = (
+  program: TsonicProgram
+): TargetSurfaceProvider | undefined => program.targetSurfaceProvider;
+
+export const getProgramTargetSurfaceArtifacts = (
+  program: TsonicProgram
+): TargetSurfaceArtifacts | undefined =>
+  getProgramTargetSurfaceProvider(program)?.getArtifacts() ??
+  program.targetSurfaceArtifacts;
 
 export const getProgramAllSourceFiles = (
   program: TsonicProgram

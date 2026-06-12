@@ -171,6 +171,8 @@ describe("source semantic boundary", () => {
       "program.sourceFiles",
       "program.declarationSourceFiles",
       "program.tsCompilerOptions",
+      "program.targetSurfaceArtifacts",
+      "program.targetSurfaceProvider",
     ] as const;
 
     const offenders = collectTypeScriptFiles(frontendSrcRoot)

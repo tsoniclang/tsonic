@@ -25,10 +25,11 @@ type SourcePackageManifest = {
 
 const normalizeSlashes = (pathLike: string): string => pathLike.replace(/\\/g, "/");
 
+const pathApi: typeof nodePath & {
+  readonly matchesGlob?: (path: string, pattern: string) => boolean;
+} = nodePath;
+
 const matchesGlob = (candidate: string, pattern: string): boolean => {
-  const pathApi = nodePath as unknown as {
-    readonly matchesGlob?: (path: string, pattern: string) => boolean;
-  };
   return pathApi.matchesGlob?.(candidate, pattern) ?? false;
 };
 
