@@ -24,11 +24,11 @@ import {
   coreTypesModules,
 } from "./core-imports.js";
 import {
-  tsonicFieldSemanticsFactKey,
-  tsonicIntrinsicSemanticsFactKey,
-  tsonicParameterPassingFactKey,
-  tsonicSourceTypeSemanticsFactKey,
-} from "./fact-keys.js";
+  fieldSemanticsFactKey,
+  intrinsicSemanticsFactKey,
+  parameterPassingFactKey,
+  sourceTypeSemanticsFactKey,
+} from "../source-frontend/source-facts.js";
 
 const fieldFact: FieldSemanticsFact = { storage: "field" };
 
@@ -135,7 +135,7 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
 
       if (isTstsClassDeclaration(node)) {
         context.facts.set(
-          tsonicSourceTypeSemanticsFactKey,
+          sourceTypeSemanticsFactKey,
           node,
           sourceTypeFact("class")
         );
@@ -144,7 +144,7 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
 
       if (isTstsInterfaceDeclaration(node)) {
         context.facts.set(
-          tsonicSourceTypeSemanticsFactKey,
+          sourceTypeSemanticsFactKey,
           node,
           sourceTypeFact(
             hasStructHeritage(node, coreTypesBindingByLocalName)
@@ -162,14 +162,14 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
       );
       if (declarationPassingFact && isTstsParameterDeclaration(node)) {
         context.facts.set(
-          tsonicParameterPassingFactKey,
+          parameterPassingFactKey,
           node,
           declarationPassingFact
         );
       }
       if (declarationPassingFact && declaredType) {
         context.facts.set(
-          tsonicParameterPassingFactKey,
+          parameterPassingFactKey,
           declaredType,
           declarationPassingFact
         );
@@ -180,8 +180,8 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
         isTstsPropertyDeclarationLike(node) &&
         isFieldWrapper(declaredType, coreLangBindingByLocalName)
       ) {
-        context.facts.set(tsonicFieldSemanticsFactKey, node, fieldFact);
-        context.facts.set(tsonicFieldSemanticsFactKey, declaredType, fieldFact);
+        context.facts.set(fieldSemanticsFactKey, node, fieldFact);
+        context.facts.set(fieldSemanticsFactKey, declaredType, fieldFact);
       }
 
       const typeReferencePassingFact = typeWrapperPassingFact(
@@ -190,14 +190,14 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
       );
       if (typeReferencePassingFact) {
         context.facts.set(
-          tsonicParameterPassingFactKey,
+          parameterPassingFactKey,
           node,
           typeReferencePassingFact
         );
       }
 
       if (isFieldWrapper(node, coreLangBindingByLocalName)) {
-        context.facts.set(tsonicFieldSemanticsFactKey, node, fieldFact);
+        context.facts.set(fieldSemanticsFactKey, node, fieldFact);
       }
 
       const call = getTstsCallExpressionDetails(node);
@@ -214,7 +214,7 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
         call.typeArguments.length === 0
       ) {
         context.facts.set(
-          tsonicParameterPassingFactKey,
+          parameterPassingFactKey,
           node,
           passingFact(callPassingMode)
         );
@@ -222,7 +222,7 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
 
       const intrinsicKind = intrinsicKindsBySourceName.get(importedCallName);
       if (intrinsicKind) {
-        context.facts.set(tsonicIntrinsicSemanticsFactKey, node, {
+        context.facts.set(intrinsicSemanticsFactKey, node, {
           kind: intrinsicKind,
         });
       }

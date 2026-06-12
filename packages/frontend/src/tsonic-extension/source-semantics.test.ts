@@ -15,11 +15,11 @@ import {
 } from "@tsonic/tsts";
 import type { GoPtr, TstsNode } from "@tsonic/tsts";
 import {
-  tsonicFieldSemanticsFactKey,
-  tsonicIntrinsicSemanticsFactKey,
-  tsonicParameterPassingFactKey,
-  tsonicSourceTypeSemanticsFactKey,
-} from "./fact-keys.js";
+  fieldSemanticsFactKey,
+  intrinsicSemanticsFactKey,
+  parameterPassingFactKey,
+  sourceTypeSemanticsFactKey,
+} from "../source-frontend/source-facts.js";
 import { createTsonicSourceSemanticsExtension } from "./source-semantics.js";
 
 const collectSemanticNodes = (sourceText: string) => {
@@ -45,7 +45,7 @@ const collectDeclarationFactsByName = (sourceText: string) => {
       continue;
     }
     const name = getTstsNodeNameText(node);
-    const fact = fixture.host.facts.get(tsonicSourceTypeSemanticsFactKey, node);
+    const fact = fixture.host.facts.get(sourceTypeSemanticsFactKey, node);
     if (name && fact) facts.set(name, fact.kind);
   }
 
@@ -105,8 +105,8 @@ describe("Tsonic TSTS source semantics extension", () => {
       if (!name) continue;
       declarationFacts.set(
         name,
-        fixture.host.facts.get(tsonicFieldSemanticsFactKey, node)?.storage ??
-          fixture.host.facts.get(tsonicParameterPassingFactKey, node)?.mode
+        fixture.host.facts.get(fieldSemanticsFactKey, node)?.storage ??
+          fixture.host.facts.get(parameterPassingFactKey, node)?.mode
       );
     }
 
@@ -117,10 +117,8 @@ describe("Tsonic TSTS source semantics extension", () => {
         if (!typeReference) return undefined;
         return {
           name: typeReference.name,
-          field: fixture.host.facts.get(tsonicFieldSemanticsFactKey, node)
-            ?.storage,
-          passing: fixture.host.facts.get(tsonicParameterPassingFactKey, node)
-            ?.mode,
+          field: fixture.host.facts.get(fieldSemanticsFactKey, node)?.storage,
+          passing: fixture.host.facts.get(parameterPassingFactKey, node)?.mode,
         };
       })
       .filter(
@@ -184,12 +182,9 @@ describe("Tsonic TSTS source semantics extension", () => {
         const call = getTstsCallExpressionDetails(node);
         return {
           callee: call?.calleeName,
-          intrinsic: fixture.host.facts.get(
-            tsonicIntrinsicSemanticsFactKey,
-            node
-          )?.kind,
-          passing: fixture.host.facts.get(tsonicParameterPassingFactKey, node)
-            ?.mode,
+          intrinsic: fixture.host.facts.get(intrinsicSemanticsFactKey, node)
+            ?.kind,
+          passing: fixture.host.facts.get(parameterPassingFactKey, node)?.mode,
         };
       });
 
@@ -232,17 +227,17 @@ describe("Tsonic TSTS source semantics extension", () => {
     const fieldFacts = fixture.nodes.filter(
       (node) =>
         node !== undefined &&
-        fixture.host.facts.has(tsonicFieldSemanticsFactKey, node)
+        fixture.host.facts.has(fieldSemanticsFactKey, node)
     );
     const passingFacts = fixture.nodes.filter(
       (node) =>
         node !== undefined &&
-        fixture.host.facts.has(tsonicParameterPassingFactKey, node)
+        fixture.host.facts.has(parameterPassingFactKey, node)
     );
     const intrinsicFacts = fixture.nodes.filter(
       (node) =>
         node !== undefined &&
-        fixture.host.facts.has(tsonicIntrinsicSemanticsFactKey, node)
+        fixture.host.facts.has(intrinsicSemanticsFactKey, node)
     );
 
     expect(fieldFacts).to.deep.equal([]);

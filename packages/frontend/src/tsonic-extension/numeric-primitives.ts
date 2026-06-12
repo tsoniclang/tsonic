@@ -1,11 +1,11 @@
 import type { CompilerExtension } from "@tsonic/tsts";
 import { getTstsTypeReferenceName, visitTstsSubtree } from "@tsonic/tsts";
 import type { NumericPrimitiveFact } from "../source-frontend/source-facts.js";
+import { numericPrimitiveFactKey } from "../source-frontend/source-facts.js";
 import {
   collectImportedNamesByLocalName,
   coreTypesModules,
 } from "./core-imports.js";
-import { tsonicNumericPrimitiveFactKey } from "./fact-keys.js";
 
 const numericPrimitiveBySourceName = new Map<string, NumericPrimitiveFact>([
   [
@@ -180,7 +180,7 @@ export const createTsonicNumericPrimitiveExtension = (): CompilerExtension => ({
       if (!typeName) return;
       const primitive = primitiveByLocalName.get(typeName);
       if (!primitive) return;
-      context.facts.set(tsonicNumericPrimitiveFactKey, node, primitive);
+      context.facts.set(numericPrimitiveFactKey, node, primitive);
     });
   },
 });

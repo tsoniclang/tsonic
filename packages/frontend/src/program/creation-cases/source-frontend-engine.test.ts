@@ -5,11 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createProgram } from "../creation.js";
 import { installMinimalCoreGlobalsSurface } from "./test-package-helpers.js";
-import {
-  getTstsTypeReferenceName,
-  visitTstsSubtree,
-} from "@tsonic/tsts";
-import { tsonicNumericPrimitiveFactKey } from "../../tsonic-extension/index.js";
+import { getTstsTypeReferenceName, visitTstsSubtree } from "@tsonic/tsts";
+import { numericPrimitiveFactKey } from "../../source-frontend/source-facts.js";
 
 const createTempProgram = (): {
   readonly projectRoot: string;
@@ -85,7 +82,7 @@ describe("Program Creation – source frontend engine", () => {
       for (const sourceFile of result.value.sourceProgram.sourceFiles) {
         visitTstsSubtree(sourceFile, (node) => {
           if (!node || getTstsTypeReferenceName(node) !== "int") return;
-          const fact = facts.get(tsonicNumericPrimitiveFactKey, node);
+          const fact = facts.get(numericPrimitiveFactKey, node);
           if (fact) {
             primitiveKinds.push(fact.kind);
           }

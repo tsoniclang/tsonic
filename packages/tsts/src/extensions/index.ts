@@ -27,6 +27,7 @@ export type { ParseTstsSourceOptions } from "./parse-source.js";
 export { defineExtensionFactKey, ExtensionFacts } from "./facts.js";
 export type {
   ExtensionFactKey,
+  ExtensionFactKeyLike,
   ExtensionFactRecord,
   ExtensionFactSnapshot,
 } from "./facts.js";

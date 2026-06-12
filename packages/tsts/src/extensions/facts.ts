@@ -5,6 +5,12 @@ export type ExtensionFactKey<TSubject extends object, TValue> = {
   readonly __value?: (value: TValue) => TValue;
 };
 
+export type ExtensionFactKeyLike<TValue> = {
+  readonly id: string;
+  readonly description?: string;
+  readonly __value?: (value: TValue) => TValue;
+};
+
 export type ExtensionFactRecord = {
   readonly keyId: string;
   readonly value: unknown;
@@ -20,30 +26,30 @@ export class ExtensionFacts {
   #subjectCount = 0;
 
   set<TSubject extends object, TValue>(
-    key: ExtensionFactKey<TSubject, TValue>,
+    key: ExtensionFactKeyLike<TValue>,
     subject: TSubject,
-    value: TValue,
+    value: TValue
   ): void {
     this.#getSubjectFacts(subject).set(key.id, value);
   }
 
   get<TSubject extends object, TValue>(
-    key: ExtensionFactKey<TSubject, TValue>,
-    subject: TSubject,
+    key: ExtensionFactKeyLike<TValue>,
+    subject: TSubject
   ): TValue | undefined {
     return this.#factsBySubject.get(subject)?.get(key.id) as TValue | undefined;
   }
 
   has<TSubject extends object, TValue>(
-    key: ExtensionFactKey<TSubject, TValue>,
-    subject: TSubject,
+    key: ExtensionFactKeyLike<TValue>,
+    subject: TSubject
   ): boolean {
     return this.#factsBySubject.get(subject)?.has(key.id) ?? false;
   }
 
   delete<TSubject extends object, TValue>(
-    key: ExtensionFactKey<TSubject, TValue>,
-    subject: TSubject,
+    key: ExtensionFactKeyLike<TValue>,
+    subject: TSubject
   ): boolean {
     return this.#factsBySubject.get(subject)?.delete(key.id) ?? false;
   }
@@ -83,7 +89,7 @@ export class ExtensionFacts {
 
 export const defineExtensionFactKey = <TSubject extends object, TValue>(
   id: string,
-  description?: string,
+  description?: string
 ): ExtensionFactKey<TSubject, TValue> =>
   description === undefined
     ? { id }
