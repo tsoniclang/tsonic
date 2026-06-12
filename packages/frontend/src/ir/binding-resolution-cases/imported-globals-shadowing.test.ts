@@ -114,6 +114,7 @@ describe("Binding Resolution in IR", () => {
       const testProgram = {
         program,
         checker,
+        tsCompilerOptions: program.getCompilerOptions(),
         options: {
           projectRoot: rootDir,
           sourceRoot: rootDir,
@@ -261,6 +262,7 @@ describe("Binding Resolution in IR", () => {
       const testProgram = {
         program,
         checker,
+        tsCompilerOptions: program.getCompilerOptions(),
         options: {
           projectRoot: rootDir,
           sourceRoot: rootDir,
@@ -449,6 +451,7 @@ describe("Binding Resolution in IR", () => {
       const testProgram = {
         program,
         checker,
+        tsCompilerOptions: program.getCompilerOptions(),
         options: {
           projectRoot: rootDir,
           sourceRoot: rootDir,
@@ -670,6 +673,7 @@ describe("Binding Resolution in IR", () => {
       const testProgram = {
         program,
         checker,
+        tsCompilerOptions: program.getCompilerOptions(),
         options: {
           projectRoot: rootDir,
           sourceRoot: rootDir,

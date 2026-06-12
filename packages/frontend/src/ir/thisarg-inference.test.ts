@@ -62,6 +62,7 @@ describe("thisarg<T> typing", () => {
     const testProgram = {
       program,
       checker,
+      tsCompilerOptions: program.getCompilerOptions(),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",

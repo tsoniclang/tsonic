@@ -153,6 +153,7 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
     const tsonicProgram = {
       program,
       checker,
+      tsCompilerOptions: program.getCompilerOptions(),
       options: {
         projectRoot,
         sourceRoot: projectRoot,
@@ -354,6 +355,7 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
       const tsonicProgram = {
         program,
         checker,
+        tsCompilerOptions: program.getCompilerOptions(),
         options: {
           projectRoot,
           sourceRoot: projectRoot,

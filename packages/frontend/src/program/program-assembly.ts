@@ -739,7 +739,7 @@ export const createProgram = (
 
   return ok({
     program,
-    checker,
+    tsCompilerOptions: program.getCompilerOptions(),
     sourceProgram,
     sourceSemantics,
     options,

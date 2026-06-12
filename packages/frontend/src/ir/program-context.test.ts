@@ -131,6 +131,7 @@ describe("createProgramContext", () => {
       const tsonicProgram = {
         program,
         checker,
+        tsCompilerOptions: program.getCompilerOptions(),
         options: {
           projectRoot,
           sourceRoot: srcDir,

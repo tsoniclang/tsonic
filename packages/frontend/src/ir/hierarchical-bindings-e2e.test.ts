@@ -98,6 +98,7 @@ describe("Hierarchical Bindings End-to-End", () => {
     const testProgram = {
       program,
       checker,
+      tsCompilerOptions: program.getCompilerOptions(),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",

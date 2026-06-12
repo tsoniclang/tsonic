@@ -82,4 +82,30 @@ describe("source semantic boundary", () => {
 
     expect(offenders).to.deep.equal([]);
   });
+
+  it("does not expose the raw source checker on TsonicProgram", () => {
+    const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
+    const text = fs.readFileSync(programTypesPath, "utf8");
+
+    expect(text).not.to.include("readonly checker:");
+    expect(text).not.to.include("checker: ts.TypeChecker");
+  });
+
+  it("does not reach through TsonicProgram to raw TypeScript program APIs", () => {
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) =>
+          line.includes("program.program.")
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1}`,
+              ]
+            : []
+        );
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
 });

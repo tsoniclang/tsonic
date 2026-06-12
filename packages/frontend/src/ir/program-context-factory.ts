@@ -72,7 +72,7 @@ const withSimpleTypeAliases = (
  * 4. Build NominalEnv from UnifiedTypeCatalog (TypeId-based)
  * 5. Construct TypeSystem as single source of truth
  *
- * @param program - The TsonicProgram with type checker and bindings
+ * @param program - The TsonicProgram with source semantic view and bindings
  * @param options - Build options (sourceRoot, rootNamespace)
  */
 export const createProgramContext = (
@@ -266,7 +266,7 @@ export const createProgramContext = (
         ? program.binding.resolveConstructorSignature(node as ts.NewExpression)
         : undefined,
     sourceSemantics: program.sourceSemantics,
-    tsCompilerOptions: program.program.getCompilerOptions(),
+    tsCompilerOptions: program.tsCompilerOptions,
     sourceFilesByPath,
   });
   return {
@@ -280,7 +280,7 @@ export const createProgramContext = (
     surfaceCapabilities,
     sourceSemantics: program.sourceSemantics,
     genericFunctionValueSymbols,
-    tsCompilerOptions: program.program.getCompilerOptions(),
+    tsCompilerOptions: program.tsCompilerOptions,
     sourceFilesByPath,
     binding: program.binding,
     typeSystem,

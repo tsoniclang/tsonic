@@ -51,6 +51,7 @@ const createTestModule = (source: string, fileName = "/test/test.ts") => {
   const testProgram = {
     program,
     checker,
+    tsCompilerOptions: program.getCompilerOptions(),
     options: {
       projectRoot: "/test",
       sourceRoot: "/test",

@@ -31,7 +31,7 @@ import { resolveSourceFileIdentity } from "../../program/source-file-identity.js
  * Build IR module from TypeScript source file
  *
  * @param sourceFile - The TypeScript source file to convert
- * @param program - The Tsonic program with type checker and bindings
+ * @param program - The Tsonic program with source semantic view and bindings
  * @param options - Build options (sourceRoot, rootNamespace)
  * @param ctx - ProgramContext for TypeSystem and other shared resources.
  *              Required - no global state fallback.

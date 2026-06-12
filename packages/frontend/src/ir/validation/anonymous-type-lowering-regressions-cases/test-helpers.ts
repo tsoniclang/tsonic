@@ -42,6 +42,7 @@ export const createTestModule = (source: string) => {
   const testProgram = {
     program,
     checker,
+    tsCompilerOptions: program.getCompilerOptions(),
     options: {
       projectRoot: "/test",
       sourceRoot: "/test",

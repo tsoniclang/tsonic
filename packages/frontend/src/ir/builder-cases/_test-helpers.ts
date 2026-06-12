@@ -71,6 +71,7 @@ export const createTestProgram = (
   const testProgram = {
     program,
     checker,
+    tsCompilerOptions: program.getCompilerOptions(),
     options: {
       projectRoot: "/test",
       sourceRoot: "/test",
@@ -131,6 +132,7 @@ export const createFilesystemTestProgram = (
   const testProgram = {
     program: tsProgram,
     checker,
+    tsCompilerOptions: tsProgram.getCompilerOptions(),
     options: {
       projectRoot: tempDir,
       sourceRoot: path.join(tempDir, "src"),

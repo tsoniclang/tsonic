@@ -61,7 +61,7 @@ export const createTestProgram = (
 
   return {
     program,
-    checker,
+    tsCompilerOptions: program.getCompilerOptions(),
     options: {
       projectRoot: "/test",
       sourceRoot: "/test",

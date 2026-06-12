@@ -88,7 +88,7 @@ export const createTestProgram = (
 
   return {
     program,
-    checker,
+    tsCompilerOptions: program.getCompilerOptions(),
     options: {
       projectRoot: "/test",
       sourceRoot: "/test",
@@ -157,7 +157,7 @@ export const collectCodesInTempProject = (
     const checker = program.getTypeChecker();
     return validateProgram({
       program,
-      checker,
+      tsCompilerOptions: program.getCompilerOptions(),
       options: {
         projectRoot: tempDir,
         sourceRoot: path.join(tempDir, "src"),

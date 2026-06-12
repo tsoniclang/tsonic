@@ -186,6 +186,7 @@ describe("CLR member binding disambiguation (failure)", () => {
     const testProgram = {
       program,
       checker,
+      tsCompilerOptions: program.getCompilerOptions(),
       options: {
         projectRoot: tmpRoot,
         sourceRoot: tmpRoot,
@@ -347,6 +348,7 @@ describe("CLR member binding disambiguation (failure)", () => {
     const testProgram = {
       program,
       checker,
+      tsCompilerOptions: program.getCompilerOptions(),
       options: {
         projectRoot: tmpRoot,
         sourceRoot: tmpRoot,

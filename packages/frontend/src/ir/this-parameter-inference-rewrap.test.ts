@@ -68,6 +68,7 @@ describe("this: parameter inference + Rewrap erasure", () => {
     const testProgram = {
       program,
       checker,
+      tsCompilerOptions: program.getCompilerOptions(),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
