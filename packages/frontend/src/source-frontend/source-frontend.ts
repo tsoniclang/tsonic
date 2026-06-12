@@ -1,4 +1,12 @@
-export type SourceFrontendEngine = "typescript" | "tsts";
+import type { CompilerExtension } from "@tsonic/tsts";
+
+export type SourceFrontendEngine = "tsts";
+
+export type SourceProgramBuildOptions = {
+  readonly extensions?: readonly CompilerExtension[];
+  readonly projectRoot?: string;
+  readonly runSemanticChecks?: boolean;
+};
 
 export type SourceTranspileOptions = {
   readonly fileName?: string;
@@ -21,7 +29,15 @@ export type SourceTranspileResult = {
   readonly diagnosticCount: number;
 };
 
-export interface SourceFrontend {
+export interface SourceFrontend<TSourceProgram> {
+  readonly engine: SourceFrontendEngine;
+  createProgram(
+    filePaths: readonly string[],
+    options?: SourceProgramBuildOptions
+  ): TSourceProgram;
+}
+
+export interface SourceTranspiler {
   readonly engine: SourceFrontendEngine;
   transpileModule(
     sourceText: string,

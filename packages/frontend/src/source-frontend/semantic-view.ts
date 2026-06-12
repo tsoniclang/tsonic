@@ -1,5 +1,3 @@
-import type { SourceFrontendEngine } from "./source-frontend.js";
-
 export type SourceSemanticFactKey<T> = {
   readonly id: string;
   readonly description?: string;
@@ -12,6 +10,8 @@ export type SourceSemanticFactStore<TNode extends object> = {
   has<T>(node: TNode, key: SourceSemanticFactKey<T>): boolean;
 };
 
+export type SourceSemanticEngine = "typescript";
+
 export type SourceSemanticView<
   TNode extends object,
   TExpression extends TNode,
@@ -20,7 +20,7 @@ export type SourceSemanticView<
   TSymbol,
   TSignature,
 > = {
-  readonly engine: SourceFrontendEngine;
+  readonly engine: SourceSemanticEngine;
   getExpressionType(expression: TExpression): TType;
   getSymbol(node: TNode): TSymbol | undefined;
   getDeclaredType(symbol: TSymbol): TType;

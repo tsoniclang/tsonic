@@ -1,6 +1,8 @@
 export type {
   SourceFrontend,
   SourceFrontendEngine,
+  SourceProgramBuildOptions,
+  SourceTranspiler,
   SourceTranspileOptions,
   SourceTranspileResult,
 } from "./source-frontend.js";
@@ -17,6 +19,7 @@ export {
   sourceTypeSemanticsFactKey,
 } from "./source-facts.js";
 export type {
+  SourceSemanticEngine,
   SourceSemanticFactKey,
   SourceSemanticFactStore,
   SourceSemanticView,

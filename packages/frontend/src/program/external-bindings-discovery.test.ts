@@ -166,7 +166,7 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
       metadata: new ExternalMetadataRegistry(),
       bindings,
       externalResolver: createExternalBindingsResolver(projectRoot),
-      binding: createBinding(checker),
+      binding: createBinding(checker, createTypeScriptSemanticView(checker)),
     };
 
     discoverAndLoadExternalBindings(tsonicProgram);
@@ -367,7 +367,7 @@ describe("external bindings discovery (entrypoint re-exports)", () => {
         metadata: new ExternalMetadataRegistry(),
         bindings,
         externalResolver: createExternalBindingsResolver(projectRoot),
-        binding: createBinding(checker),
+        binding: createBinding(checker, createTypeScriptSemanticView(checker)),
       };
 
       discoverAndLoadExternalBindings(tsonicProgram);

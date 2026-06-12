@@ -43,7 +43,7 @@ import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
 import { createBindingTargetSurfaceProvider } from "./binding-target-surface-provider.js";
 import { defineBackendTargetId } from "../ir/types.js";
 import {
-  createTstsSourceProgram,
+  createTstsSourceFrontend,
   createTypeScriptSemanticView,
 } from "../source-frontend/index.js";
 import type { TstsSourceProgram } from "../source-frontend/index.js";
@@ -658,8 +658,12 @@ export const createProgram = (
 
   let sourceProgram: TstsSourceProgram;
   try {
-    sourceProgram = createTstsSourceProgram(
-      sourceFiles.map((sourceFile) => sourceFile.fileName)
+    const sourceFrontend = createTstsSourceFrontend();
+    sourceProgram = sourceFrontend.createProgram(
+      sourceFiles.map((sourceFile) => sourceFile.fileName),
+      {
+        projectRoot: options.projectRoot,
+      }
     );
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
