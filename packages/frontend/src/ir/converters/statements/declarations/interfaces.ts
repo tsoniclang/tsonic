@@ -18,7 +18,10 @@ import {
 } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
-import { sourceTypeSemanticsFactKey } from "../../../../source-frontend/index.js";
+import {
+  heritageWrapperSemanticsFactKey,
+  sourceTypeSemanticsFactKey,
+} from "../../../../source-frontend/index.js";
 
 /**
  * Convert interface member
@@ -76,11 +79,12 @@ const isStructMarker = (
  * For IR + target emission, we want the underlying native target interface `IFoo`.
  */
 const unwrapInterfaceHeritageType = (
-  typeRef: ts.ExpressionWithTypeArguments
+  typeRef: ts.ExpressionWithTypeArguments,
+  ctx: ProgramContext
 ): ts.TypeNode => {
   if (
-    ts.isIdentifier(typeRef.expression) &&
-    typeRef.expression.text === "Interface" &&
+    ctx.sourceSemantics.getFact(typeRef, heritageWrapperSemanticsFactKey)
+      ?.kind === "interface-erasure" &&
     typeRef.typeArguments?.length === 1
   ) {
     const only = typeRef.typeArguments[0];
@@ -260,7 +264,7 @@ export const convertInterfaceDeclaration = (
       })
       .map((t) =>
         ctx.typeSystem.typeFromSyntax(
-          ctx.binding.captureTypeSyntax(unwrapInterfaceHeritageType(t))
+          ctx.binding.captureTypeSyntax(unwrapInterfaceHeritageType(t, ctx))
         )
       ) ?? [];
 

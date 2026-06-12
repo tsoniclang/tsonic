@@ -55,6 +55,14 @@ export type AttributeSemanticsFact = {
   readonly args: readonly unknown[];
 };
 
+export type ExtensionReceiverSemanticsFact = {
+  readonly kind: "extension-receiver";
+};
+
+export type HeritageWrapperSemanticsFact = {
+  readonly kind: "interface-erasure";
+};
+
 export type IntrinsicSemanticsFact = {
   readonly kind:
     | "asinterface"
@@ -94,6 +102,18 @@ export const attributeSemanticsFactKey =
   defineSourceSemanticFactKey<AttributeSemanticsFact>(
     "tsonic:source:attribute-semantics",
     "Source-level attribute marker semantics before target-specific rendering."
+  );
+
+export const extensionReceiverSemanticsFactKey =
+  defineSourceSemanticFactKey<ExtensionReceiverSemanticsFact>(
+    "tsonic:source:extension-receiver",
+    "Source-level extension receiver marker semantics such as thisarg."
+  );
+
+export const heritageWrapperSemanticsFactKey =
+  defineSourceSemanticFactKey<HeritageWrapperSemanticsFact>(
+    "tsonic:source:heritage-wrapper",
+    "Source-level heritage wrapper semantics such as Interface<T> erasure."
   );
 
 export const intrinsicSemanticsFactKey =

@@ -8,7 +8,9 @@ import { createProgram } from "../creation.js";
 import { installMinimalCoreGlobalsSurface } from "./test-package-helpers.js";
 import { getTstsTypeReferenceName, visitTstsSubtree } from "@tsonic/tsts";
 import {
+  extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
+  heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
@@ -105,13 +107,17 @@ describe("Program Creation – source frontend engine", () => {
     const fixture = createTempProgram(
       [
         'import type { int, out, struct as valueType } from "@tsonic/core/types.js";',
-        'import { defaultof, field } from "@tsonic/core/lang.js";',
+        'import type { field, Interface, thisarg } from "@tsonic/core/lang.js";',
+        'import { defaultof } from "@tsonic/core/lang.js";',
         "export interface Point extends valueType {",
         "  x: field<int>;",
         "}",
+        "export interface Contract {}",
+        "export class Service implements Interface<Contract> {}",
         "export function reset(value: out<int>): void {",
         "  defaultof<int>();",
         "}",
+        "export function attach(target: thisarg<Service>): void {}",
         "",
       ].join("\n")
     );
@@ -159,6 +165,20 @@ describe("Program Creation – source frontend engine", () => {
         );
         if (passing) projected.push(`passing:${passing.mode}`);
 
+        const receiver = result.value.sourceSemantics.getFact(
+          node,
+          extensionReceiverSemanticsFactKey
+        );
+        if (receiver) projected.push(`receiver:${receiver.kind}`);
+
+        const heritageWrapper = result.value.sourceSemantics.getFact(
+          node,
+          heritageWrapperSemanticsFactKey
+        );
+        if (heritageWrapper) {
+          projected.push(`heritage:${heritageWrapper.kind}`);
+        }
+
         const intrinsic = result.value.sourceSemantics.getFact(
           node,
           intrinsicSemanticsFactKey
@@ -175,6 +195,8 @@ describe("Program Creation – source frontend engine", () => {
         "field:field",
         "primitive:int32",
         "passing:byref-writeonly-must-init",
+        "receiver:extension-receiver",
+        "heritage:interface-erasure",
         "intrinsic:defaultof",
       ]);
     } finally {

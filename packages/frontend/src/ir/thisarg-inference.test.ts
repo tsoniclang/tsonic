@@ -1,13 +1,14 @@
 /**
  * Tests for `thisarg<T>` typing behavior.
  *
- * `thisarg<T>` is a TS-only marker for C# extension method receiver parameters.
+ * `thisarg<T>` is a source marker for extension method receiver parameters.
  * It must erase to T for call resolution and generic inference.
  */
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
+import * as path from "node:path";
 import { buildIrModule } from "./builder.js";
 import { createProgramContext } from "./program-context.js";
 import { ExternalMetadataRegistry } from "../external-metadata.js";
@@ -15,14 +16,24 @@ import { BindingRegistry } from "../program/bindings.js";
 import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
 import {
-  createEmptyTstsSourceProgramForTests,
+  createSourceSemanticFactStore,
   createTypeScriptSemanticView,
+  projectTstsFactsToTypeScriptSource,
 } from "../source-frontend/index.js";
+import type { TstsSourceProgram } from "../source-frontend/index.js";
+import { createExtensionHost, parseTstsSourceFile } from "@tsonic/tsts";
+import {
+  createTsonicNumericPrimitiveExtension,
+  createTsonicSourceSemanticsExtension,
+} from "../tsonic-extension/index.js";
 
 describe("thisarg<T> typing", () => {
   const createTestProgram = (source: string, fileName = "sample.ts") => {
+    const resolvedFileName = fileName.startsWith("/")
+      ? fileName
+      : path.resolve(".temp/thisarg-inference", fileName);
     const sourceFile = ts.createSourceFile(
-      fileName,
+      resolvedFileName,
       source,
       ts.ScriptTarget.ES2022,
       true,
@@ -44,7 +55,7 @@ describe("thisarg<T> typing", () => {
       onError?: (message: string) => void,
       shouldCreateNewSourceFile?: boolean
     ) => {
-      if (name === fileName) {
+      if (name === resolvedFileName) {
         return sourceFile;
       }
       return originalGetSourceFile.call(
@@ -56,8 +67,33 @@ describe("thisarg<T> typing", () => {
       );
     };
 
-    const program = ts.createProgram([fileName], compilerOptions, host);
+    const program = ts.createProgram([resolvedFileName], compilerOptions, host);
     const checker = program.getTypeChecker();
+    const sourceFacts = createSourceSemanticFactStore<ts.Node>();
+    const sourceSemantics = createTypeScriptSemanticView(checker, sourceFacts);
+    const extensionHost = createExtensionHost([
+      createTsonicNumericPrimitiveExtension(),
+      createTsonicSourceSemanticsExtension(),
+    ]);
+    const tstsSourceFile = parseTstsSourceFile(source, {
+      fileName: resolvedFileName,
+    });
+    if (!tstsSourceFile) {
+      throw new Error(`TSTS parser did not create ${resolvedFileName}`);
+    }
+    extensionHost.configure();
+    extensionHost.afterParseSourceFile(tstsSourceFile);
+    const sourceProgram: TstsSourceProgram = {
+      engine: "tsts",
+      sourceFiles: [tstsSourceFile],
+      extensionHost,
+      diagnostics: extensionHost.diagnostics.all(),
+      compilerDiagnostics: [],
+      withSourceSemantics: () => {
+        throw new Error("In-memory thisarg test program has no TSTS checker.");
+      },
+    };
+    projectTstsFactsToTypeScriptSource(sourceProgram, [sourceFile], sourceFacts);
 
     const testProgram = {
       program,
@@ -71,12 +107,12 @@ describe("thisarg<T> typing", () => {
       },
       sourceFiles: [sourceFile],
       declarationSourceFiles: [],
-      sourceProgram: createEmptyTstsSourceProgramForTests(),
-      sourceSemantics: createTypeScriptSemanticView(checker),
+      sourceProgram,
+      sourceSemantics,
       metadata: new ExternalMetadataRegistry(),
       bindings: new BindingRegistry(),
       externalResolver: createExternalBindingsResolver("/test"),
-      binding: createBinding(createTypeScriptSemanticView(checker)),
+      binding: createBinding(sourceSemantics),
     };
 
     const options = { sourceRoot: "/test", rootNamespace: "TestApp" };

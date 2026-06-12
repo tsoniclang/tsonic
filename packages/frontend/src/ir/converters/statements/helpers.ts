@@ -21,6 +21,7 @@ import {
   withVariableDeclaratorTypeEnv,
 } from "../type-env.js";
 import {
+  extensionReceiverSemanticsFactKey,
   parameterPassingFactKey,
   parameterPassingModeFromFact,
 } from "../../../source-frontend/index.js";
@@ -112,7 +113,7 @@ export const convertParameters = (
     let isExtensionReceiver = false;
 
     // Detect wrapper types:
-    // - thisarg<T> marks an extension-method receiver parameter (emits target `this`)
+    // - TSTS extension-receiver facts mark receiver parameters (emits target `this`)
     // - TSTS parameter-passing facts mark passing mode (unwraps to T)
     //
     // Wrappers may be nested; unwrap repeatedly.
@@ -123,9 +124,12 @@ export const convertParameters = (
       actualType.typeArguments &&
       actualType.typeArguments.length > 0
     ) {
-      const typeName = actualType.typeName.text;
-
-      if (typeName === "thisarg") {
+      if (
+        ctx.sourceSemantics.getFact(
+          actualType,
+          extensionReceiverSemanticsFactKey
+        )
+      ) {
         isExtensionReceiver = true;
         actualType = actualType.typeArguments[0];
         continue;

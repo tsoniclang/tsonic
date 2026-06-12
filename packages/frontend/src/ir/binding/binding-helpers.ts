@@ -17,6 +17,7 @@ import type {
 } from "../type-system/internal/handle-types.js";
 import type { ParameterMode } from "../type-system/types.js";
 import {
+  extensionReceiverSemanticsFactKey,
   parameterPassingFactKey,
   parameterPassingModeFromFact,
 } from "../../source-frontend/index.js";
@@ -163,7 +164,7 @@ export const normalizeParameterTypeNode = (
   }
 
   // Mirror IR conversion rules: wrappers may be nested and may appear in any order.
-  // - thisarg<T> marks an extension-method receiver parameter (erases for typing)
+  // - TSTS extension-receiver facts mark receiver parameters (erases for typing)
   // - source parameter-passing facts set passing mode and erase to T for typing
   let mode: ParameterMode = "value";
   let current: ts.TypeNode | undefined = typeNode;
@@ -180,8 +181,9 @@ export const normalizeParameterTypeNode = (
     const inner: ts.TypeNode | undefined = current.typeArguments[0];
     if (!inner) break;
 
-    const wrapperName = current.typeName.text;
-    if (wrapperName === "thisarg") {
+    if (
+      sourceSemantics?.getFact(current, extensionReceiverSemanticsFactKey)
+    ) {
       current = inner;
       continue;
     }

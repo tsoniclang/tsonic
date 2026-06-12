@@ -19,6 +19,7 @@ import type { ProgramContext } from "../../program-context.js";
 import { getReturnExpressionExpectedType } from "../return-expression-types.js";
 import { inferDeterministicBlockReturnType } from "../statements/declarations/return-type-inference.js";
 import {
+  extensionReceiverSemanticsFactKey,
   parameterPassingFactKey,
   parameterPassingModeFromFact,
 } from "../../../source-frontend/index.js";
@@ -178,7 +179,7 @@ const convertLambdaParameters = (
     let isExtensionReceiver = false;
 
     // Detect wrapper types (explicit annotation only):
-    // - thisarg<T> marks an extension-method receiver parameter (emits target `this`)
+    // - TSTS extension-receiver facts mark receiver parameters (emits target `this`)
     // - TSTS parameter-passing facts mark passing mode (unwrap to T)
     while (
       actualType &&
@@ -187,9 +188,12 @@ const convertLambdaParameters = (
       actualType.typeArguments &&
       actualType.typeArguments.length > 0
     ) {
-      const typeName = actualType.typeName.text;
-
-      if (typeName === "thisarg") {
+      if (
+        ctx.sourceSemantics.getFact(
+          actualType,
+          extensionReceiverSemanticsFactKey
+        )
+      ) {
         isExtensionReceiver = true;
         actualType = actualType.typeArguments[0];
         continue;

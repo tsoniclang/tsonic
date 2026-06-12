@@ -4,6 +4,7 @@ import {
   getTstsDeclaredTypeNode,
   getTstsExpressionWithTypeArgumentsName,
   getTstsHeritageTypeNodes,
+  getTstsTypeArguments,
   getTstsTypeReferenceDetails,
   isTstsClassDeclaration,
   isTstsInterfaceDeclaration,
@@ -28,9 +29,13 @@ import {
   intrinsicSemanticsFactKey,
   parameterPassingFactKey,
   sourceTypeSemanticsFactKey,
+  extensionReceiverSemanticsFactKey,
+  heritageWrapperSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
 
 const fieldFact: FieldSemanticsFact = { storage: "field" };
+const extensionReceiverFact = { kind: "extension-receiver" } as const;
+const interfaceHeritageFact = { kind: "interface-erasure" } as const;
 
 const sourceTypeFact = (
   kind: SourceTypeSemanticsFact["kind"]
@@ -102,6 +107,36 @@ const isFieldWrapper = (
   );
 };
 
+const isExtensionReceiverWrapper = (
+  node: TstsNode | undefined,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): boolean => {
+  const typeReference = getTstsTypeReferenceDetails(node);
+  return (
+    typeReference?.typeArguments.length === 1 &&
+    coreLangBindingByLocalName.get(typeReference.name)?.importedName ===
+      "thisarg"
+  );
+};
+
+const isInterfaceHeritageWrapper = (
+  heritageType: TstsNode,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): boolean => {
+  const heritageName = getTstsExpressionWithTypeArgumentsName(heritageType);
+  return (
+    heritageName !== undefined &&
+    getTstsTypeArguments(heritageType).length === 1 &&
+    coreLangBindingByLocalName.get(heritageName)?.importedName === "Interface"
+  );
+};
+
 const isStructHeritageType = (
   heritageType: TstsNode,
   coreTypesBindingByLocalName: ReadonlyMap<
@@ -163,6 +198,18 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
             sourceTypeFact("struct")
           );
         }
+        for (const heritageType of getTstsHeritageTypeNodes(node)) {
+          if (
+            heritageType &&
+            isInterfaceHeritageWrapper(heritageType, coreLangBindingByLocalName)
+          ) {
+            context.facts.set(
+              heritageWrapperSemanticsFactKey,
+              heritageType,
+              interfaceHeritageFact
+            );
+          }
+        }
         return;
       }
 
@@ -182,6 +229,18 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
             marker,
             sourceTypeFact("struct")
           );
+        }
+        for (const heritageType of getTstsHeritageTypeNodes(node)) {
+          if (
+            heritageType &&
+            isInterfaceHeritageWrapper(heritageType, coreLangBindingByLocalName)
+          ) {
+            context.facts.set(
+              heritageWrapperSemanticsFactKey,
+              heritageType,
+              interfaceHeritageFact
+            );
+          }
         }
         return;
       }
@@ -208,6 +267,23 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
 
       if (
         declaredType &&
+        isTstsParameterDeclaration(node) &&
+        isExtensionReceiverWrapper(declaredType, coreLangBindingByLocalName)
+      ) {
+        context.facts.set(
+          extensionReceiverSemanticsFactKey,
+          node,
+          extensionReceiverFact
+        );
+        context.facts.set(
+          extensionReceiverSemanticsFactKey,
+          declaredType,
+          extensionReceiverFact
+        );
+      }
+
+      if (
+        declaredType &&
         isTstsPropertyDeclarationLike(node) &&
         isFieldWrapper(declaredType, coreLangBindingByLocalName)
       ) {
@@ -229,6 +305,14 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
 
       if (isFieldWrapper(node, coreLangBindingByLocalName)) {
         context.facts.set(fieldSemanticsFactKey, node, fieldFact);
+      }
+
+      if (isExtensionReceiverWrapper(node, coreLangBindingByLocalName)) {
+        context.facts.set(
+          extensionReceiverSemanticsFactKey,
+          node,
+          extensionReceiverFact
+        );
       }
 
       const call = getTstsCallExpressionDetails(node);

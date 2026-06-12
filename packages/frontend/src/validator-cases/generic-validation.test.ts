@@ -140,14 +140,33 @@ describe("Generic Validation", () => {
       expect(diag?.message).to.include("Core intrinsic 'stackalloc'");
     });
 
+    it("should reject locally declared core lang type wrappers (Interface)", () => {
+      const source = `
+        type Interface<T> = T;
+
+        interface Contract {}
+        export class Service implements Interface<Contract> {}
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7440");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Core intrinsic 'Interface'");
+    });
+
     it("should allow core intrinsics when imported from @tsonic/core", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
+        import type { Interface } from "@tsonic/core/lang.js";
         import { stackalloc, nameof, sizeof } from "@tsonic/core/lang.js";
 
         export const x: int = 1 as int;
         export const fieldName = nameof(x);
         export const intSize: int = sizeof<int>();
+        export interface Contract {}
+        export class Service implements Interface<Contract> {}
 
         export function main(): void {
           stackalloc<int>(10 as int);

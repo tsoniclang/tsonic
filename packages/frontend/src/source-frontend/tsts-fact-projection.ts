@@ -19,6 +19,8 @@ import {
 import type { TstsSourceProgram } from "./tsts-source-program.js";
 import {
   fieldSemanticsFactKey,
+  extensionReceiverSemanticsFactKey,
+  heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
@@ -165,6 +167,8 @@ const projectFactsFromNode = (
   projectFact(sourceTypeSemanticsFactKey);
   projectFact(fieldSemanticsFactKey);
   projectFact(parameterPassingFactKey);
+  projectFact(extensionReceiverSemanticsFactKey);
+  projectFact(heritageWrapperSemanticsFactKey);
   projectFact(intrinsicSemanticsFactKey);
 };
 

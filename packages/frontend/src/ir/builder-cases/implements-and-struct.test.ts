@@ -109,7 +109,7 @@ describe("IR Builder", function () {
   });
 
   describe("Implements Clause Handling", () => {
-    it("should allow class implements interface (emitter decides CLR shape)", () => {
+    it("should allow class implements interface (emitter decides target shape)", () => {
       const source = `
         interface Printable {
           print(): void;
@@ -127,6 +127,39 @@ describe("IR Builder", function () {
       const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
+    });
+
+    it("unwraps imported Interface<T> heritage wrappers through source facts", () => {
+      const source = `
+        import type { Interface } from "@tsonic/core/lang.js";
+
+        interface Printable {
+          print(): void;
+        }
+
+        export class Document implements Interface<Printable> {
+          print(): void {}
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      const documentClass = result.value.body.find(
+        (stmt) => stmt.kind === "classDeclaration" && stmt.name === "Document"
+      );
+      expect(documentClass?.kind).to.equal("classDeclaration");
+      if (!documentClass || documentClass.kind !== "classDeclaration") return;
+      expect(
+        documentClass.implements.map((type) =>
+          type.kind === "referenceType" ? type.name : type.kind
+        )
+      ).to.deep.equal(["Printable"]);
     });
 
     it("should allow struct marker in implements clause", () => {
@@ -148,7 +181,7 @@ describe("IR Builder", function () {
       expect(result.ok).to.equal(true);
     });
 
-    it("should allow class implements type alias (emitter decides CLR shape)", () => {
+    it("should allow class implements type alias (emitter decides target shape)", () => {
       const source = `
         type Serializable = {
           serialize(): string;

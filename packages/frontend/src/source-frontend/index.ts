@@ -12,7 +12,9 @@ export {
 } from "./semantic-view.js";
 export {
   attributeSemanticsFactKey,
+  extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
+  heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
@@ -30,7 +32,9 @@ export type {
 } from "./frontend-source-semantic-view.js";
 export type {
   AttributeSemanticsFact,
+  ExtensionReceiverSemanticsFact,
   FieldSemanticsFact,
+  HeritageWrapperSemanticsFact,
   IntrinsicSemanticsFact,
   NumericPrimitiveFact,
   NumericPrimitiveKind,

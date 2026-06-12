@@ -6,23 +6,34 @@
  */
 
 import * as ts from "typescript";
+import * as path from "node:path";
 import { TsonicProgram } from "../program.js";
 import { ExternalMetadataRegistry } from "../external-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
 import {
-  createEmptyTstsSourceProgramForTests,
+  createSourceSemanticFactStore,
   createTypeScriptSemanticView,
+  projectTstsFactsToTypeScriptSource,
 } from "../source-frontend/index.js";
+import type { TstsSourceProgram } from "../source-frontend/index.js";
+import { createExtensionHost, parseTstsSourceFile } from "@tsonic/tsts";
+import {
+  createTsonicNumericPrimitiveExtension,
+  createTsonicSourceSemanticsExtension,
+} from "../tsonic-extension/index.js";
 
 export const createTestProgram = (
   source: string,
   fileName = "test.ts",
   options: Partial<TsonicProgram["options"]> = {}
 ): TsonicProgram => {
+  const resolvedFileName = fileName.startsWith("/")
+    ? fileName
+    : path.resolve(".temp/validator-cases", fileName);
   const sourceFile = ts.createSourceFile(
-    fileName,
+    resolvedFileName,
     source,
     ts.ScriptTarget.Latest,
     true,
@@ -44,7 +55,7 @@ export const createTestProgram = (
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ) => {
-    if (name === fileName) {
+    if (name === resolvedFileName) {
       return sourceFile;
     }
     return originalGetSourceFile.call(
@@ -56,8 +67,33 @@ export const createTestProgram = (
     );
   };
 
-  const program = ts.createProgram([fileName], compilerOptions, host);
+  const program = ts.createProgram([resolvedFileName], compilerOptions, host);
   const checker = program.getTypeChecker();
+  const sourceFacts = createSourceSemanticFactStore<ts.Node>();
+  const sourceSemantics = createTypeScriptSemanticView(checker, sourceFacts);
+  const extensionHost = createExtensionHost([
+    createTsonicNumericPrimitiveExtension(),
+    createTsonicSourceSemanticsExtension(),
+  ]);
+  const tstsSourceFile = parseTstsSourceFile(source, {
+    fileName: resolvedFileName,
+  });
+  if (!tstsSourceFile) {
+    throw new Error(`TSTS parser did not create ${fileName}`);
+  }
+  extensionHost.configure();
+  extensionHost.afterParseSourceFile(tstsSourceFile);
+  const sourceProgram: TstsSourceProgram = {
+    engine: "tsts",
+    sourceFiles: [tstsSourceFile],
+    extensionHost,
+    diagnostics: extensionHost.diagnostics.all(),
+    compilerDiagnostics: [],
+    withSourceSemantics: () => {
+      throw new Error("In-memory validator test program has no TSTS checker.");
+    },
+  };
+  projectTstsFactsToTypeScriptSource(sourceProgram, [sourceFile], sourceFacts);
 
   return {
     program,
@@ -71,11 +107,11 @@ export const createTestProgram = (
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
-    sourceProgram: createEmptyTstsSourceProgramForTests(),
-    sourceSemantics: createTypeScriptSemanticView(checker),
+    sourceProgram,
+    sourceSemantics,
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
     externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(createTypeScriptSemanticView(checker)),
+    binding: createBinding(sourceSemantics),
   };
 };

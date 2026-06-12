@@ -16,6 +16,8 @@ import {
 import type { GoPtr, TstsNode } from "@tsonic/tsts";
 import {
   fieldSemanticsFactKey,
+  extensionReceiverSemanticsFactKey,
+  heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
   parameterPassingFactKey,
   sourceTypeSemanticsFactKey,
@@ -145,6 +147,62 @@ describe("Tsonic TSTS source semantics extension", () => {
     ]);
   });
 
+  it("attaches extension receiver and interface heritage wrapper facts from imported wrappers", () => {
+    const fixture = collectSemanticNodes(`
+      import type { Interface, thisarg as receiver } from "@tsonic/core/lang.js";
+
+      export interface Contract {}
+      export class Service implements Interface<Contract> {}
+      export function attach(target: receiver<Service>): void {}
+    `);
+
+    const typeReferenceFacts = fixture.nodes
+      .map((node) => {
+        if (!node) return undefined;
+        const typeReference = getTstsTypeReferenceDetails(node);
+        if (!typeReference) return undefined;
+        return {
+          name: typeReference.name,
+          receiver: fixture.host.facts.get(
+            extensionReceiverSemanticsFactKey,
+            node
+          )?.kind,
+        };
+      })
+      .filter(
+        (entry): entry is NonNullable<typeof entry> => entry !== undefined
+      );
+
+    const heritageFacts = fixture.nodes
+      .map((node) => {
+        if (!node) return undefined;
+        return {
+          name: getTstsNodeNameText(node),
+          heritage: fixture.host.facts.get(
+            heritageWrapperSemanticsFactKey,
+            node
+          )?.kind,
+        };
+      })
+      .filter(
+        (
+          entry
+        ): entry is {
+          readonly name: string | undefined;
+          readonly heritage: "interface-erasure";
+        } =>
+          entry !== undefined && entry.heritage !== undefined
+      );
+
+    expect(typeReferenceFacts).to.deep.include({
+      name: "receiver",
+      receiver: "extension-receiver",
+    });
+    expect(heritageFacts).to.deep.equal([
+      { name: undefined, heritage: "interface-erasure" },
+    ]);
+  });
+
   it("attaches call-site passing and intrinsic facts from imported core values", () => {
     const fixture = collectSemanticNodes(`
       import {
@@ -212,16 +270,20 @@ describe("Tsonic TSTS source semantics extension", () => {
     const fixture = collectSemanticNodes(`
       type field<T> = T;
       type out<T> = T;
+      type thisarg<T> = T;
+      type Interface<T> = T;
       interface struct {}
       function defaultof<T>(): T {
         throw new Error("not core");
       }
 
       export interface FakeStruct extends struct {}
+      export interface Contract {}
+      export class FakeService implements Interface<Contract> {}
       export class User {
         email: field<string> = "";
       }
-      export function update(value: out<number>): void {
+      export function update(target: thisarg<User>, value: out<number>): void {
         defaultof<number>();
       }
     `);
@@ -241,10 +303,22 @@ describe("Tsonic TSTS source semantics extension", () => {
         node !== undefined &&
         fixture.host.facts.has(intrinsicSemanticsFactKey, node)
     );
+    const receiverFacts = fixture.nodes.filter(
+      (node) =>
+        node !== undefined &&
+        fixture.host.facts.has(extensionReceiverSemanticsFactKey, node)
+    );
+    const heritageFacts = fixture.nodes.filter(
+      (node) =>
+        node !== undefined &&
+        fixture.host.facts.has(heritageWrapperSemanticsFactKey, node)
+    );
 
     expect(fieldFacts).to.deep.equal([]);
     expect(passingFacts).to.deep.equal([]);
     expect(intrinsicFacts).to.deep.equal([]);
+    expect(receiverFacts).to.deep.equal([]);
+    expect(heritageFacts).to.deep.equal([]);
     expect(
       collectDeclarationFactsByName(`
       interface struct {}

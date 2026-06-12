@@ -19,6 +19,11 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
+import {
+  extensionReceiverSemanticsFactKey,
+  parameterPassingFactKey,
+  parameterPassingModeFromFact,
+} from "../source-frontend/index.js";
 
 type ReceiverMarkerInfo = {
   readonly markerNode: ts.TypeReferenceNode;
@@ -29,7 +34,6 @@ const unwrapWrapperType = (
   typeNode: ts.TypeNode
 ):
   | {
-      readonly wrapperName: string;
       readonly inner: ts.TypeNode;
       readonly node: ts.TypeReferenceNode;
     }
@@ -43,14 +47,14 @@ const unwrapWrapperType = (
   if (!inner) return undefined;
 
   return {
-    wrapperName: typeNode.typeName.text,
     inner,
     node: typeNode,
   };
 };
 
 const getReceiverMarkerInfo = (
-  typeNode: ts.TypeNode | undefined
+  typeNode: ts.TypeNode | undefined,
+  program: TsonicProgram
 ): ReceiverMarkerInfo | undefined => {
   if (!typeNode) return undefined;
 
@@ -69,22 +73,21 @@ const getReceiverMarkerInfo = (
     const unwrapped = unwrapWrapperType(current);
     if (!unwrapped) break;
 
-    const { wrapperName, inner, node } = unwrapped;
+    const { inner, node } = unwrapped;
 
-    if (wrapperName === "thisarg") {
+    if (
+      program.sourceSemantics.getFact(node, extensionReceiverSemanticsFactKey)
+    ) {
       markerNode ??= node;
       current = inner;
       continue;
     }
 
-    if (wrapperName === "ref" || wrapperName === "out") {
-      passing = wrapperName;
-      current = inner;
-      continue;
-    }
-
-    if (wrapperName === "in" || wrapperName === "inref") {
-      passing = "in";
+    const mode = parameterPassingModeFromFact(
+      program.sourceSemantics.getFact(node, parameterPassingFactKey)
+    );
+    if (mode && mode !== "value") {
+      passing = mode;
       current = inner;
       continue;
     }
@@ -116,7 +119,7 @@ const addReceiverDiagnostic = (
 
 export const validateExtensionMethods = (
   sourceFile: ts.SourceFile,
-  _program: TsonicProgram,
+  program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
   const visitor = (node: ts.Node): void => {
@@ -132,7 +135,7 @@ export const validateExtensionMethods = (
         .map((p, index) => ({
           param: p,
           index,
-          info: getReceiverMarkerInfo(p.type),
+          info: getReceiverMarkerInfo(p.type, program),
         }))
         .filter((p) => p.info !== undefined) as Array<{
         readonly param: ts.ParameterDeclaration;

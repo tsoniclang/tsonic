@@ -38,6 +38,7 @@ import {
   entityNameToText,
 } from "./references-alias.js";
 import {
+  extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
@@ -198,8 +199,10 @@ export const convertTypeReference = (
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
-  // `thisarg<T>` is a TS-only marker
-  if (typeName === "thisarg" && node.typeArguments?.length === 1) {
+  if (
+    binding.getSourceFact(node, extensionReceiverSemanticsFactKey) &&
+    node.typeArguments?.length === 1
+  ) {
     const inner = node.typeArguments[0];
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
