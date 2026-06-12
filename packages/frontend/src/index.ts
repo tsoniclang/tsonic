@@ -26,6 +26,7 @@ export * from "./symbol-table.js";
 export * from "./dependency-graph.js";
 export * from "./surface/profiles.js";
 export * from "./source-frontend/index.js";
+export * from "./tsonic-extension/index.js";
 export * from "./capabilities/backend-capabilities.js";
 export * from "./symbols/index.js";
 export * from "./ir/index.js";

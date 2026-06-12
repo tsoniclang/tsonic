@@ -19,7 +19,7 @@ export type DiagnosticCode =
   | "TSN1004" // Module not found
   | "TSN1005" // Conflicting exports
   | "TSN1006" // Invalid namespace
-  | "TSN1007" // Source frontend unavailable
+  | "TSN1008" // Source frontend extension failure
   | "TSN2001" // Unsupported TypeScript feature
   | "TSN2002" // Invalid type mapping
   | "TSN2003" // File name conflicts with exported member name

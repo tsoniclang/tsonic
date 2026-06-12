@@ -33,6 +33,14 @@ export type {
   SourceTypeSemanticsFact,
 } from "./source-facts.js";
 export { createTstsSourceFrontend } from "./tsts-source-frontend.js";
+export {
+  createEmptyTstsSourceProgramForTests,
+  createTstsSourceProgram,
+} from "./tsts-source-program.js";
+export type {
+  CreateTstsSourceProgramOptions,
+  TstsSourceProgram,
+} from "./tsts-source-program.js";
 export { createTypeScriptSemanticView } from "./typescript-semantic-view.js";
 export type {
   TypeScriptCallLikeExpression,
