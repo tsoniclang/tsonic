@@ -89,7 +89,7 @@ export const checkBasicSynthesisEligibility = (
     }
 
     seenSymbols.add(symbol);
-    const declarations = symbol.getDeclarations() ?? [];
+    const declarations = program.sourceSemantics.getSymbolDeclarations(symbol);
     for (const decl of declarations) {
       if (
         ts.isImportSpecifier(decl) ||
@@ -99,7 +99,9 @@ export const checkBasicSynthesisEligibility = (
         const aliasSymbol = program.sourceSemantics.getAliasedSymbol(symbol);
         if (!aliasSymbol || seenSymbols.has(aliasSymbol)) continue;
         seenSymbols.add(aliasSymbol);
-        for (const aliasedDecl of aliasSymbol.getDeclarations() ?? []) {
+        for (const aliasedDecl of program.sourceSemantics.getSymbolDeclarations(
+          aliasSymbol
+        )) {
           if (
             ts.isVariableDeclaration(aliasedDecl) &&
             aliasedDecl.initializer &&

@@ -1025,9 +1025,11 @@ const resolveClassDeclarationFromExpression = (
     return undefined;
   }
 
-  const declaration = symbol.declarations?.find((candidate) =>
+  const declaration = ctx.sourceSemantics
+    .getSymbolDeclarations(symbol)
+    .find((candidate) =>
     ts.isClassDeclaration(candidate)
-  );
+    );
   return declaration && ts.isClassDeclaration(declaration)
     ? declaration
     : undefined;
@@ -1053,9 +1055,9 @@ const getPropertyAccessReceiverStaticIntent = (
   }
 
   return (
-    ctx.sourceSemantics
-      .getExpressionType(node.expression.expression)
-      .getConstructSignatures().length > 0
+    ctx.sourceSemantics.getConstructSignatures(
+      ctx.sourceSemantics.getExpressionType(node.expression.expression)
+    ).length > 0
   );
 };
 

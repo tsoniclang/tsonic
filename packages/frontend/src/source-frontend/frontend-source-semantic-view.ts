@@ -11,5 +11,6 @@ export type FrontendSourceSemanticView = SourceSemanticView<
   FrontendSourceCallLikeExpression,
   ts.Type,
   ts.Symbol,
-  ts.Signature
+  ts.Signature,
+  ts.Declaration
 >;

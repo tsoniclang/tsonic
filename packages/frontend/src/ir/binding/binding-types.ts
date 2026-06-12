@@ -40,7 +40,7 @@ export type Binding = {
 
   /**
    * Resolve an identifier to its declaration.
-   * Uses sourceSemantics.getSymbol + symbol.getDeclarations().
+   * Uses sourceSemantics symbol and declaration queries.
    */
   resolveIdentifier(node: ts.Identifier): DeclId | undefined;
 

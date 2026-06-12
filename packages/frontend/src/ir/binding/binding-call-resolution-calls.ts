@@ -265,7 +265,7 @@ export const resolveCallSignature = (
     }
     seenSymbols.add(resolvedSymbol);
 
-    for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
+    for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
       const declarationMode = getDeclarationIterableMode(
         declaration,
         seenSymbols
@@ -328,7 +328,7 @@ export const resolveCallSignature = (
     }
     seenSymbols.add(resolvedSymbol);
 
-    for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
+    for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
       const declarationMode = getDeclarationIterableMode(
         declaration,
         seenSymbols
@@ -373,7 +373,7 @@ export const resolveCallSignature = (
     seenSymbols.add(symbol);
 
     const modes = new Set<"sync" | "async">();
-    for (const declaration of symbol.getDeclarations() ?? []) {
+    for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(symbol)) {
       const mode = getDeclarationIterableMode(declaration, seenSymbols);
       if (mode) {
         modes.add(mode);
@@ -511,7 +511,7 @@ export const resolveCallSignature = (
           ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const declarationClass = getDeclarationStringClass(
-        resolvedSymbol.getDeclarations()
+        ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)
       );
       if (declarationClass === "string") {
         return "string";
@@ -536,7 +536,7 @@ export const resolveCallSignature = (
           ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const declarationClass = getDeclarationStringClass(
-        resolvedSymbol.getDeclarations()
+        ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)
       );
       if (declarationClass === "string") {
         return "string";
@@ -609,7 +609,7 @@ export const resolveCallSignature = (
         symbol.flags & ts.SymbolFlags.Alias
           ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
-      for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
+      for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         const mode = getDeclarationIterableMode(declaration, new Set());
         if (mode) {
           return mode;
@@ -636,7 +636,7 @@ export const resolveCallSignature = (
         symbol.flags & ts.SymbolFlags.Alias
           ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
-      for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
+      for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         const mode = getDeclarationIterableMode(declaration, new Set());
         if (mode) {
           return mode;
@@ -701,7 +701,7 @@ export const resolveCallSignature = (
           ? ctx.sourceSemantics.getAliasedSymbol(sym)
           : sym;
       const aliases = new Set<string>();
-      for (const decl of resolvedSym.getDeclarations() ?? []) {
+      for (const decl of ctx.sourceSemantics.getSymbolDeclarations(resolvedSym)) {
         const typeNode = getTypeNodeFromDeclaration(decl);
         const alias = getExplicitTargetPrimitiveAlias(typeNode);
         if (alias) {
@@ -726,7 +726,7 @@ export const resolveCallSignature = (
           ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const aliases = new Set<string>();
-      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
+      for (const decl of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         const typeNode = getTypeNodeFromDeclaration(decl);
         const alias = getExplicitTargetPrimitiveAlias(typeNode);
         if (alias) {
@@ -786,7 +786,7 @@ export const resolveCallSignature = (
           ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const kinds = new Set<"number">();
-      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
+      for (const decl of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         if (isNumberTypeNode(getTypeNodeFromDeclaration(decl))) {
           kinds.add("number");
         }
@@ -810,7 +810,7 @@ export const resolveCallSignature = (
           ? ctx.sourceSemantics.getAliasedSymbol(symbol)
           : symbol;
       const kinds = new Set<"number">();
-      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
+      for (const decl of ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)) {
         if (isNumberTypeNode(getTypeNodeFromDeclaration(decl))) {
           kinds.add("number");
         }
@@ -973,7 +973,7 @@ export const resolveCallSignature = (
     seenSymbols.add(symbol);
 
     let merged: ReadonlySet<string> | undefined;
-    for (const decl of symbol.getDeclarations() ?? []) {
+    for (const decl of ctx.sourceSemantics.getSymbolDeclarations(symbol)) {
       if (ts.isTypeAliasDeclaration(decl)) {
         const aliasNames = collectDeclaredPropertyNames(
           decl.type,

@@ -300,7 +300,7 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
         return type.types.every((member) => isMonomorphicCallableType(member));
       }
 
-      const signatures = type.getCallSignatures();
+      const signatures = sourceSemantics.getCallSignatures(type);
       if (signatures.length === 0) return false;
       return signatures.every(
         (sig) => !sig.typeParameters || sig.typeParameters.length === 0

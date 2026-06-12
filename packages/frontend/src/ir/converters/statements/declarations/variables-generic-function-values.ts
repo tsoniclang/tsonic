@@ -89,7 +89,7 @@ const resolveGenericFunctionAliasTargetFromSymbol = (
   if (seen.has(symbol)) return undefined;
   seen.add(symbol);
 
-  for (const declaration of symbol.declarations ?? []) {
+  for (const declaration of sourceSemantics.getSymbolDeclarations(symbol)) {
     if (
       ts.isFunctionDeclaration(declaration) &&
       declaration.name &&
@@ -162,7 +162,8 @@ export const isSupportedGenericFunctionAliasDeclaration = (
   if (!targetSymbol) return false;
   return isDeterministicGenericFunctionAliasTargetSymbol(
     targetSymbol,
-    supportedSymbols
+    supportedSymbols,
+    sourceSemantics
   );
 };
 

@@ -88,9 +88,11 @@ const resolveReferencedClassDeclaration = (
     return undefined;
   }
 
-  const declaration = symbol.declarations?.find((candidate) =>
+  const declaration = ctx.sourceSemantics
+    .getSymbolDeclarations(symbol)
+    .find((candidate) =>
     ts.isClassDeclaration(candidate)
-  );
+    );
   return declaration && ts.isClassDeclaration(declaration)
     ? declaration
     : undefined;
@@ -236,7 +238,9 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
           .find((symbol) => symbol.name === callee.name)
       : undefined;
   if (ambientSymbol) {
-    for (const declaration of ambientSymbol.getDeclarations() ?? []) {
+    for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(
+      ambientSymbol
+    )) {
       const target = extractImportTypeTarget(declaration);
       if (!target) {
         continue;

@@ -217,7 +217,9 @@ const buildModuleNamespaceTypeFromSymbol = (
         return buildModuleNamespaceTypeFromSymbol(state, actualSymbol, seen);
       }
 
-      for (const declaration of actualSymbol.getDeclarations() ?? []) {
+      for (const declaration of state.sourceSemantics.getSymbolDeclarations(
+        actualSymbol
+      )) {
         const declId = getNamedRuntimeDeclarationDeclId(state, declaration);
         if (!declId) {
           continue;

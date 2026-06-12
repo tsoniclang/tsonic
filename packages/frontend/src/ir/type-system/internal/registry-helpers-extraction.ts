@@ -170,7 +170,9 @@ export const resolveHeritageTypeName = (
       ? sourceSemantics.getAliasedSymbol(symbol)
       : symbol;
 
-  const decl = resolvedSymbol?.getDeclarations()?.[0];
+  const decl = resolvedSymbol
+    ? sourceSemantics.getSymbolDeclarations(resolvedSymbol)[0]
+    : undefined;
   const sourceFile = decl?.getSourceFile();
 
   const simpleName = (() => {

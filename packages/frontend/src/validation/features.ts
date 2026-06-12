@@ -76,11 +76,9 @@ const isUnsupportedGlobalThisIdentifier = (
     return true;
   }
 
-  return !(
-    symbol.declarations?.some((declaration) =>
-      isProgramSourceDeclaration(declaration, program)
-    ) ?? false
-  );
+  return !program.sourceSemantics
+    .getSymbolDeclarations(symbol)
+    .some((declaration) => isProgramSourceDeclaration(declaration, program));
 };
 
 const getStaticInOperatorKey = (node: ts.Expression): string | undefined => {
@@ -249,11 +247,11 @@ const isSourceOwnedMemberAccess = (
   program: TsonicProgram
 ): boolean => {
   const symbol = program.sourceSemantics.getSymbol(nameNode);
-  return (
-    symbol?.declarations?.some((declaration) =>
-      isProgramSourceDeclaration(declaration, program)
-    ) ?? false
-  );
+  return symbol
+    ? program.sourceSemantics
+        .getSymbolDeclarations(symbol)
+        .some((declaration) => isProgramSourceDeclaration(declaration, program))
+    : false;
 };
 
 const isAmbientIdentifier = (
@@ -261,13 +259,16 @@ const isAmbientIdentifier = (
   program: TsonicProgram
 ): boolean => {
   const symbol = program.sourceSemantics.getSymbol(identifier);
-  if (!symbol || !symbol.declarations || symbol.declarations.length === 0) {
+  if (
+    !symbol ||
+    program.sourceSemantics.getSymbolDeclarations(symbol).length === 0
+  ) {
     return true;
   }
 
-  return !symbol.declarations.some((declaration) =>
-    isProgramSourceDeclaration(declaration, program)
-  );
+  return !program.sourceSemantics
+    .getSymbolDeclarations(symbol)
+    .some((declaration) => isProgramSourceDeclaration(declaration, program));
 };
 
 const isStringLikeType = (type: ts.Type): boolean =>

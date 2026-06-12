@@ -53,8 +53,9 @@ const isClassValueReceiver = (
   ctx: BindingContext,
   expr: ts.Expression
 ): boolean =>
-  ctx.sourceSemantics.getExpressionType(expr).getConstructSignatures().length >
-  0;
+  ctx.sourceSemantics.getConstructSignatures(
+    ctx.sourceSemantics.getExpressionType(expr)
+  ).length > 0;
 
 const filterPropertyAccessDeclarationsByReceiver = (
   ctx: BindingContext,
@@ -104,7 +105,7 @@ export const resolveCallTargetDeclarations = (
       ? ctx.sourceSemantics.getAliasedSymbol(symbol)
       : symbol;
 
-  return resolvedSymbol.getDeclarations();
+  return ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol);
 };
 
 export const resolveCallSignatureCandidates = (
@@ -164,7 +165,9 @@ export const resolveCallSignatureCandidates = (
   }
 
   const expressionType = ctx.sourceSemantics.getExpressionType(expr);
-  return collectSignatureCandidates(expressionType.getCallSignatures());
+  return collectSignatureCandidates(
+    ctx.sourceSemantics.getCallSignatures(expressionType)
+  );
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -261,7 +264,9 @@ export const resolveConstructorSignature = (
         ? ctx.sourceSemantics.getAliasedSymbol(symbol)
         : symbol;
 
-    const decl = resolvedSymbol?.getDeclarations()?.[0];
+    const decl = resolvedSymbol
+      ? ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)[0]
+      : undefined;
 
     const declaringTypeTsName =
       (() => {
@@ -326,7 +331,7 @@ export const resolveConstructorSignatureCandidates = (
       ? ctx.sourceSemantics.getAliasedSymbol(symbol)
       : symbol;
 
-  const decls = resolvedSymbol.getDeclarations();
+  const decls = ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol);
   if (!decls || decls.length === 0) return undefined;
 
   const argCount = node.arguments?.length ?? 0;

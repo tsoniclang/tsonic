@@ -16,12 +16,15 @@ export type SourceSemanticView<
   TType,
   TSymbol,
   TSignature,
+  TDeclaration extends TNode = TNode,
 > = {
   readonly engine: SourceSemanticEngine;
   getExpressionType(expression: TExpression): TType;
   getContextualType(expression: TExpression): TType | undefined;
   getSymbol(node: TNode): TSymbol | undefined;
   getAliasedSymbol(symbol: TSymbol): TSymbol;
+  getSymbolDeclarations(symbol: TSymbol): readonly TDeclaration[];
+  getSymbolValueDeclaration(symbol: TSymbol): TDeclaration | undefined;
   getExportSpecifierLocalTargetSymbol(node: TNode): TSymbol | undefined;
   getExportsOfModule(symbol: TSymbol): readonly TSymbol[];
   getShorthandAssignmentValueSymbol(node: TNode): TSymbol | undefined;
@@ -33,7 +36,9 @@ export type SourceSemanticView<
   getStringIndexType(type: TType): TType | undefined;
   getNumberIndexType(type: TType): TType | undefined;
   getPropertyOfType(type: TType, key: string): TSymbol | undefined;
+  getProperties(type: TType): readonly TSymbol[];
   getCallSignatures(type: TType): readonly TSignature[];
+  getConstructSignatures(type: TType): readonly TSignature[];
   isArrayType(type: TType): boolean;
   isTupleType(type: TType): boolean;
   getResolvedSignature(

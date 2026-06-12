@@ -146,7 +146,7 @@ export const getOrCreateDeclId = (
   //
   // For expression identifiers we want the value declaration, while for type
   // references we must be able to access the type declaration. We capture both.
-  const decls = symbol.getDeclarations() ?? [];
+  const decls = ctx.sourceSemantics.getSymbolDeclarations(symbol);
 
   const valueDecl = decls.find(
     (d) =>
@@ -483,9 +483,10 @@ const typeContainsTypeParameter = (
     }
   }
 
-  for (const property of type.getProperties()) {
+  for (const property of ctx.sourceSemantics.getProperties(type)) {
     const declaration =
-      property.valueDeclaration ?? property.getDeclarations()?.[0];
+      ctx.sourceSemantics.getSymbolValueDeclaration(property) ??
+      ctx.sourceSemantics.getSymbolDeclarations(property)[0];
     const propertyType = declaration
       ? ctx.sourceSemantics.getTypeOfSymbolAtLocation(property, declaration)
       : undefined;
@@ -495,15 +496,15 @@ const typeContainsTypeParameter = (
   }
 
   const signatures = [
-    ...type.getCallSignatures(),
-    ...type.getConstructSignatures(),
+    ...ctx.sourceSemantics.getCallSignatures(type),
+    ...ctx.sourceSemantics.getConstructSignatures(type),
   ];
   for (const signature of signatures) {
     const declaration = signature.getDeclaration();
     for (const parameter of signature.getParameters()) {
       const parameterDeclaration =
-        parameter.valueDeclaration ??
-        parameter.getDeclarations()?.[0] ??
+        ctx.sourceSemantics.getSymbolValueDeclaration(parameter) ??
+        ctx.sourceSemantics.getSymbolDeclarations(parameter)[0] ??
         declaration;
       if (!parameterDeclaration) {
         continue;
@@ -537,7 +538,7 @@ export const getOrCreateMemberId = (
   if (existing) return existing.memberId;
 
   const id = makeMemberId(ownerDeclId, memberName);
-  const decl = memberSymbol.getDeclarations()?.[0];
+  const decl = ctx.sourceSemantics.getSymbolDeclarations(memberSymbol)[0];
   const entry: MemberEntry = {
     memberId: id,
     symbol: memberSymbol,
@@ -598,10 +599,13 @@ const hasClassStaticInstanceNameConflict = (decl: ts.Declaration): boolean => {
   );
 };
 
-const shouldKeyMemberByResolvedSymbol = (memberSymbol: ts.Symbol): boolean =>
-  (memberSymbol.getDeclarations() ?? []).some(
-    hasClassStaticInstanceNameConflict
-  );
+const shouldKeyMemberByResolvedSymbol = (
+  ctx: BindingContext,
+  memberSymbol: ts.Symbol
+): boolean =>
+  ctx.sourceSemantics
+    .getSymbolDeclarations(memberSymbol)
+    .some(hasClassStaticInstanceNameConflict);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SIMPLE RESOLUTION
@@ -626,7 +630,7 @@ export const resolveTransparentAliases = (
       continue;
     }
 
-    const decls = current.getDeclarations() ?? [];
+    const decls = ctx.sourceSemantics.getSymbolDeclarations(current);
     const exportSpecifier =
       decls.length === 1 && decls[0] && ts.isExportSpecifier(decls[0])
         ? decls[0]
@@ -651,7 +655,7 @@ const resolveTransparentTypeQueryTarget = (
   ctx: BindingContext,
   symbol: ts.Symbol
 ): ts.Symbol | undefined => {
-  const declarations = symbol.getDeclarations() ?? [];
+  const declarations = ctx.sourceSemantics.getSymbolDeclarations(symbol);
 
   for (const declaration of declarations) {
     const typeNode = getTypeNodeFromDeclaration(declaration);
@@ -774,7 +778,8 @@ export const resolveTypeReference = (
           ? ctx.sourceSemantics.getAliasedSymbol(current)
           : current;
       if (aliased !== current) {
-        const aliasedDecls = aliased.getDeclarations() ?? [];
+        const aliasedDecls =
+          ctx.sourceSemantics.getSymbolDeclarations(aliased);
         if (aliasedDecls.length === 0) {
           break;
         }
@@ -783,7 +788,7 @@ export const resolveTypeReference = (
         continue;
       }
 
-      const decls = current.getDeclarations() ?? [];
+      const decls = ctx.sourceSemantics.getSymbolDeclarations(current);
       const exportSpecifier =
         decls.length === 1 && decls[0] && ts.isExportSpecifier(decls[0])
           ? decls[0]
@@ -842,7 +847,7 @@ export const resolveTypeReference = (
   while (!seen.has(symbol)) {
     seen.add(symbol);
 
-    const decls = symbol.getDeclarations() ?? [];
+    const decls = ctx.sourceSemantics.getSymbolDeclarations(symbol);
     const typeAliasDecl = decls.find(ts.isTypeAliasDeclaration);
     if (!typeAliasDecl) break;
 
@@ -930,7 +935,7 @@ export const resolvePropertyAccess = (
 
   const ownerDeclId = getOrCreateDeclId(
     ctx,
-    shouldKeyMemberByResolvedSymbol(propSymbol)
+    shouldKeyMemberByResolvedSymbol(ctx, propSymbol)
       ? propSymbol
       : (ownerSymbol ?? propSymbol)
   );

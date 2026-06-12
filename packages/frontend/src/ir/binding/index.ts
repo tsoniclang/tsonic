@@ -9,13 +9,14 @@
  * - sourceSemantics.getResolvedSignature(call) — Pick overload through source semantic boundary
  * - sourceSemantics.getAliasedSymbol(symbol) — Resolve import alias
  * - sourceSemantics.getExportSpecifierLocalTargetSymbol(exportSpecifier) — Resolve export target
- * - symbol.getDeclarations() — Get AST declaration nodes
+ * - sourceSemantics.getSymbolDeclarations(symbol) — Get AST declaration nodes
  *
  * BANNED APIs (outside source-frontend boundary):
  * - direct checker type queries
  * - direct checker contextual queries
  * - direct checker signature queries
  * - direct checker type-to-AST conversion
+ * - direct source symbol/type object queries
  *
  * Barrel re-export — all public types and factory function are re-exported
  * from their respective sub-modules.

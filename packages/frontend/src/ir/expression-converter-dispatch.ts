@@ -757,8 +757,10 @@ export const convertExpression = (
       }
     }
 
-    const symbolDeclarations =
-      ctx.sourceSemantics.getSymbol(node)?.getDeclarations() ?? [];
+    const symbol = ctx.sourceSemantics.getSymbol(node);
+    const symbolDeclarations = symbol
+      ? ctx.sourceSemantics.getSymbolDeclarations(symbol)
+      : [];
     const hasImportLikeDeclaration = symbolDeclarations.some(
       isImportLikeDeclaration
     );

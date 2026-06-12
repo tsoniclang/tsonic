@@ -301,8 +301,10 @@ const isBroadJsonSourceType = (
     return true;
   }
 
-  return type.getProperties().some((property) => {
-    const declaration = property.valueDeclaration ?? property.declarations?.[0];
+  return sourceSemantics.getProperties(type).some((property) => {
+    const declaration =
+      sourceSemantics.getSymbolValueDeclaration(property) ??
+      sourceSemantics.getSymbolDeclarations(property)[0];
     if (!declaration) {
       return true;
     }
@@ -418,7 +420,10 @@ const isJsonParseInitializedSymbol = (
   }
 
   const symbol = program.sourceSemantics.getSymbol(unwrapped);
-  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  const declaration = symbol
+    ? (program.sourceSemantics.getSymbolValueDeclaration(symbol) ??
+      program.sourceSemantics.getSymbolDeclarations(symbol)[0])
+    : undefined;
   if (!declaration || !ts.isVariableDeclaration(declaration)) {
     return false;
   }
@@ -439,7 +444,10 @@ const isDeclaredDynamicJsonCarrierSymbol = (
   }
 
   const symbol = program.sourceSemantics.getSymbol(unwrapped);
-  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  const declaration = symbol
+    ? (program.sourceSemantics.getSymbolValueDeclaration(symbol) ??
+      program.sourceSemantics.getSymbolDeclarations(symbol)[0])
+    : undefined;
   if (!symbol || !declaration) {
     return false;
   }
@@ -480,7 +488,10 @@ const getObjectEntriesSource = (
   }
 
   const symbol = program.sourceSemantics.getSymbol(collection);
-  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  const declaration = symbol
+    ? (program.sourceSemantics.getSymbolValueDeclaration(symbol) ??
+      program.sourceSemantics.getSymbolDeclarations(symbol)[0])
+    : undefined;
   if (!declaration || !ts.isVariableDeclaration(declaration)) {
     return undefined;
   }
@@ -501,7 +512,10 @@ const isObjectEntriesValueFromDynamicJsonCarrier = (
   }
 
   const symbol = program.sourceSemantics.getSymbol(unwrapped);
-  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  const declaration = symbol
+    ? (program.sourceSemantics.getSymbolValueDeclaration(symbol) ??
+      program.sourceSemantics.getSymbolDeclarations(symbol)[0])
+    : undefined;
   if (
     !declaration ||
     !ts.isBindingElement(declaration) ||

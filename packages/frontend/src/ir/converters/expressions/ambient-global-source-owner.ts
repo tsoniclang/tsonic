@@ -391,5 +391,8 @@ export const resolveAmbientGlobalSourceOwnerByName = (
     return undefined;
   }
 
-  return resolveAmbientGlobalSourceOwner(symbol.getDeclarations() ?? [], ctx);
+  return resolveAmbientGlobalSourceOwner(
+    ctx.sourceSemantics.getSymbolDeclarations(symbol),
+    ctx
+  );
 };

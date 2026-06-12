@@ -303,7 +303,7 @@ export const checkSynthesisEligibility = (
 
     seenSymbols.add(symbol);
     const visitDeclarations = (target: ts.Symbol): string | undefined => {
-      for (const decl of target.getDeclarations() ?? []) {
+      for (const decl of ctx.sourceSemantics.getSymbolDeclarations(target)) {
         if (
           ts.isVariableDeclaration(decl) &&
           decl.initializer &&

@@ -83,6 +83,43 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("keeps raw source symbol/type object methods behind the semantic bridge", () => {
+    const bannedReads = [
+      ".getDeclarations(",
+      ".getConstructSignatures(",
+      ".getCallSignatures(",
+      ".getProperties(",
+      ".valueDeclaration",
+      "symbol.declarations",
+      "symbol?.declarations",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const isAllowedBoundaryCall =
+            /sourceSemantics\.(getSymbolDeclarations|getSymbolValueDeclaration|getConstructSignatures|getCallSignatures|getProperties)\(/.test(
+              line
+            );
+          if (isAllowedBoundaryCall) return [];
+
+          const read = bannedReads.find((candidate) =>
+            line.includes(candidate)
+          );
+          return read
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${read}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("does not expose the raw source checker on TsonicProgram", () => {
     const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
     const text = fs.readFileSync(programTypesPath, "utf8");

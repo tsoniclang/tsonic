@@ -18,9 +18,12 @@ export const isGenericFunctionDeclarationNode = (
   !!node.typeParameters &&
   node.typeParameters.length > 0;
 
-const isGenericFunctionDeclarationSymbol = (symbol: ts.Symbol): boolean => {
-  const declarations = symbol.declarations;
-  if (!declarations || declarations.length === 0) return false;
+const isGenericFunctionDeclarationSymbol = (
+  symbol: ts.Symbol,
+  sourceSemantics: FrontendSourceSemanticView
+): boolean => {
+  const declarations = sourceSemantics.getSymbolDeclarations(symbol);
+  if (declarations.length === 0) return false;
   for (const declaration of declarations) {
     if (
       ts.isFunctionDeclaration(declaration) &&
@@ -34,9 +37,11 @@ const isGenericFunctionDeclarationSymbol = (symbol: ts.Symbol): boolean => {
 
 export const isDeterministicGenericFunctionAliasTargetSymbol = (
   symbol: ts.Symbol,
-  supportedSymbols: ReadonlySet<ts.Symbol>
+  supportedSymbols: ReadonlySet<ts.Symbol>,
+  sourceSemantics: FrontendSourceSemanticView
 ): boolean =>
-  supportedSymbols.has(symbol) || isGenericFunctionDeclarationSymbol(symbol);
+  supportedSymbols.has(symbol) ||
+  isGenericFunctionDeclarationSymbol(symbol, sourceSemantics);
 
 const resolveSymbol = (
   sourceSemantics: FrontendSourceSemanticView,
@@ -242,7 +247,8 @@ const resolveAliasTargetSymbol = (
   if (
     !isDeterministicGenericFunctionAliasTargetSymbol(
       targetSymbol,
-      supportedSymbols
+      supportedSymbols,
+      sourceSemantics
     )
   ) {
     return undefined;
@@ -300,7 +306,7 @@ export const collectSupportedGenericFunctionValueSymbols = (
 
     if (ts.isImportSpecifier(node)) {
       const symbol = resolveSymbol(sourceSemantics, node.name);
-      if (symbol && isGenericFunctionDeclarationSymbol(symbol)) {
+      if (symbol && isGenericFunctionDeclarationSymbol(symbol, sourceSemantics)) {
         symbols.add(symbol);
       }
     }

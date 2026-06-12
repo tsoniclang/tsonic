@@ -35,6 +35,12 @@ export const createTypeScriptSemanticView = (
     checker.getSymbolAtLocation(node),
   getAliasedSymbol: (symbol: ts.Symbol): ts.Symbol =>
     checker.getAliasedSymbol(symbol),
+  getSymbolDeclarations: (symbol: ts.Symbol): readonly ts.Declaration[] =>
+    symbol.getDeclarations() ?? [],
+  getSymbolValueDeclaration: (
+    symbol: ts.Symbol
+  ): ts.Declaration | undefined =>
+    symbol.valueDeclaration ?? symbol.getDeclarations()?.[0],
   getExportSpecifierLocalTargetSymbol: (
     node: ts.Node
   ): ts.Symbol | undefined =>
@@ -62,8 +68,11 @@ export const createTypeScriptSemanticView = (
     type.getNumberIndexType(),
   getPropertyOfType: (type: ts.Type, key: string): ts.Symbol | undefined =>
     checker.getPropertyOfType(type, key),
+  getProperties: (type: ts.Type): readonly ts.Symbol[] => type.getProperties(),
   getCallSignatures: (type: ts.Type): readonly ts.Signature[] =>
     checker.getSignaturesOfType(type, ts.SignatureKind.Call),
+  getConstructSignatures: (type: ts.Type): readonly ts.Signature[] =>
+    type.getConstructSignatures(),
   isArrayType: (type: ts.Type): boolean => checker.isArrayType(type),
   isTupleType: (type: ts.Type): boolean => checker.isTupleType(type),
   getResolvedSignature: (
