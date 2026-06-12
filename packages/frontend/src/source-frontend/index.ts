@@ -6,10 +6,7 @@ export type {
   SourceTranspileOptions,
   SourceTranspileResult,
 } from "./source-frontend.js";
-export {
-  createSourceSemanticFactStore,
-  defineSourceSemanticFactKey,
-} from "./semantic-view.js";
+export { createSourceSemanticFactStore } from "./semantic-view.js";
 export {
   extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,

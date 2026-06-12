@@ -2,10 +2,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as ts from "typescript";
-import {
-  getTstsIdentifierText,
-  visitTstsSubtree,
-} from "@tsonic/tsts";
+import { getTstsIdentifierText, visitTstsSubtree } from "@tsonic/tsts";
 import type { GoPtr, TstsNode } from "@tsonic/tsts";
 import { createTstsSourceFrontend } from "./tsts-source-frontend.js";
 import { createSourceSemanticFactStore } from "./semantic-view.js";
@@ -152,7 +149,9 @@ describe("TSTS source frontend", () => {
 
       expect(projection.missedFacts).to.deep.equal([]);
       expect(projection.projectedFacts).to.be.greaterThan(0);
-      expect(factStore.get(intTypeReference, numericPrimitiveFactKey)).to.deep.equal({
+      expect(
+        factStore.get(numericPrimitiveFactKey, intTypeReference)
+      ).to.deep.equal({
         sourceName: "int",
         kind: "int32",
         runtimeBase: "number",

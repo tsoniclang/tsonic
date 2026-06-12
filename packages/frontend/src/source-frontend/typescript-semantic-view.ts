@@ -51,10 +51,8 @@ export const createTypeScriptSemanticView = (
     checker.getDeclaredTypeOfSymbol(symbol),
   getTypeFromTypeNode: (node: ts.Node): ts.Type | undefined =>
     ts.isTypeNode(node) ? checker.getTypeFromTypeNode(node) : undefined,
-  getTypeOfSymbolAtLocation: (
-    symbol: ts.Symbol,
-    location: ts.Node
-  ): ts.Type => checker.getTypeOfSymbolAtLocation(symbol, location),
+  getTypeOfSymbolAtLocation: (symbol: ts.Symbol, location: ts.Node): ts.Type =>
+    checker.getTypeOfSymbolAtLocation(symbol, location),
   getTypeArguments: (type: ts.Type): readonly ts.Type[] =>
     checker.getTypeArguments(type as ts.TypeReference),
   getApparentType: (type: ts.Type): ts.Type => checker.getApparentType(type),
@@ -84,16 +82,16 @@ export const createTypeScriptSemanticView = (
     enclosingNode: ts.Node,
     flags: number
   ): ts.Node | undefined =>
-    checker.typeToTypeNode(
-      type,
-      enclosingNode,
-      flags as ts.NodeBuilderFlags
-    ) ?? undefined,
+    checker.typeToTypeNode(type, enclosingNode, flags as ts.NodeBuilderFlags) ??
+    undefined,
   getFullyQualifiedName: (symbol: ts.Symbol): string =>
     checker.getFullyQualifiedName(symbol),
-  getSymbolsInScope: (location: ts.Node, meaning: number): readonly ts.Symbol[] =>
+  getSymbolsInScope: (
+    location: ts.Node,
+    meaning: number
+  ): readonly ts.Symbol[] =>
     checker.getSymbolsInScope(location, meaning as ts.SymbolFlags),
   typeToString: (type: ts.Type): string => checker.typeToString(type),
   getFact: <T>(node: ts.Node, key: SourceSemanticFactKey<T>): T | undefined =>
-    facts.get(node, key),
+    facts.get(key, node),
 });

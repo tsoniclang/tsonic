@@ -1,4 +1,4 @@
-import { defineSourceSemanticFactKey } from "./semantic-view.js";
+import { defineExtensionFactKey } from "@tsonic/tsts";
 import type { SourceSemanticFactKey } from "./semantic-view.js";
 
 export type NumericPrimitiveKind =
@@ -74,50 +74,55 @@ export type IntrinsicSemanticsFact = {
     | "trycast";
 };
 
+const defineSourceFactKey = <T>(
+  id: string,
+  description: string
+): SourceSemanticFactKey<T> =>
+  defineExtensionFactKey<object, T>(id, description);
+
 export const numericPrimitiveFactKey =
-  defineSourceSemanticFactKey<NumericPrimitiveFact>(
+  defineSourceFactKey<NumericPrimitiveFact>(
     "tsonic:source:numeric-primitive",
     "Source-level primitive type identity such as int, long, decimal, char, or bool."
   );
 
 export const sourceTypeSemanticsFactKey =
-  defineSourceSemanticFactKey<SourceTypeSemanticsFact>(
+  defineSourceFactKey<SourceTypeSemanticsFact>(
     "tsonic:source:type-semantics",
     "Source-level type semantics such as struct."
   );
 
-export const fieldSemanticsFactKey =
-  defineSourceSemanticFactKey<FieldSemanticsFact>(
-    "tsonic:source:field-semantics",
-    "Source-level field marker semantics."
-  );
+export const fieldSemanticsFactKey = defineSourceFactKey<FieldSemanticsFact>(
+  "tsonic:source:field-semantics",
+  "Source-level field marker semantics."
+);
 
 export const parameterPassingFactKey =
-  defineSourceSemanticFactKey<ParameterPassingFact>(
+  defineSourceFactKey<ParameterPassingFact>(
     "tsonic:source:parameter-passing",
     "Source-level parameter passing semantics such as out/ref/inref."
   );
 
 export const extensionReceiverSemanticsFactKey =
-  defineSourceSemanticFactKey<ExtensionReceiverSemanticsFact>(
+  defineSourceFactKey<ExtensionReceiverSemanticsFact>(
     "tsonic:source:extension-receiver",
     "Source-level extension receiver marker semantics such as thisarg."
   );
 
 export const heritageWrapperSemanticsFactKey =
-  defineSourceSemanticFactKey<HeritageWrapperSemanticsFact>(
+  defineSourceFactKey<HeritageWrapperSemanticsFact>(
     "tsonic:source:heritage-wrapper",
     "Source-level heritage wrapper semantics such as Interface<T> erasure."
   );
 
 export const markerApiSemanticsFactKey =
-  defineSourceSemanticFactKey<MarkerApiSemanticsFact>(
+  defineSourceFactKey<MarkerApiSemanticsFact>(
     "tsonic:source:marker-api",
     "Source-level compiler marker API provenance such as attributes or overloads."
   );
 
 export const intrinsicSemanticsFactKey =
-  defineSourceSemanticFactKey<IntrinsicSemanticsFact>(
+  defineSourceFactKey<IntrinsicSemanticsFact>(
     "tsonic:source:intrinsic-semantics",
     "Source-level intrinsic semantics."
   );

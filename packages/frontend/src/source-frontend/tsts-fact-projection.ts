@@ -125,9 +125,7 @@ const tsProjectionShape = (node: ts.Node): ProjectionShape | undefined => {
   return undefined;
 };
 
-const tstsProjectionShape = (
-  node: TstsNode
-): ProjectionShape | undefined => {
+const tstsProjectionShape = (node: TstsNode): ProjectionShape | undefined => {
   if (isTstsCallExpression(node)) return "callExpression";
   if (isTstsClassDeclaration(node)) return "classDeclaration";
   if (getTstsExpressionWithTypeArgumentsName(node)) {
@@ -182,7 +180,7 @@ const projectFactsFromNode = (
   const projectFact = <T>(factKey: SourceSemanticFactKey<T>): void => {
     const fact = sourceProgram.extensionHost.facts.get(factKey, tstsNode);
     if (fact !== undefined) {
-      factStore.set(tsNode, factKey, fact);
+      factStore.set(factKey, tsNode, fact);
       projectedFacts += 1;
     }
   };
@@ -268,9 +266,7 @@ export const projectTstsFactsToTypeScriptSource = (
       }
 
       const name = tstsNodeName(node);
-      const tsNode = tsNodesByKey.get(
-        key(span.pos, span.end, shape, name)
-      );
+      const tsNode = tsNodesByKey.get(key(span.pos, span.end, shape, name));
       if (!tsNode) {
         missedFacts.push({
           fileName,

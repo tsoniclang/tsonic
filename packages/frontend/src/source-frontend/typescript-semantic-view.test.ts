@@ -3,10 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as ts from "typescript";
-import {
-  createSourceSemanticFactStore,
-  defineSourceSemanticFactKey,
-} from "./semantic-view.js";
+import { defineExtensionFactKey } from "@tsonic/tsts";
+import { createSourceSemanticFactStore } from "./semantic-view.js";
 import { numericPrimitiveFactKey } from "./source-facts.js";
 import { createTypeScriptSemanticView } from "./typescript-semantic-view.js";
 
@@ -101,11 +99,12 @@ describe("TypeScript semantic view", () => {
       const factStore = createSourceSemanticFactStore<ts.Node>();
       const semantics = createTypeScriptSemanticView(checker, factStore);
       const receivers = collectPropertyReceivers(fixture.sourceFile);
-      const factKey = defineSourceSemanticFactKey<{ readonly branch: string }>(
-        "test:branch"
-      );
+      const factKey = defineExtensionFactKey<
+        ts.Node,
+        { readonly branch: string }
+      >("test:branch");
 
-      factStore.set(receivers[0]!, factKey, { branch: "string" });
+      factStore.set(factKey, receivers[0]!, { branch: "string" });
 
       expect(semantics.getFact(receivers[0]!, factKey)).to.deep.equal({
         branch: "string",
@@ -135,7 +134,7 @@ describe("TypeScript semantic view", () => {
       expect(leftType).to.not.equal(undefined);
       if (!leftType) return;
 
-      factStore.set(leftType, numericPrimitiveFactKey, {
+      factStore.set(numericPrimitiveFactKey, leftType, {
         sourceName: "int",
         kind: "int32",
         runtimeBase: "number",
