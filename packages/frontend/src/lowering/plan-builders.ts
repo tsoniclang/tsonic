@@ -1,4 +1,8 @@
-import { getTstsTypeReferenceDetails, TstsSyntax } from "@tsonic/tsts";
+import {
+  getTstsContainingSourceFile,
+  getTstsTypeReferenceDetails,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type { TstsNode, TstsSourceFile, TstsType } from "@tsonic/tsts";
 import {
   intrinsicSemanticsFactKey,
@@ -142,6 +146,26 @@ const nodeArrayNodes = (
 ): readonly TstsNode[] =>
   (nodes ?? []).filter((node): node is TstsNode => node !== undefined);
 
+const splitTopLevel = (text: string, delimiter: string): readonly string[] => {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "<" || char === "(" || char === "[" || char === "{") depth += 1;
+    if (char === ">" || char === ")" || char === "]" || char === "}") {
+      depth = Math.max(0, depth - 1);
+    }
+    if (depth === 0 && text.startsWith(delimiter, index)) {
+      parts.push(text.slice(start, index).trim());
+      start = index + delimiter.length;
+      index += delimiter.length - 1;
+    }
+  }
+  parts.push(text.slice(start).trim());
+  return parts.filter((part) => part.length > 0);
+};
+
 const typeText = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -233,6 +257,64 @@ const sourceTypeText = (
     default:
       return compactNodeSourceText(sourceFile, node);
   }
+};
+
+const functionTypeParts = (
+  typeText: string | undefined
+):
+  | {
+      readonly parameterTypes: readonly string[];
+      readonly returnType?: string;
+    }
+  | undefined => {
+  if (!typeText) return undefined;
+  const arrowIndex = typeText.indexOf("=>");
+  if (arrowIndex < 0) return undefined;
+  const parameterText = typeText.slice(0, arrowIndex).trim();
+  const returnType = typeText.slice(arrowIndex + 2).trim();
+  if (!parameterText.startsWith("(") || !parameterText.endsWith(")")) {
+    return undefined;
+  }
+  return {
+    parameterTypes: splitTopLevel(parameterText.slice(1, -1), ",").map(
+      (parameter) => {
+        const colonIndex = parameter.indexOf(":");
+        const rawType =
+          colonIndex >= 0 ? parameter.slice(colonIndex + 1).trim() : parameter;
+        return rawType.replace(/^\.\.\./, "").replace(/\?$/, "").trim();
+      }
+    ),
+    returnType,
+  };
+};
+
+const callExpectedArgumentTypeTexts = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext
+): readonly (string | undefined)[] => {
+  const checker = context.checkerForSourceFile(sourceFile);
+  const selected =
+    context.input.facts.get(selectedSignatureFactKey, node)?.signature ??
+    checker.getResolvedSignature(node);
+  if (!selected) return [];
+  return checker.getSignatureParameters(selected).map((parameter) => {
+    const declaration =
+      checker.getSymbolValueDeclaration(parameter) ??
+      checker.getSymbolDeclarations(parameter)[0];
+    const typeNode = declaration ? TstsSyntax.Node_Type(declaration) : undefined;
+    if (typeNode) {
+      return sourceTypeText(
+        context,
+        getTstsContainingSourceFile(typeNode) ?? sourceFile,
+        typeNode
+      );
+    }
+    const parameterType = declaration
+      ? checker.getTypeOfSymbolAtLocation(parameter, declaration)
+      : undefined;
+    return typeText(context, sourceFile, undefined, parameterType);
+  });
 };
 
 const planBase = <TKind extends string>(
@@ -548,7 +630,12 @@ const expressionPlan = (
       };
     }
     case TstsSyntax.KindCallExpression:
-    case TstsSyntax.KindNewExpression:
+    case TstsSyntax.KindNewExpression: {
+      const expectedArgumentTypes = callExpectedArgumentTypeTexts(
+        sourceFile,
+        node,
+        context
+      );
       return {
         ...base,
         expressionKind:
@@ -559,7 +646,14 @@ const expressionPlan = (
           context
         ),
         arguments: (TstsSyntax.Node_Arguments(node) ?? [])
-          .map((argument) => expressionPlan(sourceFile, argument, context))
+          .map((argument, index) =>
+            expressionPlan(
+              sourceFile,
+              argument,
+              context,
+              expectedArgumentTypes[index]
+            )
+          )
           .filter((item): item is LoweringExpressionPlan => item !== undefined),
         typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node)).map(
           (argument) =>
@@ -567,6 +661,7 @@ const expressionPlan = (
             compactNodeSourceText(sourceFile, argument)
         ),
       };
+    }
     case TstsSyntax.KindArrowFunction:
     case TstsSyntax.KindFunctionExpression: {
       const body = TstsSyntax.Node_Body(node);
@@ -583,7 +678,12 @@ const expressionPlan = (
           node.Kind === TstsSyntax.KindArrowFunction
             ? "arrow-function"
             : "function-expression",
-        parameters: parameterPlans(sourceFile, node, context),
+        parameters: parameterPlans(
+          sourceFile,
+          node,
+          context,
+          functionTypeParts(expectedTypeText)?.parameterTypes
+        ),
         async: nodeHasModifier(node, TstsSyntax.ModifierFlagsAsync),
         returnTypeText,
         body: bodyIsStatement
@@ -993,21 +1093,25 @@ const declarationKind = (
 const parameterPlans = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
-  context: LoweringBuildContext
+  context: LoweringBuildContext,
+  expectedParameterTypeTexts: readonly (string | undefined)[] = []
 ): readonly LoweringParameterPlan[] =>
   (TstsSyntax.Node_Parameters(node) ?? [])
     .filter((parameter): parameter is TstsNode => parameter !== undefined)
-    .map((parameter): LoweringParameterPlan => {
+    .map((parameter, index): LoweringParameterPlan => {
       const checker = context.checkerForSourceFile(sourceFile);
       const explicitType = TstsSyntax.Node_Type(parameter);
       const nameNode = TstsSyntax.Node_Name(parameter);
       const inferredType =
-        explicitType === undefined
+        explicitType === undefined &&
+        expectedParameterTypeTexts[index] === undefined
           ? checker.getTypeAtLocation(nameNode ?? parameter)
           : undefined;
       return {
         name: nodeName(sourceFile, parameter) ?? "arg",
-        typeText: typeText(context, sourceFile, explicitType, inferredType),
+        typeText:
+          typeText(context, sourceFile, explicitType, inferredType) ??
+          expectedParameterTypeTexts[index],
         initializer: expressionPlan(
           sourceFile,
           TstsSyntax.Node_Initializer(parameter),
