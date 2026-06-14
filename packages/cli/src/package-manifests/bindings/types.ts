@@ -58,14 +58,14 @@ export type NormalizedBindingsManifest = {
   readonly testDotnet?: ManifestDotnet;
   readonly semanticMetadata?: {
     readonly version: 1;
-    readonly aliases?: Readonly<Record<string, AliasMetadataV1>>;
+    readonly aliases?: Readonly<Record<string, AliasMetadata>>;
     readonly overloadFamilies?: Readonly<
       Record<string, SerializedOverloadFamilyDescriptor>
     >;
   };
 };
 
-export type AliasMetadataV1 = {
+export type AliasMetadata = {
   readonly aliasId: string;
   readonly definition: SerializedSourceTypeDescriptor;
   readonly isRecursive: boolean;

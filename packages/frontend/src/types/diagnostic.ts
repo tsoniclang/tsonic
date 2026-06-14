@@ -23,7 +23,7 @@ export type DiagnosticCode =
   | "TSN2001" // Unsupported TypeScript feature
   | "TSN2002" // Invalid type mapping
   | "TSN2003" // File name conflicts with exported member name
-  | "TSN2004" // Legacy overload syntax not supported
+  | "TSN2004" // Unsupported TypeScript overload syntax
   | "TSN3001" // Target reserved keyword used
   | "TSN3002" // Invalid target identifier
   | "TSN3003" // Target identifier collision after naming policy
@@ -127,7 +127,7 @@ export type DiagnosticCode =
   | "TSN5108" // Value exceeds JS safe integer range
   | "TSN5109" // Computed access kind not classified (compiler bug)
   | "TSN5110" // Integer literal cannot be implicitly converted to double
-  // Deterministic IR typing errors (TSN5201-TSN5299)
+  // Deterministic source typing errors (TSN5201-TSN5299)
   | "TSN5201" // Missing declared type annotation on target declaration required for deterministic typing
   | "TSN5202" // Cannot infer required type arguments deterministically; user must supply explicit type arguments
   | "TSN5203" // Member/property type cannot be recovered deterministically; user must add explicit type annotation

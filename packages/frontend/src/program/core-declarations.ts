@@ -20,7 +20,9 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
     ? scanRoot
     : undefined;
   const results: string[] = [];
-  const isLegacySourcePackageDeclaration = (candidatePath: string): boolean => {
+  const isSourcePackageInternalDeclaration = (
+    candidatePath: string
+  ): boolean => {
     if (!sourcePackageRoot) {
       return false;
     }
@@ -44,14 +46,14 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
         if (
           entry.name === "node_modules" ||
           entry.name === ".git" ||
-          isLegacySourcePackageDeclaration(fullPath)
+          isSourcePackageInternalDeclaration(fullPath)
         ) {
           continue;
         }
         visit(fullPath);
       } else if (
         entry.name.endsWith(".d.ts") &&
-        !isLegacySourcePackageDeclaration(fullPath)
+        !isSourcePackageInternalDeclaration(fullPath)
       ) {
         results.push(fullPath);
       }

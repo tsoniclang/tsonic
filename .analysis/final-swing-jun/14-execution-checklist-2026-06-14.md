@@ -16,12 +16,13 @@ Report this checklist every 15 minutes while long-running work is active.
 
 ```text
 branch: feature/tsts-final-completion
-latest pushed commit before this checkpoint: b2f27645 remove target wording from frontend alias facts
-current local state: clean; AST-emission cleanup and frontend target-leakage naming cleanup pushed
-focused validation: 107 passing / 0 failing after AST-emission cleanup; 59 passing / 0 failing after alias naming cleanup
-build validation: @tsonic/frontend and @tsonic/csharp-emitter both build
-full run-all: not restarted after AST-emission cleanup; final gates wait for code-completeness signoff
-not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
+latest pushed commit before this checkpoint: b28d804e update final swing status report
+current local state: source primitive use-site lowering, contextual alias expansion, char/spread rendering, and stale generic helper deletion implemented; pending commit
+focused validation: @tsonic/frontend full package test 417 passing / 0 failing; @tsonic/csharp-emitter full package test 2 passing / 0 failing
+build validation: @tsonic/frontend and @tsonic/csharp-emitter both build after formatting
+audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels
+full run-all: not restarted after current lowering sweep; final gates wait for code-completeness signoff
+not done: final run-all, downstreams, branch hygiene, final PR report
 ```
 
 ## Low-Level Work Items
@@ -36,7 +37,7 @@ not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
 | 1.1 | TSTS package contract | Tsonic consumes current TSTS public APIs | In progress | Audit private imports and vendored deltas |
 | 1.2 | Extension host | Generic lifecycle is available | Done | TSTS extension host tests in final gate |
 | 1.3 | Fact store | Typed sidecar facts are available | Done | Fact tests and no direct node mutation search |
-| 1.4 | Checker facade | Types, symbols, signatures, narrowed/use-site types exposed | In progress | Focused tests for flow/contextual/generic cases |
+| 1.4 | Checker facade | Types, symbols, signatures, narrowed/use-site types exposed | Expanded | Lowering tests prove use-site source primitives, contextual callables, and cross-module signature returns |
 | 1.5 | Diagnostics | TSTS and extension diagnostics adapt through one path | In progress | Focused validator failures resolved |
 | 1.6 | Import/module identity | Module graph/import identity usable from public TSTS API | In progress | Package/type-root tests green |
 | 2.1 | SourceFrontend | Single frontend boundary exists | Done | Boundary test remains green |
@@ -60,17 +61,17 @@ not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
 | 4.6 | Fixture comparisons | Key fixtures prove equivalent or intended behavior | Partial | Focused fixtures green |
 | 5.1 | LoweringInput | Lowering reads TSTS program/facts/checker | Done | Compile/test proof |
 | 5.2 | Module/declaration plans | Declarations lower as AST/fact-backed plans | In progress | C# declaration render tests |
-| 5.3 | Type plans | Types render from source plans/facts | In progress | Numeric/external/interface tests |
-| 5.4 | Expression/statement plans | Expressions/statements lower through plan builders | In progress | New renderers committed and tested |
+| 5.3 | Type plans | Types render from source plans/facts | Expanded | Source primitive use-sites and alias targets covered; full emitted fixtures still required |
+| 5.4 | Expression/statement plans | Expressions/statements lower through plan builders | Expanded | New lowering and renderer tests green |
 | 5.5 | Call plans | Calls use TSTS signatures, not local overload scoring | In progress | Generic alias emission now fact-backed; remaining overload fixtures pending |
 | 5.6 | Member/index plans | Member/index access use checker answers and source facts | In progress | Length-property emission now fact-backed; remaining member/index fixtures pending |
-| 5.7 | Narrowing plans | Use-site type comes from TSTS checker facade | In progress | No eager source narrowing owner remains |
+| 5.7 | Narrowing plans | Use-site type comes from TSTS checker facade | Expanded | Product lowering uses TSTS use-site/contextual queries; final search after run-all still required |
 | 5.8 | Synthetic declarations | Synthetic declarations are backend-neutral plan artifacts | Partial | Audit and fixture proof |
 | 5.9 | Capability validation | Capability checks use source-feature terms | Partial | Capability tests green |
 | 6.1 | Module graph/diagnostics | TSTS owns semantic module graph | Partial | Type-root/package tests green |
 | 6.2 | Declarations/exports | Exports/declarations use TSTS graph/checker | In progress | Declaration/export fixtures green |
-| 6.3 | Type refs/numerics | Type references use facts/checker | Pending emitted proof | Emitted proof |
-| 6.4 | Expressions/literals | Expression plans cover required source forms | In progress | Plan/render tests green |
+| 6.3 | Type refs/numerics | Type references use facts/checker | Expanded | Lowering tests prove `int`/`char`; emitted fixture proof still required |
+| 6.4 | Expressions/literals | Expression plans cover required source forms | Expanded | Char literals and array spread renderer tests green |
 | 6.5 | Calls/overloads | Overload/generic resolution delegated to TSTS | Partial | Generic-function-value failures fixed |
 | 6.6 | Member/index access | Member/index lookup delegated to TSTS | Partial | Fixtures green |
 | 6.7 | Control-flow/narrowing | No eager branch narrowing engine remains | Partial | Search audit and fixtures |
@@ -81,14 +82,14 @@ not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
 | 7.2 | Delete old graph extraction | No product import/export semantic walkers | Pending final search | Final search gate |
 | 7.3 | Delete old symbol IDs | No target-rendered source IDs | Pending audit | Search and dependency audit |
 | 7.4 | Delete old IR builder | No parallel source IR tree as product source of truth | In progress | Build breaks repaired via lowering plans |
-| 7.5 | Delete old inference/binding | No local checker/generic/call inference owner | Improved | Module-wide generic alias inference deleted; search and focused tests still required |
-| 7.6 | Delete eager narrowing | No old narrowing engine in product path | In progress | Search and focused tests |
-| 7.7 | Delete legacy manifests | One metadata schema only | Pending audit | Search `legacy`, `v1`, `v2`, normalizers |
+| 7.5 | Delete old inference/binding | No local checker/generic/call inference owner | Expanded | Standalone generic-function helper and helper tests deleted; source extension is single fact owner |
+| 7.6 | Delete eager narrowing | No old narrowing engine in product path | Expanded | Lowering uses TSTS `getNarrowedTypeAtLocation`; old-path search clean |
+| 7.7 | Delete legacy manifests | One metadata schema only | Expanded | `AliasMetadataV1` removed; no V1/V2 bridge names remain in frontend/emitter product code |
 | 7.8 | Delete backend leakage | No frontend CLR/C#/System facts | Clean in product search | Reconfirm in final audit before run-all |
 | 8.1 | Frontend focused tests | Focused repaired suites green | Green for AST-emission cleanup | 107 passing / 0 failing focused bundle |
-| 8.2 | Frontend full tests | Frontend package tests green | Done at checkpoint | `426 passing / 0 failing`; re-run after lowering repairs |
+| 8.2 | Frontend full tests | Frontend package tests green | Green after current sweep | `417 passing / 0 failing` |
 | 8.3 | TSTS package build | Vendored TSTS compiles | Done for last checkpoint | Re-run after TSTS edits |
-| 8.4 | C# emitter tests | Plan renderer tests green | Pending | Emitter/unit suite |
+| 8.4 | C# emitter tests | Plan renderer tests green | Green after current sweep | `2 passing / 0 failing` |
 | 8.5 | Full run-all | Complete Tsonic gate green | Pending | `./test/scripts/run-all.sh` |
 | 8.6 | Downstreams | Proof pudding, tsumo, clickmeter, first-party consumers green | Pending | Run after run-all |
 | 8.7 | Branch hygiene | No uncommitted/unmerged local work | Pending | Hygiene script and clean status |
@@ -132,19 +133,36 @@ export function local(value: string): void {
 
 The local `Error` receives no `error-constructor` fact. The string `.length` receives a `length-property` fact because the TSTS checker proves the receiver type is `string`.
 
-## Active Lowering/Renderer Failure Themes
+## Prior Lowering/Renderer Failure Themes
 
-These are the current blockers from the first full `run-all` attempt after frontend validation passed.
+These were the blockers from the first full `run-all` attempt after frontend validation passed. The current sweep fixed the source-primitive/contextual-rendering subset and still requires full emitted fixture proof.
 
-| Theme | User-code example | Current bad C# shape | Required fix |
+| Theme | User-code example | Previous bad C# shape | Current status |
 | --- | --- | --- | --- |
-| Explicit primitive aliases erased inside generic type nodes | `function createIntBox(value: int): Box<int> { return { value }; }` | `Box<number>` and `number` appears as a C# type | Preserve explicit source type-node text/facts for `int`, `long`, etc.; render arbitrary generics recursively |
-| Interface type members dropped | `interface Box<T> { value: T }` | `public interface Box<T> { }`, then `box.value` fails | Lower `PropertySignature`/`MethodSignature` as declaration plans, not only class declarations |
-| Intrinsics emitted as ordinary calls | `const x = defaultof<int>();` | `defaultof<int>()` remains in generated C# | Carry `intrinsicSemanticsFact` into lowering plans and render `default(T)`, `is`, `as`, `nameof`, etc. |
-| Destructuring names not declared | `const [first, second] = values;` | later generated code references `first`/`second` without declarations | Lower binding patterns into deterministic temp plus element/member declarations |
-| Contextual callback params degrade to `object` | `values.map(x => x + 1)` under a typed delegate context | lambda parameter emits as `object x`, causing delegate conversion errors | Query TSTS contextual/checker answers for unannotated lambda/function parameters |
-| Unsupported source expression nodes leak to renderer | `void f();`, `function* g(){ yield 1; }` | `KindVoidExpression` / `KindYieldExpression` unsupported in expression context | Add explicit lowering/rendering plans for required expression nodes or deterministic diagnostics |
-| External source-package names lose qualified target identity | `new DefaultHttpContext()` from an external source package | bare `DefaultHttpContext` missing namespace/import in generated C# | Use canonical external binding/source-package facts in lowering/rendering; no name guessing |
+| Explicit primitive aliases erased inside generic type nodes | `function createIntBox(value: int): Box<int> { return { value }; }` | `Box<number>` and `number` appears as a C# type | Lowering now preserves source primitive facts on declarations, identifiers, call returns, contextual literals, and alias targets; full fixture proof pending |
+| Interface type members dropped | `interface Box<T> { value: T }` | `public interface Box<T> { }`, then `box.value` fails | Interface member lowering exists; full fixture proof pending |
+| Intrinsics emitted as ordinary calls | `const x = defaultof<int>();` | `defaultof<int>()` remains in generated C# | Intrinsic fact rendering exists; full fixture proof pending |
+| Destructuring names not declared | `const [first, second] = values;` | later generated code references `first`/`second` without declarations | Binding-pattern lowering exists; full fixture proof pending |
+| Contextual callback params degrade to `object` | `values.map(x => x + 1)` under a typed delegate context | lambda parameter emits as `object x`, causing delegate conversion errors | TSTS contextual callable alias expansion covered by focused lowering tests; full fixture proof pending |
+| Unsupported source expression nodes leak to renderer | `void f();`, `function* g(){ yield 1; }` | `KindVoidExpression` / `KindYieldExpression` unsupported in expression context | `void` and `yield` paths exist; final run-all must prove required fixture coverage |
+| External source-package names lose qualified target identity | `new DefaultHttpContext()` from an external source package | bare `DefaultHttpContext` missing namespace/import in generated C# | Pending full source-package/downstream proof |
+
+Concrete examples now covered by focused tests:
+
+```ts
+import type { char, int } from "@tsonic/core/types.js";
+
+type Op = (value: int) => int;
+
+export const ops: Op[] = [(value) => value];
+
+export function read(letter: char): char[] {
+  const same = letter === "A";
+  return ["x", letter];
+}
+```
+
+The lowering tree now carries `int32` into the contextual arrow parameter/return and carries `char` into both `"A"` and `"x"` string literals before the C# renderer runs.
 
 ## Reporting Cadence
 

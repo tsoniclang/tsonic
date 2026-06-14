@@ -113,6 +113,7 @@ export type LoweringTypeRefPlan =
       readonly kind: "named";
       readonly name: string;
       readonly typeArguments: readonly LoweringTypeRefPlan[];
+      readonly aliasTarget?: LoweringTypeRefPlan;
       readonly sourceText?: string;
     }
   | {
@@ -322,7 +323,13 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly contextualTypePlan?: LoweringTypeRefPlan;
   readonly intrinsicKind?: IntrinsicSemanticsFact["kind"];
   readonly passingMode?: ParameterPassingMode;
-  readonly literalKind?: "string" | "number" | "bigint" | "boolean" | "null" | "undefined";
+  readonly literalKind?:
+    | "string"
+    | "number"
+    | "bigint"
+    | "boolean"
+    | "null"
+    | "undefined";
   readonly literalText?: string;
   readonly returnType?: LoweringTypeRefPlan;
   readonly binaryOperator?: LoweringBinaryOperator;
@@ -430,26 +437,27 @@ export type LoweringSyntheticDeclarationPlan =
     readonly sourceFeature: LoweringFeature;
   };
 
-export type LoweringModulePlan<Target extends BackendTargetId = BackendTargetId> =
-  {
-    readonly kind: "lowering-module";
-    readonly backendTargetId?: Target;
-    readonly identity: LoweringModuleIdentity;
-    readonly sourceFile: TstsSourceFile;
-    readonly sourceModule: ExtensionSourceModule;
-    readonly imports: readonly ExtensionModuleImport[];
-    readonly exports: readonly ExtensionExportBinding[];
-    readonly declarations: readonly LoweringDeclarationPlan[];
-    readonly topLevelStatements: readonly LoweringStatementPlan[];
-    readonly types: readonly LoweringTypePlan[];
-    readonly statements: readonly LoweringStatementPlan[];
-    readonly expressions: readonly LoweringExpressionPlan[];
-    readonly calls: readonly LoweringCallPlan[];
-    readonly members: readonly LoweringMemberAccessPlan[];
-    readonly indexes: readonly LoweringIndexAccessPlan[];
-    readonly narrowings: readonly LoweringNarrowingPlan[];
-    readonly syntheticDeclarations: readonly LoweringSyntheticDeclarationPlan[];
-  };
+export type LoweringModulePlan<
+  Target extends BackendTargetId = BackendTargetId,
+> = {
+  readonly kind: "lowering-module";
+  readonly backendTargetId?: Target;
+  readonly identity: LoweringModuleIdentity;
+  readonly sourceFile: TstsSourceFile;
+  readonly sourceModule: ExtensionSourceModule;
+  readonly imports: readonly ExtensionModuleImport[];
+  readonly exports: readonly ExtensionExportBinding[];
+  readonly declarations: readonly LoweringDeclarationPlan[];
+  readonly topLevelStatements: readonly LoweringStatementPlan[];
+  readonly types: readonly LoweringTypePlan[];
+  readonly statements: readonly LoweringStatementPlan[];
+  readonly expressions: readonly LoweringExpressionPlan[];
+  readonly calls: readonly LoweringCallPlan[];
+  readonly members: readonly LoweringMemberAccessPlan[];
+  readonly indexes: readonly LoweringIndexAccessPlan[];
+  readonly narrowings: readonly LoweringNarrowingPlan[];
+  readonly syntheticDeclarations: readonly LoweringSyntheticDeclarationPlan[];
+};
 
 export type LoweringPipelineOptions<
   Target extends BackendTargetId = BackendTargetId,

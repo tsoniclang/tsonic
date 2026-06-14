@@ -9,8 +9,12 @@ import { sanitizeIdentifier } from "./names.js";
 import { renderStatement } from "./statements.js";
 import { renderCSharpType } from "./types.js";
 
-type LoweringBinaryOperator = NonNullable<LoweringExpressionPlan["binaryOperator"]>;
-type LoweringUnaryOperator = NonNullable<LoweringExpressionPlan["unaryOperator"]>;
+type LoweringBinaryOperator = NonNullable<
+  LoweringExpressionPlan["binaryOperator"]
+>;
+type LoweringUnaryOperator = NonNullable<
+  LoweringExpressionPlan["unaryOperator"]
+>;
 
 const escapeString = (value: string): string =>
   value
@@ -18,6 +22,41 @@ const escapeString = (value: string): string =>
     .replace(/"/g, '\\"')
     .replace(/\r/g, "\\r")
     .replace(/\n/g, "\\n");
+
+const escapeChar = (
+  value: string,
+  context: RenderContext,
+  plan: LoweringExpressionPlan
+): string => {
+  if (value.length !== 1) {
+    context.reportUnsupported(
+      "char literal",
+      plan.sourceKindName,
+      plan.sourceText
+    );
+    return "'\\0'";
+  }
+  switch (value) {
+    case "\\":
+      return "'\\\\'";
+    case "'":
+      return "'\\''";
+    case "\r":
+      return "'\\r'";
+    case "\n":
+      return "'\\n'";
+    case "\t":
+      return "'\\t'";
+    case "\0":
+      return "'\\0'";
+    default: {
+      const codeUnit = value.charCodeAt(0);
+      return codeUnit < 0x20 || codeUnit === 0x7f
+        ? `'\\u${codeUnit.toString(16).padStart(4, "0")}'`
+        : `'${value}'`;
+    }
+  }
+};
 
 const escapeInterpolatedStringText = (value: string): string =>
   escapeString(value).replace(/\{/g, "{{").replace(/\}/g, "}}");
@@ -70,7 +109,8 @@ const binaryOperatorMap: ReadonlyMap<LoweringBinaryOperator, string> = new Map([
 
 const renderOperator = (
   operator: LoweringBinaryOperator | undefined
-): string | undefined => (operator ? binaryOperatorMap.get(operator) : undefined);
+): string | undefined =>
+  operator ? binaryOperatorMap.get(operator) : undefined;
 
 const renderUnaryOperator = (
   operator: LoweringUnaryOperator | undefined,
@@ -91,7 +131,11 @@ const renderUnaryOperator = (
     case "decrement":
       return "--";
     default:
-      context.reportUnsupported("unary operator", plan.sourceKindName, plan.sourceText);
+      context.reportUnsupported(
+        "unary operator",
+        plan.sourceKindName,
+        plan.sourceText
+      );
       return "";
   }
 };
@@ -138,6 +182,65 @@ const arrayLiteralElementType = (
       : "object?";
   }
   return undefined;
+};
+
+const isCharType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  type?.kind === "source-primitive" && type.fact.kind === "char";
+
+const shouldRenderStringLiteralAsChar = (
+  plan: LoweringExpressionPlan
+): boolean => isCharType(plan.contextualTypePlan) || isCharType(plan.type);
+
+const renderArraySegment = (
+  elementType: string,
+  elements: readonly LoweringExpressionPlan[],
+  context: RenderContext
+): string =>
+  elements.length === 0
+    ? `global::System.Array.Empty<${elementType}>()`
+    : `new ${elementType}[] { ${elements
+        .map((element) => renderExpression(element, context))
+        .join(", ")} }`;
+
+const renderArrayLiteral = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string => {
+  const elementType = arrayLiteralElementType(plan, context);
+  if (!plan.elements.some((element) => element.expressionKind === "spread")) {
+    const constructor = elementType ? `new ${elementType}[]` : "new[]";
+    return `${constructor} { ${plan.elements
+      .map((element) => renderExpression(element, context))
+      .join(", ")} }`;
+  }
+
+  const segmentType = elementType ?? "object?";
+  const segments: string[] = [];
+  let currentElements: LoweringExpressionPlan[] = [];
+  const flushCurrentElements = (): void => {
+    if (currentElements.length === 0) return;
+    segments.push(renderArraySegment(segmentType, currentElements, context));
+    currentElements = [];
+  };
+
+  for (const element of plan.elements) {
+    if (element.expressionKind === "spread") {
+      flushCurrentElements();
+      segments.push(renderExpression(element.expression, context));
+    } else {
+      currentElements.push(element);
+    }
+  }
+  flushCurrentElements();
+
+  const firstSegment =
+    segments.shift() ?? `global::System.Array.Empty<${segmentType}>()`;
+  const concatenated = segments.reduce(
+    (current, segment) =>
+      `global::System.Linq.Enumerable.Concat(${current}, ${segment})`,
+    firstSegment
+  );
+  return `global::System.Linq.Enumerable.ToArray(${concatenated})`;
 };
 
 const objectLiteralTargetType = (
@@ -245,12 +348,16 @@ const renderIntrinsicCall = (
     case undefined:
       return undefined;
     case "defaultof": {
-      const type = firstRenderedTypeArgument(plan, context, "defaultof intrinsic");
+      const type = firstRenderedTypeArgument(
+        plan,
+        context,
+        "defaultof intrinsic"
+      );
       return type ? `default(${type})` : "";
     }
     case "nameof": {
       const argument = plan.arguments[0];
-      return argument ? `nameof(${renderExpression(argument, context)})` : "\"\"";
+      return argument ? `nameof(${renderExpression(argument, context)})` : '""';
     }
     case "sizeof": {
       const type = firstRenderedTypeArgument(plan, context, "sizeof intrinsic");
@@ -262,17 +369,29 @@ const renderIntrinsicCall = (
       return type ? `${value} is ${type}` : "";
     }
     case "trycast": {
-      const type = firstRenderedTypeArgument(plan, context, "trycast intrinsic");
+      const type = firstRenderedTypeArgument(
+        plan,
+        context,
+        "trycast intrinsic"
+      );
       const value = renderExpression(plan.arguments[0], context);
       return type ? `${value} as ${type}` : "";
     }
     case "asinterface": {
-      const type = firstRenderedTypeArgument(plan, context, "asinterface intrinsic");
+      const type = firstRenderedTypeArgument(
+        plan,
+        context,
+        "asinterface intrinsic"
+      );
       const value = renderExpression(plan.arguments[0], context);
       return type ? `((${type})(${value}))` : "";
     }
     case "stackalloc": {
-      const type = firstRenderedTypeArgument(plan, context, "stackalloc intrinsic");
+      const type = firstRenderedTypeArgument(
+        plan,
+        context,
+        "stackalloc intrinsic"
+      );
       const length = renderExpression(plan.arguments[0], context);
       return type ? `stackalloc ${type}[${length}]` : "";
     }
@@ -290,11 +409,10 @@ export const renderExpression = (
   if (!plan) return "";
 
   switch (plan.expressionKind) {
-    case "identifier":
-      {
-        const rawName = plan.literalText ?? plan.name ?? "value";
-        return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
-      }
+    case "identifier": {
+      const rawName = plan.literalText ?? plan.name ?? "value";
+      return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
+    }
     case "this":
       return "this";
     case "super":
@@ -302,11 +420,17 @@ export const renderExpression = (
     case "literal":
       switch (plan.literalKind) {
         case "string":
-          return `"${escapeString(plan.literalText ?? "")}"`;
+          return shouldRenderStringLiteralAsChar(plan)
+            ? escapeChar(plan.literalText ?? "", context, plan)
+            : `"${escapeString(plan.literalText ?? "")}"`;
         case "number":
           return plan.literalText ?? "0";
         case "bigint":
-          context.reportUnsupported("bigint literal", plan.sourceKindName, plan.sourceText);
+          context.reportUnsupported(
+            "bigint literal",
+            plan.sourceKindName,
+            plan.sourceText
+          );
           return "";
         case "boolean":
           return plan.literalText === "true" ? "true" : "false";
@@ -331,10 +455,18 @@ export const renderExpression = (
     case "await":
       return `await ${renderExpression(plan.expression, context)}`;
     case "yield":
-      context.reportUnsupported("yield expression outside statement", plan.sourceKindName, plan.sourceText);
+      context.reportUnsupported(
+        "yield expression outside statement",
+        plan.sourceKindName,
+        plan.sourceText
+      );
       return "";
     case "spread":
-      context.reportUnsupported("spread expression", plan.sourceKindName, plan.sourceText);
+      context.reportUnsupported(
+        "spread expression",
+        plan.sourceKindName,
+        plan.sourceText
+      );
       return "";
     case "binary": {
       const operator = renderOperator(plan.binaryOperator);
@@ -355,7 +487,8 @@ export const renderExpression = (
         return "global::System.Console.WriteLine";
       }
       const member = sanitizeIdentifier(rawMember);
-      const renderedMember = plan.semantic === "length-property" ? "Length" : member;
+      const renderedMember =
+        plan.semantic === "length-property" ? "Length" : member;
       return `${renderExpression(plan.expression, context)}.${renderedMember}`;
     }
     case "element-access":
@@ -381,22 +514,15 @@ export const renderExpression = (
     case "function-expression":
       return renderLambda(plan, context);
     case "array-literal":
-      {
-        const elementType = arrayLiteralElementType(plan, context);
-        const constructor = elementType ? `new ${elementType}[]` : "new[]";
-        return `${constructor} { ${plan.elements
-        .map((element) => renderExpression(element, context))
-        .join(", ")} }`;
-      }
-    case "object-literal":
-      {
-        const targetType = objectLiteralTargetType(plan, context);
-        const constructor = targetType ? `new ${targetType}` : "new";
-        return `${constructor} { ${plan.properties
+      return renderArrayLiteral(plan, context);
+    case "object-literal": {
+      const targetType = objectLiteralTargetType(plan, context);
+      const constructor = targetType ? `new ${targetType}` : "new";
+      return `${constructor} { ${plan.properties
         .map((property) => renderObjectProperty(property, context))
         .filter((rendered): rendered is string => rendered !== undefined)
         .join(", ")} }`;
-      }
+    }
     case "conditional":
       return `${renderConditionExpression(plan.condition, context)} ? ${renderExpression(
         plan.whenTrue,
@@ -407,7 +533,9 @@ export const renderExpression = (
   }
 };
 
-const isBooleanConditionType = (type: LoweringTypeRefPlan | undefined): boolean =>
+const isBooleanConditionType = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
   type === undefined ||
   (type.kind === "intrinsic" && type.name === "boolean") ||
   (type.kind === "source-primitive" && type.fact.kind === "bool") ||
@@ -422,10 +550,13 @@ const needsNullishConditionCheck = (
           (member.kind === "intrinsic" &&
             (member.name === "undefined" || member.name === "null")) ||
           (member.kind === "literal" &&
-            (member.literalKind === "undefined" || member.literalKind === "null"))
+            (member.literalKind === "undefined" ||
+              member.literalKind === "null"))
       )
     : type?.kind === "intrinsic" &&
-      (type.name === "any" || type.name === "unknown" || type.name === "object");
+      (type.name === "any" ||
+        type.name === "unknown" ||
+        type.name === "object");
 
 export const renderConditionExpression = (
   plan: LoweringExpressionPlan | undefined,
@@ -434,5 +565,7 @@ export const renderConditionExpression = (
   if (!plan) return "";
   const rendered = renderExpression(plan, context);
   if (isBooleanConditionType(plan.type)) return rendered;
-  return needsNullishConditionCheck(plan.type) ? `${rendered} != null` : rendered;
+  return needsNullishConditionCheck(plan.type)
+    ? `${rendered} != null`
+    : rendered;
 };
