@@ -70,14 +70,24 @@ export type ExpressionSemanticsFact = {
 export type SourceRuntimeOperationOwner =
   | "Array"
   | "Console"
+  | "DataView"
   | "Error"
+  | "Float32Array"
+  | "Float64Array"
   | "Function"
   | "Global"
+  | "Int16Array"
+  | "Int32Array"
+  | "Int8Array"
   | "JSON"
   | "Map"
   | "Object"
   | "RegExp"
-  | "String";
+  | "String"
+  | "Uint16Array"
+  | "Uint32Array"
+  | "Uint8Array"
+  | "Uint8ClampedArray";
 
 export type SourceRuntimeOperationDispatch =
   | "constructor"

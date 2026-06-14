@@ -58,6 +58,9 @@ const renderNamedType = (
   name: string,
   qualifiedRuntimeName?: string
 ): string =>
+  (qualifiedRuntimeName?.includes("::js._.")
+    ? knownNamedTypes.get(name)
+    : undefined) ??
   qualifiedRuntimeName ??
   knownNamedTypes.get(name) ??
   sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
@@ -384,6 +387,12 @@ export const renderCSharpType = (
     case "named": {
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
+      if (knownNamedTypes.has(type.name) || type.qualifiedRuntimeName) {
+        const name = renderNamedType(type.name, type.qualifiedRuntimeName);
+        return type.typeArguments.length === 0
+          ? name
+          : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+      }
       if (type.declarationKind === "type-alias" && !type.aliasTarget) {
         return "object?";
       }

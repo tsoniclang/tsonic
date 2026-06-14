@@ -104,6 +104,15 @@ const jsGlobalsSupport = `public static class Globals
 
     public static void clearTimeout(int id) { }
     public static void clearInterval(int id) { }
+    public static int length(object? value) => value switch
+    {
+        string text => text.Length,
+        System.Collections.ICollection collection => collection.Count,
+        System.Collections.IEnumerable enumerable => System.Linq.Enumerable.Count(System.Linq.Enumerable.Cast<object?>(enumerable)),
+        System.Delegate => 0,
+        null => 0,
+        _ => throw new InvalidOperationException("Value does not expose JavaScript length semantics.")
+    };
 }
 `;
 

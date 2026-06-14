@@ -1396,6 +1396,15 @@ const declarationSourceTypePlan = (
     : undefined;
 };
 
+const isFunctionLikeDeclaration = (node: TstsNode | undefined): boolean =>
+  node?.Kind === TstsSyntax.KindFunctionDeclaration ||
+  node?.Kind === TstsSyntax.KindMethodDeclaration ||
+  node?.Kind === TstsSyntax.KindConstructor ||
+  node?.Kind === TstsSyntax.KindGetAccessor ||
+  node?.Kind === TstsSyntax.KindSetAccessor ||
+  node?.Kind === TstsSyntax.KindArrowFunction ||
+  node?.Kind === TstsSyntax.KindFunctionExpression;
+
 const symbolDeclarationSourceTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -1406,6 +1415,13 @@ const symbolDeclarationSourceTypePlan = (
   const declaration =
     checker.getSymbolValueDeclaration(symbol) ??
     checker.getSymbolDeclarations(symbol)[0];
+  if (isFunctionLikeDeclaration(declaration)) {
+    return checkerTypePlan(
+      context,
+      sourceFileForNode(declaration, sourceFile),
+      checker.getTypeOfSymbolAtLocation(symbol, declaration)
+    );
+  }
   return declarationSourceTypePlan(context, sourceFile, declaration);
 };
 
@@ -1434,6 +1450,13 @@ const symbolStorageTypePlan = (
         checker.getNarrowedTypeAtLocation(variable.Initializer)
       )
     : undefined;
+  if (isFunctionLikeDeclaration(declaration)) {
+    return checkerTypePlan(
+      context,
+      declarationSourceFile,
+      checker.getTypeOfSymbolAtLocation(symbol, declaration)
+    );
+  }
   return (
     declarationSourceTypePlan(context, declarationSourceFile, declaration) ??
     initializerStorage ??
@@ -1495,6 +1518,46 @@ const expressionSourceTypePlan = (
   context: LoweringBuildContext
 ): LoweringTypeRefPlan | undefined => {
   const checker = context.checkerForSourceFile(sourceFile);
+  const sourceOperation = context.input.facts.get(
+    sourceRuntimeOperationFactKey,
+    node
+  );
+  if (sourceOperation?.dispatch === "property") {
+    if (
+      (sourceOperation.owner === "Array" ||
+        sourceOperation.owner === "Function" ||
+        sourceOperation.owner === "Uint8Array" ||
+        sourceOperation.owner === "Uint8ClampedArray" ||
+        sourceOperation.owner === "Int8Array" ||
+        sourceOperation.owner === "Uint16Array" ||
+        sourceOperation.owner === "Int16Array" ||
+        sourceOperation.owner === "Uint32Array" ||
+        sourceOperation.owner === "Int32Array" ||
+        sourceOperation.owner === "Float32Array" ||
+        sourceOperation.owner === "Float64Array") &&
+      sourceOperation.member === "length"
+    ) {
+      return intrinsicTypePlan("number");
+    }
+    if (
+      sourceOperation.owner === "String" &&
+      sourceOperation.member === "length"
+    ) {
+      return intrinsicTypePlan("number");
+    }
+    if (
+      sourceOperation.owner === "Object" &&
+      sourceOperation.member === "length"
+    ) {
+      return intrinsicTypePlan("number");
+    }
+    if (
+      sourceOperation.owner === "Error" &&
+      sourceOperation.member === "message"
+    ) {
+      return intrinsicTypePlan("string");
+    }
+  }
 
   const explicitType = declarationSourceTypePlan(context, sourceFile, node);
   if (explicitType) return explicitType;
@@ -1520,7 +1583,7 @@ const expressionSourceTypePlan = (
       return checkerTypePlan(
         context,
         sourceFile,
-        checker.getNarrowedTypeAtLocation(node)
+        checker.getNarrowedTypeAtLocation(node) ?? checker.getTypeAtLocation(node)
       );
     case TstsSyntax.KindCallExpression:
     case TstsSyntax.KindNewExpression:
@@ -2135,17 +2198,24 @@ const expressionPlan = (
         ),
       };
     case TstsSyntax.KindPropertyAccessExpression:
-      {
-        const name = TstsSyntax.Node_Name(node);
-        return {
+    {
+      const name = TstsSyntax.Node_Name(node);
+      const receiverNode = TstsSyntax.Node_Expression(node);
+      const receiverType = receiverNode
+        ? checker.getNarrowedTypeAtLocation(receiverNode) ??
+          checker.getTypeAtLocation(receiverNode)
+        : undefined;
+      return {
         ...base,
         expressionKind: "property-access",
         expression: expressionPlan(
           sourceFile,
-          TstsSyntax.Node_Expression(node),
+          receiverNode,
           context
         ),
-        receiverTypePlan: receiverOwnerTypePlan(sourceFile, node, context),
+        receiverTypePlan:
+          checkerTypePlan(context, sourceFile, receiverType) ??
+          receiverOwnerTypePlan(sourceFile, node, context),
         storageTypePlan: symbolStorageTypePlan(
           context,
           sourceFile,
@@ -2155,13 +2225,13 @@ const expressionPlan = (
           nodeTokenText(name) ??
           nodeName(sourceFile, node),
       };
-      }
+    }
     case TstsSyntax.KindElementAccessExpression: {
       const element = TstsSyntax.AsElementAccessExpression(node);
       if (!element) return unsupportedExpression(sourceFile, node, context);
-      const receiverType = checker.getNarrowedTypeAtLocation(
-        element.Expression
-      );
+      const receiverType =
+        checker.getNarrowedTypeAtLocation(element.Expression) ??
+        checker.getTypeAtLocation(element.Expression);
       return {
         ...base,
         expressionKind: "element-access",

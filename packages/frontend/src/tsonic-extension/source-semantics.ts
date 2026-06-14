@@ -34,6 +34,7 @@ import type {
   MarkerApiSemanticsFact,
   ParameterPassingFact,
   ParameterPassingMode,
+  SourceRuntimeOperationOwner,
   SourceRuntimeOperationFact,
   SourceTypeSemanticsFact,
 } from "../source-frontend/source-facts.js";
@@ -460,12 +461,123 @@ const objectStaticRuntimeMembers = new Set([
 
 const jsonStaticRuntimeMembers = new Set(["parse", "stringify"]);
 const mapReceiverRuntimeMembers = new Set(["delete", "get", "has", "set"]);
+const typedArrayRuntimeConstructors = [
+  "Uint8Array",
+  "Uint8ClampedArray",
+  "Int8Array",
+  "Uint16Array",
+  "Int16Array",
+  "Uint32Array",
+  "Int32Array",
+  "Float32Array",
+  "Float64Array",
+] as const;
+const typedArrayRuntimeConstructorSet: ReadonlySet<SourceRuntimeOperationOwner> =
+  new Set(typedArrayRuntimeConstructors);
+const ambientRuntimeConstructors: ReadonlyMap<
+  string,
+  SourceRuntimeOperationOwner
+> = new Map([
+  ["DataView", "DataView"],
+  ["Error", "Error"],
+  ["Float32Array", "Float32Array"],
+  ["Float64Array", "Float64Array"],
+  ["Int16Array", "Int16Array"],
+  ["Int32Array", "Int32Array"],
+  ["Int8Array", "Int8Array"],
+  ["Map", "Map"],
+  ["RegExp", "RegExp"],
+  ["Uint16Array", "Uint16Array"],
+  ["Uint32Array", "Uint32Array"],
+  ["Uint8Array", "Uint8Array"],
+  ["Uint8ClampedArray", "Uint8ClampedArray"],
+]);
 const globalRuntimeMembers = new Set([
   "clearInterval",
   "clearTimeout",
   "setInterval",
   "setTimeout",
 ]);
+
+const runtimeConstructorOperationForIdentifier = (
+  context: CheckedContext,
+  node: TstsNode | undefined,
+  sourceDiagnosticFileNames?: ReadonlySet<string>
+): SourceRuntimeOperationFact | undefined => {
+  const memberName = getTstsIdentifierText(node);
+  if (!memberName) return undefined;
+  const owner = ambientRuntimeConstructors.get(memberName);
+  return owner &&
+    isAmbientGlobalIdentifier(
+      context,
+      node,
+      memberName,
+      sourceDiagnosticFileNames
+    )
+    ? { owner, member: "constructor", dispatch: "constructor" }
+    : undefined;
+};
+
+const typeRuntimeOwnerName = (
+  context: CheckedContext,
+  type: TstsType | undefined
+): SourceRuntimeOperationOwner | undefined => {
+  const name =
+    context.checker.getTypeSymbolName(type) ??
+    context.checker.getTypeAliasSymbolName(type);
+  return name && ambientRuntimeConstructors.has(name)
+    ? ambientRuntimeConstructors.get(name)
+    : undefined;
+};
+
+const uniqueTypedArrayRuntimeOwner = (
+  context: CheckedContext,
+  type: TstsType | undefined
+): SourceRuntimeOperationOwner | undefined => {
+  const members = context.checker.getNonNullishUnionMembers(type);
+  if (members) {
+    const memberOwners = members.map((member) =>
+      typeRuntimeOwnerName(context, member)
+    );
+    if (
+      memberOwners.some(
+        (owner) => !owner || !typedArrayRuntimeConstructorSet.has(owner)
+      )
+    ) {
+      return undefined;
+    }
+    const owners = new Set(memberOwners);
+    return owners.size === 1 ? [...owners][0] : undefined;
+  }
+  const owner = typeRuntimeOwnerName(context, type);
+  const owners = new Set(
+    owner && typedArrayRuntimeConstructorSet.has(owner) ? [owner] : []
+  );
+  return owners.size === 1 ? [...owners][0] : undefined;
+};
+
+const isLengthCarrierType = (
+  context: CheckedContext,
+  type: TstsType | undefined
+): boolean =>
+  type !== undefined &&
+  (context.checker.isStringLikeType(type) ||
+    context.checker.isArrayType(type) ||
+    context.checker.isTupleType(type) ||
+    uniqueTypedArrayRuntimeOwner(context, type) !== undefined ||
+    context.checker.getCallSignatures(type).length > 0);
+
+const isLengthCarrierUnionType = (
+  context: CheckedContext,
+  type: TstsType | undefined
+): boolean => {
+  const members = context.checker.getNonNullishUnionMembers(type);
+  return (
+    members !== undefined &&
+    members.length > 1 &&
+    members.every((member) => isLengthCarrierType(context, member))
+  );
+};
 
 const sourceRuntimeOperation = (
   context: CheckedContext,
@@ -483,7 +595,9 @@ const sourceRuntimeOperation = (
     if (computedName === "symbol-to-string-tag") {
       return { owner: "Object", member: "toStringTag", dispatch: "property" };
     }
-    const receiverType = context.checker.getNarrowedTypeAtLocation(receiver);
+    const receiverType =
+      context.checker.getNarrowedTypeAtLocation(receiver) ??
+      context.checker.getTypeAtLocation(receiver);
     if (receiverType && context.checker.isStringLikeType(receiverType)) {
       return { owner: "String", member: "charAt", dispatch: "index" };
     }
@@ -499,43 +613,20 @@ const sourceRuntimeOperation = (
 
   if (node.Kind === TstsSyntax.KindNewExpression) {
     const expression = TstsSyntax.Node_Expression(node);
-    if (
-      isAmbientGlobalIdentifier(
-        context,
-        expression,
-        "Error",
-        sourceDiagnosticFileNames
-      )
-    ) {
-      return { owner: "Error", member: "constructor", dispatch: "constructor" };
-    }
-    if (
-      isAmbientGlobalIdentifier(
-        context,
-        expression,
-        "RegExp",
-        sourceDiagnosticFileNames
-      )
-    ) {
-      return {
-        owner: "RegExp",
-        member: "constructor",
-        dispatch: "constructor",
-      };
-    }
-    if (
-      isAmbientGlobalIdentifier(
-        context,
-        expression,
-        "Map",
-        sourceDiagnosticFileNames
-      )
-    ) {
-      return { owner: "Map", member: "constructor", dispatch: "constructor" };
-    }
+    return runtimeConstructorOperationForIdentifier(
+      context,
+      expression,
+      sourceDiagnosticFileNames
+    );
   }
 
   if (node.Kind === TstsSyntax.KindIdentifier) {
+    const constructorOperation = runtimeConstructorOperationForIdentifier(
+      context,
+      node,
+      sourceDiagnosticFileNames
+    );
+    if (constructorOperation) return constructorOperation;
     const memberName = getTstsIdentifierText(node);
     if (!memberName) return undefined;
     if (
@@ -628,7 +719,9 @@ const sourceRuntimeOperation = (
     return { owner: "JSON", member: memberName, dispatch: "static-call" };
   }
 
-  const receiverType = context.checker.getNarrowedTypeAtLocation(receiver);
+  const receiverType =
+    context.checker.getNarrowedTypeAtLocation(receiver) ??
+    context.checker.getTypeAtLocation(receiver);
   if (memberName === "length") {
     if (receiverType && context.checker.isStringLikeType(receiverType)) {
       return { owner: "String", member: "length", dispatch: "property" };
@@ -639,6 +732,17 @@ const sourceRuntimeOperation = (
         context.checker.isTupleType(receiverType))
     ) {
       return { owner: "Array", member: "length", dispatch: "property" };
+    }
+    const typedArrayOwner = uniqueTypedArrayRuntimeOwner(context, receiverType);
+    if (typedArrayOwner) {
+      return {
+        owner: typedArrayOwner,
+        member: "length",
+        dispatch: "property",
+      };
+    }
+    if (isLengthCarrierUnionType(context, receiverType)) {
+      return { owner: "Object", member: "length", dispatch: "property" };
     }
     if (context.checker.getCallSignatures(receiverType).length > 0) {
       return { owner: "Function", member: "length", dispatch: "property" };
@@ -814,12 +918,39 @@ const parameterHasCheckerProvenType = (
   const symbol = symbolForName(context, name);
   if (!symbol) return false;
   const type = context.checker.getTypeOfSymbolAtLocation(symbol, parameter);
-  return (
-    type !== undefined &&
-    !context.checker.isAnyOrUnknownType(type) &&
-    !context.checker.isVoidType(type) &&
-    !context.checker.isNeverType(type)
-  );
+  return isConcreteCallableParameterType(context, type);
+};
+
+const isConcreteCallableParameterType = (
+  context: CheckedContext,
+  type: TstsType | undefined
+): boolean =>
+  type !== undefined &&
+  !context.checker.isAnyOrUnknownType(type) &&
+  !context.checker.isVoidType(type) &&
+  !context.checker.isNeverType(type);
+
+const parameterHasContextualSignatureType = (
+  context: CheckedContext,
+  parameter: TstsNode
+): boolean => {
+  const functionLike = parameter.Parent;
+  if (!functionLike) return false;
+  const parameterIndex = getTstsParameters(functionLike).indexOf(parameter);
+  if (parameterIndex < 0) return false;
+  const contextualType = context.checker.getContextualType(functionLike);
+  const signatures = contextualType
+    ? context.checker.getCallSignatures(contextualType)
+    : [];
+  return signatures.some((signature) => {
+    const signatureParameter =
+      context.checker.getSignatureParameters(signature)[parameterIndex];
+    if (!signatureParameter) return false;
+    return isConcreteCallableParameterType(
+      context,
+      context.checker.getTypeOfSymbolAtLocation(signatureParameter, parameter)
+    );
+  });
 };
 
 const symbolForName = (
@@ -1439,8 +1570,9 @@ export const createTsonicSourceSemanticsExtension = (
         if (
           !parameterType &&
           !inCompileTimeMarkerExpression &&
-          !isMonomorphicCallableType(context, contextualType) &&
-          !parameterHasCheckerProvenType(context, node)
+          !contextualType &&
+          !parameterHasCheckerProvenType(context, node) &&
+          !parameterHasContextualSignatureType(context, node)
         ) {
           addSourceDiagnostic(
             context,

@@ -455,6 +455,14 @@ const renderExpressionWithUseSiteCast = (
   ) {
     return rendered;
   }
+  if (
+    useSiteTypeOverride &&
+    plan?.type &&
+    renderCSharpType(useSiteTypeOverride, context) ===
+      renderCSharpType(plan.type, context)
+  ) {
+    return rendered;
+  }
   const castType = useSiteCastType(useSiteTypeOverride ?? plan?.type, context);
   return castType ? `((${castType})(${rendered}))` : rendered;
 };
@@ -510,7 +518,11 @@ const renderCallArgument = (
   const rendered =
     argument.expressionKind === "spread"
       ? renderExpression(argument.expression, context)
-      : renderExpression(argument, context);
+      : renderExpressionWithUseSiteCast(
+          argument,
+          context,
+          argument.contextualTypePlan
+        );
   if (
     targetDelegateType &&
     !(
@@ -540,13 +552,23 @@ const renderSourceRuntimeName = (
     case "Console":
       return "global::js.ConsoleModule";
     case "Array":
+    case "DataView":
     case "Error":
+    case "Float32Array":
+    case "Float64Array":
     case "Global":
+    case "Int16Array":
+    case "Int32Array":
+    case "Int8Array":
     case "JSON":
     case "Map":
     case "Object":
     case "RegExp":
     case "String":
+    case "Uint16Array":
+    case "Uint32Array":
+    case "Uint8Array":
+    case "Uint8ClampedArray":
       return operation.owner === "Global"
         ? "global::js.Globals"
         : `global::js.${operation.owner}`;
@@ -583,15 +605,22 @@ const renderConsoleCall = (
 const renderFunctionLength = (
   plan: LoweringExpressionPlan | undefined
 ): string => {
-  const type = plan?.type?.kind === "function" ? plan.type : undefined;
-  if (!type) return "0";
-  const firstIgnoredParameter = type.parameters.findIndex(
-    (parameter) => parameter.optional || parameter.rest || parameter.initializer
-  );
-  const arity =
-    firstIgnoredParameter < 0 ? type.parameters.length : firstIgnoredParameter;
-  return String(arity);
+  void plan;
+  return "0";
 };
+
+const isTypedArrayRuntimeOwner = (
+  owner: SourceRuntimeOperation["owner"]
+): boolean =>
+  owner === "Uint8Array" ||
+  owner === "Uint8ClampedArray" ||
+  owner === "Int8Array" ||
+  owner === "Uint16Array" ||
+  owner === "Int16Array" ||
+  owner === "Uint32Array" ||
+  owner === "Int32Array" ||
+  owner === "Float32Array" ||
+  owner === "Float64Array";
 
 const nonNullishUnionTypes = (
   type: LoweringTypeRefPlan
@@ -1082,7 +1111,7 @@ const renderSourceRuntimeCall = (
   const operation = callee?.sourceOperation;
   if (!operation) return undefined;
   const args = plan.arguments.map((argument) =>
-    renderCallArgument(argument, context)
+    renderExpression(argument, context)
   );
 
   if (operation.dispatch === "receiver-call") {
@@ -1259,6 +1288,9 @@ export const renderExpression = (
           ? consoleMemberTarget(plan.sourceOperation.member)
           : `${renderSourceRuntimeName(plan.sourceOperation)}.${plan.sourceOperation.member}`;
       }
+      if (plan.sourceOperation?.dispatch === "constructor") {
+        return renderSourceRuntimeName(plan.sourceOperation);
+      }
       const defaultedName = context.currentDefaultedParameters?.get(rawName);
       if (defaultedName) return defaultedName;
       return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
@@ -1343,6 +1375,13 @@ export const renderExpression = (
       if (plan.binaryOperator?.endsWith("assign") === true) {
         return `${renderExpression(plan.left, context)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context)}`;
       }
+      if (
+        plan.binaryOperator === "add" &&
+        renderCSharpType(plan.type, context) === "string"
+      ) {
+        const stringType = { kind: "intrinsic", name: "string" } as const;
+        return `${renderExpressionWithUseSiteCast(plan.left, context, stringType)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context, stringType)}`;
+      }
       return `${renderExpressionWithUseSiteCast(plan.left, context)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context)}`;
     }
     case "prefix-unary":
@@ -1369,7 +1408,18 @@ export const renderExpression = (
               return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.Message`;
             }
             break;
+          case "Object":
+            if (operation.member === "length") {
+              return `global::js.Globals.length(${renderExpression(plan.expression, context)})`;
+            }
+            break;
           default:
+            if (
+              operation.member === "length" &&
+              isTypedArrayRuntimeOwner(operation.owner)
+            ) {
+              return `${castExpression(renderExpression(plan.expression, context), renderSourceRuntimeName(operation))}.Count`;
+            }
             break;
         }
       }
