@@ -5,7 +5,7 @@
 import { describe, it, before, after } from "mocha";
 import { strict as assert } from "assert";
 import { checkUnsupportedSupportType } from "./support-types.js";
-import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
+import type { TstsSourceSemanticView } from "../source-frontend/index.js";
 import {
   createTestHarness,
   getSupportTypes,
@@ -14,7 +14,7 @@ import {
 
 describe("Support Types", () => {
   let harness: TestHarness;
-  let sourceSemantics: TstsFrontendSourceSemanticView;
+  let sourceSemantics: TstsSourceSemanticView;
   let types: ReturnType<typeof getSupportTypes>;
 
   before(() => {

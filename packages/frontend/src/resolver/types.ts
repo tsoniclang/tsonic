@@ -10,7 +10,7 @@ export type ResolvedModule = {
   readonly originalSpecifier: string;
   // For external-surface imports: the source-facing namespace from the package subpath.
   readonly resolvedNamespace?: string;
-  // For module bindings mapped to target surface symbols.
-  readonly providerQualifiedName?: string;
-  readonly providerOwnerIdentity?: string;
+  // For module bindings mapped to external surface symbols.
+  readonly externalQualifiedName?: string;
+  readonly externalOwnerIdentity?: string;
 };

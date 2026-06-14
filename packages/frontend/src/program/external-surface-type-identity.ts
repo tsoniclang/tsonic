@@ -1,6 +1,3 @@
-const stripGlobalPrefix = (name: string): string =>
-  name.startsWith("global::") ? name.slice("global::".length) : name;
-
 const countTopLevelGenericArguments = (
   argumentList: string
 ): number | undefined => {
@@ -49,7 +46,7 @@ export const externalSurfaceTypeIdentityKey = (
   rawName: string,
   typeArgumentArity = 0
 ): string => {
-  const normalizedName = stripGlobalPrefix(rawName.trim());
+  const normalizedName = rawName.trim();
   const genericSurface = parseGenericSurfaceName(normalizedName);
   const identityName = genericSurface?.name ?? normalizedName;
   const genericMatch = /^(.*)`([0-9]+)$/.exec(identityName);

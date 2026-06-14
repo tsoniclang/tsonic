@@ -1,8 +1,3 @@
-/**
- * Module dependency graph builder
- * Main dispatcher - re-exports from graph/ subdirectory
- */
-
-export type { DependencyAnalysis } from "./graph/types.js";
-export { buildDependencyGraph } from "./graph/builder.js";
-export { checkCircularDependencies } from "./graph/circular.js";
+export type { ModuleDependencyGraphResult } from "./program/dependency-graph.js";
+export { buildModuleDependencyGraph } from "./program/dependency-graph.js";
+export type { WorkspaceGraphSnapshot } from "./program/workspace-fingerprint.js";

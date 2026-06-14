@@ -1,7 +1,6 @@
 /**
  * Import resolution with ESM rules enforcement
  *
- * Module bindings are passed explicitly.
  */
 
 import * as path from "node:path";
@@ -21,8 +20,6 @@ import {
   resolveSourcePackageImport,
   resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
-import { ExternalBindingsResolver } from "./external-bindings-resolver.js";
-import type { BindingRegistry } from "../program/bindings.js";
 import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
 import {
   CORE_PACKAGE_NAME,
@@ -35,8 +32,6 @@ import {
  * Options for import resolution
  */
 export type ResolveImportOptions = {
-  readonly externalResolver?: ExternalBindingsResolver;
-  readonly bindings?: BindingRegistry;
   readonly projectRoot?: string;
   readonly surface?: string;
   readonly backendTargetId?: string;
@@ -154,7 +149,7 @@ const resolveCoreDeclarationPath = (
  * @param importSpecifier - The import path to resolve
  * @param containingFile - The file containing the import
  * @param sourceRoot - The project source root
- * @param opts - Optional resolvers (externalResolver for external imports, bindings for module bindings)
+ * @param opts - Optional package/source-resolution context
  */
 export const resolveImport = (
   importSpecifier: string,
@@ -162,10 +157,7 @@ export const resolveImport = (
   sourceRoot: string,
   opts?: ResolveImportOptions
 ): Result<ResolvedModule, Diagnostic> => {
-  const bindings = opts?.bindings;
   const canonicalImportSpecifier = importSpecifier;
-
-  const externalResolver = opts?.externalResolver;
 
   if (isLocalImport(canonicalImportSpecifier)) {
     return resolveLocalImport(
@@ -190,8 +182,8 @@ export const resolveImport = (
       isLocal: false,
       resolutionKind: "phantomTypeOnly",
       originalSpecifier: importSpecifier,
-      providerQualifiedName: undefined,
-      providerOwnerIdentity: undefined,
+      externalQualifiedName: undefined,
+      externalOwnerIdentity: undefined,
     });
   }
 
@@ -298,48 +290,13 @@ export const resolveImport = (
     }
   }
 
-  // Use import-driven resolution for external imports (if resolver provided)
-  if (externalResolver) {
-    const externalResolution = externalResolver.resolve(
-      canonicalImportSpecifier
-    );
-    if (externalResolution.kind === "externalSurface") {
-      return ok({
-        resolvedPath: "", // No file path for external imports
-        isLocal: false,
-        resolutionKind: "externalSurface",
-        originalSpecifier: importSpecifier,
-        resolvedNamespace: externalResolution.resolvedNamespace,
-      });
-    }
-  }
-
-  // Check if this is a module binding (e.g., Node.js API)
-  // Only if bindings registry is provided
-  if (bindings) {
-    const binding = bindings.getBindingByKind(
-      canonicalImportSpecifier,
-      "module"
-    );
-    if (binding && binding.kind === "module") {
-      return ok({
-        resolvedPath: "", // No file path for bound modules
-        isLocal: false,
-        resolutionKind: "externalSurface",
-        originalSpecifier: importSpecifier,
-        providerQualifiedName: binding.type,
-        providerOwnerIdentity: binding.ownerIdentity,
-      });
-    }
-  }
-
   return error(
     createDiagnostic(
       "TSN1004",
       "error",
       `Unsupported module import: "${importSpecifier}"`,
       undefined,
-      "Tsonic only supports local imports (with .js or .ts), source-package imports, declaration-module aliases, and external bindings"
+      "Tsonic frontend only resolves local imports, source-package imports, declaration-module aliases, and installed package source/declarations. Backend target bindings are not frontend imports."
     )
   );
 };
@@ -446,36 +403,6 @@ export const resolveLocalImport = (
     resolvedPath,
     isLocal: true,
     resolutionKind: "local",
-    originalSpecifier: importSpecifier,
-  });
-};
-
-/**
- * Resolve external import (namespace validation)
- */
-export const resolveExternalSurfaceImport = (
-  importSpecifier: string
-): Result<ResolvedModule, Diagnostic> => {
-  // For external imports, we don't resolve to a file
-  // We just validate the format and return the namespace
-
-  // Check for invalid characters
-  if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(importSpecifier)) {
-    return error(
-      createDiagnostic(
-        "TSN4001",
-        "error",
-        `Invalid external namespace: "${importSpecifier}"`,
-        undefined,
-        "Must be a valid external namespace identifier"
-      )
-    );
-  }
-
-  return ok({
-    resolvedPath: "", // No file path for external imports
-    isLocal: false,
-    resolutionKind: "externalSurface",
     originalSpecifier: importSpecifier,
   });
 };

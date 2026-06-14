@@ -1,9 +1,0 @@
-import "./binding-resolution-cases/extension-method-binding.test.js";
-import "./binding-resolution-cases/extension-method-owner-resolution.test.js";
-import "./binding-resolution-cases/extension-method-tsbindgen-modifiers.test.js";
-import "./binding-resolution-cases/extract-type-name.test.js";
-import "./binding-resolution-cases/global-binding-preferences.test.js";
-import "./binding-resolution-cases/global-identifier-resolution.test.js";
-import "./binding-resolution-cases/hierarchical-binding-resolution.test.js";
-import "./binding-resolution-cases/js-array-member-binding.test.js";
-import "./binding-resolution-cases/module-import-type-alias-renaming.test.js";

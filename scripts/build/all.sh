@@ -31,7 +31,7 @@ fi
 # 2 ▸ install dependencies if --clean or --install flag present
 if [[ "$*" == *--clean* || "$*" == *--install* ]]; then
   npm install
-elif [[ ! -x "./node_modules/.bin/tsc" ]]; then
+elif [[ ! -d "./node_modules" ]]; then
   echo "FAIL: Node dependencies are not installed."
   echo "Run npm ci in the repo root, or run ./scripts/build/all.sh --install."
   exit 1

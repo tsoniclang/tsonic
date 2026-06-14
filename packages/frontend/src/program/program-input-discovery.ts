@@ -122,10 +122,7 @@ const isExplicitAuthoritativePackageRoot = (packageRoot: string): boolean => {
     return true;
   }
 
-  return (
-    fs.existsSync(path.join(packageRoot, "tsonic.surface.json")) ||
-    fs.existsSync(path.join(packageRoot, "tsonic.bindings.json"))
-  );
+  return fs.existsSync(path.join(packageRoot, "tsonic.surface.json"));
 };
 
 const addInstalledSourcePackageCandidate = (
@@ -397,7 +394,6 @@ export const collectSourceImportClosure = (input: {
           backendTargetId: input.backendTargetId,
           authoritativeTsonicPackageRoots: input.authoritativeTsonicPackageRoots,
           declarationModuleAliases: input.declarationModuleAliases,
-          bindings: undefined,
         }
       );
       if (!resolved.ok) {
@@ -525,7 +521,6 @@ export const collectDeclarationImportClosure = (input: {
           backendTargetId: input.backendTargetId,
           authoritativeTsonicPackageRoots: input.authoritativeTsonicPackageRoots,
           declarationModuleAliases: input.declarationModuleAliases,
-          bindings: undefined,
         }
       );
       if (!resolved.ok) {
@@ -860,7 +855,6 @@ export const discoverProgramInputs = (
             : String(options.backendTargetId),
         authoritativeTsonicPackageRoots,
         declarationModuleAliases,
-        bindings: undefined,
       }
     );
     if (!resolvedGlobalImport.ok) {

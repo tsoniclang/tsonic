@@ -12,7 +12,7 @@
  * Convert a provider full type name to the tsbindgen TS type identifier.
  *
  * Examples:
- * - "provider string" -> "String"
+ * - "external string" -> "String"
  * - "Provider.Collections.List`1" -> "List_1"
  * - "Provider.Collections.List`1+Enumerator" -> "List_1_Enumerator"
  */
@@ -33,7 +33,7 @@ export const tsbindgenTargetTypeNameToTsTypeName = (
 
   return (
     simple
-      // Nested provider types use '+', TS uses '_' between segments.
+      // Nested external types use '+', TS uses '_' between segments.
       .replace(/\+/g, "_")
       // Generic arity markers use '`N', TS uses '_N'.
       .replace(/`(\d+)/g, "_$1")

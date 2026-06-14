@@ -5,13 +5,9 @@
 
 export type { CompilerOptions, TsonicProgram } from "./program/index.js";
 export type { ModuleDependencyGraphResult } from "./program/dependency-graph.js";
-export type { TypeBinding, SimpleBindingDescriptor } from "./program/index.js";
 export {
   createProgram,
   getSourceFile,
-  BindingRegistry,
-  loadBindings,
   buildModuleDependencyGraph,
-  collectSynthesizedTypeNames,
-  runIrProcessingPipeline,
+  runLoweringPipeline,
 } from "./program/index.js";

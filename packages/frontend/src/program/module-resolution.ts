@@ -8,7 +8,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
-import { extractRawExternalBindingsPayload } from "./external-binding-payload.js";
 
 export type ResolvedPackageModuleExtension =
   | ".d.ts"
@@ -50,8 +49,7 @@ export const readPackageName = (pkgJsonPath: string): string | undefined => {
 };
 
 /**
- * Read the root namespace from a package's native source-package metadata or
- * external bindings payload.
+ * Read the root namespace from a package's native source-package metadata.
  */
 export const createReadPackageRootNamespace = (
   packageRootNamespaceCache: Map<string, string | null>
@@ -68,29 +66,6 @@ export const createReadPackageRootNamespace = (
     if (sourceMetadata?.namespace) {
       packageRootNamespaceCache.set(packageRoot, sourceMetadata.namespace);
       return sourceMetadata.namespace;
-    }
-
-    const candidates = [
-      path.join(packageRoot, "index", "bindings.json"),
-      path.join(packageRoot, "bindings.json"),
-    ];
-
-    for (const candidate of candidates) {
-      if (!fs.existsSync(candidate)) continue;
-      try {
-        const parsed = JSON.parse(fs.readFileSync(candidate, "utf-8")) as unknown;
-        const namespace = extractRawExternalBindingsPayload(parsed)?.namespace;
-        if (namespace && namespace.length > 0) {
-          packageRootNamespaceCache.set(packageRoot, namespace);
-          return namespace;
-        }
-      } catch (error) {
-        throw new Error(
-          `Failed to read external bindings metadata '${candidate}': ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
     }
 
     packageRootNamespaceCache.set(packageRoot, null);

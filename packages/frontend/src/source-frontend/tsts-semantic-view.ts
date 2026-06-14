@@ -51,7 +51,7 @@ type SourceExpressionTarget =
       readonly type?: TstsSemanticType;
     };
 
-export type TstsFrontendSourceSemanticView = SourceSemanticView<
+export type TstsSourceSemanticView = SourceSemanticView<
   TstsNode,
   TstsNode,
   TstsNode,
@@ -474,7 +474,7 @@ export const createTstsSemanticView = (
   checker: ExtensionTypeChecker,
   facts: SourceSemanticFactStore<TstsNode> = createSourceSemanticFactStore(),
   resolution?: TstsSemanticModuleResolution
-): TstsFrontendSourceSemanticView => ({
+): TstsSourceSemanticView => ({
   engine: "tsts",
   getExpressionType: (expression: TstsNode): TstsSemanticType =>
     getSourceImportExpressionType(checker, expression, resolution) ??

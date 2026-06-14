@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import type { TstsNode, TstsSymbol } from "@tsonic/tsts";
 import { getTstsContainingSourceFileName } from "@tsonic/tsts";
-import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
+import type { TstsSourceSemanticView } from "../source-frontend/index.js";
 import * as path from "node:path";
 import {
   CORE_PACKAGE_NAME,
@@ -103,7 +103,7 @@ export const isGlobalsDeclarationFile = (fileName: string): boolean => {
 };
 
 export const resolveAliasedSymbol = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   symbol: TstsSymbol | undefined
 ): TstsSymbol | undefined => {
   if (!symbol) return undefined;
@@ -111,7 +111,7 @@ export const resolveAliasedSymbol = (
 };
 
 const symbolDeclarationFileNames = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   symbol: TstsSymbol
 ): readonly string[] =>
   sourceSemantics
@@ -120,7 +120,7 @@ const symbolDeclarationFileNames = (
     .filter((fileName): fileName is string => fileName !== undefined);
 
 export const isSymbolFromCore = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   symbol: TstsSymbol | undefined,
   module: CoreModule
 ): boolean => {
@@ -133,7 +133,7 @@ export const isSymbolFromCore = (
 };
 
 export const isSymbolFromPackage = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   symbol: TstsSymbol | undefined,
   packageName: string,
   expectedBase?: string
@@ -151,7 +151,7 @@ export const isSymbolFromPackage = (
 };
 
 export const isSymbolFromGlobals = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   symbol: TstsSymbol | undefined
 ): boolean => {
   const resolved = resolveAliasedSymbol(sourceSemantics, symbol);
@@ -163,14 +163,14 @@ export const isSymbolFromGlobals = (
 };
 
 export const isIdentifierFromCore = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   node: TstsNode,
   module: CoreModule
 ): boolean =>
   isSymbolFromCore(sourceSemantics, sourceSemantics.getSymbol(node), module);
 
 export const isIdentifierFromPackage = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   node: TstsNode,
   packageName: string,
   expectedBase?: string
@@ -183,7 +183,7 @@ export const isIdentifierFromPackage = (
   );
 
 export const isIdentifierFromGlobals = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   node: TstsNode
 ): boolean =>
   isSymbolFromGlobals(sourceSemantics, sourceSemantics.getSymbol(node));

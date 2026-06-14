@@ -1,5 +1,5 @@
 /**
- * Tsonic Frontend - TSTS-backed source engine and IR builder
+ * Tsonic Frontend - TSTS-backed source engine and lowering planner
  */
 
 export {
@@ -26,24 +26,27 @@ export * from "./dependency-graph.js";
 export * from "./surface/profiles.js";
 export * from "./source-frontend/index.js";
 export * from "./tsonic-extension/index.js";
+export * from "./lowering/index.js";
 export * from "./capabilities/backend-capabilities.js";
-export * from "./symbols/index.js";
-export * from "./ir/index.js";
-export * from "./ir/validation/index.js";
-export * from "./external-metadata.js";
 
 import { createProgram, TsonicProgram, CompilerOptions } from "./program.js";
 import { validateProgram } from "./validator.js";
 import {
-  buildDependencyGraph,
-  DependencyAnalysis,
+  buildModuleDependencyGraph,
+  type ModuleDependencyGraphResult,
 } from "./dependency-graph.js";
-import { DiagnosticsCollector, mergeDiagnostics } from "./types/diagnostic.js";
+import {
+  addDiagnostic,
+  createDiagnostic,
+  createDiagnosticsCollector,
+  type DiagnosticsCollector,
+  mergeDiagnostics,
+} from "./types/diagnostic.js";
 import { Result, ok, error } from "./types/result.js";
 
 export type CompileResult = {
   readonly program: TsonicProgram;
-  readonly analysis: DependencyAnalysis;
+  readonly analysis: ModuleDependencyGraphResult;
 };
 
 /**
@@ -61,17 +64,38 @@ export const compile = (
   }
 
   const program = programResult.value;
+  const entryFile = filePaths[0];
+  if (entryFile === undefined) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic("TSN1001", "error", "No entry files were provided.")
+      )
+    );
+  }
 
   // Validate ESM rules and Tsonic source constraints
   const validationDiagnostics = validateProgram(program);
 
   // Build dependency graph from the TSTS module graph.
-  const analysis = buildDependencyGraph(program, filePaths);
+  const analysis = buildModuleDependencyGraph(entryFile, options);
+  if (!analysis.ok) {
+    return error({
+      diagnostics: analysis.error,
+      hasErrors: analysis.error.some(
+        (diagnostic) =>
+          diagnostic.severity === "error" || diagnostic.severity === "fatal"
+      ),
+      hasFatalErrors: analysis.error.some(
+        (diagnostic) => diagnostic.severity === "fatal"
+      ),
+    });
+  }
 
   // Merge all diagnostics
   const allDiagnostics = mergeDiagnostics(
     validationDiagnostics,
-    analysis.diagnostics
+    createDiagnosticsCollector()
   );
 
   if (allDiagnostics.hasErrors) {
@@ -80,6 +104,6 @@ export const compile = (
 
   return ok({
     program,
-    analysis,
+    analysis: analysis.value,
   });
 };

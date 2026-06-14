@@ -228,18 +228,10 @@ const iterableModeFromTypeName = (
 ): IterableProfileMode | undefined => {
   if (!typeName) return undefined;
   const normalized = typeName.replace(/\$instance\b/g, "");
-  if (
-    /\b(?:IAsyncEnumerable_1|AsyncIterable|AsyncIterableIterator|AsyncGenerator)\b/.test(
-      normalized
-    )
-  ) {
+  if (/\b(?:AsyncIterable|AsyncIterableIterator|AsyncGenerator)\b/.test(normalized)) {
     return "async";
   }
-  if (
-    /\b(?:IEnumerable_1|Iterable|IterableIterator|Iterator|Generator)\b/.test(
-      normalized
-    )
-  ) {
+  if (/\b(?:Iterable|IterableIterator|Iterator|Generator)\b/.test(normalized)) {
     return "sync";
   }
   return undefined;

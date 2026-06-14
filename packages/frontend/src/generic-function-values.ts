@@ -5,7 +5,7 @@ import {
   getTstsTypeParameterNodes,
   TstsSyntax,
 } from "@tsonic/tsts";
-import type { TstsFrontendSourceSemanticView } from "./source-frontend/index.js";
+import type { TstsSourceSemanticView } from "./source-frontend/index.js";
 
 export type GenericFunctionValueNode = TstsNode;
 
@@ -24,7 +24,7 @@ export const isGenericFunctionDeclarationNode = (
 
 const isGenericFunctionDeclarationSymbol = (
   symbol: TstsSymbol,
-  sourceSemantics: TstsFrontendSourceSemanticView
+  sourceSemantics: TstsSourceSemanticView
 ): boolean => {
   const declarations = sourceSemantics.getSymbolDeclarations(symbol);
   if (declarations.length === 0) return false;
@@ -39,13 +39,13 @@ const isGenericFunctionDeclarationSymbol = (
 export const isDeterministicGenericFunctionAliasTargetSymbol = (
   symbol: TstsSymbol,
   supportedSymbols: ReadonlySet<TstsSymbol>,
-  sourceSemantics: TstsFrontendSourceSemanticView
+  sourceSemantics: TstsSourceSemanticView
 ): boolean =>
   supportedSymbols.has(symbol) ||
   isGenericFunctionDeclarationSymbol(symbol, sourceSemantics);
 
 const resolveSymbol = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   node: TstsNode
 ): TstsSymbol | undefined => {
   const symbol = sourceSemantics.getSymbol(node);
@@ -74,7 +74,7 @@ const getConstLetKind = (
 };
 
 const getVariableDeclarationSymbol = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   declaration: TstsNode
 ): TstsSymbol | undefined => {
   const name = TstsSyntax.Node_Name(declaration);
@@ -107,7 +107,7 @@ const isAssignmentOperator = (kind: number): boolean => {
 };
 
 const markAssignmentTargetSymbols = (
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   node: TstsNode,
   writes: Set<TstsSymbol>
 ): void => {
@@ -176,7 +176,7 @@ const markAssignmentTargetSymbols = (
 
 export const collectWrittenSymbols = (
   sourceFile: TstsNode,
-  sourceSemantics: TstsFrontendSourceSemanticView
+  sourceSemantics: TstsSourceSemanticView
 ): ReadonlySet<TstsSymbol> => {
   const writes = new Set<TstsSymbol>();
 
@@ -231,7 +231,7 @@ export const collectWrittenSymbols = (
 
 export const getSupportedGenericFunctionValueSymbol = (
   node: GenericFunctionValueNode,
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   writtenSymbols: ReadonlySet<TstsSymbol>
 ): TstsSymbol | undefined => {
   const decl = node.Parent;
@@ -257,7 +257,7 @@ export const getSupportedGenericFunctionValueSymbol = (
 
 export const getSupportedGenericFunctionDeclarationSymbol = (
   node: TstsNode,
-  sourceSemantics: TstsFrontendSourceSemanticView
+  sourceSemantics: TstsSourceSemanticView
 ): TstsSymbol | undefined => {
   if (!isGenericFunctionDeclarationNode(node)) return undefined;
   const name = TstsSyntax.Node_Name(node);
@@ -267,7 +267,7 @@ export const getSupportedGenericFunctionDeclarationSymbol = (
 
 const resolveAliasTargetSymbol = (
   declaration: TstsNode,
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   supportedSymbols: ReadonlySet<TstsSymbol>
 ): TstsSymbol | undefined => {
   const name = TstsSyntax.Node_Name(declaration);
@@ -295,7 +295,7 @@ const resolveAliasTargetSymbol = (
 
 export const getSupportedGenericFunctionAliasSymbol = (
   declaration: TstsNode,
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   writtenSymbols: ReadonlySet<TstsSymbol>,
   supportedSymbols: ReadonlySet<TstsSymbol>
 ): TstsSymbol | undefined => {
@@ -317,7 +317,7 @@ export const getSupportedGenericFunctionAliasSymbol = (
 
 export const collectSupportedGenericFunctionValueSymbols = (
   sourceFile: TstsNode,
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   writtenSymbols: ReadonlySet<TstsSymbol>
 ): ReadonlySet<TstsSymbol> => {
   const symbols = new Set<TstsSymbol>();

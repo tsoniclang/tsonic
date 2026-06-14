@@ -16,7 +16,7 @@ import {
   isGenericFunctionValueNode,
   type GenericFunctionValueNode,
 } from "./generic-function-values.js";
-import type { TstsFrontendSourceSemanticView } from "./source-frontend/index.js";
+import type { TstsSourceSemanticView } from "./source-frontend/index.js";
 import {
   createInlineTstsTestProgram,
   createTstsTestProgramFromFiles,
@@ -79,7 +79,7 @@ const findGenericFunctionDeclaration = (
 
 const findVariableSymbol = (
   sourceFile: TstsNode,
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   variableName: string
 ): TstsSymbol | undefined => {
   let symbol: TstsSymbol | undefined;
@@ -126,7 +126,7 @@ const getCollectedSupportedSymbolForVariable = (
 
 const getCollectedSupportedSymbolForVariableInSourceFile = (
   sourceFile: TstsNode,
-  sourceSemantics: TstsFrontendSourceSemanticView,
+  sourceSemantics: TstsSourceSemanticView,
   variableName: string
 ): TstsSymbol | undefined => {
   const writtenSymbols = collectWrittenSymbols(sourceFile, sourceSemantics);

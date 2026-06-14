@@ -3,20 +3,13 @@
  */
 
 import type { TstsSourceFile } from "@tsonic/tsts";
-import { ExternalMetadataRegistry } from "../external-metadata.js";
-import { BindingRegistry } from "./bindings.js";
-import { ExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
-import type { Binding } from "../ir/binding/index.js";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
-import type { BackendTargetId } from "../ir/types.js";
-import type {
-  TargetSurfaceProvider,
-} from "../symbols/index.js";
+import type { BackendTargetId } from "../lowering/index.js";
 import type {
   TstsSourceProgram,
-  TstsFrontendSourceSemanticView,
+  TstsSourceSemanticView,
 } from "../source-frontend/index.js";
 
 export type SurfaceMode = string;
@@ -39,7 +32,7 @@ export type CompilerOptions<Target extends BackendTargetId = BackendTargetId> =
 
 export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly sourceProgram: TstsSourceProgram;
-  readonly sourceSemantics: TstsFrontendSourceSemanticView;
+  readonly sourceSemantics: TstsSourceSemanticView;
   readonly options: CompilerOptions<Target>;
   readonly surfaceCapabilities?: SurfaceCapabilities;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
@@ -50,12 +43,4 @@ export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly sourceFiles: readonly TstsSourceFile[];
   /** Declaration files from typeRoots (globals, external surface types, etc.). */
   readonly declarationSourceFiles: readonly TstsSourceFile[];
-  readonly metadata: ExternalMetadataRegistry;
-  readonly bindings: BindingRegistry;
-  /** Resolver for external namespace imports (import-driven discovery) */
-  readonly externalResolver: ExternalBindingsResolver;
-  /** Symbol resolution binding layer (replaces direct checker calls) */
-  readonly binding: Binding;
-  /** Active target surface contract used to produce symbol artifacts after bindings discovery. */
-  readonly targetSurfaceProvider?: TargetSurfaceProvider;
 };

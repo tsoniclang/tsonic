@@ -11,7 +11,7 @@ import {
   type TstsType,
   visitTstsSubtree,
 } from "@tsonic/tsts";
-import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
+import type { TstsSourceSemanticView } from "../source-frontend/index.js";
 import {
   createTstsTestProgramFromFiles,
   type TstsTestProgram,
@@ -38,7 +38,7 @@ const stackAlloc: TSStackAlloc<number> = null!;
 `;
 
 export type TestHarness = TstsTestProgram & {
-  readonly sourceSemantics: TstsFrontendSourceSemanticView;
+  readonly sourceSemantics: TstsSourceSemanticView;
 };
 
 export const createTestHarness = (): TestHarness =>

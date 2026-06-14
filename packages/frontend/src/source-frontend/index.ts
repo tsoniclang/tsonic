@@ -39,7 +39,7 @@ export type {
 } from "./semantic-view.js";
 export type {
   TstsSourceCallLikeExpression,
-  TstsFrontendSourceSemanticView,
+  TstsSourceSemanticView,
 } from "./tsts-semantic-view.js";
 export { createTstsSemanticView } from "./tsts-semantic-view.js";
 export type {

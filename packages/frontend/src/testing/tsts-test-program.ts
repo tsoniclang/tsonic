@@ -2,11 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { TstsSourceFile } from "@tsonic/tsts";
-import { ExternalMetadataRegistry } from "../external-metadata.js";
-import { createBinding } from "../ir/binding/index.js";
-import { BindingRegistry } from "../program/bindings.js";
 import type { CompilerOptions, TsonicProgram } from "../program/types.js";
-import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
 import {
   createTstsSemanticView,
   createTstsSourceProgram,
@@ -18,7 +14,6 @@ export type TstsTestProgram = TsonicProgram & {
 };
 
 export type TstsTestProgramOptions = Partial<CompilerOptions> & {
-  readonly bindings?: BindingRegistry;
   readonly fileName?: string;
   readonly rootNamespace?: string;
 };
@@ -172,7 +167,6 @@ export const createTstsTestProgramFromFiles = (
   const declarationSourceFiles = sourceProgram.sourceFiles.filter(
     (candidate) => candidate.IsDeclarationFile === true
   );
-  const bindings = options.bindings ?? new BindingRegistry();
   const projectRoot = options.projectRoot ?? tempRoot;
   const sourceRoot = options.sourceRoot ?? tempRoot;
 
@@ -192,10 +186,6 @@ export const createTstsTestProgramFromFiles = (
     sourceSemantics,
     sourceFiles,
     declarationSourceFiles,
-    metadata: new ExternalMetadataRegistry(),
-    bindings,
-    externalResolver: createExternalBindingsResolver(projectRoot),
-    binding: createBinding(sourceSemantics),
     sourceFile,
     cleanup: () => fs.rmSync(tempRoot, { recursive: true, force: true }),
   };

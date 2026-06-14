@@ -1,6 +1,5 @@
 /**
- * Program assembly -- wires up program discovery, TSTS source construction,
- * source extensions, bindings, and the final TsonicProgram construction.
+ * Program assembly -- TSTS source construction plus Tsonic extension facts.
  */
 
 import * as fs from "node:fs";
@@ -10,34 +9,23 @@ import {
   type TstsDiagnostic,
 } from "@tsonic/tsts";
 import { Result, ok, error } from "../types/result.js";
-import { DiagnosticsCollector } from "../types/diagnostic.js";
-import { CompilerOptions, TsonicProgram } from "./types.js";
-import { loadExternalMetadata } from "./metadata.js";
-import { loadBindings, TSONIC_BINDINGS_SCHEMA } from "./bindings.js";
-import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
-import { createBinding } from "../ir/binding/index.js";
+import {
+  addDiagnostic,
+  createDiagnostic,
+  createDiagnosticsCollector,
+  type DiagnosticsCollector,
+} from "../types/diagnostic.js";
 import {
   hasResolvedSurfaceProfile,
   resolveSurfaceCapabilities,
 } from "../surface/profiles.js";
 import {
-  addDiagnostic,
-  createDiagnostic,
-  createDiagnosticsCollector,
-} from "../types/diagnostic.js";
-import {
-  collectDeclarationImportClosure,
-  collectSourceImportClosure,
-  discoverProgramInputs,
-} from "./program-input-discovery.js";
-import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
-import { createBindingTargetSurfaceProvider } from "./binding-target-surface-provider.js";
-import { defineBackendTargetId } from "../ir/types.js";
-import {
   createTstsSemanticView,
   createTstsSourceProgram,
+  type TstsSourceProgram,
 } from "../source-frontend/index.js";
-import type { TstsSourceProgram } from "../source-frontend/index.js";
+import { discoverProgramInputs } from "./program-input-discovery.js";
+import type { CompilerOptions, TsonicProgram } from "./types.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -77,44 +65,6 @@ const createSourceFilePathSet = (
   }
 
   return canonicalPaths;
-};
-
-const collectTstsSourceDiagnostics = (
-  sourceProgram: TstsSourceProgram
-): DiagnosticsCollector => {
-  let collector = createDiagnosticsCollector();
-
-  if (sourceProgram.compilerDiagnostics.length > 0) {
-    for (const diagnostic of sourceProgram.compilerDiagnostics) {
-      collector = addDiagnostic(
-        collector,
-        createDiagnostic(
-          "TSN1008",
-          "error",
-          formatTstsDiagnosticMessage(diagnostic),
-          getTstsDiagnosticLocation(diagnostic)
-        )
-      );
-    }
-  }
-
-  for (const diagnostic of sourceProgram.diagnostics) {
-    const severity =
-      diagnostic.category === "suggestion" ? "info" : diagnostic.category;
-    const sourceFileName = diagnostic.sourceFile?.FileName();
-    const sourceLocation =
-      sourceFileName === undefined ? "" : `${sourceFileName}: `;
-    collector = addDiagnostic(
-      collector,
-      createDiagnostic(
-        "TSN1008",
-        severity,
-        `${sourceLocation}Source extension '${diagnostic.extensionId}' reported ${diagnostic.code}: ${diagnostic.message}`
-      )
-    );
-  }
-
-  return collector;
 };
 
 const getLineColumnFromTextOffset = (
@@ -160,21 +110,48 @@ const formatTstsDiagnosticMessage = (diagnostic: TstsDiagnostic): string =>
   formatTstsDiagnostics([diagnostic]).trim() ||
   `TSTS source program diagnostic ${diagnostic.code}`;
 
-/**
- * Create a Tsonic program from TypeScript source files
- */
+const collectTstsSourceDiagnostics = (
+  sourceProgram: TstsSourceProgram
+): DiagnosticsCollector => {
+  let collector = createDiagnosticsCollector();
+
+  for (const diagnostic of sourceProgram.compilerDiagnostics) {
+    collector = addDiagnostic(
+      collector,
+      createDiagnostic(
+        "TSN1008",
+        "error",
+        formatTstsDiagnosticMessage(diagnostic),
+        getTstsDiagnosticLocation(diagnostic)
+      )
+    );
+  }
+
+  for (const diagnostic of sourceProgram.diagnostics) {
+    const severity =
+      diagnostic.category === "suggestion" ? "info" : diagnostic.category;
+    const sourceFileName = diagnostic.sourceFile?.FileName();
+    const sourceLocation =
+      sourceFileName === undefined ? "" : `${sourceFileName}: `;
+    collector = addDiagnostic(
+      collector,
+      createDiagnostic(
+        "TSN1008",
+        severity,
+        `${sourceLocation}Source extension '${diagnostic.extensionId}' reported ${diagnostic.code}: ${diagnostic.message}`
+      )
+    );
+  }
+
+  return collector;
+};
+
 export const createProgram = (
   filePaths: readonly string[],
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
   const surface = options.surface ?? "core";
-  const activeTargetId =
-    options.backendTargetId === undefined
-      ? undefined
-      : String(options.backendTargetId);
-  const initialSurfaceResolveOptions = {
-    projectRoot: options.projectRoot,
-  };
+  const initialSurfaceResolveOptions = { projectRoot: options.projectRoot };
   let surfaceCapabilities = resolveSurfaceCapabilities(
     surface,
     initialSurfaceResolveOptions
@@ -191,22 +168,21 @@ export const createProgram = (
 
   if (
     surface !== "core" &&
-    !hasResolvedSurfaceProfile(surface, initialSurfaceResolveOptions)
+    !hasResolvedSurfaceProfile(surface, initialSurfaceResolveOptions) &&
+    !hasResolvedSurfaceProfile(surface, resolveFinalSurfaceOptions())
   ) {
-    if (!hasResolvedSurfaceProfile(surface, resolveFinalSurfaceOptions())) {
-      return error(
-        addDiagnostic(
-          createDiagnosticsCollector(),
-          createDiagnostic(
-            "TSN1004",
-            "error",
-            `Surface '${surface}' is not a valid ambient surface package.`,
-            undefined,
-            "Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages separately."
-          )
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          `Surface '${surface}' is not a valid ambient surface package.`,
+          undefined,
+          "Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages separately."
         )
-      );
-    }
+      )
+    );
   }
 
   const finalSurfaceCapabilities = resolveSurfaceCapabilities(
@@ -227,88 +203,19 @@ export const createProgram = (
     surfaceCapabilities = finalSurfaceCapabilities;
   }
 
-  const {
-    typeRoots,
-    authoritativeTsonicPackageRoots,
-    declarationModuleAliases,
-    allFiles: discoveredAllFiles,
-    emittableSourceFiles: discoveredEmittableSourceFiles,
-    dependencyEdges: discoveredDependencyEdges,
-    diagnostics: discoveryDiagnostics,
-  } = discovery;
-  if (discoveryDiagnostics.length > 0) {
+  if (discovery.diagnostics.length > 0) {
     return error({
-      diagnostics: discoveryDiagnostics,
+      diagnostics: discovery.diagnostics,
       hasErrors: true,
-      hasFatalErrors: discoveryDiagnostics.some(
+      hasFatalErrors: discovery.diagnostics.some(
         (diagnostic) => diagnostic.severity === "fatal"
       ),
     });
   }
-  const bindingRoots = dedupeCanonicalFilePaths(typeRoots);
-  const bindings = loadBindings(bindingRoots);
-  const bindingSourceFiles = resolveSourceBackedBindingFiles(
-    bindings,
-    path.join(options.projectRoot, "__tsonic_source_bindings__.ts"),
-    options.projectRoot,
-    surface,
-    authoritativeTsonicPackageRoots,
-    activeTargetId
-  );
-  if (!bindingSourceFiles.ok) {
-    return error(
-      addDiagnostic(createDiagnosticsCollector(), bindingSourceFiles.error)
-    );
-  }
-  const bindingSourceClosure = collectSourceImportClosure({
-    seedFiles: bindingSourceFiles.value,
-    sourceRoot: path.resolve(options.sourceRoot),
-    projectRoot: options.projectRoot,
-    surface,
-    backendTargetId: activeTargetId,
-    authoritativeTsonicPackageRoots,
-    declarationModuleAliases,
-  });
-  if (bindingSourceClosure.diagnostics.length > 0) {
-    return error({
-      diagnostics: bindingSourceClosure.diagnostics,
-      hasErrors: true,
-      hasFatalErrors: bindingSourceClosure.diagnostics.some(
-        (diagnostic) => diagnostic.severity === "fatal"
-      ),
-    });
-  }
-  const initialAllFiles = dedupeCanonicalFilePaths([
-    ...discoveredAllFiles,
-    ...bindingSourceClosure.files,
-  ]);
-  const declarationImportClosure = collectDeclarationImportClosure({
-    files: bindingSourceClosure.files,
-    sourceRoot: path.resolve(options.sourceRoot),
-    projectRoot: options.projectRoot,
-    surface,
-    backendTargetId: activeTargetId,
-    authoritativeTsonicPackageRoots,
-    declarationModuleAliases,
-  });
-  if (declarationImportClosure.diagnostics.length > 0) {
-    return error({
-      diagnostics: declarationImportClosure.diagnostics,
-      hasErrors: true,
-      hasFatalErrors: declarationImportClosure.diagnostics.some(
-        (diagnostic) => diagnostic.severity === "fatal"
-      ),
-    });
-  }
-  const allFiles = dedupeCanonicalFilePaths([
-    ...initialAllFiles,
-    ...declarationImportClosure.files,
-  ]);
-  const dependencyEdges = [
-    ...discoveredDependencyEdges,
-    ...bindingSourceClosure.dependencyEdges,
-    ...declarationImportClosure.dependencyEdges,
-  ];
+
+  const allFiles = dedupeCanonicalFilePaths(discovery.allFiles);
+  const dependencyEdges = [...discovery.dependencyEdges];
+
   let sourceProgram: TstsSourceProgram;
   try {
     sourceProgram = createTstsSourceProgram(allFiles, {
@@ -334,23 +241,14 @@ export const createProgram = (
     return error(sourceDiagnostics);
   }
 
-  // Source files are the non-declaration modules proven reachable by discovery.
-  // This includes installed source-package modules imported by the entrypoint.
   const sourceFilePaths = createSourceFilePathSet(
-    dedupeCanonicalFilePaths([
-      ...discoveredEmittableSourceFiles,
-      ...bindingSourceClosure.files,
-    ])
+    dedupeCanonicalFilePaths(discovery.emittableSourceFiles)
   );
-  const isProgramOwnedSourceFile = (filePath: string): boolean => {
-    const normalizedFilePath = canonicalizeFilePath(filePath);
-    return sourceFilePaths.has(normalizedFilePath);
-  };
   const seenSourceFilePaths = new Set<string>();
   const sourceFiles = sourceProgram.sourceFiles.filter((sourceFile) => {
     if (
       sourceFile.IsDeclarationFile === true ||
-      !isProgramOwnedSourceFile(sourceFile.FileName())
+      !sourceFilePaths.has(canonicalizeFilePath(sourceFile.FileName()))
     ) {
       return false;
     }
@@ -364,52 +262,9 @@ export const createProgram = (
     return true;
   });
 
-  // Declaration files for TypeRegistry:
-  // include all declarations in the TSTS program. ProgramContext later filters
-  // out external metadata packages that are represented in the external catalog.
-  // This keeps surface support generic: custom non-@tsonic surface packages are
-  // available to the frontend without any package-name allowlist.
   const declarationSourceFiles = sourceProgram.sourceFiles.filter(
     (sourceFile) => sourceFile.IsDeclarationFile === true
   );
-
-  // Load external metadata files
-  const metadata = loadExternalMetadata(typeRoots);
-
-  // Load binding manifests (from typeRoots - for ambient globals)
-  // Compiler-owned builtin: map TS `Error` to a core error abstraction.
-  // This keeps `throw new Error(...)` usable in noLib mode without requiring
-  // consumers to import a target exception type explicitly.
-  if (!bindings.getBinding("Error")) {
-    bindings.addBindings("tsonic:builtins", {
-      schema: TSONIC_BINDINGS_SCHEMA,
-      provider: {
-        namespace: "tsonic.core",
-        ownerIdentities: ["tsonic.core"],
-      },
-      sourceSurface: {
-        bindings: {
-          Error: {
-            kind: "global",
-            ownerIdentity: "tsonic.core",
-            type: "core:Error",
-            typeSemantics: {
-              contributesTypeIdentity: true,
-            },
-          },
-        },
-      },
-      targetSurface: { types: [] },
-    });
-  }
-
-  // Create resolver for import-driven external namespace discovery
-  // Uses projectRoot (not sourceRoot) to resolve packages from node_modules
-  const externalResolver = createExternalBindingsResolver(options.projectRoot);
-  const targetSurfaceProvider = createBindingTargetSurfaceProvider({
-    targetId: options.backendTargetId ?? defineBackendTargetId("default"),
-    bindings,
-  });
 
   const firstTstsSourceFile = sourceFiles[0] ?? sourceProgram.sourceFiles[0];
   if (!firstTstsSourceFile) {
@@ -420,6 +275,7 @@ export const createProgram = (
       )
     );
   }
+
   const sourceSemantics = sourceProgram.withSourceSemantics(
     firstTstsSourceFile,
     (checker) =>
@@ -429,26 +285,16 @@ export const createProgram = (
         dependencyEdges,
       })
   );
-  const binding = createBinding(sourceSemantics, {
-    moduleGraph: sourceProgram.moduleGraph,
-    externalResolver,
-    sourceFiles: sourceProgram.sourceFiles,
-    dependencyEdges,
-  });
 
   return ok({
     sourceProgram,
     sourceSemantics,
     options,
     surfaceCapabilities,
-    authoritativeTsonicPackageRoots,
-    declarationModuleAliases,
+    authoritativeTsonicPackageRoots:
+      discovery.authoritativeTsonicPackageRoots,
+    declarationModuleAliases: discovery.declarationModuleAliases,
     sourceFiles,
     declarationSourceFiles,
-    metadata,
-    bindings,
-    externalResolver,
-    binding,
-    targetSurfaceProvider,
   });
 };

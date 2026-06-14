@@ -1,7 +1,7 @@
 {
   "name": "@tsonic/frontend",
   "version": "0.0.84",
-  "description": "TypeScript parser and IR builder for Tsonic compiler",
+  "description": "TSTS-backed source frontend and lowering planner for the Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
