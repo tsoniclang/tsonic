@@ -666,12 +666,17 @@ const expressionPlan = (
     case TstsSyntax.KindFunctionExpression: {
       const body = TstsSyntax.Node_Body(node);
       const bodyIsStatement = body ? isStatementNode(body) : false;
-      const returnTypeText = typeText(
-        context,
-        sourceFile,
-        TstsSyntax.Node_Type(node),
-        functionReturnType(sourceFile, node, context)
-      );
+      const explicitReturnType = TstsSyntax.Node_Type(node);
+      const expectedFunction = functionTypeParts(expectedTypeText);
+      const returnTypeText = explicitReturnType
+        ? typeText(context, sourceFile, explicitReturnType, undefined)
+        : expectedFunction?.returnType ??
+          typeText(
+            context,
+            sourceFile,
+            undefined,
+            functionReturnType(sourceFile, node, context)
+          );
       return {
         ...base,
         expressionKind:
@@ -682,7 +687,7 @@ const expressionPlan = (
           sourceFile,
           node,
           context,
-          functionTypeParts(expectedTypeText)?.parameterTypes
+          expectedFunction?.parameterTypes
         ),
         async: nodeHasModifier(node, TstsSyntax.ModifierFlagsAsync),
         returnTypeText,
