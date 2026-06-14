@@ -18,6 +18,26 @@ export type TstsTestProgramOptions = Partial<CompilerOptions> & {
   readonly rootNamespace?: string;
 };
 
+const activeTempRoots = new Set<string>();
+let cleanupRegistered = false;
+
+const registerTempRoot = (root: string): void => {
+  activeTempRoots.add(root);
+  if (cleanupRegistered) return;
+  cleanupRegistered = true;
+  process.once("exit", () => {
+    for (const tempRoot of activeTempRoots) {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+    activeTempRoots.clear();
+  });
+};
+
+const releaseTempRoot = (root: string): void => {
+  activeTempRoots.delete(root);
+  fs.rmSync(root, { recursive: true, force: true });
+};
+
 const CANONICAL_CORE_PACKAGE_FILES: Readonly<Record<string, string>> = {
   "tsonic-std.d.ts": [
     "type PropertyKey = string | number | symbol;",
@@ -146,6 +166,7 @@ export const createTstsTestProgramFromFiles = (
   options: TstsTestProgramOptions = {}
 ): TstsTestProgram => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-tsts-test-"));
+  registerTempRoot(tempRoot);
   const filePaths = writeTestFiles(
     tempRoot,
     withCanonicalCorePackageFiles(files)
@@ -187,7 +208,7 @@ export const createTstsTestProgramFromFiles = (
     sourceFiles,
     declarationSourceFiles,
     sourceFile,
-    cleanup: () => fs.rmSync(tempRoot, { recursive: true, force: true }),
+    cleanup: () => releaseTempRoot(tempRoot),
   };
 };
 

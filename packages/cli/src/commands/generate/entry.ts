@@ -27,16 +27,9 @@ export const hasTopLevelExecutableStatements = (
   entryModule: LoweringModulePlan
 ): boolean =>
   entryModule.topLevelStatements.some((statement) => {
-    switch (statement.sourceKindName) {
-      case "FunctionDeclaration":
-      case "ClassDeclaration":
-      case "InterfaceDeclaration":
-      case "TypeAliasDeclaration":
-      case "EnumDeclaration":
-      case "ImportDeclaration":
-      case "ImportEqualsDeclaration":
-      case "ExportDeclaration":
-      case "EmptyStatement":
+    switch (statement.statementKind) {
+      case "declaration":
+      case "empty":
         return false;
       default:
         return true;

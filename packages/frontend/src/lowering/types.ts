@@ -51,6 +51,9 @@ export type LoweringPlanBase<TKind extends string> = {
   readonly sourceKindName: string;
   readonly sourceText: string;
   readonly name?: string;
+  readonly nameSourceKindName?: string;
+  readonly nameSourceText?: string;
+  readonly nameIsComputed: boolean;
 };
 
 export type LoweringTypePlan = LoweringPlanBase<"type"> & {
@@ -61,8 +64,20 @@ export type LoweringTypePlan = LoweringPlanBase<"type"> & {
 export type LoweringParameterPlan = {
   readonly name: string;
   readonly typeText?: string;
-  readonly initializerText?: string;
+  readonly initializer?: LoweringExpressionPlan;
   readonly optional: boolean;
+  readonly rest: boolean;
+};
+
+export type LoweringVariablePlan = {
+  readonly name: string;
+  readonly typeText?: string;
+  readonly initializer?: LoweringExpressionPlan;
+};
+
+export type LoweringEnumMemberPlan = {
+  readonly name: string;
+  readonly initializer?: LoweringExpressionPlan;
 };
 
 export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
@@ -71,25 +86,129 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
     | "enum"
     | "function"
     | "interface"
+    | "method"
+    | "constructor"
+    | "property"
     | "type-alias"
     | "variable"
     | "unknown";
   readonly symbol?: TstsSymbol;
   readonly declaredType?: TstsType;
+  readonly declaredTypeText?: string;
   readonly parameters: readonly LoweringParameterPlan[];
+  readonly typeParameters: readonly string[];
   readonly returnTypeText?: string;
-  readonly bodyText?: string;
-  readonly initializerText?: string;
+  readonly body?: LoweringStatementPlan;
+  readonly initializer?: LoweringExpressionPlan;
+  readonly members: readonly LoweringDeclarationPlan[];
+  readonly enumMembers: readonly LoweringEnumMemberPlan[];
   readonly exported: boolean;
   readonly async: boolean;
+  readonly static: boolean;
 };
 
-export type LoweringStatementPlan = LoweringPlanBase<"statement">;
-
 export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
+  readonly expressionKind:
+    | "identifier"
+    | "literal"
+    | "this"
+    | "super"
+    | "binary"
+    | "prefix-unary"
+    | "postfix-unary"
+    | "typeof"
+    | "property-access"
+    | "element-access"
+    | "call"
+    | "new"
+    | "arrow-function"
+    | "function-expression"
+    | "array-literal"
+    | "object-literal"
+    | "conditional"
+    | "template"
+    | "parenthesized"
+    | "await"
+    | "yield"
+    | "spread"
+    | "erased-wrapper"
+    | "unsupported";
+  readonly typeText?: string;
+  readonly literalKind?: "string" | "number" | "bigint" | "boolean" | "null" | "undefined";
+  readonly literalText?: string;
+  readonly returnTypeText?: string;
+  readonly operatorText?: string;
+  readonly expression?: LoweringExpressionPlan;
+  readonly left?: LoweringExpressionPlan;
+  readonly right?: LoweringExpressionPlan;
+  readonly condition?: LoweringExpressionPlan;
+  readonly whenTrue?: LoweringExpressionPlan;
+  readonly whenFalse?: LoweringExpressionPlan;
+  readonly arguments: readonly LoweringExpressionPlan[];
+  readonly typeArguments: readonly string[];
+  readonly elements: readonly LoweringExpressionPlan[];
+  readonly properties: readonly LoweringObjectPropertyPlan[];
+  readonly templateParts: readonly LoweringTemplatePartPlan[];
+  readonly parameters: readonly LoweringParameterPlan[];
+  readonly body?: LoweringStatementPlan;
+  readonly async?: boolean;
   readonly useSiteType?: TstsType;
   readonly contextualType?: TstsType;
   readonly symbol?: TstsSymbol;
+};
+
+export type LoweringObjectPropertyPlan = {
+  readonly name?: string;
+  readonly sourceKindName: string;
+  readonly sourceText: string;
+  readonly computed: boolean;
+  readonly expression: LoweringExpressionPlan;
+};
+
+export type LoweringTemplatePartPlan = {
+  readonly text: string;
+  readonly expression?: LoweringExpressionPlan;
+};
+
+export type LoweringStatementPlan = LoweringPlanBase<"statement"> & {
+  readonly statementKind:
+    | "block"
+    | "return"
+    | "expression"
+    | "variable"
+    | "if"
+    | "while"
+    | "for"
+    | "for-of"
+    | "for-in"
+    | "break"
+    | "continue"
+    | "switch"
+    | "try"
+    | "throw"
+    | "empty"
+    | "declaration"
+    | "unsupported";
+  readonly expression?: LoweringExpressionPlan;
+  readonly condition?: LoweringExpressionPlan;
+  readonly incrementor?: LoweringExpressionPlan;
+  readonly iterable?: LoweringExpressionPlan;
+  readonly thenStatement?: LoweringStatementPlan;
+  readonly elseStatement?: LoweringStatementPlan;
+  readonly body?: LoweringStatementPlan;
+  readonly tryBlock?: LoweringStatementPlan;
+  readonly catchVariable?: LoweringVariablePlan;
+  readonly catchBlock?: LoweringStatementPlan;
+  readonly finallyBlock?: LoweringStatementPlan;
+  readonly cases: readonly LoweringSwitchCasePlan[];
+  readonly statements: readonly LoweringStatementPlan[];
+  readonly declarations: readonly LoweringVariablePlan[];
+};
+
+export type LoweringSwitchCasePlan = {
+  readonly expression?: LoweringExpressionPlan;
+  readonly statements: readonly LoweringStatementPlan[];
+  readonly isDefault: boolean;
 };
 
 export type LoweringCallPlan = LoweringPlanBase<"call"> & {

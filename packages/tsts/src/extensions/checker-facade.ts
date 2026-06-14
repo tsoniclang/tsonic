@@ -4,7 +4,6 @@ import type { Node } from "../internal/ast/spine.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { SymbolName } from "../internal/ast/symbol.js";
 import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
-import { KindIdentifier } from "../internal/ast/generated/kinds.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import {
   CheckModeNormal,
@@ -14,7 +13,6 @@ import {
   Checker_isArrayType,
   Checker_GetTypeAtLocation,
 } from "../internal/checker/checker/types.js";
-import { Checker_getNarrowedTypeOfSymbol } from "../internal/checker/checker/flow-narrowing.js";
 import {
   Checker_GetAliasedSymbol,
   Checker_getFullyQualifiedName,
@@ -198,19 +196,8 @@ export const createExtensionTypeChecker = (
 ): ExtensionTypeChecker => ({
   getTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> =>
     Checker_GetTypeAtLocation(checker, node),
-  getNarrowedTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> => {
-    const declaredType = Checker_GetTypeAtLocation(checker, node);
-    if (node === undefined || node.Kind !== KindIdentifier) {
-      return declaredType;
-    }
-
-    const symbol = Checker_GetSymbolAtLocation(checker, node);
-    if (symbol === undefined) {
-      return declaredType;
-    }
-
-    return Checker_getNarrowedTypeOfSymbol(checker, symbol, node) ?? declaredType;
-  },
+  getNarrowedTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> =>
+    Checker_GetTypeAtLocation(checker, node),
   getSymbolAtLocation: (node: GoPtr<Node>): GoPtr<Symbol> =>
     Checker_GetSymbolAtLocation(checker, node),
   resolveAlias: (symbol: GoPtr<Symbol>): GoPtr<Symbol> =>

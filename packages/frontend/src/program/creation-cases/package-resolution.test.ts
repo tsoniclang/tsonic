@@ -9,13 +9,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createProgram } from "../creation.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
+import type { TstsSourceFile } from "@tsonic/tsts";
 
 const hasSourceFile = (
-  sourceFiles: readonly { readonly fileName: string }[],
+  sourceFiles: readonly TstsSourceFile[],
   filePath: string
 ): boolean =>
   sourceFiles.some(
-    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(filePath)
+    (sourceFile) =>
+      path.resolve(sourceFile.FileName()) === path.resolve(filePath)
   );
 
 describe("Program Creation – package resolution", function () {
@@ -83,7 +85,7 @@ describe("Program Creation – package resolution", function () {
         result.value.sourceFiles.filter((sourceFile) => {
           try {
             return (
-              fs.realpathSync(sourceFile.fileName) ===
+              fs.realpathSync(sourceFile.FileName()) ===
               fs.realpathSync(path.join(externalRoot, "src", "path-module.ts"))
             );
           } catch {

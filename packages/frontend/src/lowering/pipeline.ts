@@ -29,7 +29,7 @@ export const runLoweringPipeline = <
     diagnostics,
   };
 
-  for (const sourceFile of program.sourceProgram.sourceFiles) {
+  for (const sourceFile of program.sourceFiles) {
     const result = createLoweringModulePlan(sourceFile, context, options);
     if (result.ok) {
       modules.push(result.plan);

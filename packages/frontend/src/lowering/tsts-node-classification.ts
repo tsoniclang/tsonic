@@ -30,9 +30,13 @@ export const sourceFileStatements = (
 export const isDeclarationNode = (node: TstsNode): boolean => {
   switch (node.Kind) {
     case TstsSyntax.KindClassDeclaration:
+    case TstsSyntax.KindConstructor:
     case TstsSyntax.KindEnumDeclaration:
+    case TstsSyntax.KindEnumMember:
     case TstsSyntax.KindFunctionDeclaration:
     case TstsSyntax.KindInterfaceDeclaration:
+    case TstsSyntax.KindMethodDeclaration:
+    case TstsSyntax.KindPropertyDeclaration:
     case TstsSyntax.KindTypeAliasDeclaration:
     case TstsSyntax.KindVariableDeclaration:
       return true;

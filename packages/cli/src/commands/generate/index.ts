@@ -181,6 +181,9 @@ export const generateCommand = (
     if (!emitResult.ok) {
       for (const error of emitResult.errors) {
         console.error(`error ${error.code}: ${error.message}`);
+        if (error.hint) {
+          console.error(`  ${error.hint}`);
+        }
       }
       process.exit(1);
     }

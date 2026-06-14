@@ -928,7 +928,6 @@ export const discoverProgramInputs = (
   const emittableSourceFiles = Array.from(
     new Set([
       ...runtimeSourceClosure.files,
-      ...semanticSupportClosure.files,
     ])
   );
 

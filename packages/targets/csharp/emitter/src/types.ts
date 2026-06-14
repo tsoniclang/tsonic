@@ -15,3 +15,16 @@ export type EmitterOptions = {
 export type EmitResult =
   | { readonly ok: true; readonly files: Map<string, string> }
   | { readonly ok: false; readonly errors: readonly Diagnostic[] };
+
+export type ModuleEmitResult =
+  | { readonly ok: true; readonly code: string }
+  | { readonly ok: false; readonly errors: readonly Diagnostic[] };
+
+export type RenderContext = {
+  readonly diagnostics: Diagnostic[];
+  readonly reportUnsupported: (
+    feature: string,
+    sourceKindName: string,
+    sourceText: string
+  ) => void;
+};

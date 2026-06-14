@@ -54,7 +54,7 @@ describe("Program Creation – entrypoint input scope", function () {
       if (!result.ok) return;
 
       const sourceFiles = result.value.sourceFiles.map((sourceFile) =>
-        path.resolve(sourceFile.fileName)
+        path.resolve(sourceFile.FileName())
       );
       expect(sourceFiles).to.include(path.resolve(testEntryFile));
       expect(sourceFiles).to.include(path.resolve(smokeFile));

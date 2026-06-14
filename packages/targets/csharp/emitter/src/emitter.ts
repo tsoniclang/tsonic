@@ -1,13 +1,18 @@
 import { relative } from "node:path";
 import type { Diagnostic } from "@tsonic/frontend";
 import { emitModule } from "./rendering/module.js";
-import type { CSharpLoweringModulePlan, EmitResult, EmitterOptions } from "./types.js";
+import type {
+  CSharpLoweringModulePlan,
+  EmitResult,
+  EmitterOptions,
+  ModuleEmitResult,
+} from "./types.js";
 
 export { emitModule };
 
 const findCommonRoot = (paths: readonly string[]): string => {
   if (paths.length === 0) return "";
-  const segments = paths.map((item) => item.split("/"));
+  const segments = paths.map((item) => item.split("/").slice(0, -1));
   const first = segments[0] ?? [];
   const max = Math.min(...segments.map((item) => item.length));
   let common = 0;
@@ -58,7 +63,7 @@ const duplicateOutputDiagnostics = (
 export const emitCSharpFile = (
   module: CSharpLoweringModulePlan,
   options: Partial<EmitterOptions> = {}
-): string => emitModule(module, options);
+): ModuleEmitResult => emitModule(module, options);
 
 export const emitCSharpFiles = (
   modules: readonly CSharpLoweringModulePlan[],
@@ -72,7 +77,11 @@ export const emitCSharpFiles = (
   const commonRoot = findCommonRoot(modules.map((module) => module.identity.filePath));
   const files = new Map<string, string>();
   for (const module of modules) {
-    files.set(outputPathForModule(module, commonRoot), emitCSharpFile(module, options));
+    const moduleResult = emitCSharpFile(module, options);
+    if (!moduleResult.ok) {
+      return { ok: false, errors: moduleResult.errors };
+    }
+    files.set(outputPathForModule(module, commonRoot), moduleResult.code);
   }
   return { ok: true, files };
 };

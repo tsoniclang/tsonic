@@ -11,6 +11,7 @@ export type {
   LoweringModuleIdentity,
   LoweringModulePlan,
   LoweringNarrowingPlan,
+  LoweringObjectPropertyPlan,
   LoweringParameterPlan,
   LoweringPipelineOptions,
   LoweringPipelineResult,
@@ -18,6 +19,7 @@ export type {
   LoweringStatementPlan,
   LoweringSyntheticDeclarationPlan,
   LoweringTypePlan,
+  LoweringVariablePlan,
 } from "./types.js";
 export { createLoweringInput } from "./input.js";
 export { createLoweringModulePlan } from "./module-plan.js";

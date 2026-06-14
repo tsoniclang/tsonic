@@ -1,9 +1,7 @@
 import { SymbolName } from "../internal/ast/symbol.js";
 import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
-import { KindIdentifier } from "../internal/ast/generated/kinds.js";
 import { CheckModeNormal, isTupleType, } from "../internal/checker/checker/state.js";
 import { Checker_isArrayType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
-import { Checker_getNarrowedTypeOfSymbol } from "../internal/checker/checker/flow-narrowing.js";
 import { Checker_GetAliasedSymbol, Checker_getFullyQualifiedName, Checker_getIndexTypeOfType, Checker_GetTypeOfSymbolAtLocation, Checker_GetSymbolAtLocation, } from "../internal/checker/checker/symbols.js";
 import { Checker_getReturnTypeOfSignature, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getSignaturesOfType, Checker_getTypeArguments, } from "../internal/checker/checker/signatures.js";
 import { Checker_GetContextualType, Checker_GetElementTypeOfArrayType, Checker_GetExportSpecifierLocalTargetSymbol, Checker_GetExportsOfModule, Checker_GetShorthandAssignmentValueSymbol, Checker_GetSymbolsInScope, } from "../internal/checker/services.js";
@@ -19,17 +17,7 @@ const typeMembers = (type, flags) => hasTypeFlags(type, flags) ? Type_Types(type
 const nonNullishType = (type) => !hasTypeFlags(type, TypeFlagsNull | TypeFlagsUndefined);
 export const createExtensionTypeChecker = (checker) => ({
     getTypeAtLocation: (node) => Checker_GetTypeAtLocation(checker, node),
-    getNarrowedTypeAtLocation: (node) => {
-        const declaredType = Checker_GetTypeAtLocation(checker, node);
-        if (node === undefined || node.Kind !== KindIdentifier) {
-            return declaredType;
-        }
-        const symbol = Checker_GetSymbolAtLocation(checker, node);
-        if (symbol === undefined) {
-            return declaredType;
-        }
-        return Checker_getNarrowedTypeOfSymbol(checker, symbol, node) ?? declaredType;
-    },
+    getNarrowedTypeAtLocation: (node) => Checker_GetTypeAtLocation(checker, node),
     getSymbolAtLocation: (node) => Checker_GetSymbolAtLocation(checker, node),
     resolveAlias: (symbol) => symbol !== undefined && (symbol.Flags & SymbolFlagsAlias) !== 0
         ? Checker_GetAliasedSymbol(checker, symbol)

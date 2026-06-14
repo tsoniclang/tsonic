@@ -53,6 +53,7 @@ export {
   ModifierFlagsAmbient,
   ModifierFlagsAsync,
   ModifierFlagsExport,
+  ModifierFlagsStatic,
 } from "../internal/ast/modifierflags.js";
 export type {
   ModifierList,

@@ -55,7 +55,9 @@ export const createLoweringModulePlan = <
       sourceModule,
       imports: input.moduleGraph.getImports(sourceFile),
       exports: input.moduleGraph.getExports(sourceFile),
-      declarations: plans.declarations,
+      declarations: plans.declarations.filter((declaration) =>
+        topLevelNodes.has(declaration.sourceNode)
+      ),
       topLevelStatements: plans.statements.filter((statement) =>
         topLevelNodes.has(statement.sourceNode)
       ),
