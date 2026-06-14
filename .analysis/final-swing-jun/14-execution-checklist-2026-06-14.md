@@ -16,8 +16,8 @@ Report this checklist every 15 minutes while long-running work is active.
 
 ```text
 branch: feature/tsts-final-completion
-latest pushed commit before this checkpoint: b3a28533 eliminate string-driven emission decisions
-current local state: AST-emission cleanup pushed; frontend target-leakage naming cleanup pending commit/push
+latest pushed commit before this checkpoint: b2f27645 remove target wording from frontend alias facts
+current local state: clean; AST-emission cleanup and frontend target-leakage naming cleanup pushed
 focused validation: 107 passing / 0 failing after AST-emission cleanup; 59 passing / 0 failing after alias naming cleanup
 build validation: @tsonic/frontend and @tsonic/csharp-emitter both build
 full run-all: not restarted after AST-emission cleanup; final gates wait for code-completeness signoff
@@ -43,7 +43,7 @@ not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
 | 2.2 | SourceProgram/SourceModule | TSTS-backed source program is the product model | Done | Final product audit |
 | 2.3 | SourceDiagnostic | Diagnostics are frontend-neutral | In progress | Validator tests green |
 | 2.4 | CLI routing | CLI/build/test use frontend boundary | In progress | CLI tests and product import audit |
-| 2.5 | No fallback frontend | No product TypeScript frontend remains | Pending final audit | Final banned-search audit |
+| 2.5 | No fallback frontend | No product TypeScript frontend remains | Clean in current product search | Final banned-search audit |
 | 3.1 | Fact keys | Tsonic facts use typed keys | Done | Search for string-keyed fact lookup |
 | 3.2 | Core imports | `@tsonic/core` imports resolve through extension identity | Done | Alias/shadow tests green |
 | 3.3 | Numeric primitives | Numeric primitive facts attach in source terms | Done | Emitted-output fixture proof |
@@ -77,7 +77,7 @@ not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
 | 6.8 | Attributes | Attribute handling moved to source facts/lowering | Partial | Search and emit proof |
 | 6.9 | External source bindings | External binding facts use one manifest shape | Partial | No legacy/v1/v2 bridge audit |
 | 6.10 | Synthetic declarations | Synthetic declarations no longer depend on old IR | Partial | Compile/audit proof |
-| 7.1 | Delete `typescript` product imports | Product frontend does not import TSC | Pending final search | Final search gate |
+| 7.1 | Delete `typescript` product imports | Product frontend does not import TSC | Clean in current product search | Final search gate |
 | 7.2 | Delete old graph extraction | No product import/export semantic walkers | Pending final search | Final search gate |
 | 7.3 | Delete old symbol IDs | No target-rendered source IDs | Pending audit | Search and dependency audit |
 | 7.4 | Delete old IR builder | No parallel source IR tree as product source of truth | In progress | Build breaks repaired via lowering plans |
@@ -110,9 +110,9 @@ not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
 | --- | --- | --- | --- |
 | Runtime expression semantics | Lowering recognized `console`, `Error`, `undefined`, and `.length` from local identifier text | TSTS source extension writes `expressionSemanticsFactKey`; lowering only consumes the fact | `source-semantics.test.js`: ambient/global positives and local-shadow negatives |
 | Well-known computed names | Lowering recognized `[Symbol.iterator]` and `[Symbol.asyncIterator]` by `Node_Text` on receiver/member | TSTS source extension writes `wellKnownComputedNameFactKey`; declaration lowering consumes the fact | `source-semantics.test.js`: ambient/global positives and local-shadow negatives |
-| Generic function aliases | C# module rendering used a module-wide alias map from source names | Source extension writes `genericFunctionAliasFactKey`; identifier plans carry `aliasTargetName`; alias declarations carry `compileTimeOnly` | Focused generic-function tests green |
+| Generic function aliases | C# module rendering used a module-wide alias map from source names | Source extension writes `genericFunctionAliasFactKey`; identifier plans carry `resolvedAliasName`; alias declarations carry `compileTimeOnly` | Focused generic-function tests green |
 | Enum initializers | C# enum rendering used `initializer.literalText ?? "0"` | C# enum rendering calls `renderExpression(member.initializer, context)` | C# emitter build green |
-| Audit result | Legacy string/parser patterns existed in lowering/emitter | Targeted audit reports only diagnostic `sourceFile.Text()` and numeric literal token fallback | Audit command: `rg 'splitTopLevel|stripTypeSyntax|typeText|returnTypeText|declaredTypeText|contextualTypeText|sourceText\\.includes|nameSourceText\\.includes|expressionAliases|LoweringExpressionAliasPlan' packages/frontend/src packages/targets/csharp/emitter/src -g '*.ts'` |
+| Audit result | Legacy string/parser patterns existed in lowering/emitter | Targeted audit reports only diagnostic source snippets, diagnostic `sourceFile.Text()`, and AST token reads for names/literals | Audit command: `rg 'Node_Text\\(|\\.Text\\(|sourceText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|literalText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|nameSourceText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|expressionRootName|buildGenericFunctionAliasMap|expressionAliases|LoweringExpressionAliasPlan|typeText|returnTypeText|declaredTypeText|contextualTypeText|operatorText' packages/frontend/src packages/targets/csharp/emitter/src -g '*.ts'` |
 
 Concrete source example now covered:
 
