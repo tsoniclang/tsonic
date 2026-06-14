@@ -34,8 +34,8 @@ const renderParameter = (
     : "";
   const restModifier = parameter.rest ? "params " : "";
   const type = parameter.optional
-    ? renderNullableCSharpType(parameter.type)
-    : renderCSharpType(parameter.type);
+    ? renderNullableCSharpType(parameter.type, context)
+    : renderCSharpType(parameter.type, context);
   return `${restModifier}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
 };
 
@@ -92,7 +92,7 @@ const renderFunction = (
   const returnType =
     className && plan.returnType?.kind === "intrinsic" && plan.returnType.name === "this"
       ? sanitizeTypeName(className)
-      : renderFunctionReturnType(plan.returnType, plan.async);
+      : renderFunctionReturnType(plan.returnType, plan.async, context);
   return [
     `public ${staticModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
     renderFunctionBody(plan.body, context),
@@ -117,7 +117,7 @@ const renderProperty = (
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "property");
   if (!declarationName) return undefined;
-  const type = renderCSharpType(plan.returnType ?? plan.declaredTypePlan);
+  const type = renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context);
   const initializer = plan.initializer
     ? ` = ${renderExpression(plan.initializer, context)}`
     : "";
@@ -176,12 +176,12 @@ const renderInterfaceMember = (
       const parameters = plan.parameters
         .map((parameter) => renderParameter(parameter, context))
         .join(", ");
-      return `${renderCSharpType(plan.returnType)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
+      return `${renderCSharpType(plan.returnType, context)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
     }
     case "property": {
       const name = requireDeclarationName(plan, context, "interface member");
       if (!name) return undefined;
-      return `${renderCSharpType(plan.returnType ?? plan.declaredTypePlan)} ${sanitizeIdentifier(name)} { get; set; }`;
+      return `${renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context)} ${sanitizeIdentifier(name)} { get; set; }`;
     }
     default:
       context.reportUnsupported(

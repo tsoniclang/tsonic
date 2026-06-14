@@ -1,4 +1,5 @@
 import type { LoweringTypeMemberPlan, LoweringTypeRefPlan } from "@tsonic/frontend";
+import type { RenderContext } from "../types.js";
 import { sanitizeIdentifier, sanitizeTypeName } from "./names.js";
 
 const primitiveRuntimeTypes: ReadonlyMap<string, string> = new Map([
@@ -38,63 +39,108 @@ const knownNamedTypes: ReadonlyMap<string, string> = new Map([
 const renderNamedType = (name: string): string =>
   knownNamedTypes.get(name) ?? sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
 
+const stableHash = (value: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+};
+
+const typeMemberKey = (member: LoweringTypeMemberPlan): string => {
+  switch (member.kind) {
+    case "property":
+      return `property:${member.optional ? "?" : ""}${member.name}:${typePlanKey(member.type)}`;
+    case "method":
+      return `method:${member.optional ? "?" : ""}${member.name}<${member.typeParameters.join(",")}>(${member.parameters
+        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}:${typePlanKey(parameter.type)}`)
+        .join(",")}):${typePlanKey(member.returnType)}`;
+  }
+};
+
+export function typePlanKey(type: LoweringTypeRefPlan | undefined): string {
+  if (!type) return "missing";
+  switch (type.kind) {
+    case "intrinsic":
+      return `intrinsic:${type.name}`;
+    case "source-primitive":
+      return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
+    case "named":
+      return `named:${type.name}<${type.typeArguments.map(typePlanKey).join(",")}>`;
+    case "array":
+      return `array:${type.readonly ? "readonly" : "mutable"}:${typePlanKey(type.elementType)}`;
+    case "tuple":
+      return `tuple:${type.readonly ? "readonly" : "mutable"}:${type.elements.map(typePlanKey).join(",")}`;
+    case "union":
+      return `union:${type.types.map(typePlanKey).join("|")}`;
+    case "intersection":
+      return `intersection:${type.types.map(typePlanKey).join("&")}`;
+    case "function":
+      return `function:<${type.typeParameters.join(",")}>(${type.parameters
+        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.optional ? "?" : ""}${typePlanKey(parameter.type)}`)
+        .join(",")}):${typePlanKey(type.returnType)}`;
+    case "object":
+      return `object:{${[...type.members.map(typeMemberKey)].sort().join(";")}}`;
+    case "predicate":
+      return `predicate:${typePlanKey(type.assertedType)}`;
+    case "literal":
+      return `literal:${type.literalKind}:${type.valueText}`;
+    case "unsupported":
+      return `unsupported:${type.sourceKindName}`;
+  }
+}
+
+export const structuralTypeName = (type: LoweringTypeRefPlan): string =>
+  `__TsonicShape_${stableHash(typePlanKey(type))}`;
+
 const isNullishType = (type: LoweringTypeRefPlan): boolean =>
   (type.kind === "intrinsic" &&
     (type.name === "undefined" || type.name === "null")) ||
   (type.kind === "literal" &&
     (type.literalKind === "undefined" || type.literalKind === "null"));
 
-const isReferenceLikeRenderedType = (rendered: string): boolean =>
-  rendered.endsWith("?") ||
-  rendered.endsWith("[]") ||
-  rendered.startsWith("global::System.Func") ||
-  rendered.startsWith("global::System.Action") ||
-  rendered.startsWith("global::System.Collections.") ||
-  rendered.startsWith("global::System.Threading.Tasks.Task") ||
-  /^[A-Z_]/.test(rendered);
+const isOpaqueNullableType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  type === undefined ||
+  (type.kind === "intrinsic" &&
+    (type.name === "any" ||
+      type.name === "object" ||
+      type.name === "unknown" ||
+      type.name === "undefined" ||
+      type.name === "null" ||
+      type.name === "symbol")) ||
+  (type.kind === "literal" &&
+    (type.literalKind === "undefined" || type.literalKind === "null")) ||
+  type.kind === "unsupported";
 
-const renderNullableRenderedType = (rendered: string): string => {
-  if (rendered === "void") return "object?";
-  if (isReferenceLikeRenderedType(rendered)) {
-    return rendered.endsWith("?") ? rendered : `${rendered}?`;
-  }
-  switch (rendered) {
-    case "bool":
-    case "byte":
-    case "char":
-    case "decimal":
-    case "double":
-    case "float":
-    case "int":
-    case "long":
-    case "nint":
-    case "nuint":
-    case "sbyte":
-    case "short":
-    case "uint":
-    case "ulong":
-    case "ushort":
-      return `${rendered}?`;
-    default:
-      return rendered.endsWith("?") ? rendered : `${rendered}?`;
-  }
-};
+const isVoidLikeType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  type?.kind === "intrinsic" &&
+  (type.name === "void" || type.name === "never");
 
-const renderUnionType = (type: LoweringTypeRefPlan): string => {
-  if (type.kind !== "union") return renderCSharpType(type);
+const isTaskType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  type?.kind === "named" && type.name === "Task";
+
+const renderUnionType = (
+  type: LoweringTypeRefPlan,
+  context?: RenderContext
+): string => {
+  if (type.kind !== "union") return renderCSharpType(type, context);
   const nonNullish = type.types.filter((member) => !isNullishType(member));
   if (nonNullish.length === 1) {
-    return renderNullableRenderedType(renderCSharpType(nonNullish[0]));
+    return renderNullableCSharpType(nonNullish[0], context);
   }
   return "object?";
 };
 
-const renderFunctionType = (type: LoweringTypeRefPlan): string => {
-  if (type.kind !== "function") return renderCSharpType(type);
+const renderFunctionType = (
+  type: LoweringTypeRefPlan,
+  context?: RenderContext
+): string => {
+  if (type.kind !== "function") return renderCSharpType(type, context);
   const parameters = type.parameters.map((parameter) =>
-    renderCSharpType(parameter.type)
+    renderCSharpType(parameter.type, context)
   );
-  const returnType = renderCSharpType(type.returnType);
+  const returnType = renderCSharpType(type.returnType, context);
   return returnType === "void"
     ? parameters.length === 0
       ? "global::System.Action"
@@ -102,7 +148,10 @@ const renderFunctionType = (type: LoweringTypeRefPlan): string => {
     : `global::System.Func<${[...parameters, returnType].join(", ")}>`;
 };
 
-export const renderCSharpType = (type: LoweringTypeRefPlan | undefined): string => {
+export const renderCSharpType = (
+  type: LoweringTypeRefPlan | undefined,
+  context?: RenderContext
+): string => {
   if (!type) return "object?";
   switch (type.kind) {
     case "intrinsic":
@@ -135,22 +184,22 @@ export const renderCSharpType = (type: LoweringTypeRefPlan | undefined): string 
       const name = renderNamedType(type.name);
       return type.typeArguments.length === 0
         ? name
-        : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument)).join(", ")}>`;
+        : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
     }
     case "array":
       return type.readonly
-        ? `global::System.Collections.Generic.IReadOnlyList<${renderCSharpType(type.elementType)}>`
-        : `${renderCSharpType(type.elementType)}[]`;
+        ? `global::System.Collections.Generic.IReadOnlyList<${renderCSharpType(type.elementType, context)}>`
+        : `${renderCSharpType(type.elementType, context)}[]`;
     case "tuple":
-      return `(${type.elements.map((element) => renderCSharpType(element)).join(", ")})`;
+      return `(${type.elements.map((element) => renderCSharpType(element, context)).join(", ")})`;
     case "union":
-      return renderUnionType(type);
+      return renderUnionType(type, context);
     case "intersection":
       return "object?";
     case "function":
-      return renderFunctionType(type);
+      return renderFunctionType(type, context);
     case "object":
-      return "object?";
+      return context?.getStructuralTypeName(type) ?? "object?";
     case "predicate":
       return "bool";
     case "literal":
@@ -173,32 +222,39 @@ export const renderCSharpType = (type: LoweringTypeRefPlan | undefined): string 
 };
 
 export const renderNullableCSharpType = (
-  type: LoweringTypeRefPlan | undefined
-): string => renderNullableRenderedType(renderCSharpType(type));
+  type: LoweringTypeRefPlan | undefined,
+  context?: RenderContext
+): string => {
+  if (isOpaqueNullableType(type) || isVoidLikeType(type)) return "object?";
+  if (type?.kind === "union") return renderUnionType(type, context);
+  return `${renderCSharpType(type, context)}?`;
+};
 
 export const renderFunctionReturnType = (
   returnType: LoweringTypeRefPlan | undefined,
-  isAsync: boolean
+  isAsync: boolean,
+  context?: RenderContext
 ): string => {
-  const rendered = renderCSharpType(returnType);
-  if (rendered.startsWith("global::System.Threading.Tasks.Task")) {
-    return rendered;
-  }
+  const rendered = renderCSharpType(returnType, context);
+  if (isTaskType(returnType)) return rendered;
   if (!isAsync) return rendered;
-  return rendered === "void"
+  return isVoidLikeType(returnType)
     ? "global::System.Threading.Tasks.Task"
     : `global::System.Threading.Tasks.Task<${rendered}>`;
 };
 
-export const renderTypeMember = (member: LoweringTypeMemberPlan): string => {
+export const renderTypeMember = (
+  member: LoweringTypeMemberPlan,
+  context: RenderContext
+): string => {
   switch (member.kind) {
     case "property":
-      return `${renderCSharpType(member.type)} ${sanitizeIdentifier(member.name)} { get; set; }`;
+      return `${renderCSharpType(member.type, context)} ${sanitizeIdentifier(member.name)} { get; set; }`;
     case "method":
-      return `${renderCSharpType(member.returnType)} ${sanitizeIdentifier(member.name)}(${member.parameters
+      return `${renderCSharpType(member.returnType, context)} ${sanitizeIdentifier(member.name)}(${member.parameters
         .map(
           (parameter) =>
-            `${renderCSharpType(parameter.type)} ${sanitizeIdentifier(parameter.name)}`
+            `${renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`
         )
         .join(", ")});`;
   }

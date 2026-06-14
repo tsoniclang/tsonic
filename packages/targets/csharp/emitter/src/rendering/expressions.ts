@@ -101,7 +101,7 @@ const binaryOperatorMap: ReadonlyMap<string, string> = new Map([
 ]);
 
 const renderOperator = (operatorText: string | undefined): string | undefined =>
-  operatorText ? binaryOperatorMap.get(operatorText.trim()) : undefined;
+  operatorText ? binaryOperatorMap.get(operatorText) : undefined;
 
 const renderUnaryOperator = (
   operatorText: string | undefined,
@@ -149,7 +149,8 @@ const renderObjectProperty = (
 };
 
 const arrayLiteralElementType = (
-  plan: LoweringExpressionPlan
+  plan: LoweringExpressionPlan,
+  context: RenderContext
 ): string | undefined => {
   const arrayPlan =
     plan.contextualTypePlan?.kind === "array"
@@ -157,7 +158,7 @@ const arrayLiteralElementType = (
       : plan.type?.kind === "array"
         ? plan.type
         : undefined;
-  if (arrayPlan) return renderCSharpType(arrayPlan.elementType);
+  if (arrayPlan) return renderCSharpType(arrayPlan.elementType, context);
   const tuplePlan =
     plan.type?.kind === "tuple"
       ? plan.type
@@ -166,7 +167,7 @@ const arrayLiteralElementType = (
         : undefined;
   if (tuplePlan) {
     const elementTypes = tuplePlan.elements.map((element) =>
-      renderCSharpType(element)
+      renderCSharpType(element, context)
     );
     const first = elementTypes[0];
     return first && elementTypes.every((part) => part === first)
@@ -177,18 +178,24 @@ const arrayLiteralElementType = (
 };
 
 const objectLiteralTargetType = (
-  plan: LoweringExpressionPlan
+  plan: LoweringExpressionPlan,
+  context: RenderContext
 ): string | undefined => {
-  return plan.contextualTypePlan?.kind === "named"
-    ? renderCSharpType(plan.contextualTypePlan)
+  return plan.contextualTypePlan?.kind === "named" ||
+    plan.contextualTypePlan?.kind === "object"
+    ? renderCSharpType(plan.contextualTypePlan, context)
     : undefined;
 };
 
-const renderLambdaParameter = (parameter: LoweringParameterPlan): string =>
-  `${parameter.rest ? "params " : ""}${renderCSharpType(parameter.type)} ${sanitizeIdentifier(parameter.name)}`;
+const renderLambdaParameter = (
+  parameter: LoweringParameterPlan,
+  context: RenderContext
+): string =>
+  `${parameter.rest ? "params " : ""}${renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`;
 
 export const renderFunctionExpressionType = (
-  plan: LoweringExpressionPlan | undefined
+  plan: LoweringExpressionPlan | undefined,
+  context: RenderContext
 ): string | undefined => {
   if (
     !plan ||
@@ -198,10 +205,11 @@ export const renderFunctionExpressionType = (
     return undefined;
   }
   const parameterTypes = plan.parameters.map((parameter) =>
-    renderCSharpType(parameter.type)
+    renderCSharpType(parameter.type, context)
   );
   const returnType = renderCSharpType(
-    plan.returnType ?? { kind: "intrinsic", name: "void" }
+    plan.returnType ?? { kind: "intrinsic", name: "void" },
+    context
   );
   return returnType === "void"
     ? parameterTypes.length === 0
@@ -211,10 +219,11 @@ export const renderFunctionExpressionType = (
 };
 
 const renderTypeArguments = (
-  typeArguments: readonly LoweringTypeRefPlan[] | undefined
+  typeArguments: readonly LoweringTypeRefPlan[] | undefined,
+  context: RenderContext
 ): string =>
   typeArguments && typeArguments.length > 0
-    ? `<${typeArguments.map((typeArgument) => renderCSharpType(typeArgument)).join(", ")}>`
+    ? `<${typeArguments.map((typeArgument) => renderCSharpType(typeArgument, context)).join(", ")}>`
     : "";
 
 const firstRenderedTypeArgument = (
@@ -227,7 +236,7 @@ const firstRenderedTypeArgument = (
     context.reportUnsupported(feature, plan.sourceKindName, plan.sourceText);
     return undefined;
   }
-  return renderCSharpType(first);
+  return renderCSharpType(first, context);
 };
 
 const renderLambda = (
@@ -235,7 +244,7 @@ const renderLambda = (
   context: RenderContext
 ): string => {
   const parameters = plan.parameters
-    .map((parameter) => renderLambdaParameter(parameter))
+    .map((parameter) => renderLambdaParameter(parameter, context))
     .join(", ");
   const asyncModifier = plan.async ? "async " : "";
   const body = plan.body
@@ -419,7 +428,7 @@ export const renderExpression = (
         const intrinsic = renderIntrinsicCall(plan, context);
         if (intrinsic !== undefined) return intrinsic;
       }
-      return `${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments)}(${plan.arguments
+      return `${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
         .map((argument) => renderCallArgument(argument, context))
         .join(", ")})`;
     case "new":
@@ -428,7 +437,7 @@ export const renderExpression = (
           .map((argument) => renderCallArgument(argument, context))
           .join(", ")})`;
       }
-      return `new ${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments)}(${plan.arguments
+      return `new ${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
         .map((argument) => renderCallArgument(argument, context))
         .join(", ")})`;
     case "arrow-function":
@@ -436,7 +445,7 @@ export const renderExpression = (
       return renderLambda(plan, context);
     case "array-literal":
       {
-        const elementType = arrayLiteralElementType(plan);
+        const elementType = arrayLiteralElementType(plan, context);
         const constructor = elementType ? `new ${elementType}[]` : "new[]";
         return `${constructor} { ${plan.elements
         .map((element) => renderExpression(element, context))
@@ -444,7 +453,7 @@ export const renderExpression = (
       }
     case "object-literal":
       {
-        const targetType = objectLiteralTargetType(plan);
+        const targetType = objectLiteralTargetType(plan, context);
         const constructor = targetType ? `new ${targetType}` : "new";
         return `${constructor} { ${plan.properties
         .map((property) => renderObjectProperty(property, context))

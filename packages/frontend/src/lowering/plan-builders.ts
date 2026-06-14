@@ -52,17 +52,13 @@ const nodeSourceText = (
   return text.slice(pos, end);
 };
 
-const nodeTokenText = (
-  sourceFile: TstsSourceFile,
-  node: TstsNode | undefined
-): string | undefined => {
+const nodeTokenText = (node: TstsNode | undefined): string | undefined => {
   if (!node) return undefined;
   try {
     const text = TstsSyntax.Node_Text(node);
     return text === "" ? undefined : text;
   } catch {
-    const text = nodeSourceText(sourceFile, node);
-    return text === "" ? undefined : text;
+    return undefined;
   }
 };
 
@@ -114,7 +110,7 @@ const nodeNameInfo = (
     };
   }
   return {
-    name: nodeTokenText(sourceFile, nameNode),
+    name: nodeTokenText(nameNode),
     sourceKindName,
     sourceText,
     computed: false,
@@ -144,7 +140,7 @@ const propertyNameInfo = (
     };
   }
   return {
-    name: nodeTokenText(sourceFile, nameNode),
+    name: nodeTokenText(nameNode),
     sourceKindName,
     sourceText,
     computed: false,
@@ -163,16 +159,9 @@ const compactNodeSourceText = (
 ): string => nodeSourceText(sourceFile, node).replace(/\s+/g, " ").trim();
 
 const templateFragmentText = (
-  sourceFile: TstsSourceFile,
+  _sourceFile: TstsSourceFile,
   node: TstsNode
-): string => {
-  const text = nodeSourceText(sourceFile, node);
-  return text
-    .replace(/^`/, "")
-    .replace(/^\}/, "")
-    .replace(/\$\{$/, "")
-    .replace(/`$/, "");
-};
+): string => nodeTokenText(node) ?? "";
 
 const nodeListNodes = (
   list: { readonly Nodes?: readonly (TstsNode | undefined)[] } | undefined
@@ -185,11 +174,11 @@ const nodeArrayNodes = (
   (nodes ?? []).filter((node): node is TstsNode => node !== undefined);
 
 const typeParameterNames = (
-  sourceFile: TstsSourceFile,
+  _sourceFile: TstsSourceFile,
   node: TstsNode
 ): readonly string[] =>
   nodeArrayNodes(TstsSyntax.Node_TypeParameters(node))
-    .map((typeParameter) => nodeTokenText(sourceFile, TstsSyntax.Node_Name(typeParameter)))
+    .map((typeParameter) => nodeTokenText(TstsSyntax.Node_Name(typeParameter)))
     .filter((name): name is string => name !== undefined);
 
 const intrinsicTypePlan = (
@@ -480,27 +469,36 @@ const sourceTypePlan = (
       if (!literal) return unsupportedTypePlan(sourceFile, node);
       switch (literal.Kind) {
         case TstsSyntax.KindStringLiteral:
-        case TstsSyntax.KindNoSubstitutionTemplateLiteral:
+        case TstsSyntax.KindNoSubstitutionTemplateLiteral: {
+          const valueText = nodeTokenText(literal);
+          if (valueText === undefined) return unsupportedTypePlan(sourceFile, node);
           return {
             kind: "literal",
             literalKind: "string",
-            valueText: nodeTokenText(sourceFile, literal) ?? sourceText,
+            valueText,
             sourceText,
           };
-        case TstsSyntax.KindNumericLiteral:
+        }
+        case TstsSyntax.KindNumericLiteral: {
+          const valueText = nodeTokenText(literal);
+          if (valueText === undefined) return unsupportedTypePlan(sourceFile, node);
           return {
             kind: "literal",
             literalKind: "number",
-            valueText: nodeTokenText(sourceFile, literal) ?? sourceText,
+            valueText,
             sourceText,
           };
-        case TstsSyntax.KindBigIntLiteral:
+        }
+        case TstsSyntax.KindBigIntLiteral: {
+          const valueText = nodeTokenText(literal);
+          if (valueText === undefined) return unsupportedTypePlan(sourceFile, node);
           return {
             kind: "literal",
             literalKind: "bigint",
-            valueText: nodeTokenText(sourceFile, literal) ?? sourceText,
+            valueText,
             sourceText,
           };
+        }
         case TstsSyntax.KindTrueKeyword:
         case TstsSyntax.KindFalseKeyword:
           return {
@@ -714,7 +712,7 @@ const expressionPlan = (
       return {
         ...base,
         expressionKind: "identifier",
-        literalText: nodeTokenText(sourceFile, node) ?? nodeName(sourceFile, node),
+        literalText: nodeTokenText(node) ?? nodeName(sourceFile, node),
       };
     case TstsSyntax.KindThisKeyword:
       return { ...base, expressionKind: "this" };
@@ -726,7 +724,7 @@ const expressionPlan = (
         ...base,
         expressionKind: "literal",
         literalKind: "string",
-        literalText: nodeTokenText(sourceFile, node),
+        literalText: nodeTokenText(node),
       };
     case TstsSyntax.KindTemplateExpression: {
       const template = TstsSyntax.AsTemplateExpression(node);
@@ -753,14 +751,14 @@ const expressionPlan = (
         ...base,
         expressionKind: "literal",
         literalKind: "number",
-        literalText: nodeTokenText(sourceFile, node),
+        literalText: nodeTokenText(node),
       };
     case TstsSyntax.KindBigIntLiteral:
       return {
         ...base,
         expressionKind: "literal",
         literalKind: "bigint",
-        literalText: nodeTokenText(sourceFile, node),
+        literalText: nodeTokenText(node),
       };
     case TstsSyntax.KindTrueKeyword:
       return {
@@ -922,7 +920,7 @@ const expressionPlan = (
           context
         ),
         literalText:
-          nodeTokenText(sourceFile, TstsSyntax.Node_Name(node)) ??
+          nodeTokenText(TstsSyntax.Node_Name(node)) ??
           nodeName(sourceFile, node),
       };
     case TstsSyntax.KindElementAccessExpression: {
@@ -1070,7 +1068,7 @@ const bindingElementsFromName = (
 ): readonly LoweringBindingElementPlan[] => {
   if (!node) return [];
   if (node.Kind === TstsSyntax.KindIdentifier) {
-    const name = nodeTokenText(sourceFile, node);
+    const name = nodeTokenText(node);
     return name && accessPath.length > 0 ? [{ name, accessPath }] : [];
   }
   const bindingPattern = TstsSyntax.AsBindingPattern(node);
@@ -1090,9 +1088,9 @@ const bindingElementsFromName = (
               kind: "property",
               name:
                 (propertyName
-                  ? nodeTokenText(sourceFile, propertyName)
+                  ? nodeTokenText(propertyName)
                   : undefined) ??
-                nodeTokenText(sourceFile, nameNode) ??
+                nodeTokenText(nameNode) ??
                 `item${index}`,
             },
           ];

@@ -1,4 +1,8 @@
-import type { Diagnostic, LoweringModulePlan } from "@tsonic/frontend";
+import type {
+  Diagnostic,
+  LoweringModulePlan,
+  LoweringTypeRefPlan,
+} from "@tsonic/frontend";
 import type { CSharpEmitterTargetId } from "./target.js";
 
 export type CSharpLoweringModulePlan =
@@ -24,6 +28,7 @@ export type RenderContext = {
   readonly diagnostics: Diagnostic[];
   readonly expressionAliases: ReadonlyMap<string, string>;
   readonly allocateTempName: (prefix: string) => string;
+  readonly getStructuralTypeName: (type: LoweringTypeRefPlan) => string;
   readonly reportUnsupported: (
     feature: string,
     sourceKindName: string,

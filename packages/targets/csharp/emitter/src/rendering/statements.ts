@@ -52,9 +52,12 @@ export const renderVariableFragment = (
     context.reportUnsupported("variable fragment binding pattern", "BindingPattern", declaration.name);
     return "";
   }
-  const functionExpressionType = renderFunctionExpressionType(declaration.initializer);
+  const functionExpressionType = renderFunctionExpressionType(
+    declaration.initializer,
+    context
+  );
   const declaredType = declaration.type
-    ? renderCSharpType(declaration.type)
+    ? renderCSharpType(declaration.type, context)
     : undefined;
   const type =
     functionExpressionType && (!declaredType || declaredType === "object?")
@@ -74,9 +77,12 @@ export const renderStaticField = (
     context.reportUnsupported("top-level binding pattern", "BindingPattern", declaration.name);
     return "";
   }
-  const functionExpressionType = renderFunctionExpressionType(declaration.initializer);
+  const functionExpressionType = renderFunctionExpressionType(
+    declaration.initializer,
+    context
+  );
   const declaredType = declaration.type
-    ? renderCSharpType(declaration.type)
+    ? renderCSharpType(declaration.type, context)
     : undefined;
   const type =
     functionExpressionType && (!declaredType || declaredType === "object?")
@@ -270,7 +276,7 @@ export const renderStatement = (
       const declaration = plan.declarations[0];
       if (!declaration) return unsupportedStatement(context, plan);
       const type = declaration.type
-        ? renderCSharpType(declaration.type)
+        ? renderCSharpType(declaration.type, context)
         : "var";
       return `foreach (${type} ${sanitizeIdentifier(declaration.name)} in ${renderExpression(plan.iterable, context)}) ${renderStatement(plan.body, context)}`;
     }
