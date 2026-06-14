@@ -916,7 +916,7 @@ export const createTsonicSourceSemanticsExtension = (
       const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
       if (!targetSymbol) continue;
       context.facts.set(genericFunctionAliasFactKey, declaration, {
-        targetName: context.checker.getSymbolName(targetSymbol),
+        resolvedName: context.checker.getSymbolName(targetSymbol),
       });
     }
 
@@ -928,7 +928,7 @@ export const createTsonicSourceSemanticsExtension = (
         const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
         if (targetSymbol) {
           context.facts.set(genericFunctionAliasFactKey, node, {
-            targetName: context.checker.getSymbolName(targetSymbol),
+            resolvedName: context.checker.getSymbolName(targetSymbol),
           });
         }
       }

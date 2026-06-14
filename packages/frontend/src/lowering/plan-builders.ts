@@ -825,8 +825,8 @@ const expressionPlan = (
     contextualTypePlan:
       expectedType ?? checkerTypePlan(context, sourceFile, contextualType),
     semantic: expressionSemantic(node, context),
-    aliasTargetName: context.input.facts.get(genericFunctionAliasFactKey, node)
-      ?.targetName,
+    resolvedAliasName: context.input.facts.get(genericFunctionAliasFactKey, node)
+      ?.resolvedName,
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,

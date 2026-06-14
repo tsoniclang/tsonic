@@ -328,7 +328,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly binaryOperator?: LoweringBinaryOperator;
   readonly unaryOperator?: LoweringUnaryOperator;
   readonly semantic?: LoweringExpressionSemantic;
-  readonly aliasTargetName?: string;
+  readonly resolvedAliasName?: string;
   readonly yieldDelegates?: boolean;
   readonly expression?: LoweringExpressionPlan;
   readonly left?: LoweringExpressionPlan;

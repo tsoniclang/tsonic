@@ -17,8 +17,8 @@ Report this checklist every 15 minutes while long-running work is active.
 ```text
 branch: feature/tsts-final-completion
 latest pushed commit before this checkpoint: b3a28533 eliminate string-driven emission decisions
-current local state: AST-emission cleanup implemented; pending commit/push
-focused validation: 107 passing / 0 failing after AST-emission cleanup
+current local state: AST-emission cleanup pushed; frontend target-leakage naming cleanup pending commit/push
+focused validation: 107 passing / 0 failing after AST-emission cleanup; 59 passing / 0 failing after alias naming cleanup
 build validation: @tsonic/frontend and @tsonic/csharp-emitter both build
 full run-all: not restarted after AST-emission cleanup; final gates wait for code-completeness signoff
 not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
@@ -84,7 +84,7 @@ not done: remaining plan sweep, legacy audit refresh, run-all, downstreams
 | 7.5 | Delete old inference/binding | No local checker/generic/call inference owner | Improved | Module-wide generic alias inference deleted; search and focused tests still required |
 | 7.6 | Delete eager narrowing | No old narrowing engine in product path | In progress | Search and focused tests |
 | 7.7 | Delete legacy manifests | One metadata schema only | Pending audit | Search `legacy`, `v1`, `v2`, normalizers |
-| 7.8 | Delete backend leakage | No frontend CLR/C#/System facts | Pending audit | Search gate clean or documented test-only matches |
+| 7.8 | Delete backend leakage | No frontend CLR/C#/System facts | Clean in product search | Reconfirm in final audit before run-all |
 | 8.1 | Frontend focused tests | Focused repaired suites green | Green for AST-emission cleanup | 107 passing / 0 failing focused bundle |
 | 8.2 | Frontend full tests | Frontend package tests green | Done at checkpoint | `426 passing / 0 failing`; re-run after lowering repairs |
 | 8.3 | TSTS package build | Vendored TSTS compiles | Done for last checkpoint | Re-run after TSTS edits |

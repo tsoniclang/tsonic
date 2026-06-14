@@ -76,7 +76,7 @@ export type WellKnownComputedNameFact = {
 };
 
 export type GenericFunctionAliasFact = {
-  readonly targetName: string;
+  readonly resolvedName: string;
 };
 
 export type IntrinsicSemanticsFact = {

@@ -293,7 +293,7 @@ export const renderExpression = (
     case "identifier":
       {
         const rawName = plan.literalText ?? plan.name ?? "value";
-        return sanitizeIdentifier(plan.aliasTargetName ?? rawName);
+        return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
       }
     case "this":
       return "this";
