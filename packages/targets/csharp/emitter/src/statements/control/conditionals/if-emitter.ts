@@ -47,7 +47,6 @@ import {
   tryEmitNullableGuard,
   tryEmitTypeofGuard,
 } from "./if-emit-type-guards.js";
-import { applyIrBranchNarrowings } from "./ir-branch-narrowings.js";
 
 const tryEmitPlannedGuard = (
   stmt: Extract<IrStatement, { kind: "ifStatement" }>,
@@ -134,14 +133,10 @@ export const emitIfStatementAst = (
           ...rhsCtxAfterCond,
           narrowedBindings: context.narrowedBindings,
         };
-        const thenCtx = applyIrBranchNarrowings(
-          applyConditionBranchNarrowing(
-            stmt.condition,
-            "truthy",
-            semanticThenCondContext,
-            emitExprAstCb
-          ),
-          stmt.thenPlan.narrowedBindings,
+        const thenCtx = applyConditionBranchNarrowing(
+          stmt.condition,
+          "truthy",
+          semanticThenCondContext,
           emitExprAstCb
         );
         const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
@@ -209,14 +204,10 @@ export const emitIfStatementAst = (
     narrowedBindings: context.narrowedBindings,
   };
 
-  const thenCtx = applyIrBranchNarrowings(
-    applyConditionBranchNarrowing(
-      stmt.condition,
-      "truthy",
-      semanticCondContext,
-      emitExprAstCb
-    ),
-    stmt.thenPlan.narrowedBindings,
+  const thenCtx = applyConditionBranchNarrowing(
+    stmt.condition,
+    "truthy",
+    semanticCondContext,
     emitExprAstCb
   );
   const [thenStmts, thenContext] = emitBranchScopedStatementAst(
@@ -228,7 +219,7 @@ export const emitIfStatementAst = (
     semanticCondContext,
     thenContext
   );
-  const falsyPostConditionContext = applyIrBranchNarrowings(
+  const falsyPostConditionContext =
     applyConditionBranchNarrowing(
       stmt.condition,
       "falsy",
@@ -240,10 +231,7 @@ export const emitIfStatementAst = (
     ) ?? {
       ...basePostConditionContext,
       narrowedBindings: semanticCondContext.narrowedBindings,
-    },
-    stmt.elsePlan.narrowedBindings,
-    emitExprAstCb
-  );
+    };
   let finalContext: EmitterContext = thenTerminates
     ? falsyPostConditionContext
     : mergeBranchExitContext(
@@ -254,19 +242,15 @@ export const emitIfStatementAst = (
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
-    const elseEntryContext = applyIrBranchNarrowings(
-      applyConditionBranchNarrowing(
-        stmt.condition,
-        "falsy",
-        {
-          ...semanticCondContext,
-          tempVarId: basePostConditionContext.tempVarId,
-          usings: basePostConditionContext.usings,
-          usedLocalNames: basePostConditionContext.usedLocalNames,
-        },
-        emitExprAstCb
-      ),
-      stmt.elsePlan.narrowedBindings,
+    const elseEntryContext = applyConditionBranchNarrowing(
+      stmt.condition,
+      "falsy",
+      {
+        ...semanticCondContext,
+        tempVarId: basePostConditionContext.tempVarId,
+        usings: basePostConditionContext.usings,
+        usedLocalNames: basePostConditionContext.usedLocalNames,
+      },
       emitExprAstCb
     );
     const [elseStmts, elseContext] = emitBranchScopedStatementAst(

@@ -12,10 +12,10 @@ import {
   typeMemberKindToBucket,
 } from "./member-surfaces.js";
 
-const mkRef = (name: string, providerQualifiedName?: string): IrType => ({
+const mkRef = (name: string, externalQualifiedName?: string): IrType => ({
   kind: "referenceType",
   name,
-  providerQualifiedName,
+  externalQualifiedName,
 });
 
 const withContext = (patch: Partial<EmitterContext>): EmitterContext => ({

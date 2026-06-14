@@ -20,7 +20,7 @@
     "tsts": "./dist/src/cli/index.js"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "bash ../../scripts/build/tsts-project.sh ./tsconfig.json --pretty false",
     "test": "node --test \"dist/src/**/*.test.js\""
   },
   "files": [

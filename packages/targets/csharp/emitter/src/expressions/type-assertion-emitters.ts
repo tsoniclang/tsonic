@@ -227,9 +227,9 @@ const nominalSourceSatisfiesCompilerStructuralTarget = (
       (implementedType) =>
         implementedType.kind === "referenceType" &&
         (implementedType.name === strippedTarget.name ||
-          (implementedType.providerQualifiedName !== undefined &&
-            implementedType.providerQualifiedName ===
-              strippedTarget.providerQualifiedName))
+          (implementedType.externalQualifiedName !== undefined &&
+            implementedType.externalQualifiedName ===
+              strippedTarget.externalQualifiedName))
     )
   ) {
     return true;
@@ -437,7 +437,7 @@ export const emitTypeAssertion = (
           const clrName = getIdentifierTypeName(importBinding.typeAst);
           return {
             ...target,
-            ...(clrName ? { providerQualifiedName: clrName } : {}),
+            ...(clrName ? { externalQualifiedName: clrName } : {}),
             structuralOrigin: target.structuralOrigin ?? "namedReference",
             structuralMembers: target.structuralMembers ?? aliasType.members,
           };

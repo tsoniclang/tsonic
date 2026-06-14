@@ -40,7 +40,7 @@ describe("array-expected-types", () => {
     const recursiveType: IrType = {
       kind: "referenceType",
       name: "PathSpec",
-      providerQualifiedName: "Test.PathSpec",
+      externalQualifiedName: "Test.PathSpec",
     };
     const contextWithAlias: EmitterContext = {
       ...context,

@@ -22,7 +22,7 @@ describe("Statement Emission", () => {
               type: {
                 kind: "referenceType",
                 name: "List",
-                providerQualifiedName:
+                externalQualifiedName:
                   "global::System.Collections.Generic.List",
                 typeArguments: [{ kind: "primitiveType", name: "number" }],
               },
@@ -158,7 +158,7 @@ describe("Statement Emission", () => {
                           object: {
                             kind: "identifier",
                             name: "Console",
-                            providerQualifiedName: "System.Console",
+                            externalQualifiedName: "System.Console",
                           },
                           property: "WriteLine",
                           isComputed: false,
@@ -208,7 +208,7 @@ describe("Statement Emission", () => {
               type: {
                 kind: "referenceType",
                 name: "IAsyncEnumerable",
-                providerQualifiedName:
+                externalQualifiedName:
                   "System.Collections.Generic.IAsyncEnumerable",
                 typeArguments: [{ kind: "primitiveType", name: "string" }],
               },
@@ -220,7 +220,7 @@ describe("Statement Emission", () => {
           returnType: {
             kind: "referenceType",
             name: "Task",
-            providerQualifiedName: "System.Threading.Tasks.Task",
+            externalQualifiedName: "System.Threading.Tasks.Task",
             typeArguments: [],
           },
           body: {
@@ -289,7 +289,7 @@ describe("Statement Emission", () => {
               type: {
                 kind: "referenceType",
                 name: "IEnumerable",
-                providerQualifiedName: "System.Collections.Generic.IEnumerable",
+                externalQualifiedName: "System.Collections.Generic.IEnumerable",
                 typeArguments: [{ kind: "primitiveType", name: "string" }],
               },
               isOptional: false,
@@ -389,7 +389,7 @@ describe("Statement Emission", () => {
                 elementType: {
                   kind: "referenceType",
                   name: "ListenerRegistration",
-                  providerQualifiedName: "MyApp.ListenerRegistration",
+                  externalQualifiedName: "MyApp.ListenerRegistration",
                 },
                 origin: "explicit",
               },

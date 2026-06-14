@@ -11,15 +11,15 @@ const intType: IrType = { kind: "primitiveType", name: "int" };
 
 const referenceType = (
   name: string,
-  providerQualifiedName: string,
+  externalQualifiedName: string,
   staleProviderName: string
 ): IrType => ({
   kind: "referenceType",
   name,
-  providerQualifiedName,
+  externalQualifiedName,
   typeId: {
     stableId: `Tsts:${staleProviderName}`,
-    providerName: staleProviderName,
+    externalName: staleProviderName,
     symbolId: typeSymbolIdFromStableId(staleProviderName),
     sourceName: name,
     ownerIdentity: "Tsts",

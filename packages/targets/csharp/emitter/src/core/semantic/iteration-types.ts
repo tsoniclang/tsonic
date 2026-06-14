@@ -106,7 +106,7 @@ export const deriveForOfElementType = (
     const simpleName = (
       normalized.name.split(".").pop() ?? normalized.name
     ).replace(/\$instance$/, "");
-    const clrSimpleName = normalized.providerQualifiedName
+    const clrSimpleName = normalized.externalQualifiedName
       ?.split(".")
       .pop()
       ?.replace(/\$instance$/, "");

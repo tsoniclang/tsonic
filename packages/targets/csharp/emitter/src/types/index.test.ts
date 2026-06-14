@@ -375,7 +375,7 @@ describe("Type Emission", () => {
                 keyType: {
                   kind: "referenceType",
                   name: "PageContext",
-                  providerQualifiedName: "Tsumo.Engine.models.PageContext",
+                  externalQualifiedName: "Tsumo.Engine.models.PageContext",
                 },
                 valueType: { kind: "primitiveType", name: "string" },
               },
@@ -483,7 +483,7 @@ describe("Type Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      providerQualifiedName: "MyApp.Router",
+      externalQualifiedName: "MyApp.Router",
     };
 
     const module: IrModule = {

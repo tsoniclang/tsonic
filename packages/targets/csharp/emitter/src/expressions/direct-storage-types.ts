@@ -185,25 +185,25 @@ const tryConvertExactSurfaceTypeAstToIrType = (
           return {
             kind: "referenceType",
             name: "byte",
-            providerQualifiedName: "global::System.Byte",
+            externalQualifiedName: "global::System.Byte",
           };
         case "sbyte":
           return {
             kind: "referenceType",
             name: "sbyte",
-            providerQualifiedName: "global::System.SByte",
+            externalQualifiedName: "global::System.SByte",
           };
         case "short":
           return {
             kind: "referenceType",
             name: "short",
-            providerQualifiedName: "global::System.Int16",
+            externalQualifiedName: "global::System.Int16",
           };
         case "ushort":
           return {
             kind: "referenceType",
             name: "ushort",
-            providerQualifiedName: "global::System.UInt16",
+            externalQualifiedName: "global::System.UInt16",
           };
         case "int":
           return { kind: "primitiveType", name: "int" };
@@ -211,37 +211,37 @@ const tryConvertExactSurfaceTypeAstToIrType = (
           return {
             kind: "referenceType",
             name: "uint",
-            providerQualifiedName: "global::System.UInt32",
+            externalQualifiedName: "global::System.UInt32",
           };
         case "long":
           return {
             kind: "referenceType",
             name: "long",
-            providerQualifiedName: "global::System.Int64",
+            externalQualifiedName: "global::System.Int64",
           };
         case "ulong":
           return {
             kind: "referenceType",
             name: "ulong",
-            providerQualifiedName: "global::System.UInt64",
+            externalQualifiedName: "global::System.UInt64",
           };
         case "nint":
           return {
             kind: "referenceType",
             name: "nint",
-            providerQualifiedName: "global::System.IntPtr",
+            externalQualifiedName: "global::System.IntPtr",
           };
         case "nuint":
           return {
             kind: "referenceType",
             name: "nuint",
-            providerQualifiedName: "global::System.UIntPtr",
+            externalQualifiedName: "global::System.UIntPtr",
           };
         case "float":
           return {
             kind: "referenceType",
             name: "float",
-            providerQualifiedName: "global::System.Single",
+            externalQualifiedName: "global::System.Single",
           };
         case "double":
           return { kind: "primitiveType", name: "number" };
@@ -249,7 +249,7 @@ const tryConvertExactSurfaceTypeAstToIrType = (
           return {
             kind: "referenceType",
             name: "decimal",
-            providerQualifiedName: "global::System.Decimal",
+            externalQualifiedName: "global::System.Decimal",
           };
         case "char":
           return { kind: "primitiveType", name: "char" };
@@ -286,14 +286,14 @@ const tryConvertExactSurfaceTypeAstToIrType = (
         .filter(
           (typeArgument): typeArgument is IrType => typeArgument !== undefined
         );
-      const providerQualifiedName = `${
+      const externalQualifiedName = `${
         typeAst.name.aliasQualifier ? `${typeAst.name.aliasQualifier}::` : ""
       }${typeAst.name.segments.join(".")}`;
       const name =
         typeAst.name.segments[typeAst.name.segments.length - 1] ??
-        providerQualifiedName;
+        externalQualifiedName;
       const dictionaryType = tryBuildDictionaryType(
-        providerQualifiedName,
+        externalQualifiedName,
         typeArguments
       );
       if (dictionaryType) {
@@ -303,7 +303,7 @@ const tryConvertExactSurfaceTypeAstToIrType = (
       return {
         kind: "referenceType",
         name,
-        providerQualifiedName,
+        externalQualifiedName,
         ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {}),
       };
     }

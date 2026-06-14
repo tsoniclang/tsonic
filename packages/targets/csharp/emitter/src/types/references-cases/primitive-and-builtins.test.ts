@@ -71,10 +71,10 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "JsValue",
-          providerQualifiedName: "global::Tsonic.Runtime.JsValue",
+          externalQualifiedName: "global::Tsonic.Runtime.JsValue",
           typeId: {
             stableId: "core:JsValue",
-            providerName: "global::Tsonic.Runtime.JsValue",
+            externalName: "global::Tsonic.Runtime.JsValue",
             ownerIdentity: "core",
             sourceName: "JsValue",
             origin: "source",

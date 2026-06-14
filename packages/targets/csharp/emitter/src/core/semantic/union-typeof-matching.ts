@@ -59,7 +59,7 @@ const genericTypeofTarget = (tag: string): IrType | undefined => {
       return {
         kind: "referenceType",
         name: "object",
-        providerQualifiedName: "global::System.Object",
+        externalQualifiedName: "global::System.Object",
       };
     case "function":
       return {

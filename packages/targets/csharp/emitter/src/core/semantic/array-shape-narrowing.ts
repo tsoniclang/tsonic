@@ -35,7 +35,7 @@ const typeVisitKey = (type: IrType, context: EmitterContext): string => {
     return aliasKey;
   }
   if (type.kind === "referenceType") {
-    return `ref:${type.providerQualifiedName ?? type.name}`;
+    return `ref:${type.externalQualifiedName ?? type.name}`;
   }
   return `kind:${type.kind}`;
 };

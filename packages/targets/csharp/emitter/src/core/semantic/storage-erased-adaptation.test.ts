@@ -63,10 +63,10 @@ describe("storage-erased-adaptation", () => {
           elementType: {
             kind: "referenceType",
             name: "Item",
-            providerQualifiedName: "Fixture.Channels.domain.Item",
+            externalQualifiedName: "Fixture.Channels.domain.Item",
             typeId: {
               stableId: "@fixture/channels:Fixture.Channels.domain.Item",
-              providerName: "Fixture.Channels.domain.Item",
+              externalName: "Fixture.Channels.domain.Item",
               ownerIdentity: "@fixture/channels",
               sourceName: "Item",
             },
@@ -78,10 +78,10 @@ describe("storage-erased-adaptation", () => {
           elementType: {
             kind: "referenceType",
             name: "Item",
-            providerQualifiedName: "Fixture.Channels.repo.Item",
+            externalQualifiedName: "Fixture.Channels.repo.Item",
             typeId: {
               stableId: "@fixture/channels:Fixture.Channels.repo.Item",
-              providerName: "Fixture.Channels.repo.Item",
+              externalName: "Fixture.Channels.repo.Item",
               ownerIdentity: "@fixture/channels",
               sourceName: "Item",
             },

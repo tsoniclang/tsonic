@@ -22,7 +22,7 @@ describe("Expression Emission", () => {
                 inferredType: {
                   kind: "referenceType",
                   name: "QueryableRoot",
-                  providerQualifiedName: "global::MyApp.QueryableRoot",
+                  externalQualifiedName: "global::MyApp.QueryableRoot",
                 },
               },
               property: "Count",
@@ -88,7 +88,7 @@ describe("Expression Emission", () => {
               inferredType: {
                 kind: "referenceType",
                 name: "QueryableRoot",
-                providerQualifiedName: "global::MyApp.QueryableRoot",
+                externalQualifiedName: "global::MyApp.QueryableRoot",
               },
             },
             property: m.member,
@@ -143,7 +143,7 @@ describe("Expression Emission", () => {
                 inferredType: {
                   kind: "referenceType",
                   name: "EnumerableRoot",
-                  providerQualifiedName: "global::MyApp.EnumerableRoot",
+                  externalQualifiedName: "global::MyApp.EnumerableRoot",
                 },
               },
               property: "ToArray",
@@ -176,7 +176,7 @@ describe("Expression Emission", () => {
                 inferredType: {
                   kind: "referenceType",
                   name: "EnumerableRoot",
-                  providerQualifiedName: "global::MyApp.EnumerableRoot",
+                  externalQualifiedName: "global::MyApp.EnumerableRoot",
                 },
               },
               property: "ToList",
@@ -210,7 +210,7 @@ describe("Expression Emission", () => {
                 inferredType: {
                   kind: "referenceType",
                   name: "EnumerableRoot",
-                  providerQualifiedName: "global::MyApp.EnumerableRoot",
+                  externalQualifiedName: "global::MyApp.EnumerableRoot",
                 },
               },
               property: "Where",
@@ -268,7 +268,7 @@ describe("Expression Emission", () => {
                 inferredType: {
                   kind: "referenceType",
                   name: "QueryableRoot",
-                  providerQualifiedName: "global::MyApp.QueryableRoot",
+                  externalQualifiedName: "global::MyApp.QueryableRoot",
                 },
               },
               property: "AsNoTracking",

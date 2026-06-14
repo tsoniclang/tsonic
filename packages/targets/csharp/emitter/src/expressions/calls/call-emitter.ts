@@ -406,9 +406,9 @@ const referenceGenericConstructorsMatch = (
   right: Extract<IrType, { kind: "referenceType" }>
 ): boolean => {
   const leftName =
-    left.providerQualifiedName ?? left.typeId?.providerName ?? left.name;
+    left.externalQualifiedName ?? left.typeId?.externalName ?? left.name;
   const rightName =
-    right.providerQualifiedName ?? right.typeId?.providerName ?? right.name;
+    right.externalQualifiedName ?? right.typeId?.externalName ?? right.name;
   return leftName === rightName;
 };
 
@@ -1047,9 +1047,9 @@ const isBigIntRuntimeType = (
 
   const identities = [
     resolved.name,
-    resolved.providerQualifiedName,
+    resolved.externalQualifiedName,
     resolved.typeId?.sourceName,
-    resolved.typeId?.providerName,
+    resolved.typeId?.externalName,
   ];
   return identities.some((identity) => {
     const normalized = identity?.replace(/^global::/, "");
@@ -1616,11 +1616,11 @@ export const emitCall = (
     (normalizedExpr.sourceBackedSurfaceParameterTypes?.length ?? 0) > 0;
   const predicateParameterTypeCandidates =
     !hasDeclaredArgumentSurface &&
-    normalizedExpr.narrowing?.kind === "typePredicate"
+    normalizedExpr.typePredicate?.kind === "typePredicate"
       ? normalizedExpr.arguments.map((argument, index) =>
           (() => {
             if (
-              index !== normalizedExpr.narrowing?.argIndex ||
+              index !== normalizedExpr.typePredicate?.argIndex ||
               argument.kind === "spread"
             ) {
               return undefined;

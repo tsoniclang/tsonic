@@ -53,8 +53,8 @@ const getReferenceLeafName = (
     const leaf = ref.typeId.sourceName.split(".").pop();
     if (leaf) return leaf;
   }
-  if (ref.providerQualifiedName) {
-    const leaf = ref.providerQualifiedName.split(".").pop();
+  if (ref.externalQualifiedName) {
+    const leaf = ref.externalQualifiedName.split(".").pop();
     if (leaf) return leaf;
   }
   return ref.name.split(".").pop() ?? ref.name;
@@ -68,15 +68,15 @@ const buildCanonicalInterfaceRef = (
   ...sourceRef,
   kind: "referenceType",
   name,
-  providerQualifiedName:
-    sourceRef?.typeId?.providerName ??
-    (sourceRef?.providerQualifiedName &&
+  externalQualifiedName:
+    sourceRef?.typeId?.externalName ??
+    (sourceRef?.externalQualifiedName &&
     getClrIdentityKey(
-      sourceRef.providerQualifiedName,
+      sourceRef.externalQualifiedName,
       sourceRef.typeArguments?.length ?? 0
     ) !==
       getClrIdentityKey(sourceRef.name, sourceRef.typeArguments?.length ?? 0)
-      ? sourceRef.providerQualifiedName
+      ? sourceRef.externalQualifiedName
       : undefined) ??
     `${namespace}.${name}`,
 });

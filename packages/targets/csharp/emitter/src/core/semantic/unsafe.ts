@@ -181,7 +181,7 @@ export const expressionUsesPointer = (
       if (expressionUsesPointer(expr.callee)) return true;
       if (expr.typeArguments?.some((t) => typeUsesPointer(t))) return true;
       if (expr.parameterTypes?.some((t) => typeUsesPointer(t))) return true;
-      if (expr.narrowing && typeUsesPointer(expr.narrowing.targetType))
+      if (expr.typePredicate && typeUsesPointer(expr.typePredicate.targetType))
         return true;
       for (const arg of expr.arguments) {
         if (arg.kind === "spread") {

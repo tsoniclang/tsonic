@@ -72,7 +72,7 @@ describe("Union Type Emission", () => {
               {
                 kind: "referenceType",
                 name: "Task",
-                providerQualifiedName: "System.Threading.Tasks.Task",
+                externalQualifiedName: "System.Threading.Tasks.Task",
               },
             ],
           },

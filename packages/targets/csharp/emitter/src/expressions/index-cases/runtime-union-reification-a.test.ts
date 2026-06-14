@@ -15,12 +15,12 @@ import { printRuntimeUnionCarrierTypeForIrType } from "../../runtime-union-cases
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  providerQualifiedName: "Tsonic.Runtime.JsValue",
+  externalQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 const testTypeId = (targetName: string) => ({
   stableId: `Test:${targetName}`,
-  providerName: targetName,
+  externalName: targetName,
   ownerIdentity: "Test",
   sourceName: targetName.split(".").pop() ?? targetName,
   origin: "source" as const,
@@ -149,7 +149,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "Router",
-          providerQualifiedName: "Test.Router",
+          externalQualifiedName: "Test.Router",
         },
         {
           kind: "arrayType",
@@ -224,7 +224,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "Router",
-          providerQualifiedName: "Test.Router",
+          externalQualifiedName: "Test.Router",
         },
         {
           kind: "arrayType",
@@ -313,7 +313,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      providerQualifiedName: "Test.Router",
+      externalQualifiedName: "Test.Router",
       typeId: testTypeId("Test.Router"),
     };
 
@@ -436,7 +436,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      providerQualifiedName: "Test.Router",
+      externalQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {
@@ -502,7 +502,7 @@ describe("Expression Emission", () => {
               elementType: {
                 kind: "referenceType",
                 name: "object",
-                providerQualifiedName: "System.Object",
+                externalQualifiedName: "System.Object",
               },
               storageErasedElementType: middlewareLike,
               origin: "explicit",

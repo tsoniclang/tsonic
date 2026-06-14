@@ -35,7 +35,7 @@ const ref = (targetName: string): IrType =>
   ({
     kind: "referenceType",
     name: targetName.split(".").at(-1) ?? targetName,
-    providerQualifiedName: targetName,
+    externalQualifiedName: targetName,
   }) as IrType;
 
 const union = (types: readonly IrType[]): IrType =>

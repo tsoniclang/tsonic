@@ -53,7 +53,7 @@ type LocalStructuralMethodMember = {
 type StructuralReferenceMatch = {
   readonly key: string;
   readonly name: string;
-  readonly providerQualifiedName: string;
+  readonly externalQualifiedName: string;
   readonly isExternal: boolean;
 };
 
@@ -364,13 +364,13 @@ const collectCanonicalStructuralMatches = (
   const matches = new Map<string, StructuralReferenceMatch>();
   const addMatch = (
     name: string,
-    providerQualifiedName: string,
+    externalQualifiedName: string,
     isExternal: boolean
   ): void => {
-    matches.set(providerQualifiedName, {
-      key: providerQualifiedName,
+    matches.set(externalQualifiedName, {
+      key: externalQualifiedName,
       name,
-      providerQualifiedName,
+      externalQualifiedName,
       isExternal,
     });
   };
@@ -506,6 +506,6 @@ export const resolveCanonicalStructuralReferenceTypeAst = (
     collectCanonicalStructuralMatches(type, context)
   );
   return match
-    ? targetTypeNameToTypeAst(toGlobalClr(match.providerQualifiedName))
+    ? targetTypeNameToTypeAst(toGlobalClr(match.externalQualifiedName))
     : undefined;
 };

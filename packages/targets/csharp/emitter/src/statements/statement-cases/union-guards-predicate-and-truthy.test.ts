@@ -89,7 +89,7 @@ describe("Statement Emission", () => {
                   ],
                   isOptional: false,
                   inferredType: { kind: "primitiveType", name: "boolean" },
-                  narrowing: {
+                  typePredicate: {
                     kind: "typePredicate",
                     argIndex: 0,
                     targetType: shape0,
@@ -122,7 +122,7 @@ describe("Statement Emission", () => {
                   ],
                   isOptional: false,
                   inferredType: { kind: "primitiveType", name: "boolean" },
-                  narrowing: {
+                  typePredicate: {
                     kind: "typePredicate",
                     argIndex: 0,
                     targetType: shape1,
@@ -235,7 +235,7 @@ describe("Statement Emission", () => {
                   ],
                   isOptional: false,
                   inferredType: { kind: "primitiveType", name: "boolean" },
-                  narrowing: {
+                  typePredicate: {
                     kind: "typePredicate",
                     argIndex: 0,
                     targetType: shape0,
@@ -270,7 +270,7 @@ describe("Statement Emission", () => {
                   ],
                   isOptional: false,
                   inferredType: { kind: "primitiveType", name: "boolean" },
-                  narrowing: {
+                  typePredicate: {
                     kind: "typePredicate",
                     argIndex: 0,
                     targetType: shape1,
@@ -405,7 +405,7 @@ describe("Statement Emission", () => {
                   ],
                   isOptional: false,
                   inferredType: { kind: "primitiveType", name: "boolean" },
-                  narrowing: {
+                  typePredicate: {
                     kind: "typePredicate",
                     argIndex: 0,
                     targetType: shape0,
@@ -438,7 +438,7 @@ describe("Statement Emission", () => {
                   ],
                   isOptional: false,
                   inferredType: { kind: "primitiveType", name: "boolean" },
-                  narrowing: {
+                  typePredicate: {
                     kind: "typePredicate",
                     argIndex: 0,
                     targetType: shape1,
@@ -589,7 +589,7 @@ describe("Statement Emission", () => {
                     ],
                     isOptional: false,
                     inferredType: { kind: "primitiveType", name: "boolean" },
-                    narrowing: {
+                    typePredicate: {
                       kind: "typePredicate",
                       argIndex: 0,
                       targetType: shapeUnion,
@@ -620,7 +620,7 @@ describe("Statement Emission", () => {
                   ],
                   isOptional: false,
                   inferredType: { kind: "primitiveType", name: "boolean" },
-                  narrowing: {
+                  typePredicate: {
                     kind: "typePredicate",
                     argIndex: 0,
                     targetType: shape0,
@@ -674,7 +674,7 @@ describe("Statement Emission", () => {
     const unionReference: IrType = {
       kind: "referenceType",
       name: "Union_2",
-      providerQualifiedName: "global::Tsonic.Runtime.Union_2",
+      externalQualifiedName: "global::Tsonic.Runtime.Union_2",
       typeArguments: [okType, errType],
     };
     const unionWrapper: IrType = {

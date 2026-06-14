@@ -17,12 +17,12 @@ describe("deterministic-type-keys", () => {
         type: {
           kind: "referenceType" as const,
           name: "List_1",
-          providerQualifiedName: "System.Collections.Generic.List`1",
+          externalQualifiedName: "System.Collections.Generic.List`1",
           typeArguments: [
             {
               kind: "referenceType" as const,
               name: "Dictionary_2",
-              providerQualifiedName: "System.Collections.Generic.Dictionary`2",
+              externalQualifiedName: "System.Collections.Generic.Dictionary`2",
               typeArguments: [
                 { kind: "primitiveType" as const, name: "string" as const },
                 { kind: "primitiveType" as const, name: "int" as const },

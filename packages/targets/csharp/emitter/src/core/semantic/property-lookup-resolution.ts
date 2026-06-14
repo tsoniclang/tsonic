@@ -207,13 +207,13 @@ const getScopedReferenceIdentityCandidates = (
             ? ref.typeId.sourceName
             : undefined,
           ref.name.includes(".") ? ref.name : undefined,
-          ref.typeId.providerName,
-          ref.providerQualifiedName,
+          ref.typeId.externalName,
+          ref.externalQualifiedName,
         ]
       : [
-          ref.providerQualifiedName,
+          ref.externalQualifiedName,
           ref.name.includes(".") ? ref.name : undefined,
-          ref.typeId?.providerName,
+          ref.typeId?.externalName,
         ];
 
   const candidates: string[] = [];
@@ -325,8 +325,8 @@ const getReferenceLeafNameCandidates = (
   };
 
   add(ref.name);
-  add(ref.providerQualifiedName);
-  add(ref.typeId?.providerName);
+  add(ref.externalQualifiedName);
+  add(ref.typeId?.externalName);
   add(ref.typeId?.sourceName);
 
   return [...candidates];
@@ -463,9 +463,9 @@ const getReferenceBindingLookupCandidates = (
   };
 
   add(ref.name);
-  add(ref.providerQualifiedName);
+  add(ref.externalQualifiedName);
   add(ref.typeId?.sourceName);
-  add(ref.typeId?.providerName);
+  add(ref.typeId?.externalName);
 
   for (const value of [...candidates]) {
     if (!value.includes(".")) continue;
@@ -557,7 +557,7 @@ const getBindingScopedReference = (
 ): Extract<IrType, { kind: "referenceType" }> => ({
   ...ref,
   name: binding.alias,
-  providerQualifiedName: binding.name,
+  externalQualifiedName: binding.name,
 });
 
 export const resolveBindingBackedReferenceType = (
@@ -685,7 +685,7 @@ export const resolvePropertyType = (
     const typeInfo = typeInfoResult.info;
 
     // Prevent cycles
-    const cycleKey = type.providerQualifiedName ?? type.name;
+    const cycleKey = type.externalQualifiedName ?? type.name;
     if (visitedTypes.includes(cycleKey)) {
       return undefined;
     }

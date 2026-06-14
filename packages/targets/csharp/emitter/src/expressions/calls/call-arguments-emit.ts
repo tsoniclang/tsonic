@@ -151,7 +151,7 @@ const getFunctionValueSignature = (
   const calleeType = expr.callee.inferredType;
   if (!calleeType || calleeType.kind !== "functionType") return undefined;
 
-  if (expr.callee.kind === "identifier" && expr.callee.providerQualifiedName) {
+  if (expr.callee.kind === "identifier" && expr.callee.externalQualifiedName) {
     return undefined;
   }
 
@@ -274,10 +274,10 @@ const resolveBindingDelegateFunctionType = (
   }
 
   const binding =
-    context.bindingRegistry?.getType(type.providerQualifiedName ?? type.name) ??
+    context.bindingRegistry?.getType(type.externalQualifiedName ?? type.name) ??
     context.bindingRegistry?.getType(type.name) ??
-    (type.providerQualifiedName
-      ? context.bindingsRegistry?.get(type.providerQualifiedName)
+    (type.externalQualifiedName
+      ? context.bindingsRegistry?.get(type.externalQualifiedName)
       : undefined) ??
     context.bindingsRegistry?.get(type.name);
   if (binding?.kind !== "delegate") {
@@ -2802,7 +2802,7 @@ const resolveActualFunctionTypeForArgument = (
 const broadObjectIrType: IrType = {
   kind: "referenceType",
   name: "object",
-  providerQualifiedName: "System.Object",
+  externalQualifiedName: "System.Object",
 };
 
 const resolvePreEmitActualArgumentType = (

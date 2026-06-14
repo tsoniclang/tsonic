@@ -325,9 +325,9 @@ const nativeInterfaceVisitKey = (type: IrType, depth = 0): string => {
   switch (type.kind) {
     case "referenceType": {
       const identity =
-        type.providerQualifiedName ??
+        type.externalQualifiedName ??
         type.typeId?.stableId ??
-        type.typeId?.providerName ??
+        type.typeId?.externalName ??
         type.typeId?.sourceName ??
         type.name;
       const typeArguments =
@@ -489,7 +489,7 @@ const collectNativeInterfaceContracts = (
     const contractRef: Extract<IrType, { kind: "referenceType" }> = {
       ...type,
       name: local.name,
-      providerQualifiedName: `${local.namespace}.${local.name}`,
+      externalQualifiedName: `${local.namespace}.${local.name}`,
     };
     contracts.set(referenceContractKey(contractRef, context), {
       key: referenceContractKey(contractRef, context),
@@ -885,7 +885,7 @@ const buildSourceAliasCarrierMetadata = (
           ...(layoutSourceType.runtimeCarrierNamespace &&
           layoutSourceType.runtimeCarrierName
             ? {
-                providerQualifiedName: `${layoutSourceType.runtimeCarrierNamespace}.${layoutSourceType.runtimeCarrierName}`,
+                externalQualifiedName: `${layoutSourceType.runtimeCarrierNamespace}.${layoutSourceType.runtimeCarrierName}`,
               }
             : {}),
         };

@@ -712,7 +712,7 @@ describe("Module Generation", () => {
           returnType: {
             kind: "referenceType",
             name: "RuntimeValue",
-            providerQualifiedName: "MyApp.RuntimeValue",
+            externalQualifiedName: "MyApp.RuntimeValue",
           },
           body: {
             kind: "blockStatement",

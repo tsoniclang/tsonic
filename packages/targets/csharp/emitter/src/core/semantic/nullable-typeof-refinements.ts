@@ -747,8 +747,8 @@ export const applyArrayIsArrayRefinement = (
     context
   );
   const predicateTargetType =
-    condition.kind === "call" && condition.narrowing?.kind === "typePredicate"
-      ? condition.narrowing.targetType
+    condition.kind === "call" && condition.typePredicate?.kind === "typePredicate"
+      ? condition.typePredicate.targetType
       : undefined;
   const predicateArrayTargetType =
     wantArray && predicateTargetType

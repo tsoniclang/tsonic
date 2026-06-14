@@ -210,20 +210,20 @@ export const processImports = (
   ): { localName: string; importBinding: ImportBinding } | null => {
     const inferredNamespace =
       resolvedNamespace ??
-      (spec.kind === "named" && spec.providerQualifiedName
+      (spec.kind === "named" && spec.externalQualifiedName
         ? (() => {
-            const lastDot = spec.providerQualifiedName.lastIndexOf(".");
+            const lastDot = spec.externalQualifiedName.lastIndexOf(".");
             return lastDot > 0
-              ? spec.providerQualifiedName.slice(0, lastDot)
+              ? spec.externalQualifiedName.slice(0, lastDot)
               : undefined;
           })()
         : undefined) ??
-      (spec.kind === "named" && spec.providerValue
+      (spec.kind === "named" && spec.externalValue
         ? (() => {
             const lastDot =
-              spec.providerValue.ownerQualifiedName.lastIndexOf(".");
+              spec.externalValue.ownerQualifiedName.lastIndexOf(".");
             return lastDot > 0
-              ? spec.providerValue.ownerQualifiedName.slice(0, lastDot)
+              ? spec.externalValue.ownerQualifiedName.slice(0, lastDot)
               : undefined;
           })()
         : undefined);
@@ -234,7 +234,7 @@ export const processImports = (
 
     if (spec.kind === "named") {
       const isType = spec.isType === true;
-      if (!isType && !spec.providerQualifiedName && !spec.providerValue) {
+      if (!isType && !spec.externalQualifiedName && !spec.externalValue) {
         return null;
       }
     }
@@ -250,15 +250,15 @@ export const processImports = (
     // those we must resolve through the inlined source graph so named re-exports
     // bind to the actual generated container/type locations rather than the
     // coarse module binding root from `bindings.json`.
-    if (imp.providerQualifiedName && !imp.isLocal) {
-      const moduleClrType = `global::${imp.providerQualifiedName}`;
+    if (imp.externalQualifiedName && !imp.isLocal) {
+      const moduleClrType = `global::${imp.externalQualifiedName}`;
       for (const spec of imp.specifiers) {
         const binding = createModuleImportBinding(
           spec,
           imp.typeSymbolId
             ? `global::${
                 getTargetTypeRenderInfo(ctx, imp.typeSymbolId)?.qualifiedName ??
-                imp.providerQualifiedName
+                imp.externalQualifiedName
               }`
             : moduleClrType,
           imp.resolvedNamespace
@@ -392,8 +392,8 @@ const createClrImportBinding = (
         importBinding: createTypeBinding(
           typeRenderInfo
             ? `global::${typeRenderInfo.qualifiedName}`
-            : spec.providerQualifiedName
-              ? `global::${spec.providerQualifiedName}`
+            : spec.externalQualifiedName
+              ? `global::${spec.externalQualifiedName}`
               : `${namespaceFqn}.${spec.name}`
         ),
       };
@@ -401,7 +401,7 @@ const createClrImportBinding = (
       // Value import:
       // - If tsbindgen provided a flattened export mapping, bind directly to
       //   the declaring CLR type + member.
-      if (spec.providerValue) {
+      if (spec.externalValue) {
         const memberRenderInfo = getTargetMemberRenderInfo(
           context,
           spec.memberSymbolId
@@ -412,19 +412,19 @@ const createClrImportBinding = (
             kind: "value",
             clrName: `global::${
               memberRenderInfo?.ownerQualifiedName ??
-              spec.providerValue.ownerQualifiedName
+              spec.externalValue.ownerQualifiedName
             }`,
             member:
-              memberRenderInfo?.memberName ?? spec.providerValue.memberName,
+              memberRenderInfo?.memberName ?? spec.externalValue.memberName,
           },
         };
       }
-      if (spec.providerQualifiedName) {
+      if (spec.externalQualifiedName) {
         return {
           localName,
           importBinding: {
             kind: "namespace",
-            clrName: `global::${spec.providerQualifiedName}`,
+            clrName: `global::${spec.externalQualifiedName}`,
           },
         };
       }
@@ -625,19 +625,19 @@ const createModuleImportBinding = (
   }
 
   if (spec.kind === "named") {
-    if (spec.providerQualifiedName) {
+    if (spec.externalQualifiedName) {
       return {
         localName,
         importBinding: {
           kind: "namespace",
-          clrName: `global::${spec.providerQualifiedName}`,
+          clrName: `global::${spec.externalQualifiedName}`,
         },
       };
     }
 
     if (spec.isType === true) {
-      const clrName = spec.providerQualifiedName
-        ? `global::${spec.providerQualifiedName}`
+      const clrName = spec.externalQualifiedName
+        ? `global::${spec.externalQualifiedName}`
         : clrNamespace
           ? `global::${clrNamespace}.${spec.name}`
           : undefined;

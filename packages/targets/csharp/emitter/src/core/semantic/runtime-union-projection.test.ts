@@ -14,7 +14,7 @@ const stringType: IrType = { kind: "primitiveType", name: "string" };
 const regexType: IrType = {
   kind: "referenceType",
   name: "RegExp",
-  providerQualifiedName: "global::js.RegExp",
+  externalQualifiedName: "global::js.RegExp",
 };
 const objectArrayType: IrType = {
   kind: "arrayType",

@@ -297,7 +297,7 @@ const tryConvertSurfaceTypeAstToIrType = (
       if (typeArguments?.some((type) => type === undefined)) {
         return undefined;
       }
-      const providerQualifiedName = `${
+      const externalQualifiedName = `${
         concreteTypeAst.name.aliasQualifier
           ? `${concreteTypeAst.name.aliasQualifier}::`
           : ""
@@ -305,11 +305,11 @@ const tryConvertSurfaceTypeAstToIrType = (
       const name =
         concreteTypeAst.name.segments[
           concreteTypeAst.name.segments.length - 1
-        ] ?? providerQualifiedName;
+        ] ?? externalQualifiedName;
       return {
         kind: "referenceType",
         name,
-        providerQualifiedName,
+        externalQualifiedName,
         ...(typeArguments && typeArguments.length > 0
           ? { typeArguments: typeArguments as readonly IrType[] }
           : {}),

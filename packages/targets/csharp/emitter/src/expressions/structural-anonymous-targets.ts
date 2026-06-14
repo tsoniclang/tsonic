@@ -41,7 +41,7 @@ export const resolveAnonymousStructuralReferenceType = (
   const stripped = stripNullish(type);
   if (stripped.kind === "referenceType") {
     const simpleName = stripped.name.split(".").pop() ?? stripped.name;
-    const clrSimpleName = stripped.providerQualifiedName?.split(".").pop();
+    const clrSimpleName = stripped.externalQualifiedName?.split(".").pop();
     const isCompilerGeneratedCarrier = (name: string | undefined): boolean =>
       !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
     if (
@@ -79,7 +79,7 @@ export const resolveAnonymousStructuralReferenceType = (
   const matches: {
     readonly key: string;
     readonly name: string;
-    readonly providerQualifiedName: string;
+    readonly externalQualifiedName: string;
     readonly isExternal: boolean;
   }[] = [];
   const collectMatches = (
@@ -113,11 +113,11 @@ export const resolveAnonymousStructuralReferenceType = (
           );
         })
       ) {
-        const providerQualifiedName = `${namespace}.${typeName}`;
+        const externalQualifiedName = `${namespace}.${typeName}`;
         matches.push({
-          key: providerQualifiedName,
+          key: externalQualifiedName,
           name: typeName,
-          providerQualifiedName,
+          externalQualifiedName,
           isExternal: namespace !== currentNamespace,
         });
       }
@@ -182,12 +182,12 @@ export const resolveAnonymousStructuralReferenceType = (
         continue;
       }
 
-      const providerQualifiedName = binding.name;
+      const externalQualifiedName = binding.name;
       matches.push({
-        key: providerQualifiedName,
+        key: externalQualifiedName,
         name: simpleAlias.startsWith("__Anon_") ? simpleAlias : simpleName,
-        providerQualifiedName,
-        isExternal: !providerQualifiedName.startsWith(`${currentNamespace}.`),
+        externalQualifiedName,
+        isExternal: !externalQualifiedName.startsWith(`${currentNamespace}.`),
       });
     }
   }
@@ -202,7 +202,7 @@ export const resolveAnonymousStructuralReferenceType = (
     return {
       kind: "referenceType",
       name: onlyMatch.name,
-      providerQualifiedName: onlyMatch.providerQualifiedName,
+      externalQualifiedName: onlyMatch.externalQualifiedName,
     } satisfies IrType;
   }
 
@@ -213,7 +213,7 @@ export const resolveAnonymousStructuralReferenceType = (
     return {
       kind: "referenceType",
       name: onlyExternal.name,
-      providerQualifiedName: onlyExternal.providerQualifiedName,
+      externalQualifiedName: onlyExternal.externalQualifiedName,
     } satisfies IrType;
   }
 

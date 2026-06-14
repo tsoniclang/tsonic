@@ -203,7 +203,7 @@ const walkTypeRefs = (
           name: type.runtimeCarrierName,
           ...(type.runtimeCarrierNamespace
             ? {
-                providerQualifiedName: `${type.runtimeCarrierNamespace}.${type.runtimeCarrierName}`,
+                externalQualifiedName: `${type.runtimeCarrierNamespace}.${type.runtimeCarrierName}`,
               }
             : {}),
           ...(type.runtimeCarrierTypeArguments &&
@@ -246,8 +246,8 @@ export const collectPublicLocalTypes = (
   ): string | undefined => {
     const candidates = [
       ref.name,
-      ref.providerQualifiedName,
-      ref.typeId?.providerName,
+      ref.externalQualifiedName,
+      ref.typeId?.externalName,
       ref.typeId?.sourceName,
     ];
 
@@ -416,9 +416,9 @@ const getReferenceLeafNameForContract = (
   if (ref.typeId?.sourceName) {
     return ref.typeId.sourceName.split(".").pop() ?? ref.typeId.sourceName;
   }
-  if (ref.providerQualifiedName) {
+  if (ref.externalQualifiedName) {
     return (
-      ref.providerQualifiedName.split(".").pop() ?? ref.providerQualifiedName
+      ref.externalQualifiedName.split(".").pop() ?? ref.externalQualifiedName
     );
   }
   return ref.name.split(".").pop() ?? ref.name;
@@ -630,13 +630,13 @@ export const collectStructuralInterfaceContracts = (
               ? ref.typeId.sourceName
               : undefined,
             ref.name.includes(".") ? ref.name : undefined,
-            ref.typeId.providerName,
-            ref.providerQualifiedName,
+            ref.typeId.externalName,
+            ref.externalQualifiedName,
           ]
         : [
-            ref.providerQualifiedName,
+            ref.externalQualifiedName,
             ref.name.includes(".") ? ref.name : undefined,
-            ref.typeId?.providerName,
+            ref.typeId?.externalName,
             ref.typeId?.sourceName,
           ];
     for (const candidate of directCandidates) {

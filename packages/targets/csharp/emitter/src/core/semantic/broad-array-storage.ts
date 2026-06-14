@@ -22,7 +22,7 @@ const SYSTEM_OBJECT_CLR_NAMES = new Set([
 export const SYSTEM_ARRAY_STORAGE_TYPE: IrType = {
   kind: "referenceType",
   name: "System.Array",
-  providerQualifiedName: "System.Array",
+  externalQualifiedName: "System.Array",
 };
 
 export const isSystemArrayStorageType = (

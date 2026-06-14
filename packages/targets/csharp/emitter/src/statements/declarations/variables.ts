@@ -65,7 +65,7 @@ const hasUnresolvedReferenceLeaves = (
   const kind = typeof record.kind === "string" ? record.kind : undefined;
   switch (kind) {
     case "referenceType": {
-      if (typeof record.providerQualifiedName === "string") {
+      if (typeof record.externalQualifiedName === "string") {
         return false;
       }
 

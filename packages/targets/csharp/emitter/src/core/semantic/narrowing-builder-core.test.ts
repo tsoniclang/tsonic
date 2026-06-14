@@ -10,12 +10,12 @@ describe("narrowing builder core", () => {
     const valueType: IrType = {
       kind: "referenceType",
       name: "Value",
-      providerQualifiedName: "App.Value",
+      externalQualifiedName: "App.Value",
     };
     const siteValueType: IrType = {
       kind: "referenceType",
       name: "SiteValue",
-      providerQualifiedName: "App.SiteValue",
+      externalQualifiedName: "App.SiteValue",
     };
     const context: EmitterContext = {
       indentLevel: 0,

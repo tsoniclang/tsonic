@@ -70,7 +70,6 @@ import {
   identifierType,
   nullLiteral,
 } from "../../../core/format/backend-ast/builders.js";
-import { applyIrBranchNarrowings } from "./ir-branch-narrowings.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 import { tryBuildRuntimeMaterializationAst } from "../../../core/semantic/runtime-reification.js";
 
@@ -974,11 +973,7 @@ export const tryEmitTypeofGuard = (
     semanticCondContext,
     emitExprAstCb
   );
-  const thenCtx = applyIrBranchNarrowings(
-    thenSemanticContext,
-    stmt.thenPlan.narrowedBindings,
-    emitExprAstCb
-  );
+  const thenCtx = thenSemanticContext;
   const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
     stmt.thenStatement,
     thenCtx
@@ -1001,11 +996,7 @@ export const tryEmitTypeofGuard = (
     elseBaseContext,
     emitExprAstCb
   );
-  const falsyFallthroughContext = applyIrBranchNarrowings(
-    falsySemanticContext,
-    stmt.elsePlan.narrowedBindings,
-    emitExprAstCb
-  );
+  const falsyFallthroughContext = falsySemanticContext;
   let finalContext: EmitterContext = thenTerminates
     ? falsyFallthroughContext
     : mergeBranchExitContext(
@@ -1022,11 +1013,7 @@ export const tryEmitTypeofGuard = (
       elseBaseContext,
       emitExprAstCb
     );
-    const elseCtx = applyIrBranchNarrowings(
-      elseSemanticContext,
-      stmt.elsePlan.narrowedBindings,
-      emitExprAstCb
-    );
+    const elseCtx = elseSemanticContext;
     const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
       stmt.elseStatement,
       elseCtx
@@ -1047,11 +1034,7 @@ export const tryEmitTypeofGuard = (
     }
   }
 
-  if (
-    !stmt.elseStatement &&
-    thenTerminates &&
-    stmt.elsePlan.narrowedBindings.length > 0
-  ) {
+  if (!stmt.elseStatement && thenTerminates) {
     const postElseBaseContext: EmitterContext = {
       ...semanticCondContext,
       tempVarId: finalContext.tempVarId,
@@ -1065,11 +1048,7 @@ export const tryEmitTypeofGuard = (
       postElseBaseContext,
       emitExprAstCb
     );
-    finalContext = applyIrBranchNarrowings(
-      postElseSemanticContext,
-      stmt.elsePlan.narrowedBindings,
-      emitExprAstCb
-    );
+    finalContext = postElseSemanticContext;
   }
 
   return [

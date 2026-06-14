@@ -171,8 +171,8 @@ export const hasPropertyFromBindingsRegistry = (
 
   addCandidate(type.name);
   addCandidate(type.typeId?.sourceName);
-  addCandidate(type.providerQualifiedName);
-  addCandidate(type.typeId?.providerName);
+  addCandidate(type.externalQualifiedName);
+  addCandidate(type.typeId?.externalName);
 
   for (const value of Array.from(candidates)) {
     if (value.endsWith("$instance")) {
@@ -300,9 +300,9 @@ export const isStaticTypeReference = (
 
     if (
       !isLocal &&
-      (expr.object.providerQualifiedName !== undefined ||
-        (expr.object.providerMemberName !== undefined &&
-          expr.object.providerOwnerIdentity !== undefined))
+      (expr.object.externalQualifiedName !== undefined ||
+        (expr.object.externalMemberName !== undefined &&
+          expr.object.externalOwnerIdentity !== undefined))
     ) {
       return true;
     }

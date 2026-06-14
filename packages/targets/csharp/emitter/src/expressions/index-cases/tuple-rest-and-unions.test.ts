@@ -10,7 +10,7 @@ import {
 const jsValueType: IrType = {
   kind: "referenceType",
   name: "JsValue",
-  providerQualifiedName: "Tsonic.Runtime.JsValue",
+  externalQualifiedName: "Tsonic.Runtime.JsValue",
 };
 
 describe("Expression Emission", () => {

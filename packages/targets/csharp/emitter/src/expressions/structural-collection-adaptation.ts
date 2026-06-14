@@ -1003,25 +1003,25 @@ export const tryAdaptStructuralCollectionExpressionAst = (
     }
   }
 
-  const providerValueType = getDictionaryValueType(expectedType, context);
+  const externalValueType = getDictionaryValueType(expectedType, context);
   const sourceValueType = getDictionaryValueType(sourceType, context);
-  if (!providerValueType || !sourceValueType) {
+  if (!externalValueType || !sourceValueType) {
     return undefined;
   }
   const emissionTargetValueType = normalizeStructuralCarrierEmissionType(
-    providerValueType,
+    externalValueType,
     context
   );
 
   let currentContext = context;
-  const [providerValueTypeAst, valueTypeContext] = emitTypeAst(
+  const [externalValueTypeAst, valueTypeContext] = emitTypeAst(
     emissionTargetValueType,
     currentContext
   );
   currentContext = valueTypeContext;
   const dictTypeAst: CSharpTypeAst = identifierType(
     "global::System.Collections.Generic.Dictionary",
-    [{ kind: "predefinedType", keyword: "string" }, providerValueTypeAst]
+    [{ kind: "predefinedType", keyword: "string" }, externalValueTypeAst]
   );
   const sourceTemp = allocateLocalName("__dict", currentContext);
   currentContext = sourceTemp.context;
@@ -1043,14 +1043,14 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       entryValueAst,
       sourceValueType,
       currentContext,
-      providerValueType,
+      externalValueType,
       upcastFn
     ) ??
     (() => {
       const materialized = materializeDirectNarrowingAst(
         entryValueAst,
         sourceValueType,
-        providerValueType,
+        externalValueType,
         currentContext
       );
       return materialized[0] === entryValueAst

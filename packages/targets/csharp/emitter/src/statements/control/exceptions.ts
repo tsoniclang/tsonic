@@ -22,7 +22,7 @@ import type {
 const SYSTEM_EXCEPTION_IR_TYPE = {
   kind: "referenceType" as const,
   name: "System.Exception",
-  providerQualifiedName: "global::System.Exception",
+  externalQualifiedName: "global::System.Exception",
 };
 
 /**

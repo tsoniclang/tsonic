@@ -425,11 +425,11 @@ const referenceNumericFact = (
 ): ReturnType<typeof numericTypeFactFromName> => {
   const sourceFact =
     numericTypeFactFromName(type.name) ??
-    (type.providerQualifiedName
-      ? numericTypeFactFromName(type.providerQualifiedName)
+    (type.externalQualifiedName
+      ? numericTypeFactFromName(type.externalQualifiedName)
       : undefined) ??
-    (type.typeId?.providerName
-      ? numericTypeFactFromName(type.typeId.providerName)
+    (type.typeId?.externalName
+      ? numericTypeFactFromName(type.typeId.externalName)
       : undefined);
   if (sourceFact) {
     return sourceFact;
@@ -812,7 +812,7 @@ const resolveIntegralTargetKind = (
       return "ulong";
   }
 
-  switch (resolved.providerQualifiedName) {
+  switch (resolved.externalQualifiedName) {
     case "System.SByte":
     case "global::System.SByte":
       return "sbyte";

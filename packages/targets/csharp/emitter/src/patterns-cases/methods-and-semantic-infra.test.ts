@@ -202,7 +202,7 @@ describe("Destructuring Pattern Lowering", () => {
       ({
         kind: "referenceType",
         name,
-        providerQualifiedName: name,
+        externalQualifiedName: name,
         structuralMembers: members,
       }) as IrType;
 

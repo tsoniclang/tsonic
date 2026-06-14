@@ -717,7 +717,7 @@ describe("Expression Emission", () => {
     const optionsType = {
       kind: "referenceType" as const,
       name: "Options",
-      providerQualifiedName: "MyApp.Options",
+      externalQualifiedName: "MyApp.Options",
       structuralMembers: [
         {
           kind: "propertySignature" as const,
@@ -804,7 +804,7 @@ describe("Expression Emission", () => {
     const optionsType = {
       kind: "referenceType" as const,
       name: "Options",
-      providerQualifiedName: "MyApp.Options",
+      externalQualifiedName: "MyApp.Options",
       structuralMembers: [
         {
           kind: "propertySignature" as const,

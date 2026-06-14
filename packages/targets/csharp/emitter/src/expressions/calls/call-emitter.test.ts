@@ -191,7 +191,7 @@ describe("call-emitter", () => {
     const promisesType = {
       kind: "referenceType" as const,
       name: "TimersPromises" as const,
-      providerQualifiedName: "global::nodejs.TimersPromises",
+      externalQualifiedName: "global::nodejs.TimersPromises",
     };
 
     const context = createContext({
@@ -334,7 +334,7 @@ describe("call-emitter", () => {
           inferredType: {
             kind: "referenceType" as const,
             name: "Architecture" as const,
-            providerQualifiedName:
+            externalQualifiedName:
               "System.Runtime.InteropServices.Architecture",
           },
         },
@@ -393,12 +393,12 @@ describe("call-emitter", () => {
           returnType: {
             kind: "referenceType" as const,
             name: "ArrayPool_1",
-            providerQualifiedName: "System.Buffers.ArrayPool`1",
+            externalQualifiedName: "System.Buffers.ArrayPool`1",
             typeArguments: [
               {
                 kind: "referenceType" as const,
                 name: "byte" as const,
-                providerQualifiedName: "System.Byte",
+                externalQualifiedName: "System.Byte",
               },
             ],
           },
@@ -419,18 +419,18 @@ describe("call-emitter", () => {
         {
           kind: "referenceType" as const,
           name: "byte" as const,
-          providerQualifiedName: "System.Byte",
+          externalQualifiedName: "System.Byte",
         },
       ],
       inferredType: {
         kind: "referenceType" as const,
         name: "ArrayPool_1",
-        providerQualifiedName: "System.Buffers.ArrayPool`1",
+        externalQualifiedName: "System.Buffers.ArrayPool`1",
         typeArguments: [
           {
             kind: "referenceType" as const,
             name: "byte" as const,
-            providerQualifiedName: "System.Byte",
+            externalQualifiedName: "System.Byte",
           },
         ],
       },

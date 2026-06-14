@@ -13,11 +13,11 @@ import { typeSymbolIdFromStableId } from "@tsonic/frontend";
 import type { IrModule } from "./helpers.js";
 describe("Reference Type Emission", () => {
   describe("Pre-resolved CLR Types", () => {
-    it("should use providerQualifiedName when present", () => {
+    it("should use externalQualifiedName when present", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Action",
-        providerQualifiedName: "global::System.Action",
+        externalQualifiedName: "global::System.Action",
       });
 
       const result = emitModule(module);
@@ -25,11 +25,11 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::System.Action");
     });
 
-    it("should use providerQualifiedName with type arguments", () => {
+    it("should use externalQualifiedName with type arguments", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Func",
-        providerQualifiedName: "global::System.Func",
+        externalQualifiedName: "global::System.Func",
         typeArguments: [
           { kind: "primitiveType", name: "string" },
           { kind: "primitiveType", name: "number" },
@@ -41,11 +41,11 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::System.Func<string, double>");
     });
 
-    it("should sanitize CLR metadata generic names in providerQualifiedName", () => {
+    it("should sanitize CLR metadata generic names in externalQualifiedName", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Ok",
-        providerQualifiedName: "Jotster.Core.types.Ok__Alias`1",
+        externalQualifiedName: "Jotster.Core.types.Ok__Alias`1",
         typeArguments: [{ kind: "primitiveType", name: "string" }],
       });
 
@@ -55,12 +55,12 @@ describe("Reference Type Emission", () => {
       expect(result).to.not.include("Ok__Alias`1");
     });
 
-    it("keeps same-module local types unqualified even when providerQualifiedName is present", () => {
+    it("keeps same-module local types unqualified even when externalQualifiedName is present", () => {
       const [typeAst] = emitReferenceType(
         {
           kind: "referenceType",
           name: "Wrapper",
-          providerQualifiedName: "Test.Wrapper",
+          externalQualifiedName: "Test.Wrapper",
           typeArguments: [{ kind: "primitiveType", name: "string" }],
         },
         {
@@ -91,7 +91,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "ProcessModule",
-          providerQualifiedName: "System.Diagnostics.ProcessModule",
+          externalQualifiedName: "System.Diagnostics.ProcessModule",
           symbolId: processModuleSymbolId,
         },
         {
@@ -155,7 +155,7 @@ describe("Reference Type Emission", () => {
                 name: "Channel",
                 localName: "Channel",
                 isType: true,
-                providerQualifiedName: "Jotster.Core.db.entities.Channel",
+                externalQualifiedName: "Jotster.Core.db.entities.Channel",
               },
             ],
           },
@@ -206,7 +206,7 @@ describe("Reference Type Emission", () => {
                 name: "Ok",
                 localName: "Ok",
                 isType: true,
-                providerQualifiedName: "Jotster.Core.types.Ok__Alias`1",
+                externalQualifiedName: "Jotster.Core.types.Ok__Alias`1",
               },
             ],
           },
@@ -305,14 +305,14 @@ describe("Reference Type Emission", () => {
             kind: "import",
             source: "node:http",
             isLocal: false,
-            providerQualifiedName: "nodejs.Http.http",
+            externalQualifiedName: "nodejs.Http.http",
             specifiers: [
               {
                 kind: "named",
                 name: "IncomingMessage",
                 localName: "IncomingMessage",
                 isType: true,
-                providerQualifiedName: "nodejs.Http.IncomingMessage",
+                externalQualifiedName: "nodejs.Http.IncomingMessage",
               },
             ],
           },
@@ -411,7 +411,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "RequestHandler",
-          providerQualifiedName: "demo.expresslike.RequestHandler",
+          externalQualifiedName: "demo.expresslike.RequestHandler",
         },
         {
           ...baseContext,
@@ -447,12 +447,12 @@ describe("Reference Type Emission", () => {
       expect(printType(typeAst)).to.equal("string");
     });
 
-    it("keeps explicit imported type bindings authoritative over stale providerQualifiedName", () => {
+    it("keeps explicit imported type bindings authoritative over stale externalQualifiedName", () => {
       const [typeAst] = emitReferenceType(
         {
           kind: "referenceType",
           name: "Server",
-          providerQualifiedName: "nodejs.http.Server",
+          externalQualifiedName: "nodejs.http.Server",
         },
         {
           ...baseContext,
@@ -477,7 +477,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "Server",
-          providerQualifiedName: "nodejs.http.Server",
+          externalQualifiedName: "nodejs.http.Server",
         },
         {
           ...baseContext,
@@ -504,7 +504,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "Object",
-          providerQualifiedName: "System.Object",
+          externalQualifiedName: "System.Object",
         },
         {
           ...baseContext,
@@ -550,12 +550,12 @@ describe("Reference Type Emission", () => {
       expect(printType(typeAst)).to.equal("global::System.Object");
     });
 
-    it("keeps System.Object providerQualifiedName authoritative over same-namespace local collisions", () => {
+    it("keeps System.Object externalQualifiedName authoritative over same-namespace local collisions", () => {
       const [typeAst] = emitReferenceType(
         {
           kind: "referenceType",
           name: "Object",
-          providerQualifiedName: "System.Object",
+          externalQualifiedName: "System.Object",
         },
         {
           ...baseContext,
@@ -599,7 +599,7 @@ describe("Reference Type Emission", () => {
           name: "Server",
           typeId: {
             stableId: "nodejs:nodejs.net.Server",
-            providerName: "nodejs.net.Server",
+            externalName: "nodejs.net.Server",
             ownerIdentity: "nodejs",
             sourceName: "Server",
           },
@@ -680,12 +680,12 @@ describe("Reference Type Emission", () => {
       expect(printType(typeAst)).to.equal("global::nodejs.net.Server");
     });
 
-    it("ignores bare providerQualifiedName names when a source-local type exists", () => {
+    it("ignores bare externalQualifiedName names when a source-local type exists", () => {
       const [typeAst] = emitReferenceType(
         {
           kind: "referenceType",
           name: "ArrayBuffer",
-          providerQualifiedName: "ArrayBuffer",
+          externalQualifiedName: "ArrayBuffer",
         },
         {
           ...baseContext,
@@ -727,7 +727,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "js.TypedArrayBase",
-          providerQualifiedName: "js.TypedArrayBase",
+          externalQualifiedName: "js.TypedArrayBase",
         },
         {
           ...baseContext,
@@ -769,7 +769,7 @@ describe("Reference Type Emission", () => {
         {
           kind: "referenceType",
           name: "Object$instance",
-          providerQualifiedName: "System.Object",
+          externalQualifiedName: "System.Object",
         },
         {
           ...baseContext,

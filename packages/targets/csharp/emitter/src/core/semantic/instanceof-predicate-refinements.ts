@@ -77,13 +77,13 @@ export const applyInstanceofRefinement = (
 
     if (
       normalized.kind === "referenceType" &&
-      !normalized.providerQualifiedName &&
-      "providerQualifiedName" in expr &&
-      typeof expr.providerQualifiedName === "string"
+      !normalized.externalQualifiedName &&
+      "externalQualifiedName" in expr &&
+      typeof expr.externalQualifiedName === "string"
     ) {
       return {
         ...normalized,
-        providerQualifiedName: expr.providerQualifiedName,
+        externalQualifiedName: expr.externalQualifiedName,
       };
     }
 
@@ -292,12 +292,12 @@ export const applyPredicateCallRefinement = (
     return undefined;
   }
 
-  const narrowing = condition.narrowing;
-  if (!narrowing || narrowing.kind !== "typePredicate") {
+  const typePredicate = condition.typePredicate;
+  if (!typePredicate || typePredicate.kind !== "typePredicate") {
     return undefined;
   }
 
-  const arg = condition.arguments[narrowing.argIndex];
+  const arg = condition.arguments[typePredicate.argIndex];
   if (!arg || ("kind" in arg && arg.kind === "spread")) {
     return undefined;
   }
@@ -328,10 +328,10 @@ export const applyPredicateCallRefinement = (
 
   const narrowedType =
     branch === "truthy"
-      ? narrowTypeByPredicateTarget(currentType, narrowing.targetType, context)
+      ? narrowTypeByPredicateTarget(currentType, typePredicate.targetType, context)
       : narrowTypeByNotAssignableTarget(
           currentType,
-          narrowing.targetType,
+          typePredicate.targetType,
           context
         );
   if (!narrowedType) {
@@ -347,7 +347,7 @@ export const applyPredicateCallRefinement = (
     const matchingRuntimeMemberIndices = runtimeUnionFrame
       ? findRuntimeUnionMemberIndices(
           runtimeUnionFrame.members,
-          narrowing.targetType,
+          typePredicate.targetType,
           context
         )
       : [];

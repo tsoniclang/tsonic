@@ -219,7 +219,7 @@ export const registerJsonAotType = (
 const boxedJsNumberJsonType: IrType = {
   kind: "referenceType",
   name: "double",
-  providerQualifiedName: "System.Double",
+  externalQualifiedName: "System.Double",
 };
 
 const JS_NUMBERISH_CLR_NAMES = new Set([

@@ -144,7 +144,7 @@ const getExpectedInterfaceMembers = (
 
 const referenceIdentity = (
   ref: Extract<IrType, { kind: "referenceType" }>
-): string => ref.providerQualifiedName ?? ref.typeId?.providerName ?? ref.name;
+): string => ref.externalQualifiedName ?? ref.typeId?.externalName ?? ref.name;
 
 const structuralObjectAdaptationPairKey = (
   sourceType: IrType | undefined,

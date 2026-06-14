@@ -23,7 +23,7 @@ const SYSTEM_NUMERICS_BIG_INTEGER_CLR_NAMES = new Set([
 export const SYSTEM_OBJECT_REFERENCE_TYPE: IrType = {
   kind: "referenceType",
   name: "object",
-  providerQualifiedName: "global::System.Object",
+  externalQualifiedName: "global::System.Object",
 };
 
 export const isJsValueReferenceType = (type: IrType): boolean =>

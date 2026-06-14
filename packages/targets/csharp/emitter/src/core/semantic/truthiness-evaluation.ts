@@ -43,7 +43,7 @@ export const coerceClrPrimitiveToPrimitiveType = (
 ): IrType | undefined => {
   if (type.kind !== "referenceType") return undefined;
 
-  const resolved = type.providerQualifiedName ?? type.typeId?.providerName;
+  const resolved = type.externalQualifiedName ?? type.typeId?.externalName;
   if (!resolved) return undefined;
 
   const clr = stripGlobalPrefix(resolved);

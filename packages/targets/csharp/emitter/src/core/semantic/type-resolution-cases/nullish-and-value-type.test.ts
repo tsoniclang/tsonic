@@ -107,7 +107,7 @@ describe("type-resolution", () => {
           {
             kind: "referenceType",
             name: "RegExp",
-            providerQualifiedName: "js.RegExp",
+            externalQualifiedName: "js.RegExp",
           },
         ],
         runtimeCarrierFamilyKey:
@@ -125,7 +125,7 @@ describe("type-resolution", () => {
           {
             kind: "referenceType",
             name: "RegExp",
-            providerQualifiedName: "js.RegExp",
+            externalQualifiedName: "js.RegExp",
           },
           { kind: "primitiveType", name: "undefined" },
         ],
@@ -331,7 +331,7 @@ describe("type-resolution", () => {
           name: "RequestHandler",
           typeId: {
             stableId: "App:App.express.runtime.RequestHandler",
-            providerName: "App.express.runtime.RequestHandler",
+            externalName: "App.express.runtime.RequestHandler",
             ownerIdentity: "App",
             sourceName: "RequestHandler",
           },
@@ -389,12 +389,12 @@ describe("type-resolution", () => {
       expect(isDefinitelyValueType(type)).to.be.false;
     });
 
-    it("returns false for reference types without providerQualifiedName", () => {
+    it("returns false for reference types without externalQualifiedName", () => {
       const type: IrType = { kind: "referenceType", name: "MyClass" };
       expect(isDefinitelyValueType(type)).to.be.false;
     });
 
-    it("returns true for exact numeric reference aliases without providerQualifiedName", () => {
+    it("returns true for exact numeric reference aliases without externalQualifiedName", () => {
       for (const name of [
         "byte",
         "sbyte",
@@ -420,7 +420,7 @@ describe("type-resolution", () => {
       const type: IrType = {
         kind: "referenceType",
         name: "DateTime",
-        providerQualifiedName: "global::System.DateTime",
+        externalQualifiedName: "global::System.DateTime",
       };
       expect(isDefinitelyValueType(type)).to.be.true;
     });
@@ -429,7 +429,7 @@ describe("type-resolution", () => {
       const type: IrType = {
         kind: "referenceType",
         name: "Guid",
-        providerQualifiedName: "System.Guid",
+        externalQualifiedName: "System.Guid",
       };
       expect(isDefinitelyValueType(type)).to.be.true;
     });

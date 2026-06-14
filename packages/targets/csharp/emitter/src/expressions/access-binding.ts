@@ -311,9 +311,9 @@ export const tryEmitMemberBindingAccess = (
       return false;
     }
     if (
-      expr.object.providerQualifiedName !== undefined ||
-      (expr.object.providerMemberName !== undefined &&
-        expr.object.providerOwnerIdentity !== undefined)
+      expr.object.externalQualifiedName !== undefined ||
+      (expr.object.externalMemberName !== undefined &&
+        expr.object.externalOwnerIdentity !== undefined)
     ) {
       return true;
     }

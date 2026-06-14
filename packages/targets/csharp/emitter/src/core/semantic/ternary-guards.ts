@@ -58,10 +58,10 @@ const tryResolveTernaryPredicateGuard = (
   call: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): TernaryGuardInfo | undefined => {
-  const narrowing = call.narrowing;
-  if (!narrowing || narrowing.kind !== "typePredicate") return undefined;
+  const typePredicate = call.typePredicate;
+  if (!typePredicate || typePredicate.kind !== "typePredicate") return undefined;
 
-  const arg = call.arguments[narrowing.argIndex];
+  const arg = call.arguments[typePredicate.argIndex];
   if (
     !arg ||
     ("kind" in arg && arg.kind === "spread") ||
@@ -83,7 +83,7 @@ const tryResolveTernaryPredicateGuard = (
 
   const semanticIdx = findSemanticUnionMemberIndex(
     semanticMembers,
-    narrowing.targetType,
+    typePredicate.targetType,
     context
   );
   if (semanticIdx === undefined) return undefined;
@@ -100,7 +100,7 @@ const tryResolveTernaryPredicateGuard = (
 
   const runtimeIndices = findRuntimeUnionMemberIndices(
     runtimeMembers,
-    narrowing.targetType,
+    typePredicate.targetType,
     context
   );
   if (runtimeIndices.length !== 1) return undefined;

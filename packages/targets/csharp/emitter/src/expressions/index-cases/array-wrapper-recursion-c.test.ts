@@ -20,7 +20,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      providerQualifiedName: "Test.Router",
+      externalQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {
@@ -100,7 +100,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      providerQualifiedName: "Test.Router",
+      externalQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {
@@ -130,7 +130,7 @@ describe("Expression Emission", () => {
           elementType: {
             kind: "referenceType",
             name: "object",
-            providerQualifiedName: "System.Object",
+            externalQualifiedName: "System.Object",
           },
           origin: "explicit",
         },
@@ -190,7 +190,7 @@ describe("Expression Emission", () => {
     const routerType: IrType = {
       kind: "referenceType",
       name: "Router",
-      providerQualifiedName: "Test.Router",
+      externalQualifiedName: "Test.Router",
     };
 
     const middlewareLike = {

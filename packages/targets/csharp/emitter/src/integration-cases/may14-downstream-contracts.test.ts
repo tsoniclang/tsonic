@@ -120,7 +120,7 @@ describe("May 14 downstream contract coverage", () => {
                 kind: "global",
                 ownerIdentity: "Acme.Runtime",
                 type: "Acme.Runtime.Router",
-                providerMemberName: "Router.register",
+                externalMemberName: "Router.register",
               },
             } }, targetSurface: { types: [] } },
           null,
@@ -190,7 +190,7 @@ describe("May 14 downstream contract coverage", () => {
                             type: {
                               kind: "referenceType",
                               name: "StringHandler",
-                              providerQualifiedName:
+                              externalQualifiedName:
                                 "Acme.Runtime.StringHandler",
                             },
                             isOptional: false,

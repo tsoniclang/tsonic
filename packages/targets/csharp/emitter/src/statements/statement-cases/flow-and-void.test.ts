@@ -154,7 +154,7 @@ describe("Statement Emission", () => {
                         elementType: {
                           kind: "referenceType",
                           name: "object",
-                          providerQualifiedName: "System.Object",
+                          externalQualifiedName: "System.Object",
                         },
                       },
                       inferredType: {
@@ -162,7 +162,7 @@ describe("Statement Emission", () => {
                         elementType: {
                           kind: "referenceType",
                           name: "object",
-                          providerQualifiedName: "System.Object",
+                          externalQualifiedName: "System.Object",
                         },
                       },
                     },
@@ -215,8 +215,8 @@ describe("Statement Emission", () => {
                     object: {
                       kind: "identifier",
                       name: "http",
-                      providerQualifiedName: "nodejs.Http.http",
-                      providerOwnerIdentity: "nodejs",
+                      externalQualifiedName: "nodejs.Http.http",
+                      externalOwnerIdentity: "nodejs",
                     },
                     property: "createServer",
                     isComputed: false,
@@ -259,8 +259,8 @@ describe("Statement Emission", () => {
           kind: "import",
           source: "node:http",
           isLocal: false,
-          providerQualifiedName: "nodejs.Http.http",
-          providerOwnerIdentity: "nodejs",
+          externalQualifiedName: "nodejs.Http.http",
+          externalOwnerIdentity: "nodejs",
           specifiers: [{ kind: "namespace", localName: "http" }],
         },
       ],

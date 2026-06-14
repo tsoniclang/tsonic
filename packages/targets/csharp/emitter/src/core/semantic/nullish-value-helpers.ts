@@ -194,9 +194,9 @@ const resolveBoundTypeKind = (
   };
 
   addCandidate(type.name);
-  addCandidate(type.providerQualifiedName);
+  addCandidate(type.externalQualifiedName);
   addCandidate(type.typeId?.sourceName);
-  addCandidate(type.typeId?.providerName);
+  addCandidate(type.typeId?.externalName);
 
   for (const candidate of candidates) {
     const binding =
@@ -231,7 +231,7 @@ export const isDefinitelyValueType = (
     if (TS_VALUE_TYPE_REFERENCE_NAMES.has(base.name)) {
       return true;
     }
-    const clr = base.providerQualifiedName;
+    const clr = base.externalQualifiedName;
     if (clr && CLR_VALUE_TYPES.has(clr)) {
       return true;
     }
@@ -500,8 +500,8 @@ export const resolveTypeAlias = (
       (importedBindingTypeName
         ? stripGlobalPrefix(importedBindingTypeName)
         : undefined) ??
-      type.providerQualifiedName ??
-      type.typeId?.providerName ??
+      type.externalQualifiedName ??
+      type.typeId?.externalName ??
       (type.name.includes(".") ? stripGlobalPrefix(type.name) : undefined);
     if (fqnCandidate && fqnCandidate.includes(".")) {
       const namespace = fqnCandidate.slice(0, fqnCandidate.lastIndexOf("."));
@@ -523,8 +523,8 @@ export const resolveTypeAlias = (
   }
 
   const qualifiedAliasCandidates = [
-    type.providerQualifiedName,
-    type.typeId?.providerName,
+    type.externalQualifiedName,
+    type.typeId?.externalName,
     stripGlobalPrefix(type.name),
   ]
     .filter((candidate): candidate is string => !!candidate)

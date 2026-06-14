@@ -1,0 +1,656 @@
+import type { bool, byte } from "@tsonic/core/types.js";
+import type { GoError, GoPtr, GoSlice } from "../../go/compat.js";
+import type { SourceFile } from "../ast/ast.js";
+import type { Diagnostic, DiagnosticsCollection } from "../ast/diagnostic.js";
+import type { CompilerOptions } from "../core/compileroptions.js";
+import type { OutputPaths } from "../outputpaths/outputpaths.js";
+import type { EmitContext } from "../printer/emitcontext.js";
+import type { EmitHost as EmitHost_b6591a53 } from "../printer/emithost.js";
+import type { EmitTextWriter } from "../printer/emittextwriter.js";
+import type { Printer } from "../printer/printer/state.js";
+import type { Generator } from "../sourcemap/generator.js";
+import type { Tracing } from "../tracing/tracing.js";
+import type { TransformOptions } from "../transformers/chain.js";
+import type { DeclarationTransformer } from "../transformers/declarations/transform.js";
+import type { Transformer } from "../transformers/transformer.js";
+import type { SourceOutputAndProjectReference } from "../tsoptions/parsedcommandline.js";
+import type { Path } from "../tspath/path.js";
+import type { EmitHost } from "./emitHost.js";
+import type { EmitResult, WriteFileData } from "./program.js";
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::type::EmitOnly","kind":"type","status":"implemented","sigHash":"1958d246a44daf492c65aec0fb6b1cf3442407dc6463b06769a367a0c26e08ff","bodyHash":"0c69bbca4873981b8ee4a7bb25a2066b98a917dfd9499551f3df14e6760e7c67"}
+ *
+ * Go source:
+ * EmitOnly byte
+ */
+export type EmitOnly = byte;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::constGroup::EmitAll+EmitOnlyJs+EmitOnlyDts+EmitOnlyForcedDts","kind":"constGroup","status":"implemented","sigHash":"af569816f62f664fc9a4574da2e01107440b04234f2882eb1b60a90f3e23bee2","bodyHash":"46862dcc306e15ddbf5c6c7480a2b0376ac0561e06341b412deae4ec82385137"}
+ *
+ * Go source:
+ * const (
+ * 	EmitAll EmitOnly = iota
+ * 	EmitOnlyJs
+ * 	EmitOnlyDts
+ * 	EmitOnlyForcedDts
+ * )
+ */
+export declare const EmitAll: EmitOnly;
+export declare const EmitOnlyJs: EmitOnly;
+export declare const EmitOnlyDts: EmitOnly;
+export declare const EmitOnlyForcedDts: EmitOnly;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::type::emitter","kind":"type","status":"implemented","sigHash":"454673fa184afd6cc516ef23c6f14be2056fde32c5285194140584c8d2a3f1d9","bodyHash":"c0c17e1e1093155fed2b36136c3f63b4451e74b2627fb3a8d664b62615e55a2a"}
+ *
+ * Go source:
+ * emitter struct {
+ * 	host               EmitHost
+ * 	emitOnly           EmitOnly
+ * 	emitterDiagnostics ast.DiagnosticsCollection
+ * 	writer             printer.EmitTextWriter
+ * 	paths              *outputpaths.OutputPaths
+ * 	sourceFile         *ast.SourceFile
+ * 	emitResult         EmitResult
+ * 	writeFile          func(fileName string, text string, data *WriteFileData) error
+ * 	tr                 *tracing.Tracing
+ * }
+ */
+export interface emitter {
+    host: EmitHost;
+    emitOnly: EmitOnly;
+    emitterDiagnostics: DiagnosticsCollection;
+    writer: EmitTextWriter;
+    paths: GoPtr<OutputPaths>;
+    sourceFile: GoPtr<SourceFile>;
+    emitResult: EmitResult;
+    writeFile: (fileName: string, text: string, data: GoPtr<WriteFileData>) => GoError;
+    tr: GoPtr<Tracing>;
+}
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.emit","kind":"method","status":"implemented","sigHash":"0c7c66cc05bd2f2c7ecc6cccbdddbe41483897a5e3bb4b485c80e447f16f22fe","bodyHash":"97fd61a75ce72765ab2f44eb59e0af574ed303fbbad47b041152085ca1b3e85d"}
+ *
+ * Go source:
+ * func (e *emitter) emit() {
+ * 	if e.tr != nil {
+ * 		defer e.tr.Push(tracing.PhaseEmit, "emit", map[string]any{"path": string(e.sourceFile.Path())}, true)()
+ * 	}
+ * 	e.emitJSFile(e.sourceFile, e.paths.JsFilePath(), e.paths.SourceMapFilePath())
+ * 	e.emitDeclarationFile(e.sourceFile, e.paths.DeclarationFilePath(), e.paths.DeclarationMapPath())
+ * 	e.emitResult.Diagnostics = e.emitterDiagnostics.GetDiagnostics()
+ * }
+ */
+export declare function emitter_emit(receiver: GoPtr<emitter>): void;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.getDeclarationTransformers","kind":"method","status":"implemented","sigHash":"f61988fe726112c0a0cda088a6e24b6d791d9debc7ece7d7e9030abaa09fce49","bodyHash":"1d0ea39aefc946443843195c57f2462c1198de6666641532538a5d5ba223b82d"}
+ *
+ * Go source:
+ * func (e *emitter) getDeclarationTransformers(emitContext *printer.EmitContext, declarationFilePath string, declarationMapPath string) []*declarations.DeclarationTransformer {
+ * 	transform := declarations.NewDeclarationTransformer(e.host, emitContext, e.host.Options(), declarationFilePath, declarationMapPath)
+ * 	return []*declarations.DeclarationTransformer{transform}
+ * }
+ */
+export declare function emitter_getDeclarationTransformers(receiver: GoPtr<emitter>, emitContext: GoPtr<EmitContext>, declarationFilePath: string, declarationMapPath: string): GoSlice<GoPtr<DeclarationTransformer>>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.runScriptTransformers","kind":"method","status":"implemented","sigHash":"4ac8779ee086685c0955fb283f4e994ab17295f4132baa376fb8df914733cc5e","bodyHash":"ede515a30b656f36776f9417047dbe60b4995c49009a9f5a2a8bcb400069dd3c"}
+ *
+ * Go source:
+ * func (e *emitter) runScriptTransformers(emitContext *printer.EmitContext, sourceFile *ast.SourceFile) *ast.SourceFile {
+ * 	if e.tr != nil {
+ * 		defer e.tr.Push(tracing.PhaseEmit, "transformNodes", map[string]any{"path": string(sourceFile.Path())}, false)()
+ * 	}
+ * 	for _, transformer := range getScriptTransformers(emitContext, e.host, sourceFile) {
+ * 		sourceFile = transformer.TransformSourceFile(sourceFile)
+ * 	}
+ * 	return sourceFile
+ * }
+ */
+export declare function emitter_runScriptTransformers(receiver: GoPtr<emitter>, emitContext: GoPtr<EmitContext>, sourceFile: GoPtr<SourceFile>): GoPtr<SourceFile>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.runDeclarationTransformers","kind":"method","status":"implemented","sigHash":"ee77c7dc30add2b807bb8fd1717ad9bfb88c8848802128f762cc14fd56cb430d","bodyHash":"a7335ea41618bd76bd32e530b057b92bfbfef2a0e28dbcea835fe9e30b39d267"}
+ *
+ * Go source:
+ * func (e *emitter) runDeclarationTransformers(emitContext *printer.EmitContext, sourceFile *ast.SourceFile, declarationFilePath, declarationMapPath string) (*ast.SourceFile, []*ast.Diagnostic) {
+ * 	if e.tr != nil {
+ * 		defer e.tr.Push(tracing.PhaseEmit, "transformNodes", map[string]any{"path": string(sourceFile.Path())}, false)()
+ * 	}
+ * 	var diags []*ast.Diagnostic
+ * 	for _, transformer := range e.getDeclarationTransformers(emitContext, declarationFilePath, declarationMapPath) {
+ * 		sourceFile = transformer.TransformSourceFile(sourceFile)
+ * 		diags = append(diags, transformer.GetDiagnostics()...)
+ * 	}
+ * 	return sourceFile, diags
+ * }
+ */
+export declare function emitter_runDeclarationTransformers(receiver: GoPtr<emitter>, emitContext: GoPtr<EmitContext>, sourceFile: GoPtr<SourceFile>, declarationFilePath: string, declarationMapPath: string): [GoPtr<SourceFile>, GoSlice<GoPtr<Diagnostic>>];
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::getModuleTransformer","kind":"func","status":"implemented","sigHash":"9b7f759fe1a0490c1beff7b562486af6a7d9ab85991b7a8fbbe2e259dc285744","bodyHash":"51c8389a4e1524fd75ce38060ff96efff5b9d3580916c26a7eb18654e47baa33"}
+ *
+ * Go source:
+ * func getModuleTransformer(opts *transformers.TransformOptions) *transformers.Transformer {
+ * 	switch opts.CompilerOptions.GetEmitModuleKind() {
+ * 	case core.ModuleKindPreserve:
+ * 		// `ESModuleTransformer` contains logic for preserving CJS input syntax in `--module preserve`
+ * 		return moduletransforms.NewESModuleTransformer(opts)
+ *
+ * 	case core.ModuleKindESNext,
+ * 		core.ModuleKindES2022,
+ * 		core.ModuleKindES2020,
+ * 		core.ModuleKindES2015,
+ * 		core.ModuleKindNode20,
+ * 		core.ModuleKindNode18,
+ * 		core.ModuleKindNode16,
+ * 		core.ModuleKindNodeNext,
+ * 		core.ModuleKindCommonJS:
+ * 		return moduletransforms.NewImpliedModuleTransformer(opts)
+ *
+ * 	default:
+ * 		return moduletransforms.NewCommonJSModuleTransformer(opts)
+ * 	}
+ * }
+ */
+export declare function getModuleTransformer(opts: GoPtr<TransformOptions>): GoPtr<Transformer>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::getScriptTransformers","kind":"func","status":"implemented","sigHash":"6434cac1fca3cba843a83cdc6ecd9d1b1b9b7373f82be41ce7193c133fc01c1e","bodyHash":"09f63cd5016acf0d9166879de5e05b0596a5e50860f14c84916626fefbed9d6f"}
+ *
+ * Go source:
+ * func getScriptTransformers(emitContext *printer.EmitContext, host printer.EmitHost, sourceFile *ast.SourceFile) []*transformers.Transformer {
+ * 	var tx []*transformers.Transformer
+ * 	options := host.Options()
+ *
+ * 	// JS files don't use reference calculations as they don't do import elision, no need to calculate it
+ * 	importElisionEnabled := !options.VerbatimModuleSyntax.IsTrue() && !ast.IsInJSFile(sourceFile.AsNode())
+ * 	jsxTransformEnabled := options.GetJSXTransformEnabled() && sourceFile.LanguageVariant == core.LanguageVariantJSX
+ *
+ * 	emitResolver := host.GetEmitResolver()
+ *
+ * 	var referenceResolver binder.ReferenceResolver
+ * 	if importElisionEnabled || jsxTransformEnabled || !options.GetIsolatedModules() || options.EmitDecoratorMetadata.IsTrue() {
+ * 		emitResolver.MarkLinkedReferencesRecursively(sourceFile)
+ * 		referenceResolver = emitResolver
+ * 	} else {
+ * 		referenceResolver = binder.NewReferenceResolver(options, binder.ReferenceResolverHooks{})
+ * 	}
+ *
+ * 	opts := transformers.TransformOptions{
+ * 		Context:                   emitContext,
+ * 		CompilerOptions:           options,
+ * 		Resolver:                  referenceResolver,
+ * 		EmitResolver:              emitResolver,
+ * 		GetEmitModuleFormatOfFile: host.GetEmitModuleFormatOfFile,
+ * 	}
+ *
+ * 	// transform TypeScript syntax
+ * 	{
+ * 		// use type nodes to add metadata decorators
+ * 		if options.EmitDecoratorMetadata.IsTrue() {
+ * 			tx = append(tx, tstransforms.NewMetadataTransformer(&opts))
+ * 		}
+ *
+ * 		// erase types
+ * 		tx = append(tx, tstransforms.NewTypeEraserTransformer(&opts))
+ *
+ * 		// elide imports
+ * 		if importElisionEnabled {
+ * 			tx = append(tx, tstransforms.NewImportElisionTransformer(&opts))
+ * 		}
+ *
+ * 		// transform `enum`, `namespace`, and parameter properties
+ * 		tx = append(tx, tstransforms.NewRuntimeSyntaxTransformer(&opts))
+ *
+ * 		if options.ExperimentalDecorators.IsTrue() {
+ * 			tx = append(tx, tstransforms.NewLegacyDecoratorsTransformer(&opts))
+ * 		}
+ * 	}
+ *
+ * 	if jsxTransformEnabled {
+ * 		tx = append(tx, jsxtransforms.NewJSXTransformer(&opts))
+ * 	}
+ *
+ * 	downleveler := estransforms.GetESTransformer(&opts)
+ * 	if downleveler != nil {
+ * 		tx = append(tx, downleveler)
+ * 	}
+ *
+ * 	tx = append(tx, estransforms.NewUseStrictTransformer(&opts))
+ *
+ * 	// transform module syntax
+ * 	tx = append(tx, getModuleTransformer(&opts))
+ *
+ * 	// inlining (formerly done via substitutions)
+ * 	if !options.GetIsolatedModules() {
+ * 		tx = append(tx, inliners.NewConstEnumInliningTransformer(&opts))
+ * 	}
+ * 	return tx
+ * }
+ */
+export declare function getScriptTransformers(emitContext: GoPtr<EmitContext>, host: EmitHost_b6591a53, sourceFile: GoPtr<SourceFile>): GoSlice<GoPtr<Transformer>>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.emitJSFile","kind":"method","status":"implemented","sigHash":"48c35cf58379c75d20e7027257a6c585c17e057a4d5b48b1afa70715d47a797a","bodyHash":"c17bf80d3f25886a00e34309a9b87a19f7f0e2b9d3a2e42f727984e1a802fff7"}
+ *
+ * Go source:
+ * func (e *emitter) emitJSFile(sourceFile *ast.SourceFile, jsFilePath string, sourceMapFilePath string) {
+ * 	options := e.host.Options()
+ *
+ * 	if sourceFile == nil || e.emitOnly != EmitAll && e.emitOnly != EmitOnlyJs || len(jsFilePath) == 0 {
+ * 		return
+ * 	}
+ *
+ * 	if options.NoEmit == core.TSTrue || e.host.IsEmitBlocked(jsFilePath) {
+ * 		e.emitResult.EmitSkipped = true
+ * 		return
+ * 	}
+ *
+ * 	if e.tr != nil {
+ * 		defer e.tr.Push(tracing.PhaseEmit, "emitJsFileOrBundle", map[string]any{"jsFilePath": jsFilePath}, true)()
+ * 	}
+ *
+ * 	emitContext, putEmitContext := printer.GetEmitContext()
+ * 	defer putEmitContext()
+ *
+ * 	sourceFile = e.runScriptTransformers(emitContext, sourceFile)
+ *
+ * 	printerOptions := printer.PrinterOptions{
+ * 		RemoveComments:  options.RemoveComments.IsTrue(),
+ * 		NewLine:         options.NewLine,
+ * 		NoEmitHelpers:   options.NoEmitHelpers.IsTrue(),
+ * 		SourceMap:       options.SourceMap.IsTrue(),
+ * 		InlineSourceMap: options.InlineSourceMap.IsTrue(),
+ * 		InlineSources:   options.InlineSources.IsTrue(),
+ * 		Target:          options.Target,
+ * 		// !!!
+ * 	}
+ *
+ * 	// create a printer to print the nodes
+ * 	printer := printer.NewPrinter(printerOptions, printer.PrintHandlers{
+ * 		// !!!
+ * 	}, emitContext)
+ *
+ * 	e.printSourceFile(jsFilePath, sourceMapFilePath, sourceFile, printer, shouldEmitSourceMaps(options, sourceFile))
+ * }
+ */
+export declare function emitter_emitJSFile(receiver: GoPtr<emitter>, sourceFile: GoPtr<SourceFile>, jsFilePath: string, sourceMapFilePath: string): void;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.emitDeclarationFile","kind":"method","status":"implemented","sigHash":"6d491c974ae023bad1223b5e586fa4d1b7c289cd44aca89d4cf3e8eec522a18f","bodyHash":"7bf5d4e37a392d7c5d99935d9e0d131bd908e1ed11d111089898793923878809"}
+ *
+ * Go source:
+ * func (e *emitter) emitDeclarationFile(sourceFile *ast.SourceFile, declarationFilePath string, declarationMapPath string) {
+ * 	options := e.host.Options()
+ *
+ * 	if sourceFile == nil || e.emitOnly == EmitOnlyJs || len(declarationFilePath) == 0 {
+ * 		return
+ * 	}
+ *
+ * 	if e.emitOnly != EmitOnlyForcedDts && (options.NoEmit == core.TSTrue || e.host.IsEmitBlocked(declarationFilePath)) {
+ * 		e.emitResult.EmitSkipped = true
+ * 		return
+ * 	}
+ *
+ * 	if e.tr != nil {
+ * 		defer e.tr.Push(tracing.PhaseEmit, "emitDeclarationFileOrBundle", map[string]any{"declarationFilePath": declarationFilePath}, true)()
+ * 	}
+ *
+ * 	emitContext, putEmitContext := printer.GetEmitContext()
+ * 	defer putEmitContext()
+ * 	sourceFile, diags := e.runDeclarationTransformers(emitContext, sourceFile, declarationFilePath, declarationMapPath)
+ *
+ * 	// !!! strada skipped emit if there were diagnostics
+ *
+ * 	printerOptions := printer.PrinterOptions{
+ * 		RemoveComments:      options.RemoveComments.IsTrue(),
+ * 		OnlyPrintJSDocStyle: true,
+ * 		NewLine:             options.NewLine,
+ * 		NoEmitHelpers:       options.NoEmitHelpers.IsTrue(),
+ * 		SourceMap:           options.DeclarationMap.IsTrue(),
+ * 		InlineSourceMap:     options.InlineSourceMap.IsTrue(),
+ * 		InlineSources:       options.InlineSources.IsTrue(),
+ * 		// !!!
+ * 	}
+ *
+ * 	// create a printer to print the nodes
+ * 	printer := printer.NewPrinter(printerOptions, printer.PrintHandlers{
+ * 		// !!!
+ * 	}, emitContext)
+ *
+ * 	for _, elem := range diags {
+ * 		// Add declaration transform diagnostics to emit diagnostics
+ * 		e.emitterDiagnostics.Add(elem)
+ * 	}
+ * 	e.printSourceFile(declarationFilePath, declarationMapPath, sourceFile, printer, e.emitOnly != EmitOnlyForcedDts && shouldEmitDeclarationSourceMaps(options, sourceFile))
+ * }
+ */
+export declare function emitter_emitDeclarationFile(receiver: GoPtr<emitter>, sourceFile: GoPtr<SourceFile>, declarationFilePath: string, declarationMapPath: string): void;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.printSourceFile","kind":"method","status":"implemented","sigHash":"ff7410ff5d1604cbedf0a19e3a03f19f547ad81d977eff427a93e716e6b252b1","bodyHash":"b5b4dab08dea6c3f9c6b9b53d3aceec164bdb3c2984e9a8b5559a447d7e8395e"}
+ *
+ * Go source:
+ * func (e *emitter) printSourceFile(jsFilePath string, sourceMapFilePath string, sourceFile *ast.SourceFile, printer_ *printer.Printer, shouldEmitSourceMaps bool) {
+ * 	// !!! sourceMapGenerator
+ * 	options := e.host.Options()
+ * 	var sourceMapGenerator *sourcemap.Generator
+ * 	if shouldEmitSourceMaps {
+ * 		sourceMapGenerator = sourcemap.NewGenerator(
+ * 			tspath.GetBaseFileName(tspath.NormalizeSlashes(jsFilePath)),
+ * 			getSourceRoot(options),
+ * 			e.getSourceMapDirectory(options, jsFilePath, sourceFile),
+ * 			tspath.ComparePathsOptions{
+ * 				UseCaseSensitiveFileNames: e.host.UseCaseSensitiveFileNames(),
+ * 				CurrentDirectory:          e.host.GetCurrentDirectory(),
+ * 			},
+ * 		)
+ * 	}
+ *
+ * 	printer_.Write(sourceFile.AsNode(), sourceFile, e.writer, sourceMapGenerator)
+ *
+ * 	sourceMapUrlPos := -1
+ * 	if sourceMapGenerator != nil {
+ * 		if options.SourceMap.IsTrue() || options.InlineSourceMap.IsTrue() || options.GetAreDeclarationMapsEnabled() {
+ * 			e.emitResult.SourceMaps = append(e.emitResult.SourceMaps, &SourceMapEmitResult{
+ * 				InputSourceFileNames: sourceMapGenerator.Sources(),
+ * 				SourceMap:            sourceMapGenerator.RawSourceMap(),
+ * 				GeneratedFile:        jsFilePath,
+ * 			})
+ * 		}
+ *
+ * 		sourceMappingURL := e.getSourceMappingURL(
+ * 			options,
+ * 			sourceMapGenerator,
+ * 			jsFilePath,
+ * 			sourceMapFilePath,
+ * 			sourceFile,
+ * 		)
+ *
+ * 		if len(sourceMappingURL) > 0 {
+ * 			if !e.writer.IsAtStartOfLine() {
+ * 				e.writer.RawWrite(core.IfElse(options.NewLine == core.NewLineKindCRLF, "\r\n", "\n"))
+ * 			}
+ * 			sourceMapUrlPos = e.writer.GetTextPos()
+ * 			e.writer.WriteComment("//# sourceMappingURL=")
+ * 			e.writer.WriteComment(sourceMappingURL)
+ * 		}
+ *
+ * 		// Write the source map
+ * 		if len(sourceMapFilePath) > 0 {
+ * 			sourceMap := sourceMapGenerator.String()
+ * 			err := e.writeText(sourceMapFilePath, sourceMap, nil)
+ * 			if err != nil {
+ * 				e.emitterDiagnostics.Add(ast.NewCompilerDiagnostic(diagnostics.Could_not_write_file_0_Colon_1, jsFilePath, err.Error()))
+ * 			} else {
+ * 				e.emitResult.EmittedFiles = append(e.emitResult.EmittedFiles, sourceMapFilePath)
+ * 			}
+ * 		}
+ * 	} else {
+ * 		e.writer.WriteLine()
+ * 	}
+ *
+ * 	// Write the output file
+ * 	text := e.writer.String()
+ * 	if options.EmitBOM.IsTrue() {
+ * 		text = stringutil.AddUTF8ByteOrderMark(text)
+ * 	}
+ * 	data := &WriteFileData{
+ * 		SourceMapUrlPos: sourceMapUrlPos,
+ * 		Diagnostics:     e.emitterDiagnostics.GetDiagnostics(),
+ * 	}
+ * 	err := e.writeText(jsFilePath, text, data)
+ * 	skippedDtsWrite := data.SkippedDtsWrite
+ * 	if err != nil {
+ * 		e.emitterDiagnostics.Add(ast.NewCompilerDiagnostic(diagnostics.Could_not_write_file_0_Colon_1, jsFilePath, err.Error()))
+ * 	} else if !skippedDtsWrite {
+ * 		e.emitResult.EmittedFiles = append(e.emitResult.EmittedFiles, jsFilePath)
+ * 	}
+ *
+ * 	// Reset state
+ * 	e.writer.Clear()
+ * }
+ */
+export declare function emitter_printSourceFile(receiver: GoPtr<emitter>, jsFilePath: string, sourceMapFilePath: string, sourceFile: GoPtr<SourceFile>, printer_: GoPtr<Printer>, shouldEmitSourceMaps: bool): void;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.writeText","kind":"method","status":"implemented","sigHash":"9aac04b1bbe12883854aeb318218ae862c3a628a81b257ff5997b30fd514bfe2","bodyHash":"4ed9f7731e85fe250661eac53be38cbf03842fbfd94c01fc172688dffe0baa54"}
+ *
+ * Go source:
+ * func (e *emitter) writeText(fileName string, text string, data *WriteFileData) error {
+ * 	if e.writeFile != nil {
+ * 		return e.writeFile(fileName, text, data)
+ * 	}
+ * 	return e.host.WriteFile(fileName, text)
+ * }
+ */
+export declare function emitter_writeText(receiver: GoPtr<emitter>, fileName: string, text: string, data: GoPtr<WriteFileData>): GoError;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::shouldEmitSourceMaps","kind":"func","status":"implemented","sigHash":"bdb653e6ca3d07136c362984a46dfb4482b1d6afea4822b56271536a7fc3579a","bodyHash":"174c9c32357b91a6b910888c4eedc6cae65d97ae9c49ef57e23c92f5607f8514"}
+ *
+ * Go source:
+ * func shouldEmitSourceMaps(mapOptions *core.CompilerOptions, sourceFile *ast.SourceFile) bool {
+ * 	return (mapOptions.SourceMap.IsTrue() || mapOptions.InlineSourceMap.IsTrue()) &&
+ * 		!tspath.FileExtensionIs(sourceFile.FileName(), tspath.ExtensionJson)
+ * }
+ */
+export declare function shouldEmitSourceMaps(mapOptions: GoPtr<CompilerOptions>, sourceFile: GoPtr<SourceFile>): bool;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::shouldEmitDeclarationSourceMaps","kind":"func","status":"implemented","sigHash":"7c39300b40feef67f75b0c8a27ab472cd9400df4094d98b8a423b2173ff08ac4","bodyHash":"ae6be2882581dd91dacab6ff721d4f1e7db379f962248565df94977b56b19b9e"}
+ *
+ * Go source:
+ * func shouldEmitDeclarationSourceMaps(mapOptions *core.CompilerOptions, sourceFile *ast.SourceFile) bool {
+ * 	return mapOptions.DeclarationMap.IsTrue() &&
+ * 		!tspath.FileExtensionIs(sourceFile.FileName(), tspath.ExtensionJson)
+ * }
+ */
+export declare function shouldEmitDeclarationSourceMaps(mapOptions: GoPtr<CompilerOptions>, sourceFile: GoPtr<SourceFile>): bool;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::getSourceRoot","kind":"func","status":"implemented","sigHash":"4b3326ca6ab67a8b5b6006de83888c129f670bdb1a1e9560d7a58f83bc51849d","bodyHash":"64d136d9b52eae2574124190f98f9aa66e9cbe4d1191f9fe45cc16bab0d402a9"}
+ *
+ * Go source:
+ * func getSourceRoot(mapOptions *core.CompilerOptions) string {
+ * 	// Normalize source root and make sure it has trailing "/" so that it can be used to combine paths with the
+ * 	// relative paths of the sources list in the sourcemap
+ * 	sourceRoot := tspath.NormalizeSlashes(mapOptions.SourceRoot)
+ * 	if len(sourceRoot) > 0 {
+ * 		sourceRoot = tspath.EnsureTrailingDirectorySeparator(sourceRoot)
+ * 	}
+ * 	return sourceRoot
+ * }
+ */
+export declare function getSourceRoot(mapOptions: GoPtr<CompilerOptions>): string;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.getSourceMapDirectory","kind":"method","status":"implemented","sigHash":"ea8428e7fd05d47526b6f8eddfdc651ebac2b12f7a458bce4379196355f6e79e","bodyHash":"e868f9321ad051ee1e35211287f5820dabd5773e6ca5efa0246e14a841a4c58b"}
+ *
+ * Go source:
+ * func (e *emitter) getSourceMapDirectory(mapOptions *core.CompilerOptions, filePath string, sourceFile *ast.SourceFile) string {
+ * 	if len(mapOptions.SourceRoot) > 0 {
+ * 		return e.host.CommonSourceDirectory()
+ * 	}
+ * 	if len(mapOptions.MapRoot) > 0 {
+ * 		sourceMapDir := tspath.NormalizeSlashes(mapOptions.MapRoot)
+ * 		if sourceFile != nil {
+ * 			// For modules or multiple emit files the mapRoot will have directory structure like the sources
+ * 			// So if src\a.ts and src\lib\b.ts are compiled together user would be moving the maps into mapRoot\a.js.map and mapRoot\lib\b.js.map
+ * 			sourceMapDir = tspath.GetDirectoryPath(outputpaths.GetSourceFilePathInNewDir(
+ * 				sourceFile.FileName(),
+ * 				sourceMapDir,
+ * 				e.host.GetCurrentDirectory(),
+ * 				e.host.CommonSourceDirectory(),
+ * 				e.host.UseCaseSensitiveFileNames(),
+ * 			))
+ * 		}
+ * 		if tspath.GetRootLength(sourceMapDir) == 0 {
+ * 			// The relative paths are relative to the common directory
+ * 			sourceMapDir = tspath.CombinePaths(e.host.CommonSourceDirectory(), sourceMapDir)
+ * 		}
+ * 		return sourceMapDir
+ * 	}
+ * 	return tspath.GetDirectoryPath(tspath.NormalizePath(filePath))
+ * }
+ */
+export declare function emitter_getSourceMapDirectory(receiver: GoPtr<emitter>, mapOptions: GoPtr<CompilerOptions>, filePath: string, sourceFile: GoPtr<SourceFile>): string;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::method::emitter.getSourceMappingURL","kind":"method","status":"implemented","sigHash":"5256d3ad354dcf7ae3485c254ec9a120879e4785c8213f2fb0bfa53a353d99c4","bodyHash":"341c169861d8322dd18001280728587a7bc2ee4189d90762ff17837cbefda7ce"}
+ *
+ * Go source:
+ * func (e *emitter) getSourceMappingURL(mapOptions *core.CompilerOptions, sourceMapGenerator *sourcemap.Generator, filePath string, sourceMapFilePath string, sourceFile *ast.SourceFile) string {
+ * 	if mapOptions.InlineSourceMap.IsTrue() {
+ * 		// Encode the sourceMap into the sourceMap url
+ * 		return sourceMapGenerator.Base64DataURL()
+ * 	}
+ *
+ * 	sourceMapFile := tspath.GetBaseFileName(tspath.NormalizeSlashes(sourceMapFilePath))
+ * 	if len(mapOptions.MapRoot) > 0 {
+ * 		sourceMapDir := tspath.NormalizeSlashes(mapOptions.MapRoot)
+ * 		if sourceFile != nil {
+ * 			// For modules or multiple emit files the mapRoot will have directory structure like the sources
+ * 			// So if src\a.ts and src\lib\b.ts are compiled together user would be moving the maps into mapRoot\a.js.map and mapRoot\lib\b.js.map
+ * 			sourceMapDir = tspath.GetDirectoryPath(outputpaths.GetSourceFilePathInNewDir(
+ * 				sourceFile.FileName(),
+ * 				sourceMapDir,
+ * 				e.host.GetCurrentDirectory(),
+ * 				e.host.CommonSourceDirectory(),
+ * 				e.host.UseCaseSensitiveFileNames(),
+ * 			))
+ * 		}
+ * 		if tspath.GetRootLength(sourceMapDir) == 0 {
+ * 			// The relative paths are relative to the common directory
+ * 			sourceMapDir = tspath.CombinePaths(e.host.CommonSourceDirectory(), sourceMapDir)
+ * 			return stringutil.EncodeURI(
+ * 				tspath.GetRelativePathToDirectoryOrUrl(
+ * 					tspath.GetDirectoryPath(tspath.NormalizePath(filePath)), // get the relative sourceMapDir path based on jsFilePath
+ * 					tspath.CombinePaths(sourceMapDir, sourceMapFile),        // this is where user expects to see sourceMap
+ * 					/*isAbsolutePathAnUrl* / true,
+ * 					tspath.ComparePathsOptions{
+ * 						UseCaseSensitiveFileNames: e.host.UseCaseSensitiveFileNames(),
+ * 						CurrentDirectory:          e.host.GetCurrentDirectory(),
+ * 					},
+ * 				),
+ * 			)
+ * 		} else {
+ * 			return stringutil.EncodeURI(tspath.CombinePaths(sourceMapDir, sourceMapFile))
+ * 		}
+ * 	}
+ * 	return stringutil.EncodeURI(sourceMapFile)
+ * }
+ */
+export declare function emitter_getSourceMappingURL(receiver: GoPtr<emitter>, mapOptions: GoPtr<CompilerOptions>, sourceMapGenerator: GoPtr<Generator>, filePath: string, sourceMapFilePath: string, sourceFile: GoPtr<SourceFile>): string;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::type::SourceFileMayBeEmittedHost","kind":"type","status":"implemented","sigHash":"3234fb95de035e8140a4c0e6bc550036b5e6dce06888b191a2973d1e57e2f02b","bodyHash":"02eccd3d9ada9bcedde7e60d107ae713805b21eed3b1a0728307bc21227017b6"}
+ *
+ * Go source:
+ * SourceFileMayBeEmittedHost interface {
+ * 	Options() *core.CompilerOptions
+ * 	GetProjectReferenceFromSource(path tspath.Path) *tsoptions.SourceOutputAndProjectReference
+ * 	IsSourceFileFromExternalLibrary(file *ast.SourceFile) bool
+ * 	GetCurrentDirectory() string
+ * 	UseCaseSensitiveFileNames() bool
+ * 	SourceFiles() []*ast.SourceFile
+ * }
+ */
+export interface SourceFileMayBeEmittedHost {
+    Options(): GoPtr<CompilerOptions>;
+    GetProjectReferenceFromSource(path: Path): GoPtr<SourceOutputAndProjectReference>;
+    IsSourceFileFromExternalLibrary(file: GoPtr<SourceFile>): bool;
+    GetCurrentDirectory(): string;
+    UseCaseSensitiveFileNames(): bool;
+    SourceFiles(): GoSlice<GoPtr<SourceFile>>;
+}
+export declare function EmitHost_as_emitter_SourceFileMayBeEmittedHost(receiver: EmitHost): SourceFileMayBeEmittedHost;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::sourceFileMayBeEmitted","kind":"func","status":"implemented","sigHash":"d118009010869662095554f8b30ef9c13c4fe5ffeacba94989f117f844d4f559","bodyHash":"411602782d47b26495a5fad024d820287c4c8c43e95bddbb17e1c1c0abc06a56"}
+ *
+ * Go source:
+ * func sourceFileMayBeEmitted(sourceFile *ast.SourceFile, host SourceFileMayBeEmittedHost, forceDtsEmit bool) bool {
+ * 	// TODO: move this to outputpaths?
+ *
+ * 	options := host.Options()
+ * 	// Js files are emitted only if option is enabled
+ * 	if options.NoEmitForJsFiles.IsTrue() && ast.IsSourceFileJS(sourceFile) {
+ * 		return false
+ * 	}
+ *
+ * 	// Declaration files are not emitted
+ * 	if sourceFile.IsDeclarationFile {
+ * 		return false
+ * 	}
+ *
+ * 	// Source file from node_modules are not emitted
+ * 	if host.IsSourceFileFromExternalLibrary(sourceFile) {
+ * 		return false
+ * 	}
+ *
+ * 	// forcing dts emit => file needs to be emitted
+ * 	if forceDtsEmit {
+ * 		return true
+ * 	}
+ *
+ * 	// Check other conditions for file emit
+ * 	// Source files from referenced projects are not emitted
+ * 	if host.GetProjectReferenceFromSource(sourceFile.Path()) != nil {
+ * 		return false
+ * 	}
+ *
+ * 	// Any non json file should be emitted
+ * 	if !ast.IsJsonSourceFile(sourceFile) {
+ * 		return true
+ * 	}
+ *
+ * 	// Json file is not emitted if outDir is not specified
+ * 	if options.OutDir == "" {
+ * 		return false
+ * 	}
+ *
+ * 	// Otherwise, if rootDir is specified or a config file exists, we know the common source directory and can check if the file would be emitted in the same location
+ * 	if options.RootDir != "" || options.ConfigFilePath != "" {
+ * 		commonDir := tspath.GetNormalizedAbsolutePath(outputpaths.GetCommonSourceDirectory(options, func() []string { return nil }, host.GetCurrentDirectory(), host.UseCaseSensitiveFileNames()), host.GetCurrentDirectory())
+ * 		outputPath := outputpaths.GetSourceFilePathInNewDirWorker(sourceFile.FileName(), options.OutDir, host.GetCurrentDirectory(), commonDir, host.UseCaseSensitiveFileNames())
+ * 		if tspath.ComparePaths(sourceFile.FileName(), outputPath, tspath.ComparePathsOptions{
+ * 			UseCaseSensitiveFileNames: host.UseCaseSensitiveFileNames(),
+ * 			CurrentDirectory:          host.GetCurrentDirectory(),
+ * 		}) == 0 {
+ * 			return false
+ * 		}
+ * 	}
+ *
+ * 	return true
+ * }
+ */
+export declare function sourceFileMayBeEmitted(sourceFile: GoPtr<SourceFile>, host: SourceFileMayBeEmittedHost, forceDtsEmit: bool): bool;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::getSourceFilesToEmit","kind":"func","status":"implemented","sigHash":"5edceb1093bf34a3ab05e3852ba63ac3b274db891d0903a56ff02b0cd13c223f","bodyHash":"545d196a9cb86cc12878f08147673cbf642a8174a2915e1a28ecac8ef0d94ffb"}
+ *
+ * Go source:
+ * func getSourceFilesToEmit(host SourceFileMayBeEmittedHost, targetSourceFile *ast.SourceFile, forceDtsEmit bool) []*ast.SourceFile {
+ * 	var sourceFiles []*ast.SourceFile
+ * 	if targetSourceFile != nil {
+ * 		sourceFiles = []*ast.SourceFile{targetSourceFile}
+ * 	} else {
+ * 		sourceFiles = host.SourceFiles()
+ * 	}
+ * 	return core.Filter(sourceFiles, func(sourceFile *ast.SourceFile) bool {
+ * 		return sourceFileMayBeEmitted(sourceFile, host, forceDtsEmit)
+ * 	})
+ * }
+ */
+export declare function getSourceFilesToEmit(host: SourceFileMayBeEmittedHost, targetSourceFile: GoPtr<SourceFile>, forceDtsEmit: bool): GoSlice<GoPtr<SourceFile>>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::isSourceFileNotJson","kind":"func","status":"implemented","sigHash":"450dcf9bc3ff6f1a0b2a1793149374cb79543a5c54cf0eb89a0b1359d9bf1dcb","bodyHash":"81ffe16f59ca6324407f03cd181b2f2dd11b23d03b6e46c6d95f2ede9fc56fb6"}
+ *
+ * Go source:
+ * func isSourceFileNotJson(file *ast.SourceFile) bool {
+ * 	return !ast.IsJsonSourceFile(file)
+ * }
+ */
+export declare function isSourceFileNotJson(file: GoPtr<SourceFile>): bool;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/emitter.go::func::getDeclarationDiagnostics","kind":"func","status":"implemented","sigHash":"89db86d46713a1be0836322521b8df64d17b4753cc5ea6b3caec1062d7c6eb32","bodyHash":"7c81f713a5cd3989dacc8fa87331982f14779f7552b41b71e4b862dad2f7b46c"}
+ *
+ * Go source:
+ * func getDeclarationDiagnostics(host EmitHost, file *ast.SourceFile) []*ast.Diagnostic {
+ * 	// TODO: use p.getSourceFilesToEmit cache
+ * 	fullFiles := core.Filter(getSourceFilesToEmit(host, file, false), isSourceFileNotJson)
+ * 	if !core.Some(fullFiles, func(f *ast.SourceFile) bool { return f == file }) {
+ * 		return []*ast.Diagnostic{}
+ * 	}
+ * 	options := host.Options()
+ * 	transform := declarations.NewDeclarationTransformer(host, nil, options, "", "")
+ * 	transform.TransformSourceFile(file)
+ * 	return transform.GetDiagnostics()
+ * }
+ */
+export declare function getDeclarationDiagnostics(host: EmitHost, file: GoPtr<SourceFile>): GoSlice<GoPtr<Diagnostic>>;
+//# sourceMappingURL=emitter.d.ts.map

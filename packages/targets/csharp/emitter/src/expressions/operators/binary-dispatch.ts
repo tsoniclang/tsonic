@@ -174,7 +174,7 @@ const isBigIntType = (
     (effective.kind === "primitiveType" && effective.name === "bigint") ||
     (effective.kind === "referenceType" &&
       astTypeMatchesClrIdentity(
-        identifierType(effective.providerQualifiedName ?? effective.name),
+        identifierType(effective.externalQualifiedName ?? effective.name),
         ["System.Numerics.BigInteger"]
       ))
   );
@@ -399,7 +399,7 @@ const isBooleanIrType = (
     (resolved.kind === "primitiveType" && resolved.name === "boolean") ||
     (resolved.kind === "referenceType" &&
       astTypeMatchesClrIdentity(
-        identifierType(resolved.providerQualifiedName ?? resolved.name),
+        identifierType(resolved.externalQualifiedName ?? resolved.name),
         ["System.Boolean"]
       ))
   );

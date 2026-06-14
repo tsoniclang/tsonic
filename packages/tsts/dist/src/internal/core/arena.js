@@ -1,0 +1,115 @@
+function ensureArena(receiver) {
+    const arena = receiver ?? { data: [] };
+    arena.data ??= [];
+    return arena;
+}
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/arena.go::method::Arena.New","kind":"method","status":"implemented","sigHash":"7f61e2bb57de57610e5585534f7544ee42ef4fef68509f3a42c767cf9152e756","bodyHash":"b9bd82671cbff82c70555631173bc5f846f2b81fd84ef711e37082b735d1f20f"}
+ *
+ * Go source:
+ * func (a *Arena[T]) New() *T {
+ * 	if len(a.data) == cap(a.data) {
+ * 		nextSize := nextArenaSize(len(a.data))
+ * 		// Use the same trick as slices.Concat; Grow rounds up to the next size class.
+ * 		a.data = slices.Grow[[]T](nil, nextSize)
+ * 	}
+ * 	index := len(a.data)
+ * 	a.data = a.data[:index+1]
+ * 	return &a.data[index]
+ * }
+ */
+export function Arena_New(receiver) {
+    // In TS there is no arena allocation: just push a new zero-value slot and
+    // return a reference to the wrapper object so callers can read/write it.
+    const arena = ensureArena(receiver);
+    const slot = {};
+    arena.data.push(slot);
+    return slot;
+}
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/arena.go::method::Arena.NewSlice","kind":"method","status":"implemented","sigHash":"e6e68464be11603146e0ba334fce4d5628033c5389e68c2032220be0b3bef2c3","bodyHash":"607827fa585765652039cf140ef55b5973bd0297db32e1930d30c8e8964be471"}
+ *
+ * Go source:
+ * func (a *Arena[T]) NewSlice(size int) []T {
+ * 	if size == 0 {
+ * 		return nil
+ * 	}
+ * 	if len(a.data)+size > cap(a.data) {
+ * 		nextSize := nextArenaSize(len(a.data))
+ * 		if size > nextSize {
+ * 			return make([]T, size)
+ * 		}
+ * 		// Use the same trick as slices.Concat; Grow rounds up to the next size class.
+ * 		a.data = slices.Grow[[]T](nil, nextSize)
+ * 	}
+ * 	newLen := len(a.data) + size
+ * 	slice := a.data[len(a.data):newLen:newLen]
+ * 	a.data = a.data[:newLen]
+ * 	return slice
+ * }
+ */
+export function Arena_NewSlice(receiver, size) {
+    if (size === 0) {
+        return [];
+    }
+    const arena = ensureArena(receiver);
+    return globalThis.Array.from({ length: size }, () => {
+        const slot = {};
+        arena.data.push(slot);
+        return slot;
+    });
+}
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/arena.go::method::Arena.NewSlice1","kind":"method","status":"implemented","sigHash":"4992a47dcf040851aaf48bfd2287241d7af83d638266ca8a84a954dfd0c34ea8","bodyHash":"c17187b13925bf4d4021e37e5e794b8a3eba83c54d739f6d706f6d54a7fde037"}
+ *
+ * Go source:
+ * func (a *Arena[T]) NewSlice1(t T) []T {
+ * 	slice := a.NewSlice(1)
+ * 	slice[0] = t
+ * 	return slice
+ * }
+ */
+export function Arena_NewSlice1(receiver, t) {
+    const slice = Arena_NewSlice(receiver, 1);
+    slice[0] = t;
+    return slice;
+}
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/arena.go::method::Arena.Clone","kind":"method","status":"implemented","sigHash":"27f28fb80bfb60096650cf2a896227f2837f1d4e0e6bda9450442ee99972cd6c","bodyHash":"2a82317a6079eb431f604b475bb86a27c8b3408278a5590d0ead847075f5aa47"}
+ *
+ * Go source:
+ * func (a *Arena[T]) Clone(t []T) []T {
+ * 	if len(t) == 0 {
+ * 		return nil
+ * 	}
+ * 	slice := a.NewSlice(len(t))
+ * 	copy(slice, t)
+ * 	return slice
+ * }
+ */
+export function Arena_Clone(receiver, t) {
+    if (t.length === 0) {
+        return [];
+    }
+    const arena = ensureArena(receiver);
+    return globalThis.Array.from(t, (item) => {
+        arena.data.push(item);
+        return item;
+    });
+}
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/arena.go::func::nextArenaSize","kind":"func","status":"implemented","sigHash":"145aabd29c835d4b980e31052effdb814889c81c01833bae2f7ebe1098daa5a9","bodyHash":"71790fee17fe7ed0a789352388adab1c6ba32fb02c6b786e64179d0a19086110"}
+ *
+ * Go source:
+ * func nextArenaSize(size int) int {
+ * 	// This compiles down branch-free.
+ * 	size = max(size, 1)
+ * 	size = min(size*2, 256)
+ * 	return size
+ * }
+ */
+export function nextArenaSize(size) {
+    const s1 = globalThis.Math.max(size, 1);
+    return globalThis.Math.min(s1 * 2, 256);
+}
+//# sourceMappingURL=arena.js.map

@@ -170,7 +170,7 @@ describe("Module Generation", () => {
               name: "buildSite",
               localName: "buildSite",
               isType: false,
-              providerValue: {
+              externalValue: {
                 ownerQualifiedName: "Lib.BuildSite",
                 ownerIdentity: "Lib",
                 memberName: "buildSite",
@@ -224,7 +224,7 @@ describe("Module Generation", () => {
     const routerType = {
       kind: "referenceType",
       name: "Router",
-      providerQualifiedName: "global::System.Object",
+      externalQualifiedName: "global::System.Object",
       structuralMembers: [],
     } as unknown as Extract<IrType, { kind: "referenceType" }> & {
       structuralMembers: unknown[];

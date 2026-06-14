@@ -254,7 +254,7 @@ describe("implicit-interfaces", () => {
       {
         kind: "referenceType",
         name: "IParser",
-        providerQualifiedName: "Test.IParser",
+        externalQualifiedName: "Test.IParser",
       },
     ]);
   });
@@ -321,7 +321,7 @@ describe("implicit-interfaces", () => {
             {
               kind: "referenceType",
               name: "IDisposable",
-              providerQualifiedName: "System.IDisposable",
+              externalQualifiedName: "System.IDisposable",
             },
           ],
         },
@@ -334,7 +334,7 @@ describe("implicit-interfaces", () => {
         {
           kind: "referenceType",
           name: "IDisposable",
-          providerQualifiedName: "System.IDisposable",
+          externalQualifiedName: "System.IDisposable",
         },
       ],
       createContext(localTypes)
@@ -342,7 +342,7 @@ describe("implicit-interfaces", () => {
 
     expect(matches).to.have.length(1);
     expect(matches[0]?.isExplicit).to.equal(true);
-    expect(matches[0]?.ref.providerQualifiedName).to.equal(
+    expect(matches[0]?.ref.externalQualifiedName).to.equal(
       "System.IDisposable"
     );
     expect(

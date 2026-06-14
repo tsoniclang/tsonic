@@ -141,7 +141,7 @@ const getPredicateReceiverAstFromExistingBinding = (
 /**
  * Try to extract guard info from a predicate call expression.
  * Returns GuardInfo if:
- * - call.narrowing is typePredicate
+ * - call.typePredicate is present
  * - predicate arg is identifier
  * - arg.inferredType resolves to unionType
  * - targetType exists in union
@@ -150,10 +150,10 @@ export const tryResolvePredicateGuard = (
   call: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): GuardInfo | undefined => {
-  const narrowing = call.narrowing;
-  if (!narrowing || narrowing.kind !== "typePredicate") return undefined;
+  const typePredicate = call.typePredicate;
+  if (!typePredicate || typePredicate.kind !== "typePredicate") return undefined;
 
-  const arg = call.arguments[narrowing.argIndex];
+  const arg = call.arguments[typePredicate.argIndex];
   if (!arg || ("kind" in arg && arg.kind === "spread")) {
     return undefined;
   }
@@ -179,7 +179,7 @@ export const tryResolvePredicateGuard = (
 
   const matchingIndices = findRuntimeUnionMemberIndices(
     frame.members,
-    narrowing.targetType,
+    typePredicate.targetType,
     context
   );
   if (matchingIndices.length === 0) return undefined;
@@ -224,7 +224,7 @@ export const tryResolvePredicateGuard = (
   const narrowedMap = buildRenameNarrowedMap(
     originalName,
     narrowedName,
-    narrowing.targetType,
+    typePredicate.targetType,
     sourceType,
     ctxWithId
   );
@@ -248,7 +248,7 @@ export const tryResolvePredicateGuard = (
   return {
     originalName,
     receiverAst: argAst,
-    targetType: narrowing.targetType,
+    targetType: typePredicate.targetType,
     memberN,
     memberNs,
     unionArity,

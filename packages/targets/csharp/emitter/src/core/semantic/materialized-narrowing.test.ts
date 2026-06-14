@@ -77,7 +77,7 @@ describe("materialized narrowing", () => {
         {
           kind: "referenceType",
           name: "BigInteger",
-          providerQualifiedName: "System.Numerics.BigInteger",
+          externalQualifiedName: "System.Numerics.BigInteger",
         },
         { kind: "referenceType", name: "object", typeArguments: [] },
       ],
@@ -120,7 +120,7 @@ describe("materialized narrowing", () => {
     const doubleReferenceType: IrType = {
       kind: "referenceType",
       name: "Double",
-      providerQualifiedName: "System.Double",
+      externalQualifiedName: "System.Double",
     };
 
     const [ast, nextContext] = materializeDirectNarrowingAst(
@@ -334,7 +334,7 @@ describe("materialized narrowing", () => {
           {
             kind: "referenceType",
             name: "object",
-            providerQualifiedName: "System.Object",
+            externalQualifiedName: "System.Object",
           },
         ],
       },

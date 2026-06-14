@@ -197,7 +197,7 @@ describe("Statement Emission", () => {
                   {
                     kind: "referenceType",
                     name: "Uint8Array",
-                    providerQualifiedName: "js.Uint8Array",
+                    externalQualifiedName: "js.Uint8Array",
                   },
                 ],
               },
@@ -225,7 +225,7 @@ describe("Statement Emission", () => {
                         {
                           kind: "referenceType",
                           name: "Uint8Array",
-                          providerQualifiedName: "js.Uint8Array",
+                          externalQualifiedName: "js.Uint8Array",
                         },
                       ],
                     },
@@ -236,7 +236,7 @@ describe("Statement Emission", () => {
                     inferredType: {
                       kind: "referenceType",
                       name: "Uint8Array",
-                      providerQualifiedName: "js.Uint8Array",
+                      externalQualifiedName: "js.Uint8Array",
                     },
                   },
                 },
@@ -710,7 +710,7 @@ describe("Statement Emission", () => {
           elementType: {
             kind: "referenceType",
             name: "JsValue",
-            providerQualifiedName: "Tsonic.Runtime.JsValue",
+            externalQualifiedName: "Tsonic.Runtime.JsValue",
           },
           origin: "explicit",
         },
@@ -718,7 +718,7 @@ describe("Statement Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          providerQualifiedName: "js.RegExp",
+          externalQualifiedName: "js.RegExp",
         },
       ],
     };
@@ -790,7 +790,7 @@ describe("Statement Emission", () => {
                     inferredType: {
                       kind: "referenceType",
                       name: "RegExp",
-                      providerQualifiedName: "js.RegExp",
+                      externalQualifiedName: "js.RegExp",
                     },
                   },
                 },

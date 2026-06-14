@@ -79,7 +79,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "SerializableAttribute",
-          providerQualifiedName: "System.SerializableAttribute",
+          externalQualifiedName: "System.SerializableAttribute",
         },
         positionalArgs: [],
         namedArgs: new Map(),
@@ -97,7 +97,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "MarshalAsAttribute",
-          providerQualifiedName:
+          externalQualifiedName:
             "System.Runtime.InteropServices.MarshalAsAttribute",
         },
         positionalArgs: [
@@ -106,7 +106,7 @@ describe("Attribute Emission", () => {
             type: {
               kind: "referenceType",
               name: "UnmanagedType",
-              providerQualifiedName:
+              externalQualifiedName:
                 "System.Runtime.InteropServices.UnmanagedType",
             },
             member: "Bool",
@@ -128,7 +128,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "ObsoleteAttribute",
-          providerQualifiedName: "System.ObsoleteAttribute",
+          externalQualifiedName: "System.ObsoleteAttribute",
         },
         positionalArgs: [{ kind: "string", value: "Use NewClass instead" }],
         namedArgs: new Map(),
@@ -146,7 +146,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "CustomAttribute",
-          providerQualifiedName: "MyApp.CustomAttribute",
+          externalQualifiedName: "MyApp.CustomAttribute",
         },
         positionalArgs: [{ kind: "number", value: 42 }],
         namedArgs: new Map(),
@@ -164,7 +164,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "DebugAttribute",
-          providerQualifiedName: "Debug.DebugAttribute",
+          externalQualifiedName: "Debug.DebugAttribute",
         },
         positionalArgs: [{ kind: "boolean", value: true }],
         namedArgs: new Map(),
@@ -181,7 +181,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "DataContractAttribute",
-          providerQualifiedName:
+          externalQualifiedName:
             "System.Runtime.Serialization.DataContractAttribute",
         },
         positionalArgs: [],
@@ -204,7 +204,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "ObsoleteAttribute",
-          providerQualifiedName: "System.ObsoleteAttribute",
+          externalQualifiedName: "System.ObsoleteAttribute",
         },
         positionalArgs: [{ kind: "string", value: "Deprecated" }],
         namedArgs: new Map([["IsError", { kind: "boolean", value: true }]]),
@@ -223,7 +223,7 @@ describe("Attribute Emission", () => {
           attributeType: {
             kind: "referenceType",
             name: "SerializableAttribute",
-            providerQualifiedName: "System.SerializableAttribute",
+            externalQualifiedName: "System.SerializableAttribute",
           },
           positionalArgs: [],
           namedArgs: new Map(),
@@ -233,7 +233,7 @@ describe("Attribute Emission", () => {
           attributeType: {
             kind: "referenceType",
             name: "ObsoleteAttribute",
-            providerQualifiedName: "System.ObsoleteAttribute",
+            externalQualifiedName: "System.ObsoleteAttribute",
           },
           positionalArgs: [{ kind: "string", value: "Old" }],
           namedArgs: new Map(),
@@ -254,7 +254,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "TestAttribute",
-          providerQualifiedName: "Test.TestAttribute",
+          externalQualifiedName: "Test.TestAttribute",
         },
         positionalArgs: [],
         namedArgs: new Map(),
@@ -272,7 +272,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "TypeConverterAttribute",
-          providerQualifiedName: "System.ComponentModel.TypeConverterAttribute",
+          externalQualifiedName: "System.ComponentModel.TypeConverterAttribute",
         },
         positionalArgs: [
           {
@@ -280,7 +280,7 @@ describe("Attribute Emission", () => {
             type: {
               kind: "referenceType",
               name: "CustomConverter",
-              providerQualifiedName: "MyApp.CustomConverter",
+              externalQualifiedName: "MyApp.CustomConverter",
             },
           },
         ],
@@ -298,7 +298,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "JsonPropertyAttribute",
-          providerQualifiedName: "Newtonsoft.Json.JsonPropertyAttribute",
+          externalQualifiedName: "Newtonsoft.Json.JsonPropertyAttribute",
         },
         positionalArgs: [
           {
@@ -306,7 +306,7 @@ describe("Attribute Emission", () => {
             type: {
               kind: "referenceType",
               name: "Required",
-              providerQualifiedName: "Newtonsoft.Json.Required",
+              externalQualifiedName: "Newtonsoft.Json.Required",
             },
             member: "Always",
           },
@@ -325,7 +325,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "IndexAttribute",
-          providerQualifiedName: "Microsoft.EntityFrameworkCore.IndexAttribute",
+          externalQualifiedName: "Microsoft.EntityFrameworkCore.IndexAttribute",
         },
         positionalArgs: [
           {
@@ -350,7 +350,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "DescriptionAttribute",
-          providerQualifiedName: "System.ComponentModel.DescriptionAttribute",
+          externalQualifiedName: "System.ComponentModel.DescriptionAttribute",
         },
         positionalArgs: [{ kind: "string", value: 'Say "Hello" and \\escape' }],
         namedArgs: new Map(),
@@ -375,7 +375,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "NotNullAttribute",
-          providerQualifiedName:
+          externalQualifiedName:
             "System.Diagnostics.CodeAnalysis.NotNullAttribute",
         },
         positionalArgs: [],
@@ -395,7 +395,7 @@ describe("Attribute Emission", () => {
         attributeType: {
           kind: "referenceType",
           name: "InAttribute",
-          providerQualifiedName: "System.Runtime.InteropServices.InAttribute",
+          externalQualifiedName: "System.Runtime.InteropServices.InAttribute",
         },
         positionalArgs: [],
         namedArgs: new Map(),
@@ -416,7 +416,7 @@ describe("Attribute Emission", () => {
           attributeType: {
             kind: "referenceType",
             name: "NotNullAttribute",
-            providerQualifiedName:
+            externalQualifiedName:
               "System.Diagnostics.CodeAnalysis.NotNullAttribute",
           },
           positionalArgs: [],
@@ -427,7 +427,7 @@ describe("Attribute Emission", () => {
           attributeType: {
             kind: "referenceType",
             name: "CallerMemberNameAttribute",
-            providerQualifiedName:
+            externalQualifiedName:
               "System.Runtime.CompilerServices.CallerMemberNameAttribute",
           },
           positionalArgs: [],

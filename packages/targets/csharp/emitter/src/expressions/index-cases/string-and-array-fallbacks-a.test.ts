@@ -64,7 +64,7 @@ describe("Expression Emission", () => {
                 elementType: {
                   kind: "referenceType",
                   name: "Acme.Core.Channel",
-                  providerQualifiedName: "Acme.Core.Channel",
+                  externalQualifiedName: "Acme.Core.Channel",
                 },
               },
             },
@@ -103,7 +103,7 @@ describe("Expression Emission", () => {
                 inferredType: {
                   kind: "referenceType",
                   name: "Demo.ProcessModule",
-                  providerQualifiedName: "Demo.ProcessModule",
+                  externalQualifiedName: "Demo.ProcessModule",
                 },
               },
               property: "argv",
@@ -150,7 +150,7 @@ describe("Expression Emission", () => {
                 inferredType: {
                   kind: "referenceType",
                   name: "Demo.ProcessModule",
-                  providerQualifiedName: "Demo.ProcessModule",
+                  externalQualifiedName: "Demo.ProcessModule",
                 },
               },
               property: "argv",
@@ -230,7 +230,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              providerQualifiedName: "js.Uint8Array",
+              externalQualifiedName: "js.Uint8Array",
             },
           ],
         },
@@ -290,7 +290,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              providerQualifiedName: "js.Uint8Array",
+              externalQualifiedName: "js.Uint8Array",
             },
           ],
         },

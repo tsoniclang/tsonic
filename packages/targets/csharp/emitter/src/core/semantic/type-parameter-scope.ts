@@ -29,7 +29,7 @@ export const containsOutOfScopeTypeParameter = (
       return !isTypeParameterInCurrentScope(type.name, context);
     case "referenceType":
       if (
-        !type.providerQualifiedName &&
+        !type.externalQualifiedName &&
         !type.typeId &&
         !type.structuralMembers?.length &&
         !isTypeParameterInCurrentScope(type.name, context) &&
