@@ -1,5 +1,5 @@
 /**
- * Support Types Recognition - Detect and work with _support/types.d.ts marker types.
+ * Support Types Recognition - Detect and work with source support marker types.
  *
  * This module provides type guards and helpers to recognize special native
  * interop marker types that do not have JavaScript equivalents: TSByRef,
@@ -15,7 +15,7 @@ type SourceType = GoPtr<TstsType>;
 
 /**
  * Support type kind enumeration.
- * Represents the different marker types from _support/types.d.ts.
+ * Represents the different source support marker types.
  */
 export type SupportTypeKind =
   | "TSByRef"

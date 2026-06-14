@@ -1,7 +1,7 @@
 export * from "../internal/ast/generated/index.js";
 export { Node_Attributes, Node_CanHaveStatements, Node_Children, Node_ClassName, Node_Comments, Node_Decorators, Node_ImportClause, Node_IsTypeOnly, Node_ModifierFlags, Node_ModifierNodes, Node_PostfixToken, Node_QuestionDotToken, Node_RawText, Node_Statement, Node_Symbol, Node_Text, Node_TypeExpression, SourceFile_BindDiagnostics, SourceFile_Diagnostics, SourceFile_ECMALineMap, SourceFile_FileName, SourceFile_ForEachChild, SourceFile_GetDeclarationMap, SourceFile_GetNameTable, SourceFile_GetPositionMap, SourceFile_Imports, SourceFile_IsBound, SourceFile_IsJS, SourceFile_JSDiagnostics, SourceFile_JSDocDiagnostics, SourceFile_ParseOptions, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
 export { Node_End, Node_ExportableData, Node_ForEachChild, Node_IterChildren, Node_KindString, Node_KindValue, Node_Modifiers, Node_Name, Node_Pos, Node_SubtreeFacts, NodeList_End, NodeList_HasTrailingComma, NodeList_Pos, } from "../internal/ast/spine.js";
-export { ModifierFlagsAmbient, ModifierFlagsExport, } from "../internal/ast/modifierflags.js";
+export { ModifierFlagsAmbient, ModifierFlagsAsync, ModifierFlagsExport, } from "../internal/ast/modifierflags.js";
 export type { ModifierList, Node, NodeList, } from "../internal/ast/spine.js";
 export type { SourceFile } from "../internal/ast/ast.js";
 import type { GoPtr } from "../go/compat.js";

@@ -1,12 +1,11 @@
 import {
   FEATURE_KEYS,
-  defineBackendTargetId,
   type BackendCapability,
   type BackendCapabilityManifest,
   type FeatureKey,
 } from "@tsonic/frontend";
 
-export const CSHARP_BACKEND_TARGET_ID = defineBackendTargetId("csharp");
+export const CSHARP_BACKEND_TARGET_ID = "csharp" as const;
 
 const unsupported = (
   name: FeatureKey,

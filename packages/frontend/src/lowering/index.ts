@@ -11,6 +11,7 @@ export type {
   LoweringModuleIdentity,
   LoweringModulePlan,
   LoweringNarrowingPlan,
+  LoweringParameterPlan,
   LoweringPipelineOptions,
   LoweringPipelineResult,
   LoweringPlanBase,

@@ -45,7 +45,7 @@ const parseAliasMetadata = (
   ) {
     return errorWithCode(
       PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
-      `${path}.definition must be an IrType object`
+      `${path}.definition must be a source type descriptor object`
     );
   }
   if (typeof value.isRecursive !== "boolean") {

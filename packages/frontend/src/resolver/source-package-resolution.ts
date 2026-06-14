@@ -600,7 +600,7 @@ const resolveSourcePackageImportFromRoot = (
       createDiagnostic(
         "TSN1004",
         "error",
-        `Source package '${parsedSpecifier.packageName}' is not compatible with surface '${activeSurface ?? "core"}'`,
+        `Source package '${parsedSpecifier.packageName}' is not usable with surface '${activeSurface ?? "core"}'`,
         undefined,
         `Supported surfaces: ${surfaces.value.join(", ")}`
       )

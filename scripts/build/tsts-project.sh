@@ -22,7 +22,7 @@ if [[ ! -f "$CLI_PATH" ]]; then
   exit 1
 fi
 
-HEAP_MB="${TSTS_NODE_HEAP_MB:-8192}"
+HEAP_MB="${TSTS_NODE_HEAP_MB:-2048}"
 
 cd "$REPO_ROOT"
 exec node "--max-old-space-size=$HEAP_MB" "$CLI_PATH" -p "$CONFIG_PATH" "$@"

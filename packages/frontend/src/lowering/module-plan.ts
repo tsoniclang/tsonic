@@ -3,10 +3,12 @@ import { resolveSourceFileIdentity } from "../program/source-file-identity.js";
 import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
 import type {
   BackendTargetId,
-  LoweringInput,
+  LoweringBuildContext,
   LoweringModulePlan,
   LoweringPipelineOptions,
 } from "./types.js";
+import { buildLoweringPlansForSourceFile } from "./plan-builders.js";
+import { sourceFileStatements } from "./tsts-node-classification.js";
 
 export type CreateLoweringModulePlanResult<
   Target extends BackendTargetId = BackendTargetId,
@@ -18,9 +20,10 @@ export const createLoweringModulePlan = <
   Target extends BackendTargetId = BackendTargetId,
 >(
   sourceFile: TstsSourceFile,
-  input: LoweringInput,
+  context: LoweringBuildContext,
   options: LoweringPipelineOptions<Target>
 ): CreateLoweringModulePlanResult<Target> => {
+  const { input } = context;
   const sourceModule = input.moduleGraph.getSourceFileModule(sourceFile);
   if (!sourceModule) {
     return {
@@ -39,6 +42,8 @@ export const createLoweringModulePlan = <
     options.sourceRoot,
     options.rootNamespace
   );
+  const plans = buildLoweringPlansForSourceFile(sourceFile, context);
+  const topLevelNodes = new Set(sourceFileStatements(sourceFile));
 
   return {
     ok: true,
@@ -50,15 +55,18 @@ export const createLoweringModulePlan = <
       sourceModule,
       imports: input.moduleGraph.getImports(sourceFile),
       exports: input.moduleGraph.getExports(sourceFile),
-      declarations: [],
-      types: [],
-      statements: [],
-      expressions: [],
-      calls: [],
-      members: [],
-      indexes: [],
-      narrowings: [],
-      syntheticDeclarations: [],
+      declarations: plans.declarations,
+      topLevelStatements: plans.statements.filter((statement) =>
+        topLevelNodes.has(statement.sourceNode)
+      ),
+      types: plans.types,
+      statements: plans.statements,
+      expressions: plans.expressions,
+      calls: plans.calls,
+      members: plans.members,
+      indexes: plans.indexes,
+      narrowings: plans.narrowings,
+      syntheticDeclarations: plans.syntheticDeclarations,
     },
   };
 };

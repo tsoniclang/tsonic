@@ -47,6 +47,10 @@ export type LoweringPlanBase<TKind extends string> = {
   readonly kind: TKind;
   readonly sourceFile: TstsSourceFile;
   readonly sourceNode: TstsNode;
+  readonly sourceKind: number;
+  readonly sourceKindName: string;
+  readonly sourceText: string;
+  readonly name?: string;
 };
 
 export type LoweringTypePlan = LoweringPlanBase<"type"> & {
@@ -54,9 +58,30 @@ export type LoweringTypePlan = LoweringPlanBase<"type"> & {
   readonly sourceSymbol?: TstsSymbol;
 };
 
+export type LoweringParameterPlan = {
+  readonly name: string;
+  readonly typeText?: string;
+  readonly initializerText?: string;
+  readonly optional: boolean;
+};
+
 export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
+  readonly declarationKind:
+    | "class"
+    | "enum"
+    | "function"
+    | "interface"
+    | "type-alias"
+    | "variable"
+    | "unknown";
   readonly symbol?: TstsSymbol;
   readonly declaredType?: TstsType;
+  readonly parameters: readonly LoweringParameterPlan[];
+  readonly returnTypeText?: string;
+  readonly bodyText?: string;
+  readonly initializerText?: string;
+  readonly exported: boolean;
+  readonly async: boolean;
 };
 
 export type LoweringStatementPlan = LoweringPlanBase<"statement">;
@@ -88,13 +113,11 @@ export type LoweringNarrowingPlan = LoweringPlanBase<"narrowing"> & {
   readonly useSiteType?: TstsType;
 };
 
-export type LoweringSyntheticDeclarationPlan = {
-  readonly kind: "synthetic-declaration";
-  readonly sourceFile: TstsSourceFile;
-  readonly stableId: string;
-  readonly sourceFeature: LoweringFeature;
-  readonly node?: TstsNode;
-};
+export type LoweringSyntheticDeclarationPlan =
+  LoweringPlanBase<"synthetic-declaration"> & {
+    readonly stableId: string;
+    readonly sourceFeature: LoweringFeature;
+  };
 
 export type LoweringModulePlan<Target extends BackendTargetId = BackendTargetId> =
   {
@@ -106,6 +129,7 @@ export type LoweringModulePlan<Target extends BackendTargetId = BackendTargetId>
     readonly imports: readonly ExtensionModuleImport[];
     readonly exports: readonly ExtensionExportBinding[];
     readonly declarations: readonly LoweringDeclarationPlan[];
+    readonly topLevelStatements: readonly LoweringStatementPlan[];
     readonly types: readonly LoweringTypePlan[];
     readonly statements: readonly LoweringStatementPlan[];
     readonly expressions: readonly LoweringExpressionPlan[];

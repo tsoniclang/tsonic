@@ -8,6 +8,7 @@ import type {
   LoweringPipelineOptions,
   LoweringPipelineResult,
 } from "./types.js";
+import type { TstsSourceFile } from "@tsonic/tsts";
 
 export const runLoweringPipeline = <
   Target extends BackendTargetId = BackendTargetId,
@@ -21,9 +22,15 @@ export const runLoweringPipeline = <
   );
   const diagnostics: Diagnostic[] = [];
   const modules = [];
+  const context = {
+    input,
+    checkerForSourceFile: (sourceFile: TstsSourceFile) =>
+      program.sourceProgram.withSourceSemantics(sourceFile, (checker) => checker),
+    diagnostics,
+  };
 
   for (const sourceFile of program.sourceProgram.sourceFiles) {
-    const result = createLoweringModulePlan(sourceFile, input, options);
+    const result = createLoweringModulePlan(sourceFile, context, options);
     if (result.ok) {
       modules.push(result.plan);
     } else {

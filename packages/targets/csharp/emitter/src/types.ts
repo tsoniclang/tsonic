@@ -1,59 +1,17 @@
-/**
- * C# Emitter Types
- * Main dispatcher - re-exports from emitter-types/ subdirectory
- */
+import type { Diagnostic, LoweringModulePlan } from "@tsonic/frontend";
+import type { CSharpEmitterTargetId } from "./target.js";
 
-export type {
-  EmitterOptions,
-  EmitterContext,
-  EmitResult,
-  CSharpAccessModifier,
-  CSharpClassModifier,
-  CSharpMethodModifier,
-  CSharpUsing,
-  ImportBinding,
-  ModuleIdentity,
-  ModuleMap,
-  ExportSource,
-  ExportMap,
-  TypeMemberIndex,
-  TypeMemberKind,
-  JsonAotRegistry,
-  InterfaceObjectAdapterDefinition,
-  InterfaceObjectAdapterMember,
-  InterfaceObjectAdapterMethod,
-  InterfaceObjectAdapterParameter,
-  InterfaceObjectAdapterProperty,
-  InterfaceObjectAdapterRegistry,
-  LocalTypeInfo,
-  NarrowedBinding,
-  ValueSymbolKind,
-  ValueSymbolInfo,
-} from "./emitter-types/index.js";
-export type {
-  SemanticType,
-  StorageCarrier,
-} from "./core/semantic/type-domains.js";
-export {
-  createContext,
-  indent,
-  dedent,
-  withStatic,
-  withAsync,
-  withClassName,
-  withScoped,
-  contextSurfaceIncludesJs,
-  getIndent,
-  renderTypeFQN,
-  renderMemberFQN,
-  renderFQN,
-  FQN,
-} from "./emitter-types/index.js";
-export {
-  semanticType,
-  storageCarrier,
-  semanticTypeOrUndefined,
-  storageCarrierOrUndefined,
-  semanticTypeMap,
-  storageCarrierMap,
-} from "./core/semantic/type-domains.js";
+export type CSharpLoweringModulePlan =
+  LoweringModulePlan<CSharpEmitterTargetId>;
+
+export type EmitterOptions = {
+  readonly rootNamespace?: string;
+  readonly entryPointPath?: string;
+  readonly referenceModules?: readonly CSharpLoweringModulePlan[];
+  readonly libraries?: readonly string[];
+  readonly surface?: string;
+};
+
+export type EmitResult =
+  | { readonly ok: true; readonly files: Map<string, string> }
+  | { readonly ok: false; readonly errors: readonly Diagnostic[] };

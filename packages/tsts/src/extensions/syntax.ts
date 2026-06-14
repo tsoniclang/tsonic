@@ -51,6 +51,7 @@ export {
 } from "../internal/ast/spine.js";
 export {
   ModifierFlagsAmbient,
+  ModifierFlagsAsync,
   ModifierFlagsExport,
 } from "../internal/ast/modifierflags.js";
 export type {

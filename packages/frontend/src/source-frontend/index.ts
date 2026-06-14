@@ -67,8 +67,8 @@ export {
   parameterPassingModeFromFact,
 } from "./source-fact-queries.js";
 export type {
-  IrCallSitePassingModifier,
-  IrParameterPassingMode,
+  SourceCallSitePassingModifier,
+  SourceParameterPassingMode,
 } from "./source-fact-queries.js";
 export { createTstsSourceFrontend } from "./tsts-source-frontend.js";
 export {

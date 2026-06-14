@@ -8,13 +8,13 @@ import type {
   SourceTypeSemanticsFact,
 } from "./source-facts.js";
 
-export type IrParameterPassingMode = "value" | "ref" | "out" | "in";
+export type SourceParameterPassingMode = "value" | "ref" | "out" | "in";
 
-export type IrCallSitePassingModifier = "ref" | "out" | "in";
+export type SourceCallSitePassingModifier = "ref" | "out" | "in";
 
 export const parameterPassingModeFromFact = (
   fact: ParameterPassingFact | undefined
-): IrParameterPassingMode | undefined => {
+): SourceParameterPassingMode | undefined => {
   if (!fact) return undefined;
   switch (fact.mode) {
     case "by-value":
@@ -30,7 +30,7 @@ export const parameterPassingModeFromFact = (
 
 export const callSitePassingModifierFromFact = (
   fact: ParameterPassingFact | undefined
-): IrCallSitePassingModifier | undefined => {
+): SourceCallSitePassingModifier | undefined => {
   const mode = parameterPassingModeFromFact(fact);
   return mode === "ref" || mode === "out" || mode === "in" ? mode : undefined;
 };

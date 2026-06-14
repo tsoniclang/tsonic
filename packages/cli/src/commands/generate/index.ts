@@ -2,17 +2,15 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   buildModuleDependencyGraph,
   type CompilerOptions,
   type Diagnostic,
-  type EmittableIrModule,
-  type IrModule,
+  type LoweringModulePlan,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "@tsonic/csharp-emitter";
 import {
@@ -38,308 +36,10 @@ import {
 import {
   collectTransitiveDllLocalPackageReferences,
   getDllModeLocalPackageReferences,
-  getLocalPackageIdFromModulePath,
   resolveLocalPackageBuildReferences,
 } from "../local-package-references.js";
 
-type CSharpEmittableIrModule = EmittableIrModule<
-  typeof CSHARP_BACKEND_TARGET_ID
->;
-
-const normalizeResolvedFilePath = (filePath: string): string =>
-  resolve(filePath).replace(/\\/g, "/");
-
-const canonicalResolvedFilePath = (filePath: string): string => {
-  const resolved =
-    typeof realpathSync.native === "function"
-      ? realpathSync.native(filePath)
-      : realpathSync(filePath);
-  return resolved.replace(/\\/g, "/");
-};
-
-const buildResolvedModuleIndex = <Module extends IrModule>(
-  modules: readonly Module[],
-  absoluteSourceRoot: string,
-  workspaceRoot: string
-): ReadonlyMap<string, Module> => {
-  const index = new Map<string, Module>();
-
-  const register = (candidatePath: string, module: Module): void => {
-    if (!existsSync(candidatePath)) {
-      return;
-    }
-
-    const normalizedPath = normalizeResolvedFilePath(candidatePath);
-    if (!index.has(normalizedPath)) {
-      index.set(normalizedPath, module);
-    }
-
-    const canonicalPath = canonicalResolvedFilePath(candidatePath);
-    if (!index.has(canonicalPath)) {
-      index.set(canonicalPath, module);
-    }
-  };
-
-  for (const module of modules) {
-    if (module.filePath.startsWith("__tsonic/")) {
-      continue;
-    }
-
-    if (module.filePath.startsWith("node_modules/")) {
-      register(resolve(workspaceRoot, module.filePath), module);
-      continue;
-    }
-
-    register(resolve(absoluteSourceRoot, module.filePath), module);
-  }
-
-  return index;
-};
-
-const buildLogicalModuleIndex = <Module extends IrModule>(
-  modules: readonly Module[]
-): ReadonlyMap<string, Module> =>
-  new Map(modules.map((module) => [module.filePath, module] as const));
-
-const resolveReexportTargetModule = <Module extends IrModule>(
-  currentModule: Module,
-  fromModule: string,
-  logicalModuleIndex: ReadonlyMap<string, Module>
-): Module | undefined => {
-  if (!fromModule.startsWith(".")) {
-    return undefined;
-  }
-
-  const logicalBaseDir = posix.dirname(currentModule.filePath);
-  const normalizedSpecifier = posix.normalize(
-    posix.join(logicalBaseDir, fromModule)
-  );
-  const logicalCandidates = new Set<string>([normalizedSpecifier]);
-
-  if (normalizedSpecifier.endsWith(".js")) {
-    logicalCandidates.add(normalizedSpecifier.slice(0, -3) + ".ts");
-  } else if (!normalizedSpecifier.endsWith(".ts")) {
-    logicalCandidates.add(normalizedSpecifier + ".ts");
-  }
-
-  for (const candidate of logicalCandidates) {
-    const targetModule = logicalModuleIndex.get(candidate);
-    if (targetModule) {
-      return targetModule;
-    }
-  }
-
-  return undefined;
-};
-
-const collectEmittedSourceClosure = (
-  modules: readonly CSharpEmittableIrModule[],
-  absoluteSourceRoot: string,
-  workspaceRoot: string,
-  dllModePackageIds: ReadonlySet<string>
-): readonly CSharpEmittableIrModule[] => {
-  if (dllModePackageIds.size === 0) {
-    return modules;
-  }
-
-  const resolvedModuleIndex = buildResolvedModuleIndex(
-    modules,
-    absoluteSourceRoot,
-    workspaceRoot
-  );
-  const logicalModuleIndex = buildLogicalModuleIndex(modules);
-  const visitedModulePaths = new Set<string>();
-  const queue = modules.filter(
-    (module) =>
-      !module.filePath.startsWith("__tsonic/") &&
-      !module.filePath.startsWith("node_modules/")
-  );
-
-  while (queue.length > 0) {
-    const currentModule = queue.pop();
-    if (!currentModule) {
-      continue;
-    }
-
-    if (visitedModulePaths.has(currentModule.filePath)) {
-      continue;
-    }
-    visitedModulePaths.add(currentModule.filePath);
-
-    for (const imp of currentModule.imports) {
-      if (!imp.isLocal || !imp.resolvedPath) {
-        continue;
-      }
-
-      const targetModule =
-        resolvedModuleIndex.get(normalizeResolvedFilePath(imp.resolvedPath)) ??
-        resolvedModuleIndex.get(canonicalResolvedFilePath(imp.resolvedPath));
-      if (!targetModule) {
-        continue;
-      }
-
-      const packageId = getLocalPackageIdFromModulePath(targetModule.filePath);
-      if (packageId && dllModePackageIds.has(packageId)) {
-        continue;
-      }
-
-      queue.push(targetModule);
-    }
-
-    for (const exp of currentModule.exports) {
-      if (exp.kind !== "reexport") {
-        continue;
-      }
-
-      const targetModule = resolveReexportTargetModule(
-        currentModule,
-        exp.fromModule,
-        logicalModuleIndex
-      );
-      if (!targetModule) {
-        continue;
-      }
-
-      const packageId = getLocalPackageIdFromModulePath(targetModule.filePath);
-      if (packageId && dllModePackageIds.has(packageId)) {
-        continue;
-      }
-
-      queue.push(targetModule);
-    }
-  }
-
-  return modules.filter(
-    (module) =>
-      module.filePath.startsWith("__tsonic/") ||
-      visitedModulePaths.has(module.filePath)
-  );
-};
-
-const SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH =
-  "__tsonic/__tsonic_anonymous_types.g.ts";
-
-const collectReferencedAnonymousTypeNames = (
-  value: unknown,
-  referencedNames: Set<string>,
-  seen: WeakSet<object>
-): void => {
-  if (value === null || value === undefined) {
-    return;
-  }
-
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
-    }
-    return;
-  }
-
-  if (typeof value !== "object") {
-    return;
-  }
-
-  if (seen.has(value)) {
-    return;
-  }
-  seen.add(value);
-
-  const candidate = value as {
-    readonly kind?: unknown;
-    readonly name?: unknown;
-  };
-  if (
-    candidate.kind === "referenceType" &&
-    typeof candidate.name === "string" &&
-    candidate.name.startsWith("__Anon_")
-  ) {
-    referencedNames.add(candidate.name);
-  }
-
-  for (const nested of Object.values(value)) {
-    collectReferencedAnonymousTypeNames(nested, referencedNames, seen);
-  }
-};
-
-const pruneSyntheticAnonymousModules = (
-  modules: readonly CSharpEmittableIrModule[]
-): readonly CSharpEmittableIrModule[] => {
-  const syntheticModule = modules.find(
-    (module) => module.filePath === SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH
-  );
-  if (!syntheticModule) {
-    return modules;
-  }
-
-  const referencedNames = new Set<string>();
-  const seen = new WeakSet<object>();
-  for (const module of modules) {
-    if (module.filePath === SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH) {
-      continue;
-    }
-    collectReferencedAnonymousTypeNames(module, referencedNames, seen);
-  }
-
-  if (referencedNames.size === 0) {
-    return modules.filter(
-      (module) => module.filePath !== SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH
-    );
-  }
-
-  const declarationByName = new Map(
-    syntheticModule.body.flatMap((statement) =>
-      "name" in statement && typeof statement.name === "string"
-        ? [[statement.name, statement] as const]
-        : []
-    )
-  );
-  const queue = Array.from(referencedNames);
-  while (queue.length > 0) {
-    const name = queue.shift();
-    if (!name) {
-      continue;
-    }
-    const declaration = declarationByName.get(name);
-    if (!declaration) {
-      continue;
-    }
-    const nestedNames = new Set<string>();
-    collectReferencedAnonymousTypeNames(
-      declaration,
-      nestedNames,
-      new WeakSet<object>()
-    );
-    for (const nestedName of nestedNames) {
-      if (referencedNames.has(nestedName)) {
-        continue;
-      }
-      referencedNames.add(nestedName);
-      queue.push(nestedName);
-    }
-  }
-
-  const prunedSyntheticModule: CSharpEmittableIrModule = {
-    ...syntheticModule,
-    body: syntheticModule.body.filter(
-      (statement) =>
-        !("name" in statement) ||
-        typeof statement.name !== "string" ||
-        referencedNames.has(statement.name)
-    ),
-  };
-
-  if (prunedSyntheticModule.body.length === 0) {
-    return modules.filter(
-      (module) => module.filePath !== SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH
-    );
-  }
-
-  return modules.map((module) =>
-    module.filePath === SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH
-      ? prunedSyntheticModule
-      : module
-  );
-};
+type CSharpPlan = LoweringModulePlan<typeof CSHARP_BACKEND_TARGET_ID>;
 
 export const generateCommand = (
   config: ResolvedConfig
@@ -454,29 +154,29 @@ export const generateCommand = (
       };
     }
 
-    const { modules, entryModule, bindings } = graphResult.value;
+    const { modules, entryModule } = graphResult.value;
     const dllModePackageIds = new Set(
       directDllLocalPackageReferences.map((entry) => entry.id)
     );
-    const emittedModules = collectEmittedSourceClosure(
-      modules,
-      absoluteSourceRoot,
-      workspaceRoot,
-      dllModePackageIds
-    );
-    const prunedEmittedModules = pruneSyntheticAnonymousModules(emittedModules);
+    const emittedModules: readonly CSharpPlan[] =
+      dllModePackageIds.size === 0
+        ? modules
+        : modules.filter(
+            (module) =>
+              !module.identity.filePath.startsWith("node_modules/") ||
+              ![...dllModePackageIds].some((packageId) =>
+                module.identity.filePath.startsWith(
+                  `node_modules/${packageId}/`
+                )
+              )
+          );
 
-    const emitResult = emitCSharpFiles(prunedEmittedModules, {
+    const emitResult = emitCSharpFiles(emittedModules, {
       surface: config.surface,
-      surfaceCapabilities: graphResult.value.surfaceCapabilities,
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries,
       referenceModules: modules,
-      clrBindings: bindings,
-      bindingRegistry: graphResult.value.bindingRegistry,
-      targetRenderTable: graphResult.value.targetRenderTable,
-      enableJsonAot: config.outputConfig.nativeAot ?? false,
     });
     if (!emitResult.ok) {
       for (const error of emitResult.errors) {
@@ -509,8 +209,8 @@ export const generateCommand = (
         absoluteEntryPoint
       ).replace(/\\/g, "/");
       const foundEntryModule =
-        prunedEmittedModules.find(
-          (module: CSharpEmittableIrModule) => module.filePath === entryRelative
+        emittedModules.find(
+          (module: CSharpPlan) => module.identity.filePath === entryRelative
         ) ?? entryModule;
       if (foundEntryModule) {
         const hasTopLevelCode =
@@ -528,8 +228,8 @@ export const generateCommand = (
           mainExport ??
           (hasTopLevelCode
             ? {
-                namespace: foundEntryModule.namespace,
-                className: foundEntryModule.className,
+                namespace: foundEntryModule.identity.namespace,
+                className: foundEntryModule.identity.className,
                 methodName: "__TopLevel",
                 isAsync: false,
                 needsProgram: true,
