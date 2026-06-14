@@ -214,6 +214,23 @@ const renderVoidExpressionStatement = (
   }
 };
 
+const isCSharpStatementExpression = (
+  expression: LoweringStatementPlan["expression"]
+): boolean => {
+  switch (expression?.expressionKind) {
+    case "call":
+    case "new":
+    case "postfix-unary":
+    case "prefix-unary":
+    case "await":
+      return true;
+    case "binary":
+      return expression.binaryOperator?.endsWith("assign") === true;
+    default:
+      return false;
+  }
+};
+
 export const renderStatement = (
   plan: LoweringStatementPlan | undefined,
   context: RenderContext
@@ -245,7 +262,9 @@ export const renderStatement = (
       if (plan.expression?.expressionKind === "void") {
         return renderVoidExpressionStatement(plan.expression, context);
       }
-      return `${renderExpression(plan.expression, context)};`;
+      return isCSharpStatementExpression(plan.expression)
+        ? `${renderExpression(plan.expression, context)};`
+        : `_ = ${renderExpression(plan.expression, context)};`;
     case "variable":
       return renderVariableStatement(plan.declarations, context);
     case "if": {

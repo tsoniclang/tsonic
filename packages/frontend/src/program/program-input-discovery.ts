@@ -766,11 +766,10 @@ export const discoverProgramInputs = (
   const sourcePackageAmbientPaths = typeRoots.flatMap((typeRoot) =>
     readSourcePackageAmbientPaths(typeRoot)
   );
-  const sourcePackageExportPaths =
+  const currentSourcePackageExportPaths =
     currentProjectSourceMetadata && includeCurrentPackageExports
       ? readSourcePackageExportPaths(currentProjectSourceMetadata.packageRoot)
       : [];
-
   if (options.verbose && typeRoots.length > 0) {
     console.log(`TypeRoots: ${typeRoots.join(", ")}`);
   }
@@ -872,7 +871,7 @@ export const discoverProgramInputs = (
   const runtimeSourceClosure = collectSourceImportClosure({
     seedFiles: [
       ...absolutePaths,
-      ...sourcePackageExportPaths,
+      ...currentSourcePackageExportPaths,
     ],
     sourceRoot: path.resolve(options.sourceRoot),
     projectRoot: options.projectRoot,

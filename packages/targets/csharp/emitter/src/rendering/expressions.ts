@@ -15,6 +15,9 @@ type LoweringBinaryOperator = NonNullable<
 type LoweringUnaryOperator = NonNullable<
   LoweringExpressionPlan["unaryOperator"]
 >;
+type SourceRuntimeOperation = NonNullable<
+  LoweringExpressionPlan["sourceOperation"]
+>;
 
 const escapeString = (value: string): string =>
   value
@@ -184,6 +187,15 @@ const arrayLiteralElementType = (
   return undefined;
 };
 
+const arrayLiteralTypePlan = (
+  plan: LoweringExpressionPlan
+): LoweringTypeRefPlan | undefined =>
+  plan.contextualTypePlan?.kind === "array"
+    ? plan.contextualTypePlan
+    : plan.type?.kind === "array"
+      ? plan.type
+      : undefined;
+
 const isCharType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "source-primitive" && type.fact.kind === "char";
 
@@ -206,8 +218,14 @@ const renderArrayLiteral = (
   plan: LoweringExpressionPlan,
   context: RenderContext
 ): string => {
+  const arrayPlan = arrayLiteralTypePlan(plan);
   const elementType = arrayLiteralElementType(plan, context);
   if (!plan.elements.some((element) => element.expressionKind === "spread")) {
+    if (arrayPlan?.kind === "array" && !arrayPlan.readonly) {
+      return `new global::System.Collections.Generic.List<${elementType ?? "object?"}> { ${plan.elements
+        .map((element) => renderExpression(element, context))
+        .join(", ")} }`;
+    }
     const constructor = elementType ? `new ${elementType}[]` : "new[]";
     return `${constructor} { ${plan.elements
       .map((element) => renderExpression(element, context))
@@ -240,7 +258,9 @@ const renderArrayLiteral = (
       `global::System.Linq.Enumerable.Concat(${current}, ${segment})`,
     firstSegment
   );
-  return `global::System.Linq.Enumerable.ToArray(${concatenated})`;
+  return arrayPlan?.kind === "array" && !arrayPlan.readonly
+    ? `new global::System.Collections.Generic.List<${segmentType}>(${concatenated})`
+    : `global::System.Linq.Enumerable.ToArray(${concatenated})`;
 };
 
 const objectLiteralTargetType = (
@@ -255,9 +275,44 @@ const objectLiteralTargetType = (
 
 const renderLambdaParameter = (
   parameter: LoweringParameterPlan,
-  context: RenderContext
+  context: RenderContext,
+  includeType: boolean
 ): string =>
-  `${parameter.rest ? "params " : ""}${renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`;
+  includeType
+    ? `${parameter.rest ? "params " : ""}${renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`
+    : sanitizeIdentifier(parameter.name);
+
+const lambdaContextReturnType = (
+  plan: LoweringExpressionPlan
+): LoweringTypeRefPlan | undefined => {
+  if (plan.returnType) return plan.returnType;
+  if (plan.contextualTypePlan?.kind === "function") {
+    return plan.contextualTypePlan.returnType;
+  }
+  return plan.type?.kind === "function" ? plan.type.returnType : undefined;
+};
+
+const isVoidLikeType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  type?.kind === "intrinsic" &&
+  (type.name === "void" || type.name === "undefined" || type.name === "never");
+
+const renderVoidLambdaExpressionBody = (
+  expression: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): string => {
+  if (!expression || expression.semantic === "undefined-value") return "{ }";
+  const rendered = renderExpression(expression, context);
+  switch (expression.expressionKind) {
+    case "call":
+    case "new":
+    case "postfix-unary":
+    case "prefix-unary":
+    case "await":
+      return `{ ${rendered}; }`;
+    default:
+      return `{ _ = ${rendered}; }`;
+  }
+};
 
 export const renderFunctionExpressionType = (
   plan: LoweringExpressionPlan | undefined,
@@ -307,15 +362,20 @@ const firstRenderedTypeArgument = (
 
 const renderLambda = (
   plan: LoweringExpressionPlan,
-  context: RenderContext
+  context: RenderContext,
+  includeParameterTypes = true
 ): string => {
   const parameters = plan.parameters
-    .map((parameter) => renderLambdaParameter(parameter, context))
+    .map((parameter) =>
+      renderLambdaParameter(parameter, context, includeParameterTypes)
+    )
     .join(", ");
   const asyncModifier = plan.async ? "async " : "";
   const body = plan.body
     ? renderStatement(plan.body, context)
-    : renderExpression(plan.expression, context);
+    : isVoidLikeType(lambdaContextReturnType(plan))
+      ? renderVoidLambdaExpressionBody(plan.expression, context)
+      : renderExpression(plan.expression, context);
   return `${asyncModifier}(${parameters}) => ${body}`;
 };
 
@@ -323,6 +383,12 @@ const renderCallArgument = (
   argument: LoweringExpressionPlan,
   context: RenderContext
 ): string => {
+  if (
+    argument.expressionKind === "arrow-function" ||
+    argument.expressionKind === "function-expression"
+  ) {
+    return renderLambda(argument, context, false);
+  }
   const rendered =
     argument.expressionKind === "spread"
       ? renderExpression(argument.expression, context)
@@ -338,6 +404,297 @@ const renderCallArgument = (
     case undefined:
       return rendered;
   }
+};
+
+const renderSourceRuntimeName = (
+  operation: SourceRuntimeOperation
+): string => {
+  switch (operation.owner) {
+    case "Console":
+      return "global::System.Console";
+    case "Array":
+    case "Error":
+    case "JSON":
+    case "Object":
+    case "RegExp":
+    case "String":
+      return `global::js.${operation.owner}`;
+    case "Function":
+      return "global::System.Delegate";
+  }
+  return "global::System.Object";
+};
+
+const renderFunctionLength = (
+  plan: LoweringExpressionPlan | undefined
+): string => {
+  const type = plan?.type?.kind === "function" ? plan.type : undefined;
+  if (!type) return "0";
+  const firstIgnoredParameter = type.parameters.findIndex(
+    (parameter) => parameter.optional || parameter.rest || parameter.initializer
+  );
+  const arity =
+    firstIgnoredParameter < 0 ? type.parameters.length : firstIgnoredParameter;
+  return String(arity);
+};
+
+const nonNullishUnionTypes = (
+  type: LoweringTypeRefPlan
+): readonly LoweringTypeRefPlan[] =>
+  type.kind === "union"
+    ? type.types.filter(
+        (member) =>
+          !(
+            (member.kind === "intrinsic" &&
+              (member.name === "undefined" || member.name === "null")) ||
+            (member.kind === "literal" &&
+              (member.literalKind === "undefined" ||
+                member.literalKind === "null"))
+          )
+      )
+    : [type];
+
+const unwrapAliasTarget = (
+  type: LoweringTypeRefPlan | undefined
+): LoweringTypeRefPlan | undefined =>
+  type?.kind === "named" && type.aliasTarget
+    ? unwrapAliasTarget(type.aliasTarget)
+    : type;
+
+const arrayTypeFromUseSite = (
+  type: LoweringTypeRefPlan | undefined
+): Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined => {
+  const unwrapped = unwrapAliasTarget(type);
+  if (!unwrapped) return undefined;
+  if (unwrapped.kind === "array") return unwrapped;
+  if (unwrapped.kind === "union") {
+    const arrays = nonNullishUnionTypes(unwrapped)
+      .map((member) => unwrapAliasTarget(member))
+      .filter(
+        (
+          member
+        ): member is Extract<LoweringTypeRefPlan, { readonly kind: "array" }> =>
+          member?.kind === "array"
+      );
+    return arrays.length === 1 ? arrays[0] : undefined;
+  }
+  return undefined;
+};
+
+const arrayReceiverType = (
+  plan: LoweringExpressionPlan | undefined
+): Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined =>
+  arrayTypeFromUseSite(plan?.type) ?? arrayTypeFromUseSite(plan?.contextualTypePlan);
+
+const functionReturnType = (
+  plan: LoweringExpressionPlan | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (!plan) return undefined;
+  if (
+    (plan.expressionKind === "arrow-function" ||
+      plan.expressionKind === "function-expression") &&
+    plan.expression?.type
+  ) {
+    return plan.expression.type;
+  }
+  if (plan.returnType) return plan.returnType;
+  return plan.type?.kind === "function" ? plan.type.returnType : undefined;
+};
+
+const arrayOperationResultElementType = (
+  plan: LoweringExpressionPlan | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (plan?.expressionKind !== "call") return undefined;
+  const callee = plan.expression;
+  const operation = callee?.sourceOperation;
+  if (
+    !callee ||
+    operation?.owner !== "Array" ||
+    operation.dispatch !== "receiver-call"
+  ) {
+    return undefined;
+  }
+  const receiverType = arrayReceiverType(callee.expression);
+  switch (operation.member) {
+    case "map":
+      return functionReturnType(plan.arguments[0]) ?? receiverType?.elementType;
+    case "filter":
+    case "slice":
+      return receiverType?.elementType;
+    default:
+      return undefined;
+  }
+};
+
+const arrayReceiverElementType = (
+  plan: LoweringExpressionPlan | undefined
+): LoweringTypeRefPlan | undefined =>
+  arrayOperationResultElementType(plan) ?? arrayReceiverType(plan)?.elementType;
+
+const castExpression = (rendered: string, targetType: string): string =>
+  `((${targetType})(${rendered}))`;
+
+const renderArrayEnumerableReceiver = (
+  receiver: string,
+  receiverPlan: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): string => {
+  const elementTypePlan = arrayReceiverElementType(receiverPlan);
+  if (!elementTypePlan) return receiver;
+  const elementType = renderCSharpType(elementTypePlan, context);
+  return castExpression(
+    receiver,
+    `global::System.Collections.Generic.IEnumerable<${elementType}>`
+  );
+};
+
+const renderArrayListReceiver = (
+  receiver: string,
+  receiverPlan: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): string => {
+  const elementTypePlan = arrayReceiverElementType(receiverPlan);
+  if (!elementTypePlan) return receiver;
+  const elementType = renderCSharpType(elementTypePlan, context);
+  return castExpression(
+    receiver,
+    `global::System.Collections.Generic.List<${elementType}>`
+  );
+};
+
+const renderArrayElementArgument = (
+  argument: LoweringExpressionPlan | undefined,
+  receiverPlan: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): string => {
+  if (!argument) return "default!";
+  const rendered = renderCallArgument(argument, context);
+  const elementType = arrayReceiverElementType(receiverPlan);
+  if (!elementType) return rendered;
+  return castExpression(rendered, renderCSharpType(elementType, context));
+};
+
+const renderArrayReceiverCall = (
+  receiver: string,
+  receiverPlan: LoweringExpressionPlan | undefined,
+  operation: SourceRuntimeOperation,
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string | undefined => {
+  const args = plan.arguments.map((argument) =>
+    renderCallArgument(argument, context)
+  );
+  const enumerableReceiver = (): string =>
+    renderArrayEnumerableReceiver(receiver, receiverPlan, context);
+  const listReceiver = (): string =>
+    renderArrayListReceiver(receiver, receiverPlan, context);
+  switch (operation.member) {
+    case "push":
+      if (plan.arguments.length !== 1) {
+        context.reportUnsupported(
+          "Array.push with multiple arguments",
+          plan.sourceKindName,
+          plan.sourceText
+        );
+        return "";
+      }
+      return `${listReceiver()}.Add(${renderArrayElementArgument(plan.arguments[0], receiverPlan, context)})`;
+    case "pop":
+      return `${listReceiver()}[^1]`;
+    case "join":
+    case "toString":
+      return `global::System.String.Join(${operation.member === "join" ? (args[0] ?? "\",\"") : "\",\""}, ${enumerableReceiver()})`;
+    case "map":
+      return `global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(${enumerableReceiver()}, ${args[0] ?? "value => value"}))`;
+    case "filter":
+      return `global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Where(${enumerableReceiver()}, ${args[0] ?? "value => true"}))`;
+    case "slice": {
+      const start = args[0] ?? "0";
+      const end = args[1];
+      const skipped = `global::System.Linq.Enumerable.Skip(${enumerableReceiver()}, ${start})`;
+      const sliced = end
+        ? `global::System.Linq.Enumerable.Take(${skipped}, (${end}) - (${start}))`
+        : skipped;
+      return `global::System.Linq.Enumerable.ToList(${sliced})`;
+    }
+    case "includes":
+      return `global::System.Linq.Enumerable.Contains(${enumerableReceiver()}, ${renderArrayElementArgument(plan.arguments[0], receiverPlan, context)})`;
+    case "indexOf":
+      return `${listReceiver()}.IndexOf(${renderArrayElementArgument(plan.arguments[0], receiverPlan, context)})`;
+    case "forEach":
+      return `${listReceiver()}.ForEach(${args[0] ?? "_ => { }"})`;
+    default:
+      return `${receiver}.${operation.member}(${args.join(", ")})`;
+  }
+};
+
+const renderSourceRuntimeCall = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string | undefined => {
+  const callee = plan.expression;
+  const operation = callee?.sourceOperation;
+  if (!operation) return undefined;
+  const args = plan.arguments.map((argument) =>
+    renderCallArgument(argument, context)
+  );
+
+  if (operation.dispatch === "receiver-call") {
+    const receiver = renderExpression(callee.expression, context);
+    if (operation.owner === "Array") {
+      return renderArrayReceiverCall(
+        receiver,
+        callee.expression,
+        operation,
+        plan,
+        context
+      );
+    }
+    if (operation.owner === "String" && operation.member === "toString") {
+      return receiver;
+    }
+    if (operation.owner === "Object" && operation.member === "toString") {
+      return `(global::System.Convert.ToString(${receiver}) ?? "")`;
+    }
+    const renderedArgs = [receiver, ...args].join(", ");
+    const call = `${renderSourceRuntimeName(operation)}.${operation.member}(${renderedArgs})`;
+    return operation.owner === "String" && operation.member === "split"
+      ? `new global::System.Collections.Generic.List<string>(${call})`
+      : call;
+  }
+
+  if (operation.dispatch === "static-call") {
+    switch (operation.owner) {
+      case "Console":
+        return `global::System.Console.WriteLine(${args.join(", ")})`;
+      case "Array":
+        if (operation.member === "isArray") {
+          return `(${args[0] ?? "null"} is global::System.Collections.IEnumerable && ${args[0] ?? "null"} is not string)`;
+        }
+        break;
+      case "Object":
+        if (operation.member === "is") {
+          return `${renderSourceRuntimeName(operation)}.@is(${args.join(", ")})`;
+        }
+        break;
+      default:
+        break;
+    }
+    return `${renderSourceRuntimeName(operation)}.${operation.member}(${args.join(", ")})`;
+  }
+
+  return undefined;
+};
+
+const renderSourceRuntimeNew = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string | undefined => {
+  const operation = plan.sourceOperation;
+  if (operation?.dispatch !== "constructor") return undefined;
+  return `new ${renderSourceRuntimeName(operation)}(${plan.arguments
+    .map((argument) => renderCallArgument(argument, context))
+    .join(", ")})`;
 };
 
 const renderIntrinsicCall = (
@@ -411,6 +768,7 @@ export const renderExpression = (
   switch (plan.expressionKind) {
     case "identifier": {
       const rawName = plan.literalText ?? plan.name ?? "value";
+      if (plan.qualifiedRuntimeName) return plan.qualifiedRuntimeName;
       return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
     }
     case "this":
@@ -483,29 +841,46 @@ export const renderExpression = (
       return renderExpression(plan.expression, context);
     case "property-access": {
       const rawMember = plan.literalText ?? "member";
-      if (plan.semantic === "console-write") {
-        return "global::System.Console.WriteLine";
+      const operation = plan.sourceOperation;
+      if (operation?.dispatch === "property") {
+        switch (operation.owner) {
+          case "String":
+            return `${renderExpression(plan.expression, context)}.Length`;
+          case "Array":
+            return `${renderExpression(plan.expression, context)}.Count`;
+          case "Function":
+            return renderFunctionLength(plan.expression);
+          default:
+            break;
+        }
       }
       const member = sanitizeIdentifier(rawMember);
-      const renderedMember =
-        plan.semantic === "length-property" ? "Length" : member;
-      return `${renderExpression(plan.expression, context)}.${renderedMember}`;
+      return `${renderExpression(plan.expression, context)}.${member}`;
     }
     case "element-access":
+      if (
+        plan.sourceOperation?.dispatch === "index" &&
+        plan.sourceOperation.owner === "String"
+      ) {
+        return `global::js.String.charAt(${renderExpression(plan.expression, context)}, ${renderExpression(plan.arguments[0], context)})`;
+      }
       return `${renderExpression(plan.expression, context)}[${renderExpression(plan.arguments[0], context)}]`;
     case "call":
       {
         const intrinsic = renderIntrinsicCall(plan, context);
         if (intrinsic !== undefined) return intrinsic;
       }
+      {
+        const sourceRuntimeCall = renderSourceRuntimeCall(plan, context);
+        if (sourceRuntimeCall !== undefined) return sourceRuntimeCall;
+      }
       return `${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
         .map((argument) => renderCallArgument(argument, context))
         .join(", ")})`;
     case "new":
-      if (plan.semantic === "error-constructor") {
-        return `new global::System.Exception(${plan.arguments
-          .map((argument) => renderCallArgument(argument, context))
-          .join(", ")})`;
+      {
+        const sourceRuntimeNew = renderSourceRuntimeNew(plan, context);
+        if (sourceRuntimeNew !== undefined) return sourceRuntimeNew;
       }
       return `new ${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
         .map((argument) => renderCallArgument(argument, context))

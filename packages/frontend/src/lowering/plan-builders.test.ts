@@ -247,7 +247,9 @@ describe("TSTS-backed lowering plan builders", () => {
     );
     const nextMember =
       type?.kind === "named" && type.aliasTarget?.kind === "object"
-        ? type.aliasTarget.members.find((member) => member.name === "next")
+        ? type.aliasTarget.members.find(
+            (member) => member.kind !== "index-signature" && member.name === "next"
+          )
         : undefined;
 
     expect(nextMember?.kind).to.equal("property");

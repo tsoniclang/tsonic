@@ -16,6 +16,7 @@ import type {
   IntrinsicSemanticsFact,
   NumericPrimitiveFact,
   ParameterPassingMode,
+  SourceRuntimeOperationFact,
 } from "../source-frontend/source-facts.js";
 import type { TstsSourceProgram } from "../source-frontend/index.js";
 import type { Diagnostic } from "../types/diagnostic.js";
@@ -96,6 +97,11 @@ export type LoweringTypeMemberPlan =
       readonly parameters: readonly LoweringParameterPlan[];
       readonly returnType?: LoweringTypeRefPlan;
       readonly typeParameters: readonly string[];
+    }
+  | {
+      readonly kind: "index-signature";
+      readonly keyType?: LoweringTypeRefPlan;
+      readonly valueType?: LoweringTypeRefPlan;
     };
 
 export type LoweringTypeRefPlan =
@@ -219,6 +225,7 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
     | "interface"
     | "method"
     | "constructor"
+    | "index-signature"
     | "property"
     | "type-alias"
     | "variable"
@@ -287,9 +294,6 @@ export type LoweringUnaryOperator =
 
 export type LoweringExpressionSemantic =
   | "undefined-value"
-  | "console-write"
-  | "error-constructor"
-  | "length-property"
   | "compile-time-marker-call";
 
 export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
@@ -335,7 +339,9 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly binaryOperator?: LoweringBinaryOperator;
   readonly unaryOperator?: LoweringUnaryOperator;
   readonly semantic?: LoweringExpressionSemantic;
+  readonly sourceOperation?: SourceRuntimeOperationFact;
   readonly resolvedAliasName?: string;
+  readonly qualifiedRuntimeName?: string;
   readonly yieldDelegates?: boolean;
   readonly expression?: LoweringExpressionPlan;
   readonly left?: LoweringExpressionPlan;

@@ -15,6 +15,7 @@ import { renderDeclaration, renderStaticContainerMember } from "./declarations.j
 import { renderStaticField, renderTopLevelBody } from "./statements.js";
 import {
   renderTypeMember,
+  shouldExpandNamedAliasTarget,
   structuralTypeName,
   typePlanKey,
 } from "./types.js";
@@ -24,7 +25,8 @@ const hasNamespaceDeclarationShape = (
 ): boolean =>
   declaration.declarationKind === "class" ||
   declaration.declarationKind === "enum" ||
-  declaration.declarationKind === "interface";
+  declaration.declarationKind === "interface" ||
+  declaration.declarationKind === "type-alias";
 
 const isStaticTopLevelVariableStatement = (
   statement: CSharpLoweringModulePlan["topLevelStatements"][number]
@@ -36,48 +38,60 @@ const isStaticTopLevelVariableStatement = (
 
 const collectStructuralType = (
   types: Map<string, LoweringTypeRefPlan>,
-  type: LoweringTypeRefPlan | undefined
+  type: LoweringTypeRefPlan | undefined,
+  seen: ReadonlySet<LoweringTypeRefPlan> = new Set<LoweringTypeRefPlan>()
 ): void => {
   if (!type) return;
+  if (seen.has(type)) return;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
   switch (type.kind) {
     case "object":
       types.set(typePlanKey(type), type);
       for (const member of type.members) {
         switch (member.kind) {
           case "property":
-            collectStructuralType(types, member.type);
+            collectStructuralType(types, member.type, nextSeen);
             break;
           case "method":
             for (const parameter of member.parameters) {
-              collectStructuralType(types, parameter.type);
+              collectStructuralType(types, parameter.type, nextSeen);
             }
-            collectStructuralType(types, member.returnType);
+            collectStructuralType(types, member.returnType, nextSeen);
             break;
         }
       }
       break;
     case "named":
-      collectStructuralType(types, type.aliasTarget);
-      for (const argument of type.typeArguments) collectStructuralType(types, argument);
+      if (shouldExpandNamedAliasTarget(type)) {
+        collectStructuralType(types, type.aliasTarget, nextSeen);
+      }
+      for (const argument of type.typeArguments) {
+        collectStructuralType(types, argument, nextSeen);
+      }
       break;
     case "array":
-      collectStructuralType(types, type.elementType);
+      collectStructuralType(types, type.elementType, nextSeen);
       break;
     case "tuple":
-      for (const element of type.elements) collectStructuralType(types, element);
+      for (const element of type.elements) {
+        collectStructuralType(types, element, nextSeen);
+      }
       break;
     case "union":
     case "intersection":
-      for (const member of type.types) collectStructuralType(types, member);
+      for (const member of type.types) {
+        collectStructuralType(types, member, nextSeen);
+      }
       break;
     case "function":
       for (const parameter of type.parameters) {
-        collectStructuralType(types, parameter.type);
+        collectStructuralType(types, parameter.type, nextSeen);
       }
-      collectStructuralType(types, type.returnType);
+      collectStructuralType(types, type.returnType, nextSeen);
       break;
     case "predicate":
-      collectStructuralType(types, type.assertedType);
+      collectStructuralType(types, type.assertedType, nextSeen);
       break;
     case "intrinsic":
     case "source-primitive":

@@ -1,4 +1,7 @@
-import type { LoweringTypeMemberPlan, LoweringTypeRefPlan } from "@tsonic/frontend";
+import type {
+  LoweringTypeMemberPlan,
+  LoweringTypeRefPlan,
+} from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
 import { sanitizeIdentifier, sanitizeTypeName } from "./names.js";
 
@@ -34,10 +37,32 @@ const knownNamedTypes: ReadonlyMap<string, string> = new Map([
   ["Group", "global::System.Text.RegularExpressions.Group"],
   ["Regex", "global::System.Text.RegularExpressions.Regex"],
   ["RegexOptions", "global::System.Text.RegularExpressions.RegexOptions"],
+  ["Error", "global::js.Error"],
+  ["RegExp", "global::js.RegExp"],
+  ["Map", "global::js.Map"],
+  ["ReadonlyMap", "global::js.Map"],
 ]);
 
 const renderNamedType = (name: string): string =>
   knownNamedTypes.get(name) ?? sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
+
+const nonStructuralNamedTypes = new Set([
+  "Array",
+  "Date",
+  "Error",
+  "Generator",
+  "Iterable",
+  "IterableIterator",
+  "Iterator",
+  "Map",
+  "ReadonlyArray",
+  "ReadonlyMap",
+  "Record",
+  "RegExp",
+  "Set",
+  "WeakMap",
+  "WeakSet",
+]);
 
 const stableHash = (value: string): string => {
   let hash = 2166136261;
@@ -48,51 +73,70 @@ const stableHash = (value: string): string => {
   return (hash >>> 0).toString(16).padStart(8, "0");
 };
 
-const typeMemberKey = (member: LoweringTypeMemberPlan): string => {
+const typeMemberKey = (
+  member: LoweringTypeMemberPlan,
+  seen: ReadonlySet<LoweringTypeRefPlan>
+): string => {
   switch (member.kind) {
     case "property":
-      return `property:${member.optional ? "?" : ""}${member.name}:${typePlanKey(member.type)}`;
+      return `property:${member.optional ? "?" : ""}${member.name}:${typePlanKeyWithSeen(member.type, seen)}`;
     case "method":
       return `method:${member.optional ? "?" : ""}${member.name}<${member.typeParameters.join(",")}>(${member.parameters
-        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}:${typePlanKey(parameter.type)}`)
-        .join(",")}):${typePlanKey(member.returnType)}`;
+        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}:${typePlanKeyWithSeen(parameter.type, seen)}`)
+        .join(",")}):${typePlanKeyWithSeen(member.returnType, seen)}`;
+    case "index-signature":
+      return `index:${typePlanKeyWithSeen(member.keyType, seen)}:${typePlanKeyWithSeen(member.valueType, seen)}`;
   }
 };
 
-export function typePlanKey(type: LoweringTypeRefPlan | undefined): string {
+const typePlanKeyWithSeen = (
+  type: LoweringTypeRefPlan | undefined,
+  seen: ReadonlySet<LoweringTypeRefPlan>
+): string => {
   if (!type) return "missing";
+  if (seen.has(type)) return "recursive";
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
   switch (type.kind) {
     case "intrinsic":
       return `intrinsic:${type.name}`;
     case "source-primitive":
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
-      return `named:${type.name}<${type.typeArguments.map(typePlanKey).join(",")}>`;
+      return `named:${type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
     case "array":
-      return `array:${type.readonly ? "readonly" : "mutable"}:${typePlanKey(type.elementType)}`;
+      return `array:${type.readonly ? "readonly" : "mutable"}:${typePlanKeyWithSeen(type.elementType, nextSeen)}`;
     case "tuple":
-      return `tuple:${type.readonly ? "readonly" : "mutable"}:${type.elements.map(typePlanKey).join(",")}`;
+      return `tuple:${type.readonly ? "readonly" : "mutable"}:${type.elements.map((element) => typePlanKeyWithSeen(element, nextSeen)).join(",")}`;
     case "union":
-      return `union:${type.types.map(typePlanKey).join("|")}`;
+      return `union:${type.types.map((member) => typePlanKeyWithSeen(member, nextSeen)).join("|")}`;
     case "intersection":
-      return `intersection:${type.types.map(typePlanKey).join("&")}`;
+      return `intersection:${type.types.map((member) => typePlanKeyWithSeen(member, nextSeen)).join("&")}`;
     case "function":
       return `function:<${type.typeParameters.join(",")}>(${type.parameters
-        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.optional ? "?" : ""}${typePlanKey(parameter.type)}`)
-        .join(",")}):${typePlanKey(type.returnType)}`;
+        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.optional ? "?" : ""}${typePlanKeyWithSeen(parameter.type, nextSeen)}`)
+        .join(",")}):${typePlanKeyWithSeen(type.returnType, nextSeen)}`;
     case "object":
-      return `object:{${[...type.members.map(typeMemberKey)].sort().join(";")}}`;
+      return `object:{${[...type.members.map((member) => typeMemberKey(member, nextSeen))].sort().join(";")}}`;
     case "predicate":
-      return `predicate:${typePlanKey(type.assertedType)}`;
+      return `predicate:${typePlanKeyWithSeen(type.assertedType, nextSeen)}`;
     case "literal":
       return `literal:${type.literalKind}:${type.valueText}`;
     case "unsupported":
       return `unsupported:${type.sourceKindName}`;
   }
+};
+
+export function typePlanKey(type: LoweringTypeRefPlan | undefined): string {
+  return typePlanKeyWithSeen(type, new Set<LoweringTypeRefPlan>());
 }
 
 export const structuralTypeName = (type: LoweringTypeRefPlan): string =>
   `__TsonicShape_${stableHash(typePlanKey(type))}`;
+
+export const shouldExpandNamedAliasTarget = (
+  type: LoweringTypeRefPlan
+): boolean => type.kind === "named" && !nonStructuralNamedTypes.has(type.name);
 
 const isNullishType = (type: LoweringTypeRefPlan): boolean =>
   (type.kind === "intrinsic" &&
@@ -148,6 +192,26 @@ const renderFunctionType = (
     : `global::System.Func<${[...parameters, returnType].join(", ")}>`;
 };
 
+const renderSpecialNamedType = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
+  context?: RenderContext
+): string | undefined => {
+  switch (type.name) {
+    case "Record": {
+      const key = type.typeArguments[0];
+      const value = type.typeArguments[1];
+      return `global::System.Collections.Generic.Dictionary<${renderCSharpType(key, context)}, ${renderCSharpType(value, context)}>`;
+    }
+    case "Iterable":
+    case "IterableIterator":
+    case "Iterator":
+    case "Generator":
+      return `global::System.Collections.Generic.IEnumerable<${renderCSharpType(type.typeArguments[0], context)}>`;
+    default:
+      return undefined;
+  }
+};
+
 export const renderCSharpType = (
   type: LoweringTypeRefPlan | undefined,
   context?: RenderContext
@@ -181,6 +245,8 @@ export const renderCSharpType = (
     case "source-primitive":
       return primitiveRuntimeTypes.get(type.fact.kind) ?? "object?";
     case "named": {
+      const special = renderSpecialNamedType(type, context);
+      if (special) return special;
       const name = renderNamedType(type.name);
       return type.typeArguments.length === 0
         ? name
@@ -189,7 +255,7 @@ export const renderCSharpType = (
     case "array":
       return type.readonly
         ? `global::System.Collections.Generic.IReadOnlyList<${renderCSharpType(type.elementType, context)}>`
-        : `${renderCSharpType(type.elementType, context)}[]`;
+        : `global::System.Collections.Generic.List<${renderCSharpType(type.elementType, context)}>`;
     case "tuple":
       return `(${type.elements.map((element) => renderCSharpType(element, context)).join(", ")})`;
     case "union":
@@ -257,5 +323,7 @@ export const renderTypeMember = (
             `${renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`
         )
         .join(", ")});`;
+    case "index-signature":
+      return `${renderCSharpType(member.valueType, context)} this[${renderCSharpType(member.keyType, context)} key] { get; set; }`;
   }
 };

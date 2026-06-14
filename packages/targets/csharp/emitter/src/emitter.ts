@@ -1,6 +1,7 @@
 import { relative } from "node:path";
 import type { Diagnostic } from "@tsonic/frontend";
 import { emitModule } from "./rendering/module.js";
+import { csharpRuntimeSupportFiles } from "./rendering/runtime-support.js";
 import type {
   CSharpLoweringModulePlan,
   EmitResult,
@@ -82,6 +83,9 @@ export const emitCSharpFiles = (
       return { ok: false, errors: moduleResult.errors };
     }
     files.set(outputPathForModule(module, commonRoot), moduleResult.code);
+  }
+  for (const [filePath, code] of csharpRuntimeSupportFiles(files)) {
+    files.set(filePath, code);
   }
   return { ok: true, files };
 };

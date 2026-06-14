@@ -97,7 +97,7 @@ describe("C# expression renderer", () => {
     ).to.equal("'\\\\'");
   });
 
-  it("renders array literal spread through deterministic LINQ concatenation", () => {
+  it("renders mutable array literal spread into the JS-mutable list carrier", () => {
     const context = createRenderContext();
     const arrayType: LoweringTypeRefPlan = {
       kind: "array",
@@ -136,7 +136,7 @@ describe("C# expression renderer", () => {
     );
 
     expect(rendered).to.equal(
-      "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Concat(global::System.Linq.Enumerable.Concat(new int[] { 1 }, items), new int[] { 2 }))"
+      "new global::System.Collections.Generic.List<int>(global::System.Linq.Enumerable.Concat(global::System.Linq.Enumerable.Concat(new int[] { 1 }, items), new int[] { 2 }))"
     );
   });
 });

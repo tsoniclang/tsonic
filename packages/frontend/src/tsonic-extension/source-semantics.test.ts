@@ -24,6 +24,7 @@ import {
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
+  sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
 import { createTsonicSourceSemanticsExtension } from "./source-semantics.js";
@@ -397,7 +398,9 @@ describe("Tsonic TSTS source semantics extension", () => {
         "node_modules/@fixture/globals/index.d.ts": [
           "declare global {",
           "  const console: { log(message: string): void; error(message: string): void };",
+          "  const Array: { isArray(value: unknown): value is unknown[] };",
           "  class Error { constructor(message: string); }",
+          "  interface String { trim(): string; toLowerCase(): string; }",
           "  const Symbol: { readonly iterator: symbol; readonly asyncIterator: symbol };",
           "}",
           "export {};",
@@ -412,7 +415,14 @@ describe("Tsonic TSTS source semantics extension", () => {
           "  const missing = undefined;",
           "  console.log(value);",
           "  console.error(items.length.toString());",
+          "  const lower = value.trim().toLowerCase();",
+          "  const first = value[0];",
+          "  const mapped = items.map((item: number): number => item + 1);",
+          "  const arrayCheck = Array.isArray(mapped);",
           "  throw new Error(value.length.toString());",
+          "  void lower;",
+          "  void first;",
+          "  void arrayCheck;",
           "}",
           "",
         ].join("\n"),
@@ -421,6 +431,7 @@ describe("Tsonic TSTS source semantics extension", () => {
     );
     try {
       const expressionKinds: string[] = [];
+      const runtimeOperations: string[] = [];
       const computedKinds: string[] = [];
 
       visitTstsSubtree(program.sourceFile, (node) => {
@@ -430,6 +441,15 @@ describe("Tsonic TSTS source semantics extension", () => {
           node
         );
         if (expressionFact) expressionKinds.push(expressionFact.kind);
+        const runtimeOperation = program.sourceProgram.extensionHost.facts.get(
+          sourceRuntimeOperationFactKey,
+          node
+        );
+        if (runtimeOperation) {
+          runtimeOperations.push(
+            `${runtimeOperation.owner}.${runtimeOperation.member}:${runtimeOperation.dispatch}`
+          );
+        }
         const computedFact = program.sourceProgram.extensionHost.facts.get(
           wellKnownComputedNameFactKey,
           node
@@ -437,13 +457,20 @@ describe("Tsonic TSTS source semantics extension", () => {
         if (computedFact) computedKinds.push(computedFact.kind);
       });
 
-      expect(expressionKinds).to.deep.equal([
-        "undefined-value",
-        "console-write",
-        "console-write",
-        "length-property",
-        "error-constructor",
-        "length-property",
+      expect(expressionKinds).to.deep.equal(["undefined-value"]);
+      expect(runtimeOperations).to.deep.equal([
+        "Console.log:static-call",
+        "Console.error:static-call",
+        "Object.toString:receiver-call",
+        "Array.length:property",
+        "String.toLowerCase:receiver-call",
+        "String.trim:receiver-call",
+        "String.charAt:index",
+        "Array.map:receiver-call",
+        "Array.isArray:static-call",
+        "Error.constructor:constructor",
+        "Object.toString:receiver-call",
+        "String.length:property",
       ]);
       expect(computedKinds).to.deep.equal([
         "symbol-iterator",
@@ -497,7 +524,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         if (computedFact) computedKinds.push(computedFact.kind);
       });
 
-      expect(expressionKinds).to.deep.equal(["length-property"]);
+      expect(expressionKinds).to.deep.equal([]);
       expect(computedKinds).to.deep.equal([]);
     } finally {
       program.cleanup();

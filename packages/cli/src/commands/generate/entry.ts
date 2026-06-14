@@ -29,6 +29,7 @@ export const hasTopLevelExecutableStatements = (
   entryModule.topLevelStatements.some((statement) => {
     switch (statement.statementKind) {
       case "declaration":
+      case "variable":
       case "empty":
         return false;
       default:

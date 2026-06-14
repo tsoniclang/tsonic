@@ -64,11 +64,30 @@ export type MarkerApiSemanticsFact = {
 };
 
 export type ExpressionSemanticsFact = {
-  readonly kind:
-    | "undefined-value"
-    | "console-write"
-    | "error-constructor"
-    | "length-property";
+  readonly kind: "undefined-value";
+};
+
+export type SourceRuntimeOperationOwner =
+  | "Array"
+  | "Console"
+  | "Error"
+  | "Function"
+  | "JSON"
+  | "Object"
+  | "RegExp"
+  | "String";
+
+export type SourceRuntimeOperationDispatch =
+  | "constructor"
+  | "index"
+  | "property"
+  | "receiver-call"
+  | "static-call";
+
+export type SourceRuntimeOperationFact = {
+  readonly owner: SourceRuntimeOperationOwner;
+  readonly member: string;
+  readonly dispatch: SourceRuntimeOperationDispatch;
 };
 
 export type WellKnownComputedNameFact = {
@@ -143,6 +162,12 @@ export const expressionSemanticsFactKey =
     "Source-level expression semantics proven by the TSTS source extension."
   );
 
+export const sourceRuntimeOperationFactKey =
+  defineSourceFactKey<SourceRuntimeOperationFact>(
+    "tsonic:source:runtime-operation",
+    "Source-level runtime operation proven by the TSTS source extension."
+  );
+
 export const wellKnownComputedNameFactKey =
   defineSourceFactKey<WellKnownComputedNameFact>(
     "tsonic:source:well-known-computed-name",
@@ -172,6 +197,7 @@ export const visitSourceSemanticFactKeys = (
   visit(heritageWrapperSemanticsFactKey);
   visit(markerApiSemanticsFactKey);
   visit(expressionSemanticsFactKey);
+  visit(sourceRuntimeOperationFactKey);
   visit(wellKnownComputedNameFactKey);
   visit(genericFunctionAliasFactKey);
   visit(intrinsicSemanticsFactKey);

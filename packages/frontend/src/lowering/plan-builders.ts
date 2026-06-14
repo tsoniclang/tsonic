@@ -19,6 +19,7 @@ import {
   markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
+  sourceRuntimeOperationFactKey,
   wellKnownComputedNameFactKey,
 } from "../source-frontend/source-facts.js";
 import type {
@@ -749,6 +750,20 @@ const typeMemberPlan = (
   context: LoweringBuildContext,
   state: SourceTypePlanState = createSourceTypePlanState()
 ): LoweringTypeMemberPlan | undefined => {
+  if (node.Kind === TstsSyntax.KindIndexSignature) {
+    const [parameter] = parameterPlans(sourceFile, node, context, [], state);
+    return {
+      kind: "index-signature",
+      keyType: parameter?.type,
+      valueType: sourceTypePlan(
+        context,
+        sourceFile,
+        TstsSyntax.Node_Type(node),
+        state
+      ),
+    };
+  }
+
   const name = propertyNameInfo(sourceFile, node, context);
   if (name.computed || !name.name) return undefined;
   switch (node.Kind) {
@@ -1077,17 +1092,46 @@ const isCompileTimeMarkerApiExpression = (
 const expressionSemantic = (
   node: TstsNode,
   context: LoweringBuildContext
-):
-  | "undefined-value"
-  | "console-write"
-  | "error-constructor"
-  | "length-property"
-  | "compile-time-marker-call"
-  | undefined => {
+): "undefined-value" | "compile-time-marker-call" | undefined => {
   if (isCompileTimeMarkerApiExpression(node, context)) {
     return "compile-time-marker-call";
   }
   return context.input.facts.get(expressionSemanticsFactKey, node)?.kind;
+};
+
+const dotnetModulePrefix = "@tsonic/dotnet/";
+
+const dotnetQualifiedRuntimeName = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext
+): string | undefined => {
+  if (node.Kind !== TstsSyntax.KindIdentifier) return undefined;
+  const localName = nodeTokenText(node);
+  if (!localName) return undefined;
+  const binding = context.input.moduleGraph.getImportBinding(
+    sourceFile,
+    localName
+  );
+  if (!binding || binding.isTypeOnly) return undefined;
+  const importModule = context.input.moduleGraph
+    .getImports(sourceFile)
+    .find((moduleImport) =>
+      moduleImport.bindings.some(
+        (candidate) => candidate.bindingNode === binding.bindingNode
+      )
+    );
+  const specifier = importModule?.specifier;
+  if (!specifier?.startsWith(dotnetModulePrefix) || !specifier.endsWith(".js")) {
+    return undefined;
+  }
+  const namespace = specifier
+    .slice(dotnetModulePrefix.length, -".js".length)
+    .replace(/\//g, ".");
+  const typeName = binding.importedName.endsWith("$instance")
+    ? binding.importedName.slice(0, -"$instance".length)
+    : binding.importedName;
+  return `global::${namespace}.${typeName.replace(/\$/g, "_")}`;
 };
 
 const expressionPlan = (
@@ -1110,10 +1154,15 @@ const expressionPlan = (
     type: expressionTypePlan(sourceFile, node, context, useSiteType),
     contextualTypePlan: expectedType ?? contextualTypePlan,
     semantic: expressionSemantic(node, context),
+    sourceOperation: context.input.facts.get(
+      sourceRuntimeOperationFactKey,
+      node
+    ),
     resolvedAliasName: context.input.facts.get(
       genericFunctionAliasFactKey,
       node
     )?.resolvedName,
+    qualifiedRuntimeName: dotnetQualifiedRuntimeName(sourceFile, node, context),
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,
@@ -1884,6 +1933,8 @@ const declarationKind = (
     case TstsSyntax.KindCallSignature:
     case TstsSyntax.KindConstructSignature:
       return "method";
+    case TstsSyntax.KindIndexSignature:
+      return "index-signature";
     case TstsSyntax.KindPropertyDeclaration:
     case TstsSyntax.KindPropertySignature:
     case TstsSyntax.KindGetAccessor:

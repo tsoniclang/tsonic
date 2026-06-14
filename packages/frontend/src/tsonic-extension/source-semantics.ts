@@ -34,6 +34,7 @@ import type {
   MarkerApiSemanticsFact,
   ParameterPassingFact,
   ParameterPassingMode,
+  SourceRuntimeOperationFact,
   SourceTypeSemanticsFact,
 } from "../source-frontend/source-facts.js";
 import {
@@ -48,6 +49,7 @@ import {
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
+  sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
   extensionReceiverSemanticsFactKey,
   heritageWrapperSemanticsFactKey,
@@ -279,21 +281,28 @@ const isPropertyAccessNamed = (
   isIdentifierNamed(TstsSyntax.Node_Expression(node), receiverName) &&
   isIdentifierNamed(TstsSyntax.Node_Name(node), memberName);
 
-const symbolDeclarationFileName = (
-  declaration: TstsNode | undefined
-): string | undefined => getTstsContainingSourceFile(declaration)?.FileName();
-
 const isExternalSupportDeclaration = (
-  declaration: TstsNode | undefined
+  declaration: TstsNode | undefined,
+  sourceDiagnosticFileNames?: ReadonlySet<string>
 ): boolean => {
-  const fileName = symbolDeclarationFileName(declaration);
-  return fileName !== undefined && isDependencySupportSourceFile(fileName);
+  const sourceFile = getTstsContainingSourceFile(declaration);
+  if (sourceFile?.IsDeclarationFile === true) return true;
+  const fileName = sourceFile?.FileName();
+  if (fileName === undefined) return false;
+  if (
+    sourceDiagnosticFileNames !== undefined &&
+    !sourceDiagnosticFileNames.has(normalizeSourceFileName(fileName))
+  ) {
+    return true;
+  }
+  return isDependencySupportSourceFile(fileName);
 };
 
 const isAmbientGlobalIdentifier = (
   context: CheckedContext,
   node: TstsNode | undefined,
-  name: string
+  name: string,
+  sourceDiagnosticFileNames?: ReadonlySet<string>
 ): boolean => {
   if (!isIdentifierNamed(node, name)) return false;
   if (context.imports.resolveLocalName(name)) return false;
@@ -303,14 +312,15 @@ const isAmbientGlobalIdentifier = (
   return (
     declarations.length === 0 ||
     declarations.every((declaration) =>
-      isExternalSupportDeclaration(declaration)
+      isExternalSupportDeclaration(declaration, sourceDiagnosticFileNames)
     )
   );
 };
 
 const isWellKnownSymbolName = (
   context: CheckedContext,
-  node: TstsNode | undefined
+  node: TstsNode | undefined,
+  sourceDiagnosticFileNames?: ReadonlySet<string>
 ): "symbol-iterator" | "symbol-async-iterator" | undefined => {
   if (node?.Kind !== TstsSyntax.KindComputedPropertyName) return undefined;
   const expression = TstsSyntax.Node_Expression(node);
@@ -321,7 +331,8 @@ const isWellKnownSymbolName = (
     !isAmbientGlobalIdentifier(
       context,
       TstsSyntax.Node_Expression(expression),
-      "Symbol"
+      "Symbol",
+      sourceDiagnosticFileNames
     )
   ) {
     return undefined;
@@ -339,51 +350,238 @@ const isWellKnownSymbolName = (
 
 const expressionSemanticsKind = (
   context: CheckedContext,
-  node: TstsNode
-):
-  | "undefined-value"
-  | "console-write"
-  | "error-constructor"
-  | "length-property"
-  | undefined => {
-  if (isAmbientGlobalIdentifier(context, node, "undefined")) {
-    return "undefined-value";
+  node: TstsNode,
+  sourceDiagnosticFileNames?: ReadonlySet<string>
+): "undefined-value" | undefined =>
+  isAmbientGlobalIdentifier(context, node, "undefined", sourceDiagnosticFileNames)
+    ? "undefined-value"
+    : undefined;
+
+const stringReceiverRuntimeMembers = new Set([
+  "charAt",
+  "endsWith",
+  "includes",
+  "indexOf",
+  "lastIndexOf",
+  "replace",
+  "replaceAll",
+  "slice",
+  "split",
+  "startsWith",
+  "substring",
+  "toString",
+  "toLowerCase",
+  "toUpperCase",
+  "trim",
+  "trimEnd",
+  "trimLeft",
+  "trimRight",
+  "trimStart",
+]);
+
+const arrayReceiverRuntimeMembers = new Set([
+  "at",
+  "concat",
+  "entries",
+  "every",
+  "filter",
+  "find",
+  "findIndex",
+  "findLast",
+  "findLastIndex",
+  "forEach",
+  "includes",
+  "indexOf",
+  "join",
+  "lastIndexOf",
+  "map",
+  "pop",
+  "push",
+  "reverse",
+  "shift",
+  "slice",
+  "some",
+  "sort",
+  "splice",
+  "toReversed",
+  "toSorted",
+  "toSpliced",
+  "toString",
+  "unshift",
+  "values",
+  "with",
+]);
+
+const consoleRuntimeMembers = new Set([
+  "debug",
+  "error",
+  "info",
+  "log",
+  "warn",
+]);
+
+const stringStaticRuntimeMembers = new Set([
+  "fromCharCode",
+  "fromCodePoint",
+]);
+
+const arrayStaticRuntimeMembers = new Set(["from", "isArray", "of"]);
+
+const objectStaticRuntimeMembers = new Set([
+  "entries",
+  "fromEntries",
+  "is",
+  "keys",
+  "values",
+]);
+
+const jsonStaticRuntimeMembers = new Set(["parse", "stringify"]);
+
+const sourceRuntimeOperation = (
+  context: CheckedContext,
+  node: TstsNode,
+  sourceDiagnosticFileNames?: ReadonlySet<string>
+): SourceRuntimeOperationFact | undefined => {
+  if (node.Kind === TstsSyntax.KindElementAccessExpression) {
+    const receiver = TstsSyntax.Node_Expression(node);
+    const receiverType = context.checker.getNarrowedTypeAtLocation(receiver);
+    return receiverType && context.checker.isStringLikeType(receiverType)
+      ? { owner: "String", member: "charAt", dispatch: "index" }
+      : undefined;
   }
 
-  if (node.Kind === TstsSyntax.KindPropertyAccessExpression) {
-    const memberName = getTstsIdentifierText(TstsSyntax.Node_Name(node));
+  if (node.Kind === TstsSyntax.KindNewExpression) {
+    const expression = TstsSyntax.Node_Expression(node);
     if (
       isAmbientGlobalIdentifier(
         context,
-        TstsSyntax.Node_Expression(node),
-        "console"
-      ) &&
-      (memberName === "log" ||
-        memberName === "info" ||
-        memberName === "warn" ||
-        memberName === "error")
+        expression,
+        "Error",
+        sourceDiagnosticFileNames
+      )
     ) {
-      return "console-write";
+      return { owner: "Error", member: "constructor", dispatch: "constructor" };
     }
+    if (
+      isAmbientGlobalIdentifier(
+        context,
+        expression,
+        "RegExp",
+        sourceDiagnosticFileNames
+      )
+    ) {
+      return {
+        owner: "RegExp",
+        member: "constructor",
+        dispatch: "constructor",
+      };
+    }
+  }
 
-    if (memberName === "length") {
-      const receiverType = context.checker.getNarrowedTypeAtLocation(
-        TstsSyntax.Node_Expression(node)
-      );
-      return receiverType &&
-        (context.checker.isStringLikeType(receiverType) ||
-          context.checker.isArrayType(receiverType) ||
-          context.checker.isTupleType(receiverType))
-        ? "length-property"
-        : undefined;
+  if (node.Kind !== TstsSyntax.KindPropertyAccessExpression) {
+    return undefined;
+  }
+
+  const receiver = TstsSyntax.Node_Expression(node);
+  const memberName = getTstsIdentifierText(TstsSyntax.Node_Name(node));
+  if (!memberName) return undefined;
+
+  if (
+    isAmbientGlobalIdentifier(
+      context,
+      receiver,
+      "console",
+      sourceDiagnosticFileNames
+    ) &&
+    consoleRuntimeMembers.has(memberName)
+  ) {
+    return { owner: "Console", member: memberName, dispatch: "static-call" };
+  }
+
+  if (
+    isAmbientGlobalIdentifier(
+      context,
+      receiver,
+      "String",
+      sourceDiagnosticFileNames
+    ) &&
+    stringStaticRuntimeMembers.has(memberName)
+  ) {
+    return { owner: "String", member: memberName, dispatch: "static-call" };
+  }
+
+  if (
+    isAmbientGlobalIdentifier(
+      context,
+      receiver,
+      "Array",
+      sourceDiagnosticFileNames
+    ) &&
+    arrayStaticRuntimeMembers.has(memberName)
+  ) {
+    return { owner: "Array", member: memberName, dispatch: "static-call" };
+  }
+
+  if (
+    isAmbientGlobalIdentifier(
+      context,
+      receiver,
+      "Object",
+      sourceDiagnosticFileNames
+    ) &&
+    objectStaticRuntimeMembers.has(memberName)
+  ) {
+    return { owner: "Object", member: memberName, dispatch: "static-call" };
+  }
+
+  if (
+    isAmbientGlobalIdentifier(
+      context,
+      receiver,
+      "JSON",
+      sourceDiagnosticFileNames
+    ) &&
+    jsonStaticRuntimeMembers.has(memberName)
+  ) {
+    return { owner: "JSON", member: memberName, dispatch: "static-call" };
+  }
+
+  const receiverType = context.checker.getNarrowedTypeAtLocation(receiver);
+  if (memberName === "length") {
+    if (receiverType && context.checker.isStringLikeType(receiverType)) {
+      return { owner: "String", member: "length", dispatch: "property" };
+    }
+    if (
+      receiverType &&
+      (context.checker.isArrayType(receiverType) ||
+        context.checker.isTupleType(receiverType))
+    ) {
+      return { owner: "Array", member: "length", dispatch: "property" };
+    }
+    if (context.checker.getCallSignatures(receiverType).length > 0) {
+      return { owner: "Function", member: "length", dispatch: "property" };
     }
   }
 
   if (
-    node.Kind === TstsSyntax.KindNewExpression &&
-    isAmbientGlobalIdentifier(context, TstsSyntax.Node_Expression(node), "Error")
+    receiverType &&
+    context.checker.isStringLikeType(receiverType) &&
+    stringReceiverRuntimeMembers.has(memberName)
   ) {
-    return "error-constructor";
+    return { owner: "String", member: memberName, dispatch: "receiver-call" };
+  }
+
+  if (
+    receiverType &&
+    (context.checker.isArrayType(receiverType) ||
+      context.checker.isTupleType(receiverType)) &&
+    arrayReceiverRuntimeMembers.has(memberName)
+  ) {
+    return { owner: "Array", member: memberName, dispatch: "receiver-call" };
+  }
+
+  if (memberName === "toString" && receiverType) {
+    return { owner: "Object", member: "toString", dispatch: "receiver-call" };
   }
 
   return undefined;
@@ -938,18 +1136,35 @@ export const createTsonicSourceSemanticsExtension = (
         }
       }
 
-      const computedName = isWellKnownSymbolName(context, node);
+      const computedName = isWellKnownSymbolName(
+        context,
+        node,
+        sourceDiagnosticFileNames
+      );
       if (computedName) {
         context.facts.set(wellKnownComputedNameFactKey, node, {
           kind: computedName,
         });
       }
 
-      const expressionKind = expressionSemanticsKind(context, node);
+      const expressionKind = expressionSemanticsKind(
+        context,
+        node,
+        sourceDiagnosticFileNames
+      );
       if (expressionKind) {
         context.facts.set(expressionSemanticsFactKey, node, {
           kind: expressionKind,
         });
+      }
+
+      const runtimeOperation = sourceRuntimeOperation(
+        context,
+        node,
+        sourceDiagnosticFileNames
+      );
+      if (runtimeOperation) {
+        context.facts.set(sourceRuntimeOperationFactKey, node, runtimeOperation);
       }
     });
 

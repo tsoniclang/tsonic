@@ -1,6 +1,7 @@
 import type {
   LoweringDeclarationPlan,
   LoweringParameterPlan,
+  LoweringTypeMemberPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
 import { sanitizeIdentifier, sanitizeTypeName } from "./names.js";
@@ -33,9 +34,12 @@ const renderParameter = (
       ? " = null"
     : "";
   const restModifier = parameter.rest ? "params " : "";
-  const type = parameter.optional
-    ? renderNullableCSharpType(parameter.type, context)
-    : renderCSharpType(parameter.type, context);
+  const type =
+    parameter.rest && parameter.type?.kind === "array"
+      ? `${renderCSharpType(parameter.type.elementType, context)}[]`
+      : parameter.optional
+        ? renderNullableCSharpType(parameter.type, context)
+        : renderCSharpType(parameter.type, context);
   return `${restModifier}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
 };
 
@@ -126,6 +130,19 @@ const renderProperty = (
   return `public ${staticModifier}${type} ${sanitizeIdentifier(declarationName)} { get; set; }${initializer}${suffix}`;
 };
 
+const renderIndexSignature = (
+  parameters: readonly LoweringParameterPlan[],
+  valueType: LoweringDeclarationPlan["returnType"],
+  context: RenderContext,
+  includePublic: boolean
+): string => {
+  const [parameter] = parameters;
+  const keyType = renderCSharpType(parameter?.type, context);
+  const keyName = sanitizeIdentifier(parameter?.name ?? "key");
+  const type = renderCSharpType(valueType, context);
+  return `${includePublic ? "public " : ""}${type} this[${keyType} ${keyName}] { get; set; }`;
+};
+
 const renderClassMember = (
   plan: LoweringDeclarationPlan,
   context: RenderContext,
@@ -138,6 +155,8 @@ const renderClassMember = (
       return renderConstructor(plan, context, className);
     case "property":
       return renderProperty(plan, context);
+    case "index-signature":
+      return renderIndexSignature(plan.parameters, plan.returnType, context, true);
     default:
       context.reportUnsupported(
         "class member",
@@ -171,7 +190,10 @@ const renderInterfaceMember = (
 ): string | undefined => {
   switch (plan.declarationKind) {
     case "method": {
-      const name = requireDeclarationName(plan, context, "interface member");
+      const name =
+        plan.sourceKindName === "KindCallSignature"
+          ? "Invoke"
+          : requireDeclarationName(plan, context, "interface member");
       if (!name) return undefined;
       const parameters = plan.parameters
         .map((parameter) => renderParameter(parameter, context))
@@ -183,6 +205,8 @@ const renderInterfaceMember = (
       if (!name) return undefined;
       return `${renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context)} ${sanitizeIdentifier(name)} { get; set; }`;
     }
+    case "index-signature":
+      return renderIndexSignature(plan.parameters, plan.returnType, context, false);
     default:
       context.reportUnsupported(
         "interface member",
@@ -241,6 +265,63 @@ const renderEnum = (
   ].join("\n");
 };
 
+const renderTypeMemberAlias = (
+  member: LoweringTypeMemberPlan,
+  context: RenderContext,
+  includePublic: boolean
+): string => {
+  switch (member.kind) {
+    case "property":
+      return `${includePublic ? "public " : ""}${renderCSharpType(member.type, context)} ${sanitizeIdentifier(member.name)} { get; set; }`;
+    case "method":
+      return `${renderCSharpType(member.returnType, context)} ${sanitizeIdentifier(member.name)}(${member.parameters
+        .map((parameter) => renderParameter(parameter, context))
+        .join(", ")});`;
+    case "index-signature": {
+      const keyType = renderCSharpType(member.keyType, context);
+      const valueType = renderCSharpType(member.valueType, context);
+      return `${includePublic ? "public " : ""}${valueType} this[${keyType} key] { get; set; }`;
+    }
+  }
+};
+
+const renderTypeAlias = (
+  plan: LoweringDeclarationPlan,
+  context: RenderContext
+): string | undefined => {
+  const declarationName = requireDeclarationName(plan, context, "type alias");
+  if (!declarationName) return undefined;
+  const name = sanitizeTypeName(declarationName);
+  const target = plan.typeAliasTarget;
+  if (target?.kind === "function") {
+    const parameters = target.parameters
+      .map((parameter) => renderParameter(parameter, context))
+      .join(", ");
+    return `public delegate ${renderCSharpType(target.returnType, context)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
+  }
+  if (target?.kind === "object") {
+    const hasMethods = target.members.some((member) => member.kind === "method");
+    if (hasMethods) {
+      return [
+        `public interface ${name}${renderTypeParameters(plan.typeParameters)}`,
+        "{",
+        ...target.members
+          .map((member) => `    ${renderTypeMemberAlias(member, context, false)}`),
+        "}",
+      ].join("\n");
+    }
+    return [
+      `public sealed class ${name}${renderTypeParameters(plan.typeParameters)}`,
+      "{",
+      ...target.members.map(
+        (member) => `    ${renderTypeMemberAlias(member, context, true)}`
+      ),
+      "}",
+    ].join("\n");
+  }
+  return undefined;
+};
+
 const renderVariable = (
   plan: LoweringDeclarationPlan,
   context: RenderContext
@@ -275,9 +356,10 @@ export const renderDeclaration = (
     case "variable":
       return renderVariable(plan, context);
     case "type-alias":
-      return undefined;
+      return renderTypeAlias(plan, context);
     case "method":
     case "constructor":
+    case "index-signature":
     case "property":
     case "unknown":
       context.reportUnsupported("declaration", plan.sourceKindName, plan.sourceText);
