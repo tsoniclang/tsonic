@@ -346,11 +346,28 @@ const isMonomorphicCallableType = (
 ): boolean => {
   if (!type) return false;
   const signatures = context.checker.getCallSignatures(type);
-  return (
+  if (
     signatures.length > 0 &&
     signatures.every(
       (signature) => !context.checker.signatureHasTypeParameters(signature)
     )
+  ) {
+    return true;
+  }
+
+  const nonNullishMembers = context.checker.getNonNullishUnionMembers(type);
+  return (
+    nonNullishMembers !== undefined &&
+    nonNullishMembers.length > 0 &&
+    nonNullishMembers.every((member) => {
+      const memberSignatures = context.checker.getCallSignatures(member);
+      return (
+        memberSignatures.length > 0 &&
+        memberSignatures.every(
+          (signature) => !context.checker.signatureHasTypeParameters(signature)
+        )
+      );
+    })
   );
 };
 
