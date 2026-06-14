@@ -1,10 +1,13 @@
-import { TstsSyntax } from "@tsonic/tsts";
+import { getTstsTypeReferenceDetails, TstsSyntax } from "@tsonic/tsts";
 import type { TstsNode, TstsSourceFile, TstsType } from "@tsonic/tsts";
 import {
+  intrinsicSemanticsFactKey,
   numericPrimitiveFactKey,
   selectedSignatureFactKey,
 } from "../source-frontend/source-facts.js";
 import type {
+  LoweringBindingAccessPlan,
+  LoweringBindingElementPlan,
   LoweringBuildContext,
   LoweringCallPlan,
   LoweringDeclarationPlan,
@@ -111,10 +114,10 @@ const modifierFlags = (node: TstsNode): number =>
 const nodeHasModifier = (node: TstsNode, flag: number): boolean =>
   (modifierFlags(node) & flag) !== 0;
 
-const optionalNodeText = (
+const compactNodeSourceText = (
   sourceFile: TstsSourceFile,
-  node: TstsNode | undefined
-): string | undefined => (node ? nodeTokenText(sourceFile, node) : undefined);
+  node: TstsNode
+): string => nodeSourceText(sourceFile, node).replace(/\s+/g, " ").trim();
 
 const templateFragmentText = (
   sourceFile: TstsSourceFile,
@@ -146,16 +149,89 @@ const typeText = (
 ): string | undefined => {
   const checker = context.checkerForSourceFile(sourceFile);
   if (node) {
-    const nodeType = isTypeNode(node)
-      ? checker.getTypeFromTypeNode(node)
-      : undefined;
-    if (nodeType) {
-      return checker.typeToString(nodeType);
-    }
-    return optionalNodeText(sourceFile, node);
+    return sourceTypeText(context, sourceFile, node);
   }
   if (!type) return undefined;
   return checker.typeToString(type);
+};
+
+const sourceTypeText = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  node: TstsNode | undefined
+): string | undefined => {
+  if (!node) return undefined;
+
+  const numericPrimitive = context.input.facts.get(
+    numericPrimitiveFactKey,
+    node
+  );
+  if (numericPrimitive) {
+    return numericPrimitive.sourceName;
+  }
+
+  const typeReference = getTstsTypeReferenceDetails(node);
+  if (typeReference) {
+    const args = typeReference.typeArguments
+      .map((argument) => sourceTypeText(context, sourceFile, argument))
+      .filter((argument): argument is string => argument !== undefined);
+    return args.length === 0
+      ? typeReference.name
+      : `${typeReference.name}<${args.join(", ")}>`;
+  }
+
+  switch (node.Kind) {
+    case TstsSyntax.KindArrayType: {
+      const arrayType = TstsSyntax.AsArrayTypeNode(node);
+      const element = sourceTypeText(context, sourceFile, arrayType?.ElementType);
+      return element ? `${element}[]` : compactNodeSourceText(sourceFile, node);
+    }
+    case TstsSyntax.KindTupleType: {
+      const tupleType = TstsSyntax.AsTupleTypeNode(node);
+      const elements = nodeListNodes(tupleType?.Elements)
+        .map((element) => sourceTypeText(context, sourceFile, element))
+        .filter((element): element is string => element !== undefined);
+      return `[${elements.join(", ")}]`;
+    }
+    case TstsSyntax.KindUnionType: {
+      const unionType = TstsSyntax.AsUnionTypeNode(node);
+      const types = nodeListNodes(unionType?.Types)
+        .map((part) => sourceTypeText(context, sourceFile, part))
+        .filter((part): part is string => part !== undefined);
+      return types.length > 0 ? types.join(" | ") : compactNodeSourceText(sourceFile, node);
+    }
+    case TstsSyntax.KindParenthesizedType: {
+      const parenthesized = TstsSyntax.AsParenthesizedTypeNode(node);
+      const inner = sourceTypeText(context, sourceFile, parenthesized?.Type);
+      return inner ? `(${inner})` : compactNodeSourceText(sourceFile, node);
+    }
+    case TstsSyntax.KindTypeOperator: {
+      const typeOperator = TstsSyntax.AsTypeOperatorNode(node);
+      const inner = sourceTypeText(context, sourceFile, typeOperator?.Type);
+      if (!inner) return compactNodeSourceText(sourceFile, node);
+      const operator =
+        typeOperator?.Operator === TstsSyntax.KindReadonlyKeyword
+          ? "readonly"
+          : TstsSyntax.KindString(typeOperator?.Operator ?? node.Kind);
+      return `${operator} ${inner}`;
+    }
+    case TstsSyntax.KindVoidKeyword:
+      return "void";
+    case TstsSyntax.KindStringKeyword:
+      return "string";
+    case TstsSyntax.KindNumberKeyword:
+      return "number";
+    case TstsSyntax.KindBooleanKeyword:
+      return "boolean";
+    case TstsSyntax.KindAnyKeyword:
+      return "any";
+    case TstsSyntax.KindUnknownKeyword:
+      return "unknown";
+    case TstsSyntax.KindNeverKeyword:
+      return "never";
+    default:
+      return compactNodeSourceText(sourceFile, node);
+  }
 };
 
 const planBase = <TKind extends string>(
@@ -185,10 +261,12 @@ const unsupportedExpression = (
 ): LoweringExpressionPlan => {
   const checker = context.checkerForSourceFile(sourceFile);
   const useSiteType = checker.getNarrowedTypeAtLocation(node);
+  const contextualType = checker.getContextualType(node);
   return {
     ...planBase("expression", sourceFile, node),
     expressionKind: "unsupported",
     typeText: typeText(context, sourceFile, undefined, useSiteType),
+    contextualTypeText: typeText(context, sourceFile, undefined, contextualType),
     arguments: [],
     typeArguments: [],
     elements: [],
@@ -196,22 +274,38 @@ const unsupportedExpression = (
     templateParts: [],
     parameters: [],
     useSiteType,
-    contextualType: checker.getContextualType(node),
+    contextualType,
     symbol: checker.getSymbolAtLocation(node),
   };
+};
+
+const functionReturnType = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext
+): TstsType | undefined => {
+  const checker = context.checkerForSourceFile(sourceFile);
+  const signature = checker.getSignatureFromDeclaration(node);
+  return signature ? checker.getReturnTypeOfSignature(signature) : undefined;
 };
 
 const expressionPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
-  context: LoweringBuildContext
+  context: LoweringBuildContext,
+  expectedTypeText?: string
 ): LoweringExpressionPlan | undefined => {
   if (!node) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
   const useSiteType = checker.getNarrowedTypeAtLocation(node);
+  const contextualType = checker.getContextualType(node);
   const base = {
     ...planBase("expression", sourceFile, node),
     typeText: typeText(context, sourceFile, undefined, useSiteType),
+    contextualTypeText:
+      expectedTypeText ?? typeText(context, sourceFile, undefined, contextualType),
+    intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
+      ?.kind,
     arguments: [] as readonly LoweringExpressionPlan[],
     typeArguments: [] as readonly string[],
     elements: [] as readonly LoweringExpressionPlan[],
@@ -219,7 +313,7 @@ const expressionPlan = (
     templateParts: [] as readonly LoweringTemplatePartPlan[],
     parameters: [] as readonly LoweringParameterPlan[],
     useSiteType,
-    contextualType: checker.getContextualType(node),
+    contextualType,
     symbol: checker.getSymbolAtLocation(node),
   };
 
@@ -311,7 +405,8 @@ const expressionPlan = (
         expression: expressionPlan(
           sourceFile,
           TstsSyntax.Node_Expression(node),
-          context
+          context,
+          expectedTypeText
         ),
       };
     case TstsSyntax.KindAsExpression:
@@ -324,7 +419,8 @@ const expressionPlan = (
         expression: expressionPlan(
           sourceFile,
           TstsSyntax.Node_Expression(node),
-          context
+          context,
+          expectedTypeText
         ),
       };
     case TstsSyntax.KindAwaitExpression:
@@ -334,7 +430,8 @@ const expressionPlan = (
         expression: expressionPlan(
           sourceFile,
           TstsSyntax.Node_Expression(node),
-          context
+          context,
+          expectedTypeText
         ),
       };
     case TstsSyntax.KindYieldExpression: {
@@ -358,7 +455,8 @@ const expressionPlan = (
         expression: expressionPlan(
           sourceFile,
           TstsSyntax.Node_Expression(node),
-          context
+          context,
+          expectedTypeText
         ),
       };
     case TstsSyntax.KindBinaryExpression: {
@@ -398,6 +496,17 @@ const expressionPlan = (
       return {
         ...base,
         expressionKind: "typeof",
+        expression: expressionPlan(
+          sourceFile,
+          TstsSyntax.Node_Expression(node),
+          context,
+          expectedTypeText
+        ),
+      };
+    case TstsSyntax.KindVoidExpression:
+      return {
+        ...base,
+        expressionKind: "void",
         expression: expressionPlan(
           sourceFile,
           TstsSyntax.Node_Expression(node),
@@ -444,13 +553,21 @@ const expressionPlan = (
           .map((argument) => expressionPlan(sourceFile, argument, context))
           .filter((item): item is LoweringExpressionPlan => item !== undefined),
         typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node)).map(
-          (argument) => nodeSourceText(sourceFile, argument)
+          (argument) =>
+            sourceTypeText(context, sourceFile, argument) ??
+            compactNodeSourceText(sourceFile, argument)
         ),
       };
     case TstsSyntax.KindArrowFunction:
     case TstsSyntax.KindFunctionExpression: {
       const body = TstsSyntax.Node_Body(node);
       const bodyIsStatement = body ? isStatementNode(body) : false;
+      const returnTypeText = typeText(
+        context,
+        sourceFile,
+        TstsSyntax.Node_Type(node),
+        functionReturnType(sourceFile, node, context)
+      );
       return {
         ...base,
         expressionKind:
@@ -459,18 +576,13 @@ const expressionPlan = (
             : "function-expression",
         parameters: parameterPlans(sourceFile, node, context),
         async: nodeHasModifier(node, TstsSyntax.ModifierFlagsAsync),
-        returnTypeText: typeText(
-          context,
-          sourceFile,
-          TstsSyntax.Node_Type(node),
-          useSiteType
-        ),
+        returnTypeText,
         body: bodyIsStatement
-          ? statementPlan(sourceFile, body, context)
+          ? statementPlan(sourceFile, body, context, returnTypeText)
           : undefined,
         expression: bodyIsStatement
           ? undefined
-          : expressionPlan(sourceFile, body, context),
+          : expressionPlan(sourceFile, body, context, returnTypeText),
       };
     }
     case TstsSyntax.KindArrayLiteralExpression:
@@ -529,6 +641,51 @@ const expressionPlan = (
   }
 };
 
+const bindingElementsFromName = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode | undefined,
+  context: LoweringBuildContext,
+  accessPath: readonly LoweringBindingAccessPlan[] = []
+): readonly LoweringBindingElementPlan[] => {
+  if (!node) return [];
+  if (node.Kind === TstsSyntax.KindIdentifier) {
+    const name = nodeTokenText(sourceFile, node);
+    return name && accessPath.length > 0 ? [{ name, accessPath }] : [];
+  }
+  const bindingPattern = TstsSyntax.AsBindingPattern(node);
+  if (!bindingPattern?.Elements) return [];
+  return nodeListNodes(bindingPattern.Elements).flatMap((elementNode, index) => {
+    const bindingElement = TstsSyntax.AsBindingElement(elementNode);
+    const nameNode = TstsSyntax.Node_Name(elementNode);
+    const propertyName =
+      bindingElement?.PropertyName ??
+      TstsSyntax.Node_PropertyNameOrName(elementNode);
+    const access: readonly LoweringBindingAccessPlan[] =
+      node.Kind === TstsSyntax.KindArrayBindingPattern
+        ? [...accessPath, { kind: "element", index }]
+        : [
+            ...accessPath,
+            {
+              kind: "property",
+              name:
+                (propertyName
+                  ? nodeTokenText(sourceFile, propertyName)
+                  : undefined) ??
+                nodeTokenText(sourceFile, nameNode) ??
+                `item${index}`,
+            },
+          ];
+    const nested = bindingElementsFromName(sourceFile, nameNode, context, access);
+    if (nested.length === 0) return [];
+    const initializer = bindingElement?.Initializer
+      ? expressionPlan(sourceFile, bindingElement.Initializer, context)
+      : undefined;
+    return initializer
+      ? nested.map((binding) => ({ ...binding, initializer }))
+      : nested;
+  });
+};
+
 const variablePlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
@@ -536,14 +693,18 @@ const variablePlan = (
 ): LoweringVariablePlan => {
   const variable = TstsSyntax.AsVariableDeclaration(node);
   const declaredType = variable?.Type ?? TstsSyntax.Node_Type(node);
+  const declaredTypeText = typeText(context, sourceFile, declaredType, undefined);
+  const nameNode = TstsSyntax.Node_Name(node);
   return {
     name: nodeName(sourceFile, node) ?? "value",
-    typeText: typeText(context, sourceFile, declaredType, undefined),
+    typeText: declaredTypeText,
     initializer: expressionPlan(
       sourceFile,
       variable?.Initializer ?? TstsSyntax.Node_Initializer(node),
-      context
+      context,
+      declaredTypeText
     ),
+    bindingElements: bindingElementsFromName(sourceFile, nameNode, context),
   };
 };
 
@@ -561,7 +722,8 @@ const variablesFromList = (
 const statementPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
-  context: LoweringBuildContext
+  context: LoweringBuildContext,
+  expectedReturnTypeText?: string
 ): LoweringStatementPlan | undefined => {
   if (!node) return undefined;
   const empty = {
@@ -577,7 +739,9 @@ const statementPlan = (
         ...empty,
         statementKind: "block",
         statements: (TstsSyntax.Node_Statements(node) ?? [])
-          .map((statement) => statementPlan(sourceFile, statement, context))
+          .map((statement) =>
+            statementPlan(sourceFile, statement, context, expectedReturnTypeText)
+          )
           .filter((item): item is LoweringStatementPlan => item !== undefined),
       };
     case TstsSyntax.KindReturnStatement: {
@@ -585,7 +749,12 @@ const statementPlan = (
       return {
         ...empty,
         statementKind: "return",
-        expression: expressionPlan(sourceFile, statement?.Expression, context),
+        expression: expressionPlan(
+          sourceFile,
+          statement?.Expression,
+          context,
+          expectedReturnTypeText
+        ),
       };
     }
     case TstsSyntax.KindExpressionStatement:
@@ -619,12 +788,14 @@ const statementPlan = (
         thenStatement: statementPlan(
           sourceFile,
           statement?.ThenStatement,
-          context
+          context,
+          expectedReturnTypeText
         ),
         elseStatement: statementPlan(
           sourceFile,
           statement?.ElseStatement,
-          context
+          context,
+          expectedReturnTypeText
         ),
       };
     }
@@ -634,7 +805,12 @@ const statementPlan = (
         ...empty,
         statementKind: "while",
         condition: expressionPlan(sourceFile, statement?.Expression, context),
-        body: statementPlan(sourceFile, statement?.Statement, context),
+        body: statementPlan(
+          sourceFile,
+          statement?.Statement,
+          context,
+          expectedReturnTypeText
+        ),
       };
     }
     case TstsSyntax.KindForStatement: {
@@ -655,7 +831,12 @@ const statementPlan = (
             : expressionPlan(sourceFile, statement?.Initializer, context),
         condition: expressionPlan(sourceFile, statement?.Condition, context),
         incrementor: expressionPlan(sourceFile, statement?.Incrementor, context),
-        body: statementPlan(sourceFile, statement?.Statement, context),
+        body: statementPlan(
+          sourceFile,
+          statement?.Statement,
+          context,
+          expectedReturnTypeText
+        ),
       };
     }
     case TstsSyntax.KindForOfStatement:
@@ -677,7 +858,12 @@ const statementPlan = (
             ? undefined
             : expressionPlan(sourceFile, statement?.Initializer, context),
         iterable: expressionPlan(sourceFile, statement?.Expression, context),
-        body: statementPlan(sourceFile, statement?.Statement, context),
+        body: statementPlan(
+          sourceFile,
+          statement?.Statement,
+          context,
+          expectedReturnTypeText
+        ),
       };
     }
     case TstsSyntax.KindBreakStatement:
@@ -697,7 +883,14 @@ const statementPlan = (
             expression: expressionPlan(sourceFile, clause?.Expression, context),
             isDefault: clauseNode.Kind === TstsSyntax.KindDefaultClause,
             statements: nodeListNodes(clause?.Statements)
-              .map((statement) => statementPlan(sourceFile, statement, context))
+              .map((statement) =>
+                statementPlan(
+                  sourceFile,
+                  statement,
+                  context,
+                  expectedReturnTypeText
+                )
+              )
               .filter(
                 (item): item is LoweringStatementPlan => item !== undefined
               ),
@@ -711,12 +904,27 @@ const statementPlan = (
       return {
         ...empty,
         statementKind: "try",
-        tryBlock: statementPlan(sourceFile, statement?.TryBlock, context),
+        tryBlock: statementPlan(
+          sourceFile,
+          statement?.TryBlock,
+          context,
+          expectedReturnTypeText
+        ),
         catchVariable: catchClause?.VariableDeclaration
           ? variablePlan(sourceFile, catchClause.VariableDeclaration, context)
           : undefined,
-        catchBlock: statementPlan(sourceFile, catchClause?.Block, context),
-        finallyBlock: statementPlan(sourceFile, statement?.FinallyBlock, context),
+        catchBlock: statementPlan(
+          sourceFile,
+          catchClause?.Block,
+          context,
+          expectedReturnTypeText
+        ),
+        finallyBlock: statementPlan(
+          sourceFile,
+          statement?.FinallyBlock,
+          context,
+          expectedReturnTypeText
+        ),
       };
     }
     case TstsSyntax.KindThrowStatement: {
@@ -755,8 +963,14 @@ const declarationKind = (
     case TstsSyntax.KindInterfaceDeclaration:
       return "interface";
     case TstsSyntax.KindMethodDeclaration:
+    case TstsSyntax.KindMethodSignature:
+    case TstsSyntax.KindCallSignature:
+    case TstsSyntax.KindConstructSignature:
       return "method";
     case TstsSyntax.KindPropertyDeclaration:
+    case TstsSyntax.KindPropertySignature:
+    case TstsSyntax.KindGetAccessor:
+    case TstsSyntax.KindSetAccessor:
       return "property";
     case TstsSyntax.KindTypeAliasDeclaration:
       return "type-alias";
@@ -774,23 +988,27 @@ const parameterPlans = (
 ): readonly LoweringParameterPlan[] =>
   (TstsSyntax.Node_Parameters(node) ?? [])
     .filter((parameter): parameter is TstsNode => parameter !== undefined)
-    .map((parameter): LoweringParameterPlan => ({
-      name: nodeName(sourceFile, parameter) ?? "arg",
-      typeText: typeText(
-        context,
-        sourceFile,
-        TstsSyntax.Node_Type(parameter),
-        undefined
-      ),
-      initializer: expressionPlan(
-        sourceFile,
-        TstsSyntax.Node_Initializer(parameter),
-        context
-      ),
-      optional: TstsSyntax.Node_QuestionToken(parameter) !== undefined,
-      rest:
-        TstsSyntax.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined,
-    }));
+    .map((parameter): LoweringParameterPlan => {
+      const checker = context.checkerForSourceFile(sourceFile);
+      const explicitType = TstsSyntax.Node_Type(parameter);
+      const nameNode = TstsSyntax.Node_Name(parameter);
+      const inferredType =
+        explicitType === undefined
+          ? checker.getTypeAtLocation(nameNode ?? parameter)
+          : undefined;
+      return {
+        name: nodeName(sourceFile, parameter) ?? "arg",
+        typeText: typeText(context, sourceFile, explicitType, inferredType),
+        initializer: expressionPlan(
+          sourceFile,
+          TstsSyntax.Node_Initializer(parameter),
+          context
+        ),
+        optional: TstsSyntax.Node_QuestionToken(parameter) !== undefined,
+        rest:
+          TstsSyntax.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined,
+      };
+    });
 
 const typeParameterNames = (
   sourceFile: TstsSourceFile,
@@ -845,6 +1063,12 @@ const declarationPlan = (
     ? checker.getReturnTypeOfSignature(signature)
     : undefined;
   const explicitReturnType = TstsSyntax.Node_Type(node);
+  const returnTypeText = typeText(
+    context,
+    sourceFile,
+    explicitReturnType,
+    inferredReturnType
+  );
   return {
     ...planBase("declaration", sourceFile, node),
     declarationKind: kind,
@@ -853,13 +1077,13 @@ const declarationPlan = (
     declaredTypeText: typeText(context, sourceFile, undefined, declaredType),
     parameters: parameterPlans(sourceFile, node, context),
     typeParameters: typeParameterNames(sourceFile, node),
-    returnTypeText: typeText(
-      context,
+    returnTypeText,
+    body: statementPlan(
       sourceFile,
-      explicitReturnType,
-      inferredReturnType
+      TstsSyntax.Node_Body(node),
+      context,
+      returnTypeText
     ),
-    body: statementPlan(sourceFile, TstsSyntax.Node_Body(node), context),
     initializer: expressionPlan(
       sourceFile,
       TstsSyntax.Node_Initializer(node),

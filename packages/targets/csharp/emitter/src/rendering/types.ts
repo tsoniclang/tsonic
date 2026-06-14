@@ -50,6 +50,30 @@ const genericArguments = (
   return argumentText === undefined ? undefined : splitTopLevel(argumentText, ",");
 };
 
+const arbitraryGeneric = (
+  typeText: string
+): { readonly name: string; readonly arguments: readonly string[] } | undefined => {
+  const firstLt = typeText.indexOf("<");
+  if (firstLt <= 0 || !typeText.endsWith(">")) return undefined;
+  let depth = 0;
+  for (let index = firstLt; index < typeText.length; index += 1) {
+    const char = typeText[index];
+    if (char === "<") depth += 1;
+    if (char === ">") depth -= 1;
+    if (depth === 0 && index !== typeText.length - 1) return undefined;
+  }
+  if (depth !== 0) return undefined;
+  const name = typeText.slice(0, firstLt).trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_.$:]*$/.test(name)) return undefined;
+  return {
+    name,
+    arguments: splitTopLevel(typeText.slice(firstLt + 1, -1), ","),
+  };
+};
+
+const renderNamedType = (name: string): string =>
+  name.replace(/\$/g, "_").replace(/\./g, "_");
+
 const renderFunctionType = (typeText: string): string | undefined => {
   const arrowIndex = typeText.indexOf("=>");
   if (arrowIndex < 0) return undefined;
@@ -175,6 +199,13 @@ export const renderCSharpType = (typeText: string | undefined): string => {
       : `global::System.Threading.Tasks.Task<${renderedPromise}>`;
   }
 
+  const generic = arbitraryGeneric(normalized);
+  if (generic) {
+    return `${renderNamedType(generic.name)}<${generic.arguments
+      .map((argument) => renderCSharpType(argument))
+      .join(", ")}>`;
+  }
+
   switch (normalized) {
     case "any":
     case "object":
@@ -245,7 +276,7 @@ export const renderCSharpType = (typeText: string | undefined): string => {
     default:
       return normalized.includes("|") || normalized.includes("&")
         ? "object?"
-        : normalized.replace(/\$/g, "_").replace(/\./g, "_");
+        : renderNamedType(normalized);
   }
 };
 

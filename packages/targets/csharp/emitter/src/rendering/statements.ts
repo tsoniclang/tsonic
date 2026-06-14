@@ -1,4 +1,5 @@
 import type {
+  LoweringBindingAccessPlan,
   LoweringStatementPlan,
   LoweringVariablePlan,
 } from "@tsonic/frontend";
@@ -28,10 +29,29 @@ const unsupportedStatement = (
   return "";
 };
 
+const renderBindingAccess = (
+  rootName: string,
+  accessPath: readonly LoweringBindingAccessPlan[]
+): string =>
+  accessPath.reduce((current, access) => {
+    switch (access.kind) {
+      case "element":
+        return `${current}[${access.index}]`;
+      case "property":
+        return `${current}.${sanitizeIdentifier(access.name)}`;
+      default:
+        return current;
+    }
+  }, rootName);
+
 export const renderVariableFragment = (
   declaration: LoweringVariablePlan,
   context: RenderContext
 ): string => {
+  if (declaration.bindingElements.length > 0) {
+    context.reportUnsupported("variable fragment binding pattern", "BindingPattern", declaration.name);
+    return "";
+  }
   const functionExpressionType = renderFunctionExpressionType(declaration.initializer);
   const declaredType = declaration.typeText
     ? renderCSharpType(declaration.typeText)
@@ -50,6 +70,10 @@ export const renderStaticField = (
   declaration: LoweringVariablePlan,
   context: RenderContext
 ): string => {
+  if (declaration.bindingElements.length > 0) {
+    context.reportUnsupported("top-level binding pattern", "BindingPattern", declaration.name);
+    return "";
+  }
   const functionExpressionType = renderFunctionExpressionType(declaration.initializer);
   const declaredType = declaration.typeText
     ? renderCSharpType(declaration.typeText)
@@ -121,6 +145,45 @@ const renderSwitch = (
   return lines.join("\n");
 };
 
+const renderVariableStatement = (
+  declarations: readonly LoweringVariablePlan[],
+  context: RenderContext
+): string =>
+  declarations
+    .flatMap((declaration): readonly string[] => {
+      if (declaration.bindingElements.length === 0) {
+        return [`${renderVariableFragment(declaration, context)};`];
+      }
+      if (!declaration.initializer) {
+        context.reportUnsupported(
+          "binding pattern without initializer",
+          "BindingPattern",
+          declaration.name
+        );
+        return [];
+      }
+      const tempName = context.allocateTempName("binding");
+      const lines = [`var ${tempName} = ${renderExpression(declaration.initializer, context)};`];
+      for (const binding of declaration.bindingElements) {
+        if (binding.initializer) {
+          context.reportUnsupported(
+            "binding pattern default initializer",
+            "BindingElement",
+            binding.name
+          );
+          continue;
+        }
+        lines.push(
+          `var ${sanitizeIdentifier(binding.name)} = ${renderBindingAccess(
+            tempName,
+            binding.accessPath
+          )};`
+        );
+      }
+      return lines;
+    })
+    .join("\n");
+
 export const renderStatement = (
   plan: LoweringStatementPlan | undefined,
   context: RenderContext
@@ -151,9 +214,7 @@ export const renderStatement = (
       }
       return `${renderExpression(plan.expression, context)};`;
     case "variable":
-      return plan.declarations
-        .map((declaration) => `${renderVariableFragment(declaration, context)};`)
-        .join("\n");
+      return renderVariableStatement(plan.declarations, context);
     case "if": {
       const thenBody = renderStatement(plan.thenStatement, context);
       const elseBody = plan.elseStatement

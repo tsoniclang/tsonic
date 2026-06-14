@@ -147,6 +147,25 @@ const renderObjectProperty = (
   return `${sanitizeIdentifier(property.name)} = ${renderExpression(property.expression, context)}`;
 };
 
+const objectLiteralTargetType = (
+  plan: LoweringExpressionPlan
+): string | undefined => {
+  const contextual = plan.contextualTypeText?.trim();
+  if (
+    !contextual ||
+    contextual === "any" ||
+    contextual === "unknown" ||
+    contextual === "object" ||
+    contextual.startsWith("{") ||
+    contextual.includes("=>") ||
+    contextual.includes("|") ||
+    contextual.includes("&")
+  ) {
+    return undefined;
+  }
+  return renderCSharpType(contextual);
+};
+
 const renderLambdaParameter = (parameter: LoweringParameterPlan): string =>
   `${parameter.rest ? "params " : ""}${renderCSharpType(parameter.typeText)} ${sanitizeIdentifier(parameter.name)}`;
 
@@ -178,6 +197,19 @@ const renderTypeArguments = (
     ? `<${typeArguments.map((typeArgument) => renderCSharpType(typeArgument)).join(", ")}>`
     : "";
 
+const firstRenderedTypeArgument = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext,
+  feature: string
+): string | undefined => {
+  const first = plan.typeArguments[0];
+  if (!first) {
+    context.reportUnsupported(feature, plan.sourceKindName, plan.sourceText);
+    return undefined;
+  }
+  return renderCSharpType(first);
+};
+
 const renderLambda = (
   plan: LoweringExpressionPlan,
   context: RenderContext
@@ -199,6 +231,48 @@ const renderCallArgument = (
   argument.expressionKind === "spread"
     ? renderExpression(argument.expression, context)
     : renderExpression(argument, context);
+
+const renderIntrinsicCall = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string | undefined => {
+  switch (plan.intrinsicKind) {
+    case undefined:
+      return undefined;
+    case "defaultof": {
+      const type = firstRenderedTypeArgument(plan, context, "defaultof intrinsic");
+      return type ? `default(${type})` : "";
+    }
+    case "nameof": {
+      const argument = plan.arguments[0];
+      return argument ? `nameof(${renderExpression(argument, context)})` : "\"\"";
+    }
+    case "sizeof": {
+      const type = firstRenderedTypeArgument(plan, context, "sizeof intrinsic");
+      return type ? `sizeof(${type})` : "";
+    }
+    case "istype": {
+      const type = firstRenderedTypeArgument(plan, context, "istype intrinsic");
+      const value = renderExpression(plan.arguments[0], context);
+      return type ? `${value} is ${type}` : "";
+    }
+    case "trycast": {
+      const type = firstRenderedTypeArgument(plan, context, "trycast intrinsic");
+      const value = renderExpression(plan.arguments[0], context);
+      return type ? `${value} as ${type}` : "";
+    }
+    case "asinterface": {
+      const type = firstRenderedTypeArgument(plan, context, "asinterface intrinsic");
+      const value = renderExpression(plan.arguments[0], context);
+      return type ? `((${type})(${value}))` : "";
+    }
+    case "stackalloc": {
+      const type = firstRenderedTypeArgument(plan, context, "stackalloc intrinsic");
+      const length = renderExpression(plan.arguments[0], context);
+      return type ? `stackalloc ${type}[${length}]` : "";
+    }
+  }
+};
 
 const expressionRootName = (
   plan: LoweringExpressionPlan | undefined
@@ -284,6 +358,8 @@ export const renderExpression = (
       return `${renderExpression(plan.expression, context)}${renderUnaryOperator(plan.operatorText, context, plan)}`;
     case "typeof":
       return `((object?)${renderExpression(plan.expression, context)}) switch { null => "object", string => "string", char => "string", bool => "boolean", sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal => "number", global::System.Numerics.BigInteger => "bigint", global::System.Delegate => "function", _ => "object" }`;
+    case "void":
+      return renderExpression(plan.expression, context);
     case "property-access": {
       const rawMember = plan.literalText ?? "member";
       if (
@@ -303,10 +379,19 @@ export const renderExpression = (
     case "element-access":
       return `${renderExpression(plan.expression, context)}[${renderExpression(plan.arguments[0], context)}]`;
     case "call":
+      {
+        const intrinsic = renderIntrinsicCall(plan, context);
+        if (intrinsic !== undefined) return intrinsic;
+      }
       return `${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments)}(${plan.arguments
         .map((argument) => renderCallArgument(argument, context))
         .join(", ")})`;
     case "new":
+      if (expressionRootName(plan.expression) === "Error") {
+        return `new global::System.Exception(${plan.arguments
+          .map((argument) => renderCallArgument(argument, context))
+          .join(", ")})`;
+      }
       return `new ${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments)}(${plan.arguments
         .map((argument) => renderCallArgument(argument, context))
         .join(", ")})`;
@@ -323,10 +408,14 @@ export const renderExpression = (
         .map((element) => renderExpression(element, context))
         .join(", ")} }`;
     case "object-literal":
-      return `new { ${plan.properties
+      {
+        const targetType = objectLiteralTargetType(plan);
+        const constructor = targetType ? `new ${targetType}` : "new";
+        return `${constructor} { ${plan.properties
         .map((property) => renderObjectProperty(property, context))
         .filter((rendered): rendered is string => rendered !== undefined)
         .join(", ")} }`;
+      }
     case "conditional":
       return `${renderConditionExpression(plan.condition, context)} ? ${renderExpression(
         plan.whenTrue,

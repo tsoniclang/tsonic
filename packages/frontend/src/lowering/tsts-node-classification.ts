@@ -35,8 +35,15 @@ export const isDeclarationNode = (node: TstsNode): boolean => {
     case TstsSyntax.KindEnumMember:
     case TstsSyntax.KindFunctionDeclaration:
     case TstsSyntax.KindInterfaceDeclaration:
+    case TstsSyntax.KindCallSignature:
+    case TstsSyntax.KindConstructSignature:
     case TstsSyntax.KindMethodDeclaration:
+    case TstsSyntax.KindMethodSignature:
     case TstsSyntax.KindPropertyDeclaration:
+    case TstsSyntax.KindPropertySignature:
+    case TstsSyntax.KindGetAccessor:
+    case TstsSyntax.KindSetAccessor:
+    case TstsSyntax.KindIndexSignature:
     case TstsSyntax.KindTypeAliasDeclaration:
     case TstsSyntax.KindVariableDeclaration:
       return true;
@@ -104,6 +111,7 @@ export const isExpressionNode = (node: TstsNode): boolean => {
     case TstsSyntax.KindThisKeyword:
     case TstsSyntax.KindTrueKeyword:
     case TstsSyntax.KindTypeAssertionExpression:
+    case TstsSyntax.KindVoidExpression:
     case TstsSyntax.KindYieldExpression:
       return true;
     default:

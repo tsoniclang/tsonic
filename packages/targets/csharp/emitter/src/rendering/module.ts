@@ -17,8 +17,14 @@ const hasNamespaceDeclarationShape = (
 
 const createRenderContext = (): RenderContext => {
   const diagnostics: RenderContext["diagnostics"] = [];
+  let nextTempId = 0;
   return {
     diagnostics,
+    allocateTempName: (prefix) => {
+      const name = `__tsonic_${prefix}_${nextTempId}`;
+      nextTempId += 1;
+      return name;
+    },
     reportUnsupported: (feature, sourceKindName, sourceText) => {
       diagnostics.push({
         code: "TSN2001",

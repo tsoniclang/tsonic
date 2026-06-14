@@ -208,6 +208,17 @@ const renderInterface = (
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "interface");
   if (!declarationName) return undefined;
+  if (plan.members.every((member) => member.declarationKind === "property")) {
+    return [
+      `public sealed class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
+      "{",
+      ...plan.members
+        .map((member) => renderProperty(member, context))
+        .filter((rendered): rendered is string => rendered !== undefined)
+        .map((rendered) => indent(rendered, 4)),
+      "}",
+    ].join("\n");
+  }
   return [
     `public interface ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
     "{",
@@ -250,6 +261,7 @@ const renderVariable = (
       name: declarationName,
       typeText: plan.returnTypeText ?? plan.declaredTypeText,
       initializer: plan.initializer,
+      bindingElements: [],
     },
     context
   );
