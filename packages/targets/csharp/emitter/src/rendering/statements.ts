@@ -227,7 +227,7 @@ export const renderStatement = (
         return "";
       }
       if (plan.expression?.expressionKind === "yield") {
-        if (plan.expression.operatorText === "*") {
+        if (plan.expression.yieldDelegates) {
           context.reportUnsupported(
             "yield delegation",
             plan.expression.sourceKindName,

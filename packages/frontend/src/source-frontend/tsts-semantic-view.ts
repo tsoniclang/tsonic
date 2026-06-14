@@ -22,7 +22,6 @@ import type {
   SourceSemanticView,
 } from "./semantic-view.js";
 import { createSourceSemanticFactStore } from "./semantic-view.js";
-import { selectedSignatureFactKey } from "./source-facts.js";
 
 type TstsSemanticType = GoPtr<TstsType>;
 type TstsSemanticSymbol = GoPtr<TstsSymbol>;
@@ -652,7 +651,6 @@ export const createTstsSemanticView = (
   isArrayType: (type: TstsSemanticType): boolean => checker.isArrayType(type),
   isTupleType: (type: TstsSemanticType): boolean => checker.isTupleType(type),
   getResolvedSignature: (callExpression: TstsNode): TstsSemanticSignature =>
-    facts.get(selectedSignatureFactKey, callExpression)?.signature ??
     checker.getResolvedSignature(callExpression),
   getSignatureDeclaration: (
     signature: TstsSemanticSignature

@@ -1,11 +1,14 @@
 export type {
   BackendTargetId,
+  LoweringBinaryOperator,
   LoweringBindingAccessPlan,
   LoweringBindingElementPlan,
   LoweringBuildContext,
   LoweringCallPlan,
   LoweringDeclarationPlan,
   LoweringExpressionPlan,
+  LoweringExpressionAliasPlan,
+  LoweringExpressionSemantic,
   LoweringFeature,
   LoweringIndexAccessPlan,
   LoweringInput,
@@ -24,6 +27,7 @@ export type {
   LoweringTypeMemberPlan,
   LoweringTypePlan,
   LoweringTypeRefPlan,
+  LoweringUnaryOperator,
   LoweringVariablePlan,
 } from "./types.js";
 export { createLoweringInput } from "./input.js";

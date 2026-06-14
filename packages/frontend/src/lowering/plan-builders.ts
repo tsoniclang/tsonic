@@ -8,11 +8,12 @@ import {
 import type { TstsNode, TstsSourceFile, TstsType } from "@tsonic/tsts";
 import {
   intrinsicSemanticsFactKey,
+  markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
-  selectedSignatureFactKey,
 } from "../source-frontend/source-facts.js";
 import type {
+  LoweringBinaryOperator,
   LoweringBindingAccessPlan,
   LoweringBindingElementPlan,
   LoweringBuildContext,
@@ -32,6 +33,7 @@ import type {
   LoweringTypeMemberPlan,
   LoweringTypePlan,
   LoweringTypeRefPlan,
+  LoweringUnaryOperator,
   LoweringVariablePlan,
 } from "./types.js";
 import {
@@ -46,10 +48,13 @@ const nodeSourceText = (
   sourceFile: TstsSourceFile,
   node: TstsNode
 ): string => {
-  const text = sourceFile.Text();
-  const pos = Math.max(0, Math.min(TstsSyntax.Node_Pos(node), text.length));
-  const end = Math.max(pos, Math.min(TstsSyntax.Node_End(node), text.length));
-  return text.slice(pos, end);
+  void sourceFile;
+  try {
+    const text = TstsSyntax.Node_Text(node);
+    return text === "" ? TstsSyntax.Node_KindString(node) : text;
+  } catch {
+    return TstsSyntax.Node_KindString(node);
+  }
 };
 
 const nodeTokenText = (node: TstsNode | undefined): string | undefined => {
@@ -152,6 +157,106 @@ const modifierFlags = (node: TstsNode): number =>
 
 const nodeHasModifier = (node: TstsNode, flag: number): boolean =>
   (modifierFlags(node) & flag) !== 0;
+
+const binaryOperatorFromKind = (
+  kind: number | undefined
+): LoweringBinaryOperator | undefined => {
+  switch (kind) {
+    case TstsSyntax.KindEqualsEqualsToken:
+      return "equal";
+    case TstsSyntax.KindEqualsEqualsEqualsToken:
+      return "strict-equal";
+    case TstsSyntax.KindExclamationEqualsToken:
+      return "not-equal";
+    case TstsSyntax.KindExclamationEqualsEqualsToken:
+      return "strict-not-equal";
+    case TstsSyntax.KindAmpersandAmpersandToken:
+      return "logical-and";
+    case TstsSyntax.KindBarBarToken:
+      return "logical-or";
+    case TstsSyntax.KindQuestionQuestionToken:
+      return "nullish-coalesce";
+    case TstsSyntax.KindPlusToken:
+      return "add";
+    case TstsSyntax.KindMinusToken:
+      return "subtract";
+    case TstsSyntax.KindAsteriskToken:
+      return "multiply";
+    case TstsSyntax.KindSlashToken:
+      return "divide";
+    case TstsSyntax.KindPercentToken:
+      return "remainder";
+    case TstsSyntax.KindAmpersandToken:
+      return "bitwise-and";
+    case TstsSyntax.KindBarToken:
+      return "bitwise-or";
+    case TstsSyntax.KindCaretToken:
+      return "bitwise-xor";
+    case TstsSyntax.KindLessThanLessThanToken:
+      return "left-shift";
+    case TstsSyntax.KindGreaterThanGreaterThanToken:
+      return "signed-right-shift";
+    case TstsSyntax.KindGreaterThanGreaterThanGreaterThanToken:
+      return "unsigned-right-shift";
+    case TstsSyntax.KindLessThanToken:
+      return "less-than";
+    case TstsSyntax.KindLessThanEqualsToken:
+      return "less-than-or-equal";
+    case TstsSyntax.KindGreaterThanToken:
+      return "greater-than";
+    case TstsSyntax.KindGreaterThanEqualsToken:
+      return "greater-than-or-equal";
+    case TstsSyntax.KindEqualsToken:
+      return "assign";
+    case TstsSyntax.KindPlusEqualsToken:
+      return "add-assign";
+    case TstsSyntax.KindMinusEqualsToken:
+      return "subtract-assign";
+    case TstsSyntax.KindAsteriskEqualsToken:
+      return "multiply-assign";
+    case TstsSyntax.KindSlashEqualsToken:
+      return "divide-assign";
+    case TstsSyntax.KindPercentEqualsToken:
+      return "remainder-assign";
+    case TstsSyntax.KindAmpersandEqualsToken:
+      return "bitwise-and-assign";
+    case TstsSyntax.KindBarEqualsToken:
+      return "bitwise-or-assign";
+    case TstsSyntax.KindCaretEqualsToken:
+      return "bitwise-xor-assign";
+    case TstsSyntax.KindLessThanLessThanEqualsToken:
+      return "left-shift-assign";
+    case TstsSyntax.KindGreaterThanGreaterThanEqualsToken:
+      return "signed-right-shift-assign";
+    case TstsSyntax.KindGreaterThanGreaterThanGreaterThanEqualsToken:
+      return "unsigned-right-shift-assign";
+    case TstsSyntax.KindInstanceOfKeyword:
+      return "instanceof";
+    default:
+      return undefined;
+  }
+};
+
+const unaryOperatorFromKind = (
+  kind: number | undefined
+): LoweringUnaryOperator | undefined => {
+  switch (kind) {
+    case TstsSyntax.KindPlusToken:
+      return "plus";
+    case TstsSyntax.KindMinusToken:
+      return "minus";
+    case TstsSyntax.KindExclamationToken:
+      return "logical-not";
+    case TstsSyntax.KindTildeToken:
+      return "bitwise-not";
+    case TstsSyntax.KindPlusPlusToken:
+      return "increment";
+    case TstsSyntax.KindMinusMinusToken:
+      return "decrement";
+    default:
+      return undefined;
+  }
+};
 
 const compactNodeSourceText = (
   sourceFile: TstsSourceFile,
@@ -599,9 +704,7 @@ const callExpectedArgumentTypes = (
   context: LoweringBuildContext
 ): readonly (LoweringTypeRefPlan | undefined)[] => {
   const checker = context.checkerForSourceFile(sourceFile);
-  const selected =
-    context.input.facts.get(selectedSignatureFactKey, node)?.signature ??
-    checker.getResolvedSignature(node);
+  const selected = checker.getResolvedSignature(node);
   if (!selected) return [];
   return checker.getSignatureParameters(selected).map((parameter) => {
     const declaration =
@@ -678,6 +781,92 @@ const functionReturnType = (
   return signature ? checker.getReturnTypeOfSignature(signature) : undefined;
 };
 
+const isIdentifierText = (
+  node: TstsNode | undefined,
+  text: string
+): boolean =>
+  node?.Kind === TstsSyntax.KindIdentifier && nodeTokenText(node) === text;
+
+const isCompileTimeMarkerApiExpression = (
+  node: TstsNode | undefined,
+  context: LoweringBuildContext
+): boolean => {
+  if (!node) return false;
+  if (context.input.facts.get(markerApiSemanticsFactKey, node)?.kind === "overloads") {
+    return true;
+  }
+  switch (node.Kind) {
+    case TstsSyntax.KindCallExpression:
+    case TstsSyntax.KindNewExpression:
+    case TstsSyntax.KindPropertyAccessExpression:
+      return isCompileTimeMarkerApiExpression(
+        TstsSyntax.Node_Expression(node),
+        context
+      );
+    case TstsSyntax.KindParenthesizedExpression:
+      return isCompileTimeMarkerApiExpression(
+        TstsSyntax.Node_Expression(node),
+        context
+      );
+    default:
+      return false;
+  }
+};
+
+const propertyAccessSemantic = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext
+): "console-write" | "length-property" | undefined => {
+  const receiver = TstsSyntax.Node_Expression(node);
+  const memberName = nodeTokenText(TstsSyntax.Node_Name(node));
+  if (
+    isIdentifierText(receiver, "console") &&
+    (memberName === "log" ||
+      memberName === "info" ||
+      memberName === "warn" ||
+      memberName === "error")
+  ) {
+    return "console-write";
+  }
+  if (memberName !== "length") return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const receiverType = checker.getNarrowedTypeAtLocation(receiver);
+  return receiverType &&
+    (checker.isStringLikeType(receiverType) ||
+      checker.isArrayType(receiverType) ||
+      checker.isTupleType(receiverType))
+    ? "length-property"
+    : undefined;
+};
+
+const expressionSemantic = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext
+):
+  | "undefined-value"
+  | "console-write"
+  | "error-constructor"
+  | "length-property"
+  | "compile-time-marker-call"
+  | undefined => {
+  if (isCompileTimeMarkerApiExpression(node, context)) {
+    return "compile-time-marker-call";
+  }
+  if (isIdentifierText(node, "undefined")) return "undefined-value";
+  if (node.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    return propertyAccessSemantic(sourceFile, node, context);
+  }
+  if (
+    node.Kind === TstsSyntax.KindNewExpression &&
+    isIdentifierText(TstsSyntax.Node_Expression(node), "Error")
+  ) {
+    return "error-constructor";
+  }
+  return undefined;
+};
+
 const expressionPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
@@ -693,6 +882,7 @@ const expressionPlan = (
     type: checkerTypePlan(context, sourceFile, useSiteType),
     contextualTypePlan:
       expectedType ?? checkerTypePlan(context, sourceFile, contextualType),
+    semantic: expressionSemantic(sourceFile, node, context),
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,
@@ -709,6 +899,14 @@ const expressionPlan = (
 
   switch (node.Kind) {
     case TstsSyntax.KindIdentifier:
+      if (base.semantic === "undefined-value") {
+        return {
+          ...base,
+          expressionKind: "literal",
+          literalKind: "undefined",
+          literalText: "undefined",
+        };
+      }
       return {
         ...base,
         expressionKind: "identifier",
@@ -842,7 +1040,7 @@ const expressionPlan = (
           yieldExpression.Expression,
           context
         ),
-        operatorText: yieldExpression.AsteriskToken ? "*" : undefined,
+        yieldDelegates: yieldExpression.AsteriskToken !== undefined,
       };
     }
     case TstsSyntax.KindSpreadElement:
@@ -863,9 +1061,7 @@ const expressionPlan = (
         ...base,
         expressionKind: "binary",
         left: expressionPlan(sourceFile, binary.Left, context),
-        operatorText: binary.OperatorToken
-          ? TstsSyntax.KindString(binary.OperatorToken.Kind)
-          : undefined,
+        binaryOperator: binaryOperatorFromKind(binary.OperatorToken?.Kind),
         right: expressionPlan(sourceFile, binary.Right, context),
       };
     }
@@ -875,7 +1071,7 @@ const expressionPlan = (
       return {
         ...base,
         expressionKind: "prefix-unary",
-        operatorText: TstsSyntax.KindString(unary.Operator),
+        unaryOperator: unaryOperatorFromKind(unary.Operator),
         expression: expressionPlan(sourceFile, unary.Operand, context),
       };
     }
@@ -885,7 +1081,7 @@ const expressionPlan = (
       return {
         ...base,
         expressionKind: "postfix-unary",
-        operatorText: TstsSyntax.KindString(unary.Operator),
+        unaryOperator: unaryOperatorFromKind(unary.Operator),
         expression: expressionPlan(sourceFile, unary.Operand, context),
       };
     }
@@ -1607,9 +1803,7 @@ export const buildLoweringPlansForSourceFile = (
       node.Kind === TstsSyntax.KindCallExpression ||
       node.Kind === TstsSyntax.KindNewExpression
     ) {
-      const selected =
-        context.input.facts.get(selectedSignatureFactKey, node)?.signature ??
-        checker.getResolvedSignature(node);
+      const selected = checker.getResolvedSignature(node);
       buckets.calls.push({
         ...planBase("call", sourceFile, node),
         signature: selected,

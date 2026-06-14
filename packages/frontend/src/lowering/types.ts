@@ -48,6 +48,11 @@ export type LoweringModuleIdentity = {
   readonly className: string;
 };
 
+export type LoweringExpressionAliasPlan = {
+  readonly aliasName: string;
+  readonly targetName: string;
+};
+
 export type LoweringPlanBase<TKind extends string> = {
   readonly kind: TKind;
   readonly sourceFile: TstsSourceFile;
@@ -237,6 +242,58 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
   readonly static: boolean;
 };
 
+export type LoweringBinaryOperator =
+  | "equal"
+  | "strict-equal"
+  | "not-equal"
+  | "strict-not-equal"
+  | "logical-and"
+  | "logical-or"
+  | "nullish-coalesce"
+  | "add"
+  | "subtract"
+  | "multiply"
+  | "divide"
+  | "remainder"
+  | "bitwise-and"
+  | "bitwise-or"
+  | "bitwise-xor"
+  | "left-shift"
+  | "signed-right-shift"
+  | "unsigned-right-shift"
+  | "less-than"
+  | "less-than-or-equal"
+  | "greater-than"
+  | "greater-than-or-equal"
+  | "assign"
+  | "add-assign"
+  | "subtract-assign"
+  | "multiply-assign"
+  | "divide-assign"
+  | "remainder-assign"
+  | "bitwise-and-assign"
+  | "bitwise-or-assign"
+  | "bitwise-xor-assign"
+  | "left-shift-assign"
+  | "signed-right-shift-assign"
+  | "unsigned-right-shift-assign"
+  | "instanceof";
+
+export type LoweringUnaryOperator =
+  | "plus"
+  | "minus"
+  | "logical-not"
+  | "bitwise-not"
+  | "increment"
+  | "decrement";
+
+export type LoweringExpressionSemantic =
+  | "undefined-value"
+  | "console-write"
+  | "error-constructor"
+  | "length-property"
+  | "compile-time-marker-call";
+
 export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly expressionKind:
     | "identifier"
@@ -271,7 +328,10 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly literalKind?: "string" | "number" | "bigint" | "boolean" | "null" | "undefined";
   readonly literalText?: string;
   readonly returnType?: LoweringTypeRefPlan;
-  readonly operatorText?: string;
+  readonly binaryOperator?: LoweringBinaryOperator;
+  readonly unaryOperator?: LoweringUnaryOperator;
+  readonly semantic?: LoweringExpressionSemantic;
+  readonly yieldDelegates?: boolean;
   readonly expression?: LoweringExpressionPlan;
   readonly left?: LoweringExpressionPlan;
   readonly right?: LoweringExpressionPlan;
@@ -381,6 +441,7 @@ export type LoweringModulePlan<Target extends BackendTargetId = BackendTargetId>
     readonly sourceModule: ExtensionSourceModule;
     readonly imports: readonly ExtensionModuleImport[];
     readonly exports: readonly ExtensionExportBinding[];
+    readonly expressionAliases: readonly LoweringExpressionAliasPlan[];
     readonly declarations: readonly LoweringDeclarationPlan[];
     readonly topLevelStatements: readonly LoweringStatementPlan[];
     readonly types: readonly LoweringTypePlan[];

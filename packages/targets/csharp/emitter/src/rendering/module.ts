@@ -34,67 +34,6 @@ const isStaticTopLevelVariableStatement = (
     (declaration) => declaration.bindingElements.length === 0
   );
 
-const variableInitializerIdentifier = (
-  declaration: LoweringDeclarationPlan
-): string | undefined =>
-  declaration.declarationKind === "variable" &&
-  declaration.initializer?.expressionKind === "identifier"
-    ? declaration.initializer.literalText ?? declaration.initializer.name
-    : undefined;
-
-const variablePlanInitializerIdentifier = (
-  declaration: LoweringVariablePlan
-): string | undefined =>
-  declaration.initializer?.expressionKind === "identifier"
-    ? declaration.initializer.literalText ?? declaration.initializer.name
-    : undefined;
-
-const buildGenericFunctionAliasMap = (
-  module: CSharpLoweringModulePlan
-): ReadonlyMap<string, string> => {
-  const declarations = module.declarations;
-  const topLevelVariables = module.topLevelStatements.flatMap(
-    (statement) => statement.declarations
-  );
-  const genericFunctions = new Set(
-    declarations
-      .filter(
-        (declaration) =>
-          declaration.declarationKind === "function" &&
-          declaration.name !== undefined &&
-          declaration.typeParameters.length > 0
-      )
-      .map((declaration) => declaration.name)
-  );
-  const aliases = new Map<string, string>();
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const declaration of declarations) {
-      if (declaration.declarationKind !== "variable" || !declaration.name) {
-        continue;
-      }
-      if (aliases.has(declaration.name)) continue;
-      const target = variableInitializerIdentifier(declaration);
-      if (!target) continue;
-      const resolvedTarget = aliases.get(target) ?? target;
-      if (!genericFunctions.has(resolvedTarget)) continue;
-      aliases.set(declaration.name, resolvedTarget);
-      changed = true;
-    }
-    for (const declaration of topLevelVariables) {
-      if (aliases.has(declaration.name)) continue;
-      const target = variablePlanInitializerIdentifier(declaration);
-      if (!target) continue;
-      const resolvedTarget = aliases.get(target) ?? target;
-      if (!genericFunctions.has(resolvedTarget)) continue;
-      aliases.set(declaration.name, resolvedTarget);
-      changed = true;
-    }
-  }
-  return aliases;
-};
-
 const collectStructuralType = (
   types: Map<string, LoweringTypeRefPlan>,
   type: LoweringTypeRefPlan | undefined
@@ -311,7 +250,9 @@ export const emitModule = (
   module: CSharpLoweringModulePlan,
   _options: Partial<EmitterOptions> = {}
 ): ModuleEmitResult => {
-  const expressionAliases = buildGenericFunctionAliasMap(module);
+  const expressionAliases = new Map(
+    module.expressionAliases.map((alias) => [alias.aliasName, alias.targetName])
+  );
   const context = createRenderContext(expressionAliases);
   const isGenericFunctionAlias = (name: string | undefined): boolean =>
     name !== undefined && expressionAliases.has(name);

@@ -9,6 +9,9 @@ import { sanitizeIdentifier } from "./names.js";
 import { renderStatement } from "./statements.js";
 import { renderCSharpType } from "./types.js";
 
+type LoweringBinaryOperator = NonNullable<LoweringExpressionPlan["binaryOperator"]>;
+type LoweringUnaryOperator = NonNullable<LoweringExpressionPlan["unaryOperator"]>;
+
 const escapeString = (value: string): string =>
   value
     .replace(/\\/g, "\\\\")
@@ -27,105 +30,65 @@ const unsupportedExpression = (
   return "";
 };
 
-const binaryOperatorMap: ReadonlyMap<string, string> = new Map([
-  ["===", "=="],
-  ["KindEqualsEqualsEqualsToken", "=="],
-  ["==", "=="],
-  ["KindEqualsEqualsToken", "=="],
-  ["!==", "!="],
-  ["KindExclamationEqualsEqualsToken", "!="],
-  ["!=", "!="],
-  ["KindExclamationEqualsToken", "!="],
-  ["&&", "&&"],
-  ["KindAmpersandAmpersandToken", "&&"],
-  ["||", "||"],
-  ["KindBarBarToken", "||"],
-  ["??", "??"],
-  ["KindQuestionQuestionToken", "??"],
-  ["+", "+"],
-  ["KindPlusToken", "+"],
-  ["-", "-"],
-  ["KindMinusToken", "-"],
-  ["*", "*"],
-  ["KindAsteriskToken", "*"],
-  ["/", "/"],
-  ["KindSlashToken", "/"],
-  ["%", "%"],
-  ["KindPercentToken", "%"],
-  ["&", "&"],
-  ["KindAmpersandToken", "&"],
-  ["|", "|"],
-  ["KindBarToken", "|"],
-  ["^", "^"],
-  ["KindCaretToken", "^"],
-  ["<<", "<<"],
-  ["KindLessThanLessThanToken", "<<"],
-  [">>", ">>"],
-  ["KindGreaterThanGreaterThanToken", ">>"],
-  [">>>", ">>"],
-  ["KindGreaterThanGreaterThanGreaterThanToken", ">>"],
-  ["<", "<"],
-  ["KindLessThanToken", "<"],
-  ["<=", "<="],
-  ["KindLessThanEqualsToken", "<="],
-  [">", ">"],
-  ["KindGreaterThanToken", ">"],
-  [">=", ">="],
-  ["KindGreaterThanEqualsToken", ">="],
-  ["=", "="],
-  ["KindEqualsToken", "="],
-  ["+=", "+="],
-  ["KindPlusEqualsToken", "+="],
-  ["-=", "-="],
-  ["KindMinusEqualsToken", "-="],
-  ["*=", "*="],
-  ["KindAsteriskEqualsToken", "*="],
-  ["/=", "/="],
-  ["KindSlashEqualsToken", "/="],
-  ["%=", "%="],
-  ["KindPercentEqualsToken", "%="],
-  ["&=", "&="],
-  ["KindAmpersandEqualsToken", "&="],
-  ["|=", "|="],
-  ["KindBarEqualsToken", "|="],
-  ["^=", "^="],
-  ["KindCaretEqualsToken", "^="],
-  ["<<=", "<<="],
-  ["KindLessThanLessThanEqualsToken", "<<="],
-  [">>=", ">>="],
-  ["KindGreaterThanGreaterThanEqualsToken", ">>="],
-  [">>>=", ">>="],
-  ["KindGreaterThanGreaterThanGreaterThanEqualsToken", ">>="],
+const binaryOperatorMap: ReadonlyMap<LoweringBinaryOperator, string> = new Map([
+  ["equal", "=="],
+  ["strict-equal", "=="],
+  ["not-equal", "!="],
+  ["strict-not-equal", "!="],
+  ["logical-and", "&&"],
+  ["logical-or", "||"],
+  ["nullish-coalesce", "??"],
+  ["add", "+"],
+  ["subtract", "-"],
+  ["multiply", "*"],
+  ["divide", "/"],
+  ["remainder", "%"],
+  ["bitwise-and", "&"],
+  ["bitwise-or", "|"],
+  ["bitwise-xor", "^"],
+  ["left-shift", "<<"],
+  ["signed-right-shift", ">>"],
+  ["unsigned-right-shift", ">>"],
+  ["less-than", "<"],
+  ["less-than-or-equal", "<="],
+  ["greater-than", ">"],
+  ["greater-than-or-equal", ">="],
+  ["assign", "="],
+  ["add-assign", "+="],
+  ["subtract-assign", "-="],
+  ["multiply-assign", "*="],
+  ["divide-assign", "/="],
+  ["remainder-assign", "%="],
+  ["bitwise-and-assign", "&="],
+  ["bitwise-or-assign", "|="],
+  ["bitwise-xor-assign", "^="],
+  ["left-shift-assign", "<<="],
+  ["signed-right-shift-assign", ">>="],
+  ["unsigned-right-shift-assign", ">>="],
   ["instanceof", "is"],
-  ["KindInstanceOfKeyword", "is"],
 ]);
 
-const renderOperator = (operatorText: string | undefined): string | undefined =>
-  operatorText ? binaryOperatorMap.get(operatorText) : undefined;
+const renderOperator = (
+  operator: LoweringBinaryOperator | undefined
+): string | undefined => (operator ? binaryOperatorMap.get(operator) : undefined);
 
 const renderUnaryOperator = (
-  operatorText: string | undefined,
+  operator: LoweringUnaryOperator | undefined,
   context: RenderContext,
   plan: LoweringExpressionPlan
 ): string => {
-  switch (operatorText) {
-    case "PlusToken":
-    case "KindPlusToken":
+  switch (operator) {
+    case "plus":
       return "+";
-    case "MinusToken":
-    case "KindMinusToken":
+    case "minus":
       return "-";
-    case "ExclamationToken":
-    case "KindExclamationToken":
+    case "logical-not":
       return "!";
-    case "TildeToken":
-    case "KindTildeToken":
+    case "bitwise-not":
       return "~";
-    case "PlusPlusToken":
-    case "KindPlusPlusToken":
+    case "increment":
       return "++";
-    case "MinusMinusToken":
-    case "KindMinusMinusToken":
+    case "decrement":
       return "--";
     default:
       context.reportUnsupported("unary operator", plan.sourceKindName, plan.sourceText);
@@ -316,27 +279,9 @@ const renderIntrinsicCall = (
   }
 };
 
-const expressionRootName = (
-  plan: LoweringExpressionPlan | undefined
-): string | undefined => {
-  if (!plan) return undefined;
-  switch (plan.expressionKind) {
-    case "identifier":
-      return plan.literalText ?? plan.name;
-    case "call":
-    case "property-access":
-      return expressionRootName(plan.expression);
-    default:
-      return undefined;
-  }
-};
-
 export const isCompileTimeOnlyExpression = (
   plan: LoweringExpressionPlan | undefined
-): boolean => {
-  const rootName = expressionRootName(plan);
-  return rootName === "O" || rootName === "overloads";
-};
+): boolean => plan?.semantic === "compile-time-marker-call";
 
 export const renderExpression = (
   plan: LoweringExpressionPlan | undefined,
@@ -346,7 +291,6 @@ export const renderExpression = (
 
   switch (plan.expressionKind) {
     case "identifier":
-      if ((plan.literalText ?? plan.name) === "undefined") return "null";
       {
         const rawName = plan.literalText ?? plan.name ?? "value";
         return sanitizeIdentifier(context.expressionAliases.get(rawName) ?? rawName);
@@ -393,32 +337,25 @@ export const renderExpression = (
       context.reportUnsupported("spread expression", plan.sourceKindName, plan.sourceText);
       return "";
     case "binary": {
-      const operator = renderOperator(plan.operatorText);
+      const operator = renderOperator(plan.binaryOperator);
       if (!operator) return unsupportedExpression(context, plan);
       return `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
     }
     case "prefix-unary":
-      return `${renderUnaryOperator(plan.operatorText, context, plan)}${renderExpression(plan.expression, context)}`;
+      return `${renderUnaryOperator(plan.unaryOperator, context, plan)}${renderExpression(plan.expression, context)}`;
     case "postfix-unary":
-      return `${renderExpression(plan.expression, context)}${renderUnaryOperator(plan.operatorText, context, plan)}`;
+      return `${renderExpression(plan.expression, context)}${renderUnaryOperator(plan.unaryOperator, context, plan)}`;
     case "typeof":
       return `((object?)${renderExpression(plan.expression, context)}) switch { null => "object", string => "string", char => "string", bool => "boolean", sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal => "number", global::System.Numerics.BigInteger => "bigint", global::System.Delegate => "function", _ => "object" }`;
     case "void":
       return renderExpression(plan.expression, context);
     case "property-access": {
       const rawMember = plan.literalText ?? "member";
-      if (
-        plan.expression?.expressionKind === "identifier" &&
-        (plan.expression.literalText ?? plan.expression.name) === "console" &&
-        (rawMember === "log" ||
-          rawMember === "info" ||
-          rawMember === "warn" ||
-          rawMember === "error")
-      ) {
+      if (plan.semantic === "console-write") {
         return "global::System.Console.WriteLine";
       }
       const member = sanitizeIdentifier(rawMember);
-      const renderedMember = member === "length" ? "Length" : member;
+      const renderedMember = plan.semantic === "length-property" ? "Length" : member;
       return `${renderExpression(plan.expression, context)}.${renderedMember}`;
     }
     case "element-access":
@@ -432,7 +369,7 @@ export const renderExpression = (
         .map((argument) => renderCallArgument(argument, context))
         .join(", ")})`;
     case "new":
-      if (expressionRootName(plan.expression) === "Error") {
+      if (plan.semantic === "error-constructor") {
         return `new global::System.Exception(${plan.arguments
           .map((argument) => renderCallArgument(argument, context))
           .join(", ")})`;
