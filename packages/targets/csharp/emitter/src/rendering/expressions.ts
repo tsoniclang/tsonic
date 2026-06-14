@@ -399,11 +399,73 @@ const isCastableUseSiteExpression = (
   }
 };
 
+const isUnboundGenericPlaceholderType = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "named" &&
+  (type.qualifiedRuntimeName?.includes("::js._.") === true ||
+    !type.qualifiedRuntimeName) &&
+  !type.aliasTarget &&
+  type.typeArguments.length === 0 &&
+  /^[A-Z]$/.test(type.name);
+
+const containsUnboundGenericPlaceholderTypePlan = (
+  type: LoweringTypeRefPlan | undefined,
+  seen: ReadonlySet<LoweringTypeRefPlan> = new Set()
+): boolean => {
+  if (!type || seen.has(type)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+  if (isUnboundGenericPlaceholderType(type)) return true;
+  switch (type.kind) {
+    case "named":
+      return (
+        type.typeArguments.some((argument) =>
+          containsUnboundGenericPlaceholderTypePlan(argument, nextSeen)
+        ) ||
+        containsUnboundGenericPlaceholderTypePlan(type.aliasTarget, nextSeen)
+      );
+    case "array":
+      return containsUnboundGenericPlaceholderTypePlan(
+        type.elementType,
+        nextSeen
+      );
+    case "tuple":
+      return type.elements.some((element) =>
+        containsUnboundGenericPlaceholderTypePlan(element, nextSeen)
+      );
+    case "union":
+    case "intersection":
+      return type.types.some((member) =>
+        containsUnboundGenericPlaceholderTypePlan(member, nextSeen)
+      );
+    case "function":
+      return (
+        type.parameters.some((parameter) =>
+          containsUnboundGenericPlaceholderTypePlan(parameter.type, nextSeen)
+        ) ||
+        containsUnboundGenericPlaceholderTypePlan(type.returnType, nextSeen)
+      );
+    case "predicate":
+      return containsUnboundGenericPlaceholderTypePlan(
+        type.assertedType,
+        nextSeen
+      );
+    case "intrinsic":
+    case "source-primitive":
+    case "literal":
+    case "object":
+    case "unsupported":
+      return false;
+  }
+};
+
 const useSiteCastType = (
   type: LoweringTypeRefPlan | undefined,
   context: RenderContext
 ): string | undefined => {
   if (!type) return undefined;
+  if (containsUnboundGenericPlaceholderTypePlan(type)) return undefined;
   switch (type.kind) {
     case "intrinsic":
       switch (type.name) {
@@ -759,16 +821,6 @@ const arrayReceiverElementType = (
   plan: LoweringExpressionPlan | undefined
 ): LoweringTypeRefPlan | undefined =>
   arrayOperationResultElementType(plan) ?? arrayReceiverType(plan)?.elementType;
-
-const isUnboundGenericPlaceholderType = (
-  type: LoweringTypeRefPlan | undefined
-): boolean =>
-  type?.kind === "named" &&
-  (type.qualifiedRuntimeName?.includes("::js._.") === true ||
-    !type.qualifiedRuntimeName) &&
-  !type.aliasTarget &&
-  type.typeArguments.length === 0 &&
-  /^[A-Z]$/.test(type.name);
 
 const enumerableObjectCast = (receiver: string): string =>
   `global::System.Linq.Enumerable.Cast<object?>((global::System.Collections.IEnumerable)(${receiver}))`;
@@ -1508,7 +1560,8 @@ export const renderExpression = (
       const dictionaryValueType =
         recordElementPlan !== undefined
           ? renderCSharpType(recordElementPlan, context)
-          : dictionaryValueTypeFromRenderedType(targetType);
+          : dictionaryValueTypeFromRenderedType(targetType) ??
+            (targetType === "object?" ? "object?" : undefined);
       if (dictionaryValueType) {
         return `new global::System.Collections.Generic.Dictionary<string, ${dictionaryValueType}> { ${plan.properties
           .map((property) =>

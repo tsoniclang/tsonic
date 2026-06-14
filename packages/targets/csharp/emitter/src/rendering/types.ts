@@ -255,7 +255,6 @@ export const shouldEmitStructuralObjectType = (
   type: LoweringTypeRefPlan
 ): boolean => {
   if (type.kind !== "object") return false;
-  if (type.sourceText !== undefined) return true;
   if (type.members.length === 0) return false;
   return type.members.every((member) => {
     switch (member.kind) {
@@ -387,7 +386,7 @@ export const renderCSharpType = (
     case "named": {
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
-      if (knownNamedTypes.has(type.name) || type.qualifiedRuntimeName) {
+      if (knownNamedTypes.has(type.name)) {
         const name = renderNamedType(type.name, type.qualifiedRuntimeName);
         return type.typeArguments.length === 0
           ? name

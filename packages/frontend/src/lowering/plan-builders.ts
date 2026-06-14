@@ -2915,6 +2915,73 @@ const enumMembers = (
   }));
 };
 
+const baseConstructorParameters = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext
+): readonly LoweringParameterPlan[] => {
+  if (node.Kind !== TstsSyntax.KindClassDeclaration) return [];
+  const heritage = getTstsHeritageTypeNodes(node)[0];
+  if (!heritage) return [];
+  const checker = context.checkerForSourceFile(sourceFile);
+  const heritageType = checker.getTypeFromTypeNode(heritage);
+  const [signature] = heritageType
+    ? checker.getConstructSignatures(heritageType)
+    : [];
+  if (signature) {
+    return checker.getSignatureParameters(signature).map((parameter) => {
+      const declaration =
+        checker.getSymbolValueDeclaration(parameter) ??
+        checker.getSymbolDeclarations(parameter)[0];
+      const parameterType = checker.getTypeOfSymbolAtLocation(
+        parameter,
+        declaration ?? heritage
+      );
+      return {
+        name: checker.getSymbolName(parameter) || "arg",
+        type: checkerTypePlan(context, sourceFile, parameterType),
+        optional: false,
+        rest: false,
+      };
+    });
+  }
+
+  const symbol = heritageType
+    ? checker.getTypeAliasOrSymbol(heritageType)
+    : undefined;
+  const baseDeclaration = symbol
+    ? checker
+        .getSymbolDeclarations(symbol)
+        .find(
+          (candidate): candidate is TstsNode =>
+            candidate !== undefined &&
+            candidate.Kind === TstsSyntax.KindClassDeclaration
+        )
+    : undefined;
+  const constructor = (TstsSyntax.Node_Members(baseDeclaration) ?? []).find(
+    (member): member is TstsNode =>
+      member !== undefined && member.Kind === TstsSyntax.KindConstructor
+  );
+  if (!baseDeclaration || !constructor || !heritageType) return [];
+  const baseSourceFile = sourceFileForNode(baseDeclaration, sourceFile);
+  const substitutions = aliasTypeSubstitutions(
+    typeParameterNames(baseSourceFile, baseDeclaration),
+    sourceTypeArgumentPlans(
+      context,
+      sourceFile,
+      heritage,
+      heritageType,
+      createSourceTypePlanState()
+    )
+  );
+  return parameterPlans(baseSourceFile, constructor, context).map(
+    (parameter) => ({
+      ...parameter,
+      type: substituteTypePlan(parameter.type, substitutions),
+    })
+  );
+};
+
 const memberPlans = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
@@ -2965,6 +3032,11 @@ const declarationPlan = (
       .filter(
         (heritage): heritage is LoweringTypeRefPlan => heritage !== undefined
       ),
+    baseConstructorParameters: baseConstructorParameters(
+      sourceFile,
+      node,
+      context
+    ),
     parameters: parameterPlans(sourceFile, node, context),
     typeParameters: typeParameterNames(sourceFile, node),
     returnType,

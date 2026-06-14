@@ -154,6 +154,30 @@ const renderConstructor = (
   ].join("\n");
 };
 
+const renderSynthesizedConstructor = (
+  className: string,
+  parameters: readonly LoweringParameterPlan[],
+  prologueStatements: readonly string[],
+  context: RenderContext
+): string | undefined => {
+  if (parameters.length === 0 && prologueStatements.length === 0) {
+    return undefined;
+  }
+  const renderedParameters = parameters
+    .map((parameter) => renderParameter(parameter, context))
+    .join(", ");
+  const baseInitializer =
+    parameters.length > 0
+      ? ` : base(${parameters.map((parameter) => sanitizeIdentifier(parameter.name)).join(", ")})`
+      : "";
+  return [
+    `public ${sanitizeTypeName(className)}(${renderedParameters})${baseInitializer}`,
+    "{",
+    ...prologueStatements.map((statement) => indent(statement, 4)),
+    "}",
+  ].join("\n");
+};
+
 const leadingSuperConstructorCall = (
   body: LoweringStatementPlan | undefined
 ) => {
@@ -307,13 +331,13 @@ const renderClass = (
     (member) => member.declarationKind === "constructor"
   );
   const synthesizedConstructor =
-    !hasConstructor && constructorPrologueStatements.length > 0
-      ? [
-          `public ${sanitizeTypeName(declarationName)}()`,
-          "{",
-          ...constructorPrologueStatements.map((statement) => indent(statement, 4)),
-          "}",
-        ].join("\n")
+    !hasConstructor
+      ? renderSynthesizedConstructor(
+          declarationName,
+          plan.baseConstructorParameters,
+          constructorPrologueStatements,
+          context
+        )
       : undefined;
   return [
     `public class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}`,

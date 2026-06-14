@@ -233,6 +233,7 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
   readonly declaredTypePlan?: LoweringTypeRefPlan;
   readonly typeAliasTarget?: LoweringTypeRefPlan;
   readonly heritageTypes: readonly LoweringTypeRefPlan[];
+  readonly baseConstructorParameters: readonly LoweringParameterPlan[];
   readonly parameters: readonly LoweringParameterPlan[];
   readonly typeParameters: readonly string[];
   readonly returnType?: LoweringTypeRefPlan;
