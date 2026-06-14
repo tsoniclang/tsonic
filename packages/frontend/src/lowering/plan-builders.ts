@@ -1,4 +1,6 @@
 import {
+  getTstsExpressionWithTypeArgumentsName,
+  getTstsHeritageTypeNodes,
   getTstsContainingSourceFile,
   getTstsTypeReferenceDetails,
   TstsSyntax,
@@ -19,6 +21,7 @@ import type {
   LoweringEnumMemberPlan,
   LoweringExpressionPlan,
   LoweringIndexAccessPlan,
+  LoweringIntrinsicTypeName,
   LoweringMemberAccessPlan,
   LoweringNarrowingPlan,
   LoweringObjectPropertyPlan,
@@ -26,7 +29,9 @@ import type {
   LoweringStatementPlan,
   LoweringSyntheticDeclarationPlan,
   LoweringTemplatePartPlan,
+  LoweringTypeMemberPlan,
   LoweringTypePlan,
+  LoweringTypeRefPlan,
   LoweringVariablePlan,
 } from "./types.js";
 import {
@@ -146,153 +151,422 @@ const nodeArrayNodes = (
 ): readonly TstsNode[] =>
   (nodes ?? []).filter((node): node is TstsNode => node !== undefined);
 
-const splitTopLevel = (text: string, delimiter: string): readonly string[] => {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === "<" || char === "(" || char === "[" || char === "{") depth += 1;
-    if (char === ">" || char === ")" || char === "]" || char === "}") {
-      depth = Math.max(0, depth - 1);
-    }
-    if (depth === 0 && text.startsWith(delimiter, index)) {
-      parts.push(text.slice(start, index).trim());
-      start = index + delimiter.length;
-      index += delimiter.length - 1;
-    }
+const typeParameterNames = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode
+): readonly string[] =>
+  nodeArrayNodes(TstsSyntax.Node_TypeParameters(node))
+    .map((typeParameter) => nodeTokenText(sourceFile, TstsSyntax.Node_Name(typeParameter)))
+    .filter((name): name is string => name !== undefined);
+
+const intrinsicTypePlan = (
+  name: LoweringIntrinsicTypeName,
+  sourceText?: string
+): LoweringTypeRefPlan => ({
+  kind: "intrinsic",
+  name,
+  sourceText,
+});
+
+const unsupportedTypePlan = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode
+): LoweringTypeRefPlan => ({
+  kind: "unsupported",
+  sourceKindName: TstsSyntax.Node_KindString(node),
+  sourceText: compactNodeSourceText(sourceFile, node),
+});
+
+const checkerTypePlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  type: TstsType | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (!type) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const unionMembers = checker.getUnionMembers(type);
+  if (unionMembers && unionMembers.length > 0) {
+    return {
+      kind: "union",
+      types: unionMembers
+        .map((member) => checkerTypePlan(context, sourceFile, member))
+        .filter((member): member is LoweringTypeRefPlan => member !== undefined),
+    };
   }
-  parts.push(text.slice(start).trim());
-  return parts.filter((part) => part.length > 0);
+  const intersectionMembers = checker.getIntersectionMembers(type);
+  if (intersectionMembers && intersectionMembers.length > 0) {
+    return {
+      kind: "intersection",
+      types: intersectionMembers
+        .map((member) => checkerTypePlan(context, sourceFile, member))
+        .filter((member): member is LoweringTypeRefPlan => member !== undefined),
+    };
+  }
+  const arrayElement = checker.getElementTypeOfArrayType(type);
+  if (arrayElement) {
+    return {
+      kind: "array",
+      elementType:
+        checkerTypePlan(context, sourceFile, arrayElement) ??
+        intrinsicTypePlan("unknown"),
+      readonly: false,
+    };
+  }
+  if (checker.isAnyType(type)) return intrinsicTypePlan("any");
+  if (checker.isUnknownType(type)) return intrinsicTypePlan("unknown");
+  if (checker.isVoidType(type)) return intrinsicTypePlan("void");
+  if (checker.isNeverType(type)) return intrinsicTypePlan("never");
+  if (checker.isUndefinedType(type)) return intrinsicTypePlan("undefined");
+  if (checker.isNullType(type)) return intrinsicTypePlan("null");
+  if (checker.isStringLikeType(type)) return intrinsicTypePlan("string");
+  if (checker.isNumberLikeType(type)) return intrinsicTypePlan("number");
+  if (checker.isBooleanLikeType(type)) return intrinsicTypePlan("boolean");
+  if (checker.isBigIntLikeType(type)) return intrinsicTypePlan("bigint");
+
+  const callSignatures = checker.getCallSignatures(type);
+  if (callSignatures.length === 1) {
+    const signature = callSignatures[0];
+    return {
+      kind: "function",
+      parameters: checker.getSignatureParameters(signature).map((parameter) => {
+        const declaration =
+          checker.getSymbolValueDeclaration(parameter) ??
+          checker.getSymbolDeclarations(parameter)[0];
+        const parameterType = declaration
+          ? checker.getTypeOfSymbolAtLocation(parameter, declaration)
+          : undefined;
+        return {
+          name: checker.getSymbolName(parameter) || "arg",
+          type: checkerTypePlan(context, sourceFile, parameterType),
+          optional: false,
+          rest: false,
+        };
+      }),
+      returnType: checkerTypePlan(
+        context,
+        sourceFile,
+        checker.getReturnTypeOfSignature(signature)
+      ),
+      typeParameters: [],
+    };
+  }
+
+  const typeSymbol = checker.getTypeAliasOrSymbol(type);
+  const name =
+    checker.getTypeAliasSymbolName(type) ??
+    checker.getTypeSymbolName(type) ??
+    (typeSymbol ? checker.getSymbolName(typeSymbol) : undefined);
+  if (name) {
+    const typeArguments = [
+      ...checker.getAliasTypeArguments(type),
+      ...checker.getReferenceTypeArguments(type),
+    ];
+    return {
+      kind: "named",
+      name,
+      typeArguments: typeArguments
+        .map((argument) => checkerTypePlan(context, sourceFile, argument))
+        .filter((argument): argument is LoweringTypeRefPlan => argument !== undefined),
+    };
+  }
+
+  const properties = checker.getProperties(type);
+  if (properties.length > 0) {
+    return {
+      kind: "object",
+      members: properties.map((property) => {
+        const declaration =
+          checker.getSymbolValueDeclaration(property) ??
+          checker.getSymbolDeclarations(property)[0];
+        return {
+          kind: "property",
+          name: checker.getSymbolName(property),
+          optional: false,
+          type: checkerTypePlan(
+            context,
+            sourceFile,
+            declaration
+              ? checker.getTypeOfSymbolAtLocation(property, declaration)
+              : undefined
+          ),
+        };
+      }),
+    };
+  }
+
+  return intrinsicTypePlan("unknown");
 };
 
-const typeText = (
+const typePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
   type: TstsType | undefined
-): string | undefined => {
-  const checker = context.checkerForSourceFile(sourceFile);
+): LoweringTypeRefPlan | undefined => {
   if (node) {
-    return sourceTypeText(context, sourceFile, node);
+    return sourceTypePlan(context, sourceFile, node);
   }
-  if (!type) return undefined;
-  return checker.typeToString(type);
+  return checkerTypePlan(context, sourceFile, type);
 };
 
-const sourceTypeText = (
+const sourceTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined
-): string | undefined => {
+): LoweringTypeRefPlan | undefined => {
   if (!node) return undefined;
+  const sourceText = compactNodeSourceText(sourceFile, node);
 
   const numericPrimitive = context.input.facts.get(
     numericPrimitiveFactKey,
     node
   );
   if (numericPrimitive) {
-    return numericPrimitive.sourceName;
+    return {
+      kind: "source-primitive",
+      fact: numericPrimitive,
+      sourceText,
+    };
   }
 
   const typeReference = getTstsTypeReferenceDetails(node);
   if (typeReference) {
-    const args = typeReference.typeArguments
-      .map((argument) => sourceTypeText(context, sourceFile, argument))
-      .filter((argument): argument is string => argument !== undefined);
-    return args.length === 0
-      ? typeReference.name
-      : `${typeReference.name}<${args.join(", ")}>`;
+    return {
+      kind: "named",
+      name: typeReference.name,
+      typeArguments: typeReference.typeArguments
+        .map((argument) => sourceTypePlan(context, sourceFile, argument))
+        .filter((argument): argument is LoweringTypeRefPlan => argument !== undefined),
+      sourceText,
+    };
   }
 
   switch (node.Kind) {
     case TstsSyntax.KindArrayType: {
       const arrayType = TstsSyntax.AsArrayTypeNode(node);
-      const element = sourceTypeText(context, sourceFile, arrayType?.ElementType);
-      return element ? `${element}[]` : compactNodeSourceText(sourceFile, node);
+      const element = sourceTypePlan(context, sourceFile, arrayType?.ElementType);
+      return element
+        ? { kind: "array", elementType: element, readonly: false, sourceText }
+        : unsupportedTypePlan(sourceFile, node);
     }
     case TstsSyntax.KindTupleType: {
       const tupleType = TstsSyntax.AsTupleTypeNode(node);
-      const elements = nodeListNodes(tupleType?.Elements)
-        .map((element) => sourceTypeText(context, sourceFile, element))
-        .filter((element): element is string => element !== undefined);
-      return `[${elements.join(", ")}]`;
+      return {
+        kind: "tuple",
+        elements: nodeListNodes(tupleType?.Elements)
+          .map((element) => sourceTypePlan(context, sourceFile, element))
+          .filter((element): element is LoweringTypeRefPlan => element !== undefined),
+        readonly: false,
+        sourceText,
+      };
     }
     case TstsSyntax.KindUnionType: {
       const unionType = TstsSyntax.AsUnionTypeNode(node);
-      const types = nodeListNodes(unionType?.Types)
-        .map((part) => sourceTypeText(context, sourceFile, part))
-        .filter((part): part is string => part !== undefined);
-      return types.length > 0 ? types.join(" | ") : compactNodeSourceText(sourceFile, node);
+      return {
+        kind: "union",
+        types: nodeListNodes(unionType?.Types)
+          .map((part) => sourceTypePlan(context, sourceFile, part))
+          .filter((part): part is LoweringTypeRefPlan => part !== undefined),
+        sourceText,
+      };
+    }
+    case TstsSyntax.KindIntersectionType: {
+      const intersectionType = TstsSyntax.AsIntersectionTypeNode(node);
+      return {
+        kind: "intersection",
+        types: nodeListNodes(intersectionType?.Types)
+          .map((part) => sourceTypePlan(context, sourceFile, part))
+          .filter((part): part is LoweringTypeRefPlan => part !== undefined),
+        sourceText,
+      };
     }
     case TstsSyntax.KindParenthesizedType: {
       const parenthesized = TstsSyntax.AsParenthesizedTypeNode(node);
-      const inner = sourceTypeText(context, sourceFile, parenthesized?.Type);
-      return inner ? `(${inner})` : compactNodeSourceText(sourceFile, node);
+      return (
+        sourceTypePlan(context, sourceFile, parenthesized?.Type) ??
+        unsupportedTypePlan(sourceFile, node)
+      );
     }
     case TstsSyntax.KindTypeOperator: {
       const typeOperator = TstsSyntax.AsTypeOperatorNode(node);
-      const inner = sourceTypeText(context, sourceFile, typeOperator?.Type);
-      if (!inner) return compactNodeSourceText(sourceFile, node);
-      const operator =
-        typeOperator?.Operator === TstsSyntax.KindReadonlyKeyword
-          ? "readonly"
-          : TstsSyntax.KindString(typeOperator?.Operator ?? node.Kind);
-      return `${operator} ${inner}`;
+      const inner = sourceTypePlan(context, sourceFile, typeOperator?.Type);
+      if (!inner) return unsupportedTypePlan(sourceFile, node);
+      if (typeOperator?.Operator !== TstsSyntax.KindReadonlyKeyword) return inner;
+      if (inner.kind === "array") {
+        return { ...inner, readonly: true, sourceText };
+      }
+      if (inner.kind === "tuple") {
+        return { ...inner, readonly: true, sourceText };
+      }
+      return inner;
+    }
+    case TstsSyntax.KindExpressionWithTypeArguments: {
+      const name = getTstsExpressionWithTypeArgumentsName(node);
+      return name
+        ? {
+            kind: "named",
+            name,
+            typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node))
+              .map((argument) => sourceTypePlan(context, sourceFile, argument))
+              .filter(
+                (argument): argument is LoweringTypeRefPlan =>
+                  argument !== undefined
+              ),
+            sourceText,
+          }
+        : unsupportedTypePlan(sourceFile, node);
+    }
+    case TstsSyntax.KindFunctionType:
+    case TstsSyntax.KindConstructorType:
+      return {
+        kind: "function",
+        parameters: parameterPlans(sourceFile, node, context),
+        returnType: sourceTypePlan(context, sourceFile, TstsSyntax.Node_Type(node)),
+        typeParameters: typeParameterNames(sourceFile, node),
+        sourceText,
+      };
+    case TstsSyntax.KindTypeLiteral:
+      return {
+        kind: "object",
+        members: (TstsSyntax.Node_Members(node) ?? [])
+          .filter((member): member is TstsNode => member !== undefined)
+          .map((member) => typeMemberPlan(sourceFile, member, context))
+          .filter(
+            (member): member is LoweringTypeMemberPlan => member !== undefined
+          ),
+        sourceText,
+      };
+    case TstsSyntax.KindTypePredicate:
+      return {
+        kind: "predicate",
+        assertedType: sourceTypePlan(context, sourceFile, TstsSyntax.Node_Type(node)),
+        sourceText,
+      };
+    case TstsSyntax.KindLiteralType: {
+      const literal = TstsSyntax.AsLiteralTypeNode(node)?.Literal;
+      if (!literal) return unsupportedTypePlan(sourceFile, node);
+      switch (literal.Kind) {
+        case TstsSyntax.KindStringLiteral:
+        case TstsSyntax.KindNoSubstitutionTemplateLiteral:
+          return {
+            kind: "literal",
+            literalKind: "string",
+            valueText: nodeTokenText(sourceFile, literal) ?? sourceText,
+            sourceText,
+          };
+        case TstsSyntax.KindNumericLiteral:
+          return {
+            kind: "literal",
+            literalKind: "number",
+            valueText: nodeTokenText(sourceFile, literal) ?? sourceText,
+            sourceText,
+          };
+        case TstsSyntax.KindBigIntLiteral:
+          return {
+            kind: "literal",
+            literalKind: "bigint",
+            valueText: nodeTokenText(sourceFile, literal) ?? sourceText,
+            sourceText,
+          };
+        case TstsSyntax.KindTrueKeyword:
+        case TstsSyntax.KindFalseKeyword:
+          return {
+            kind: "literal",
+            literalKind: "boolean",
+            valueText: literal.Kind === TstsSyntax.KindTrueKeyword ? "true" : "false",
+            sourceText,
+          };
+        case TstsSyntax.KindNullKeyword:
+          return {
+            kind: "literal",
+            literalKind: "null",
+            valueText: "null",
+            sourceText,
+          };
+        default:
+          return unsupportedTypePlan(sourceFile, node);
+      }
     }
     case TstsSyntax.KindVoidKeyword:
-      return "void";
+      return intrinsicTypePlan("void", sourceText);
     case TstsSyntax.KindStringKeyword:
-      return "string";
+      return intrinsicTypePlan("string", sourceText);
     case TstsSyntax.KindNumberKeyword:
-      return "number";
+      return intrinsicTypePlan("number", sourceText);
     case TstsSyntax.KindBooleanKeyword:
-      return "boolean";
+      return intrinsicTypePlan("boolean", sourceText);
+    case TstsSyntax.KindBigIntKeyword:
+      return intrinsicTypePlan("bigint", sourceText);
+    case TstsSyntax.KindSymbolKeyword:
+      return intrinsicTypePlan("symbol", sourceText);
+    case TstsSyntax.KindObjectKeyword:
+      return intrinsicTypePlan("object", sourceText);
+    case TstsSyntax.KindUndefinedKeyword:
+      return intrinsicTypePlan("undefined", sourceText);
     case TstsSyntax.KindAnyKeyword:
-      return "any";
+      return intrinsicTypePlan("any", sourceText);
     case TstsSyntax.KindUnknownKeyword:
-      return "unknown";
+      return intrinsicTypePlan("unknown", sourceText);
     case TstsSyntax.KindNeverKeyword:
-      return "never";
+      return intrinsicTypePlan("never", sourceText);
+    case TstsSyntax.KindThisType:
+      return intrinsicTypePlan("this", sourceText);
     default:
-      return compactNodeSourceText(sourceFile, node);
+      return unsupportedTypePlan(sourceFile, node);
+  }
+};
+
+const typeMemberPlan = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext
+): LoweringTypeMemberPlan | undefined => {
+  const name = propertyNameInfo(sourceFile, node);
+  if (name.computed || !name.name) return undefined;
+  switch (node.Kind) {
+    case TstsSyntax.KindPropertySignature:
+    case TstsSyntax.KindPropertyDeclaration:
+      return {
+        kind: "property",
+        name: name.name,
+        optional: TstsSyntax.Node_QuestionToken(node) !== undefined,
+        type: sourceTypePlan(context, sourceFile, TstsSyntax.Node_Type(node)),
+      };
+    case TstsSyntax.KindMethodSignature:
+    case TstsSyntax.KindMethodDeclaration:
+      return {
+        kind: "method",
+        name: name.name,
+        optional: TstsSyntax.Node_QuestionToken(node) !== undefined,
+        parameters: parameterPlans(sourceFile, node, context),
+        returnType: sourceTypePlan(context, sourceFile, TstsSyntax.Node_Type(node)),
+        typeParameters: typeParameterNames(sourceFile, node),
+      };
+    default:
+      return undefined;
   }
 };
 
 const functionTypeParts = (
-  typeText: string | undefined
+  type: LoweringTypeRefPlan | undefined
 ):
   | {
-      readonly parameterTypes: readonly string[];
-      readonly returnType?: string;
+      readonly parameterTypes: readonly (LoweringTypeRefPlan | undefined)[];
+      readonly returnType?: LoweringTypeRefPlan;
     }
   | undefined => {
-  if (!typeText) return undefined;
-  const arrowIndex = typeText.indexOf("=>");
-  if (arrowIndex < 0) return undefined;
-  const parameterText = typeText.slice(0, arrowIndex).trim();
-  const returnType = typeText.slice(arrowIndex + 2).trim();
-  if (!parameterText.startsWith("(") || !parameterText.endsWith(")")) {
-    return undefined;
-  }
+  if (type?.kind !== "function") return undefined;
   return {
-    parameterTypes: splitTopLevel(parameterText.slice(1, -1), ",").map(
-      (parameter) => {
-        const colonIndex = parameter.indexOf(":");
-        const rawType =
-          colonIndex >= 0 ? parameter.slice(colonIndex + 1).trim() : parameter;
-        return rawType.replace(/^\.\.\./, "").replace(/\?$/, "").trim();
-      }
-    ),
-    returnType,
+    parameterTypes: type.parameters.map((parameter) => parameter.type),
+    returnType: type.returnType,
   };
 };
 
-const callExpectedArgumentTypeTexts = (
+const callExpectedArgumentTypes = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
   context: LoweringBuildContext
-): readonly (string | undefined)[] => {
+): readonly (LoweringTypeRefPlan | undefined)[] => {
   const checker = context.checkerForSourceFile(sourceFile);
   const selected =
     context.input.facts.get(selectedSignatureFactKey, node)?.signature ??
@@ -304,7 +578,7 @@ const callExpectedArgumentTypeTexts = (
       checker.getSymbolDeclarations(parameter)[0];
     const typeNode = declaration ? TstsSyntax.Node_Type(declaration) : undefined;
     if (typeNode) {
-      return sourceTypeText(
+      return sourceTypePlan(
         context,
         getTstsContainingSourceFile(typeNode) ?? sourceFile,
         typeNode
@@ -313,7 +587,7 @@ const callExpectedArgumentTypeTexts = (
     const parameterType = declaration
       ? checker.getTypeOfSymbolAtLocation(parameter, declaration)
       : undefined;
-    return typeText(context, sourceFile, undefined, parameterType);
+    return checkerTypePlan(context, sourceFile, parameterType);
   });
 };
 
@@ -348,8 +622,8 @@ const unsupportedExpression = (
   return {
     ...planBase("expression", sourceFile, node),
     expressionKind: "unsupported",
-    typeText: typeText(context, sourceFile, undefined, useSiteType),
-    contextualTypeText: typeText(context, sourceFile, undefined, contextualType),
+    type: checkerTypePlan(context, sourceFile, useSiteType),
+    contextualTypePlan: checkerTypePlan(context, sourceFile, contextualType),
     arguments: [],
     typeArguments: [],
     elements: [],
@@ -376,7 +650,7 @@ const expressionPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
   context: LoweringBuildContext,
-  expectedTypeText?: string
+  expectedType?: LoweringTypeRefPlan
 ): LoweringExpressionPlan | undefined => {
   if (!node) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
@@ -384,14 +658,14 @@ const expressionPlan = (
   const contextualType = checker.getContextualType(node);
   const base = {
     ...planBase("expression", sourceFile, node),
-    typeText: typeText(context, sourceFile, undefined, useSiteType),
-    contextualTypeText:
-      expectedTypeText ?? typeText(context, sourceFile, undefined, contextualType),
+    type: checkerTypePlan(context, sourceFile, useSiteType),
+    contextualTypePlan:
+      expectedType ?? checkerTypePlan(context, sourceFile, contextualType),
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,
     arguments: [] as readonly LoweringExpressionPlan[],
-    typeArguments: [] as readonly string[],
+    typeArguments: [] as readonly LoweringTypeRefPlan[],
     elements: [] as readonly LoweringExpressionPlan[],
     properties: [] as readonly LoweringObjectPropertyPlan[],
     templateParts: [] as readonly LoweringTemplatePartPlan[],
@@ -490,7 +764,7 @@ const expressionPlan = (
           sourceFile,
           TstsSyntax.Node_Expression(node),
           context,
-          expectedTypeText
+          expectedType
         ),
       };
     case TstsSyntax.KindAsExpression:
@@ -510,7 +784,7 @@ const expressionPlan = (
           sourceFile,
           TstsSyntax.Node_Expression(node),
           context,
-          expectedTypeText
+          expectedType
         ),
       };
     }
@@ -522,7 +796,7 @@ const expressionPlan = (
           sourceFile,
           TstsSyntax.Node_Expression(node),
           context,
-          expectedTypeText
+          expectedType
         ),
       };
     case TstsSyntax.KindYieldExpression: {
@@ -547,7 +821,7 @@ const expressionPlan = (
           sourceFile,
           TstsSyntax.Node_Expression(node),
           context,
-          expectedTypeText
+          expectedType
         ),
       };
     case TstsSyntax.KindBinaryExpression: {
@@ -591,7 +865,7 @@ const expressionPlan = (
           sourceFile,
           TstsSyntax.Node_Expression(node),
           context,
-          expectedTypeText
+          expectedType
         ),
       };
     case TstsSyntax.KindVoidExpression:
@@ -631,7 +905,7 @@ const expressionPlan = (
     }
     case TstsSyntax.KindCallExpression:
     case TstsSyntax.KindNewExpression: {
-      const expectedArgumentTypes = callExpectedArgumentTypeTexts(
+      const expectedArgumentTypes = callExpectedArgumentTypes(
         sourceFile,
         node,
         context
@@ -656,9 +930,9 @@ const expressionPlan = (
           )
           .filter((item): item is LoweringExpressionPlan => item !== undefined),
         typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node)).map(
-          (argument) =>
-            sourceTypeText(context, sourceFile, argument) ??
-            compactNodeSourceText(sourceFile, argument)
+          (argument) => sourceTypePlan(context, sourceFile, argument)
+        ).filter(
+          (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
       };
     }
@@ -667,14 +941,13 @@ const expressionPlan = (
       const body = TstsSyntax.Node_Body(node);
       const bodyIsStatement = body ? isStatementNode(body) : false;
       const explicitReturnType = TstsSyntax.Node_Type(node);
-      const expectedFunction = functionTypeParts(expectedTypeText);
-      const returnTypeText = explicitReturnType
-        ? typeText(context, sourceFile, explicitReturnType, undefined)
+      const expectedFunction = functionTypeParts(expectedType);
+      const returnType = explicitReturnType
+        ? sourceTypePlan(context, sourceFile, explicitReturnType)
         : expectedFunction?.returnType ??
-          typeText(
+          checkerTypePlan(
             context,
             sourceFile,
-            undefined,
             functionReturnType(sourceFile, node, context)
           );
       return {
@@ -690,13 +963,13 @@ const expressionPlan = (
           expectedFunction?.parameterTypes
         ),
         async: nodeHasModifier(node, TstsSyntax.ModifierFlagsAsync),
-        returnTypeText,
+        returnType,
         body: bodyIsStatement
-          ? statementPlan(sourceFile, body, context, returnTypeText)
+          ? statementPlan(sourceFile, body, context, returnType)
           : undefined,
         expression: bodyIsStatement
           ? undefined
-          : expressionPlan(sourceFile, body, context, returnTypeText),
+          : expressionPlan(sourceFile, body, context, returnType),
       };
     }
     case TstsSyntax.KindArrayLiteralExpression:
@@ -807,16 +1080,16 @@ const variablePlan = (
 ): LoweringVariablePlan => {
   const variable = TstsSyntax.AsVariableDeclaration(node);
   const declaredType = variable?.Type ?? TstsSyntax.Node_Type(node);
-  const declaredTypeText = typeText(context, sourceFile, declaredType, undefined);
+  const type = sourceTypePlan(context, sourceFile, declaredType);
   const nameNode = TstsSyntax.Node_Name(node);
   return {
     name: nodeName(sourceFile, node) ?? "value",
-    typeText: declaredTypeText,
+    type,
     initializer: expressionPlan(
       sourceFile,
       variable?.Initializer ?? TstsSyntax.Node_Initializer(node),
       context,
-      declaredTypeText
+      type
     ),
     bindingElements: bindingElementsFromName(sourceFile, nameNode, context),
   };
@@ -837,7 +1110,7 @@ const statementPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
   context: LoweringBuildContext,
-  expectedReturnTypeText?: string
+  expectedReturnType?: LoweringTypeRefPlan
 ): LoweringStatementPlan | undefined => {
   if (!node) return undefined;
   const empty = {
@@ -854,7 +1127,7 @@ const statementPlan = (
         statementKind: "block",
         statements: (TstsSyntax.Node_Statements(node) ?? [])
           .map((statement) =>
-            statementPlan(sourceFile, statement, context, expectedReturnTypeText)
+            statementPlan(sourceFile, statement, context, expectedReturnType)
           )
           .filter((item): item is LoweringStatementPlan => item !== undefined),
       };
@@ -867,7 +1140,7 @@ const statementPlan = (
           sourceFile,
           statement?.Expression,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
       };
     }
@@ -903,13 +1176,13 @@ const statementPlan = (
           sourceFile,
           statement?.ThenStatement,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
         elseStatement: statementPlan(
           sourceFile,
           statement?.ElseStatement,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
       };
     }
@@ -923,7 +1196,7 @@ const statementPlan = (
           sourceFile,
           statement?.Statement,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
       };
     }
@@ -949,7 +1222,7 @@ const statementPlan = (
           sourceFile,
           statement?.Statement,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
       };
     }
@@ -976,7 +1249,7 @@ const statementPlan = (
           sourceFile,
           statement?.Statement,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
       };
     }
@@ -1002,7 +1275,7 @@ const statementPlan = (
                   sourceFile,
                   statement,
                   context,
-                  expectedReturnTypeText
+                  expectedReturnType
                 )
               )
               .filter(
@@ -1022,7 +1295,7 @@ const statementPlan = (
           sourceFile,
           statement?.TryBlock,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
         catchVariable: catchClause?.VariableDeclaration
           ? variablePlan(sourceFile, catchClause.VariableDeclaration, context)
@@ -1031,13 +1304,13 @@ const statementPlan = (
           sourceFile,
           catchClause?.Block,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
         finallyBlock: statementPlan(
           sourceFile,
           statement?.FinallyBlock,
           context,
-          expectedReturnTypeText
+          expectedReturnType
         ),
       };
     }
@@ -1099,7 +1372,7 @@ const parameterPlans = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
   context: LoweringBuildContext,
-  expectedParameterTypeTexts: readonly (string | undefined)[] = []
+  expectedParameterTypes: readonly (LoweringTypeRefPlan | undefined)[] = []
 ): readonly LoweringParameterPlan[] =>
   (TstsSyntax.Node_Parameters(node) ?? [])
     .filter((parameter): parameter is TstsNode => parameter !== undefined)
@@ -1109,14 +1382,14 @@ const parameterPlans = (
       const nameNode = TstsSyntax.Node_Name(parameter);
       const inferredType =
         explicitType === undefined &&
-        expectedParameterTypeTexts[index] === undefined
+        expectedParameterTypes[index] === undefined
           ? checker.getTypeAtLocation(nameNode ?? parameter)
           : undefined;
       return {
         name: nodeName(sourceFile, parameter) ?? "arg",
-        typeText:
-          typeText(context, sourceFile, explicitType, inferredType) ??
-          expectedParameterTypeTexts[index],
+        type:
+          typePlan(context, sourceFile, explicitType, inferredType) ??
+          expectedParameterTypes[index],
         initializer: expressionPlan(
           sourceFile,
           TstsSyntax.Node_Initializer(parameter),
@@ -1127,14 +1400,6 @@ const parameterPlans = (
           TstsSyntax.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined,
       };
     });
-
-const typeParameterNames = (
-  sourceFile: TstsSourceFile,
-  node: TstsNode
-): readonly string[] =>
-  nodeArrayNodes(TstsSyntax.Node_TypeParameters(node))
-    .map((typeParameter) => nodeTokenText(sourceFile, TstsSyntax.Node_Name(typeParameter)))
-    .filter((name): name is string => name !== undefined);
 
 const enumMembers = (
   sourceFile: TstsSourceFile,
@@ -1181,26 +1446,28 @@ const declarationPlan = (
     ? checker.getReturnTypeOfSignature(signature)
     : undefined;
   const explicitReturnType = TstsSyntax.Node_Type(node);
-  const returnTypeText = typeText(
-    context,
-    sourceFile,
-    explicitReturnType,
-    inferredReturnType
-  );
+  const returnType = typePlan(context, sourceFile, explicitReturnType, inferredReturnType);
   return {
     ...planBase("declaration", sourceFile, node),
     declarationKind: kind,
     symbol,
     declaredType,
-    declaredTypeText: typeText(context, sourceFile, undefined, declaredType),
+    declaredTypePlan: checkerTypePlan(context, sourceFile, declaredType),
+    typeAliasTarget:
+      kind === "type-alias"
+        ? sourceTypePlan(context, sourceFile, explicitReturnType)
+        : undefined,
+    heritageTypes: getTstsHeritageTypeNodes(node)
+      .map((heritage) => sourceTypePlan(context, sourceFile, heritage))
+      .filter((heritage): heritage is LoweringTypeRefPlan => heritage !== undefined),
     parameters: parameterPlans(sourceFile, node, context),
     typeParameters: typeParameterNames(sourceFile, node),
-    returnTypeText,
+    returnType,
     body: statementPlan(
       sourceFile,
       TstsSyntax.Node_Body(node),
       context,
-      returnTypeText
+      returnType
     ),
     initializer: expressionPlan(
       sourceFile,

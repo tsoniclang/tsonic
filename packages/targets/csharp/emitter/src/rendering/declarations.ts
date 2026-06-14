@@ -34,8 +34,8 @@ const renderParameter = (
     : "";
   const restModifier = parameter.rest ? "params " : "";
   const type = parameter.optional
-    ? renderNullableCSharpType(parameter.typeText)
-    : renderCSharpType(parameter.typeText);
+    ? renderNullableCSharpType(parameter.type)
+    : renderCSharpType(parameter.type);
   return `${restModifier}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
 };
 
@@ -97,11 +97,10 @@ const renderFunction = (
       ? "static "
       : ""
     : "static ";
-  const returnTypeText =
-    className && plan.returnTypeText?.trim() === "this"
+  const returnType =
+    className && plan.returnType?.kind === "intrinsic" && plan.returnType.name === "this"
       ? sanitizeTypeName(className)
-      : plan.returnTypeText;
-  const returnType = renderFunctionReturnType(returnTypeText, plan.async);
+      : renderFunctionReturnType(plan.returnType, plan.async);
   return [
     `public ${staticModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
     renderFunctionBody(plan.body, context),
@@ -126,7 +125,7 @@ const renderProperty = (
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "property");
   if (!declarationName) return undefined;
-  const type = renderCSharpType(plan.returnTypeText ?? plan.declaredTypeText);
+  const type = renderCSharpType(plan.returnType ?? plan.declaredTypePlan);
   const initializer = plan.initializer
     ? ` = ${renderExpression(plan.initializer, context)}`
     : "";
@@ -185,12 +184,12 @@ const renderInterfaceMember = (
       const parameters = plan.parameters
         .map((parameter) => renderParameter(parameter, context))
         .join(", ");
-      return `${renderCSharpType(plan.returnTypeText)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
+      return `${renderCSharpType(plan.returnType)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
     }
     case "property": {
       const name = requireDeclarationName(plan, context, "interface member");
       if (!name) return undefined;
-      return `${renderCSharpType(plan.returnTypeText ?? plan.declaredTypeText)} ${sanitizeIdentifier(name)} { get; set; }`;
+      return `${renderCSharpType(plan.returnType ?? plan.declaredTypePlan)} ${sanitizeIdentifier(name)} { get; set; }`;
     }
     default:
       context.reportUnsupported(
@@ -259,7 +258,7 @@ const renderVariable = (
   return renderStaticField(
     {
       name: declarationName,
-      typeText: plan.returnTypeText ?? plan.declaredTypeText,
+      type: plan.returnType ?? plan.declaredTypePlan,
       initializer: plan.initializer,
       bindingElements: [],
     },

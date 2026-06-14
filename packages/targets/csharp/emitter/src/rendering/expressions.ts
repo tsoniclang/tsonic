@@ -2,6 +2,7 @@ import type {
   LoweringExpressionPlan,
   LoweringObjectPropertyPlan,
   LoweringParameterPlan,
+  LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
 import { sanitizeIdentifier } from "./names.js";
@@ -147,40 +148,25 @@ const renderObjectProperty = (
   return `${sanitizeIdentifier(property.name)} = ${renderExpression(property.expression, context)}`;
 };
 
-const splitTopLevel = (text: string, delimiter: string): readonly string[] => {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === "<" || char === "(" || char === "[" || char === "{") depth += 1;
-    if (char === ">" || char === ")" || char === "]" || char === "}") {
-      depth = Math.max(0, depth - 1);
-    }
-    if (depth === 0 && text.startsWith(delimiter, index)) {
-      parts.push(text.slice(start, index).trim());
-      start = index + delimiter.length;
-      index += delimiter.length - 1;
-    }
-  }
-  parts.push(text.slice(start).trim());
-  return parts.filter((part) => part.length > 0);
-};
-
 const arrayLiteralElementType = (
   plan: LoweringExpressionPlan
 ): string | undefined => {
-  const contextual = plan.contextualTypeText?.trim();
-  if (contextual?.endsWith("[]")) {
-    return renderCSharpType(contextual.slice(0, -2));
-  }
-  const typeText = plan.typeText?.trim();
-  if (typeText?.endsWith("[]")) {
-    return renderCSharpType(typeText.slice(0, -2));
-  }
-  if (typeText?.startsWith("[") && typeText.endsWith("]")) {
-    const elementTypes = splitTopLevel(typeText.slice(1, -1), ",").map((part) =>
-      renderCSharpType(part)
+  const arrayPlan =
+    plan.contextualTypePlan?.kind === "array"
+      ? plan.contextualTypePlan
+      : plan.type?.kind === "array"
+        ? plan.type
+        : undefined;
+  if (arrayPlan) return renderCSharpType(arrayPlan.elementType);
+  const tuplePlan =
+    plan.type?.kind === "tuple"
+      ? plan.type
+      : plan.contextualTypePlan?.kind === "tuple"
+        ? plan.contextualTypePlan
+        : undefined;
+  if (tuplePlan) {
+    const elementTypes = tuplePlan.elements.map((element) =>
+      renderCSharpType(element)
     );
     const first = elementTypes[0];
     return first && elementTypes.every((part) => part === first)
@@ -193,24 +179,13 @@ const arrayLiteralElementType = (
 const objectLiteralTargetType = (
   plan: LoweringExpressionPlan
 ): string | undefined => {
-  const contextual = plan.contextualTypeText?.trim();
-  if (
-    !contextual ||
-    contextual === "any" ||
-    contextual === "unknown" ||
-    contextual === "object" ||
-    contextual.startsWith("{") ||
-    contextual.includes("=>") ||
-    contextual.includes("|") ||
-    contextual.includes("&")
-  ) {
-    return undefined;
-  }
-  return renderCSharpType(contextual);
+  return plan.contextualTypePlan?.kind === "named"
+    ? renderCSharpType(plan.contextualTypePlan)
+    : undefined;
 };
 
 const renderLambdaParameter = (parameter: LoweringParameterPlan): string =>
-  `${parameter.rest ? "params " : ""}${renderCSharpType(parameter.typeText)} ${sanitizeIdentifier(parameter.name)}`;
+  `${parameter.rest ? "params " : ""}${renderCSharpType(parameter.type)} ${sanitizeIdentifier(parameter.name)}`;
 
 export const renderFunctionExpressionType = (
   plan: LoweringExpressionPlan | undefined
@@ -223,9 +198,11 @@ export const renderFunctionExpressionType = (
     return undefined;
   }
   const parameterTypes = plan.parameters.map((parameter) =>
-    renderCSharpType(parameter.typeText)
+    renderCSharpType(parameter.type)
   );
-  const returnType = renderCSharpType(plan.returnTypeText ?? "void");
+  const returnType = renderCSharpType(
+    plan.returnType ?? { kind: "intrinsic", name: "void" }
+  );
   return returnType === "void"
     ? parameterTypes.length === 0
       ? "global::System.Action"
@@ -234,7 +211,7 @@ export const renderFunctionExpressionType = (
 };
 
 const renderTypeArguments = (
-  typeArguments: readonly string[] | undefined
+  typeArguments: readonly LoweringTypeRefPlan[] | undefined
 ): string =>
   typeArguments && typeArguments.length > 0
     ? `<${typeArguments.map((typeArgument) => renderCSharpType(typeArgument)).join(", ")}>`
@@ -484,31 +461,32 @@ export const renderExpression = (
   }
 };
 
+const isBooleanConditionType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  type === undefined ||
+  (type.kind === "intrinsic" && type.name === "boolean") ||
+  (type.kind === "source-primitive" && type.fact.kind === "bool") ||
+  (type.kind === "literal" && type.literalKind === "boolean");
+
+const needsNullishConditionCheck = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "union"
+    ? type.types.some(
+        (member) =>
+          (member.kind === "intrinsic" &&
+            (member.name === "undefined" || member.name === "null")) ||
+          (member.kind === "literal" &&
+            (member.literalKind === "undefined" || member.literalKind === "null"))
+      )
+    : type?.kind === "intrinsic" &&
+      (type.name === "any" || type.name === "unknown" || type.name === "object");
+
 export const renderConditionExpression = (
   plan: LoweringExpressionPlan | undefined,
   context: RenderContext
 ): string => {
   if (!plan) return "";
   const rendered = renderExpression(plan, context);
-  const typeText = plan.typeText?.trim();
-  if (
-    typeText === undefined ||
-    typeText === "boolean" ||
-    typeText === "bool" ||
-    typeText === "true" ||
-    typeText === "false"
-  ) {
-    return rendered;
-  }
-  if (
-    typeText.includes("undefined") ||
-    typeText.includes("null") ||
-    typeText.includes("=>") ||
-    typeText === "object" ||
-    typeText === "unknown" ||
-    typeText === "any"
-  ) {
-    return `${rendered} != null`;
-  }
-  return rendered;
+  if (isBooleanConditionType(plan.type)) return rendered;
+  return needsNullishConditionCheck(plan.type) ? `${rendered} != null` : rendered;
 };

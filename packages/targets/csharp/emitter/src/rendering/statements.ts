@@ -53,8 +53,8 @@ export const renderVariableFragment = (
     return "";
   }
   const functionExpressionType = renderFunctionExpressionType(declaration.initializer);
-  const declaredType = declaration.typeText
-    ? renderCSharpType(declaration.typeText)
+  const declaredType = declaration.type
+    ? renderCSharpType(declaration.type)
     : undefined;
   const type =
     functionExpressionType && (!declaredType || declaredType === "object?")
@@ -75,8 +75,8 @@ export const renderStaticField = (
     return "";
   }
   const functionExpressionType = renderFunctionExpressionType(declaration.initializer);
-  const declaredType = declaration.typeText
-    ? renderCSharpType(declaration.typeText)
+  const declaredType = declaration.type
+    ? renderCSharpType(declaration.type)
     : undefined;
   const type =
     functionExpressionType && (!declaredType || declaredType === "object?")
@@ -269,8 +269,8 @@ export const renderStatement = (
       }
       const declaration = plan.declarations[0];
       if (!declaration) return unsupportedStatement(context, plan);
-      const type = declaration.typeText
-        ? renderCSharpType(declaration.typeText)
+      const type = declaration.type
+        ? renderCSharpType(declaration.type)
         : "var";
       return `foreach (${type} ${sanitizeIdentifier(declaration.name)} in ${renderExpression(plan.iterable, context)}) ${renderStatement(plan.body, context)}`;
     }

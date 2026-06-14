@@ -14,6 +14,7 @@ import type {
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
 import type {
   IntrinsicSemanticsFact,
+  NumericPrimitiveFact,
   ParameterPassingMode,
 } from "../source-frontend/source-facts.js";
 import type { TstsSourceProgram } from "../source-frontend/index.js";
@@ -65,9 +66,114 @@ export type LoweringTypePlan = LoweringPlanBase<"type"> & {
   readonly sourceSymbol?: TstsSymbol;
 };
 
+export type LoweringIntrinsicTypeName =
+  | "any"
+  | "unknown"
+  | "object"
+  | "undefined"
+  | "null"
+  | "void"
+  | "never"
+  | "string"
+  | "number"
+  | "boolean"
+  | "bigint"
+  | "symbol"
+  | "this";
+
+export type LoweringTypeMemberPlan =
+  | {
+      readonly kind: "property";
+      readonly name: string;
+      readonly optional: boolean;
+      readonly type?: LoweringTypeRefPlan;
+    }
+  | {
+      readonly kind: "method";
+      readonly name: string;
+      readonly optional: boolean;
+      readonly parameters: readonly LoweringParameterPlan[];
+      readonly returnType?: LoweringTypeRefPlan;
+      readonly typeParameters: readonly string[];
+    };
+
+export type LoweringTypeRefPlan =
+  | {
+      readonly kind: "intrinsic";
+      readonly name: LoweringIntrinsicTypeName;
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "source-primitive";
+      readonly fact: NumericPrimitiveFact;
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "named";
+      readonly name: string;
+      readonly typeArguments: readonly LoweringTypeRefPlan[];
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "array";
+      readonly elementType: LoweringTypeRefPlan;
+      readonly readonly: boolean;
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "tuple";
+      readonly elements: readonly LoweringTypeRefPlan[];
+      readonly readonly: boolean;
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "union";
+      readonly types: readonly LoweringTypeRefPlan[];
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "intersection";
+      readonly types: readonly LoweringTypeRefPlan[];
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "function";
+      readonly parameters: readonly LoweringParameterPlan[];
+      readonly returnType?: LoweringTypeRefPlan;
+      readonly typeParameters: readonly string[];
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "object";
+      readonly members: readonly LoweringTypeMemberPlan[];
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "predicate";
+      readonly assertedType?: LoweringTypeRefPlan;
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "literal";
+      readonly literalKind:
+        | "string"
+        | "number"
+        | "bigint"
+        | "boolean"
+        | "null"
+        | "undefined";
+      readonly valueText: string;
+      readonly sourceText?: string;
+    }
+  | {
+      readonly kind: "unsupported";
+      readonly sourceKindName: string;
+      readonly sourceText: string;
+    };
+
 export type LoweringParameterPlan = {
   readonly name: string;
-  readonly typeText?: string;
+  readonly type?: LoweringTypeRefPlan;
   readonly initializer?: LoweringExpressionPlan;
   readonly optional: boolean;
   readonly rest: boolean;
@@ -75,7 +181,7 @@ export type LoweringParameterPlan = {
 
 export type LoweringVariablePlan = {
   readonly name: string;
-  readonly typeText?: string;
+  readonly type?: LoweringTypeRefPlan;
   readonly initializer?: LoweringExpressionPlan;
   readonly bindingElements: readonly LoweringBindingElementPlan[];
 };
@@ -115,10 +221,12 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
     | "unknown";
   readonly symbol?: TstsSymbol;
   readonly declaredType?: TstsType;
-  readonly declaredTypeText?: string;
+  readonly declaredTypePlan?: LoweringTypeRefPlan;
+  readonly typeAliasTarget?: LoweringTypeRefPlan;
+  readonly heritageTypes: readonly LoweringTypeRefPlan[];
   readonly parameters: readonly LoweringParameterPlan[];
   readonly typeParameters: readonly string[];
-  readonly returnTypeText?: string;
+  readonly returnType?: LoweringTypeRefPlan;
   readonly body?: LoweringStatementPlan;
   readonly initializer?: LoweringExpressionPlan;
   readonly members: readonly LoweringDeclarationPlan[];
@@ -155,13 +263,13 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
     | "spread"
     | "erased-wrapper"
     | "unsupported";
-  readonly typeText?: string;
-  readonly contextualTypeText?: string;
+  readonly type?: LoweringTypeRefPlan;
+  readonly contextualTypePlan?: LoweringTypeRefPlan;
   readonly intrinsicKind?: IntrinsicSemanticsFact["kind"];
   readonly passingMode?: ParameterPassingMode;
   readonly literalKind?: "string" | "number" | "bigint" | "boolean" | "null" | "undefined";
   readonly literalText?: string;
-  readonly returnTypeText?: string;
+  readonly returnType?: LoweringTypeRefPlan;
   readonly operatorText?: string;
   readonly expression?: LoweringExpressionPlan;
   readonly left?: LoweringExpressionPlan;
@@ -170,7 +278,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly whenTrue?: LoweringExpressionPlan;
   readonly whenFalse?: LoweringExpressionPlan;
   readonly arguments: readonly LoweringExpressionPlan[];
-  readonly typeArguments: readonly string[];
+  readonly typeArguments: readonly LoweringTypeRefPlan[];
   readonly elements: readonly LoweringExpressionPlan[];
   readonly properties: readonly LoweringObjectPropertyPlan[];
   readonly templateParts: readonly LoweringTemplatePartPlan[];

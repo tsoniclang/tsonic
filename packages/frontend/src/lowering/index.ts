@@ -9,6 +9,7 @@ export type {
   LoweringFeature,
   LoweringIndexAccessPlan,
   LoweringInput,
+  LoweringIntrinsicTypeName,
   LoweringMemberAccessPlan,
   LoweringModuleIdentity,
   LoweringModulePlan,
@@ -20,7 +21,9 @@ export type {
   LoweringPlanBase,
   LoweringStatementPlan,
   LoweringSyntheticDeclarationPlan,
+  LoweringTypeMemberPlan,
   LoweringTypePlan,
+  LoweringTypeRefPlan,
   LoweringVariablePlan,
 } from "./types.js";
 export { createLoweringInput } from "./input.js";
