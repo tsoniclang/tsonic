@@ -8,6 +8,11 @@
 
 import type { ExtensionDiagnostic, TstsNode, TstsSourceFile } from "@tsonic/tsts";
 import { getTstsNodeLocation } from "@tsonic/tsts";
+import {
+  FEATURE_KEYS,
+  isCapabilitySupported,
+  type FeatureKey,
+} from "./capabilities/backend-capabilities.js";
 import type { TsonicProgram } from "./program.js";
 import {
   addDiagnostic,
@@ -36,42 +41,36 @@ const adaptExtensionDiagnostic = (
     extensionDiagnosticLocation(diagnostic)
   );
 
-const isSuppressedByCapabilities = (
+const featureKeys = new Set<string>(FEATURE_KEYS);
+
+const extensionDiagnosticFeatureKey = (
+  diagnostic: ExtensionDiagnostic
+): FeatureKey | undefined => {
+  const value = diagnostic.metadata?.capabilityFeatureKey;
+  return typeof value === "string" && featureKeys.has(value)
+    ? (value as FeatureKey)
+    : undefined;
+};
+
+const isSuppressedExtensionDiagnosticByCapabilities = (
   program: TsonicProgram,
-  diagnostic: Diagnostic
+  diagnostic: ExtensionDiagnostic
 ): boolean => {
-  const capabilities = program.options.backendCapabilities;
-  if (!capabilities) return false;
-  if (
-    diagnostic.code === "TSN5001" &&
-    diagnostic.message.includes("Array.isArray") &&
-    capabilities.get("broad-array-narrowing")?.status === "supported"
-  ) {
-    return true;
-  }
-  if (
-    diagnostic.code === "TSN5001" &&
-    diagnostic.message.includes("JSON.parse") &&
-    capabilities.get("broad-json-targets")?.status === "supported"
-  ) {
-    return true;
-  }
-  if (
-    diagnostic.code === "TSN5001" &&
-    diagnostic.message.includes("JSON.stringify") &&
-    capabilities.get("broad-json-stringify-source")?.status === "supported"
-  ) {
-    return true;
-  }
-  return false;
+  const featureKey = extensionDiagnosticFeatureKey(diagnostic);
+  return featureKey
+    ? isCapabilitySupported(program.options.backendCapabilities, featureKey)
+    : false;
 };
 
 export const validateProgram = (
   program: TsonicProgram
 ): DiagnosticsCollector =>
   program.sourceProgram.diagnostics
+    .filter(
+      (diagnostic) =>
+        !isSuppressedExtensionDiagnosticByCapabilities(program, diagnostic)
+    )
     .map(adaptExtensionDiagnostic)
-    .filter((diagnostic) => !isSuppressedByCapabilities(program, diagnostic))
     .reduce(
       (collector, diagnostic) => addDiagnostic(collector, diagnostic),
       createDiagnosticsCollector()
@@ -83,6 +82,10 @@ export const validateSourceFile = (
 ): DiagnosticsCollector =>
   program.sourceProgram.diagnostics
     .filter((diagnostic) => diagnostic.sourceFile === sourceFile)
+    .filter(
+      (diagnostic) =>
+        !isSuppressedExtensionDiagnosticByCapabilities(program, diagnostic)
+    )
     .map(adaptExtensionDiagnostic)
     .reduce(
       (collector, diagnostic) => addDiagnostic(collector, diagnostic),

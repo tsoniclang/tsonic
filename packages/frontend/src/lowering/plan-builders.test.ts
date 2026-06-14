@@ -230,6 +230,37 @@ describe("TSTS-backed lowering plan builders", () => {
     expectSourcePrimitive(arrow.returnType, "int32");
   });
 
+  it("expands recursive aliases without recursively expanding the same target", () => {
+    const result = lowerProgram(`
+      type Node = { next?: Node };
+      export const root: Node = {};
+    `);
+
+    const [module] = result.modules;
+    const [statement] = module?.topLevelStatements ?? [];
+    const [declaration] = statement?.declarations ?? [];
+    const type = declaration?.type;
+
+    expect(type?.kind).to.equal("named");
+    expect(type?.kind === "named" ? type.aliasTarget?.kind : undefined).to.equal(
+      "object"
+    );
+    const nextMember =
+      type?.kind === "named" && type.aliasTarget?.kind === "object"
+        ? type.aliasTarget.members.find((member) => member.name === "next")
+        : undefined;
+
+    expect(nextMember?.kind).to.equal("property");
+    if (nextMember?.kind === "property") {
+      expect(nextMember.type?.kind).to.equal("named");
+      expect(
+        nextMember.type?.kind === "named"
+          ? nextMember.type.aliasTarget
+          : undefined
+      ).to.equal(undefined);
+    }
+  });
+
   it("resolves source primitive return types across module signatures", () => {
     const result = lowerFiles(
       {

@@ -27,6 +27,7 @@ import {
   visitTstsSubtree,
 } from "@tsonic/tsts";
 import * as path from "node:path";
+import type { FeatureKey } from "../capabilities/backend-capabilities.js";
 import type {
   FieldSemanticsFact,
   IntrinsicSemanticsFact,
@@ -109,7 +110,8 @@ const addSourceDiagnostic = (
   context: Pick<CheckedContext, "diagnostics" | "sourceFile">,
   code: TsonicSourceDiagnosticCode,
   node: TstsNode,
-  message: string
+  message: string,
+  options: { readonly capabilityFeatureKey?: FeatureKey } = {}
 ): void => {
   const diagnostic: ExtensionDiagnostic = {
     extensionId: "tsonic.source-semantics",
@@ -118,6 +120,9 @@ const addSourceDiagnostic = (
     message,
     sourceFile: context.sourceFile,
     node,
+    metadata: options.capabilityFeatureKey
+      ? { capabilityFeatureKey: options.capabilityFeatureKey }
+      : undefined,
   };
   context.diagnostics.add(diagnostic);
 };
@@ -1116,7 +1121,8 @@ export const createTsonicSourceSemanticsExtension = (
               context,
               "TSN5001",
               node,
-              "Array.isArray cannot narrow a broad runtime value."
+              "Array.isArray cannot narrow a broad runtime value.",
+              { capabilityFeatureKey: "broad-array-narrowing" }
             );
           }
         }
@@ -1132,7 +1138,8 @@ export const createTsonicSourceSemanticsExtension = (
               context,
               "TSN5001",
               node,
-              "JSON.parse target must be a concrete DTO or JsValue carrier."
+              "JSON.parse target must be a concrete DTO or JsValue carrier.",
+              { capabilityFeatureKey: "broad-json-targets" }
             );
           }
         }
@@ -1144,7 +1151,8 @@ export const createTsonicSourceSemanticsExtension = (
               context,
               "TSN5001",
               node,
-              "JSON.stringify source must be a concrete DTO, closed object literal, or JsValue carrier."
+              "JSON.stringify source must be a concrete DTO, closed object literal, or JsValue carrier.",
+              { capabilityFeatureKey: "broad-json-stringify-source" }
             );
           }
         }

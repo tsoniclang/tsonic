@@ -15,6 +15,7 @@ export type ExtensionDiagnostic = {
   readonly message: string;
   readonly sourceFile?: GoPtr<SourceFile>;
   readonly node?: object;
+  readonly metadata?: Readonly<Record<string, unknown>>;
 };
 
 export type ExtensionDiagnostics = {

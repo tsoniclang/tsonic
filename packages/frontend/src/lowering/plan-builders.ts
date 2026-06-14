@@ -432,10 +432,11 @@ const typePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
-  type: TstsType | undefined
+  type: TstsType | undefined,
+  state: SourceTypePlanState = createSourceTypePlanState()
 ): LoweringTypeRefPlan | undefined => {
   if (node) {
-    return sourceTypePlan(context, sourceFile, node);
+    return sourceTypePlan(context, sourceFile, node, state);
   }
   return checkerTypePlan(context, sourceFile, type);
 };
@@ -448,10 +449,19 @@ const sourceFileForNode = (
     ? (getTstsContainingSourceFile(node) ?? defaultSourceFile)
     : defaultSourceFile;
 
+type SourceTypePlanState = {
+  readonly aliasTargets: Set<TstsNode>;
+};
+
+const createSourceTypePlanState = (): SourceTypePlanState => ({
+  aliasTargets: new Set<TstsNode>(),
+});
+
 const sourceTypeAliasTargetPlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
-  node: TstsNode
+  node: TstsNode,
+  state: SourceTypePlanState
 ): LoweringTypeRefPlan | undefined => {
   const checker = context.checkerForSourceFile(sourceFile);
   const type = checker.getTypeFromTypeNode(node);
@@ -468,19 +478,27 @@ const sourceTypeAliasTargetPlan = (
   const targetType = declaration
     ? TstsSyntax.Node_Type(declaration)
     : undefined;
-  return targetType && targetType !== node
-    ? sourceTypePlan(
-        context,
-        sourceFileForNode(targetType, sourceFile),
-        targetType
-      )
-    : undefined;
+  if (!targetType || targetType === node || state.aliasTargets.has(targetType)) {
+    return undefined;
+  }
+  state.aliasTargets.add(targetType);
+  try {
+    return sourceTypePlan(
+      context,
+      sourceFileForNode(targetType, sourceFile),
+      targetType,
+      state
+    );
+  } finally {
+    state.aliasTargets.delete(targetType);
+  }
 };
 
 const sourceTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
-  node: TstsNode | undefined
+  node: TstsNode | undefined,
+  state: SourceTypePlanState = createSourceTypePlanState()
 ): LoweringTypeRefPlan | undefined => {
   if (!node) return undefined;
   const sourceText = compactNodeSourceText(sourceFile, node);
@@ -503,11 +521,11 @@ const sourceTypePlan = (
       kind: "named",
       name: typeReference.name,
       typeArguments: typeReference.typeArguments
-        .map((argument) => sourceTypePlan(context, sourceFile, argument))
+        .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
-      aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node),
+      aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node, state),
       sourceText,
     };
   }
@@ -518,7 +536,8 @@ const sourceTypePlan = (
       const element = sourceTypePlan(
         context,
         sourceFile,
-        arrayType?.ElementType
+        arrayType?.ElementType,
+        state
       );
       return element
         ? { kind: "array", elementType: element, readonly: false, sourceText }
@@ -529,7 +548,7 @@ const sourceTypePlan = (
       return {
         kind: "tuple",
         elements: nodeListNodes(tupleType?.Elements)
-          .map((element) => sourceTypePlan(context, sourceFile, element))
+          .map((element) => sourceTypePlan(context, sourceFile, element, state))
           .filter(
             (element): element is LoweringTypeRefPlan => element !== undefined
           ),
@@ -542,7 +561,7 @@ const sourceTypePlan = (
       return {
         kind: "union",
         types: nodeListNodes(unionType?.Types)
-          .map((part) => sourceTypePlan(context, sourceFile, part))
+          .map((part) => sourceTypePlan(context, sourceFile, part, state))
           .filter((part): part is LoweringTypeRefPlan => part !== undefined),
         sourceText,
       };
@@ -552,7 +571,7 @@ const sourceTypePlan = (
       return {
         kind: "intersection",
         types: nodeListNodes(intersectionType?.Types)
-          .map((part) => sourceTypePlan(context, sourceFile, part))
+          .map((part) => sourceTypePlan(context, sourceFile, part, state))
           .filter((part): part is LoweringTypeRefPlan => part !== undefined),
         sourceText,
       };
@@ -560,13 +579,18 @@ const sourceTypePlan = (
     case TstsSyntax.KindParenthesizedType: {
       const parenthesized = TstsSyntax.AsParenthesizedTypeNode(node);
       return (
-        sourceTypePlan(context, sourceFile, parenthesized?.Type) ??
+        sourceTypePlan(context, sourceFile, parenthesized?.Type, state) ??
         unsupportedTypePlan(sourceFile, node)
       );
     }
     case TstsSyntax.KindTypeOperator: {
       const typeOperator = TstsSyntax.AsTypeOperatorNode(node);
-      const inner = sourceTypePlan(context, sourceFile, typeOperator?.Type);
+      const inner = sourceTypePlan(
+        context,
+        sourceFile,
+        typeOperator?.Type,
+        state
+      );
       if (!inner) return unsupportedTypePlan(sourceFile, node);
       if (typeOperator?.Operator !== TstsSyntax.KindReadonlyKeyword)
         return inner;
@@ -585,7 +609,9 @@ const sourceTypePlan = (
             kind: "named",
             name,
             typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node))
-              .map((argument) => sourceTypePlan(context, sourceFile, argument))
+              .map((argument) =>
+                sourceTypePlan(context, sourceFile, argument, state)
+              )
               .filter(
                 (argument): argument is LoweringTypeRefPlan =>
                   argument !== undefined
@@ -598,11 +624,12 @@ const sourceTypePlan = (
     case TstsSyntax.KindConstructorType:
       return {
         kind: "function",
-        parameters: parameterPlans(sourceFile, node, context),
+        parameters: parameterPlans(sourceFile, node, context, [], state),
         returnType: sourceTypePlan(
           context,
           sourceFile,
-          TstsSyntax.Node_Type(node)
+          TstsSyntax.Node_Type(node),
+          state
         ),
         typeParameters: typeParameterNames(sourceFile, node),
         sourceText,
@@ -612,7 +639,7 @@ const sourceTypePlan = (
         kind: "object",
         members: (TstsSyntax.Node_Members(node) ?? [])
           .filter((member): member is TstsNode => member !== undefined)
-          .map((member) => typeMemberPlan(sourceFile, member, context))
+          .map((member) => typeMemberPlan(sourceFile, member, context, state))
           .filter(
             (member): member is LoweringTypeMemberPlan => member !== undefined
           ),
@@ -624,7 +651,8 @@ const sourceTypePlan = (
         assertedType: sourceTypePlan(
           context,
           sourceFile,
-          TstsSyntax.Node_Type(node)
+          TstsSyntax.Node_Type(node),
+          state
         ),
         sourceText,
       };
@@ -718,7 +746,8 @@ const sourceTypePlan = (
 const typeMemberPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
-  context: LoweringBuildContext
+  context: LoweringBuildContext,
+  state: SourceTypePlanState = createSourceTypePlanState()
 ): LoweringTypeMemberPlan | undefined => {
   const name = propertyNameInfo(sourceFile, node, context);
   if (name.computed || !name.name) return undefined;
@@ -729,7 +758,12 @@ const typeMemberPlan = (
         kind: "property",
         name: name.name,
         optional: TstsSyntax.Node_QuestionToken(node) !== undefined,
-        type: sourceTypePlan(context, sourceFile, TstsSyntax.Node_Type(node)),
+        type: sourceTypePlan(
+          context,
+          sourceFile,
+          TstsSyntax.Node_Type(node),
+          state
+        ),
       };
     case TstsSyntax.KindMethodSignature:
     case TstsSyntax.KindMethodDeclaration:
@@ -737,11 +771,12 @@ const typeMemberPlan = (
         kind: "method",
         name: name.name,
         optional: TstsSyntax.Node_QuestionToken(node) !== undefined,
-        parameters: parameterPlans(sourceFile, node, context),
+        parameters: parameterPlans(sourceFile, node, context, [], state),
         returnType: sourceTypePlan(
           context,
           sourceFile,
-          TstsSyntax.Node_Type(node)
+          TstsSyntax.Node_Type(node),
+          state
         ),
         typeParameters: typeParameterNames(sourceFile, node),
       };
@@ -1867,7 +1902,8 @@ const parameterPlans = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
   context: LoweringBuildContext,
-  expectedParameterTypes: readonly (LoweringTypeRefPlan | undefined)[] = []
+  expectedParameterTypes: readonly (LoweringTypeRefPlan | undefined)[] = [],
+  sourceTypeState: SourceTypePlanState = createSourceTypePlanState()
 ): readonly LoweringParameterPlan[] =>
   (TstsSyntax.Node_Parameters(node) ?? [])
     .filter((parameter): parameter is TstsNode => parameter !== undefined)
@@ -1883,7 +1919,7 @@ const parameterPlans = (
       return {
         name: nodeName(sourceFile, parameter) ?? "arg",
         type:
-          typePlan(context, sourceFile, explicitType, inferredType) ??
+          typePlan(context, sourceFile, explicitType, inferredType, sourceTypeState) ??
           expectedParameterTypes[index],
         initializer: expressionPlan(
           sourceFile,

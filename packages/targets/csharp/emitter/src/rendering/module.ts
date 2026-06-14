@@ -57,6 +57,7 @@ const collectStructuralType = (
       }
       break;
     case "named":
+      collectStructuralType(types, type.aliasTarget);
       for (const argument of type.typeArguments) collectStructuralType(types, argument);
       break;
     case "array":
@@ -192,6 +193,9 @@ const collectStructuralTypes = (
   for (const statement of module.statements) {
     collectStructuralTypesFromStatement(types, statement);
   }
+  for (const statement of module.topLevelStatements) {
+    collectStructuralTypesFromStatement(types, statement);
+  }
   for (const expression of module.expressions) {
     collectStructuralTypesFromExpression(types, expression);
   }
@@ -216,7 +220,9 @@ const renderStructuralType = (
   return [
     `public sealed class ${name}`,
     "{",
-    ...type.members.map((member) => `    ${renderTypeMember(member, context)}`),
+    ...type.members.map(
+      (member) => `    public ${renderTypeMember(member, context)}`
+    ),
     "}",
   ].join("\n");
 };

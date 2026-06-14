@@ -16,11 +16,11 @@ Report this checklist every 15 minutes while long-running work is active.
 
 ```text
 branch: feature/tsts-final-completion
-latest pushed commit before this checkpoint: b28d804e update final swing status report
-current local state: source primitive use-site lowering, contextual alias expansion, char/spread rendering, and stale generic helper deletion implemented; pending commit
-focused validation: @tsonic/frontend full package test 417 passing / 0 failing; @tsonic/csharp-emitter full package test 2 passing / 0 failing
-build validation: @tsonic/frontend and @tsonic/csharp-emitter both build after formatting
-audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels
+latest pushed commit before this checkpoint: 09a30eca Preserve TSTS source facts through lowering
+current local state: typed extension diagnostic metadata, alias-target recursion guard, top-level structural helper collection, and public structural class members implemented; pending commit
+focused validation: @tsonic/frontend lowering plan builders 5 passing / 0 failing; @tsonic/frontend validator/maximus suites 260 passing / 0 failing; @tsonic/csharp-emitter module/expression renderer 3 passing / 0 failing
+build validation: @tsonic/tsts, @tsonic/frontend, and @tsonic/csharp-emitter build after current local changes
+audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels; message-substring capability gating removed
 full run-all: not restarted after current lowering sweep; final gates wait for code-completeness signoff
 not done: final run-all, downstreams, branch hygiene, final PR report
 ```
@@ -38,11 +38,11 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | 1.2 | Extension host | Generic lifecycle is available | Done | TSTS extension host tests in final gate |
 | 1.3 | Fact store | Typed sidecar facts are available | Done | Fact tests and no direct node mutation search |
 | 1.4 | Checker facade | Types, symbols, signatures, narrowed/use-site types exposed | Expanded | Lowering tests prove use-site source primitives, contextual callables, and cross-module signature returns |
-| 1.5 | Diagnostics | TSTS and extension diagnostics adapt through one path | In progress | Focused validator failures resolved |
+| 1.5 | Diagnostics | TSTS and extension diagnostics adapt through one path | Expanded | Capability suppression now uses typed extension diagnostic metadata, not message text; validator suites 260 passing |
 | 1.6 | Import/module identity | Module graph/import identity usable from public TSTS API | In progress | Package/type-root tests green |
 | 2.1 | SourceFrontend | Single frontend boundary exists | Done | Boundary test remains green |
 | 2.2 | SourceProgram/SourceModule | TSTS-backed source program is the product model | Done | Final product audit |
-| 2.3 | SourceDiagnostic | Diagnostics are frontend-neutral | In progress | Validator tests green |
+| 2.3 | SourceDiagnostic | Diagnostics are frontend-neutral | Expanded | Whole-program and source-file validators use the same structured capability filter; validator suites 260 passing |
 | 2.4 | CLI routing | CLI/build/test use frontend boundary | In progress | CLI tests and product import audit |
 | 2.5 | No fallback frontend | No product TypeScript frontend remains | Clean in current product search | Final banned-search audit |
 | 3.1 | Fact keys | Tsonic facts use typed keys | Done | Search for string-keyed fact lookup |
@@ -51,27 +51,27 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | 3.4 | Source package bindings | External bindings attach through canonical metadata | In progress | Source package fixture/downstream proof |
 | 3.5 | Passing mode | `out`/`ref`/`inref` source facts are backend-neutral | In progress | Passing-mode validation and emit proof |
 | 3.6 | Attributes | Attribute slots are source facts, not CLR facts | In progress | Attribute fixture and backend render proof |
-| 3.7 | Native diagnostics | Tsonic source restrictions run through extension diagnostics | In progress | Current validator repairs complete |
+| 3.7 | Native diagnostics | Tsonic source restrictions run through extension diagnostics | Expanded | Capability-dependent diagnostics carry `capabilityFeatureKey` metadata |
 | 3.8 | Fact tests | Every fact family has positive/negative tests | Expanded | Expression/computed-name fact tests green; continue remaining groups |
 | 4.1 | TSTS builder | Program builder invokes TSTS | Done | Final product audit |
 | 4.2 | Extension registration | Tsonic source extension is registered by default | Done | Creation tests green |
-| 4.3 | Diagnostic adaptation | TSTS and extension diagnostics are converted once | In progress | Focused validator tests green |
+| 4.3 | Diagnostic adaptation | TSTS and extension diagnostics are converted once | Expanded | Message-based suppression deleted; validator suites 260 passing |
 | 4.4 | Source files/modules | Runtime closure and semantic support files are separated | In progress | Entry/package/type-root tests green |
 | 4.5 | Checker/facts exposure | Lowering can query TSTS checker and fact store | Done | Lowering tests green |
 | 4.6 | Fixture comparisons | Key fixtures prove equivalent or intended behavior | Partial | Focused fixtures green |
 | 5.1 | LoweringInput | Lowering reads TSTS program/facts/checker | Done | Compile/test proof |
-| 5.2 | Module/declaration plans | Declarations lower as AST/fact-backed plans | In progress | C# declaration render tests |
-| 5.3 | Type plans | Types render from source plans/facts | Expanded | Source primitive use-sites and alias targets covered; full emitted fixtures still required |
+| 5.2 | Module/declaration plans | Declarations lower as AST/fact-backed plans | Expanded | Top-level structural helper collection covered by C# module renderer test |
+| 5.3 | Type plans | Types render from source plans/facts | Expanded | Source primitive use-sites, alias targets, and recursive alias guard covered; full emitted fixtures still required |
 | 5.4 | Expression/statement plans | Expressions/statements lower through plan builders | Expanded | New lowering and renderer tests green |
 | 5.5 | Call plans | Calls use TSTS signatures, not local overload scoring | In progress | Generic alias emission now fact-backed; remaining overload fixtures pending |
 | 5.6 | Member/index plans | Member/index access use checker answers and source facts | In progress | Length-property emission now fact-backed; remaining member/index fixtures pending |
 | 5.7 | Narrowing plans | Use-site type comes from TSTS checker facade | Expanded | Product lowering uses TSTS use-site/contextual queries; final search after run-all still required |
 | 5.8 | Synthetic declarations | Synthetic declarations are backend-neutral plan artifacts | Partial | Audit and fixture proof |
-| 5.9 | Capability validation | Capability checks use source-feature terms | Partial | Capability tests green |
+| 5.9 | Capability validation | Capability checks use source-feature terms | Expanded | Capability filtering is keyed by feature metadata; validator suites 260 passing |
 | 6.1 | Module graph/diagnostics | TSTS owns semantic module graph | Partial | Type-root/package tests green |
 | 6.2 | Declarations/exports | Exports/declarations use TSTS graph/checker | In progress | Declaration/export fixtures green |
-| 6.3 | Type refs/numerics | Type references use facts/checker | Expanded | Lowering tests prove `int`/`char`; emitted fixture proof still required |
-| 6.4 | Expressions/literals | Expression plans cover required source forms | Expanded | Char literals and array spread renderer tests green |
+| 6.3 | Type refs/numerics | Type references use facts/checker | Expanded | Lowering tests prove `int`/`char` and recursive aliases; emitted fixture proof still required |
+| 6.4 | Expressions/literals | Expression plans cover required source forms | Expanded | Char literals, array spread, and structural alias helper renderer tests green |
 | 6.5 | Calls/overloads | Overload/generic resolution delegated to TSTS | Partial | Generic-function-value failures fixed |
 | 6.6 | Member/index access | Member/index lookup delegated to TSTS | Partial | Fixtures green |
 | 6.7 | Control-flow/narrowing | No eager branch narrowing engine remains | Partial | Search audit and fixtures |
@@ -86,10 +86,10 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | 7.6 | Delete eager narrowing | No old narrowing engine in product path | Expanded | Lowering uses TSTS `getNarrowedTypeAtLocation`; old-path search clean |
 | 7.7 | Delete legacy manifests | One metadata schema only | Expanded | `AliasMetadataV1` removed; no V1/V2 bridge names remain in frontend/emitter product code |
 | 7.8 | Delete backend leakage | No frontend CLR/C#/System facts | Clean in product search | Reconfirm in final audit before run-all |
-| 8.1 | Frontend focused tests | Focused repaired suites green | Green for AST-emission cleanup | 107 passing / 0 failing focused bundle |
-| 8.2 | Frontend full tests | Frontend package tests green | Green after current sweep | `417 passing / 0 failing` |
-| 8.3 | TSTS package build | Vendored TSTS compiles | Done for last checkpoint | Re-run after TSTS edits |
-| 8.4 | C# emitter tests | Plan renderer tests green | Green after current sweep | `2 passing / 0 failing` |
+| 8.1 | Frontend focused tests | Focused repaired suites green | Green for current lowering hardening | `5 passing / 0 failing` for lowering plan builders |
+| 8.2 | Frontend full tests | Frontend package tests green | Pending after metadata change | Re-run full frontend suite before run-all |
+| 8.3 | TSTS package build | Vendored TSTS compiles | Green after metadata change | `npm run build --workspace @tsonic/tsts` |
+| 8.4 | C# emitter tests | Plan renderer tests green | Green after structural-helper hardening | `3 passing / 0 failing` |
 | 8.5 | Full run-all | Complete Tsonic gate green | Pending | `./test/scripts/run-all.sh` |
 | 8.6 | Downstreams | Proof pudding, tsumo, clickmeter, first-party consumers green | Pending | Run after run-all |
 | 8.7 | Branch hygiene | No uncommitted/unmerged local work | Pending | Hygiene script and clean status |
