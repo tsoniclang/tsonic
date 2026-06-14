@@ -463,4 +463,6 @@ export type LoweringBuildContext = {
     sourceFile: TstsSourceFile
   ) => ExtensionTypeChecker;
   readonly diagnostics: readonly Diagnostic[];
+  readonly symbolStorageTypes: Map<TstsSymbol, LoweringTypeRefPlan>;
+  readonly resolvingStorageSymbols: Set<TstsSymbol>;
 };

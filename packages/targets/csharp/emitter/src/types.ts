@@ -32,6 +32,7 @@ export type RenderContext = {
   readonly diagnostics: Diagnostic[];
   currentReturnType?: LoweringTypeRefPlan;
   currentDefaultedParameters?: ReadonlyMap<string, string>;
+  currentTypeParameters?: ReadonlySet<string>;
   readonly allocateTempName: (prefix: string) => string;
   readonly getStructuralTypeName: (type: LoweringTypeRefPlan) => string;
   readonly overrideMemberAccessibility: (

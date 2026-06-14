@@ -17,6 +17,7 @@ import {
   renderCSharpType,
   renderFunctionReturnType,
   renderNullableCSharpType,
+  shouldEmitStructuralObjectType,
 } from "./types.js";
 
 const indent = (text: string, spaces: number): string => {
@@ -44,10 +45,16 @@ const renderBindingAccess = (
   return accessPath.reduce((current, access) => {
     switch (access.kind) {
       case "element": {
-        if (currentType?.kind === "tuple") {
-          const nextType = currentType.elements[access.index];
+        const nullableTuple =
+          currentType?.kind === "union"
+            ? currentType.types.find((member) => member.kind === "tuple")
+            : undefined;
+        const tupleType =
+          currentType?.kind === "tuple" ? currentType : nullableTuple;
+        if (tupleType?.kind === "tuple") {
+          const nextType = tupleType.elements[access.index];
           currentType = nextType;
-          return `${current}.Item${access.index + 1}`;
+          return `${current}${nullableTuple ? ".Value" : ""}.Item${access.index + 1}`;
         }
         if (currentType?.kind === "array") {
           currentType = currentType.elementType;
@@ -124,9 +131,37 @@ const variableRenderType = (
     context
   );
   const declaredType = variableDeclaredType(declaration, context);
+  const storageType = shouldRenderVariableStorageType(declaration.storageType)
+    ? renderCSharpType(declaration.storageType, context)
+    : undefined;
   return functionExpressionType && (!declaredType || declaredType === "object?")
     ? functionExpressionType
-    : declaredType ?? defaultType;
+    : declaredType ?? storageType ?? defaultType;
+};
+
+const shouldRenderVariableStorageType = (
+  type: LoweringTypeRefPlan | undefined
+): boolean => {
+  switch (type?.kind) {
+    case "array":
+    case "function":
+    case "tuple":
+      return true;
+    case "object":
+      return shouldEmitStructuralObjectType(type);
+    case "union":
+      return type.types.some(shouldRenderVariableStorageType);
+    case "named":
+      return type.aliasTarget?.kind === "function" || type.declarationKind === "class";
+    case "intersection":
+    case "intrinsic":
+    case "literal":
+    case "predicate":
+    case "source-primitive":
+    case "unsupported":
+    case undefined:
+      return false;
+  }
 };
 
 const renderDelegateParameter = (
@@ -296,6 +331,7 @@ const renderVariableStatement = (
       }
       const tempName = context.allocateTempName("binding");
       const lines = [`var ${tempName} = ${renderExpression(declaration.initializer, context)};`];
+      const rootType = declaration.storageType ?? declaration.initializer.type;
       for (const binding of declaration.bindingElements) {
         if (binding.initializer) {
           context.reportUnsupported(
@@ -309,7 +345,7 @@ const renderVariableStatement = (
           renderBindingElementDeclaration(
             binding,
             tempName,
-            declaration.initializer.type,
+            rootType,
             context
           )
         );
@@ -484,11 +520,12 @@ export const renderStatement = (
       if (!declaration) return unsupportedStatement(context, plan);
       if (declaration.bindingElements.length > 0) {
         const tempName = context.allocateTempName("binding");
+        const rootType = declaration.storageType ?? declaration.type;
         const bindingLines = declaration.bindingElements.map((binding) =>
           renderBindingElementDeclaration(
             binding,
             tempName,
-            declaration.type,
+            rootType,
             context
           )
         );

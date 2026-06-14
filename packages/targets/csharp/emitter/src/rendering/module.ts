@@ -14,12 +14,14 @@ import type {
 import { renderDeclaration, renderStaticContainerMember } from "./declarations.js";
 import { renderStaticField, renderTopLevelBody } from "./statements.js";
 import {
+  renderCSharpType,
   renderTypeMember,
   shouldEmitStructuralObjectType,
   shouldExpandNamedAliasTarget,
   structuralTypeName,
   typePlanKey,
 } from "./types.js";
+import { sanitizeIdentifier } from "./names.js";
 
 const hasNamespaceDeclarationShape = (
   declaration: LoweringDeclarationPlan
@@ -36,6 +38,40 @@ const isStaticTopLevelVariableStatement = (
   statement.declarations.every(
     (declaration) => declaration.bindingElements.length === 0
   );
+
+const topLevelVariableDeclarations = (
+  module: CSharpLoweringModulePlan
+): readonly LoweringVariablePlan[] =>
+  module.topLevelStatements
+    .filter(isStaticTopLevelVariableStatement)
+    .flatMap((statement) => statement.declarations);
+
+const renderExportAliasFields = (
+  module: CSharpLoweringModulePlan,
+  context: RenderContext
+): readonly string[] => {
+  const variables = new Map(
+    topLevelVariableDeclarations(module).map((declaration) => [
+      declaration.name,
+      declaration,
+    ])
+  );
+  return module.exports
+    .filter(
+      (binding) =>
+        binding.kind === "named" &&
+        !binding.isTypeOnly &&
+        binding.localName !== undefined &&
+        binding.exportedName !== undefined &&
+        binding.localName !== binding.exportedName
+    )
+    .map((binding) => {
+      const variable = variables.get(binding.localName ?? "");
+      if (!variable) return undefined;
+      return `    public static ${renderCSharpType(variable.storageType ?? variable.type, context)} ${sanitizeIdentifier(binding.exportedName)} => ${sanitizeIdentifier(binding.localName)};`;
+    })
+    .filter((rendered): rendered is string => rendered !== undefined);
+};
 
 type StructuralTypeTraversalState = {
   readonly types: ReadonlySet<LoweringTypeRefPlan>;
@@ -441,6 +477,7 @@ export const emitModule = (
     .map((declaration) => renderStaticField(declaration, context))
     .filter((rendered) => rendered.length > 0)
     .map((rendered) => `    ${rendered}`);
+  const exportAliasFields = renderExportAliasFields(module, context);
   const structuralDeclarations = collectStructuralTypes(module)
     .map((type) => renderStructuralType(type, context))
     .filter((rendered): rendered is string => rendered !== undefined);
@@ -484,6 +521,7 @@ export const emitModule = (
   if (
     staticMembers.length > 0 ||
     topLevelFields.length > 0 ||
+    exportAliasFields.length > 0 ||
     topLevelMethod.length > 0 ||
     (namespaceDeclarations.length === 0 && structuralDeclarations.length === 0)
   ) {
@@ -494,8 +532,15 @@ export const emitModule = (
     lines.push("{");
     lines.push(...staticMembers);
     lines.push(...topLevelFields);
+    lines.push(...exportAliasFields);
     if (topLevelMethod.length > 0) {
-      if (staticMembers.length > 0 || topLevelFields.length > 0) lines.push("");
+      if (
+        staticMembers.length > 0 ||
+        topLevelFields.length > 0 ||
+        exportAliasFields.length > 0
+      ) {
+        lines.push("");
+      }
       lines.push(...topLevelMethod);
     }
     lines.push("}");

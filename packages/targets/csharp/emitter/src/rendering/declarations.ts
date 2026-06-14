@@ -51,6 +51,27 @@ const renderTypeParameters = (
     ? `<${typeParameters.map((name) => sanitizeTypeName(name)).join(", ")}>`
     : "";
 
+const withTypeParameterScope = <T>(
+  context: RenderContext,
+  typeParameters: readonly string[] | undefined,
+  render: () => T
+): T => {
+  if (!typeParameters || typeParameters.length === 0) {
+    return render();
+  }
+  const previous = context.currentTypeParameters;
+  const next = new Set(previous ?? []);
+  for (const typeParameter of typeParameters) {
+    next.add(typeParameter);
+  }
+  context.currentTypeParameters = next;
+  try {
+    return render();
+  } finally {
+    context.currentTypeParameters = previous;
+  }
+};
+
 const requireDeclarationName = (
   plan: LoweringDeclarationPlan,
   context: RenderContext,
@@ -63,7 +84,7 @@ const requireDeclarationName = (
       case "symbol-iterator":
         return "GetEnumerator";
       case "symbol-to-string-tag":
-        return "ToStringTag";
+        return "__tsonic_symbol_toStringTag";
       case undefined:
         break;
     }
@@ -84,6 +105,7 @@ const renderFunction = (
   className?: string,
   heritageTypes: readonly LoweringDeclarationPlan["heritageTypes"][number][] = []
 ): string | undefined => {
+  return withTypeParameterScope(context, plan.typeParameters, () => {
   const declarationName = requireDeclarationName(plan, context, "function");
   if (!declarationName) return undefined;
   const name = sanitizeIdentifier(declarationName);
@@ -119,6 +141,7 @@ const renderFunction = (
     `${accessibility} ${staticModifier}${overrideModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
     renderFunctionBody(plan.body, context, bodyReturnType, plan.parameters),
   ].join("\n");
+  });
 };
 
 const renderConstructor = (
@@ -304,6 +327,7 @@ const renderClass = (
   plan: LoweringDeclarationPlan,
   context: RenderContext
 ): string | undefined => {
+  return withTypeParameterScope(context, plan.typeParameters, () => {
   const declarationName = requireDeclarationName(plan, context, "class");
   if (!declarationName) return undefined;
   const members = coalesceAccessorMembers(plan.members);
@@ -357,6 +381,7 @@ const renderClass = (
     ...(synthesizedConstructor ? [indent(synthesizedConstructor, 4)] : []),
     "}",
   ].join("\n");
+  });
 };
 
 const renderInterfaceMember = (

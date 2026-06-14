@@ -400,55 +400,72 @@ const isCastableUseSiteExpression = (
 };
 
 const isUnboundGenericPlaceholderType = (
-  type: LoweringTypeRefPlan | undefined
+  type: LoweringTypeRefPlan | undefined,
+  context?: RenderContext
 ): boolean =>
   type?.kind === "named" &&
   (type.qualifiedRuntimeName?.includes("::js._.") === true ||
     !type.qualifiedRuntimeName) &&
   !type.aliasTarget &&
   type.typeArguments.length === 0 &&
-  /^[A-Z]$/.test(type.name);
+  /^[A-Z]$/.test(type.name) &&
+  context?.currentTypeParameters?.has(type.name) !== true;
 
 const containsUnboundGenericPlaceholderTypePlan = (
   type: LoweringTypeRefPlan | undefined,
+  context: RenderContext,
   seen: ReadonlySet<LoweringTypeRefPlan> = new Set()
 ): boolean => {
   if (!type || seen.has(type)) return false;
   const nextSeen = new Set(seen);
   nextSeen.add(type);
-  if (isUnboundGenericPlaceholderType(type)) return true;
+  if (isUnboundGenericPlaceholderType(type, context)) return true;
   switch (type.kind) {
     case "named":
       return (
         type.typeArguments.some((argument) =>
-          containsUnboundGenericPlaceholderTypePlan(argument, nextSeen)
+          containsUnboundGenericPlaceholderTypePlan(argument, context, nextSeen)
         ) ||
-        containsUnboundGenericPlaceholderTypePlan(type.aliasTarget, nextSeen)
+        containsUnboundGenericPlaceholderTypePlan(
+          type.aliasTarget,
+          context,
+          nextSeen
+        )
       );
     case "array":
       return containsUnboundGenericPlaceholderTypePlan(
         type.elementType,
+        context,
         nextSeen
       );
     case "tuple":
       return type.elements.some((element) =>
-        containsUnboundGenericPlaceholderTypePlan(element, nextSeen)
+        containsUnboundGenericPlaceholderTypePlan(element, context, nextSeen)
       );
     case "union":
     case "intersection":
       return type.types.some((member) =>
-        containsUnboundGenericPlaceholderTypePlan(member, nextSeen)
+        containsUnboundGenericPlaceholderTypePlan(member, context, nextSeen)
       );
     case "function":
       return (
         type.parameters.some((parameter) =>
-          containsUnboundGenericPlaceholderTypePlan(parameter.type, nextSeen)
+          containsUnboundGenericPlaceholderTypePlan(
+            parameter.type,
+            context,
+            nextSeen
+          )
         ) ||
-        containsUnboundGenericPlaceholderTypePlan(type.returnType, nextSeen)
+        containsUnboundGenericPlaceholderTypePlan(
+          type.returnType,
+          context,
+          nextSeen
+        )
       );
     case "predicate":
       return containsUnboundGenericPlaceholderTypePlan(
         type.assertedType,
+        context,
         nextSeen
       );
     case "intrinsic":
@@ -465,7 +482,7 @@ const useSiteCastType = (
   context: RenderContext
 ): string | undefined => {
   if (!type) return undefined;
-  if (containsUnboundGenericPlaceholderTypePlan(type)) return undefined;
+  if (containsUnboundGenericPlaceholderTypePlan(type, context)) return undefined;
   switch (type.kind) {
     case "intrinsic":
       switch (type.name) {
@@ -851,7 +868,7 @@ const renderArrayLength = (
   if (
     !elementTypePlan ||
     !receiverCastType ||
-    isUnboundGenericPlaceholderType(elementTypePlan) ||
+    isUnboundGenericPlaceholderType(elementTypePlan, context) ||
     containsUnboundPlaceholderCast(typedReceiver)
   ) {
     return `global::System.Linq.Enumerable.Count(${enumerableObjectCast(renderExpression(receiverPlan, context))})`;
@@ -866,8 +883,8 @@ const renderArrayElementAccess = (
   useSiteTypeOverride?: LoweringTypeRefPlan
 ): string | undefined => {
   const elementTypePlan =
-    arrayReceiverElementType(receiverPlan) ??
-    arrayTypeFromUseSite(useSiteTypeOverride)?.elementType;
+    arrayTypeFromUseSite(useSiteTypeOverride)?.elementType ??
+    arrayReceiverElementType(receiverPlan);
   const typedReceiver = renderExpressionWithUseSiteCast(
     receiverPlan,
     context,
@@ -877,10 +894,14 @@ const renderArrayElementAccess = (
     useSiteTypeOverride ?? receiverPlan?.type,
     context
   );
+  if (elementTypePlan?.kind === "tuple") {
+    const nullableElementType = renderNullableCSharpType(elementTypePlan, context);
+    return `global::System.Linq.Enumerable.ElementAtOrDefault(global::System.Linq.Enumerable.Select(${typedReceiver}, item => (${nullableElementType})item), ${renderExpression(indexPlan, context)})`;
+  }
   if (
     !elementTypePlan ||
     (receiverCastType &&
-      !isUnboundGenericPlaceholderType(elementTypePlan) &&
+      !isUnboundGenericPlaceholderType(elementTypePlan, context) &&
       !containsUnboundPlaceholderCast(typedReceiver))
   ) {
     return undefined;
@@ -907,7 +928,7 @@ const renderObjectEntriesCall = (
   const valueType = renderCSharpType(valuePlan, context);
   const dictionaryType = `global::System.Collections.Generic.Dictionary<string, ${valueType}>`;
   const dictionary = castExpression(renderExpression(source, context), dictionaryType);
-  return `new global::System.Collections.Generic.List<object?[]>(global::System.Linq.Enumerable.Select(${dictionary}, entry => new object?[] { entry.Key, entry.Value }))`;
+  return `new global::System.Collections.Generic.List<(string, ${valueType})>(global::System.Linq.Enumerable.Select(${dictionary}, entry => (entry.Key, entry.Value)))`;
 };
 
 const dictionaryValueTypeFromRenderedType = (
@@ -1169,11 +1190,7 @@ const renderSourceRuntimeCall = (
   if (operation.dispatch === "receiver-call") {
     const receiver =
       operation.owner === "String"
-        ? renderExpressionWithUseSiteCast(
-            callee.expression,
-            context,
-            { kind: "intrinsic", name: "string" }
-          )
+        ? castExpression(renderExpression(callee.expression, context), "string")
         : renderExpression(callee.expression, context);
     if (operation.owner === "Array") {
       return renderArrayReceiverCall(
@@ -1512,7 +1529,7 @@ export const renderExpression = (
         plan.sourceOperation.owner === "Object" &&
         plan.sourceOperation.member === "toStringTag"
       ) {
-        return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.ToStringTag`;
+        return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.__tsonic_symbol_toStringTag`;
       }
       {
         const rendered = renderArrayElementAccess(

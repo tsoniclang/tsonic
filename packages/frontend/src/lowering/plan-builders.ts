@@ -1045,20 +1045,30 @@ const sourceTypePlan = (
   if (typeReference) {
     const checker = context.checkerForSourceFile(sourceFile);
     const sourceType = checker.getTypeFromTypeNode(node);
+    const aliasTarget = sourceTypeAliasTargetPlan(
+      context,
+      sourceFile,
+      node,
+      state
+    );
+    const typeName =
+      aliasTarget === undefined
+        ? (checker.getTypeSymbolName(sourceType) ?? typeReference.name)
+        : typeReference.name;
     return {
       kind: "named",
-      name: typeReference.name,
+      name: typeName,
       typeArguments: typeReference.typeArguments
         .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
-      aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node, state),
+      aliasTarget,
       qualifiedRuntimeName: qualifiedRuntimeNameForType(
         context,
         sourceFile,
         sourceType,
-        typeReference.name
+        typeName
       ),
       declarationKind: namedDeclarationKindForType(
         context,
@@ -1425,13 +1435,51 @@ const symbolDeclarationSourceTypePlan = (
   return declarationSourceTypePlan(context, sourceFile, declaration);
 };
 
+const storageSymbol = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol
+): TstsSymbol => {
+  const checker = context.checkerForSourceFile(sourceFile);
+  return checker.resolveAlias(symbol) ?? symbol;
+};
+
+const getStoredSymbolType = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (!symbol) return undefined;
+  return (
+    context.symbolStorageTypes.get(symbol) ??
+    context.symbolStorageTypes.get(storageSymbol(context, sourceFile, symbol))
+  );
+};
+
+const setStoredSymbolType = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol | undefined,
+  type: LoweringTypeRefPlan | undefined
+): void => {
+  if (!symbol || !type) return;
+  context.symbolStorageTypes.set(symbol, type);
+  context.symbolStorageTypes.set(storageSymbol(context, sourceFile, symbol), type);
+};
+
 const symbolStorageTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   symbol: TstsSymbol | undefined
 ): LoweringTypeRefPlan | undefined => {
   if (!symbol) return undefined;
+  const stored = getStoredSymbolType(context, sourceFile, symbol);
+  if (stored) return stored;
   const checker = context.checkerForSourceFile(sourceFile);
+  const storageKey = storageSymbol(context, sourceFile, symbol);
+  if (context.resolvingStorageSymbols.has(storageKey)) return undefined;
+  context.resolvingStorageSymbols.add(storageKey);
+  try {
   const declaration =
     checker.getSymbolValueDeclaration(symbol) ??
     checker.getSymbolDeclarations(symbol)[0];
@@ -1451,13 +1499,15 @@ const symbolStorageTypePlan = (
       )
     : undefined;
   if (isFunctionLikeDeclaration(declaration)) {
-    return checkerTypePlan(
+    const functionType = checkerTypePlan(
       context,
       declarationSourceFile,
       checker.getTypeOfSymbolAtLocation(symbol, declaration)
     );
+    setStoredSymbolType(context, sourceFile, symbol, functionType);
+    return functionType;
   }
-  return (
+  const storageType =
     declarationSourceTypePlan(context, declarationSourceFile, declaration) ??
     initializerStorage ??
     initializerCheckerType ??
@@ -1465,8 +1515,12 @@ const symbolStorageTypePlan = (
       context,
       declarationSourceFile,
       checker.getTypeOfSymbolAtLocation(symbol, declaration)
-    )
-  );
+    );
+  setStoredSymbolType(context, sourceFile, symbol, storageType);
+  return storageType;
+  } finally {
+    context.resolvingStorageSymbols.delete(storageKey);
+  }
 };
 
 const signatureReturnSourceTypePlan = (
@@ -1613,11 +1667,132 @@ const expressionTypePlan = (
   expressionSourceTypePlan(sourceFile, node, context) ??
   checkerTypePlan(context, sourceFile, useSiteType);
 
-const objectEntriesEntryArrayTypePlan = (): LoweringTypeRefPlan => ({
-  kind: "array",
+const loweringNonNullishUnionTypes = (
+  type: LoweringTypeRefPlan
+): readonly LoweringTypeRefPlan[] =>
+  type.kind === "union"
+    ? type.types.filter(
+        (member) =>
+          !(
+            (member.kind === "intrinsic" &&
+              (member.name === "undefined" || member.name === "null")) ||
+            (member.kind === "literal" &&
+              (member.literalKind === "undefined" ||
+                member.literalKind === "null"))
+          )
+      )
+    : [type];
+
+const loweringUnwrapAliasTarget = (
+  type: LoweringTypeRefPlan | undefined
+): LoweringTypeRefPlan | undefined =>
+  type?.kind === "named" && type.aliasTarget
+    ? loweringUnwrapAliasTarget(type.aliasTarget)
+    : type;
+
+const loweringTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
+  switch (type.kind) {
+    case "intrinsic":
+      return `intrinsic:${type.name}`;
+    case "source-primitive":
+      return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
+    case "named":
+      return `named:${type.qualifiedRuntimeName ?? type.name}<${type.typeArguments.map(loweringTypeIdentityKey).join(",")}>`;
+    case "array":
+      return `array:${loweringTypeIdentityKey(type.elementType)}`;
+    case "tuple":
+      return `tuple:${type.elements.map(loweringTypeIdentityKey).join(",")}`;
+    case "union":
+      return `union:${type.types.map(loweringTypeIdentityKey).join("|")}`;
+    case "intersection":
+      return `intersection:${type.types.map(loweringTypeIdentityKey).join("&")}`;
+    default:
+      return type.sourceText ?? type.kind;
+  }
+};
+
+const loweringRecordValueType = (
+  type: LoweringTypeRefPlan | undefined
+): LoweringTypeRefPlan | undefined => {
+  const unwrapped = loweringUnwrapAliasTarget(type);
+  if (!unwrapped) return undefined;
+  if (unwrapped.kind === "named" && unwrapped.name === "Record") {
+    return unwrapped.typeArguments[1];
+  }
+  if (unwrapped.kind === "union") {
+    const values = loweringNonNullishUnionTypes(unwrapped)
+      .map((member) => loweringRecordValueType(member))
+      .filter((value): value is LoweringTypeRefPlan => value !== undefined);
+    const firstKey = values[0] ? loweringTypeIdentityKey(values[0]) : undefined;
+    return firstKey &&
+      values.every((value) => loweringTypeIdentityKey(value) === firstKey)
+      ? values[0]
+      : undefined;
+  }
+  return undefined;
+};
+
+const nullableTypePlan = (
+  type: LoweringTypeRefPlan | undefined
+): LoweringTypeRefPlan | undefined =>
+  type
+    ? {
+        kind: "union",
+        types: [type, intrinsicTypePlan("undefined")],
+      }
+    : undefined;
+
+const objectEntriesEntryArrayTypePlan = (
+  valueType: LoweringTypeRefPlan | undefined
+): LoweringTypeRefPlan => ({
+  kind: "tuple",
   readonly: false,
-  elementType: intrinsicTypePlan("object"),
+  elements: [intrinsicTypePlan("string"), valueType ?? intrinsicTypePlan("object")],
 });
+
+const objectLiteralStorageTypePlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  node: TstsNode
+): LoweringTypeRefPlan | undefined => {
+  if (node.Kind !== TstsSyntax.KindObjectLiteralExpression) return undefined;
+  const members = (TstsSyntax.Node_Properties(node) ?? []).map(
+    (property): LoweringTypeMemberPlan | undefined => {
+      if (!property) return undefined;
+      if (
+        property.Kind !== TstsSyntax.KindPropertyAssignment &&
+        property.Kind !== TstsSyntax.KindShorthandPropertyAssignment
+      ) {
+        return undefined;
+      }
+      const name = propertyNameInfo(sourceFile, property, context);
+      if (name.computed || !name.name) return undefined;
+      const valueNode =
+        property.Kind === TstsSyntax.KindShorthandPropertyAssignment
+          ? TstsSyntax.Node_Name(property)
+          : TstsSyntax.Node_Initializer(property);
+      const checker = context.checkerForSourceFile(sourceFile);
+      return {
+        kind: "property",
+        name: name.name,
+        optional: false,
+        type:
+          sourceRuntimeExpressionStorageTypePlan(context, sourceFile, valueNode) ??
+          (valueNode
+            ? expressionTypePlan(
+                sourceFile,
+                valueNode,
+                context,
+                checker.getNarrowedTypeAtLocation(valueNode)
+              )
+            : undefined) ??
+          intrinsicTypePlan("unknown"),
+      };
+    }
+  );
+  if (members.some((member) => member === undefined)) return undefined;
+  return { kind: "object", members: members as readonly LoweringTypeMemberPlan[] };
+};
 
 const sourceRuntimeExpressionStorageTypePlan = (
   context: LoweringBuildContext,
@@ -1625,6 +1800,17 @@ const sourceRuntimeExpressionStorageTypePlan = (
   node: TstsNode | undefined
 ): LoweringTypeRefPlan | undefined => {
   if (!node) return undefined;
+  if (node.Kind === TstsSyntax.KindIdentifier) {
+    const checker = context.checkerForSourceFile(sourceFile);
+    return symbolStorageTypePlan(
+      context,
+      sourceFile,
+      checker.getSymbolAtLocation(node)
+    );
+  }
+  if (node.Kind === TstsSyntax.KindObjectLiteralExpression) {
+    return objectLiteralStorageTypePlan(context, sourceFile, node);
+  }
   if (node.Kind === TstsSyntax.KindCallExpression) {
     const callee = TstsSyntax.Node_Expression(node);
     const operation = callee
@@ -1635,10 +1821,21 @@ const sourceRuntimeExpressionStorageTypePlan = (
       operation.owner === "Object" &&
       operation.member === "entries"
     ) {
+      const argument = TstsSyntax.Node_Arguments(node)?.[0];
+      const argumentType = argument
+        ? expressionTypePlan(
+            sourceFile,
+            argument,
+            context,
+            context.checkerForSourceFile(sourceFile).getNarrowedTypeAtLocation(argument)
+          )
+        : undefined;
       return {
         kind: "array",
         readonly: false,
-        elementType: objectEntriesEntryArrayTypePlan(),
+        elementType: objectEntriesEntryArrayTypePlan(
+          loweringRecordValueType(argumentType)
+        ),
       };
     }
   }
@@ -1649,7 +1846,11 @@ const sourceRuntimeExpressionStorageTypePlan = (
       sourceFile,
       element?.Expression
     );
-    if (receiverStorage?.kind === "array") return receiverStorage.elementType;
+    if (receiverStorage?.kind === "array") {
+      return receiverStorage.elementType.kind === "tuple"
+        ? nullableTypePlan(receiverStorage.elementType)
+        : receiverStorage.elementType;
+    }
     if (receiverStorage?.kind === "tuple") return receiverStorage.elements[0];
   }
   return undefined;
@@ -2236,7 +2437,12 @@ const expressionPlan = (
         ...base,
         expressionKind: "element-access",
         expression: expressionPlan(sourceFile, element.Expression, context),
-        receiverTypePlan: checkerTypePlan(context, sourceFile, receiverType),
+        receiverTypePlan:
+          sourceRuntimeExpressionStorageTypePlan(
+            context,
+            sourceFile,
+            element.Expression
+          ) ?? checkerTypePlan(context, sourceFile, receiverType),
         arguments: [
           expressionPlan(sourceFile, element.ArgumentExpression, context),
         ].filter((item): item is LoweringExpressionPlan => item !== undefined),
@@ -2425,7 +2631,8 @@ const bindingElementsFromName = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
   context: LoweringBuildContext,
-  accessPath: readonly LoweringBindingAccessPlan[] = []
+  accessPath: readonly LoweringBindingAccessPlan[] = [],
+  rootType?: LoweringTypeRefPlan
 ): readonly LoweringBindingElementPlan[] => {
   if (!node) return [];
   if (node.Kind === TstsSyntax.KindIdentifier) {
@@ -2435,11 +2642,13 @@ const bindingElementsFromName = (
     return [
       {
         name,
-        type: checkerTypePlan(
-          context,
-          sourceFile,
-          checker.getNarrowedTypeAtLocation(node)
-        ),
+        type:
+          typeAtBindingAccess(rootType, accessPath) ??
+          checkerTypePlan(
+            context,
+            sourceFile,
+            checker.getNarrowedTypeAtLocation(node)
+          ),
         accessPath,
       },
     ];
@@ -2470,7 +2679,8 @@ const bindingElementsFromName = (
         sourceFile,
         nameNode,
         context,
-        access
+        access,
+        rootType
       );
       if (nested.length === 0) return [];
       const initializer = bindingElement?.Initializer
@@ -2481,6 +2691,34 @@ const bindingElementsFromName = (
         : nested;
     }
   );
+};
+
+const typeAtBindingAccess = (
+  rootType: LoweringTypeRefPlan | undefined,
+  accessPath: readonly LoweringBindingAccessPlan[]
+): LoweringTypeRefPlan | undefined => {
+  let current = rootType;
+  for (const access of accessPath) {
+    current = loweringNonNullishUnionTypes(current ?? intrinsicTypePlan("unknown"))[0];
+    if (access.kind === "element") {
+      if (current?.kind === "tuple") {
+        current = current.elements[access.index];
+        continue;
+      }
+      if (current?.kind === "array") {
+        current = current.elementType;
+        continue;
+      }
+      return undefined;
+    }
+    if (current?.kind !== "object") return undefined;
+    const member = current.members.find(
+      (candidate) =>
+        candidate.kind === "property" && candidate.name === access.name
+    );
+    current = member?.kind === "property" ? member.type : undefined;
+  }
+  return current;
 };
 
 const sameSymbol = (
@@ -2547,6 +2785,7 @@ const variablePlan = (
     type ??
     initializerStorage ??
     initializerCheckerType;
+  setStoredSymbolType(context, sourceFile, declarationSymbol, storageType);
   const genericAlias = context.input.facts.get(
     genericFunctionAliasFactKey,
     node
@@ -2562,7 +2801,13 @@ const variablePlan = (
       context,
       storageType
     ),
-    bindingElements: bindingElementsFromName(sourceFile, nameNode, context),
+    bindingElements: bindingElementsFromName(
+      sourceFile,
+      nameNode,
+      context,
+      [],
+      storageType
+    ),
     compileTimeOnly:
       genericAlias !== undefined ||
       nodeOrAncestorHasModifier(node, TstsSyntax.ModifierFlagsAmbient),
